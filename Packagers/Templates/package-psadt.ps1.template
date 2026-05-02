@@ -1,0 +1,112 @@
+<#
+Vendor: TODO-VENDOR
+App: TODO-APPLICATION
+CMName: TODO-CMNAME
+VendorUrl: https://TODO
+UpdateCadenceDays: 30
+
+.SYNOPSIS
+    Skeleton packager for PSADT (PowerShell App Deployment Toolkit)
+    v3 or v4 wrapped applications. Copy to
+    Packagers/package-<appname>.ps1 and fill in the TODO markers.
+
+.DESCRIPTION
+    PSADT wraps an installer with a standardized directory layout
+    (Files/, SupportFiles/, AppDeployToolkit/, Deploy-Application.exe
+    or Invoke-AppDeployToolkit.ps1). MECM deployments call
+    Deploy-Application.exe with -DeploymentType Install / Uninstall /
+    Repair and -DeployMode Silent / NonInteractive / Interactive.
+
+    app-packager's role is: build the PSADT folder, stage it to the
+    MECM content share, and create an MECM Application whose Script
+    deployment type invokes Deploy-Application.exe.
+
+    v3 vs v4 layout differences:
+      - v3: Deploy-Application.ps1 + Deploy-Application.exe in root;
+            AppDeployToolkit/AppDeployToolkitConfig.xml carries config.
+      - v4: Invoke-AppDeployToolkit.ps1 in root;
+            PSAppDeployToolkit module in ModuleFiles/.
+            Invocation uses pwsh.exe or powershell.exe -File.
+
+    This skeleton handles the "wrap-a-wrap" case: a vendor (or an IT
+    predecessor) already shipped a PSADT toolkit; app-packager copies
+    it and points MECM at it.
+
+.REQUIREMENTS
+    - PowerShell 5.1 (7+ for PSADT v4 toolkits targeting pwsh).
+    - PSADT version pinned per-app (mixing v3 + v4 in one content
+      folder breaks the toolkit).
+#>
+
+param(
+    [string]$SiteCode = "MCM",
+    [string]$Comment = "",
+    [string]$FileServerPath = "\\fileserver\sccm$",
+    [string]$DownloadRoot = "C:\temp\ap",
+    [int]$EstimatedRuntimeMins = 30,
+    [int]$MaximumRuntimeMins = 90,
+    [string]$LogPath,
+    [switch]$GetLatestVersionOnly,
+    [switch]$StageOnly,
+    [switch]$PackageOnly
+)
+
+Import-Module "$PSScriptRoot\..\AppPackagerCommon.psd1" -Force
+
+$VendorFolder = "TODO-VENDOR"
+$AppFolder    = "TODO-APPLICATION"
+$BaseDownloadRoot = Join-Path $DownloadRoot $VendorFolder
+
+Initialize-Logging -LogPath $LogPath
+
+if ($GetLatestVersionOnly) {
+    try {
+        # TODO: PSADT toolkits don't self-report version; version is the
+        # wrapped-app version. Strategies:
+        #   - Read $Variables hashtable from Deploy-Application.ps1 (v3)
+        #     for $appVersion via regex / AST parse.
+        #   - v4: AppScriptVersion in Invoke-AppDeployToolkit.ps1's
+        #     $adtSession hashtable.
+        #   - Fall back: hardcode here and bump manually on toolkit
+        #     refresh.
+        throw "TODO: implement GetLatestVersionOnly for $AppFolder"
+    } catch {
+        [Console]::Error.WriteLine("$AppFolder GetLatestVersionOnly failed: $($_.Exception.Message)")
+        exit 1
+    }
+}
+
+if ($StageOnly) {
+    Write-Log "$AppFolder - STAGE phase (TEMPLATE)"
+
+    # TODO: copy the PSADT toolkit folder into $BaseDownloadRoot\stage:
+    #   $toolkitSource = 'C:\path\to\existing\PSADT\toolkit'
+    #   $stagePath = Join-Path $BaseDownloadRoot 'stage'
+    #   Initialize-Folder -Path $stagePath
+    #   Copy-Item -LiteralPath "$toolkitSource\*" -Destination $stagePath -Recurse -Force
+    #
+    # TODO: write install.bat + uninstall.bat wrappers that call into
+    # Deploy-Application.exe (v3) or powershell.exe -File
+    # Invoke-AppDeployToolkit.ps1 (v4):
+    #   # v3 shape
+    #   $install = 'Deploy-Application.exe -DeploymentType Install -DeployMode Silent'
+    #   # v4 shape
+    #   $install = 'powershell.exe -ExecutionPolicy Bypass -File Invoke-AppDeployToolkit.ps1 -DeploymentType Install -DeployMode Silent'
+    #
+    # TODO: detection comes from the toolkit's own config (typically
+    # a registry key the toolkit writes; read AppDeployToolkitConfig.xml
+    # on v3 or the DetectionMethod block on v4).
+
+    throw "TODO: implement StageOnly for $AppFolder"
+}
+
+if ($PackageOnly) {
+    Write-Log "$AppFolder - PACKAGE phase (TEMPLATE)"
+    # TODO: read manifest, push content to network root,
+    # New-MECMApplicationFromManifest with the PSADT install command as
+    # the Script deployment type InstallCommand.
+    throw "TODO: implement PackageOnly for $AppFolder"
+}
+
+Write-Log "$AppFolder template: pass -StageOnly, -PackageOnly, or -GetLatestVersionOnly."
+exit 0

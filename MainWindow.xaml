@@ -1,0 +1,355 @@
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="AppPackager"
+    Width="1280" Height="720"
+    MinWidth="960" MinHeight="600"
+    WindowStartupLocation="CenterScreen"
+    TitleCharacterCasing="Normal"
+    GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+    NonActiveGlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+    BorderThickness="1"
+    ShowIconOnTitleBar="False">
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- Sidebar button template: shade-lift on Pressed instead of the MahApps
+                 Square default (which inverts colors via VSM and renders white text
+                 invisible on the dark-theme sidebar). Foreground stays White;
+                 #3A3A3A reads correctly under either theme during the brief press.
+                 See reference_srl_wpf_brand.md S11. -->
+            <ControlTemplate x:Key="SidebarButtonTemplate" TargetType="Button">
+                <Border x:Name="Bd"
+                        Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}"
+                        SnapsToDevicePixels="True">
+                    <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                      Margin="{TemplateBinding Padding}"
+                                      RecognizesAccessKey="True"
+                                      SnapsToDevicePixels="True"/>
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsPressed" Value="True">
+                        <Setter TargetName="Bd" Property="Background">
+                            <Setter.Value>
+                                <SolidColorBrush Color="#3A3A3A"/>
+                            </Setter.Value>
+                        </Setter>
+                    </Trigger>
+                    <Trigger Property="IsEnabled" Value="False">
+                        <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
+                    </Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate>
+
+            <!-- Workflow button style: theme-aware (dark: black bg, light: Windows blue) -->
+            <Style x:Key="WorkflowButtonStyle" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="Template" Value="{StaticResource SidebarButtonTemplate}"/>
+                <Setter Property="Height" Value="42"/>
+                <Setter Property="Margin" Value="8,3,8,3"/>
+                <Setter Property="Padding" Value="12,0,12,0"/>
+                <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="FontWeight" Value="Bold"/>
+                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
+                <Setter Property="Foreground" Value="White"/>
+                <Setter Property="Background">
+                    <Setter.Value>
+                        <SolidColorBrush Color="#1E1E1E"/>
+                    </Setter.Value>
+                </Setter>
+                <Setter Property="BorderBrush">
+                    <Setter.Value>
+                        <SolidColorBrush Color="#555555"/>
+                    </Setter.Value>
+                </Setter>
+                <Setter Property="BorderThickness" Value="1"/>
+            </Style>
+
+            <!-- Options button style: theme-aware (dark: black bg, light: Windows blue) -->
+            <Style x:Key="OptionsButtonStyle" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="Template" Value="{StaticResource SidebarButtonTemplate}"/>
+                <Setter Property="Height" Value="42"/>
+                <Setter Property="Margin" Value="8,3,8,3"/>
+                <Setter Property="Padding" Value="12,0,12,0"/>
+                <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="FontWeight" Value="Bold"/>
+                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
+                <Setter Property="Foreground" Value="White"/>
+                <Setter Property="Background">
+                    <Setter.Value>
+                        <SolidColorBrush Color="#1E1E1E"/>
+                    </Setter.Value>
+                </Setter>
+                <Setter Property="BorderBrush">
+                    <Setter.Value>
+                        <SolidColorBrush Color="#555555"/>
+                    </Setter.Value>
+                </Setter>
+                <Setter Property="BorderThickness" Value="1"/>
+            </Style>
+
+            <!-- Section header: Gray1 is the only theme-adaptive MahApps grey brush.
+                 Gray2 is static #7F7F7F and fails WCAG AA (3.83:1 dark, 4.00:1 light).
+                 Gray1 resolves to #F9F9F9 on dark (15.28:1, AAA) and #333333 on
+                 light (12.63:1, AAA). See reference_srl_wpf_brand.md. -->
+            <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray1}"/>
+                <Setter Property="Margin" Value="12,16,0,6"/>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="230"/>
+            <ColumnDefinition Width="1"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- ═══════════════════════════════════════ -->
+        <!-- LEFT SIDEBAR                            -->
+        <!-- ═══════════════════════════════════════ -->
+        <Border Grid.Column="0">
+            <DockPanel>
+                <!-- App title -->
+                <StackPanel DockPanel.Dock="Top" Margin="14,14,14,0">
+                    <TextBlock x:Name="txtAppTitle" Text="AppPackager" FontSize="20" FontWeight="Bold"/>
+                </StackPanel>
+
+                <!-- Toggles pinned to bottom -->
+                <StackPanel DockPanel.Dock="Bottom" Margin="14,0,14,14">
+                    <Separator Margin="0,8,0,10"/>
+                    <DockPanel LastChildFill="False" Margin="0,0,0,6">
+                        <TextBlock Text="Debug Columns"
+                                   DockPanel.Dock="Left" VerticalAlignment="Center" FontSize="12"/>
+                        <Controls:ToggleSwitch x:Name="toggleDebugCols"
+                                               DockPanel.Dock="Right"
+                                               IsOn="False"
+                                               OnContent="" OffContent=""
+                                               Margin="0,0,0,0"
+                                               MinWidth="0"
+                                               ToolTip="Show extra debug columns (Last Checked, etc.)"/>
+                    </DockPanel>
+                    <DockPanel LastChildFill="False">
+                        <TextBlock x:Name="txtThemeLabel" Text="Dark Theme"
+                                   DockPanel.Dock="Left" VerticalAlignment="Center" FontSize="12"/>
+                        <Controls:ToggleSwitch x:Name="toggleTheme"
+                                               DockPanel.Dock="Right"
+                                               IsOn="True"
+                                               OnContent="" OffContent=""
+                                               Margin="0,0,0,0"
+                                               MinWidth="0"
+                                               ToolTip="Toggle dark / light theme"/>
+                    </DockPanel>
+                </StackPanel>
+
+                <!-- Scrollable sidebar content -->
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
+                    <StackPanel>
+
+                        <Button x:Name="btnFullRun"     Content="One Click"       Style="{StaticResource WorkflowButtonStyle}"
+                                ToolTip="One Click check (and optionally Stage / Package) against your tracked apps. Configure tracked apps, action, and cadence in One Click Settings."/>
+                        <!-- Top margin 16 visually isolates the automated One Click workflow
+                             from the manual 4-button chain below. Mirrors the OPTIONS gap. -->
+                        <Button x:Name="btnCheckLatest" Content="Check Latest"    Style="{StaticResource WorkflowButtonStyle}"
+                                Margin="8,16,8,3"
+                                ToolTip="Query each checked app's vendor source for the latest available version"/>
+                        <Button x:Name="btnCheckMECM"   Content="Check MECM"      Style="{StaticResource WorkflowButtonStyle}"
+                                ToolTip="Query MECM for the currently deployed version of each checked app"/>
+                        <Button x:Name="btnStage"       Content="Stage Packages"  Style="{StaticResource WorkflowButtonStyle}"
+                                ToolTip="Download and extract each checked app into the local staging root"/>
+                        <Button x:Name="btnPackage"     Content="Package Apps"    Style="{StaticResource WorkflowButtonStyle}"
+                                ToolTip="Build MECM Application + Deployment Type for every checked app"/>
+
+                        <!-- Unified OPTIONS button (replaces the OPTIONS section header + 4 individual buttons) -->
+                        <Button x:Name="btnOptions"       Content="Options"                Style="{StaticResource OptionsButtonStyle}"
+                                Margin="8,16,8,3"
+                                ToolTip="MECM Preferences, Packager Preferences, One Click Settings, Product Filter - all in one window"/>
+
+                        <!-- ADMINISTRATIVE COMMENT -->
+                        <TextBlock Text="COMMENT" Style="{StaticResource SectionHeaderStyle}"/>
+                        <TextBox x:Name="txtComment"
+                                 Margin="8,0,8,12"
+                                 Height="120"
+                                 MaxLength="256"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Controls:TextBoxHelper.Watermark="Optional note for MECM app description (e.g. ticket number)"
+                                 FontSize="12"/>
+
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
+        <!-- Sidebar / content separator -->
+        <Border Grid.Column="1" Background="{DynamicResource MahApps.Brushes.Gray8}"/>
+
+        <!-- ═══════════════════════════════════════ -->
+        <!-- MAIN CONTENT AREA                       -->
+        <!-- ═══════════════════════════════════════ -->
+        <Grid Grid.Column="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="160"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- DataGrid -->
+            <DataGrid x:Name="dataGrid" Grid.Row="0"
+                      AutoGenerateColumns="False"
+                      CanUserAddRows="False"
+                      CanUserDeleteRows="False"
+                      IsReadOnly="False"
+                      SelectionMode="Extended"
+                      SelectionUnit="FullRow"
+                      GridLinesVisibility="Horizontal"
+                      HeadersVisibility="Column"
+                      RowHeaderWidth="0"
+                      BorderThickness="0"
+                      Margin="4,4,4,0"
+                      ColumnHeaderHeight="32"
+                      IsTextSearchEnabled="True"
+                      TextSearch.TextPath="Application">
+
+                <DataGrid.ColumnHeaderStyle>
+                    <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource MahApps.Styles.DataGridColumnHeader}">
+                        <Setter Property="Padding" Value="6,0,6,0"/>
+                        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                    </Style>
+                </DataGrid.ColumnHeaderStyle>
+
+                <DataGrid.CellStyle>
+                    <Style TargetType="DataGridCell" BasedOn="{StaticResource MahApps.Styles.DataGridCell}">
+                        <Setter Property="Padding" Value="6,0,6,0"/>
+                    </Style>
+                </DataGrid.CellStyle>
+
+                <DataGrid.Columns>
+                    <DataGridTemplateColumn x:Name="colSelected" Width="36" CanUserSort="False">
+                        <DataGridTemplateColumn.HeaderStyle>
+                            <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource MahApps.Styles.DataGridColumnHeader}">
+                                <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                <Setter Property="VerticalContentAlignment"   Value="Center"/>
+                                <Setter Property="Padding" Value="0"/>
+                            </Style>
+                        </DataGridTemplateColumn.HeaderStyle>
+                        <DataGridTemplateColumn.Header>
+                            <TextBlock Text="&#x25CB;"
+                                       FontSize="13"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Margin="5,0,0,0"
+                                       ToolTip="Click to cycle selection. Glyph shows current state: empty = none, filled = all, half = updates only."/>
+                        </DataGridTemplateColumn.Header>
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding Selected, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="Application" Width="*" Binding="{Binding Application}" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Vendor" Width="150" Binding="{Binding Vendor}" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Current (MECM)" Width="130" Binding="{Binding CurrentVersion}" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Latest" Width="130" Binding="{Binding LatestVersion}" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Status" Width="130" Binding="{Binding Status}" IsReadOnly="True"/>
+                    <DataGridTextColumn x:Name="colCMName" Header="CMName" Width="140" Binding="{Binding CMName}" IsReadOnly="True" Visibility="Collapsed"/>
+                    <DataGridTextColumn x:Name="colScript" Header="Script" Width="180" Binding="{Binding Script}" IsReadOnly="True" Visibility="Collapsed"/>
+                    <DataGridTextColumn x:Name="colVendorURL" Header="Vendor URL" Width="200" Binding="{Binding VendorURL}" IsReadOnly="True" Visibility="Collapsed"/>
+                    <DataGridTextColumn x:Name="colLastChecked" Header="Last Checked (UTC)" Width="170" Binding="{Binding LastChecked}" IsReadOnly="True" Visibility="Collapsed"/>
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <!-- Resizable splitter -->
+            <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch"
+                          Background="{DynamicResource MahApps.Brushes.Gray8}"
+                          ResizeDirection="Rows"/>
+
+            <!-- Log output drawer -->
+            <Border Grid.Row="2">
+                <DockPanel>
+                    <TextBlock x:Name="lblLogOutput" DockPanel.Dock="Top" Text="LOG OUTPUT"
+                               FontSize="10" FontWeight="SemiBold"
+                               Margin="8,6,0,4"/>
+                    <TextBox x:Name="txtLog"
+                             IsReadOnly="True"
+                             IsUndoEnabled="False"
+                             UndoLimit="0"
+                             TextWrapping="NoWrap"
+                             VerticalScrollBarVisibility="Auto"
+                             HorizontalScrollBarVisibility="Auto"
+                             FontFamily="Cascadia Code, Consolas, Courier New"
+                             FontSize="11"
+                             BorderThickness="0"
+                             Margin="4,0,4,4"/>
+                </DockPanel>
+            </Border>
+
+            <!-- Status bar -->
+            <Border Grid.Row="3" Padding="8,4,8,4"
+                    Background="{DynamicResource MahApps.Brushes.Gray10}">
+                <TextBlock x:Name="txtStatus" Text="Ready." FontSize="11"/>
+            </Border>
+
+            <!-- Async progress overlay. It covers only the app grid so the log
+                 drawer remains usable during long Stage / Package operations.
+                 Populated by Invoke-MultiAppPipeline in start-apppackager.ps1. -->
+            <Border x:Name="progressOverlay"
+                    Grid.Row="0"
+                    Visibility="Collapsed"
+                    IsHitTestVisible="True"
+                    Background="{DynamicResource MahApps.Brushes.ThemeBackground}"
+                    Opacity="0.92"
+                    Margin="0">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <Controls:ProgressRing IsActive="True" Width="56" Height="56"
+                                           Foreground="{DynamicResource MahApps.Brushes.Accent}"/>
+                    <TextBlock x:Name="txtProgressTitle" Text="Working..."
+                               FontSize="18" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" Margin="0,14,0,0"/>
+                    <TextBlock x:Name="txtProgressStep" Text=""
+                               FontSize="12"
+                               HorizontalAlignment="Center" Margin="0,6,0,0"
+                               Foreground="{DynamicResource MahApps.Brushes.Gray1}"/>
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Center"
+                                Margin="0,16,0,0">
+                        <Button x:Name="btnPausePipeline"
+                                Content="Pause"
+                                Width="96"
+                                Height="32"
+                                Margin="0,0,8,0"
+                                Style="{DynamicResource MahApps.Styles.Button.Square}"
+                                Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                                ToolTip="Pause after the current app finishes"/>
+                        <Button x:Name="btnCancelPipeline"
+                                Content="Cancel after current app"
+                                Width="160"
+                                Height="32"
+                                Style="{DynamicResource MahApps.Styles.Button.Square}"
+                                Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                                ToolTip="Stop the run after the current app finishes"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+
+</Controls:MetroWindow>
