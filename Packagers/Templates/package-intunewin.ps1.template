@@ -1,0 +1,102 @@
+<#
+Vendor: TODO-VENDOR
+App: TODO-APPLICATION
+CMName: TODO-CMNAME
+VendorUrl: https://TODO
+UpdateCadenceDays: 30
+
+.SYNOPSIS
+    Skeleton packager for .intunewin Win32 content. Copy to
+    Packagers/package-<appname>.ps1 and fill in the TODO markers.
+
+.DESCRIPTION
+    Intunewin is an encrypted-ZIP wrapper Microsoft ships via
+    IntuneWinAppUtil.exe. The app-packager context is MECM-first, so
+    this framework's default strategy is:
+
+      1. Receive the vendor's native installer (MSI / EXE).
+      2. Repackage to .intunewin only if the operator actually wants
+         Intune deployment (rare; app-packager is MECM).
+      3. Or: if the input IS an .intunewin from upstream, peel it
+         back to the inner MSI / EXE and delegate to the existing
+         MSI or EXE packager pattern.
+
+    Cracking the .intunewin envelope:
+      - First 48 bytes of the inner "IntunePackage.intunewin" file are
+        an AES key + IV pair (see Microsoft's open-source
+        IntuneWinAppUtil source).
+      - Decrypt inner bytes -> original Win32 installer payload +
+        detection.xml with metadata (AppName, Version, Detection).
+
+    This template documents the shape; the actual crack routine is
+    TODO because the inputs for this pipeline are unclear until a
+    real driver lands.
+
+.REQUIREMENTS
+    - PowerShell 5.1
+    - .NET cryptography for AES decrypt.
+#>
+
+param(
+    [string]$SiteCode = "MCM",
+    [string]$Comment = "",
+    [string]$FileServerPath = "\\fileserver\sccm$",
+    [string]$DownloadRoot = "C:\temp\ap",
+    [int]$EstimatedRuntimeMins = 15,
+    [int]$MaximumRuntimeMins = 30,
+    [string]$LogPath,
+    [switch]$GetLatestVersionOnly,
+    [switch]$StageOnly,
+    [switch]$PackageOnly
+)
+
+Import-Module "$PSScriptRoot\..\AppPackagerCommon.psd1" -Force
+
+$VendorFolder = "TODO-VENDOR"
+$AppFolder    = "TODO-APPLICATION"
+$BaseDownloadRoot = Join-Path $DownloadRoot $VendorFolder
+
+Initialize-Logging -LogPath $LogPath
+
+if ($GetLatestVersionOnly) {
+    try {
+        # TODO: resolve vendor's latest version via manifest URL / GitHub releases
+        # / vendor RSS feed / etc.
+        throw "TODO: implement GetLatestVersionOnly for $AppFolder"
+    } catch {
+        [Console]::Error.WriteLine("$AppFolder GetLatestVersionOnly failed: $($_.Exception.Message)")
+        exit 1
+    }
+}
+
+if ($StageOnly) {
+    Write-Log "$AppFolder - STAGE phase (TEMPLATE)"
+
+    # TODO: download .intunewin from vendor / mirror
+    # TODO: crack .intunewin envelope:
+    #   $pkgPath = Join-Path $BaseDownloadRoot 'app.intunewin'
+    #   Add-Type -AssemblyName System.IO.Compression.FileSystem
+    #   $tmp = Join-Path $env:TEMP ('intunewin-crack-' + [Guid]::NewGuid())
+    #   [System.IO.Compression.ZipFile]::ExtractToDirectory($pkgPath, $tmp)
+    #   $innerWrapper = Join-Path $tmp 'IntuneWinPackage\Contents\IntunePackage.intunewin'
+    #   $metadata     = Join-Path $tmp 'IntuneWinPackage\Metadata\Detection.xml'
+    #   [xml]$meta    = Get-Content -LiteralPath $metadata -Raw
+    #   # AES key + IV are the first 48 bytes of the inner wrapper; rest is
+    #   # encrypted original payload. See IntuneWinAppUtil reference for the
+    #   # exact decrypt recipe.
+    # TODO: write content wrappers (likely delegating to New-MsiWrapperContent
+    #       or New-ExeWrapperContent once the inner payload type is known)
+    # TODO: write stage manifest
+
+    throw "TODO: implement StageOnly for $AppFolder"
+}
+
+if ($PackageOnly) {
+    Write-Log "$AppFolder - PACKAGE phase (TEMPLATE)"
+    # TODO: read stage manifest -> New-MECMApplicationFromManifest (same
+    #       shape as MSI/EXE packagers).
+    throw "TODO: implement PackageOnly for $AppFolder"
+}
+
+Write-Log "$AppFolder template: pass -StageOnly, -PackageOnly, or -GetLatestVersionOnly."
+exit 0

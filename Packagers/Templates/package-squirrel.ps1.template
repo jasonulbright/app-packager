@@ -1,0 +1,101 @@
+<#
+Vendor: TODO-VENDOR
+App: TODO-APPLICATION
+CMName: TODO-CMNAME
+VendorUrl: https://TODO
+UpdateCadenceDays: 7
+
+.SYNOPSIS
+    Skeleton packager for Squirrel-installed desktop apps. Copy to
+    Packagers/package-<appname>.ps1 and fill in the TODO markers.
+
+.DESCRIPTION
+    Squirrel is a per-user auto-update framework used by: GitHub
+    Desktop, older Teams Classic, Slack (older builds), Discord (where
+    enterprise-deployable), Cursor, VS Code Insiders, Notion.
+
+    House complications:
+      - Squirrel installs to %LOCALAPPDATA%\<app>, strictly per-user.
+        MECM deploys under SYSTEM by default -> installs go nowhere.
+      - Vendor-supplied auto-update is baked in; for MECM-managed
+        fleets, disable it via a config file drop or registry key
+        vendor-specifically.
+      - Detection needs an all-users-safe strategy: Script detection
+        that iterates C:\Users\*\AppData\Local\<app>\ or a vendor-
+        specific registry key (HKCU -> no good for SYSTEM detection).
+
+    Most common shape:
+      - install.ps1 copies vendor .exe into a user-context staging
+        dir (C:\ProgramData\<app>\Installer\) and triggers it at
+        first logon via a Run key or an Active Setup stub.
+      - uninstall.ps1 walks all C:\Users\*\AppData\Local\<app> paths
+        and removes them.
+      - Detection: Script that checks Active Setup version or a
+        ProgramData marker file.
+
+.REQUIREMENTS
+    - PowerShell 5.1
+    - Write access to C:\ProgramData on clients.
+#>
+
+param(
+    [string]$SiteCode = "MCM",
+    [string]$Comment = "",
+    [string]$FileServerPath = "\\fileserver\sccm$",
+    [string]$DownloadRoot = "C:\temp\ap",
+    [int]$EstimatedRuntimeMins = 10,
+    [int]$MaximumRuntimeMins = 20,
+    [string]$LogPath,
+    [switch]$GetLatestVersionOnly,
+    [switch]$StageOnly,
+    [switch]$PackageOnly
+)
+
+Import-Module "$PSScriptRoot\..\AppPackagerCommon.psd1" -Force
+
+$VendorFolder = "TODO-VENDOR"
+$AppFolder    = "TODO-APPLICATION"
+$BaseDownloadRoot = Join-Path $DownloadRoot $VendorFolder
+
+Initialize-Logging -LogPath $LogPath
+
+if ($GetLatestVersionOnly) {
+    try {
+        # TODO: resolve vendor's latest version. Common patterns:
+        #   - GitHub releases: Invoke-RestMethod api.github.com/repos/<org>/<repo>/releases/latest
+        #   - Vendor RSS: Invoke-WebRequest releases.atom; pick first <entry>/<title>
+        #   - Squirrel RELEASES file: Invoke-WebRequest <vendor>/releases/RELEASES
+        #     then regex-match the version column.
+        throw "TODO: implement GetLatestVersionOnly for $AppFolder"
+    } catch {
+        [Console]::Error.WriteLine("$AppFolder GetLatestVersionOnly failed: $($_.Exception.Message)")
+        exit 1
+    }
+}
+
+if ($StageOnly) {
+    Write-Log "$AppFolder - STAGE phase (TEMPLATE)"
+
+    # TODO: download vendor's Squirrel .exe (often named "<app>Setup.exe")
+    # TODO: write content wrappers that orchestrate the user-context flow:
+    #       - install.bat: invoke install.ps1 as SYSTEM
+    #       - install.ps1: copy setup.exe into ProgramData, write an
+    #         Active Setup stub or Run-once entry per user
+    #       - uninstall.ps1: walk user profiles, invoke the Squirrel
+    #         uninstaller for each, clean up ProgramData stub
+    # TODO: Script-based detection clause (not RegistryKeyValue -
+    #       Squirrel doesn't register ARP entries in HKLM)
+
+    throw "TODO: implement StageOnly for $AppFolder"
+}
+
+if ($PackageOnly) {
+    Write-Log "$AppFolder - PACKAGE phase (TEMPLATE)"
+    # TODO: read manifest -> New-MECMApplicationFromManifest with
+    #       Detection.Type='Script'. ScriptText should check Active
+    #       Setup version or walk C:\Users\*\AppData\Local\<app>.
+    throw "TODO: implement PackageOnly for $AppFolder"
+}
+
+Write-Log "$AppFolder template: pass -StageOnly, -PackageOnly, or -GetLatestVersionOnly."
+exit 0

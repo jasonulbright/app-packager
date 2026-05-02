@@ -1,0 +1,97 @@
+<#
+Vendor: TODO-VENDOR
+App: TODO-APPLICATION
+CMName: TODO-CMNAME
+VendorUrl: https://TODO
+UpdateCadenceDays: 14
+
+.SYNOPSIS
+    Skeleton packager for Chocolatey / NuGet .nupkg installers. Copy
+    to Packagers/package-<appname>.ps1 and fill in the TODO markers.
+
+.DESCRIPTION
+    A .nupkg is a ZIP with a .nuspec manifest + tools\chocolateyInstall.ps1
+    + tools\chocolateyUninstall.ps1. Chocolatey packages install by
+    running chocolateyInstall.ps1 inside the MECM install context.
+
+    This framework exists mainly for completeness; most MECM shops
+    prefer the vendor's native installer to going through Chocolatey's
+    community feed. Use this template when:
+      - A specific vendor ships their primary installer as .nupkg
+        (Rare, but examples exist: Cake.Tool, internal dotnet tools).
+      - The operator already has a Chocolatey deployment fleet and
+        wants MECM to just own the metadata / scheduling.
+
+    Required on targets: choco.exe installed (community install or
+    internal Chocolatey feed).
+
+    Detection strategies:
+      - Registry entry the chocolateyInstall.ps1 creates (most common).
+      - Script detection calling `choco list --local-only <pkgid>`.
+
+.REQUIREMENTS
+    - PowerShell 5.1
+    - Chocolatey (choco.exe) on the target during install.
+#>
+
+param(
+    [string]$SiteCode = "MCM",
+    [string]$Comment = "",
+    [string]$FileServerPath = "\\fileserver\sccm$",
+    [string]$DownloadRoot = "C:\temp\ap",
+    [int]$EstimatedRuntimeMins = 15,
+    [int]$MaximumRuntimeMins = 30,
+    [string]$LogPath,
+    [switch]$GetLatestVersionOnly,
+    [switch]$StageOnly,
+    [switch]$PackageOnly
+)
+
+Import-Module "$PSScriptRoot\..\AppPackagerCommon.psd1" -Force
+
+$VendorFolder = "TODO-VENDOR"
+$AppFolder    = "TODO-APPLICATION"
+$BaseDownloadRoot = Join-Path $DownloadRoot $VendorFolder
+
+Initialize-Logging -LogPath $LogPath
+
+if ($GetLatestVersionOnly) {
+    try {
+        # TODO: query the NuGet v3 API:
+        #   $feed = Invoke-RestMethod -Uri 'https://community.chocolatey.org/api/v2/Packages()?$filter=Id eq ''<pkgid>''&$orderby=Published desc&$top=1' -UseBasicParsing
+        # Or:
+        #   $feed = Invoke-RestMethod -Uri 'https://api.nuget.org/v3-flatcontainer/<pkgid>/index.json' -UseBasicParsing
+        #   $version = ($feed.versions | Sort-Object { [version]$_ } -Descending | Select-Object -First 1)
+        throw "TODO: implement GetLatestVersionOnly for $AppFolder"
+    } catch {
+        [Console]::Error.WriteLine("$AppFolder GetLatestVersionOnly failed: $($_.Exception.Message)")
+        exit 1
+    }
+}
+
+if ($StageOnly) {
+    Write-Log "$AppFolder - STAGE phase (TEMPLATE)"
+
+    # TODO: download .nupkg from the Chocolatey / NuGet feed
+    # TODO: extract .nupkg (it's a ZIP) and read .nuspec for version +
+    #       metadata. Copy tools\ folder to the stage content path so
+    #       MECM can bundle it.
+    # TODO: install.ps1 calls 'choco install <pkgid> --version <ver>
+    #       --source <internal-feed> -y --no-progress' OR inlines
+    #       chocolateyInstall.ps1 directly if avoiding choco.exe on
+    #       targets.
+    # TODO: detection: registry entry that the package creates, OR
+    #       'choco list --local-only <pkgid>' exit-code check.
+
+    throw "TODO: implement StageOnly for $AppFolder"
+}
+
+if ($PackageOnly) {
+    Write-Log "$AppFolder - PACKAGE phase (TEMPLATE)"
+    # TODO: read manifest -> New-MECMApplicationFromManifest, same shape
+    #       as MSI/EXE packagers.
+    throw "TODO: implement PackageOnly for $AppFolder"
+}
+
+Write-Log "$AppFolder template: pass -StageOnly, -PackageOnly, or -GetLatestVersionOnly."
+exit 0

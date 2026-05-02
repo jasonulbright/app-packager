@@ -1,0 +1,192 @@
+<#
+Vendor: TODO-VENDOR
+App: TODO-APPLICATION
+CMName: TODO-CMNAME
+VendorUrl: https://TODO
+UpdateCadenceDays: 30
+
+.SYNOPSIS
+    Skeleton packager for MSIX / APPX applications. Copy this file to
+    Packagers/package-<appname>.ps1 and fill in the TODO-* markers.
+
+.DESCRIPTION
+    Framework for packaging MSIX / APPX / MSIXBUNDLE applications into
+    MECM via the Script deployment-type pattern (install.bat +
+    install.ps1 calling Add-AppxProvisionedPackage). The alternative
+    native MECM path is Add-CMWindowsAppxDeploymentType; it's TODO on
+    this skeleton. The Script path works today and fits the house rule
+    "all deployments ship as Script deployment type".
+
+    Headline driver candidate: New Teams ("ms-teams" MSIX). Teams ships
+    as a provisioned-package MSIX for enterprise deployments; see
+    https://learn.microsoft.com/microsoftteams/new-teams-bulk-install-client
+
+    Fill in the TODOs below to turn this skeleton into a real packager:
+
+      1. GetLatestVersionOnly branch: resolve the vendor's latest MSIX
+         version. Common patterns:
+           - JSON feed: Invoke-RestMethod against a vendor manifest URL
+             (Office CDN, GitHub releases API, custom endpoint).
+           - AppxManifest.xml of the latest published package: download
+             a small stub, Open-AsZip, read Package/Identity/@Version.
+
+      2. Stage phase: resolve the actual download URL, call
+         Invoke-DownloadWithRetry, read AppxManifest.xml from inside the
+         MSIX to confirm version + identity name, and pick a detection
+         clause:
+           - File Existence of the package install root under
+             C:\Program Files\WindowsApps\<PackageFullName>
+           - Registry key under HKLM\SOFTWARE\Microsoft\Windows\
+             CurrentVersion\Appx\AppxAllUserStore\Applications\
+             <PackageFullName> (exists when the provisioned package is
+             registered for all users).
+
+      3. Package phase: rely on AppPackagerCommon's
+         New-MsixWrapperContent + Write-ContentWrappers +
+         New-MECMApplicationFromManifest. Nothing MSIX-specific beyond
+         the wrapper generator.
+
+    Provisioning-mode decision:
+      - Most enterprise deployments use Provisioned=true so the app
+        installs for all users (current + new accounts).
+      - Per-user MSIX (Provisioned=false) is rare; use for scenarios
+        where the app is licensed per interactive session.
+
+    Signing-chain sanity check:
+      - If the vendor publishes a stable signing cert SHA1, pass it as
+        -SignatureSha1 so install.ps1 verifies the MSIX chain BEFORE
+        calling Add-AppxProvisionedPackage. Catches tampered /
+        man-in-the-middled downloads. Omit when the cert rotates often
+        (vendor changes signing-cert every few months).
+
+.REQUIREMENTS
+    - PowerShell 5.1 (Add-AppxProvisionedPackage requires RSAT on
+      Server or native on Win10+).
+    - System context for provisioned installs; per-user MSIX runs in
+      user context.
+    - Vendor download URL that doesn't require interactive login (the
+      staging host has no user session).
+#>
+
+param(
+    [string]$SiteCode = "MCM",
+    [string]$Comment = "",
+    [string]$FileServerPath = "\\fileserver\sccm$",
+    [string]$DownloadRoot = "C:\temp\ap",
+    [int]$EstimatedRuntimeMins = 10,
+    [int]$MaximumRuntimeMins = 20,
+    [string]$LogPath,
+    [switch]$GetLatestVersionOnly,
+    [switch]$StageOnly,
+    [switch]$PackageOnly
+)
+
+Import-Module "$PSScriptRoot\AppPackagerCommon.psd1" -Force
+
+# Packager-local constants (fill in TODOs)
+$VendorFolder = "TODO-VENDOR"
+$AppFolder    = "TODO-APPLICATION"
+$BaseDownloadRoot = Join-Path $DownloadRoot $VendorFolder
+
+Initialize-Logging -LogPath $LogPath
+
+# =============================================================================
+# GetLatestVersionOnly: resolve and emit vendor's latest MSIX version.
+# =============================================================================
+if ($GetLatestVersionOnly) {
+    try {
+        # TODO: replace this block with the vendor-specific version lookup.
+        # Example patterns:
+        #   $feed = Invoke-RestMethod -Uri 'https://vendor.example/manifest.json' -UseBasicParsing
+        #   $version = [string]$feed.latest.version
+        #
+        #   $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/org/repo/releases/latest' -UseBasicParsing
+        #   $version = ($release.tag_name -replace '^v','')
+        throw "TODO: implement GetLatestVersionOnly for $AppFolder. See header comments."
+    } catch {
+        [Console]::Error.WriteLine("$AppFolder GetLatestVersionOnly failed: $($_.Exception.Message)")
+        exit 1
+    }
+}
+
+# =============================================================================
+# Stage phase: download MSIX, read AppxManifest, write manifest for Package.
+# =============================================================================
+if ($StageOnly) {
+    Write-Log "$AppFolder - STAGE phase (TEMPLATE - no driver wired yet)"
+
+    # TODO: resolve vendor URL + download
+    #   $downloadUrl = 'https://vendor.example/path/app.msix'
+    #   $localMsix = Join-Path $BaseDownloadRoot 'app.msix'
+    #   Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localMsix
+
+    # TODO: crack AppxManifest.xml for identity + version
+    #   Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+    #   $zip = [System.IO.Compression.ZipFile]::OpenRead($localMsix)
+    #   try {
+    #       $entry = $zip.GetEntry('AppxManifest.xml')
+    #       $reader = New-Object System.IO.StreamReader($entry.Open())
+    #       try { [xml]$manifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
+    #   } finally { $zip.Dispose() }
+    #   $identity = $manifest.Package.Identity
+    #   $version  = [string]$identity.Version
+    #   $pkgName  = [string]$identity.Name
+
+    # TODO: write content wrappers
+    #   $stagePath = Join-Path $BaseDownloadRoot 'stage'
+    #   Initialize-Folder -Path $stagePath
+    #   Copy-Item -LiteralPath $localMsix -Destination $stagePath
+    #   $wrappers = New-MsixWrapperContent -MsixFileName (Split-Path -Leaf $localMsix) -Provisioned $true
+    #   Write-ContentWrappers -OutputPath $stagePath `
+    #       -InstallPs1Content $wrappers.Install `
+    #       -UninstallPs1Content $wrappers.Uninstall
+
+    # TODO: pick detection clause (File existence under WindowsApps is common)
+    #   $packageRoot = ('C:\Program Files\WindowsApps\' + $pkgName + '_' + $version + '_' + $identity.ProcessorArchitecture + '__' + $identity.PublisherId)
+    #   $detection = [ordered]@{
+    #       Type         = 'File'
+    #       FilePath     = $packageRoot
+    #       FileName     = 'AppxManifest.xml'
+    #       PropertyType = 'Existence'
+    #   }
+
+    # TODO: write stage manifest
+    #   $manifestPath = Join-Path $stagePath 'stage-manifest.json'
+    #   Write-StageManifest -Path $manifestPath -ManifestData @{
+    #       AppName         = "$AppFolder $version"
+    #       Publisher       = $identity.Publisher
+    #       SoftwareVersion = $version
+    #       DisplayName     = "$AppFolder"
+    #       Detection       = $detection
+    #   }
+
+    throw "TODO: implement StageOnly for $AppFolder. See header comments + in-body TODOs."
+}
+
+# =============================================================================
+# Package phase: stage manifest -> New-MECMApplicationFromManifest.
+# =============================================================================
+if ($PackageOnly) {
+    Write-Log "$AppFolder - PACKAGE phase (TEMPLATE)"
+
+    # TODO: resolve the stage manifest + network content path, same shape
+    #       as the MSI/EXE packagers:
+    #   $stagePath = Join-Path $BaseDownloadRoot 'stage'
+    #   $manifestPath = Join-Path $stagePath 'stage-manifest.json'
+    #   $manifest  = Read-StageManifest -Path $manifestPath
+    #   $netRoot   = Get-NetworkAppRoot -FileServerPath $FileServerPath `
+    #                                   -VendorFolder $VendorFolder -AppFolder $AppFolder
+    #   $netPath   = Join-Path $netRoot $manifest.SoftwareVersion
+    #   Initialize-Folder -Path $netPath
+    #   Get-ChildItem -Path $stagePath -File | Where-Object { $_.Name -ne 'stage-manifest.json' } |
+    #       Copy-Item -Destination $netPath -Force
+    #   New-MECMApplicationFromManifest -Manifest $manifest -SiteCode $SiteCode `
+    #       -Comment $Comment -NetworkContentPath $netPath `
+    #       -EstimatedRuntimeMins $EstimatedRuntimeMins -MaximumRuntimeMins $MaximumRuntimeMins
+
+    throw "TODO: implement PackageOnly for $AppFolder. See header comments + in-body TODOs."
+}
+
+# No phase selected: usage.
+Write-Log "$AppFolder template: pass -StageOnly, -PackageOnly, or -GetLatestVersionOnly."
+exit 0
