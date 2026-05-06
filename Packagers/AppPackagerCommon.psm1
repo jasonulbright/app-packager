@@ -169,8 +169,11 @@ function Connect-CMSite {
 
     try {
         if (-not (Get-Module -Name ConfigurationManager -ErrorAction SilentlyContinue)) {
-            $cmModulePath = Join-Path $env:SMS_ADMIN_UI_PATH "..\ConfigurationManager.psd1"
-            if (Test-Path -LiteralPath $cmModulePath) {
+            $cmModulePath = $null
+            if ($env:SMS_ADMIN_UI_PATH) {
+                $cmModulePath = Join-Path $env:SMS_ADMIN_UI_PATH "..\ConfigurationManager.psd1"
+            }
+            if ($cmModulePath -and (Test-Path -LiteralPath $cmModulePath)) {
                 Import-Module $cmModulePath -ErrorAction Stop
             }
             else {
