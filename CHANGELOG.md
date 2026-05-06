@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.0.0.1] - 2026-05-06
+
+### Fixes
+
+- **Package step now binds with empty `-Comment`.** PS 5.1's
+  `[Parameter(Mandatory)][string[]]` rejects arrays containing empty-string
+  elements with `Cannot bind argument to parameter 'Arguments' because it
+  is an empty string.` The Package argsBase always carried `-Comment $Comment`;
+  when the GUI user left Comment blank, `$Comment=''` broke the bind. Stage's
+  argsBase had no empty literals so it was never affected. `[AllowEmptyString()]`
+  on `Set-ProcessStartInfoArgumentList` permits the element through.
+- **`Connect-CMSite` survives a missing `SMS_ADMIN_UI_PATH`.** `Join-Path`
+  threw on a null env var before the `Import-Module ConfigurationManager`
+  fallback could run. Guarded; falls back cleanly when the env var is absent.
+- **Streaming child processes time out on idle.** `Invoke-ProcessWithStreaming`
+  only enforced `WaitForExit(15s)` after the stdout read loop exited, so a
+  child that hung without printing wedged the GUI forever. Added a
+  configurable idle timeout (default 30 minutes) that kills a silent child
+  and surfaces the kill in stdout.
+- **`Save-Preferences` no longer silently drops failures.** The empty `catch`
+  around the `packager-preferences.json` write hid every failure; the GUI
+  reported success while packagers kept reading stale Company / M365 / SSMS
+  values. Now surfaces via `Write-Warning`.
+- **`Get-PackagerFolderInfo` reads enough of the file.** `-TotalCount 120`
+  cut off packagers where `$AppFolder` / `$BaseDownloadRoot` live past line
+  120 (e.g. `package-teamviewerhost.ps1`). Streams until all three vars are
+  found, then breaks early.
+
+### Additions
+
+- **`package-dotnet10both.ps1`** — dual-arch .NET 10 Desktop Runtime packager.
+  Mirrors `package-dotnet8.ps1` with channel-version 10.0; ships x86 + x64 in
+  a single MECM application with compound File detection on `hostfxr.dll`.
+
 ## [1.0.0] - 2026-05-02
 
 AppPackager is a MahApps.Metro WPF GUI for the SRL packaging engine.
