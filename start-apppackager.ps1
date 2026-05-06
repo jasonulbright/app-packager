@@ -632,7 +632,7 @@ function ConvertTo-ProcessArgument {
 function Set-ProcessStartInfoArgumentList {
     param(
         [Parameter(Mandatory)][System.Diagnostics.ProcessStartInfo]$StartInfo,
-        [Parameter(Mandatory)][string[]]$Arguments
+        [Parameter(Mandatory)][AllowEmptyString()][string[]]$Arguments
     )
 
     $argumentListProperty = $StartInfo.GetType().GetProperty('ArgumentList')
