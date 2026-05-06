@@ -306,7 +306,9 @@ function Save-Preferences {
         $pkgPrefs["SSMSInstallOptions"] = $Prefs.SSMSInstallOptions
         $pkgPrefs | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $pkgPrefsPath -Encoding UTF8
     }
-    catch { }
+    catch {
+        Write-Warning ("Failed to save packager preferences ({0}): {1}" -f $pkgPrefsPath, $_.Exception.Message)
+    }
 }
 
 function Invoke-DetectConfigMgrConsole {
@@ -652,8 +654,10 @@ function Get-PackagerFolderInfo {
 
     $info = @{ DownloadSubfolder = $null; VendorFolder = $null; AppFolder = $null }
     try {
-        $lines = Get-Content -LiteralPath $ScriptPath -TotalCount 120 -ErrorAction Stop
-        foreach ($line in $lines) {
+        # Stream the file and stop as soon as all three vars are found. Avoids
+        # the prior -TotalCount 120 cutoff that missed packagers (e.g.
+        # package-teamviewerhost.ps1) where the declarations sit past line 120.
+        foreach ($line in Get-Content -LiteralPath $ScriptPath -ErrorAction Stop) {
             if (-not $info.DownloadSubfolder -and $line -match '\$BaseDownloadRoot\s*=\s*Join-Path\s+\$DownloadRoot\s+"([^"]+)"') {
                 $info.DownloadSubfolder = $matches[1]
             }
@@ -663,6 +667,7 @@ function Get-PackagerFolderInfo {
             if (-not $info.AppFolder -and $line -match '^\s*\$AppFolder\s*=\s*"([^"]+)"') {
                 $info.AppFolder = $matches[1]
             }
+            if ($info.DownloadSubfolder -and $info.VendorFolder -and $info.AppFolder) { break }
         }
     }
     catch { }
@@ -959,7 +964,11 @@ function Invoke-ProcessWithStreaming {
         [Parameter(Mandatory)][string]$OutLog,
         [Parameter(Mandatory)][string]$ErrLog,
         [string]$StructuredLog = '',
-        [System.Windows.Controls.TextBox]$LogTextBox = $null
+        [System.Windows.Controls.TextBox]$LogTextBox = $null,
+        # Idle timeout: kill the child if no stdout line arrives for this long.
+        # Default 30 min covers slow MSIs without leaving silently-hung processes
+        # wedging the GUI forever.
+        [int]$IdleTimeoutSeconds = 1800
     )
 
     $p = New-Object System.Diagnostics.Process
@@ -972,11 +981,15 @@ function Invoke-ProcessWithStreaming {
         $reader   = $p.StandardOutput
         $lineTask = $reader.ReadLineAsync()
 
+        $lastActivity = [DateTime]::UtcNow
+        $timedOut = $false
+
         while ($true) {
             if ($lineTask.IsCompleted) {
                 $line = $lineTask.Result
                 if ($null -eq $line) { break }
                 $outLines.Add($line)
+                $lastActivity = [DateTime]::UtcNow
 
                 if ($LogTextBox) {
                     $displayLine = $line -replace '^\[[\d: -]+\] \[\w+\s*\] ', ''
@@ -988,6 +1001,12 @@ function Invoke-ProcessWithStreaming {
                 $lineTask = $reader.ReadLineAsync()
             }
 
+            # Idle timeout: child has stopped emitting stdout. Don't wait forever.
+            if ($IdleTimeoutSeconds -gt 0 -and ([DateTime]::UtcNow - $lastActivity).TotalSeconds -gt $IdleTimeoutSeconds) {
+                $timedOut = $true
+                break
+            }
+
             # WPF dispatcher pump
             [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke(
                 [System.Windows.Threading.DispatcherPriority]::Background,
@@ -996,7 +1015,12 @@ function Invoke-ProcessWithStreaming {
             Start-Sleep -Milliseconds 50
         }
 
-        if (-not $p.WaitForExit(15000)) {
+        if ($timedOut) {
+            try { $p.Kill() } catch { }
+            $p.WaitForExit(5000)
+            $outLines.Add("[ERROR] Packager idle for $IdleTimeoutSeconds seconds; killed by Invoke-ProcessWithStreaming.")
+        }
+        elseif (-not $p.WaitForExit(15000)) {
             try { $p.Kill() } catch { }
             $p.WaitForExit(5000)
         }
