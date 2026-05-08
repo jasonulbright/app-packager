@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- **ConfigMgr site connections now match the AdminUI connect prompt.**
+  `Connect-CMSite` no longer fails immediately when the `${SiteCode}:`
+  drive is absent; it creates the missing `CMSite` PSDrive with
+  `New-PSDrive -Root <ProviderMachineName>` and then enters the drive.
+  MECM Preferences now stores the provider machine, and package child
+  processes receive it via `APP_PACKAGER_CM_PROVIDER`.
+- **Packager history timestamps stay ISO formatted after JSON round-trip.**
+  `Read-PackagerHistory` normalizes `ConvertFrom-Json` datetime values back
+  to `yyyy-MM-ddTHH:mm:ssZ`, avoiding culture-formatted strings in callers.
+
 ## [1.0.0.1] - 2026-05-06
 
 ### Fixes

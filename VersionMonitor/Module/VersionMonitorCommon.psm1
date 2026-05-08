@@ -131,7 +131,8 @@ function Get-PackagerScripts {
 function Get-MecmApplicationVersions {
     param(
         [Parameter(Mandatory)][string]$SiteCode,
-        [Parameter(Mandatory)][string[]]$CMNames
+        [Parameter(Mandatory)][string[]]$CMNames,
+        [string]$ProviderMachineName = $null
     )
 
     if (-not (Get-Command -Name Get-CMApplication -ErrorAction SilentlyContinue)) {
@@ -150,7 +151,15 @@ function Get-MecmApplicationVersions {
 
     $savedLocation = Get-Location
     try {
-        Set-Location "${SiteCode}:" -ErrorAction Stop
+        $siteDrive = Get-PSDrive -Name $SiteCode -PSProvider CMSite -ErrorAction SilentlyContinue
+        if (-not $siteDrive) {
+            if ([string]::IsNullOrWhiteSpace($ProviderMachineName)) {
+                throw "Configuration Manager PSDrive '$SiteCode' is not available and no provider machine name is configured."
+            }
+            New-PSDrive -Name $SiteCode -PSProvider CMSite -Root $ProviderMachineName -ErrorAction Stop | Out-Null
+        }
+
+        Set-Location "$($SiteCode):\" -ErrorAction Stop
     }
     catch {
         throw ("Failed to connect to CM site PSDrive '{0}:'" -f $SiteCode)

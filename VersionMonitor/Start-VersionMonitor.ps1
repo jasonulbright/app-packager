@@ -167,7 +167,8 @@ if (-not $SkipMECM -and -not $SimulateStale) {
     Write-Log "Querying MECM for application versions..."
     try {
         $cmNames = @($appsToScan | ForEach-Object { $_.CMName } | Where-Object { $_ })
-        $mecmResults = Get-MecmApplicationVersions -SiteCode $config.MECM.SiteCode -CMNames $cmNames
+        $providerMachineName = if ($config.MECM.ProviderMachineName) { [string]$config.MECM.ProviderMachineName } else { [string]$config.MECM.ServerFQDN }
+        $mecmResults = Get-MecmApplicationVersions -SiteCode $config.MECM.SiteCode -ProviderMachineName $providerMachineName -CMNames $cmNames
         $foundCount = @($mecmResults.Values | Where-Object { $_.Found }).Count
         Write-Log ("MECM: {0} of {1} applications found" -f $foundCount, $cmNames.Count)
     }
