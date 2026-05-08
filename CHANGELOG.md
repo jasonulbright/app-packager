@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [1.0.0.2] - 2026-05-08
 
 ### Fixes
 
@@ -8,11 +8,23 @@
   `Connect-CMSite` no longer fails immediately when the `${SiteCode}:`
   drive is absent; it creates the missing `CMSite` PSDrive with
   `New-PSDrive -Root <ProviderMachineName>` and then enters the drive.
-  MECM Preferences now stores the provider machine, and package child
-  processes receive it via `APP_PACKAGER_CM_PROVIDER`.
+  MECM Preferences now stores the provider machine (paste the
+  `$ProviderMachineName` value from the AdminUI connect script into
+  Options → MECM Preferences → Provider Machine), and package child
+  processes receive it via `APP_PACKAGER_CM_PROVIDER`. The deliberate
+  `MCM:`/`C:` choreography inside `New-MECMApplicationFromManifest` is
+  preserved; child packager launches use the packager folder as their
+  working directory and `Get-MecmCurrentVersionByCMName` restores the
+  caller's location in `finally`.
+- **`Resolve-ConfigurationManagerModulePath` adds preferences-detected
+  and known install paths as fallbacks when `SMS_ADMIN_UI_PATH` is
+  absent.**
 - **Packager history timestamps stay ISO formatted after JSON round-trip.**
-  `Read-PackagerHistory` normalizes `ConvertFrom-Json` datetime values back
-  to `yyyy-MM-ddTHH:mm:ssZ`, avoiding culture-formatted strings in callers.
+  `Read-PackagerHistory` normalizes `ConvertFrom-Json` datetime values
+  back to `yyyy-MM-ddTHH:mm:ssZ`, avoiding culture-formatted strings in
+  callers.
+
+
 
 ## [1.0.0.1] - 2026-05-06
 
@@ -55,8 +67,7 @@ It discovers per-application packager scripts, queries vendor sources
 for the current version, queries MECM for the deployed version,
 stages installers + wrappers + detection methods locally, and copies
 content to the MECM share + creates the MECM Application + Deployment
-Type in one workflow. Ships as a zip + `install.ps1` wrapper; no MSI,
-no code signing required.
+Type in one workflow. Extract the zip and run `start-apppackager.ps1`.
 
 ### Features
 
