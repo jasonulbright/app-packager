@@ -164,15 +164,88 @@ function Test-IsAdmin {
     }
 }
 
+function Get-AppPackagerRootPreferences {
+    $prefsPath = Join-Path $PSScriptRoot '..\AppPackager.preferences.json'
+    if (-not (Test-Path -LiteralPath $prefsPath)) { return $null }
+
+    try {
+        $raw = Get-Content -LiteralPath $prefsPath -Raw -Encoding UTF8 -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
+        return ($raw | ConvertFrom-Json -ErrorAction Stop)
+    }
+    catch {
+        return $null
+    }
+}
+
+function Resolve-ConfigurationManagerModulePath {
+    $candidates = @()
+
+    if ($env:SMS_ADMIN_UI_PATH) {
+        $candidates += (Join-Path $env:SMS_ADMIN_UI_PATH '..\ConfigurationManager.psd1')
+        $candidates += (Join-Path (Split-Path -Parent $env:SMS_ADMIN_UI_PATH) 'ConfigurationManager.psd1')
+    }
+
+    $prefs = Get-AppPackagerRootPreferences
+    if ($prefs -and $prefs.DetectedTools -and $prefs.DetectedTools.ConfigMgrConsole -and $prefs.DetectedTools.ConfigMgrConsole.ModulePath) {
+        $candidates += [string]$prefs.DetectedTools.ConfigMgrConsole.ModulePath
+    }
+
+    $candidates += @(
+        'C:\Program Files (x86)\Microsoft Configuration Manager\AdminConsole\bin\ConfigurationManager.psd1',
+        'C:\Program Files\Microsoft Configuration Manager\AdminConsole\bin\ConfigurationManager.psd1',
+        'C:\Program Files (x86)\Microsoft Endpoint Manager\AdminConsole\bin\ConfigurationManager.psd1',
+        'C:\Program Files\Microsoft Endpoint Manager\AdminConsole\bin\ConfigurationManager.psd1'
+    )
+
+    foreach ($candidate in ($candidates | Where-Object { $_ } | Select-Object -Unique)) {
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+    }
+
+    return $null
+}
+
+function Resolve-CMProviderMachineName {
+    param([string]$ProviderMachineName)
+
+    if (-not [string]::IsNullOrWhiteSpace($ProviderMachineName)) {
+        return $ProviderMachineName.Trim()
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:APP_PACKAGER_CM_PROVIDER)) {
+        return $env:APP_PACKAGER_CM_PROVIDER.Trim()
+    }
+
+    $prefs = Get-AppPackagerRootPreferences
+    if ($prefs) {
+        foreach ($propName in @('ProviderMachineName','ServerFQDN','ProviderServer')) {
+            $prop = $prefs.PSObject.Properties[$propName]
+            if ($prop -and -not [string]::IsNullOrWhiteSpace([string]$prop.Value)) {
+                return ([string]$prop.Value).Trim()
+            }
+        }
+        if ($prefs.MECM) {
+            foreach ($propName in @('ProviderMachineName','ServerFQDN','ProviderServer')) {
+                $prop = $prefs.MECM.PSObject.Properties[$propName]
+                if ($prop -and -not [string]::IsNullOrWhiteSpace([string]$prop.Value)) {
+                    return ([string]$prop.Value).Trim()
+                }
+            }
+        }
+    }
+
+    return $null
+}
+
 function Connect-CMSite {
-    param([Parameter(Mandatory)][string]$SiteCode)
+    param(
+        [Parameter(Mandatory)][string]$SiteCode,
+        [string]$ProviderMachineName = $null
+    )
 
     try {
         if (-not (Get-Module -Name ConfigurationManager -ErrorAction SilentlyContinue)) {
-            $cmModulePath = $null
-            if ($env:SMS_ADMIN_UI_PATH) {
-                $cmModulePath = Join-Path $env:SMS_ADMIN_UI_PATH "..\ConfigurationManager.psd1"
-            }
+            $cmModulePath = Resolve-ConfigurationManagerModulePath
             if ($cmModulePath -and (Test-Path -LiteralPath $cmModulePath)) {
                 Import-Module $cmModulePath -ErrorAction Stop
             }
@@ -181,11 +254,18 @@ function Connect-CMSite {
             }
         }
 
-        if (-not (Get-PSDrive -Name $SiteCode -ErrorAction SilentlyContinue)) {
-            throw "Configuration Manager PSDrive '$SiteCode' is not available."
+        $siteDrive = Get-PSDrive -Name $SiteCode -PSProvider CMSite -ErrorAction SilentlyContinue
+        if (-not $siteDrive) {
+            $provider = Resolve-CMProviderMachineName -ProviderMachineName $ProviderMachineName
+            if ([string]::IsNullOrWhiteSpace($provider)) {
+                throw "Configuration Manager PSDrive '$SiteCode' is not available and no provider machine name is configured. Set Provider Machine in MECM Preferences, copy the ProviderMachineName value from the AdminUI connect script, or set APP_PACKAGER_CM_PROVIDER."
+            }
+
+            Write-Log "Connecting to CM provider     : $provider"
+            New-PSDrive -Name $SiteCode -PSProvider CMSite -Root $provider -ErrorAction Stop | Out-Null
         }
 
-        Set-Location "${SiteCode}:" -ErrorAction Stop
+        Set-Location "$($SiteCode):\" -ErrorAction Stop
         Write-Log "Connected to CM site: $SiteCode"
         return $true
     }
@@ -1584,6 +1664,16 @@ function Get-PackagerHistoryPath {
     Join-Path $dir 'app-history.json'
 }
 
+function Convert-PackagerHistoryTimestampToString {
+    param($Value)
+
+    if ($Value -is [datetime]) {
+        return ([datetime]$Value).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    }
+
+    return $Value
+}
+
 function Read-PackagerHistory {
     <#
     .SYNOPSIS
@@ -1597,7 +1687,18 @@ function Read-PackagerHistory {
         if ([string]::IsNullOrWhiteSpace($raw)) { return @{} }
         $obj  = $raw | ConvertFrom-Json -ErrorAction Stop
         $hash = @{}
-        foreach ($p in $obj.PSObject.Properties) { $hash[$p.Name] = $p.Value }
+        foreach ($p in $obj.PSObject.Properties) {
+            $entry = $p.Value
+            if ($entry -and $entry.PSObject -and $entry.PSObject.Properties) {
+                foreach ($datePropName in @('LastChecked','LastStaged','LastPackaged')) {
+                    $dateProp = $entry.PSObject.Properties[$datePropName]
+                    if ($dateProp) {
+                        $dateProp.Value = Convert-PackagerHistoryTimestampToString -Value $dateProp.Value
+                    }
+                }
+            }
+            $hash[$p.Name] = $entry
+        }
         return $hash
     }
     catch {

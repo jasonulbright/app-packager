@@ -16,6 +16,9 @@
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
 
+.PARAMETER ProviderMachineName
+    ConfigMgr SMS Provider machine name from the AdminUI connect script.
+
 .PARAMETER PackagersRoot
     Local folder containing packager scripts (e.g., .\Packagers).
 
@@ -39,6 +42,7 @@
 
 param(
     [string]$SiteCode = "MCM",
+    [string]$ProviderMachineName = "",
     [string]$PackagersRoot = (Join-Path $PSScriptRoot "Packagers"),
 
     # Headless batch mode: skips the WPF shell, runs a currency check across
@@ -85,6 +89,7 @@ function Get-PreferencesPath {
 function Read-Preferences {
     $defaults = [pscustomobject]@{
         SiteCode             = "MCM"
+        ProviderMachineName  = ""
         FileShareRoot        = "\\fileserver\sccm$"
         DownloadRoot         = "C:\temp\ap"
         EstimatedRuntimeMins = 15
@@ -143,6 +148,10 @@ function Read-Preferences {
         $data = $raw | ConvertFrom-Json -ErrorAction Stop
 
         if ($null -ne $data.SiteCode)             { $defaults.SiteCode             = [string]$data.SiteCode }
+        if ($null -ne $data.ProviderMachineName)  { $defaults.ProviderMachineName  = [string]$data.ProviderMachineName }
+        elseif ($data.MECM -and $null -ne $data.MECM.ServerFQDN) {
+            $defaults.ProviderMachineName = [string]$data.MECM.ServerFQDN
+        }
         if ($null -ne $data.FileShareRoot)         { $defaults.FileShareRoot        = [string]$data.FileShareRoot }
         if ($null -ne $data.DownloadRoot)          { $defaults.DownloadRoot         = [string]$data.DownloadRoot }
         if ($null -ne $data.EstimatedRuntimeMins)  { $defaults.EstimatedRuntimeMins = [int]$data.EstimatedRuntimeMins }
@@ -474,6 +483,9 @@ if ([string]::IsNullOrWhiteSpace($script:Prefs.CompanyName)) {
 
 if ($PSBoundParameters.ContainsKey('SiteCode')) {
     $script:Prefs.SiteCode = $SiteCode
+}
+if ($PSBoundParameters.ContainsKey('ProviderMachineName')) {
+    $script:Prefs.ProviderMachineName = $ProviderMachineName
 }
 
 function Get-PackagerMetadata {
@@ -850,6 +862,7 @@ function Invoke-PackagerGetLatestVersion {
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "powershell.exe"
+    $psi.WorkingDirectory = Split-Path -Parent $PackagerPath
     $argsBase = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PackagerPath, '-SiteCode', $SiteCode, '-GetLatestVersionOnly')
     if ($FileServerPath -and (Test-PackagerSupportsFileServerPath -PackagerPath $PackagerPath)) {
         $argsBase += @('-FileServerPath', $FileServerPath)
@@ -902,59 +915,57 @@ function Invoke-PackagerGetLatestVersion {
 function Get-MecmCurrentVersionByCMName {
     param(
         [Parameter(Mandatory)][string]$SiteCode,
+        [string]$ProviderMachineName = $null,
         [Parameter(Mandatory)][string]$CMName
     )
 
-    if (-not (Get-Command -Name Get-CMApplication -ErrorAction SilentlyContinue)) {
-        try {
-            if ($env:SMS_ADMIN_UI_PATH) {
-                $cmModule = Join-Path (Split-Path $env:SMS_ADMIN_UI_PATH) "ConfigurationManager.psd1"
-                if (Test-Path -LiteralPath $cmModule) {
-                    Import-Module $cmModule -Force -ErrorAction Stop
-                }
-            }
-        } catch { }
+    if (-not (Connect-CMSite -SiteCode $SiteCode -ProviderMachineName $ProviderMachineName)) {
+        throw ("Failed to connect to CM site '{0}'." -f $SiteCode)
     }
+
     if (-not (Get-Command -Name Get-CMApplication -ErrorAction SilentlyContinue)) {
         throw "ConfigMgr PowerShell cmdlets not available in this session."
     }
 
-    try { Set-Location "${SiteCode}:" -ErrorAction Stop }
-    catch { throw ("Failed to connect to CM site PSDrive '{0}:'" -f $SiteCode) }
-
-    $apps = @(Get-CMApplication -Name $CMName -ErrorAction SilentlyContinue)
-    if (-not $apps -or $apps.Count -eq 0) {
-        $apps = @(Get-CMApplication -Name ("{0}*" -f $CMName) -ErrorAction SilentlyContinue)
-    }
-
-    if (-not $apps -or $apps.Count -eq 0) {
-        return [pscustomobject]@{ Found = $false; DisplayName = $null; SoftwareVersion = $null; MatchCount = 0 }
-    }
-
-    $exact = $apps | Where-Object { $_.LocalizedDisplayName -eq $CMName -or $_.Name -eq $CMName }
-    if ($exact -and $exact.Count -gt 0) {
-        $chosen = $exact | Select-Object -First 1
-    }
-    else {
-        $parsable = @()
-        $nonParsable = @()
-        foreach ($a in $apps) {
-            try { $null = [version]$a.SoftwareVersion; $parsable += $a }
-            catch { $nonParsable += $a }
+    $savedLocation = Get-Location
+    try {
+        $apps = @(Get-CMApplication -Name $CMName -ErrorAction SilentlyContinue)
+        if (-not $apps -or $apps.Count -eq 0) {
+            $apps = @(Get-CMApplication -Name ("{0}*" -f $CMName) -ErrorAction SilentlyContinue)
         }
-        if ($parsable.Count -gt 0) {
-            $chosen = $parsable | Sort-Object { [version]$_.SoftwareVersion } -Descending | Select-Object -First 1
+
+        if (-not $apps -or $apps.Count -eq 0) {
+            return [pscustomobject]@{ Found = $false; DisplayName = $null; SoftwareVersion = $null; MatchCount = 0 }
+        }
+
+        $exact = $apps | Where-Object { $_.LocalizedDisplayName -eq $CMName -or $_.Name -eq $CMName }
+        if ($exact -and $exact.Count -gt 0) {
+            $chosen = $exact | Select-Object -First 1
         }
         else {
-            $chosen = $nonParsable | Sort-Object Name -Descending | Select-Object -First 1
+            $parsable = @()
+            $nonParsable = @()
+            foreach ($a in $apps) {
+                try { $null = [version]$a.SoftwareVersion; $parsable += $a }
+                catch { $nonParsable += $a }
+            }
+            if ($parsable.Count -gt 0) {
+                $chosen = $parsable | Sort-Object { [version]$_.SoftwareVersion } -Descending | Select-Object -First 1
+            }
+            else {
+                $chosen = $nonParsable | Sort-Object Name -Descending | Select-Object -First 1
+            }
+        }
+
+        return [pscustomobject]@{
+            Found           = $true
+            DisplayName     = $chosen.LocalizedDisplayName
+            SoftwareVersion = $chosen.SoftwareVersion
+            MatchCount      = $apps.Count
         }
     }
-
-    return [pscustomobject]@{
-        Found           = $true
-        DisplayName     = $chosen.LocalizedDisplayName
-        SoftwareVersion = $chosen.SoftwareVersion
-        MatchCount      = $apps.Count
+    finally {
+        Set-Location $savedLocation -ErrorAction SilentlyContinue
     }
 }
 
@@ -1068,6 +1079,7 @@ function Invoke-PackagerStage {
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "powershell.exe"
+    $psi.WorkingDirectory = Split-Path -Parent $PackagerPath
     $argsBase = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PackagerPath, '-StageOnly', '-LogPath', $structuredLog)
     if ($DownloadRoot) { $argsBase += @('-DownloadRoot', $DownloadRoot) }
     if ($M365Channel) { $argsBase += @('-M365Channel', $M365Channel) }
@@ -1091,6 +1103,7 @@ function Invoke-PackagerPackage {
     param(
         [Parameter(Mandatory)][string]$PackagerPath,
         [Parameter(Mandatory)][string]$SiteCode,
+        [string]$ProviderMachineName = '',
         [AllowEmptyString()][string]$Comment = '',
         [Parameter(Mandatory)][string]$FileServerPath,
         [Parameter(Mandatory)][string]$LogFolder,
@@ -1115,6 +1128,7 @@ function Invoke-PackagerPackage {
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "powershell.exe"
+    $psi.WorkingDirectory = Split-Path -Parent $PackagerPath
     $argsBase = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PackagerPath, '-PackageOnly', '-SiteCode', $SiteCode, '-Comment', $Comment, '-LogPath', $structuredLog)
     if (Test-PackagerSupportsFileServerPath -PackagerPath $PackagerPath) {
         $argsBase += @('-FileServerPath', $FileServerPath)
@@ -1129,7 +1143,7 @@ function Invoke-PackagerPackage {
     $psi.RedirectStandardError  = $true
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow  = $true
-    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath
+    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName
 
     $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -StructuredLog $structuredLog -LogTextBox $LogTextBox
     Assert-PackagerPackageIntegrity -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot
@@ -1146,10 +1160,14 @@ function Set-PackagerEnvironment {
     # has its own $script: session state and cannot see $script:Prefs).
     param(
         [Parameter(Mandatory)][System.Diagnostics.ProcessStartInfo]$StartInfo,
-        [string]$SevenZipPath
+        [string]$SevenZipPath,
+        [string]$ProviderMachineName
     )
     if (-not [string]::IsNullOrWhiteSpace($SevenZipPath)) {
         $StartInfo.EnvironmentVariables['APP_PACKAGER_SEVENZIP'] = [string]$SevenZipPath
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ProviderMachineName)) {
+        $StartInfo.EnvironmentVariables['APP_PACKAGER_CM_PROVIDER'] = [string]$ProviderMachineName
     }
 }
 
@@ -1459,6 +1477,7 @@ function Invoke-BatchUpdate {
         [Parameter(Mandatory)][string[]]$Apps,
         [ValidateSet('Report','Stage','StageAndPackage')][string]$OnUpdateFound = 'Report',
         [Parameter(Mandatory)][string]$SiteCode,
+        [string]$ProviderMachineName = '',
         [string]$FileServerPath,
         [string]$DownloadRoot,
         [int]$EstimatedRuntimeMins = 15,
@@ -1589,25 +1608,47 @@ function Invoke-BatchUpdate {
         try {
             $restoreSevenZipEnv = $false
             $previousSevenZipEnv = $null
+            $restoreProviderEnv = $false
+            $previousProviderEnv = $null
+            $packagerWorkingDirectory = Split-Path -Parent $scriptPath
+            $pushedPackagerLocation = $false
             try {
                 if (-not [string]::IsNullOrWhiteSpace($SevenZipPath)) {
                     $restoreSevenZipEnv = $true
                     $previousSevenZipEnv = $env:APP_PACKAGER_SEVENZIP
                     $env:APP_PACKAGER_SEVENZIP = $SevenZipPath
                 }
+                if (-not [string]::IsNullOrWhiteSpace($ProviderMachineName)) {
+                    $restoreProviderEnv = $true
+                    $previousProviderEnv = $env:APP_PACKAGER_CM_PROVIDER
+                    $env:APP_PACKAGER_CM_PROVIDER = $ProviderMachineName
+                }
 
+                Push-Location -LiteralPath $packagerWorkingDirectory
+                $pushedPackagerLocation = $true
                 & powershell.exe @pkgArgs 2>&1 | ForEach-Object {
                     $line = $_.ToString()
                     if ($line) { Write-Log ("[batch:{0}] {1}" -f $baseName, $line) -Level INFO }
                 }
             }
             finally {
+                if ($pushedPackagerLocation) {
+                    try { Pop-Location } catch { }
+                }
                 if ($restoreSevenZipEnv) {
                     if ($null -ne $previousSevenZipEnv) {
                         $env:APP_PACKAGER_SEVENZIP = $previousSevenZipEnv
                     }
                     else {
                         Remove-Item Env:\APP_PACKAGER_SEVENZIP -ErrorAction SilentlyContinue
+                    }
+                }
+                if ($restoreProviderEnv) {
+                    if ($null -ne $previousProviderEnv) {
+                        $env:APP_PACKAGER_CM_PROVIDER = $previousProviderEnv
+                    }
+                    else {
+                        Remove-Item Env:\APP_PACKAGER_CM_PROVIDER -ErrorAction SilentlyContinue
                     }
                 }
             }
@@ -1649,6 +1690,7 @@ if ($BatchMode) {
     $prefs = if (Test-Path (Get-PreferencesPath)) { Read-Preferences } else { $null }
     $fileServerPath   = if ($prefs -and $prefs.FileShareRoot)             { $prefs.FileShareRoot }             else { $null }
     $downloadRoot     = if ($prefs -and $prefs.DownloadRoot)              { $prefs.DownloadRoot }              else { $null }
+    $providerForBatch = if ($script:Prefs -and $script:Prefs.ProviderMachineName) { [string]$script:Prefs.ProviderMachineName } else { $null }
     $cadenceOverrides = if ($prefs -and $prefs.AppFlow.CadenceOverrides)  { $prefs.AppFlow.CadenceOverrides }  else { $null }
     $sevenZipPath     = $null
     if ($prefs -and $prefs.DetectedTools -and $prefs.DetectedTools.SevenZipCli -and $prefs.DetectedTools.SevenZipCli.Found) {
@@ -1670,6 +1712,7 @@ if ($BatchMode) {
         -Apps              $Apps `
         -OnUpdateFound     $OnUpdateFound `
         -SiteCode          $SiteCode `
+        -ProviderMachineName $providerForBatch `
         -FileServerPath    $fileServerPath `
         -DownloadRoot      $downloadRoot `
         -SevenZipPath      $sevenZipPath `
@@ -2408,6 +2451,7 @@ function New-MecmPreferencesPanel {
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
     <Grid.ColumnDefinitions>
         <ColumnDefinition Width="140"/>
@@ -2417,35 +2461,38 @@ function New-MecmPreferencesPanel {
     <TextBlock Grid.Row="0" Grid.Column="0" Text="Site Code:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
     <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtSC" Width="80" FontSize="13" HorizontalAlignment="Left" MaxLength="5" Margin="0,0,0,8" ToolTip="ConfigMgr site code PSDrive name (e.g., MCM)"/>
 
-    <TextBlock Grid.Row="1" Grid.Column="0" Text="File Share Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtFS" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="UNC path to the SCCM content file share"/>
+    <TextBlock Grid.Row="1" Grid.Column="0" Text="Provider Machine:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtProvider" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="SMS Provider server from the ConfigMgr AdminUI connect script's ProviderMachineName value"/>
 
-    <TextBlock Grid.Row="2" Grid.Column="0" Text="Download Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtDL" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Local folder where installers are downloaded during staging"/>
+    <TextBlock Grid.Row="2" Grid.Column="0" Text="File Share Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtFS" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="UNC path to the SCCM content file share"/>
 
-    <TextBlock Grid.Row="3" Grid.Column="0" Text="Est. Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
+    <TextBlock Grid.Row="3" Grid.Column="0" Text="Download Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtDL" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Local folder where installers are downloaded during staging"/>
+
+    <TextBlock Grid.Row="4" Grid.Column="0" Text="Est. Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
         <TextBox x:Name="txtEst" Width="60" FontSize="13" MaxLength="4" ToolTip="Estimated install runtime in minutes"/>
         <TextBlock Text=" mins" FontSize="13" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray5}"/>
     </StackPanel>
 
-    <TextBlock Grid.Row="4" Grid.Column="0" Text="Max Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
+    <TextBlock Grid.Row="5" Grid.Column="0" Text="Max Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
         <TextBox x:Name="txtMax" Width="60" FontSize="13" MaxLength="4" ToolTip="Maximum allowed install runtime in minutes"/>
         <TextBlock Text=" mins" FontSize="13" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray5}"/>
     </StackPanel>
 
-    <TextBlock Grid.Row="5" Grid.Column="0" Text="Auto-distribute:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, the Package phase calls Start-CMContentDistribution after creating each MECM Application."/>
-    <CheckBox  Grid.Row="5" Grid.Column="1" x:Name="chkAutoDist" Content="Start-CMContentDistribution after Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+    <TextBlock Grid.Row="6" Grid.Column="0" Text="Auto-distribute:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, the Package phase calls Start-CMContentDistribution after creating each MECM Application."/>
+    <CheckBox  Grid.Row="6" Grid.Column="1" x:Name="chkAutoDist" Content="Start-CMContentDistribution after Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
-    <TextBlock Grid.Row="6" Grid.Column="0" Text="DP Group:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact name of the Distribution Point Group to target."/>
-    <TextBox   Grid.Row="6" Grid.Column="1" x:Name="txtDPGroup" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Distribution Point Group display name (e.g. 'All DPs')"/>
+    <TextBlock Grid.Row="7" Grid.Column="0" Text="DP Group:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact name of the Distribution Point Group to target."/>
+    <TextBox   Grid.Row="7" Grid.Column="1" x:Name="txtDPGroup" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Distribution Point Group display name (e.g. 'All DPs')"/>
 
-    <TextBlock Grid.Row="7" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
-    <TextBlock Grid.Row="7" Grid.Column="1" x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="8" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
+    <TextBlock Grid.Row="8" Grid.Column="1" x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
 
-    <TextBlock Grid.Row="8" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="7-Zip command-line (7z.exe) detection status. Required by Adobe Reader + TeamViewer Host packagers."/>
-    <TextBlock Grid.Row="8" Grid.Column="1" x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="9" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="7-Zip command-line (7z.exe) detection status. Required by Adobe Reader + TeamViewer Host packagers."/>
+    <TextBlock Grid.Row="9" Grid.Column="1" x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
 </Grid>
 '@
 
@@ -2454,6 +2501,7 @@ function New-MecmPreferencesPanel {
     $element = [System.Windows.Markup.XamlReader]::Load($reader)
 
     $txtSC  = $element.FindName('txtSC')
+    $txtProvider = $element.FindName('txtProvider')
     $txtFS  = $element.FindName('txtFS')
     $txtDL  = $element.FindName('txtDL')
     $txtEst = $element.FindName('txtEst')
@@ -2464,6 +2512,7 @@ function New-MecmPreferencesPanel {
     $txtSevenZipStatus = $element.FindName('txtSevenZipStatus')
 
     $txtSC.Text  = [string]$script:Prefs.SiteCode
+    $txtProvider.Text = [string]$script:Prefs.ProviderMachineName
     $txtFS.Text  = [string]$script:Prefs.FileShareRoot
     $txtDL.Text  = [string]$script:Prefs.DownloadRoot
     $txtEst.Text = [string]$script:Prefs.EstimatedRuntimeMins
@@ -2499,6 +2548,7 @@ function New-MecmPreferencesPanel {
         if (-not [int]::TryParse($txtMax.Text.Trim(), [ref]$maxVal)) { $maxVal = 30 }
 
         $prefsRef.SiteCode             = $txtSC.Text.Trim()
+        $prefsRef.ProviderMachineName  = $txtProvider.Text.Trim()
         $prefsRef.FileShareRoot        = $txtFS.Text.Trim()
         $prefsRef.DownloadRoot         = $txtDL.Text.Trim()
         $prefsRef.EstimatedRuntimeMins = $estVal
@@ -3781,6 +3831,7 @@ function Invoke-MultiAppPipeline {
                             $res = Invoke-PackagerPackage `
                                 -PackagerPath $path `
                                 -SiteCode $Ctx.SiteCode `
+                                -ProviderMachineName $Ctx.ProviderMachineName `
                                 -Comment $Ctx.Comment `
                                 -FileServerPath $Ctx.FileShareRoot `
                                 -LogFolder $Ctx.LogFolder `
@@ -3905,7 +3956,7 @@ function Invoke-MultiAppPipeline {
                             $cmName = [string]$row.CMName
                             if (-not [string]::IsNullOrWhiteSpace($cmName) -and $Ctx.AdminUiFound) {
                                 try {
-                                    $mecmRes = Get-MecmCurrentVersionByCMName -SiteCode $Ctx.SiteCode -CMName $cmName
+                                    $mecmRes = Get-MecmCurrentVersionByCMName -SiteCode $Ctx.SiteCode -ProviderMachineName $Ctx.ProviderMachineName -CMName $cmName
                                     if ($mecmRes.Found -and -not [string]::IsNullOrWhiteSpace([string]$mecmRes.SoftwareVersion)) {
                                         $row.CurrentVersion = [string]$mecmRes.SoftwareVersion
                                         $cmp = Compare-SemVer -A ([string]$mecmRes.SoftwareVersion) -B $latest
@@ -4007,6 +4058,7 @@ function Invoke-MultiAppPipeline {
                             $pkg = Invoke-PackagerPackage `
                                 -PackagerPath $path `
                                 -SiteCode $Ctx.SiteCode `
+                                -ProviderMachineName $Ctx.ProviderMachineName `
                                 -Comment $Ctx.Comment `
                                 -FileServerPath $Ctx.FileShareRoot `
                                 -LogFolder $Ctx.LogFolder `
@@ -4223,7 +4275,7 @@ $btnCheckMECM.Add_Click({
             $dataGrid.Items.Refresh()
 
             try {
-                $res = Get-MecmCurrentVersionByCMName -SiteCode $siteCodeValue -CMName $cmName
+                $res = Get-MecmCurrentVersionByCMName -SiteCode $siteCodeValue -ProviderMachineName $script:Prefs.ProviderMachineName -CMName $cmName
 
                 if (-not $res.Found) {
                     $row.CurrentVersion = ""
@@ -4349,6 +4401,7 @@ $btnPackage.Add_Click({
     $txtStatus.Text = "Packaging selected applications..."
     Invoke-MultiAppPipeline -Operation Package -Rows $selectedRows -Context @{
         SiteCode             = $siteCodeValue
+        ProviderMachineName  = $script:Prefs.ProviderMachineName
         Comment              = $txtComment.Text.Trim()
         FileShareRoot        = $fsPathValue
         DownloadRoot         = $script:Prefs.DownloadRoot
@@ -4430,6 +4483,7 @@ $btnFullRun.Add_Click({
 
     Invoke-MultiAppPipeline -Operation FullRun -Rows $rows -Context @{
         SiteCode             = $siteCodeValue
+        ProviderMachineName  = $script:Prefs.ProviderMachineName
         Action               = $action
         ForceFlag            = $forceFlag
         Overrides            = $script:Prefs.AppFlow.CadenceOverrides

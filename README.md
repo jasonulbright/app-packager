@@ -59,11 +59,11 @@ All five actions share the same persistent history file at `%LOCALAPPDATA%\AppPa
 
 Clicking **Options** opens a unified settings window with a left-nav list and a right content pane (Discord / VS Code style). A single OK commits every panel's changes in one action, and Cancel discards them all.
 
-**MECM Preferences** — Site Code, File Share Root, Download Root, estimated/maximum deployment runtime, and an Auto-distribute-to-DP checkbox + DP Group Name. The bottom of the panel shows read-only detected-tools status: ConfigMgr Console (name, version, install path in tooltip) and 7-Zip CLI (display name, version, exe path). Each row shows a checkmark + version when found or an `X` + install guidance when missing.
+**MECM Preferences** — Site Code, Provider Machine, File Share Root, Download Root, estimated/maximum deployment runtime, and an Auto-distribute-to-DP checkbox + DP Group Name. Provider Machine is the `$ProviderMachineName` value from the ConfigMgr AdminUI-generated connect script. The bottom of the panel shows read-only detected-tools status: ConfigMgr Console (name, version, install path in tooltip) and 7-Zip CLI (display name, version, exe path). Each row shows a checkmark + version when found or an `X` + install guidance when missing.
 
 When Auto-distribute is enabled and DP Group Name is populated, every Package phase (manual or One Click) calls `Start-CMContentDistribution -ApplicationName <app> -DistributionPointGroupName <group>` after creating the MECM Application. "Already been targeted" is silently treated as success so re-packaging is idempotent.
 
-ConfigMgr Console detection runs once per launch. It scans the registry ARP entries for "Configuration Manager Console", then falls back to `$env:SMS_ADMIN_UI_PATH` and known install paths to locate `ConfigurationManager.psd1`. Check MECM, Package Apps, and One Click with Stage-and-Package show a themed "Console Required" warning and bail when the module can't be found on the workstation.
+ConfigMgr Console detection runs once per launch. It scans the registry ARP entries for "Configuration Manager Console", then falls back to `$env:SMS_ADMIN_UI_PATH` and known install paths to locate `ConfigurationManager.psd1`. Check MECM, Package Apps, and One Click with Stage-and-Package create the missing `CMSite` PSDrive with `New-PSDrive -PSProvider CMSite -Root <Provider Machine>`, matching the AdminUI connect prompt, then show a themed "Console Required" warning and bail when the module can't be found on the workstation.
 
 **Packager Preferences** — grouped settings that packagers read at Stage time:
 
@@ -124,6 +124,7 @@ All packager scripts accept the same core parameters:
 | Parameter | Description |
 |---|---|
 | `-SiteCode` | ConfigMgr site code PSDrive name (default: `MCM`) |
+| `APP_PACKAGER_CM_PROVIDER` | Optional environment override for the SMS Provider machine used to create a missing `CMSite` PSDrive |
 | `-Comment` | Optional administrative comment stored on the CM Application Description |
 | `-FileServerPath` | UNC root containing the `Applications` folder (default: `\\fileserver\sccm$`) |
 | `-DownloadRoot` | Local root folder for staging (default: `C:\temp\ap`) |
@@ -499,7 +500,7 @@ All packager scripts import the shared module which provides:
 | `Initialize-Logging` | Sets up log file output |
 | `Invoke-DownloadWithRetry` | curl.exe download wrapper with 1 retry and 5s delay |
 | `Test-IsAdmin` | Checks for administrator elevation |
-| `Connect-CMSite` | Imports ConfigMgr module and sets PSDrive location |
+| `Connect-CMSite` | Imports ConfigMgr module, creates the missing CMSite PSDrive when a provider is configured, and sets PSDrive location |
 | `Initialize-Folder` | Creates directory if missing |
 | `Test-NetworkShareAccess` | Verifies UNC path is writable |
 | `Get-MsiPropertyMap` | Reads MSI properties (ProductName, ProductVersion, Manufacturer, ProductCode) |
