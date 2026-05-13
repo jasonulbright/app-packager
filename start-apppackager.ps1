@@ -919,13 +919,22 @@ function Get-MecmCurrentVersionByCMName {
         [Parameter(Mandatory)][string]$CMName
     )
 
-    if (-not (Connect-CMSite -SiteCode $SiteCode -ProviderMachineName $ProviderMachineName)) {
-        throw ("Failed to connect to CM site '{0}'." -f $SiteCode)
+    if (-not (Get-Command -Name Get-CMApplication -ErrorAction SilentlyContinue)) {
+        try {
+            if ($env:SMS_ADMIN_UI_PATH) {
+                $cmModule = Join-Path (Split-Path $env:SMS_ADMIN_UI_PATH) "ConfigurationManager.psd1"
+                if (Test-Path -LiteralPath $cmModule) {
+                    Import-Module $cmModule -Force -ErrorAction Stop
+                }
+            }
+        } catch { }
     }
-
     if (-not (Get-Command -Name Get-CMApplication -ErrorAction SilentlyContinue)) {
         throw "ConfigMgr PowerShell cmdlets not available in this session."
     }
+
+    try { Set-Location "${SiteCode}:" -ErrorAction Stop }
+    catch { throw ("Failed to connect to CM site PSDrive '{0}:'" -f $SiteCode) }
 
     $savedLocation = Get-Location
     try {

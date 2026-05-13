@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.0.0.3] - 2026-05-13
+
+### Fixes
+
+- **MECM site connection restored for `Get-MecmCurrentVersionByCMName`
+  (Check MECM button).** v1.0.0.2 routed the in-script Check MECM call
+  through the module-scope `Connect-CMSite`. Module functions run in
+  their own isolated session state, so the caller's `${SiteCode}:`
+  PSDrive (mounted by an AdminUI connect script in the launching shell)
+  was not visible and the function fell through to the explicit-provider
+  branch, throwing `'<SiteCode>' Configuration Manager PSDrive is not available
+  and no provider machine name is configured` even though the drive was
+  usable in the same shell. Restored the inline `Import-Module
+  ConfigurationManager` + `Set-Location ${SiteCode}:` pattern at script
+  scope. Workstations that pre-mount the drive go straight to
+  `Set-Location`; workstations that have not pre-mounted import the
+  module so its `OnImport` hook mounts the drive from `HKCU` MRU, then
+  `Set-Location` succeeds.
+
 ## [1.0.0.2] - 2026-05-08
 
 ### Fixes
