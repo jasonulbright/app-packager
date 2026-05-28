@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.0.0.4] - 2026-05-27
+
+### Additions
+
+- **Two NVIDIA Graphics Driver packagers (FR #1).** Adds
+  `package-nvidia-geforce.ps1` (GeForce Game Ready DCH x64, covers
+  current Maxwell+ consumer GTX/RTX cards) and
+  `package-nvidia-rtx-enterprise.ps1` (Quadro Certified DCH x64, covers
+  current NVIDIA RTX PRO / RTX A-series workstation cards). Both query
+  NVIDIA's `AjaxDriverService.php` JSON endpoint with pinned `psid`/`pfid`
+  per packager. Pinning answers the lookup-form combo-box ambiguity by
+  treating the flagship pfid as a stable "latest driver for current
+  family" key, since the DCH installer is unified across the whole
+  family. Detection is a single ARP `RegistryKeyValue` on the constant
+  NVIDIA Display.Driver uninstall GUID
+  (`{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}_Display.Driver` →
+  `DisplayVersion`), so both MECM apps coexist without colliding. Silent
+  install: `setup.exe -s -noreboot -clean`. Silent uninstall:
+  `setup.exe -uninstall -s -noreboot`.
+- **README packager count: 89 → 91.** Table extended with the two new
+  NVIDIA entries.
+
 ## [1.0.0.3] - 2026-05-13
 
 ### Fixes
