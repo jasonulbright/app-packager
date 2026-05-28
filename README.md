@@ -135,9 +135,9 @@ All packager scripts accept the same core parameters:
 | `-GetLatestVersionOnly` | Output the latest version string and exit |
 | `-LogPath` | Path to a structured log file (timestamps + severity levels) |
 
-## Supported Applications (89)
+## Supported Applications (91)
 
-All 89 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. The original 83 are end-to-end validated against MECM; the six newest packagers (Teams new, VS Code User+System, Power BI Desktop, SSMS 22, Postman User) inherit the same Stage to manifest to Package shape.
+All 91 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. The original 83 are end-to-end validated against MECM; the eight newest packagers (Teams new, VS Code User+System, Power BI Desktop, SSMS 22, Postman User, NVIDIA GeForce Game Ready, NVIDIA RTX Enterprise) inherit the same Stage to manifest to Package shape.
 
 | Script | Vendor | Application | Detection Type |
 |---|---|---|---|
@@ -181,6 +181,8 @@ All 89 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-
 | package-msvcruntimes.ps1 | Microsoft | VC++ 2015-2022 Redistributable (x86+x64) | Compound (AND, 2x RegistryKeyValue) |
 | package-nodejs.ps1 | OpenJS Foundation | Node.js LTS (x64) | RegistryKeyValue |
 | package-notepadplusplus.ps1 | Notepad++ | Notepad++ (x64) | File version |
+| package-nvidia-geforce.ps1 | NVIDIA | NVIDIA Graphics Driver - GeForce Game Ready (x64) | RegistryKeyValue |
+| package-nvidia-rtx-enterprise.ps1 | NVIDIA | NVIDIA Graphics Driver - RTX Enterprise (x64) | RegistryKeyValue |
 | package-paintdotnet.ps1 | dotPDN LLC | Paint.NET (x64) | RegistryKeyValue |
 | package-positron.ps1 | Posit Software, PBC | Positron (x64) | File existence |
 | package-postman.ps1 | Postman | Postman (User) | File version (user context) |
