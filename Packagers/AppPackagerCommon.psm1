@@ -350,6 +350,38 @@ function Test-CMSiteCodeMatchesProvider {
     }
 }
 
+function Test-CMSiteDriveUsable {
+    <#
+    .SYNOPSIS
+        Probes whether CM cmdlets actually work from the current site drive.
+
+    .DESCRIPTION
+        ConfigMgr 2509 drops a CMSite drive's provider connection once the
+        session leaves the drive (Set-Location C:), and a drive auto-mounted
+        by the module's OnImport hook may never have had a live connection.
+        Re-entering such a drive either fails outright or succeeds with a
+        dead connection where every CM cmdlet throws ArgumentNullException
+        ("Key cannot be null. Parameter name: key"). A cheap Get-CMSite call
+        from the drive is the only reliable check.
+
+        Returns $true when Get-CMSite is not available in the session (no CM
+        environment to probe), so non-CM contexts are not treated as stale.
+        Caller must already be located on the site drive.
+    #>
+    param()
+
+    if (-not (Get-Command -Name Get-CMSite -ErrorAction SilentlyContinue)) { return $true }
+
+    try {
+        $null = Get-CMSite -ErrorAction Stop
+        return $true
+    }
+    catch {
+        Write-Log ("CM site drive probe failed   : {0}" -f $_.Exception.Message) -Level DEBUG
+        return $false
+    }
+}
+
 function Connect-CMSite {
     param(
         [Parameter(Mandatory)][string]$SiteCode,
@@ -379,17 +411,52 @@ function Connect-CMSite {
         Write-Log ("CMSite drives in session     : {0}" -f $driveList) -Level DEBUG
 
         $siteDrive = Get-PSDrive -Name $SiteCode -PSProvider CMSite -ErrorAction SilentlyContinue
-        if (-not $siteDrive) {
+        $staleRoot = $null
+        $connected = $false
+
+        if ($siteDrive) {
+            # ConfigMgr 2509: the provider connection dies whenever the
+            # session leaves the site drive, and an OnImport-mounted drive
+            # may never have been live. Entering the drive can fail, or
+            # succeed with a dead connection where every CM cmdlet throws
+            # "Key cannot be null. Parameter name: key". Probe before
+            # trusting it; recreate the drive when the probe fails.
+            $entered = $false
+            try {
+                Set-Location "$($SiteCode):\" -ErrorAction Stop
+                $entered = $true
+            }
+            catch {
+                Write-Log ("Set-Location {0}: failed on existing drive: {1}" -f $SiteCode, $_.Exception.Message) -Level DEBUG
+            }
+
+            if ($entered -and (Test-CMSiteDriveUsable)) {
+                $connected = $true
+            }
+            else {
+                Write-Log "Existing CMSite drive '$SiteCode' has no usable provider connection; recreating it."
+                $staleRoot = [string]$siteDrive.Root
+                if ($entered) { Set-Location 'C:\' -ErrorAction Stop }
+                Remove-PSDrive -Name $SiteCode -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        if (-not $connected) {
             $provider = Resolve-CMProviderMachineName -ProviderMachineName $ProviderMachineName
+            if ([string]::IsNullOrWhiteSpace($provider)) { $provider = $staleRoot }
             if ([string]::IsNullOrWhiteSpace($provider)) {
                 throw "Configuration Manager PSDrive '$SiteCode' is not available and no provider machine name is configured. Set Provider Machine in MECM Preferences, copy the ProviderMachineName value from the AdminUI connect script, or set APP_PACKAGER_CM_PROVIDER."
             }
 
             Write-Log "Connecting to CM provider     : $provider"
             New-PSDrive -Name $SiteCode -PSProvider CMSite -Root $provider -ErrorAction Stop | Out-Null
+            Set-Location "$($SiteCode):\" -ErrorAction Stop
+
+            if (-not (Test-CMSiteDriveUsable)) {
+                throw "CMSite drive '$SiteCode' was recreated from provider '$provider' but CM cmdlets still cannot reach the site (connection probe failed). Verify console version, RBAC, and provider reachability."
+            }
         }
 
-        Set-Location "$($SiteCode):\" -ErrorAction Stop
         Write-Log "Connected to CM site: $SiteCode"
 
         # Verbose-only sanity check: a drive named for the wrong site code

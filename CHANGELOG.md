@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixes
+
+- **CMSite drive connections survive ConfigMgr 2509's stale-drive
+  behavior.** As of 2509 the site drive's provider connection does not
+  survive the session leaving the drive (`Set-Location C:`), and a drive
+  auto-mounted by the module's `OnImport` hook may never have had a live
+  connection at all: re-entering the drive either fails or succeeds with a
+  dead connection where every CM cmdlet throws
+  `Key cannot be null. Parameter name: key`.
+  `Connect-CMSite` and the
+  GUI's inline Check MECM connect now probe the drive with a cheap
+  `Get-CMSite` call after every entry; if the probe fails they leave the
+  drive, `Remove-PSDrive` it, recreate it from the configured provider
+  machine (falling back to the stale drive's own Root when no provider is
+  configured), re-enter, and re-probe — the same sequence as rerunning the
+  AdminUI connect script. CM cmdlets continue to run only from the site
+  drive and filesystem work only from `C:`; every `C:` detour now goes
+  through the reconnect logic on the way back.
+  `Get-MecmCurrentVersionByCMName` also restores the caller's original
+  location instead of leaving the shell parked on the site drive, where the
+  next `C:` operation would silently kill the connection.
+
 ## [1.0.0.5] - 2026-06-12
 
 ### Additions
