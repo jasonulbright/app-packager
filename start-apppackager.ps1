@@ -912,6 +912,23 @@ function Invoke-PackagerGetLatestVersion {
     }
 }
 
+function Test-CMSiteDriveUsableInline {
+    # Probes whether CM cmdlets actually work from the current site drive.
+    # Mirrors the module's Test-CMSiteDriveUsable, duplicated inline because
+    # module functions run in isolated session state and cannot manage this
+    # runspace's drives (see v1.0.0.3 notes). ConfigMgr 2509 drops the
+    # provider connection whenever the session leaves the site drive, so a
+    # mounted drive proves nothing until a real cmdlet answers from it.
+    if (-not (Get-Command -Name Get-CMSite -ErrorAction SilentlyContinue)) { return $true }
+    try {
+        $null = Get-CMSite -ErrorAction Stop
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
 function Get-MecmCurrentVersionByCMName {
     param(
         [Parameter(Mandatory)][string]$SiteCode,
@@ -933,30 +950,60 @@ function Get-MecmCurrentVersionByCMName {
         throw "ConfigMgr PowerShell cmdlets not available in this session."
     }
 
-    try { Set-Location "${SiteCode}:" -ErrorAction Stop }
-    catch {
-        # Drive not mounted: the module's OnImport hook only mounts from the
-        # HKCU console MRU, which is empty on workstations where the AdminUI
-        # has never connected. Fall back to creating the drive from the
-        # Preferences provider machine, inline at script scope so the drive
-        # lands in this session state (see v1.0.0.3 notes on module-scope
-        # Connect-CMSite isolation).
-        if ([string]::IsNullOrWhiteSpace($ProviderMachineName)) {
+    # Capture the caller's location BEFORE touching the site drive so the
+    # finally block restores it. Leaving the shell parked on the site drive
+    # is the ConfigMgr 2509 trap: the connection dies as soon as a later
+    # operation moves to C:, and the parked drive looks mounted but is dead.
+    $savedLocation = Get-Location
+
+    $existingDrive = Get-PSDrive -Name $SiteCode -PSProvider CMSite -ErrorAction SilentlyContinue
+    $connected = $false
+
+    if ($existingDrive) {
+        try {
+            Set-Location "${SiteCode}:" -ErrorAction Stop
+            $connected = Test-CMSiteDriveUsableInline
+        }
+        catch {
+            $connected = $false
+        }
+
+        if (-not $connected) {
+            # 2509: stale drive. Tear it down and rebuild from the provider;
+            # this is what rerunning the AdminUI connect script effectively
+            # does. Must leave the drive before removing it.
+            Set-Location 'C:\' -ErrorAction SilentlyContinue
+            Remove-PSDrive -Name $SiteCode -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    if (-not $connected) {
+        $providerRoot = $null
+        if (-not [string]::IsNullOrWhiteSpace($ProviderMachineName)) {
+            $providerRoot = $ProviderMachineName.Trim()
+        }
+        elseif ($existingDrive) {
+            $providerRoot = [string]$existingDrive.Root
+        }
+
+        if ([string]::IsNullOrWhiteSpace($providerRoot)) {
+            Set-Location $savedLocation -ErrorAction SilentlyContinue
             throw ("Failed to connect to CM site PSDrive '{0}:'. Open the ConfigMgr console once on this machine, or set Provider Machine in Options > MECM Preferences (the ProviderMachineName value from the AdminUI connect script)." -f $SiteCode)
         }
 
         try {
-            if (-not (Get-PSDrive -Name $SiteCode -PSProvider CMSite -ErrorAction SilentlyContinue)) {
-                New-PSDrive -Name $SiteCode -PSProvider CMSite -Root $ProviderMachineName.Trim() -ErrorAction Stop | Out-Null
-            }
+            New-PSDrive -Name $SiteCode -PSProvider CMSite -Root $providerRoot -ErrorAction Stop | Out-Null
             Set-Location "${SiteCode}:" -ErrorAction Stop
+            if (-not (Test-CMSiteDriveUsableInline)) {
+                throw 'CM cmdlets are not responding after the drive was recreated (connection probe failed).'
+            }
         }
         catch {
-            throw ("Failed to connect to CM site PSDrive '{0}:' via provider '{1}': {2}" -f $SiteCode, $ProviderMachineName, $_.Exception.Message)
+            Set-Location $savedLocation -ErrorAction SilentlyContinue
+            throw ("Failed to connect to CM site PSDrive '{0}:' via provider '{1}': {2}" -f $SiteCode, $providerRoot, $_.Exception.Message)
         }
     }
 
-    $savedLocation = Get-Location
     try {
         $apps = @(Get-CMApplication -Name $CMName -ErrorAction SilentlyContinue)
         if (-not $apps -or $apps.Count -eq 0) {
