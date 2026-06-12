@@ -14,12 +14,11 @@
   happy-path cost.
 - **Clarification on v1.0.0.6:** the stated rationale for the probe was
   not accurate. The behavior it targeted traces to broken RBAC role
-  assignments, which can make CM cmdlets fail or return null while
-  the console works normally.
-  With correct RBAC, site-drive
-  connections behave as they always did. If cmdlets half-work while the
-  console is fine, review RBAC role assignments before suspecting
-  the connection.
+  assignments, not to site-drive connection lifetime — broken RBAC can
+  make CM cmdlets fail or return null while the console works normally.
+  With correct RBAC, site-drive connections behave as they always did.
+  If cmdlets half-work while the console is fine, review RBAC role
+  assignments before suspecting the connection.
 
 ## [1.0.0.6] - 2026-06-12
 
@@ -31,8 +30,7 @@
   auto-mounted by the module's `OnImport` hook may never have had a live
   connection at all: re-entering the drive either fails or succeeds with a
   dead connection where every CM cmdlet throws
-  `Key cannot be null. Parameter name: key`.
-  `Connect-CMSite` and the
+  `Key cannot be null. Parameter name: key`. `Connect-CMSite` and the
   GUI's inline Check MECM connect now probe the drive with a cheap
   `Get-CMSite` call after every entry; if the probe fails they leave the
   drive, `Remove-PSDrive` it, recreate it from the configured provider
@@ -146,8 +144,6 @@
   `Read-PackagerHistory` normalizes `ConvertFrom-Json` datetime values
   back to `yyyy-MM-ddTHH:mm:ssZ`, avoiding culture-formatted strings in
   callers.
-
-
 
 ## [1.0.0.1] - 2026-05-06
 
