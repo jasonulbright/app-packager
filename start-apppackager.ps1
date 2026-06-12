@@ -912,23 +912,6 @@ function Invoke-PackagerGetLatestVersion {
     }
 }
 
-function Test-CMSiteDriveUsableInline {
-    # Probes whether CM cmdlets actually work from the current site drive.
-    # Mirrors the module's Test-CMSiteDriveUsable, duplicated inline because
-    # module functions run in isolated session state and cannot manage this
-    # runspace's drives (see v1.0.0.3 notes). ConfigMgr 2509 drops the
-    # provider connection whenever the session leaves the site drive, so a
-    # mounted drive proves nothing until a real cmdlet answers from it.
-    if (-not (Get-Command -Name Get-CMSite -ErrorAction SilentlyContinue)) { return $true }
-    try {
-        $null = Get-CMSite -ErrorAction Stop
-        return $true
-    }
-    catch {
-        return $false
-    }
-}
-
 function Get-MecmCurrentVersionByCMName {
     param(
         [Parameter(Mandatory)][string]$SiteCode,
@@ -951,9 +934,8 @@ function Get-MecmCurrentVersionByCMName {
     }
 
     # Capture the caller's location BEFORE touching the site drive so the
-    # finally block restores it. Leaving the shell parked on the site drive
-    # is the ConfigMgr 2509 trap: the connection dies as soon as a later
-    # operation moves to C:, and the parked drive looks mounted but is dead.
+    # finally block restores it instead of leaving the shell parked on the
+    # site drive.
     $savedLocation = Get-Location
 
     $existingDrive = Get-PSDrive -Name $SiteCode -PSProvider CMSite -ErrorAction SilentlyContinue
@@ -962,17 +944,11 @@ function Get-MecmCurrentVersionByCMName {
     if ($existingDrive) {
         try {
             Set-Location "${SiteCode}:" -ErrorAction Stop
-            $connected = Test-CMSiteDriveUsableInline
+            $connected = $true
         }
         catch {
-            $connected = $false
-        }
-
-        if (-not $connected) {
-            # 2509: stale drive. Tear it down and rebuild from the provider;
-            # this is what rerunning the AdminUI connect script effectively
-            # does. Must leave the drive before removing it.
-            Set-Location 'C:\' -ErrorAction SilentlyContinue
+            # Existing drive won't enter (dead provider connection, e.g.
+            # provider restart). Tear it down and rebuild from the provider.
             Remove-PSDrive -Name $SiteCode -Force -ErrorAction SilentlyContinue
         }
     }
@@ -994,9 +970,6 @@ function Get-MecmCurrentVersionByCMName {
         try {
             New-PSDrive -Name $SiteCode -PSProvider CMSite -Root $providerRoot -ErrorAction Stop | Out-Null
             Set-Location "${SiteCode}:" -ErrorAction Stop
-            if (-not (Test-CMSiteDriveUsableInline)) {
-                throw 'CM cmdlets are not responding after the drive was recreated (connection probe failed).'
-            }
         }
         catch {
             Set-Location $savedLocation -ErrorAction SilentlyContinue
