@@ -1,5 +1,42 @@
 # Changelog
 
+## [Unreleased]
+
+### Additions
+
+- **Verbose failure diagnostics for packager scripts.** `Write-Log` gains a
+  `DEBUG` level (always written to the structured log file; echoed to the
+  console only when verbose logging is on) and the module exports
+  `Write-LogErrorRecord`, which logs the full exception chain,
+  `FullyQualifiedErrorId`, the failing `file:line`, the failing statement,
+  and the script stack trace from any catch block. Enable verbose mode with
+  `Initialize-Logging -VerboseLogging`, the new `-VerboseLog` switch on
+  `package-adobereader.ps1`, or `APP_PACKAGER_VERBOSE=1` (inherited by GUI
+  child processes). `New-MECMApplicationFromManifest` now tracks which step
+  is in flight (`Connect-CMSite`, duplicate check, `New-CMApplication`,
+  detection clause creation, `Add-CMScriptDeploymentType`, revision-history
+  cleanup) and names it on failure, so opaque ConfigMgr cmdlet errors such
+  as `Key cannot be null. Parameter name: key` finally identify their call
+  site in the log for every packager.
+- **Provider site-code validation in `Connect-CMSite` (verbose mode).**
+  After connecting, the module queries `root\sms:SMS_ProviderLocation` on
+  the drive's provider machine and warns when the drive name does not match
+  a site code the provider actually serves — the canonical cause of CM
+  cmdlets failing with `Key cannot be null. Parameter name: key` after an
+  apparently successful connect.
+
+### Fixes
+
+- **`Get-MecmCurrentVersionByCMName` honors the Provider Machine
+  preference.** The function accepted `-ProviderMachineName` but never used
+  it: when the `${SiteCode}:` drive was not mounted (console MRU empty
+  because the AdminUI never connected on that workstation), Check MECM
+  failed with `Failed to connect to CM site PSDrive`. It now falls back to
+  `New-PSDrive -Root <ProviderMachineName>` inline at script scope before
+  giving up, and the giving-up message says exactly which preference to
+  set. Manifest AppName is also validated as non-empty before
+  `Get-CMApplication`/`New-CMApplication` run.
+
 ## [1.0.0.4] - 2026-05-27
 
 ### Additions

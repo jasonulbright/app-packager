@@ -29,11 +29,22 @@
 # ---------------------------------------------------------------------------
 
 $script:__AppPackagerLogPath = $null
+$script:__AppPackagerVerbose = $false
 
 function Initialize-Logging {
-    param([string]$LogPath)
+    param(
+        [string]$LogPath,
+        [switch]$VerboseLogging
+    )
 
     $script:__AppPackagerLogPath = $LogPath
+
+    # Verbose diagnostics: explicit switch wins; otherwise the
+    # APP_PACKAGER_VERBOSE env var enables it (set by the GUI host or the
+    # operator's shell) unless it holds an explicit "off" value.
+    $envVerbose = $env:APP_PACKAGER_VERBOSE
+    $script:__AppPackagerVerbose = [bool]$VerboseLogging -or
+        (-not [string]::IsNullOrWhiteSpace($envVerbose) -and $envVerbose -notin @('0', 'false', 'no'))
 
     if ($LogPath) {
         $parentDir = Split-Path -Path $LogPath -Parent
@@ -43,6 +54,10 @@ function Initialize-Logging {
 
         $header = "[{0}] [INFO ] === Log initialized ===" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
         Set-Content -LiteralPath $LogPath -Value $header -Encoding UTF8
+    }
+
+    if ($script:__AppPackagerVerbose) {
+        Write-Log "Verbose logging enabled (DEBUG lines on console and in log file)." -Level DEBUG
     }
 }
 
@@ -55,6 +70,9 @@ function Write-Log {
         INFO  -> Write-Host (stdout)
         WARN  -> Write-Host (stdout)
         ERROR -> Write-Host (stdout) + $host.UI.WriteErrorLine (stderr)
+        DEBUG -> log file always; Write-Host (stdout) only when verbose
+                 logging is enabled (Initialize-Logging -VerboseLogging or
+                 APP_PACKAGER_VERBOSE env var).
 
         -Quiet suppresses all console output but still writes to the log file.
     #>
@@ -63,7 +81,7 @@ function Write-Log {
         [Parameter(Mandatory, Position = 0)]
         [string]$Message,
 
-        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [ValidateSet('INFO', 'WARN', 'ERROR', 'DEBUG')]
         [string]$Level = 'INFO',
 
         [switch]$Quiet
@@ -72,7 +90,9 @@ function Write-Log {
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
     $formatted = "[{0}] [{1,-5}] {2}" -f $timestamp, $Level, $Message
 
-    if (-not $Quiet) {
+    $suppressConsole = $Quiet -or ($Level -eq 'DEBUG' -and -not $script:__AppPackagerVerbose)
+
+    if (-not $suppressConsole) {
         Write-Host $formatted
 
         if ($Level -eq 'ERROR') {
@@ -82,6 +102,66 @@ function Write-Log {
 
     if ($script:__AppPackagerLogPath) {
         Add-Content -LiteralPath $script:__AppPackagerLogPath -Value $formatted -Encoding UTF8 -ErrorAction SilentlyContinue
+    }
+}
+
+function Write-LogErrorRecord {
+    <#
+    .SYNOPSIS
+        Logs full diagnostics for an ErrorRecord: exception chain, error id,
+        failing file/line/statement, and the script stack trace.
+
+    .DESCRIPTION
+        Designed for catch blocks. The InvocationInfo position and
+        ScriptStackTrace identify the exact line of code that threw, which a
+        bare $_.Exception.Message ("SCRIPT FAILED: Key cannot be null...")
+        never reveals.
+
+    .PARAMETER Level
+        Log level for the diagnostic lines. Default ERROR. Pass DEBUG when the
+        caller already emits its own single ERROR summary line and the detail
+        should only land in the log file (unless verbose logging is enabled).
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [System.Management.Automation.ErrorRecord]$ErrorRecord,
+
+        [string]$Context = '',
+
+        [ValidateSet('ERROR', 'WARN', 'DEBUG')]
+        [string]$Level = 'ERROR'
+    )
+
+    if ($Context) {
+        Write-Log ("Failure context              : {0}" -f $Context) -Level $Level
+    }
+
+    $ex = $ErrorRecord.Exception
+    if ($ex) {
+        Write-Log ("Exception                    : {0}: {1}" -f $ex.GetType().FullName, $ex.Message) -Level $Level
+        $inner = $ex.InnerException
+        while ($inner) {
+            Write-Log ("Inner exception              : {0}: {1}" -f $inner.GetType().FullName, $inner.Message) -Level $Level
+            $inner = $inner.InnerException
+        }
+    }
+
+    Write-Log ("FullyQualifiedErrorId        : {0}" -f $ErrorRecord.FullyQualifiedErrorId) -Level $Level
+
+    $ii = $ErrorRecord.InvocationInfo
+    if ($ii) {
+        if ($ii.ScriptName) {
+            Write-Log ("Failing location             : {0}:{1}" -f $ii.ScriptName, $ii.ScriptLineNumber) -Level $Level
+        }
+        if ($ii.Line) {
+            Write-Log ("Failing statement            : {0}" -f $ii.Line.Trim()) -Level $Level
+        }
+    }
+
+    if ($ErrorRecord.ScriptStackTrace) {
+        foreach ($frame in ($ErrorRecord.ScriptStackTrace -split "`r?`n")) {
+            Write-Log ("Stack                        : {0}" -f $frame) -Level $Level
+        }
     }
 }
 
@@ -237,6 +317,39 @@ function Resolve-CMProviderMachineName {
     return $null
 }
 
+function Test-CMSiteCodeMatchesProvider {
+    <#
+    .SYNOPSIS
+        Asks the SMS Provider which site code(s) it actually serves.
+
+    .DESCRIPTION
+        Queries root\sms:SMS_ProviderLocation on the provider machine. A
+        CMSite PSDrive whose NAME does not match a real site code on its Root
+        server is the classic cause of CM cmdlets failing with
+        "Key cannot be null. Parameter name: key". Returns $null when the
+        query itself fails (offline provider, no WMI rights).
+    #>
+    param(
+        [Parameter(Mandatory)][string]$SiteCode,
+        [Parameter(Mandatory)][string]$ProviderMachineName
+    )
+
+    try {
+        $locations = @(Get-WmiObject -ComputerName $ProviderMachineName -Namespace 'root\sms' -Class 'SMS_ProviderLocation' -ErrorAction Stop)
+        $codes = @($locations | ForEach-Object { [string]$_.SiteCode } | Where-Object { $_ } | Select-Object -Unique)
+        if ($codes.Count -eq 0) { return $null }
+
+        return [pscustomobject]@{
+            Match     = ($codes -contains $SiteCode)
+            SiteCodes = $codes
+        }
+    }
+    catch {
+        Write-Log ("Provider site-code query failed for {0}: {1}" -f $ProviderMachineName, $_.Exception.Message) -Level DEBUG
+        return $null
+    }
+}
+
 function Connect-CMSite {
     param(
         [Parameter(Mandatory)][string]$SiteCode,
@@ -246,6 +359,8 @@ function Connect-CMSite {
     try {
         if (-not (Get-Module -Name ConfigurationManager -ErrorAction SilentlyContinue)) {
             $cmModulePath = Resolve-ConfigurationManagerModulePath
+            $moduleSource = if ($cmModulePath) { $cmModulePath } else { 'PSModulePath lookup' }
+            Write-Log ("ConfigurationManager module  : importing from {0}" -f $moduleSource) -Level DEBUG
             if ($cmModulePath -and (Test-Path -LiteralPath $cmModulePath)) {
                 Import-Module $cmModulePath -ErrorAction Stop
             }
@@ -253,6 +368,15 @@ function Connect-CMSite {
                 Import-Module ConfigurationManager -ErrorAction Stop
             }
         }
+        else {
+            Write-Log "ConfigurationManager module  : already loaded" -Level DEBUG
+        }
+
+        $cmDrives = @(Get-PSDrive -PSProvider CMSite -ErrorAction SilentlyContinue)
+        $driveList = if ($cmDrives.Count -gt 0) {
+            ($cmDrives | ForEach-Object { "{0} -> {1}" -f $_.Name, $_.Root }) -join '; '
+        } else { '(none)' }
+        Write-Log ("CMSite drives in session     : {0}" -f $driveList) -Level DEBUG
 
         $siteDrive = Get-PSDrive -Name $SiteCode -PSProvider CMSite -ErrorAction SilentlyContinue
         if (-not $siteDrive) {
@@ -267,9 +391,30 @@ function Connect-CMSite {
 
         Set-Location "$($SiteCode):\" -ErrorAction Stop
         Write-Log "Connected to CM site: $SiteCode"
+
+        # Verbose-only sanity check: a drive named for the wrong site code
+        # connects fine but every subsequent CM cmdlet dies with
+        # "Key cannot be null. Parameter name: key". Surface that here so the
+        # log explains the failure instead of the cmdlet's opaque message.
+        if ($script:__AppPackagerVerbose) {
+            $drive = Get-PSDrive -Name $SiteCode -PSProvider CMSite -ErrorAction SilentlyContinue
+            if ($drive -and -not [string]::IsNullOrWhiteSpace([string]$drive.Root)) {
+                $check = Test-CMSiteCodeMatchesProvider -SiteCode $SiteCode -ProviderMachineName ([string]$drive.Root)
+                if ($check) {
+                    if ($check.Match) {
+                        Write-Log ("Provider confirms site code  : {0} on {1}" -f $SiteCode, $drive.Root) -Level DEBUG
+                    }
+                    else {
+                        Write-Log ("Site code mismatch: drive is named '{0}' but provider {1} serves site code(s) {2}. CM cmdlets typically fail with 'Key cannot be null. Parameter name: key' in this state - correct the SiteCode in MECM Preferences / -SiteCode." -f $SiteCode, $drive.Root, ($check.SiteCodes -join ', ')) -Level WARN
+                    }
+                }
+            }
+        }
+
         return $true
     }
     catch {
+        Write-LogErrorRecord -ErrorRecord $_ -Context ("Connect-CMSite SiteCode={0}" -f $SiteCode) -Level DEBUG
         Write-Log "Failed to connect to CM site: $($_.Exception.Message)" -Level ERROR
         return $false
     }
@@ -1206,13 +1351,25 @@ function New-MECMApplicationFromManifest {
         Write-Log ("Package integrity verified     : {0} file(s)" -f $contentVerification.ExpectedCount)
     }
 
+    # Tracks the operation in flight so the catch block can name the step
+    # that failed. CM cmdlet errors (e.g. "Key cannot be null. Parameter
+    # name: key") rarely identify their own call site.
+    $step = 'initialization'
+
     try {
+        $step = "Connect-CMSite (SiteCode=$SiteCode)"
         if (-not (Connect-CMSite -SiteCode $SiteCode)) {
             throw "CM site connection failed."
         }
 
         $appName = $Manifest.AppName
+        if ([string]::IsNullOrWhiteSpace([string]$appName)) {
+            throw "Stage manifest AppName is null or empty; cannot create an MECM application. Re-run the Stage phase and verify the manifest."
+        }
 
+        Write-Log ("Manifest fields              : AppName='{0}' Publisher='{1}' SoftwareVersion='{2}' DetectionType='{3}'" -f $appName, $Manifest.Publisher, $Manifest.SoftwareVersion, $Manifest.Detection.Type) -Level DEBUG
+
+        $step = "Get-CMApplication duplicate check ('$appName')"
         $existing = Get-CMApplication -Name $appName -ErrorAction SilentlyContinue
         if ($existing) {
             $existingApps = @($existing)
@@ -1231,6 +1388,7 @@ function New-MECMApplicationFromManifest {
         }
 
         Write-Log "Creating CM Application      : $appName"
+        $step = "New-CMApplication ('$appName')"
         $cmAppParams = @{
             Name             = $appName
             Publisher        = $Manifest.Publisher
@@ -1302,6 +1460,7 @@ function New-MECMApplicationFromManifest {
         else {
             # Clause-based detection: leave CM PSDrive to create clause objects
             # (CM PSDrive context can interfere with parameter binding)
+            $step = "New detection clause(s) (type=$detType)"
             Set-Location C: -ErrorAction Stop
 
             if ($detType -eq 'Compound') {
@@ -1331,14 +1490,19 @@ function New-MECMApplicationFromManifest {
             }
 
             # Reconnect to CM site for Add-CMScriptDeploymentType
+            $step = "Connect-CMSite reconnect (SiteCode=$SiteCode)"
             if (-not (Connect-CMSite -SiteCode $SiteCode)) {
                 throw "CM site reconnection failed."
             }
         }
 
+        Write-Log ("Deployment type parameters   : {0}" -f (($dtParams.Keys | Sort-Object | ForEach-Object { "{0}='{1}'" -f $_, $dtParams[$_] }) -join ' ')) -Level DEBUG
+
         Write-Log "Adding Script Deployment Type : $dtName"
+        $step = "Add-CMScriptDeploymentType ('$dtName')"
         Add-CMScriptDeploymentType @dtParams | Out-Null
 
+        $step = "Remove-CMApplicationRevisionHistory (CI_ID=$($cmApp.CI_ID))"
         Remove-CMApplicationRevisionHistoryByCIId -CI_ID ([UInt32]$cmApp.CI_ID) -KeepLatest 1
 
         # Optional auto-distribute to a DP group. Settings live in
@@ -1376,6 +1540,10 @@ function New-MECMApplicationFromManifest {
         Write-Log "Created MECM application     : $appName"
 
         return [UInt32]$cmApp.CI_ID
+    }
+    catch {
+        Write-LogErrorRecord -ErrorRecord $_ -Context ("New-MECMApplicationFromManifest failed during step: {0}" -f $step)
+        throw
     }
     finally {
         Set-Location $orig -ErrorAction SilentlyContinue
