@@ -1,25 +1,24 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.0.7] - 2026-06-12
 
 ### Changes
 
-- **Removed the per-connect `Get-CMSite` probe introduced in v1.0.0.6.**
-  The "Key cannot be null. Parameter name: key" failures (and the
-  apparent ConfigMgr 2509 stale-drive behavior) turned out to be broken
-  RBAC role assignments — with RBAC
-  fixed, leaving and re-entering the site drive works as it always did,
-  and the probe was pure overhead: one provider round trip on every
-  drive entry (~0.3-1.5s), twice per package run, and once per
-  application in a batch Check MECM pass (~90 round trips across the
-  full packager set). `Connect-CMSite` and the GUI connect now trust a
-  successful `Set-Location` again. The failure-path recovery is kept:
-  when entering an existing drive throws, the drive is removed and
-  recreated from the configured provider machine (falling back to the
-  stale drive's own Root), which costs nothing on the happy path.
-  Diagnostic note for the next person here: broken RBAC presents as the
-  console GUI working fully while PowerShell cmdlets half-work or throw
-  `ArgumentNullException` — review role assignments before blaming
+- **Optimization: removed the per-entry `Get-CMSite` connection probe
+  added in v1.0.0.6.** The probe cost a provider round trip on every
+  site-drive entry — twice per package run and once per application
+  during a batch Check MECM (~90 round trips across the full packager
+  set). A successful `Set-Location` onto the site drive is trusted
+  again; if entering an existing drive fails, the drive is still torn
+  down and rebuilt from the configured provider machine at no
+  happy-path cost.
+- **Clarification on v1.0.0.6:** the stated rationale for the probe was
+  not accurate. The behavior it targeted traces to broken RBAC role
+  assignments, which can make CM cmdlets fail or return null while
+  the console works normally.
+  With correct RBAC, site-drive
+  connections behave as they always did. If cmdlets half-work while the
+  console is fine, review RBAC role assignments before suspecting
   the connection.
 
 ## [1.0.0.6] - 2026-06-12
