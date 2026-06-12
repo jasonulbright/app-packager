@@ -934,7 +934,27 @@ function Get-MecmCurrentVersionByCMName {
     }
 
     try { Set-Location "${SiteCode}:" -ErrorAction Stop }
-    catch { throw ("Failed to connect to CM site PSDrive '{0}:'" -f $SiteCode) }
+    catch {
+        # Drive not mounted: the module's OnImport hook only mounts from the
+        # HKCU console MRU, which is empty on workstations where the AdminUI
+        # has never connected. Fall back to creating the drive from the
+        # Preferences provider machine, inline at script scope so the drive
+        # lands in this session state (see v1.0.0.3 notes on module-scope
+        # Connect-CMSite isolation).
+        if ([string]::IsNullOrWhiteSpace($ProviderMachineName)) {
+            throw ("Failed to connect to CM site PSDrive '{0}:'. Open the ConfigMgr console once on this machine, or set Provider Machine in Options > MECM Preferences (the ProviderMachineName value from the AdminUI connect script)." -f $SiteCode)
+        }
+
+        try {
+            if (-not (Get-PSDrive -Name $SiteCode -PSProvider CMSite -ErrorAction SilentlyContinue)) {
+                New-PSDrive -Name $SiteCode -PSProvider CMSite -Root $ProviderMachineName.Trim() -ErrorAction Stop | Out-Null
+            }
+            Set-Location "${SiteCode}:" -ErrorAction Stop
+        }
+        catch {
+            throw ("Failed to connect to CM site PSDrive '{0}:' via provider '{1}': {2}" -f $SiteCode, $ProviderMachineName, $_.Exception.Message)
+        }
+    }
 
     $savedLocation = Get-Location
     try {

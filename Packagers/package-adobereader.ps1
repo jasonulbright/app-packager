@@ -67,6 +67,12 @@ RequiresTools: 7-Zip
     Parses Adobe's release notes page for the current version, outputs the version
     string, and exits. No download or MECM changes are made.
 
+.PARAMETER VerboseLog
+    Enables DEBUG-level diagnostic logging (CM module/drive state, manifest
+    fields, deployment type parameters, provider site-code validation).
+    Equivalent to setting APP_PACKAGER_VERBOSE=1. On failure the log always
+    includes the exception chain, failing file:line, and script stack trace.
+
 .REQUIREMENTS
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
@@ -85,12 +91,13 @@ param(
     [string]$LogPath,
     [switch]$GetLatestVersionOnly,
     [switch]$StageOnly,
-    [switch]$PackageOnly
+    [switch]$PackageOnly,
+    [switch]$VerboseLog
 )
 
 
 Import-Module "$PSScriptRoot\AppPackagerCommon.psd1" -Force
-Initialize-Logging -LogPath $LogPath
+Initialize-Logging -LogPath $LogPath -VerboseLogging:$VerboseLog
 
 if ($StageOnly -and $PackageOnly) {
     Write-Log "-StageOnly and -PackageOnly cannot be used together." -Level ERROR
@@ -576,6 +583,7 @@ try {
     Write-Log "Script execution complete."
 }
 catch {
+    Write-LogErrorRecord -ErrorRecord $_ -Context 'package-adobereader'
     Write-Log "SCRIPT FAILED: $($_.Exception.Message)" -Level ERROR
     exit 1
 }
