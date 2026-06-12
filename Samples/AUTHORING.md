@@ -173,11 +173,10 @@ Package requires admin because content copy to network shares can require it in 
 
 Before submitting a new packager:
 
-1. Run `.\Tests\Invoke-PackagerSmoke.ps1`. Confirm all offline parse, metadata, and parameter-contract checks pass.
-2. Run `.\Packagers\package-<app>.ps1 -GetLatestVersionOnly`. Confirm the output is the current version in a clean format.
-3. Run `.\Packagers\package-<app>.ps1 -StageOnly`. Confirm `<DownloadRoot>\<AppSubfolder>\<Version>\` has: the installer, `install.bat`, `install.ps1`, `uninstall.bat`, `uninstall.ps1`, `stage-manifest.json`.
-4. Run `.\Packagers\package-<app>.ps1 -PackageOnly -SiteCode <yourcode> -FileServerPath <yourshare>`. Confirm the network content landed and the MECM app was created with the right detection and deployment type.
-5. Deploy to a test VM. Install, detect, uninstall, confirm ARP entry is gone. Re-install, re-detect, re-uninstall. Reboot. Re-detect.
-6. Drop the packager into the main grid and Ctrl+Click its vendor URL; confirm the link opens the right page.
+1. Run `.\Packagers\package-<app>.ps1 -GetLatestVersionOnly`. Confirm the output is the current version in a clean format.
+2. Run `.\Packagers\package-<app>.ps1 -StageOnly`. Confirm `<DownloadRoot>\<AppSubfolder>\<Version>\` has: the installer, `install.bat`, `install.ps1`, `uninstall.bat`, `uninstall.ps1`, `stage-manifest.json`.
+3. Run `.\Packagers\package-<app>.ps1 -PackageOnly -SiteCode <yourcode> -FileServerPath <yourshare>`. Confirm the network content landed and the MECM app was created with the right detection and deployment type.
+4. Deploy to a lab VM. Install, detect, uninstall, confirm ARP entry is gone. Re-install, re-detect, re-uninstall. Reboot. Re-detect.
+5. Drop the packager into the main grid and Ctrl+Click its vendor URL; confirm the link opens the right page.
 
 Only after all five pass does it belong in the shipping tree.

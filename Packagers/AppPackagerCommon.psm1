@@ -966,7 +966,7 @@ function Write-ContentWrappers {
 
     # .bat wrapper template: @echo off, call PowerShell, propagate exit code
     # When exit code override is set (e.g. 3010), only apply on success --
-    # real failures must propagate so ConfigMgr/harness can detect them.
+    # real failures must propagate so ConfigMgr can detect them.
     $installBat = if ($InstallBatExitCode -eq '%ERRORLEVEL%') {
         (@(
             '@echo off',
