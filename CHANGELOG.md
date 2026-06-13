@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Additions
+
+- **`-VerboseLog` on every packager.** The switch (and the
+  `APP_PACKAGER_VERBOSE=1` environment variable equivalent) previously
+  existed only on `package-adobereader.ps1`; all packagers, sample
+  packagers, and templates now accept it and pass it through to
+  `Initialize-Logging`. Every packager's top-level catch now records
+  full failure detail via `Write-LogErrorRecord` — exception chain,
+  `FullyQualifiedErrorId`, failing `file:line`, failing statement, and
+  script stack trace — before the `SCRIPT FAILED` summary line, so any
+  packager failure identifies its exact call site in the log.
+
 ## [1.0.0.7] - 2026-06-12
 
 ### Changes
