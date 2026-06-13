@@ -47,7 +47,8 @@ param(
     [string]$LogPath,
     [switch]$GetLatestVersionOnly,
     [switch]$StageOnly,
-    [switch]$PackageOnly
+    [switch]$PackageOnly,
+    [switch]$VerboseLog
 )
 
 Import-Module "$PSScriptRoot\..\AppPackagerCommon.psd1" -Force
@@ -56,7 +57,7 @@ $VendorFolder = "TODO-VENDOR"
 $AppFolder    = "TODO-APPLICATION"
 $BaseDownloadRoot = Join-Path $DownloadRoot $VendorFolder
 
-Initialize-Logging -LogPath $LogPath
+Initialize-Logging -LogPath $LogPath -VerboseLogging:$VerboseLog
 
 if ($GetLatestVersionOnly) {
     try {

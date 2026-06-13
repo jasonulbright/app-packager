@@ -42,11 +42,12 @@ param(
     [string]$LogPath,
     [switch]$GetLatestVersionOnly,
     [switch]$StageOnly,
-    [switch]$PackageOnly
+    [switch]$PackageOnly,
+    [switch]$VerboseLog
 )
 
 Import-Module "$PSScriptRoot\AppPackagerCommon.psd1" -Force
-Initialize-Logging -LogPath $LogPath
+Initialize-Logging -LogPath $LogPath -VerboseLogging:$VerboseLog
 
 if ($StageOnly -and $PackageOnly) {
     Write-Log "-StageOnly and -PackageOnly cannot be used together." -Level ERROR
@@ -299,6 +300,7 @@ try {
     Write-Log "Script execution complete."
 }
 catch {
+    Write-LogErrorRecord -ErrorRecord $_ -Context 'package-powerbi-desktop'
     Write-Log "SCRIPT FAILED: $($_.Exception.Message)" -Level ERROR
     exit 1
 }
