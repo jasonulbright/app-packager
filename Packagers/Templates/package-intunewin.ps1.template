@@ -25,7 +25,7 @@ UpdateCadenceDays: 30
       - First 48 bytes of the inner "IntunePackage.intunewin" file are
         an AES key + IV pair (see Microsoft's open-source
         IntuneWinAppUtil source).
-      - Decrypt inner bytes -> original Win32 installer payload +
+      - Decrypt inner bytes -> original Win32 installer +
         detection.xml with metadata (AppName, Version, Detection).
 
     This template documents the shape; the actual extraction routine is
@@ -83,10 +83,10 @@ if ($StageOnly) {
     #   $metadata     = Join-Path $tmp 'IntuneWinPackage\Metadata\Detection.xml'
     #   [xml]$meta    = Get-Content -LiteralPath $metadata -Raw
     #   # AES key + IV are the first 48 bytes of the inner wrapper; rest is
-    #   # encrypted original payload. See IntuneWinAppUtil reference for the
-    #   # exact decrypt recipe.
+    #   # the encrypted original installer. See IntuneWinAppUtil reference for
+    #   # the exact decrypt recipe.
     # TODO: write content wrappers (likely delegating to New-MsiWrapperContent
-    #       or New-ExeWrapperContent once the inner payload type is known)
+    #       or New-ExeWrapperContent once the inner installer type is known)
     # TODO: write stage manifest
 
     throw "TODO: implement StageOnly for $AppFolder"
