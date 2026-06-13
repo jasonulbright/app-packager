@@ -25,7 +25,7 @@ The GUI (`start-apppackager.ps1`) provides a visual front-end that discovers pac
 | **MECM Permissions** | RBAC rights to create Applications and Deployment Types (Package phase only) |
 | **Local Admin** | Required for packager script execution |
 | **Network Share** | Write access to the SCCM content share, e.g., `\\fileserver\sccm$` (Package phase only) |
-| **7-Zip CLI** | Optional — required only by packagers that extract archived installers (currently Adobe Reader and TeamViewer Host). Detected at launch via the ARP registry; the resolved `7z.exe` path is forwarded to packager child processes via `APP_PACKAGER_SEVENZIP` so non-default install locations Just Work |
+| **7-Zip CLI** | Optional — required only by packagers that extract archived installers (currently Adobe Reader and TeamViewer Host). Detected at launch via the ARP registry; the resolved `7z.exe` path is forwarded to packager child processes via `APP_PACKAGER_SEVENZIP` so non-default install locations are handled automatically |
 
 ## Usage
 
