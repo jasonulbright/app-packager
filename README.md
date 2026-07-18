@@ -333,7 +333,7 @@ exit /b %ERRORLEVEL%
 
 The `.ps1` files contain the actual install/uninstall logic using `Start-Process -Wait -PassThru -NoNewWindow` and `exit $proc.ExitCode` to propagate native installer return codes (0, 1603, 3010, etc.) through to MECM.
 
-**Why `.bat` wrappers?** MECM's Deployment Type "Hidden" visibility dropdown appends `/q` to install parameters. This conflicts with installers that already specify `/qn` or `/qb`. The `.bat` wrapper with `@echo off` prevents this by hiding the command window without injecting silent flags.
+**Why `.bat` wrappers?** One consistent launch path for every installer type: `@echo off` keeps the console quiet, the wrapper hands off to the `.ps1` that holds the real logic, and `exit /b %ERRORLEVEL%` propagates the native return code (0, 1603, 3010) unchanged to MECM.
 
 ### Stage manifest (`stage-manifest.json`)
 
