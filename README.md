@@ -156,8 +156,8 @@ All 91 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-
 | package-corretto-jdk25.ps1 | Amazon | Amazon Corretto JDK 25 (x64) | RegistryKeyValue |
 | package-dbeaver.ps1 | DBeaver Corp | DBeaver Community | File version |
 | package-dotnet8.ps1 | Microsoft | .NET Desktop Runtime 8 (x64) | Compound (AND, 2x File existence) |
-| package-Dotnet9x64.ps1 | Microsoft | .NET Desktop Runtime 9 (x64) | File existence |
-| package-Dotnet10x64.ps1 | Microsoft | .NET Desktop Runtime 10 (x64) | File existence |
+| package-dotnet9x64.ps1 | Microsoft | .NET Desktop Runtime 9 (x64) | File existence |
+| package-dotnet10x64.ps1 | Microsoft | .NET Desktop Runtime 10 (x64) | File existence |
 | package-dotnet10both.ps1 | Microsoft | .NET Desktop Runtime 10 (x86+x64) | Compound (AND, 2x File existence) |
 | package-drawio.ps1 | JGraph Ltd | draw.io | RegistryKeyValue |
 | package-edge.ps1 | Microsoft | Microsoft Edge (x64) | Compound (OR, 2x File version) |
