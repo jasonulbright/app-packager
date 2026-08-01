@@ -224,19 +224,28 @@ function Invoke-StageMsvcRedist {
     $installContent = (
         ('$x86Path = Join-Path $PSScriptRoot ''{0}''' -f $FileNameX86),
         ('$x64Path = Join-Path $PSScriptRoot ''{0}''' -f $FileNameX64),
+        '# 3010 (reboot required) and 1641 (reboot initiated) are successes.',
+        '# Treating them as failures here would skip the second installer.',
+        '$ok = @(0, 3010, 1641)',
         '$proc1 = Start-Process -FilePath $x86Path -ArgumentList @(''/install'', ''/quiet'', ''/norestart'', ''/log'', (Join-Path $PSScriptRoot ''x86.install.log'')) -Wait -PassThru -NoNewWindow',
-        'if ($proc1.ExitCode -ne 0) { exit $proc1.ExitCode }',
+        'if ($proc1.ExitCode -notin $ok) { exit $proc1.ExitCode }',
         '$proc2 = Start-Process -FilePath $x64Path -ArgumentList @(''/install'', ''/quiet'', ''/norestart'', ''/log'', (Join-Path $PSScriptRoot ''x64.install.log'')) -Wait -PassThru -NoNewWindow',
-        'exit $proc2.ExitCode'
+        'if ($proc2.ExitCode -notin $ok) { exit $proc2.ExitCode }',
+        '# Both installed; surface a pending-reboot code if either raised one.',
+        'foreach ($c in @($proc1.ExitCode, $proc2.ExitCode)) { if ($c -ne 0) { exit $c } }',
+        'exit 0'
     ) -join "`r`n"
 
     $uninstallContent = (
         ('$x86Path = Join-Path $PSScriptRoot ''{0}''' -f $FileNameX86),
         ('$x64Path = Join-Path $PSScriptRoot ''{0}''' -f $FileNameX64),
+        '$ok = @(0, 3010, 1641)',
         '$proc1 = Start-Process -FilePath $x86Path -ArgumentList @(''/uninstall'', ''/quiet'', ''/norestart'', ''/log'', (Join-Path $PSScriptRoot ''x86.uninstall.log'')) -Wait -PassThru -NoNewWindow',
-        'if ($proc1.ExitCode -ne 0) { exit $proc1.ExitCode }',
+        'if ($proc1.ExitCode -notin $ok) { exit $proc1.ExitCode }',
         '$proc2 = Start-Process -FilePath $x64Path -ArgumentList @(''/uninstall'', ''/quiet'', ''/norestart'', ''/log'', (Join-Path $PSScriptRoot ''x64.uninstall.log'')) -Wait -PassThru -NoNewWindow',
-        'exit $proc2.ExitCode'
+        'if ($proc2.ExitCode -notin $ok) { exit $proc2.ExitCode }',
+        'foreach ($c in @($proc1.ExitCode, $proc2.ExitCode)) { if ($c -ne 0) { exit $c } }',
+        'exit 0'
     ) -join "`r`n"
 
     Write-ContentWrappers -OutputPath $localContentPath `
