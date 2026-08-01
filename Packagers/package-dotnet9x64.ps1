@@ -365,7 +365,7 @@ try {
     Write-Log "Script execution complete."
 }
 catch {
-    Write-LogErrorRecord -ErrorRecord $_ -Context 'package-Dotnet9x64'
+    Write-LogErrorRecord -ErrorRecord $_ -Context 'package-dotnet9x64'
     Write-Log "SCRIPT FAILED: $($_.Exception.Message)" -Level ERROR
     exit 1
 }
