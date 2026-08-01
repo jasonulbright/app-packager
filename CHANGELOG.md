@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixes
+
+- **Multi-installer wrappers aborted on success codes.** The generated
+  `install.ps1` for `msvcruntimes`, `dotnet8`, and `dotnet10both` guarded
+  the first installer with `if ($proc1.ExitCode -ne 0) { exit ... }`.
+  Windows installers return **3010** for "succeeded, reboot required" and
+  **1641** for "succeeded, reboot initiated", so a successful first
+  install exited the script before the second architecture was installed,
+  and MECM recorded the deployment as failed. Compound detection requires
+  both architectures, so the application could never report installed.
+  The wrappers now treat `0`, `3010`, and `1641` as success, run both
+  installers, and surface a pending-reboot code from either one.
+
+  Impact was uneven. `msvcruntimes` installs x86 first, and x86
+  redistributables rarely request a reboot, which is why this stayed
+  hidden. `dotnet8` and `dotnet10both` install **x64 first**, so a reboot
+  code there skipped the x86 runtime — the one that x86 consumers of
+  .NET 8 such as Citrix Workspace, SailPoint, and VMware Tools depend on.
+
+- **`winrar` skipped its license key on a reboot code.** Same guard, same
+  cause: a 3010 from the installer bypassed the `rarreg.key` copy. The
+  wrapper now continues on reboot codes and returns the installer's real
+  exit code instead of a hardcoded `0`.
+
 ## [1.0.0.8] - 2026-06-13
 
 ### Additions

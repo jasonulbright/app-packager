@@ -217,19 +217,28 @@ function Invoke-StageDotNet10 {
     $installContent = (
         ('$x64Path = Join-Path $PSScriptRoot ''{0}''' -f $x64FileName),
         ('$x86Path = Join-Path $PSScriptRoot ''{0}''' -f $x86FileName),
+        '# 3010 (reboot required) and 1641 (reboot initiated) are successes.',
+        '# Treating them as failures here would skip the second installer.',
+        '$ok = @(0, 3010, 1641)',
         '$proc1 = Start-Process -FilePath $x64Path -ArgumentList @(''/install'', ''/quiet'', ''/norestart'') -Wait -PassThru -NoNewWindow',
-        'if ($proc1.ExitCode -ne 0) { exit $proc1.ExitCode }',
+        'if ($proc1.ExitCode -notin $ok) { exit $proc1.ExitCode }',
         '$proc2 = Start-Process -FilePath $x86Path -ArgumentList @(''/install'', ''/quiet'', ''/norestart'') -Wait -PassThru -NoNewWindow',
-        'exit $proc2.ExitCode'
+        'if ($proc2.ExitCode -notin $ok) { exit $proc2.ExitCode }',
+        '# Both installed; surface a pending-reboot code if either raised one.',
+        'foreach ($c in @($proc1.ExitCode, $proc2.ExitCode)) { if ($c -ne 0) { exit $c } }',
+        'exit 0'
     ) -join "`r`n"
 
     $uninstallContent = (
         ('$x64Path = Join-Path $PSScriptRoot ''{0}''' -f $x64FileName),
         ('$x86Path = Join-Path $PSScriptRoot ''{0}''' -f $x86FileName),
+        '$ok = @(0, 3010, 1641)',
         '$proc1 = Start-Process -FilePath $x64Path -ArgumentList @(''/uninstall'', ''/quiet'', ''/norestart'') -Wait -PassThru -NoNewWindow',
-        'if ($proc1.ExitCode -ne 0) { exit $proc1.ExitCode }',
+        'if ($proc1.ExitCode -notin $ok) { exit $proc1.ExitCode }',
         '$proc2 = Start-Process -FilePath $x86Path -ArgumentList @(''/uninstall'', ''/quiet'', ''/norestart'') -Wait -PassThru -NoNewWindow',
-        'exit $proc2.ExitCode'
+        'if ($proc2.ExitCode -notin $ok) { exit $proc2.ExitCode }',
+        'foreach ($c in @($proc1.ExitCode, $proc2.ExitCode)) { if ($c -ne 0) { exit $c } }',
+        'exit 0'
     ) -join "`r`n"
 
     Write-ContentWrappers -OutputPath $localContentPath `

@@ -202,14 +202,16 @@ function Invoke-StageWinRAR {
     $installPs1 = @(
         "`$exePath = Join-Path `$PSScriptRoot '$installerFileName'"
         "`$proc = Start-Process -FilePath `$exePath -ArgumentList @('/S') -Wait -PassThru -NoNewWindow"
-        "if (`$proc.ExitCode -ne 0) { exit `$proc.ExitCode }"
+        "# 3010 (reboot required) and 1641 (reboot initiated) are successes;"
+        "# bailing on them here would skip the license-key copy below."
+        "if (`$proc.ExitCode -notin @(0, 3010, 1641)) { exit `$proc.ExitCode }"
         ""
         "# Copy license key if present in content folder"
         "`$keyFile = Join-Path `$PSScriptRoot 'rarreg.key'"
         "if (Test-Path -LiteralPath `$keyFile) {"
         "    Copy-Item -LiteralPath `$keyFile -Destination `"`$env:ProgramFiles\WinRAR\rarreg.key`" -Force"
         "}"
-        "exit 0"
+        "exit `$proc.ExitCode"
     ) -join "`r`n"
 
     $uninstallPs1 = @(
