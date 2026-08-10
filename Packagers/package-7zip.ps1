@@ -67,7 +67,9 @@ param(
     [string]$SiteCode = "MCM",
     [string]$Comment = "",
     [string]$FileServerPath = "\\fileserver\sccm$",
+    [string]$ApplicationSharePattern = "Applications\7-Zip\7-Zip",
     [string]$DownloadRoot = "C:\temp\ap",
+    [String]$PSAppDeployToolkitPath = "",
     [int]$EstimatedRuntimeMins = 15,
     [int]$MaximumRuntimeMins = 30,
     [string]$LogPath,
@@ -168,8 +170,7 @@ function Invoke-Stage7Zip {
     Write-Log ""
 
     if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
+        Write-Log "Run PowerShell as Administrator." -Level WARN
     }
 
     Initialize-Folder -Path $BaseDownloadRoot
@@ -211,7 +212,7 @@ function Invoke-Stage7Zip {
 
     $stagedMsi = Join-Path $localContentPath $MsiFileName
     if (-not (Test-Path -LiteralPath $stagedMsi)) {
-        Copy-Item -LiteralPath $localMsi -Destination $stagedMsi -Force -ErrorAction Stop
+        Move-Item -LiteralPath $localMsi -Destination $stagedMsi -Force -ErrorAction Stop
         Write-Log "Copied MSI to staged folder  : $stagedMsi"
     }
     else {
@@ -238,11 +239,13 @@ function Invoke-Stage7Zip {
     Write-Log "ARP Is64Bit                  : $($arpEntry.Is64Bit)"
     Write-Log ""
 
-    # --- Generate content wrappers ---
-    $wrapperContent = New-MsiWrapperContent -MsiFileName $MsiFileName
-    Write-ContentWrappers -OutputPath $localContentPath `
-        -InstallPs1Content $wrapperContent.Install `
-        -UninstallPs1Content $wrapperContent.Uninstall
+    if([string]::IsNullOrWhiteSpace($PSAppDeployToolkitPath) -eq $true -or (Test-Path -LiteralPath $PSAppDeployToolkitPath) -eq $false) {
+        # --- Generate content wrappers ---
+        $wrapperContent = New-MsiWrapperContent -MsiFileName $MsiFileName
+        Write-ContentWrappers -OutputPath $localContentPath `
+            -InstallPs1Content $wrapperContent.Install `
+            -UninstallPs1Content $wrapperContent.Uninstall
+    }
 
     # --- Write stage manifest ---
     $publisher = $manufacturer
@@ -255,6 +258,8 @@ function Invoke-Stage7Zip {
         AppName         = $appName
         Publisher       = $publisher
         SoftwareVersion = $displayVersion
+        Architecture    = "x64"
+        Language        = "MUI"
         InstallerFile   = $MsiFileName
         InstallerType   = "MSI"
         InstallArgs     = "/qn /norestart"
@@ -326,15 +331,30 @@ function Invoke-Package7Zip {
         throw "Network root path not accessible: $FileServerPath"
     }
 
-    $networkAppRoot = Get-NetworkAppRoot -FileServerPath $FileServerPath -VendorFolder $VendorFolder -AppFolder $AppFolder
-    $networkContentPath = Join-Path $networkAppRoot $manifest.SoftwareVersion
-    Initialize-Folder -Path $networkContentPath
+    $networkAppRoot = Get-NetworkAppRoot -FileServerPath $FileServerPath -PathPattern $ApplicationSharePattern -Variables @{ Manufacturer = $manifest.Publisher; ProductName = $manifest.AppName; Version = $manifest.SoftwareVersion; Language = $manifest.Language; Architecture = $manifest.Architecture; }
+    $networkContentPath = $networkAppRoot
 
     Write-Log "Network content path         : $networkContentPath"
     Write-Log ""
 
+    if([string]::IsNullOrWhiteSpace($PSAppDeployToolkitPath) -eq $false -and (Test-Path -LiteralPath $PSAppDeployToolkitPath)) {
+        Write-Log "Copyingd PSADT to network share: $($networkAppRoot)"
+        Copy-Item -Path $PSAppDeployToolkitPath -Destination $networkAppRoot -Recurse -Force
+
+        if(Test-Path -LiteralPath (Join-Path $networkAppRoot "Files") -eq $false) {      
+            Initialize-Folder -Path (Join-Path $networkAppRoot "Files")
+        }
+
+        $networkContentPath = Join-Path $networkAppRoot "Files"
+    }
+
     # --- Copy staged content to network ---
-    $localFiles = Get-ChildItem -Path $localContentPath -File -ErrorAction Stop
+    if([string]::IsNullOrWhiteSpace($PSAppDeployToolkitPath) -eq $false -and (Test-Path -LiteralPath $PSAppDeployToolkitPath)) {
+        $localFiles = Get-ChildItem -Path $localContentPath -Exclude "stage-manifest.json"
+    } else {
+        $localFiles = Get-ChildItem -Path $localContentPath -File -ErrorAction Stop
+    }
+    
     foreach ($f in $localFiles) {
         if ($f.Name -eq "stage-manifest.json") { continue }
         $dest = Join-Path $networkContentPath $f.Name
@@ -352,7 +372,7 @@ function Invoke-Package7Zip {
         -Manifest $manifest `
         -SiteCode $SiteCode `
         -Comment $Comment `
-        -NetworkContentPath $networkContentPath `
+        -NetworkContentPath $networkAppRoot `
         -EstimatedRuntimeMins $EstimatedRuntimeMins `
         -MaximumRuntimeMins $MaximumRuntimeMins
 }
