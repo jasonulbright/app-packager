@@ -88,25 +88,27 @@ function Get-PreferencesPath {
 
 function Read-Preferences {
     $defaults = [pscustomobject]@{
-        SiteCode             = "MCM"
-        ProviderMachineName  = ""
-        FileShareRoot        = "\\fileserver\sccm$"
-        DownloadRoot         = "C:\temp\ap"
-        EstimatedRuntimeMins = 15
-        MaximumRuntimeMins   = 30
-        CompanyName          = ""
-        M365Channel          = "MonthlyEnterprise"
-        M365DeployMode       = "Managed"
-        M365ExcludeApps      = @('Groove','Lync','OneDrive','Teams','Bing')
-        SSMSInstallOptions   = [pscustomobject]@{
-            UIMode             = "Quiet"
-            DownloadThenInstall = $true
-            NoUpdateInstaller  = $false
-            IncludeRecommended = $false
-            IncludeOptional    = $false
-            RemoveOos          = $true
-            ForceClose         = $false
-            InstallPath        = ""
+        SiteCode                = "MCM"
+        ProviderMachineName     = ""
+        FileShareRoot           = "\\fileserver\sccm$"
+        ApplicationSharePattern = "{Manufacturer}_{ProductName}_{Version}_{Language}_{Architecture}_01"
+        DownloadRoot            = "C:\temp\ap"
+        PSAppDeployToolkitPath  = ""
+        EstimatedRuntimeMins    = 15
+        MaximumRuntimeMins      = 30
+        CompanyName             = ""
+        M365Channel             = "MonthlyEnterprise"
+        M365DeployMode          = "Managed"
+        M365ExcludeApps         = @('Groove','Lync','OneDrive','Teams','Bing')
+        SSMSInstallOptions      = [pscustomobject]@{
+                UIMode              = "Quiet"
+                DownloadThenInstall = $true
+                NoUpdateInstaller   = $false
+                IncludeRecommended  = $false
+                IncludeOptional     = $false
+                RemoveOos           = $true
+                ForceClose          = $false
+                InstallPath         = ""
         }
         HiddenApplications   = @()
         AppFlow              = [pscustomobject]@{
@@ -152,11 +154,13 @@ function Read-Preferences {
         elseif ($data.MECM -and $null -ne $data.MECM.ServerFQDN) {
             $defaults.ProviderMachineName = [string]$data.MECM.ServerFQDN
         }
-        if ($null -ne $data.FileShareRoot)         { $defaults.FileShareRoot        = [string]$data.FileShareRoot }
-        if ($null -ne $data.DownloadRoot)          { $defaults.DownloadRoot         = [string]$data.DownloadRoot }
-        if ($null -ne $data.EstimatedRuntimeMins)  { $defaults.EstimatedRuntimeMins = [int]$data.EstimatedRuntimeMins }
-        if ($null -ne $data.MaximumRuntimeMins)    { $defaults.MaximumRuntimeMins   = [int]$data.MaximumRuntimeMins }
-        if ($null -ne $data.CompanyName)            { $defaults.CompanyName          = [string]$data.CompanyName }
+        if ($null -ne $data.FileShareRoot)              { $defaults.FileShareRoot           = [string]$data.FileShareRoot }
+        if ($null -ne $data.ApplicationSharePattern)    { $defaults.ApplicationSharePattern = [string]$data.ApplicationSharePattern }
+        if ($null -ne $data.DownloadRoot)               { $defaults.DownloadRoot            = [string]$data.DownloadRoot }
+        if( $null -ne $data.PSAppDeployToolkitPath)     { $defaults.PSAppDeployToolkitPath  = [string]$data.PSAppDeployToolkitPath }
+        if ($null -ne $data.EstimatedRuntimeMins)       { $defaults.EstimatedRuntimeMins    = [int]$data.EstimatedRuntimeMins }
+        if ($null -ne $data.MaximumRuntimeMins)         { $defaults.MaximumRuntimeMins      = [int]$data.MaximumRuntimeMins }
+        if ($null -ne $data.CompanyName)                { $defaults.CompanyName             = [string]$data.CompanyName }
 
         # M365Channel: validate against current set; migrate legacy SemiAnnual
         # and SemiAnnualPreview to MonthlyEnterprise (SAEC retired from the UI).
@@ -1183,6 +1187,7 @@ function Invoke-PackagerPackage {
         $argsBase += @('-FileServerPath', $FileServerPath)
     }
     if ($DownloadRoot) { $argsBase += @('-DownloadRoot', $DownloadRoot) }
+    if ($PSAppDeployToolkitPath) { $argsBase += @('PSAppDeployToolkitPath', $PSAppDeployToolkitPath) }
     if ($M365Channel) { $argsBase += @('-M365Channel', $M365Channel) }
     if ($M365DeployMode) { $argsBase += @('-M365DeployMode', $M365DeployMode) }
     if ($EstimatedRuntimeMins -gt 0) { $argsBase += @('-EstimatedRuntimeMins', [string]$EstimatedRuntimeMins) }
@@ -1738,6 +1743,7 @@ if ($BatchMode) {
 
     $prefs = if (Test-Path (Get-PreferencesPath)) { Read-Preferences } else { $null }
     $fileServerPath   = if ($prefs -and $prefs.FileShareRoot)             { $prefs.FileShareRoot }             else { $null }
+    $ApplicationSharePattern = if ($prefs -and $prefs.ApplicationSharePattern)      { $prefs.ApplicationSharePattern }      else { $null }
     $downloadRoot     = if ($prefs -and $prefs.DownloadRoot)              { $prefs.DownloadRoot }              else { $null }
     $providerForBatch = if ($script:Prefs -and $script:Prefs.ProviderMachineName) { [string]$script:Prefs.ProviderMachineName } else { $null }
     $cadenceOverrides = if ($prefs -and $prefs.AppFlow.CadenceOverrides)  { $prefs.AppFlow.CadenceOverrides }  else { $null }
@@ -2501,9 +2507,11 @@ function New-MecmPreferencesPanel {
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
     <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="140"/>
+        <ColumnDefinition Width="170"/>
         <ColumnDefinition Width="*"/>
     </Grid.ColumnDefinitions>
 
@@ -2516,32 +2524,38 @@ function New-MecmPreferencesPanel {
     <TextBlock Grid.Row="2" Grid.Column="0" Text="File Share Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
     <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtFS" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="UNC path to the SCCM content file share"/>
 
-    <TextBlock Grid.Row="3" Grid.Column="0" Text="Download Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtDL" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Local folder where installers are downloaded during staging"/>
+    <TextBlock Grid.Row="3" Grid.Column="0" Text="Application Share Pattern:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtASP" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Application Share Pattern to create folder structure"/>
 
-    <TextBlock Grid.Row="4" Grid.Column="0" Text="Est. Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
+    <TextBlock Grid.Row="4" Grid.Column="0" Text="Download Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <TextBox   Grid.Row="4" Grid.Column="1" x:Name="txtDL" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Local folder where installers are downloaded during staging"/>
+
+    <TextBlock Grid.Row="5" Grid.Column="0" Text="Est. Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
         <TextBox x:Name="txtEst" Width="60" FontSize="13" MaxLength="4" ToolTip="Estimated install runtime in minutes"/>
         <TextBlock Text=" mins" FontSize="13" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray5}"/>
     </StackPanel>
 
-    <TextBlock Grid.Row="5" Grid.Column="0" Text="Max Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
+    <TextBlock Grid.Row="6" Grid.Column="0" Text="Max Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
         <TextBox x:Name="txtMax" Width="60" FontSize="13" MaxLength="4" ToolTip="Maximum allowed install runtime in minutes"/>
         <TextBlock Text=" mins" FontSize="13" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray5}"/>
     </StackPanel>
 
-    <TextBlock Grid.Row="6" Grid.Column="0" Text="Auto-distribute:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, the Package phase calls Start-CMContentDistribution after creating each MECM Application."/>
-    <CheckBox  Grid.Row="6" Grid.Column="1" x:Name="chkAutoDist" Content="Start-CMContentDistribution after Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+    <TextBlock Grid.Row="7" Grid.Column="0" Text="Auto-distribute:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, the Package phase calls Start-CMContentDistribution after creating each MECM Application."/>
+    <CheckBox  Grid.Row="7" Grid.Column="1" x:Name="chkAutoDist" Content="Start-CMContentDistribution after Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
-    <TextBlock Grid.Row="7" Grid.Column="0" Text="DP Group:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact name of the Distribution Point Group to target."/>
-    <TextBox   Grid.Row="7" Grid.Column="1" x:Name="txtDPGroup" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Distribution Point Group display name (e.g. 'All DPs')"/>
+    <TextBlock Grid.Row="8" Grid.Column="0" Text="DP Group:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact name of the Distribution Point Group to target."/>
+    <TextBox   Grid.Row="8" Grid.Column="1" x:Name="txtDPGroup" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Distribution Point Group display name (e.g. 'All DPs')"/>
 
-    <TextBlock Grid.Row="8" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
-    <TextBlock Grid.Row="8" Grid.Column="1" x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="9" Grid.Column="0" Text="PSAppDeployToolkit:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Path of the PSAppDeployToolkit for distribution."/>
+    <TextBox   Grid.Row="9" Grid.Column="1" x:Name="txtPSADT" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Path to the PSAppDeployToolkit"/>
 
-    <TextBlock Grid.Row="9" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="7-Zip command-line (7z.exe) detection status. Required by Adobe Reader + TeamViewer Host packagers."/>
-    <TextBlock Grid.Row="9" Grid.Column="1" x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="10" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
+    <TextBlock Grid.Row="10" Grid.Column="1" x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
+
+    <TextBlock Grid.Row="11" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="7-Zip command-line (7z.exe) detection status. Required by Adobe Reader + TeamViewer Host packagers."/>
+    <TextBlock Grid.Row="11" Grid.Column="1" x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
 </Grid>
 '@
 
@@ -2552,22 +2566,26 @@ function New-MecmPreferencesPanel {
     $txtSC  = $element.FindName('txtSC')
     $txtProvider = $element.FindName('txtProvider')
     $txtFS  = $element.FindName('txtFS')
+    $txtASP = $element.FindName('txtASP')
     $txtDL  = $element.FindName('txtDL')
     $txtEst = $element.FindName('txtEst')
     $txtMax = $element.FindName('txtMax')
     $chkAutoDist = $element.FindName('chkAutoDist')
     $txtDPGroup  = $element.FindName('txtDPGroup')
+    $txtPSADT = $element.FindName('txtPSADT')
     $txtConsoleStatus  = $element.FindName('txtConsoleStatus')
     $txtSevenZipStatus = $element.FindName('txtSevenZipStatus')
 
-    $txtSC.Text  = [string]$script:Prefs.SiteCode
-    $txtProvider.Text = [string]$script:Prefs.ProviderMachineName
-    $txtFS.Text  = [string]$script:Prefs.FileShareRoot
-    $txtDL.Text  = [string]$script:Prefs.DownloadRoot
-    $txtEst.Text = [string]$script:Prefs.EstimatedRuntimeMins
-    $txtMax.Text = [string]$script:Prefs.MaximumRuntimeMins
+    $txtSC.Text         = [string]$script:Prefs.SiteCode
+    $txtProvider.Text   = [string]$script:Prefs.ProviderMachineName
+    $txtFS.Text         = [string]$script:Prefs.FileShareRoot
+    $txtASP.Text        = [string]$script:Prefs.ApplicationSharePattern
+    $txtDL.Text         = [string]$script:Prefs.DownloadRoot
+    $txtEst.Text        = [string]$script:Prefs.EstimatedRuntimeMins
+    $txtMax.Text        = [string]$script:Prefs.MaximumRuntimeMins
     $chkAutoDist.IsChecked = [bool]$script:Prefs.ContentDistribution.AutoDistribute
     $txtDPGroup.Text       = [string]$script:Prefs.ContentDistribution.DPGroupName
+    $txtPSADT.Text         = [string]$script:Prefs.PSAppDeployToolkitPath
 
     $cm = $script:Prefs.DetectedTools.ConfigMgrConsole
     if ($cm -and $cm.Found) {
@@ -2596,14 +2614,16 @@ function New-MecmPreferencesPanel {
         if (-not [int]::TryParse($txtEst.Text.Trim(), [ref]$estVal)) { $estVal = 15 }
         if (-not [int]::TryParse($txtMax.Text.Trim(), [ref]$maxVal)) { $maxVal = 30 }
 
-        $prefsRef.SiteCode             = $txtSC.Text.Trim()
-        $prefsRef.ProviderMachineName  = $txtProvider.Text.Trim()
-        $prefsRef.FileShareRoot        = $txtFS.Text.Trim()
-        $prefsRef.DownloadRoot         = $txtDL.Text.Trim()
-        $prefsRef.EstimatedRuntimeMins = $estVal
-        $prefsRef.MaximumRuntimeMins   = $maxVal
+        $prefsRef.SiteCode                  = $txtSC.Text.Trim()
+        $prefsRef.ProviderMachineName       = $txtProvider.Text.Trim()
+        $prefsRef.FileShareRoot             = $txtFS.Text.Trim()
+        $prefsRef.ApplicationSharePattern   = $txtASP.Text.Trim()
+        $prefsRef.DownloadRoot              = $txtDL.Text.Trim()
+        $prefsRef.EstimatedRuntimeMins      = $estVal
+        $prefsRef.MaximumRuntimeMins        = $maxVal
         $prefsRef.ContentDistribution.AutoDistribute = [bool]$chkAutoDist.IsChecked
         $prefsRef.ContentDistribution.DPGroupName    = $txtDPGroup.Text.Trim()
+        $prefsRef.PSAppDeployToolkitPath             = $txtPSADT.Text.Trim()
     }.GetNewClosure()
 
     return @{ Name = 'MECM Preferences'; Element = $element; Commit = $commit }
@@ -3883,6 +3903,7 @@ function Invoke-MultiAppPipeline {
                                 -ProviderMachineName $Ctx.ProviderMachineName `
                                 -Comment $Ctx.Comment `
                                 -FileServerPath $Ctx.FileShareRoot `
+                                -ApplicationSharePattern $Ctx.ApplicationSharePattern `
                                 -LogFolder $Ctx.LogFolder `
                                 -DownloadRoot $Ctx.DownloadRoot `
                                 -M365Channel $Ctx.M365Channel `
@@ -4110,6 +4131,7 @@ function Invoke-MultiAppPipeline {
                                 -ProviderMachineName $Ctx.ProviderMachineName `
                                 -Comment $Ctx.Comment `
                                 -FileServerPath $Ctx.FileShareRoot `
+                                -ApplicationSharePattern $Ctx.ApplicationSharePattern `
                                 -LogFolder $Ctx.LogFolder `
                                 -DownloadRoot $Ctx.DownloadRoot `
                                 -M365Channel $Ctx.M365Channel `
