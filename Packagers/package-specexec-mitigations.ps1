@@ -440,7 +440,9 @@ function Invoke-PackageSpecExec {
             Write-Log ""
             Write-Log "Deployment type              : $($entry.Name)"
 
-            if (Test-MECMApplicationHasDeploymentType -ApplicationName $AppName -DeploymentTypeName $entry.Name) {
+            # Get-CMDeploymentType directly: Test-MECMApplicationHasDeploymentType
+            # is internal to AppPackagerCommon (not in FunctionsToExport).
+            if (Get-CMDeploymentType -ApplicationName $AppName -DeploymentTypeName $entry.Name -ErrorAction SilentlyContinue) {
                 Write-Log "  Already exists, skipping." -Level WARN
                 continue
             }

@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.0.11] - 2026-08-12
+
+### Fixes
+
+- **`specexec-mitigations` failed at the deployment-type existence check.**
+  The packager called `Test-MECMApplicationHasDeploymentType`, which is
+  internal to `AppPackagerCommon` (absent from `FunctionsToExport`), so the
+  call failed with "not recognized" on every run. Other packagers were
+  unaffected because that helper only runs inside
+  `New-MECMApplicationFromManifest`, in module scope. The check now uses
+  `Get-CMDeploymentType -ApplicationName -DeploymentTypeName` directly.
+
 ## [1.0.0.10] - 2026-08-12
 
 ### Additions
