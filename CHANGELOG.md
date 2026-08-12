@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.0.0.10] - 2026-08-12
+
+### Additions
+
+- **`package-specexec-mitigations.ps1` — first multi-deployment-type
+  packager.** One application, six Script deployment types covering the
+  speculative-execution CVE registry mitigations: {Intel HT-on, Intel
+  HT-off, AMD} x {standard, Hyper-V host}. Deployment types exist per
+  distinct registry payload only — OS class never changes the values, so
+  there is no workstation/server split, and the AMD override is
+  HT-independent. Requirement rules route each device to exactly one
+  deployment type via three global conditions (reused by name when they
+  already exist, created otherwise): CPU vendor (WQL,
+  `Win32_Processor.Manufacturer`), Hyper-Threading state (Boolean script;
+  WQL cannot compare two properties of one instance), and Hyper-V role
+  (`Services\vmms` key existence). Detection is per-deployment-type
+  `FeatureSettingsOverride` / `FeatureSettingsOverrideMask` DWORD
+  comparison, plus `MinVmVersionForCpuBasedMitigations` on the Hyper-V
+  variants. Content is self-generated (no vendor download);
+  `-GetLatestVersionOnly` reports the pinned `-ContentVersion`. Install
+  exits 3010 with `RebootBehavior BasedOnExitCode`. Every CM cmdlet
+  parameter was validated against Microsoft Learn documentation — notably
+  `New-CMDetectionClauseRegistryKeyValue` accepts `Integer` (not `Int64`)
+  and its `-Is64Bit` switch means the *32-bit* registry view, the inverse
+  of the global-condition cmdlets' `-Is64Bit` boolean.
+
 ## [1.0.0.9] - 2026-08-01
 
 ### Fixes
