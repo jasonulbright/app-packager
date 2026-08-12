@@ -135,9 +135,11 @@ All packager scripts accept the same core parameters:
 | `-GetLatestVersionOnly` | Output the latest version string and exit |
 | `-LogPath` | Path to a structured log file (timestamps + severity levels) |
 
-## Supported Applications (91)
+## Supported Applications (92)
 
-All 91 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. The original 83 are end-to-end validated against MECM; the eight newest packagers (Teams new, VS Code User+System, Power BI Desktop, SSMS 22, Postman User, NVIDIA GeForce Game Ready, NVIDIA RTX Enterprise) inherit the same Stage to manifest to Package shape.
+All 92 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. The original 83 are end-to-end validated against MECM; the eight newest packagers (Teams new, VS Code User+System, Power BI Desktop, SSMS 22, Postman User, NVIDIA GeForce Game Ready, NVIDIA RTX Enterprise) inherit the same Stage to manifest to Package shape.
+
+`package-specexec-mitigations.ps1` is the repo's first multi-deployment-type packager: one application, six Script deployment types (Intel HT-on / Intel HT-off / AMD, each in standard and Hyper-V-host variants), routed by global-condition requirement rules (CPU vendor WQL, HT-state script, Hyper-V vmms registry key) and detected by `FeatureSettingsOverride` / `FeatureSettingsOverrideMask` DWORDs. It generates its own content (no vendor download); `-GetLatestVersionOnly` reports the pinned `-ContentVersion`. Deployment targets: the SpecExec collections from the general-scripts repo (`MECM/Collections/New-SpecExecTargetCollections.ps1`).
 
 | Script | Vendor | Application | Detection Type |
 |---|---|---|---|
@@ -200,6 +202,7 @@ All 91 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-
 | package-rstudio.ps1 | Posit Software, PBC | RStudio Desktop (x64) | RegistryKeyValue |
 | package-sharex.ps1 | ShareX Team | ShareX | File version |
 | package-soapui.ps1 | SmartBear Software | SoapUI | File existence |
+| package-specexec-mitigations.ps1 | Microsoft | Speculative Execution Mitigations (Intel-AMD-BHI) | RegistryKeyValue (per-DT DWORD) |
 | package-ssms.ps1 | Microsoft | SQL Server Management Studio 22 | File version |
 | package-sysinternals.ps1 | Microsoft | Sysinternals Suite | File existence |
 | package-teams-new.ps1 | Microsoft | Microsoft Teams (new client) | File existence |
