@@ -58,7 +58,9 @@ param(
     [string]$SiteCode = "MCM",
     [string]$Comment = "",
     [string]$FileServerPath = "\\fileserver\sccm$",
+    [string]$ApplicationSharePattern = "Applications\7-Zip\7-Zip",
     [string]$DownloadRoot = "C:\temp\ap",
+    [String]$PSAppDeployToolkitPath = "",
     [int]$EstimatedRuntimeMins = 15,
     [int]$MaximumRuntimeMins = 30,
     [string]$LogPath,
@@ -80,10 +82,10 @@ if ($StageOnly -and $PackageOnly) {
 # --- Configuration ---
 $GitHubApiUrl = "https://api.github.com/repos/jgraph/drawio-desktop/releases/latest"
 
-$VendorFolder = "JGraph"
-$AppFolder    = "draw.io"
+$Publisher      = "JGraph"
+$AppName        = "draw.io"
 
-$BaseDownloadRoot = Join-Path $DownloadRoot "draw.io"
+$BaseDownloadRoot = Join-Path $DownloadRoot $AppName
 
 # --- Functions ---
 
@@ -128,8 +130,7 @@ function Invoke-StageDrawio {
     Write-Log ""
 
     if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
+        Write-Log "Run PowerShell as Administrator." -Level WARN
     }
 
     Initialize-Folder -Path $BaseDownloadRoot
@@ -157,6 +158,9 @@ function Invoke-StageDrawio {
     else {
         Write-Log "Local MSI exists. Skipping download."
     }
+
+    Write-Log ""
+    Write-Log "PSAppDeployToolkitPath: $PSAppDeployToolkitPath"
 
     # --- Extract MSI properties ---
     $props = Get-MsiPropertyMap -MsiPath $localMsi
@@ -192,21 +196,22 @@ function Invoke-StageDrawio {
     Write-Log "ARP DisplayVersion           : $productVersionRaw"
     Write-Log ""
 
-    # --- Generate content wrappers ---
-    $wrapperContent = New-MsiWrapperContent -MsiFileName $MsiFileName
-    Write-ContentWrappers -OutputPath $localContentPath `
-        -InstallPs1Content $wrapperContent.Install `
-        -UninstallPs1Content $wrapperContent.Uninstall
+    if([string]::IsNullOrWhiteSpace($PSAppDeployToolkitPath) -eq $true -or (Test-Path -LiteralPath $PSAppDeployToolkitPath) -eq $false) {
+        # --- Generate content wrappers ---
+        $wrapperContent = New-MsiWrapperContent -MsiFileName $MsiFileName
+        Write-ContentWrappers -OutputPath $localContentPath `
+            -InstallPs1Content $wrapperContent.Install `
+            -UninstallPs1Content $wrapperContent.Uninstall
+    }
 
     # --- Write stage manifest ---
-    $publisher = "JGraph Ltd"
-    $appName = "draw.io $productVersionRaw"
-
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
     Write-StageManifest -Path $manifestPath -ManifestData @{
-        AppName         = $appName
-        Publisher       = $publisher
+        AppName         = $AppName
+        Publisher       = $Publisher
         SoftwareVersion = $productVersionRaw
+        Architecture    = "x64"
+        Language        = "MUI"
         InstallerFile   = $MsiFileName
         InstallerType   = "MSI"
         InstallArgs     = "/qn /norestart"
@@ -243,8 +248,7 @@ function Invoke-PackageDrawio {
     Write-Log ""
 
     if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
+        Write-Log "Run PowerShell as Administrator." -Level WARN
     }
 
     Initialize-Folder -Path $BaseDownloadRoot
@@ -266,18 +270,37 @@ function Invoke-PackageDrawio {
     Write-Log "Detection Key                : $($manifest.Detection.RegistryKeyRelative)"
     Write-Log ""
 
+    # --- Network share ---
     if (-not (Test-NetworkShareAccess -Path $FileServerPath)) {
         throw "Network root path not accessible: $FileServerPath"
     }
 
-    $networkAppRoot = Get-NetworkAppRoot -FileServerPath $FileServerPath -VendorFolder $VendorFolder -AppFolder $AppFolder
-    $networkContentPath = Join-Path $networkAppRoot $manifest.SoftwareVersion
-    Initialize-Folder -Path $networkContentPath
+    $networkAppRoot = Get-NetworkAppRoot -FileServerPath $FileServerPath -PathPattern $ApplicationSharePattern -Variables @{ Manufacturer = $manifest.Publisher; ProductName = $manifest.AppName; Version = $manifest.SoftwareVersion; Language = $manifest.Language; Architecture = $manifest.Architecture; }
+    $networkContentPath = $networkAppRoot
 
     Write-Log "Network content path         : $networkContentPath"
     Write-Log ""
 
-    $localFiles = Get-ChildItem -Path $localContentPath -File -ErrorAction Stop
+    if([string]::IsNullOrWhiteSpace($PSAppDeployToolkitPath) -eq $false -and (Test-Path -LiteralPath $PSAppDeployToolkitPath)) {
+        Write-Log "Copyingd PSADT to network share: $($networkAppRoot)"
+        Copy-Item -Path $PSAppDeployToolkitPath -Destination $networkAppRoot -Recurse -Force
+
+        if(Test-Path -LiteralPath (Join-Path $networkAppRoot "Files") -eq $false) {      
+            Initialize-Folder -Path (Join-Path $networkAppRoot "Files")
+        }
+
+        $networkContentPath = Join-Path $networkAppRoot "Files"
+    }
+
+    # --- Copy staged content to network ---
+    $localFiles = $null
+    if([string]::IsNullOrWhiteSpace($PSAppDeployToolkitPath) -eq $false -and (Test-Path -LiteralPath $PSAppDeployToolkitPath)) {
+        $localFiles = Get-ChildItem -Path $localContentPath -Exclude "stage-manifest.json"
+        Get-ChildItem -Path $localContentPath -Include "stage-manifest.json" | Copy-Item -Destination $networkAppRoot -Force -ErrorAction Stop
+    } else {
+        $localFiles = Get-ChildItem -Path $localContentPath -File -ErrorAction Stop
+    }
+
     foreach ($f in $localFiles) {
         if ($f.Name -eq "stage-manifest.json") { continue }
         $dest = Join-Path $networkContentPath $f.Name

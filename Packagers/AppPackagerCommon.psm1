@@ -906,24 +906,36 @@ function Get-NetworkAppRoot {
         Creates and returns the network content root for an application.
 
     .DESCRIPTION
-        Builds the path <FileServerPath>\Applications\<VendorFolder>\<AppFolder>,
+        Builds the path based on the Application Share Pattern parameter,
         creating each level if it does not exist. Returns the final path.
     #>
-    param(
-        [Parameter(Mandatory)][string]$FileServerPath,
-        [Parameter(Mandatory)][string]$VendorFolder,
-        [Parameter(Mandatory)][string]$AppFolder
+        param(
+        [Parameter(Mandatory)]
+        [string]$FileServerPath,
+
+        [Parameter(Mandatory)]
+        [string]$PathPattern,
+
+        [Parameter(Mandatory)]
+        [hashtable]$Variables
     )
 
-    $appsRoot   = Join-Path $FileServerPath "Applications"
-    $vendorPath = Join-Path $appsRoot $VendorFolder
-    $appPath    = Join-Path $vendorPath $AppFolder
+    $relativePath = $PathPattern
 
-    Initialize-Folder -Path $appsRoot
-    Initialize-Folder -Path $vendorPath
-    Initialize-Folder -Path $appPath
+    foreach ($key in $Variables.Keys) {
+        $value = $Variables[$key]
 
-    return $appPath
+        if ([string]::IsNullOrWhiteSpace([string]$value)) {
+            $relativePath = $relativePath -replace "_?\{$key\}?", ""
+        }
+        else {
+            $relativePath = $relativePath.Replace("{$key}", [string]$value)
+        }
+    }
+
+    Initialize-Folder -Path (Join-Path $FileServerPath $relativePath)
+
+    return Join-Path $FileServerPath $relativePath
 }
 
 # ---------------------------------------------------------------------------
@@ -1350,6 +1362,7 @@ function New-MECMApplicationFromManifest {
     #>
     param(
         [Parameter(Mandatory)][pscustomobject]$Manifest,
+        [Parameter(Mandatory)][string]$AppNamePattern,
         [Parameter(Mandatory)][string]$SiteCode,
         [AllowEmptyString()][string]$Comment = '',
         [Parameter(Mandatory)][string]$NetworkContentPath,
@@ -1382,34 +1395,48 @@ function New-MECMApplicationFromManifest {
         }
 
         $appName = $Manifest.AppName
-        if ([string]::IsNullOrWhiteSpace([string]$appName)) {
+        $cmAppName = $AppNamePattern
+
+        $variables = @{ Publisher = $Manifest.Publisher; AppName = $Manifest.AppName; SoftwareVersion = $Manifest.SoftwareVersion; Language = $Manifest.Language; Architecture = $Manifest.Architecture }
+
+        foreach ($key in $Variables.Keys) {
+            $value = $Variables[$key]
+
+            if ([string]::IsNullOrWhiteSpace([string]$value)) {
+                $cmAppName = $relativePath -replace "_?\{$key\}_?", ""
+            } else {
+                $cmAppName = $relativePath.Replace("{$key}", [string]$value)
+            }
+        }
+
+        if ([string]::IsNullOrWhiteSpace([string]$cmAppName)) {
             throw "Stage manifest AppName is null or empty; cannot create an MECM application. Re-run the Stage phase and verify the manifest."
         }
 
         Write-Log ("Manifest fields              : AppName='{0}' Publisher='{1}' SoftwareVersion='{2}' DetectionType='{3}'" -f $appName, $Manifest.Publisher, $Manifest.SoftwareVersion, $Manifest.Detection.Type) -Level DEBUG
 
-        $step = "Get-CMApplication duplicate check ('$appName')"
-        $existing = Get-CMApplication -Name $appName -ErrorAction SilentlyContinue
+        $step = "Get-CMApplication duplicate check ('$cmAppName')"
+        $existing = Get-CMApplication -Name $cmAppName -ErrorAction SilentlyContinue
         if ($existing) {
             $existingApps = @($existing)
             if ($existingApps.Count -gt 1) {
-                throw "Multiple existing MECM applications matched '$appName'; refusing to package until the duplicate names are resolved."
+                throw "Multiple existing MECM applications matched '$cmAppName'; refusing to package until the duplicate names are resolved."
             }
 
-            $dtName = $appName
-            if (Test-MECMApplicationHasDeploymentType -ApplicationName $appName -DeploymentTypeName $dtName) {
-                Write-Log "Application already exists    : $appName" -Level WARN
+            $dtName = $cmAppName
+            if (Test-MECMApplicationHasDeploymentType -ApplicationName $cmAppName -DeploymentTypeName $dtName) {
+                Write-Log "Application already exists    : $cmAppName" -Level WARN
                 Write-Log "Deployment type validated     : $dtName"
                 return [UInt32]$existingApps[0].CI_ID
             }
 
-            throw "Existing MECM application '$appName' is missing deployment type '$dtName'. This looks like a partial prior package run; fix or remove the partial app before packaging again."
+            throw "Existing MECM application '$cmAppName' is missing deployment type '$dtName'. This looks like a partial prior package run; fix or remove the partial app before packaging again."
         }
 
-        Write-Log "Creating CM Application      : $appName"
-        $step = "New-CMApplication ('$appName')"
+        Write-Log "Creating CM Application      : $cmAppName"
+        $step = "New-CMApplication ('$cmAppName')"
         $cmAppParams = @{
-            Name             = $appName
+            Name             = $cmAppName
             Publisher        = $Manifest.Publisher
             SoftwareVersion  = $Manifest.SoftwareVersion
             Description      = $Comment
@@ -1429,7 +1456,7 @@ function New-MECMApplicationFromManifest {
         $detType = if ($Manifest.Detection.Type) { $Manifest.Detection.Type } else { 'RegistryKeyValue' }
 
         # Common deployment type parameters (splatted)
-        $dtName = $appName
+        $dtName = $cmAppName
         $dtParams = @{
             ApplicationName           = $appName
             DeploymentTypeName        = $dtName

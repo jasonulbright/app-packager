@@ -91,10 +91,10 @@ if ($StageOnly -and $PackageOnly) {
 # --- Configuration ---
 $DownloadPageUrl = "https://www.7-zip.org/download.html"
 
-$VendorFolder = "7-Zip"
-$AppFolder    = "7-Zip"
+$Publisher  = "Igor Pavlov"
+$AppName    = "7-Zip"
 
-$BaseDownloadRoot = Join-Path $DownloadRoot "7-Zip"
+$BaseDownloadRoot = Join-Path $DownloadRoot $AppName
 $MsiFileName      = "7zip-x64.msi"
 
 # --- Functions ---
@@ -185,6 +185,9 @@ function Invoke-Stage7Zip {
     Write-Log "Downloading MSI..."
     Invoke-DownloadWithRetry -Url $msiUrl -OutFile $localMsi
 
+    Write-Log ""
+    Write-Log "PSAppDeployToolkitPath: $PSAppDeployToolkitPath"
+
     # --- Extract MSI properties ---
     $props = Get-MsiPropertyMap -MsiPath $localMsi
 
@@ -248,15 +251,10 @@ function Invoke-Stage7Zip {
     }
 
     # --- Write stage manifest ---
-    $publisher = $manufacturer
-    if ([string]::IsNullOrWhiteSpace($publisher)) { $publisher = "Igor Pavlov" }
-
-    $appName = $productName
-
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
     Write-StageManifest -Path $manifestPath -ManifestData @{
-        AppName         = $appName
-        Publisher       = $publisher
+        AppName         = $AppName
+        Publisher       = $Publisher
         SoftwareVersion = $displayVersion
         Architecture    = "x64"
         Language        = "MUI"
@@ -295,9 +293,11 @@ function Invoke-Package7Zip {
     Write-Log ""
 
     if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
+        Write-Log "Run PowerShell as Administrator." -Level WARN
     }
+
+    Write-Log ""
+    Write-Log "PSAppDeployToolkitPath: $PSAppDeployToolkitPath"
 
     # --- Resolve version from local staging ---
     Initialize-Folder -Path $BaseDownloadRoot
@@ -349,8 +349,10 @@ function Invoke-Package7Zip {
     }
 
     # --- Copy staged content to network ---
+    $localFiles = $null
     if([string]::IsNullOrWhiteSpace($PSAppDeployToolkitPath) -eq $false -and (Test-Path -LiteralPath $PSAppDeployToolkitPath)) {
         $localFiles = Get-ChildItem -Path $localContentPath -Exclude "stage-manifest.json"
+        Get-ChildItem -Path $localContentPath -Include "stage-manifest.json" | Copy-Item -Destination $networkAppRoot -Force -ErrorAction Stop
     } else {
         $localFiles = Get-ChildItem -Path $localContentPath -File -ErrorAction Stop
     }
