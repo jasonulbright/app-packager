@@ -282,10 +282,10 @@ function Invoke-PackageDrawio {
     Write-Log ""
 
     if([string]::IsNullOrWhiteSpace($PSAppDeployToolkitPath) -eq $false -and (Test-Path -LiteralPath $PSAppDeployToolkitPath)) {
-        Write-Log "Copyingd PSADT to network share: $($networkAppRoot)"
-        Copy-Item -Path $PSAppDeployToolkitPath -Destination $networkAppRoot -Recurse -Force
+        Write-Log "Copying PSADT to network share: $($networkAppRoot)"
+        Copy-Item -Path "$PSAppDeployToolkitPath\*" -Destination $networkAppRoot -Recurse -Force
 
-        if(Test-Path -LiteralPath (Join-Path $networkAppRoot "Files") -eq $false) {      
+        if((Test-Path -LiteralPath (Join-Path $networkAppRoot "Files")) -eq $false) {
             Initialize-Folder -Path (Join-Path $networkAppRoot "Files")
         }
 
@@ -296,7 +296,7 @@ function Invoke-PackageDrawio {
     $localFiles = $null
     if([string]::IsNullOrWhiteSpace($PSAppDeployToolkitPath) -eq $false -and (Test-Path -LiteralPath $PSAppDeployToolkitPath)) {
         $localFiles = Get-ChildItem -Path $localContentPath -Exclude "stage-manifest.json"
-        Get-ChildItem -Path $localContentPath -Include "stage-manifest.json" | Copy-Item -Destination $networkAppRoot -Force -ErrorAction Stop
+        Get-ChildItem -Path $localContentPath -Filter "stage-manifest.json" | Copy-Item -Destination $networkAppRoot -Force -ErrorAction Stop
     } else {
         $localFiles = Get-ChildItem -Path $localContentPath -File -ErrorAction Stop
     }
