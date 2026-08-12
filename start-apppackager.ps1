@@ -862,7 +862,6 @@ function Invoke-PackagerGetLatestVersion {
         [Parameter(Mandatory)][string]$SiteCode,
         [string]$FileServerPath = $null,
         [string]$DownloadRoot = $null,
-        [string]$PSAppDeployToolkitPath = $null,
         [string]$M365Channel = $null,
         [string]$M365DeployMode = $null
     )
@@ -1134,7 +1133,7 @@ function Invoke-PackagerStage {
     $outLog         = Join-Path $LogFolder ("{0}-stage-{1}.out.log" -f $base, $stamp)
     $errLog         = Join-Path $LogFolder ("{0}-stage-{1}.err.log" -f $base, $stamp)
     $structuredLog  = Join-Path $LogFolder ("{0}-stage-{1}.structured.log" -f $base, $stamp)
-
+Write-Host $PSAppDeployToolkitPath
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "powershell.exe"
     $psi.WorkingDirectory = Split-Path -Parent $PackagerPath
@@ -1165,6 +1164,7 @@ function Invoke-PackagerPackage {
         [string]$ProviderMachineName = '',
         [AllowEmptyString()][string]$Comment = '',
         [Parameter(Mandatory)][string]$FileServerPath,
+        [Parameter(Mandatory)][string]$ApplicationSharePattern,
         [Parameter(Mandatory)][string]$LogFolder,
         [string]$DownloadRoot = $null,
         [string]$PSAppDeployToolkitPath = $null,
@@ -1189,7 +1189,7 @@ function Invoke-PackagerPackage {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "powershell.exe"
     $psi.WorkingDirectory = Split-Path -Parent $PackagerPath
-    $argsBase = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PackagerPath, '-PackageOnly', '-SiteCode', $SiteCode, '-Comment', $Comment, '-LogPath', $structuredLog)
+    $argsBase = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PackagerPath, '-PackageOnly', '-SiteCode', $SiteCode, '-Comment', $Comment, '-ApplicationSharePattern', $ApplicationSharePattern, '-LogPath', $structuredLog)
     if (Test-PackagerSupportsFileServerPath -PackagerPath $PackagerPath) {
         $argsBase += @('-FileServerPath', $FileServerPath)
     }
@@ -3829,7 +3829,6 @@ function Invoke-MultiAppPipeline {
                                 -SiteCode $Ctx.SiteCode `
                                 -FileServerPath $Ctx.FileShareRoot `
                                 -DownloadRoot $Ctx.DownloadRoot `
-                                -PSAppDeployToolkitPath $Ctx.PSAppDeployToolkitPath `
                                 -M365Channel $Ctx.M365Channel `
                                 -M365DeployMode $Ctx.M365DeployMode
                             $row.LatestVersion = $latest
@@ -4032,7 +4031,6 @@ function Invoke-MultiAppPipeline {
                                 -SiteCode $Ctx.SiteCode `
                                 -FileServerPath $Ctx.FileShareRoot `
                                 -DownloadRoot $Ctx.DownloadRoot `
-                                -PSAppDeployToolkitPath $Ctx.PSAppDeployToolkitPath `
                                 -M365Channel $Ctx.M365Channel `
                                 -M365DeployMode $Ctx.M365DeployMode
                             $row.LatestVersion = $latest
@@ -4497,17 +4495,18 @@ $btnPackage.Add_Click({
 
     $txtStatus.Text = "Packaging selected applications..."
     Invoke-MultiAppPipeline -Operation Package -Rows $selectedRows -Context @{
-        SiteCode             = $siteCodeValue
-        ProviderMachineName  = $script:Prefs.ProviderMachineName
-        Comment              = $txtComment.Text.Trim()
-        FileShareRoot        = $fsPathValue
-        DownloadRoot         = $script:Prefs.DownloadRoot
-        M365Channel          = $script:Prefs.M365Channel
-        M365DeployMode       = $script:Prefs.M365DeployMode
-        EstimatedRuntimeMins = $script:Prefs.EstimatedRuntimeMins
-        MaximumRuntimeMins   = $script:Prefs.MaximumRuntimeMins
-        LogFolder            = Join-Path $PSScriptRoot 'Logs'
-        SevenZipPath         = Get-SevenZipPathForContext
+        SiteCode                = $siteCodeValue
+        ProviderMachineName     = $script:Prefs.ProviderMachineName
+        Comment                 = $txtComment.Text.Trim()
+        FileShareRoot           = $fsPathValue
+        ApplicationSharePattern = $script:Prefs.ApplicationSharePattern
+        DownloadRoot            = $script:Prefs.DownloadRoot
+        M365Channel             = $script:Prefs.M365Channel
+        M365DeployMode          = $script:Prefs.M365DeployMode
+        EstimatedRuntimeMins    = $script:Prefs.EstimatedRuntimeMins
+        MaximumRuntimeMins      = $script:Prefs.MaximumRuntimeMins
+        LogFolder               = Join-Path $PSScriptRoot 'Logs'
+        SevenZipPath            = Get-SevenZipPathForContext
     }
 })
 
