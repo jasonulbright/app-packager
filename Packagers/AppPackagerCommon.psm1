@@ -172,11 +172,19 @@ function Write-LogErrorRecord {
 function Invoke-DownloadWithRetry {
     <#
     .SYNOPSIS
-        Downloads a file via curl.exe with a single retry on failure.
+        Downloads a file via Invoke-WebRequest with curl.exe fallback and retry logic.
 
     .DESCRIPTION
-        Wraps curl.exe file-download calls (curl.exe -L --fail --silent --show-error -o <file> <url>)
-        with retry logic. Throws on final failure.
+        Attempts to download the file using Invoke-WebRequest first.
+        If Invoke-WebRequest fails, curl.exe is used as a fallback.
+
+        Each attempt consists of:
+        1. Invoke-WebRequest
+        2. curl.exe if Invoke-WebRequest fails
+
+        Retries the complete download operation according to RetryCount.
+
+        Throws on final failure.
 
         Does NOT wrap scraping/variable-capture calls or URL-resolution calls.
     #>
@@ -199,26 +207,94 @@ function Invoke-DownloadWithRetry {
     $maxAttempts = 1 + $RetryCount
 
     for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+
         if ($attempt -gt 1) {
-            Write-Log ("Retrying download (attempt {0} of {1}) after {2}s delay..." -f $attempt, $maxAttempts, $RetryDelaySec) -Level WARN -Quiet:$Quiet
+            Write-Log (
+                "Retrying download (attempt {0} of {1}) after {2}s delay..." -f
+                $attempt,
+                $maxAttempts,
+                $RetryDelaySec
+            ) -Level WARN -Quiet:$Quiet
+
             Start-Sleep -Seconds $RetryDelaySec
         }
 
-        $allArgs = @('-L', '--fail', '--silent', '--show-error') + $ExtraCurlArgs + @('-o', $OutFile, $Url)
-        & curl.exe @allArgs 2>$null
-        $exitCode = $LASTEXITCODE
+        # ------------------------------------------------------------
+        # First try: Invoke-WebRequest
+        # ------------------------------------------------------------
+        try {
+            Write-Log "Downloading with Invoke-WebRequest: $Url" -Quiet:$Quiet
 
-        if ($exitCode -eq 0) {
-            return
+            Invoke-WebRequest `
+                -Uri $Url `
+                -OutFile $OutFile `
+                -ErrorAction Stop
+
+            if (Test-Path -LiteralPath $OutFile) {
+                Write-Log "Download successful using Invoke-WebRequest: $OutFile" -Quiet:$Quiet
+                return
+            }
+
+            throw "Invoke-WebRequest completed but output file was not created."
+        }
+        catch {
+            $iwrError = $_.Exception.Message
+
+            Write-Log (
+                "Invoke-WebRequest failed: {0}" -f $iwrError
+            ) -Level WARN -Quiet:$Quiet
         }
 
+        # ------------------------------------------------------------
+        # Fallback: curl.exe
+        # ------------------------------------------------------------
+        try {
+            Write-Log "Falling back to curl.exe..." -Level WARN -Quiet:$Quiet
+
+            $allArgs = @(
+                '-L',
+                '--fail',
+                '--silent',
+                '--show-error'
+            ) + $ExtraCurlArgs + @(
+                '-o',
+                $OutFile,
+                $Url
+            )
+
+            & curl.exe @allArgs 2>$null
+            $exitCode = $LASTEXITCODE
+
+            if ($exitCode -eq 0 -and (Test-Path -LiteralPath $OutFile)) {
+                Write-Log "Download successful using curl.exe: $OutFile" -Quiet:$Quiet
+                return
+            }
+
+            throw "curl.exe failed with exit code $exitCode."
+        }
+        catch {
+            $curlError = $_.Exception.Message
+
+            Write-Log (
+                "curl.exe failed: {0}" -f $curlError
+            ) -Level WARN -Quiet:$Quiet
+        }
+
+        # ------------------------------------------------------------
+        # Both methods failed
+        # ------------------------------------------------------------
         if ($attempt -lt $maxAttempts) {
-            Write-Log ("Download attempt {0} failed (curl exit code {1}). Will retry." -f $attempt, $exitCode) -Level WARN -Quiet:$Quiet
+            Write-Log (
+                "Download attempt {0} failed using both Invoke-WebRequest and curl.exe. Will retry." -f
+                $attempt
+            ) -Level WARN -Quiet:$Quiet
         }
     }
 
-    $msg = "Download failed after $maxAttempts attempt(s): $Url"
+    $msg = "Download failed after $maxAttempts attempt(s) using both Invoke-WebRequest and curl.exe: $Url"
+
     Write-Log $msg -Level ERROR -Quiet:$Quiet
+
     throw $msg
 }
 
@@ -929,7 +1005,7 @@ function Get-NetworkAppRoot {
             $relativePath = $relativePath -replace "_?\{$key\}?", ""
         }
         else {
-            $relativePath = $relativePath.Replace("{$key}", [string]$value)
+            $relativePath = $relativePath.Replace("{$key}", ([string]$value -replace " ", "-"))
         }
     }
 
@@ -1403,9 +1479,9 @@ function New-MECMApplicationFromManifest {
             $value = $Variables[$key]
 
             if ([string]::IsNullOrWhiteSpace([string]$value)) {
-                $cmAppName = $relativePath -replace "_?\{$key\}_?", ""
+                $cmAppName = $cmAppName -replace "_?\{$key\}_?", ""
             } else {
-                $cmAppName = $relativePath.Replace("{$key}", [string]$value)
+                $cmAppName = $cmAppName.Replace("{$key}", [string]$value)
             }
         }
 

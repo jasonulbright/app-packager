@@ -106,8 +106,37 @@ function Resolve-7ZipX64MsiUrl {
     Write-Log "7-Zip download page          : $DownloadPageUrl" -Quiet:$Quiet
 
     try {
-        $html = (curl.exe -L --fail --silent --show-error $DownloadPageUrl) -join "`n"
-        if ($LASTEXITCODE -ne 0) { throw "Failed to fetch 7-Zip download page: $DownloadPageUrl" }
+        try {
+            Write-Log "Trying Invoke-WebRequest..." -Quiet:$Quiet
+
+            $response = Invoke-WebRequest `
+                -Uri $DownloadPageUrl `
+                -UseBasicParsing `
+                -ErrorAction Stop
+
+            $html = $response.Content
+        }
+        catch {
+            Write-Log "Invoke-WebRequest failed: $($_.Exception.Message)" -Level WARN -Quiet:$Quiet
+
+            try {
+                Write-Log "Trying curl.exe as fallback..." -Level WARN -Quiet:$Quiet
+
+                $html = (curl.exe `
+                    -L `
+                    --fail `
+                    --silent `
+                    --show-error `
+                    "$DownloadPageUrl") -join "`n"
+
+                if ($LASTEXITCODE -ne 0) {
+                    throw "curl.exe exited with code $LASTEXITCODE"
+                }
+            }
+            catch {
+                throw "Could not retrieve $DownloadPageUrl using either Invoke-WebRequest or curl.exe."
+            }
+        }
 
         # Typical links: a/7z2501-x64.msi
         $rx = [regex]'href\s*=\s*"(?<href>[^"]*?7z(?<ver>\d{4})-x64\.msi)"'
@@ -124,7 +153,10 @@ function Resolve-7ZipX64MsiUrl {
             }
         }
 
-        $best = $candidates | Sort-Object VerDigits -Descending | Select-Object -First 1
+        $best = $candidates |
+            Sort-Object VerDigits -Descending |
+            Select-Object -First 1
+
         $base = [uri]"https://www.7-zip.org/"
         $final = ([uri]::new($base, $best.Href)).AbsoluteUri
 
@@ -215,7 +247,8 @@ function Invoke-Stage7Zip {
 
     $stagedMsi = Join-Path $localContentPath $MsiFileName
     if (-not (Test-Path -LiteralPath $stagedMsi)) {
-        Move-Item -LiteralPath $localMsi -Destination $stagedMsi -Force -ErrorAction Stop
+        #Move-Item -LiteralPath $localMsi -Destination $stagedMsi -Force -ErrorAction Stop
+        Copy-Item -LiteralPath $localMsi -Destination $stagedMsi -Force -ErrorAction Stop
         Write-Log "Copied MSI to staged folder  : $stagedMsi"
     }
     else {
