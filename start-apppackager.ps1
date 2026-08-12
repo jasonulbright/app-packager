@@ -139,6 +139,7 @@ function Read-Preferences {
             AutoDistribute = $false
             DPGroupName    = ''
         }
+        AppNamePattern = '{Publisher} {AppName} - {SoftwareVersion}'
     }
 
     $path = Get-PreferencesPath
@@ -156,6 +157,7 @@ function Read-Preferences {
         }
         if ($null -ne $data.FileShareRoot)              { $defaults.FileShareRoot           = [string]$data.FileShareRoot }
         if ($null -ne $data.ApplicationSharePattern)    { $defaults.ApplicationSharePattern = [string]$data.ApplicationSharePattern }
+        if ($null -ne $data.AppNamePattern)             { $defaults.AppNamePattern          = [string]$data.AppNamePattern }
         if ($null -ne $data.DownloadRoot)               { $defaults.DownloadRoot            = [string]$data.DownloadRoot }
         if( $null -ne $data.PSAppDeployToolkitPath)     { $defaults.PSAppDeployToolkitPath  = [string]$data.PSAppDeployToolkitPath }
         if ($null -ne $data.EstimatedRuntimeMins)       { $defaults.EstimatedRuntimeMins    = [int]$data.EstimatedRuntimeMins }
@@ -860,6 +862,7 @@ function Invoke-PackagerGetLatestVersion {
         [Parameter(Mandatory)][string]$SiteCode,
         [string]$FileServerPath = $null,
         [string]$DownloadRoot = $null,
+        [string]$PSAppDeployToolkitPath = $null,
         [string]$M365Channel = $null,
         [string]$M365DeployMode = $null
     )
@@ -872,6 +875,7 @@ function Invoke-PackagerGetLatestVersion {
         $argsBase += @('-FileServerPath', $FileServerPath)
     }
     if ($DownloadRoot) { $argsBase += @('-DownloadRoot', $DownloadRoot) }
+    if (PSAppDeployToolkitPath) { $argsBase += @('-PSAppDeployToolkitPath', $PSAppDeployToolkitPath) }
     if ($M365Channel) { $argsBase += @('-M365Channel', $M365Channel) }
     if ($M365DeployMode) { $argsBase += @('-M365DeployMode', $M365DeployMode) }
     Set-ProcessStartInfoArgumentList -StartInfo $psi -Arguments $argsBase
@@ -1114,6 +1118,7 @@ function Invoke-PackagerStage {
         [Parameter(Mandatory)][string]$PackagerPath,
         [Parameter(Mandatory)][string]$LogFolder,
         [string]$DownloadRoot = $null,
+        [string]$PSAppDeployToolkitPath = $null,
         [string]$M365Channel = $null,
         [string]$M365DeployMode = $null,
         [string]$SevenZipPath = '',
@@ -1135,6 +1140,7 @@ function Invoke-PackagerStage {
     $psi.WorkingDirectory = Split-Path -Parent $PackagerPath
     $argsBase = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PackagerPath, '-StageOnly', '-LogPath', $structuredLog)
     if ($DownloadRoot) { $argsBase += @('-DownloadRoot', $DownloadRoot) }
+    if ($PSAppDeployToolkitPath) { $argsBase += @('-PSAppDeployToolkitPath', $PSAppDeployToolkitPath) }
     if ($M365Channel) { $argsBase += @('-M365Channel', $M365Channel) }
     if ($M365DeployMode) { $argsBase += @('-M365DeployMode', $M365DeployMode) }
     Set-ProcessStartInfoArgumentList -StartInfo $psi -Arguments $argsBase
@@ -1161,6 +1167,7 @@ function Invoke-PackagerPackage {
         [Parameter(Mandatory)][string]$FileServerPath,
         [Parameter(Mandatory)][string]$LogFolder,
         [string]$DownloadRoot = $null,
+        [string]$PSAppDeployToolkitPath = $null,
         [string]$M365Channel = $null,
         [string]$M365DeployMode = $null,
         [int]$EstimatedRuntimeMins = 0,
@@ -1187,7 +1194,7 @@ function Invoke-PackagerPackage {
         $argsBase += @('-FileServerPath', $FileServerPath)
     }
     if ($DownloadRoot) { $argsBase += @('-DownloadRoot', $DownloadRoot) }
-    if ($PSAppDeployToolkitPath) { $argsBase += @('PSAppDeployToolkitPath', $PSAppDeployToolkitPath) }
+    if ($PSAppDeployToolkitPath) { $argsBase += @('-PSAppDeployToolkitPath', $PSAppDeployToolkitPath) }
     if ($M365Channel) { $argsBase += @('-M365Channel', $M365Channel) }
     if ($M365DeployMode) { $argsBase += @('-M365DeployMode', $M365DeployMode) }
     if ($EstimatedRuntimeMins -gt 0) { $argsBase += @('-EstimatedRuntimeMins', [string]$EstimatedRuntimeMins) }
@@ -1533,6 +1540,7 @@ function Invoke-BatchUpdate {
         [Parameter(Mandatory)][string]$SiteCode,
         [string]$ProviderMachineName = '',
         [string]$FileServerPath,
+        [string]$PSAppDeployToolkitPath = '',
         [string]$DownloadRoot,
         [int]$EstimatedRuntimeMins = 15,
         [int]$MaximumRuntimeMins = 30,
@@ -1652,11 +1660,12 @@ function Invoke-BatchUpdate {
 
         # 4. Invoke the packager for Stage / StageAndPackage
         $pkgArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath, '-SiteCode', $SiteCode)
-        if ($FileServerPath)       { $pkgArgs += @('-FileServerPath',       $FileServerPath)       }
-        if ($DownloadRoot)         { $pkgArgs += @('-DownloadRoot',         $DownloadRoot)         }
-        if ($EstimatedRuntimeMins) { $pkgArgs += @('-EstimatedRuntimeMins', $EstimatedRuntimeMins) }
-        if ($MaximumRuntimeMins)   { $pkgArgs += @('-MaximumRuntimeMins',   $MaximumRuntimeMins)   }
-        if ($Comment)              { $pkgArgs += @('-Comment',              $Comment)              }
+        if ($FileServerPath)         { $pkgArgs += @('-FileServerPath',         $FileServerPath)       }
+        if ($DownloadRoot)           { $pkgArgs += @('-DownloadRoot',           $DownloadRoot)         }
+        if ($PSAppDeployToolkitPath) { $pkgArgs += @('-PSAppDeployToolkitPath', $PSAppDeployToolkitPath) }
+        if ($EstimatedRuntimeMins)   { $pkgArgs += @('-EstimatedRuntimeMins',   $EstimatedRuntimeMins) }
+        if ($MaximumRuntimeMins)     { $pkgArgs += @('-MaximumRuntimeMins',     $MaximumRuntimeMins)   }
+        if ($Comment)                { $pkgArgs += @('-Comment',                $Comment)              }
         if ($OnUpdateFound -eq 'Stage') { $pkgArgs += '-StageOnly' }
 
         try {
@@ -1744,7 +1753,9 @@ if ($BatchMode) {
     $prefs = if (Test-Path (Get-PreferencesPath)) { Read-Preferences } else { $null }
     $fileServerPath   = if ($prefs -and $prefs.FileShareRoot)             { $prefs.FileShareRoot }             else { $null }
     $ApplicationSharePattern = if ($prefs -and $prefs.ApplicationSharePattern)      { $prefs.ApplicationSharePattern }      else { $null }
+    $AppNamePattern        = if ($prefs -and $prefs.AppNamePattern)                   { $prefs.AppNamePattern }                   else { $null }
     $downloadRoot     = if ($prefs -and $prefs.DownloadRoot)              { $prefs.DownloadRoot }              else { $null }
+    $PSAppDeployToolkitPath  = if ($prefs -and $prefs.PSAppDeployToolkitPath) { $prefs.PSAppDeployToolkitPath } else { $null }
     $providerForBatch = if ($script:Prefs -and $script:Prefs.ProviderMachineName) { [string]$script:Prefs.ProviderMachineName } else { $null }
     $cadenceOverrides = if ($prefs -and $prefs.AppFlow.CadenceOverrides)  { $prefs.AppFlow.CadenceOverrides }  else { $null }
     $sevenZipPath     = $null
@@ -1770,6 +1781,7 @@ if ($BatchMode) {
         -ProviderMachineName $providerForBatch `
         -FileServerPath    $fileServerPath `
         -DownloadRoot      $downloadRoot `
+        -PSAppDeployToolkitPath $PSAppDeployToolkitPath `
         -SevenZipPath      $sevenZipPath `
         -CadenceOverrides  $cadenceOverrides `
         -Force:$Force
@@ -2509,6 +2521,7 @@ function New-MecmPreferencesPanel {
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
     <Grid.ColumnDefinitions>
         <ColumnDefinition Width="170"/>
@@ -2548,14 +2561,17 @@ function New-MecmPreferencesPanel {
     <TextBlock Grid.Row="8" Grid.Column="0" Text="DP Group:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact name of the Distribution Point Group to target."/>
     <TextBox   Grid.Row="8" Grid.Column="1" x:Name="txtDPGroup" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Distribution Point Group display name (e.g. 'All DPs')"/>
 
-    <TextBlock Grid.Row="9" Grid.Column="0" Text="PSAppDeployToolkit:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Path of the PSAppDeployToolkit for distribution."/>
-    <TextBox   Grid.Row="9" Grid.Column="1" x:Name="txtPSADT" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Path to the PSAppDeployToolkit"/>
+    <TextBlock Grid.Row="9" Grid.Column="0" Text="App Name Pattern:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Pattern for generating the MECM application name."/>
+    <TextBox   Grid.Row="9" Grid.Column="1" x:Name="txtANP" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Pattern for generating the MECM application name"/>
 
-    <TextBlock Grid.Row="10" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
-    <TextBlock Grid.Row="10" Grid.Column="1" x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="10" Grid.Column="0" Text="PSAppDeployToolkit:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Path of the PSAppDeployToolkit for distribution."/>
+    <TextBox   Grid.Row="10" Grid.Column="1" x:Name="txtPSADT" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Path to the PSAppDeployToolkit"/>
 
-    <TextBlock Grid.Row="11" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="7-Zip command-line (7z.exe) detection status. Required by Adobe Reader + TeamViewer Host packagers."/>
-    <TextBlock Grid.Row="11" Grid.Column="1" x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="11" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
+    <TextBlock Grid.Row="11" Grid.Column="1" x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
+
+    <TextBlock Grid.Row="12" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="7-Zip command-line (7z.exe) detection status. Required by Adobe Reader + TeamViewer Host packagers."/>
+    <TextBlock Grid.Row="12" Grid.Column="1" x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
 </Grid>
 '@
 
@@ -2572,6 +2588,7 @@ function New-MecmPreferencesPanel {
     $txtMax = $element.FindName('txtMax')
     $chkAutoDist = $element.FindName('chkAutoDist')
     $txtDPGroup  = $element.FindName('txtDPGroup')
+    $txtANP      = $element.FindName('txtANP')
     $txtPSADT = $element.FindName('txtPSADT')
     $txtConsoleStatus  = $element.FindName('txtConsoleStatus')
     $txtSevenZipStatus = $element.FindName('txtSevenZipStatus')
@@ -2584,6 +2601,7 @@ function New-MecmPreferencesPanel {
     $txtEst.Text        = [string]$script:Prefs.EstimatedRuntimeMins
     $txtMax.Text        = [string]$script:Prefs.MaximumRuntimeMins
     $chkAutoDist.IsChecked = [bool]$script:Prefs.ContentDistribution.AutoDistribute
+    $txtANP.Text        = [string]$script:Prefs.AppNamePattern
     $txtDPGroup.Text       = [string]$script:Prefs.ContentDistribution.DPGroupName
     $txtPSADT.Text         = [string]$script:Prefs.PSAppDeployToolkitPath
 
@@ -2618,6 +2636,7 @@ function New-MecmPreferencesPanel {
         $prefsRef.ProviderMachineName       = $txtProvider.Text.Trim()
         $prefsRef.FileShareRoot             = $txtFS.Text.Trim()
         $prefsRef.ApplicationSharePattern   = $txtASP.Text.Trim()
+        $prefsRef.AppNamePattern            = $txtANP.Text.Trim()
         $prefsRef.DownloadRoot              = $txtDL.Text.Trim()
         $prefsRef.EstimatedRuntimeMins      = $estVal
         $prefsRef.MaximumRuntimeMins        = $maxVal
@@ -3810,6 +3829,7 @@ function Invoke-MultiAppPipeline {
                                 -SiteCode $Ctx.SiteCode `
                                 -FileServerPath $Ctx.FileShareRoot `
                                 -DownloadRoot $Ctx.DownloadRoot `
+                                -PSAppDeployToolkitPath $Ctx.PSAppDeployToolkitPath `
                                 -M365Channel $Ctx.M365Channel `
                                 -M365DeployMode $Ctx.M365DeployMode
                             $row.LatestVersion = $latest
@@ -3858,6 +3878,7 @@ function Invoke-MultiAppPipeline {
                                 -PackagerPath $path `
                                 -LogFolder $Ctx.LogFolder `
                                 -DownloadRoot $Ctx.DownloadRoot `
+                                -PSAppDeployToolkitPath $Ctx.PSAppDeployToolkitPath `
                                 -M365Channel $Ctx.M365Channel `
                                 -M365DeployMode $Ctx.M365DeployMode `
                                 -SevenZipPath $Ctx.SevenZipPath
@@ -3906,6 +3927,7 @@ function Invoke-MultiAppPipeline {
                                 -ApplicationSharePattern $Ctx.ApplicationSharePattern `
                                 -LogFolder $Ctx.LogFolder `
                                 -DownloadRoot $Ctx.DownloadRoot `
+                                -PSAppDeployToolkitPath $Ctx.PSAppDeployToolkitPath `
                                 -M365Channel $Ctx.M365Channel `
                                 -M365DeployMode $Ctx.M365DeployMode `
                                 -EstimatedRuntimeMins $Ctx.EstimatedRuntimeMins `
@@ -4010,6 +4032,7 @@ function Invoke-MultiAppPipeline {
                                 -SiteCode $Ctx.SiteCode `
                                 -FileServerPath $Ctx.FileShareRoot `
                                 -DownloadRoot $Ctx.DownloadRoot `
+                                -PSAppDeployToolkitPath $Ctx.PSAppDeployToolkitPath `
                                 -M365Channel $Ctx.M365Channel `
                                 -M365DeployMode $Ctx.M365DeployMode
                             $row.LatestVersion = $latest
@@ -4079,6 +4102,7 @@ function Invoke-MultiAppPipeline {
                                 -PackagerPath $path `
                                 -LogFolder $Ctx.LogFolder `
                                 -DownloadRoot $Ctx.DownloadRoot `
+                                -PSAppDeployToolkitPath $Ctx.PSAppDeployToolkitPath `
                                 -M365Channel $Ctx.M365Channel `
                                 -M365DeployMode $Ctx.M365DeployMode `
                                 -SevenZipPath $Ctx.SevenZipPath
@@ -4134,6 +4158,7 @@ function Invoke-MultiAppPipeline {
                                 -ApplicationSharePattern $Ctx.ApplicationSharePattern `
                                 -LogFolder $Ctx.LogFolder `
                                 -DownloadRoot $Ctx.DownloadRoot `
+                                -PSAppDeployToolkitPath $Ctx.PSAppDeployToolkitPath `
                                 -M365Channel $Ctx.M365Channel `
                                 -M365DeployMode $Ctx.M365DeployMode `
                                 -EstimatedRuntimeMins $Ctx.EstimatedRuntimeMins `
@@ -4431,6 +4456,7 @@ $btnStage.Add_Click({
     $txtStatus.Text = "Staging selected packages..."
     Invoke-MultiAppPipeline -Operation Stage -Rows $selectedRows -Context @{
         DownloadRoot   = $dlRootValue
+        PSAppDeployToolkitPath = $script:Prefs.PSAppDeployToolkitPath
         M365Channel    = $script:Prefs.M365Channel
         M365DeployMode = $script:Prefs.M365DeployMode
         LogFolder      = Join-Path $PSScriptRoot 'Logs'
