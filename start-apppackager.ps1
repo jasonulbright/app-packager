@@ -159,7 +159,7 @@ function Read-Preferences {
         if ($null -ne $data.ApplicationSharePattern)    { $defaults.ApplicationSharePattern = [string]$data.ApplicationSharePattern }
         if ($null -ne $data.AppNamePattern)             { $defaults.AppNamePattern          = [string]$data.AppNamePattern }
         if ($null -ne $data.DownloadRoot)               { $defaults.DownloadRoot            = [string]$data.DownloadRoot }
-        if( $null -ne $data.PSAppDeployToolkitPath)     { $defaults.PSAppDeployToolkitPath  = [string]$data.PSAppDeployToolkitPath }
+        if ($null -ne $data.PSAppDeployToolkitPath)     { $defaults.PSAppDeployToolkitPath  = [string]$data.PSAppDeployToolkitPath }
         if ($null -ne $data.EstimatedRuntimeMins)       { $defaults.EstimatedRuntimeMins    = [int]$data.EstimatedRuntimeMins }
         if ($null -ne $data.MaximumRuntimeMins)         { $defaults.MaximumRuntimeMins      = [int]$data.MaximumRuntimeMins }
         if ($null -ne $data.CompanyName)                { $defaults.CompanyName             = [string]$data.CompanyName }
@@ -874,7 +874,6 @@ function Invoke-PackagerGetLatestVersion {
         $argsBase += @('-FileServerPath', $FileServerPath)
     }
     if ($DownloadRoot) { $argsBase += @('-DownloadRoot', $DownloadRoot) }
-    if (PSAppDeployToolkitPath) { $argsBase += @('-PSAppDeployToolkitPath', $PSAppDeployToolkitPath) }
     if ($M365Channel) { $argsBase += @('-M365Channel', $M365Channel) }
     if ($M365DeployMode) { $argsBase += @('-M365DeployMode', $M365DeployMode) }
     Set-ProcessStartInfoArgumentList -StartInfo $psi -Arguments $argsBase
@@ -1133,7 +1132,7 @@ function Invoke-PackagerStage {
     $outLog         = Join-Path $LogFolder ("{0}-stage-{1}.out.log" -f $base, $stamp)
     $errLog         = Join-Path $LogFolder ("{0}-stage-{1}.err.log" -f $base, $stamp)
     $structuredLog  = Join-Path $LogFolder ("{0}-stage-{1}.structured.log" -f $base, $stamp)
-Write-Host $PSAppDeployToolkitPath
+
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "powershell.exe"
     $psi.WorkingDirectory = Split-Path -Parent $PackagerPath
@@ -2593,17 +2592,17 @@ function New-MecmPreferencesPanel {
     $txtConsoleStatus  = $element.FindName('txtConsoleStatus')
     $txtSevenZipStatus = $element.FindName('txtSevenZipStatus')
 
-    $txtSC.Text         = [string]$script:Prefs.SiteCode
-    $txtProvider.Text   = [string]$script:Prefs.ProviderMachineName
-    $txtFS.Text         = [string]$script:Prefs.FileShareRoot
-    $txtASP.Text        = [string]$script:Prefs.ApplicationSharePattern
-    $txtDL.Text         = [string]$script:Prefs.DownloadRoot
-    $txtEst.Text        = [string]$script:Prefs.EstimatedRuntimeMins
-    $txtMax.Text        = [string]$script:Prefs.MaximumRuntimeMins
-    $chkAutoDist.IsChecked = [bool]$script:Prefs.ContentDistribution.AutoDistribute
-    $txtANP.Text        = [string]$script:Prefs.AppNamePattern
-    $txtDPGroup.Text       = [string]$script:Prefs.ContentDistribution.DPGroupName
-    $txtPSADT.Text         = [string]$script:Prefs.PSAppDeployToolkitPath
+    $txtSC.Text             = [string]$script:Prefs.SiteCode
+    $txtProvider.Text       = [string]$script:Prefs.ProviderMachineName
+    $txtFS.Text             = [string]$script:Prefs.FileShareRoot
+    $txtASP.Text            = [string]$script:Prefs.ApplicationSharePattern
+    $txtDL.Text             = [string]$script:Prefs.DownloadRoot
+    $txtEst.Text            = [string]$script:Prefs.EstimatedRuntimeMins
+    $txtMax.Text            = [string]$script:Prefs.MaximumRuntimeMins
+    $chkAutoDist.IsChecked  = [bool]$script:Prefs.ContentDistribution.AutoDistribute
+    $txtANP.Text            = [string]$script:Prefs.AppNamePattern
+    $txtDPGroup.Text        = [string]$script:Prefs.ContentDistribution.DPGroupName
+    $txtPSADT.Text          = [string]$script:Prefs.PSAppDeployToolkitPath
 
     $cm = $script:Prefs.DetectedTools.ConfigMgrConsole
     if ($cm -and $cm.Found) {
@@ -4501,6 +4500,7 @@ $btnPackage.Add_Click({
         FileShareRoot           = $fsPathValue
         ApplicationSharePattern = $script:Prefs.ApplicationSharePattern
         DownloadRoot            = $script:Prefs.DownloadRoot
+        PSAppDeployToolkitPath  = $script:Prefs.PSAppDeployToolkitPath
         M365Channel             = $script:Prefs.M365Channel
         M365DeployMode          = $script:Prefs.M365DeployMode
         EstimatedRuntimeMins    = $script:Prefs.EstimatedRuntimeMins
