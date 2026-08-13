@@ -93,17 +93,12 @@ Try {
 	if ([string]::IsNullOrWhiteSpace($App.Lang)) { $App.Lang = 'MUI' }
 	if ([string]::IsNullOrWhiteSpace($App.Revision)) { $App.Revision = '01' }
 
-	[string]$appVendor = $App.Vendor
-	[string]$appName = $App.Name
-	[string]$appVersion = $App.Version
-	[string]$appLang = $App.Lang
-	[string]$appArch = $App.Arch
-	[string]$appNameWithoutVersion = $appName
-	if (-not [string]::IsNullOrWhiteSpace($appVersion)) {
-		$appNameWithoutVersion = ($appName -replace [regex]::Escape($appVersion), "").Trim()
+	[string]$appNameWithoutVersion = $App.Name
+	if (-not [string]::IsNullOrWhiteSpace($App.Version)) {
+		$appNameWithoutVersion = ($App.Name-replace [regex]::Escape($App.Version), "").Trim()
 	}
 	if ([string]::IsNullOrWhiteSpace($appNameWithoutVersion)) {
-		$appNameWithoutVersion = $appName
+		$appNameWithoutVersion = $App.Name
 	}
 	[string]$appNameMsg = $appNameWithoutVersion
 	[string]$dirFiles = Join-Path -Path $scriptpath -ChildPath 'Files'
@@ -111,28 +106,6 @@ Try {
 	[string]$StartProcessAsUser = ''
 	[string]$StartProcessAsUserParam = ''
 	[string]$appUninstallArgs = ''
-	[array]$appUninstall = @()
-	$preUninstallCommands = $JsonConfig.PreUninstallCommands
-	if ($null -ne $preUninstallCommands) {
-		if ($preUninstallCommands -is [array]) {
-			$appUninstall = $preUninstallCommands
-		}
-		else {
-			$appUninstall = @("$preUninstallCommands")
-		}
-	}
-	$appScripts = [PSCustomObject]@{
-		PreIn  = @()
-		PostIn = @()
-		PreUn  = @()
-		PostUn = @()
-	}
-	if ($null -ne $JsonConfig.Scripts) {
-		if ($JsonConfig.Scripts.PreIn) { $appScripts.PreIn = @($JsonConfig.Scripts.PreIn) }
-		if ($JsonConfig.Scripts.PostIn) { $appScripts.PostIn = @($JsonConfig.Scripts.PostIn) }
-		if ($JsonConfig.Scripts.PreUn) { $appScripts.PreUn = @($JsonConfig.Scripts.PreUn) }
-		if ($JsonConfig.Scripts.PostUn) { $appScripts.PostUn = @($JsonConfig.Scripts.PostUn) }
-	}
 
 	if ([string]::IsNullOrWhiteSpace($App.InstallerType) -or [string]::IsNullOrWhiteSpace($App.InstallerFile)) {
 		throw "Manifest [$DeploymentJson] is missing required values: InstallerType and/or InstallerFile."
@@ -141,8 +114,8 @@ Try {
 	## Package Name
     [String]$PackageName = $App.Vendor + "_" + $appNameWithoutVersion + "_" + $App.Version + "_" + $App.Lang + "_" + $App.Arch + "_" + $App.Revision
 
-    ## Custom Registry Entry
-    [String]$CustomRegKey = 'HKLM:\SOFTWARE\SCCM\' + $PackageName
+	## Custom Registry Entry
+	[String]$CustomRegKey = 'HKLM:\SOFTWARE\SCCM\' + $PackageName
 	
 	[string]$appScriptVersion = '1.4.0'
 	[string]$appScriptDate = '20/04/2026'
@@ -239,43 +212,43 @@ Try {
 			# Show Progress Message (with the default message)
 			Show-InstallationProgress -StatusMessage "Installing $appNameWithoutVersion $($App.Version)" -TopMost $false
 		}
-	    # Remove any previous versions if explicit uninstall commands are provided in manifest
-		$appUninstall | ForEach-Object { 
-			if (!([string]::IsNullOrEmpty($_)) -and (Test-Path $_)){
-				$extension = [System.IO.Path]::GetExtension($_).ToLower()
-				Write-Log -Message "Uninstalling $_"
-				if ($extension -eq ".msi") {
-					Remove-MSIApplications -Name $_
-				}
-				elseif ($extension -eq ".exe") {
-					Write-Log -Message "Uninstalling $_"
-					Execute-Process -Path $_ -Parameters $appUninstallArgs -IgnoreExitCodes '-1' -WindowStyle Hidden
-				}
-				else {
-					Write-Host "Unknown file type"
-				}
 
+	    # Remove any previous versions if explicit uninstall commands are provided in manifest
+        Remove-MSIApplications -Name $appNameWithoutVersion -Wildcard -ContinueOnError $true
+
+        Get-InstalledApplication -name "*$($appNameWithoutVersion)*" -WildCard | ForEach-Object { 
+
+			$prod = $_.ProductCode
+			
+			if ($prod -eq "") {
+			    ## some installer e.g. WEB-Installer
+				$unstr = $_.UninstallString + " --force-uninstall"
+				$unstring = $unstr.split('"')
+				Write-Log -Message "start Uninstall $($unString[1]) $($unString[2])" -LogType 'CMTrace' 
+				#Execute-Process -Path $unString[1] -Parameters $unString[2] -ContinueOnError $True
+				$erg = start-process $unString[1] -arg $unString[2] -Wait
+				Write-Log -Message "$appNameWithoutVersion has been removed with" -LogType 'CMTrace'
+			}
+			else {
+			    ## MSI Installation!
+				Write-Log -Message "start MSI Uninstall $($prod)" -LogType 'CMTrace'
+				Execute-MSI -Action 'Uninstall' -Path $prod -Parameters "/qn" -ContinueOnError $True
+				Write-Log -Message "$appNameWithoutVersion has been removed" -LogType 'CMTrace'
 			}
 		}
-		
-		foreach($appScript in $appScripts.PreIn){
-			if (!([string]::IsNullOrEmpty($appScript.PS1))){
-				Execute-Process -Path 'powershell.exe' -Parameters "-ExecutionPolicy Bypass -NoLogo -NonInteractive -NoProfile -File `"$dirFiles\$($appScript.PS1)`" -WindowStyle Hidden"
-			}
-		}
-		
+				
 		## Clean up Branding Keys
-        If (Test-Path 'HKLM:\SOFTWARE\SCCM') {
-            Get-ChildItem -Path 'HKLM:\SOFTWARE\SCCM' -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -match ($App.Vendor + "_" + $appNameWithoutVersion + "_") } | Remove-Item -Force -ErrorAction SilentlyContinue
-        }
+		If (Test-Path 'HKLM:\SOFTWARE\SCCM') {
+			Get-ChildItem -Path 'HKLM:\SOFTWARE\SCCM' -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -match ($App.Vendor + "_" + $appNameWithoutVersion + "_") } | Remove-Item -Force -ErrorAction SilentlyContinue
+		}
 		
 		##*===============================================
 		##* INSTALLATION
 		##*===============================================
 		[string]$installPhase = 'Installation'
-		Write-Log -Message "$($App.InstallerType)"
-		switch ($App.InstallerType.ToUpper()) {
-			"MSI" {
+		Write-Log -Message "$($App.InstallerFile)"
+		switch ([System.IO.Path]::GetExtension($App.InstallerFile.ToUpper())) {
+			".MSI" {
 				Write-Log -Message "Installing MSI file"
 				$installerPath = Join-Path -Path $dirFiles -ChildPath $App.InstallerFile
 				if (-not (Test-Path -LiteralPath $installerPath)) {
@@ -287,10 +260,7 @@ Try {
 					Execute-MSI -Action Install -Path $installerPath -Parameters $App.InstallArgs
 				}
 			}
-<# 			{(!([string]::IsNullOrEmpty($_.PS1In)))} {
-				Execute-Process -Path 'powershell.exe' -Parameters "-ExecutionPolicy Bypass -NoLogo -NonInteractive -NoProfile -File `"$dirFiles\$($package.PS1In)`" -WindowStyle Hidden"
-			} #>
-			"EXE" {
+			default {
 				Write-Log -Message "Installing Exe file"
 				$installerPath = Join-Path -Path $dirFiles -ChildPath $App.InstallerFile
 				if(-not (Test-Path -LiteralPath $installerPath)){
@@ -300,7 +270,7 @@ Try {
 					Write-Log -Message "Found $($App.InstallerFile), now attempting to install."
 					Execute-Process -Path $installerPath
 				} else {
-					Write-Log -Message "Found $($App.InstallerFile), now attempting to install $appName with arguments $($App.InstallArgs)."
+					Write-Log -Message "Found $($App.InstallerFile), now attempting to install $($App.Name) with arguments $($App.InstallArgs)."
 					Execute-Process -Path $installerPath -Parameters "$($App.InstallArgs)"
 				}
 			}
@@ -316,38 +286,16 @@ Try {
 		## <Perform Post-Installation tasks here>
 		
 		## Set custom registry keys
-        Set-RegistryKey -Key $CustomRegKey -Name 'Installed'       	-Type 'String' -Value 'True'
-        Set-RegistryKey -Key $CustomRegKey -Name 'Date'            	-Type 'String' -Value (Get-Date -Format g)
-        Set-RegistryKey -Key $CustomRegKey -Name 'Vendor'      		-Type 'String' -Value $appVendor
-        Set-RegistryKey -Key $CustomRegKey -Name 'ApplicationName'  -Type 'String' -Value $appName
-        Set-RegistryKey -Key $CustomRegKey -Name 'Version'         	-Type 'String' -Value $appVersion
-        Set-RegistryKey -Key $CustomRegKey -Name 'Language'        	-Type 'String' -Value $appLang
+		Set-RegistryKey -Key $CustomRegKey -Name 'Installed'       	-Type 'String' -Value 'True'
+		Set-RegistryKey -Key $CustomRegKey -Name 'Date'            	-Type 'String' -Value (Get-Date -Format g)
+		Set-RegistryKey -Key $CustomRegKey -Name 'Vendor'      		-Type 'String' -Value $App.Vendor
+		Set-RegistryKey -Key $CustomRegKey -Name 'ApplicationName'  -Type 'String' -Value $App.Name
+		Set-RegistryKey -Key $CustomRegKey -Name 'Version'         	-Type 'String' -Value $App.Version
+		Set-RegistryKey -Key $CustomRegKey -Name 'Language'        	-Type 'String' -Value $App.Lang
+		Set-RegistryKey -Key $CustomRegKey -Name 'Architecture'    	-Type 'String' -Value $App.Arch
 		
-		foreach($appScript in $appScripts.PostIn){
-			if (!([string]::IsNullOrEmpty($appScript.PS1))){
-				Execute-Process -Path 'powershell.exe' -Parameters "-ExecutionPolicy Bypass -NoLogo -NonInteractive -NoProfile -File `\"$dirFiles\$($appScript.PS1)`\" -WindowStyle Hidden"
-			}
-		}
-        
-        ## If block execution variable is true, call the function to unblock execution
+		## If block execution variable is true, call the function to unblock execution
 	    If ($BlockExecution) { Unblock-AppExecution }
-
-        $Counter_User = 0
-        [array]$StartProcessAsUserParam_Array = $StartProcessAsUserParam -split (",")
-        [array]$StartProcessAsUser_Array = $StartProcessAsUser -split (",")
-        foreach($StartProcessAsUser_Item in $StartProcessAsUser_Array){
-		    $Counter_User
-            if (!([string]::IsNullOrEmpty($StartProcessAsUser_Item))){
-                $Param_User = $StartProcessAsUserParam_Array[$Counter_User]
-                if (!([string]::IsNullOrEmpty($Param_User))){
-			        Execute-ProcessAsUser -Path $StartProcessAsUser_Item -Parameters $Param_User -RunLevel LeastPrivilege 
-		        }
-                Else {
-                    Execute-ProcessAsUser -Path $StartProcessAsUser_Item -RunLevel LeastPrivilege
-                }
-            }
-            $Counter_User++
-        }
 		
 		## Display a message at the end of the install
 		#Show-InstallationPrompt -Message 'You can customise text to appear at the end of an install or remove it completely for unattended installations.' -ButtonRightText 'OK' -Icon Information -NoWait
@@ -365,21 +313,15 @@ Try {
 		[string]$installPhase = 'Pre-Uninstallation'
 		
 		## <Perform Pre-Uninstallation tasks here>
-		
-		foreach($appScript in $appScripts.PreUn){
-			if (!([string]::IsNullOrEmpty($appScript.PS1))){
-				Execute-Process -Path 'powershell.exe' -Parameters "-ExecutionPolicy Bypass -NoLogo -NonInteractive -NoProfile -File `"$dirFiles\$($appScript.PS1)`" -WindowStyle Hidden"
-			}
-		}
-		
+			
 		## Prompt the user to close the following applications if they are running:
 		if($processRunning){
 			Show-InstallationWelcome -CloseApps (Select-ProcessName -processRunning $processRunning) -AllowDefer -DeferTimes 3 -MinimizeWindows $false -BlockExecution
-			Show-InstallationProgress -StatusMessage "Uninstalling $appNameMsg $appVersion" -TopMost $false
+			Show-InstallationProgress -StatusMessage "Uninstalling $appNameMsg $($App.Version)" -TopMost $false
 		}
 		
 		## Show Progress Message (with a message to indicate the application is being uninstalled)
-	    #Show-InstallationProgress -StatusMessage 'Uninstalling application [$installTitle]. Please Wait...'
+		#Show-InstallationProgress -StatusMessage 'Uninstalling application [$installTitle]. Please Wait...'
 		
 		
 		##*===============================================
@@ -387,20 +329,30 @@ Try {
 		##*===============================================
 		[string]$installPhase = 'Uninstallation'
 
-		if ($App.InstallerType.ToUpper() -eq 'MSI' -and -not [string]::IsNullOrWhiteSpace($App.UninstallFile)) {
-			Execute-MSI -Action Uninstall -Path $App.UninstallFile
-		}
-		elseif (-not [string]::IsNullOrWhiteSpace($App.UninstallFile)) {
-			if ([string]::IsNullOrWhiteSpace($App.UninstallArgs)) {
-				Execute-Process -Path $App.UninstallFile
+		Remove-MSIApplications -Name $appNameWithoutVersion -Wildcard -ContinueOnError $true
+
+		Get-InstalledApplication -name "*$($appNameWithoutVersion)*" -WildCard | ForEach-Object { 
+
+			$prod = $_.ProductCode
+			
+			if ($prod -eq "") {
+			    ## some installer e.g. WEB-Installer
+				$unstr = $_.UninstallString + " --force-uninstall"
+				$unstring = $unstr.split('"')
+				Write-Log -Message "start Uninstall $($unString[1]) $($unString[2])" -LogType 'CMTrace' 
+				#Execute-Process -Path $unString[1] -Parameters $unString[2] -ContinueOnError $True
+				$erg = start-process $unString[1] -arg $unString[2] -Wait
+				Write-Log -Message "$appNameWithoutVersion has been removed with" -LogType 'CMTrace'
 			}
 			else {
-				Execute-Process -Path $App.UninstallFile -Parameters $App.UninstallArgs
+			    ## MSI Installation!
+				Write-Log -Message "start MSI Uninstall $($prod)" -LogType 'CMTrace'
+				Execute-MSI -Action 'Uninstall' -Path $prod -Parameters "/qn" -ContinueOnError $True
+				Write-Log -Message "$appNameWithoutVersion has been removed" -LogType 'CMTrace'
 			}
 		}
-		else {
-			Write-Log -Message 'No UninstallCommand provided in manifest; skipping uninstall action.' -Severity 2
-		}
+
+        
 		
 		##*===============================================
 		##* POST-UNINSTALLATION
@@ -408,12 +360,6 @@ Try {
 		[string]$installPhase = 'Post-Uninstallation'
 		
 		## <Perform Post-Uninstallation tasks here>
-		
-		foreach($appScript in $appScripts.PostUn){
-			if (!([string]::IsNullOrEmpty($appScript.PS1))){
-				Execute-Process -Path 'powershell.exe' -Parameters "-ExecutionPolicy Bypass -NoLogo -NonInteractive -NoProfile -File `"$dirFiles\$($appScript.PS1)`" -WindowStyle Hidden"
-			}
-		}
 		
 	}
 	
