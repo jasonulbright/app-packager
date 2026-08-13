@@ -290,13 +290,16 @@ function Invoke-PackageDrawio {
         }
 
         $networkContentPath = Join-Path $networkAppRoot "Files"
+
+        ## Update relative path in stage-manifest.json
+        Update-StageManifest -Path $manifestPath -Destination (Join-Path $networkAppRoot "stage-manifest.json") -RelativePath "Files"
+        $manifest = Read-StageManifest -Path (Join-Path $networkAppRoot "stage-manifest.json")
     }
 
     # --- Copy staged content to network ---
     $localFiles = $null
     if([string]::IsNullOrWhiteSpace($PSAppDeployToolkitPath) -eq $false -and (Test-Path -LiteralPath $PSAppDeployToolkitPath)) {
         $localFiles = Get-ChildItem -Path $localContentPath -Exclude "stage-manifest.json"
-        Get-ChildItem -Path $localContentPath -Filter "stage-manifest.json" | Copy-Item -Destination $networkAppRoot -Force -ErrorAction Stop
     } else {
         $localFiles = Get-ChildItem -Path $localContentPath -File -ErrorAction Stop
     }
@@ -313,11 +316,15 @@ function Invoke-PackageDrawio {
         }
     }
 
+    Write-Log "Starting to create MECM application..."
+    # --- MECM application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
+        -AppNamePattern $AppNamePattern `
         -SiteCode $SiteCode `
         -Comment $Comment `
         -NetworkContentPath $networkContentPath `
+        -PSAppDeployToolkitPath $PSAppDeployToolkitPath `
         -EstimatedRuntimeMins $EstimatedRuntimeMins `
         -MaximumRuntimeMins $MaximumRuntimeMins
 }
