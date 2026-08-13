@@ -791,7 +791,8 @@ function Assert-PackagerPackageIntegrity {
         [Parameter(Mandatory)]$Result,
         [Parameter(Mandatory)][string]$PackagerPath,
         [Parameter(Mandatory)][string]$FileServerPath,
-        [string]$DownloadRoot = $null
+        [string]$DownloadRoot = $null,
+        [string]$PSAppDeployToolkitPath = $null
     )
 
     if ($Result.ExitCode -ne 0) { return }
@@ -803,8 +804,15 @@ function Assert-PackagerPackageIntegrity {
     if ([string]::IsNullOrWhiteSpace($manifestPath) -or -not (Test-Path -LiteralPath $manifestPath)) {
         throw "Package integrity verification could not find stage-manifest.json."
     }
-
+    
     $manifest = Read-StageManifest -Path $manifestPath
+
+    if([string]::IsNullOrWhiteSpace($PSAppDeployToolkitPath) -eq $false -and (Test-Path -LiteralPath $PSAppDeployToolkitPath)) {
+        foreach ($fileHash in $manifest.FileHashes) {
+            $fileHash.RelativePath = Join-Path "Files" $fileHash.RelativePath
+        }
+    }
+
     $networkContentPath = Get-PackagerLoggedPath -Text $Result.StdOut -Label 'Network content path'
     if ([string]::IsNullOrWhiteSpace($networkContentPath)) {
         $info = Get-PackagerFolderInfo -ScriptPath $PackagerPath
@@ -815,7 +823,12 @@ function Assert-PackagerPackageIntegrity {
         $networkContentPath = Join-Path $networkContentPath $manifest.SoftwareVersion
     }
 
-    $comparison = Compare-StageFileHashes -Root $networkContentPath -Expected $manifest.FileHashes
+    if($PSAppDeployToolkitPath -and [string]::IsNullOrWhiteSpace($PSAppDeployToolkitPath) -eq $false) {
+        $comparison = Compare-StageFileHashes -Root $NetworkContentPath -Expected $Manifest.FileHashes -AllowExtra
+    } else {
+        $comparison = Compare-StageFileHashes -Root $NetworkContentPath -Expected $Manifest.FileHashes
+    }
+    
     if (-not $comparison.Pass) {
         throw ("Package integrity verification failed: {0}" -f (Get-StageFileHashComparisonMessage -Comparison $comparison))
     }
@@ -1208,7 +1221,7 @@ function Invoke-PackagerPackage {
     Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName
 
     $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -StructuredLog $structuredLog -LogTextBox $LogTextBox
-    Assert-PackagerPackageIntegrity -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot
+    Assert-PackagerPackageIntegrity -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -PSAppDeployToolkitPath $PSAppDeployToolkitPath
     return $result
 }
 
