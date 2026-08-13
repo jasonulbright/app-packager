@@ -1164,6 +1164,7 @@ function Invoke-PackagerPackage {
         [AllowEmptyString()][string]$Comment = '',
         [Parameter(Mandatory)][string]$FileServerPath,
         [Parameter(Mandatory)][string]$ApplicationSharePattern,
+        [Parameter(Mandatory)][string]$AppNamePattern,
         [Parameter(Mandatory)][string]$LogFolder,
         [string]$DownloadRoot = $null,
         [string]$PSAppDeployToolkitPath = $null,
@@ -1194,6 +1195,7 @@ function Invoke-PackagerPackage {
     }
     if ($DownloadRoot) { $argsBase += @('-DownloadRoot', $DownloadRoot) }
     if ($PSAppDeployToolkitPath) { $argsBase += @('-PSAppDeployToolkitPath', $PSAppDeployToolkitPath) }
+    if ($AppNamePattern) { $argsBase += @('-AppNamePattern', $AppNamePattern) }
     if ($M365Channel) { $argsBase += @('-M365Channel', $M365Channel) }
     if ($M365DeployMode) { $argsBase += @('-M365DeployMode', $M365DeployMode) }
     if ($EstimatedRuntimeMins -gt 0) { $argsBase += @('-EstimatedRuntimeMins', [string]$EstimatedRuntimeMins) }
@@ -3923,6 +3925,7 @@ function Invoke-MultiAppPipeline {
                                 -Comment $Ctx.Comment `
                                 -FileServerPath $Ctx.FileShareRoot `
                                 -ApplicationSharePattern $Ctx.ApplicationSharePattern `
+                                -AppNamePattern $Ctx.AppNamePattern `
                                 -LogFolder $Ctx.LogFolder `
                                 -DownloadRoot $Ctx.DownloadRoot `
                                 -PSAppDeployToolkitPath $Ctx.PSAppDeployToolkitPath `
@@ -4153,6 +4156,7 @@ function Invoke-MultiAppPipeline {
                                 -Comment $Ctx.Comment `
                                 -FileServerPath $Ctx.FileShareRoot `
                                 -ApplicationSharePattern $Ctx.ApplicationSharePattern `
+                                -AppNamePattern $Ctx.AppNamePattern `
                                 -LogFolder $Ctx.LogFolder `
                                 -DownloadRoot $Ctx.DownloadRoot `
                                 -PSAppDeployToolkitPath $Ctx.PSAppDeployToolkitPath `
@@ -4454,6 +4458,7 @@ $btnStage.Add_Click({
     Invoke-MultiAppPipeline -Operation Stage -Rows $selectedRows -Context @{
         DownloadRoot   = $dlRootValue
         PSAppDeployToolkitPath = $script:Prefs.PSAppDeployToolkitPath
+        AppNamePattern = $script:Prefs.AppNamePattern
         M365Channel    = $script:Prefs.M365Channel
         M365DeployMode = $script:Prefs.M365DeployMode
         LogFolder      = Join-Path $PSScriptRoot 'Logs'
@@ -4499,6 +4504,7 @@ $btnPackage.Add_Click({
         Comment                 = $txtComment.Text.Trim()
         FileShareRoot           = $fsPathValue
         ApplicationSharePattern = $script:Prefs.ApplicationSharePattern
+        AppNamePattern          = $script:Prefs.AppNamePattern
         DownloadRoot            = $script:Prefs.DownloadRoot
         PSAppDeployToolkitPath  = $script:Prefs.PSAppDeployToolkitPath
         M365Channel             = $script:Prefs.M365Channel
