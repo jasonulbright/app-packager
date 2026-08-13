@@ -33,6 +33,7 @@
         'Compare-StageFileHashes'
         'Write-StageManifest'
         'Read-StageManifest'
+        'Update-StageManifest'
 
         # Content wrappers
         'Write-ContentWrappers'

@@ -945,6 +945,35 @@ function Read-StageManifest {
     return $manifest
 }
 
+function Update-StageManifest {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+        [Parameter(Mandatory)]
+        [string]$Destination,
+        [Parameter(Mandatory)]
+        [string]$RelativePath
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "Stage manifest not found: $Path"
+    }
+
+    # Read existing manifest
+    $manifest = Get-Content -LiteralPath $Path -Raw |
+        ConvertFrom-Json
+
+    # Update RelativePath for every FileHashes entry
+    foreach ($fileHash in $manifest.FileHashes) {
+        $fileHash.RelativePath = Join-Path $RelativePath $fileHash.RelativePath
+    }
+
+    # Write manifest back to disk
+    $manifest |
+        ConvertTo-Json -Depth 10 |
+        Set-Content -Path $Destination -Encoding UTF8
+}
+
 # ---------------------------------------------------------------------------
 # MECM helpers (continued)
 # ---------------------------------------------------------------------------
@@ -1442,13 +1471,19 @@ function New-MECMApplicationFromManifest {
         [Parameter(Mandatory)][string]$SiteCode,
         [AllowEmptyString()][string]$Comment = '',
         [Parameter(Mandatory)][string]$NetworkContentPath,
+        [string]$PSAppDeployToolkitPath = $null,
         [int]$EstimatedRuntimeMins = 15,
         [int]$MaximumRuntimeMins = 30
     )
 
     $orig = Get-Location
 
-    $contentVerification = Compare-StageFileHashes -Root $NetworkContentPath -Expected $Manifest.FileHashes
+    if($PSAppDeployToolkitPath -and [string]::IsNullOrWhiteSpace($PSAppDeployToolkitPath) -eq $false) {
+        $contentVerification = Compare-StageFileHashes -Root $NetworkContentPath -Expected $Manifest.FileHashes -AllowExtra
+    } else {
+        $contentVerification = Compare-StageFileHashes -Root $NetworkContentPath -Expected $Manifest.FileHashes
+    }
+    
     if ($contentVerification.Skipped) {
         Write-Log ("Package integrity verification : skipped ({0})" -f $contentVerification.Reason) -Level WARN
     }
@@ -1481,7 +1516,7 @@ function New-MECMApplicationFromManifest {
             if ([string]::IsNullOrWhiteSpace([string]$value)) {
                 $cmAppName = $cmAppName -replace "_?\{$key\}_?", ""
             } else {
-                $cmAppName = $cmAppName.Replace("{$key}", [string]$value)
+                $cmAppName = $cmAppName.Replace("{$key}", ([string]$value -replace " ", "-"))
             }
         }
 
