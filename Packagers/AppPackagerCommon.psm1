@@ -1569,11 +1569,9 @@ function New-MECMApplicationFromManifest {
         # Common deployment type parameters (splatted)
         $dtName = $cmAppName
         $dtParams = @{
-            ApplicationName           = $appName
-            DeploymentTypeName        = $dtName
+            ApplicationName           = $cmAppName
+            DeploymentTypeName        = $cmAppName + " - Install"
             ContentLocation           = $NetworkContentPath
-            InstallCommand            = 'install.bat'
-            UninstallCommand          = 'uninstall.bat'
             InstallationBehaviorType  = 'InstallForSystem'
             LogonRequirementType      = 'WhetherOrNotUserLoggedOn'
             EstimatedRuntimeMins      = $EstimatedRuntimeMins
@@ -1582,6 +1580,14 @@ function New-MECMApplicationFromManifest {
             SlowNetworkDeploymentMode = 'Download'
             UserInteractionMode       = 'Hidden'
             ErrorAction               = 'Stop'
+        }
+
+        if($PSAppDeployToolkitPath -and [string]::IsNullOrWhiteSpace($PSAppDeployToolkitPath) -eq $false) {
+            $dtParams['InstallCommand']     = 'Deploy-Application.EXE INSTALL'
+            $dtParams['UninstallCommand']   = 'Deploy-Application.EXE UNINSTALL'
+        } else {
+            $dtParams['InstallCommand']     = 'install.bat'
+            $dtParams['UninstallCommand']   = 'uninstall.bat'
         }
 
         # Manifest field name matches the cmdlet's parameter TYPE
