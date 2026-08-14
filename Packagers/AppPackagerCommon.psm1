@@ -1524,9 +1524,10 @@ function New-MECMApplicationFromManifest {
         $step = "Remove-CMApplicationRevisionHistory (CI_ID=$($cmApp.CI_ID))"
         Remove-CMApplicationRevisionHistoryByCIId -CI_ID ([UInt32]$cmApp.CI_ID) -KeepLatest 1
 
-        # Optional auto-distribute to a DP group. Settings live in
+        # Optional auto-distribute to a DP group, and optional test-collection
+        # deployment after successful distribution. Settings live in
         # AppPackager.preferences.json alongside the GUI. Packagers invoked
-        # from the CLI with no prefs file silently skip this step.
+        # from the CLI with no prefs file silently skip both steps.
         try {
             $prefsPath = Join-Path $PSScriptRoot '..\AppPackager.preferences.json'
             if (Test-Path -LiteralPath $prefsPath) {
@@ -1546,6 +1547,41 @@ function New-MECMApplicationFromManifest {
                                 Write-Log "Content distribution         : already targeted (treated as success)"
                             } else {
                                 Write-Log "Content distribution failed  : $($_.Exception.Message)" -Level WARN
+                            }
+                        }
+
+                        # Availability of the test-deployment option is gated in the
+                        # GUI (requires auto-distribute + DP group); at runtime the
+                        # prefs are taken as-is.
+                        $testCollection = if ($null -ne $cd.TestCollectionName) { ([string]$cd.TestCollectionName).Trim() } else { '' }
+                        if ($cd.DeployToTestCollection -and -not [string]::IsNullOrWhiteSpace($testCollection)) {
+                            try {
+                                $collection = Get-CMDeviceCollection -Name $testCollection -ErrorAction SilentlyContinue
+                                if (-not $collection -and [bool]$cd.CreateTestCollectionIfMissing) {
+                                    Write-Log "Creating test collection     : '$testCollection' (direct membership, limited to All Systems)"
+                                    New-CMDeviceCollection -Name $testCollection -LimitingCollectionName 'All Systems' -ErrorAction Stop | Out-Null
+                                    $collection = Get-CMDeviceCollection -Name $testCollection -ErrorAction SilentlyContinue
+                                }
+                                if (-not $collection) {
+                                    Write-Log "Test deployment skipped      : collection '$testCollection' not found (enable 'Create collection if it does not exist' or create it first)" -Level WARN
+                                }
+                                else {
+                                    Write-Log "Deploying to test collection : '$testCollection' (Available, immediate)"
+                                    New-CMApplicationDeployment `
+                                        -Name $appName `
+                                        -CollectionName $testCollection `
+                                        -DeployAction Install `
+                                        -DeployPurpose Available `
+                                        -AvailableDateTime (Get-Date) `
+                                        -ErrorAction Stop | Out-Null
+                                    Write-Log "Test deployment              : created"
+                                }
+                            } catch {
+                                if ($_.Exception.Message -match 'already (exists|deployed|been deployed)') {
+                                    Write-Log "Test deployment              : already exists (treated as success)"
+                                } else {
+                                    Write-Log "Test deployment failed       : $($_.Exception.Message)" -Level WARN
+                                }
                             }
                         }
                     }

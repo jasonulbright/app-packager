@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.0.0.12] - 2026-08-13
+
+### Additions
+
+- **Test-collection deployment after content distribution.** MECM
+  Preferences gains three controls under the Auto-distribute group:
+  "Deploy to test collection after distribution", "Test collection"
+  name, and "Create collection if it does not exist". The controls
+  unlock only when Auto-distribute is enabled and a DP Group is set —
+  the gating lives in the GUI, not the runtime. When enabled, the
+  Package phase follows `Start-CMContentDistribution` with
+  `New-CMApplicationDeployment` (Install / Available /
+  available immediately / default options) to the named collection.
+  A missing collection is created as an empty direct-membership device
+  collection limited to All Systems when the create option is checked,
+  otherwise the deployment is skipped with a warning. Existing
+  deployments are treated as success so re-packaging stays idempotent.
+  Settings persist under `ContentDistribution` in
+  `AppPackager.preferences.json`; prefs files without the new keys load
+  with the feature off.
+
 ## [1.0.0.11] - 2026-08-12
 
 ### Fixes

@@ -134,8 +134,11 @@ function Read-Preferences {
             }
         }
         ContentDistribution  = [pscustomobject]@{
-            AutoDistribute = $false
-            DPGroupName    = ''
+            AutoDistribute                = $false
+            DPGroupName                   = ''
+            DeployToTestCollection        = $false
+            TestCollectionName            = ''
+            CreateTestCollectionIfMissing = $false
         }
     }
 
@@ -246,6 +249,15 @@ function Read-Preferences {
             }
             if ($null -ne $cd.DPGroupName) {
                 $defaults.ContentDistribution.DPGroupName = [string]$cd.DPGroupName
+            }
+            if ($null -ne $cd.DeployToTestCollection) {
+                try { $defaults.ContentDistribution.DeployToTestCollection = [bool]$cd.DeployToTestCollection } catch { }
+            }
+            if ($null -ne $cd.TestCollectionName) {
+                $defaults.ContentDistribution.TestCollectionName = [string]$cd.TestCollectionName
+            }
+            if ($null -ne $cd.CreateTestCollectionIfMissing) {
+                try { $defaults.ContentDistribution.CreateTestCollectionIfMissing = [bool]$cd.CreateTestCollectionIfMissing } catch { }
             }
         }
 
@@ -2501,6 +2513,9 @@ function New-MecmPreferencesPanel {
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
     <Grid.ColumnDefinitions>
         <ColumnDefinition Width="140"/>
@@ -2537,11 +2552,20 @@ function New-MecmPreferencesPanel {
     <TextBlock Grid.Row="7" Grid.Column="0" Text="DP Group:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact name of the Distribution Point Group to target."/>
     <TextBox   Grid.Row="7" Grid.Column="1" x:Name="txtDPGroup" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Distribution Point Group display name (e.g. 'All DPs')"/>
 
-    <TextBlock Grid.Row="8" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
-    <TextBlock Grid.Row="8" Grid.Column="1" x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="8" Grid.Column="0" Text="Test deployment:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Requires Auto-distribute enabled and a DP Group name. After content distribution, deploys the application (Available, immediately, default options) to the test collection."/>
+    <CheckBox  Grid.Row="8" Grid.Column="1" x:Name="chkTestDeploy" Content="Deploy to test collection after distribution" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
-    <TextBlock Grid.Row="9" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="7-Zip command-line (7z.exe) detection status. Required by Adobe Reader + TeamViewer Host packagers."/>
-    <TextBlock Grid.Row="9" Grid.Column="1" x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="9" Grid.Column="0" Text="Test collection:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact device collection name that receives the Available test deployment."/>
+    <TextBox   Grid.Row="9" Grid.Column="1" x:Name="txtTestCollection" FontSize="13" MaxLength="255" Margin="0,0,0,8" ToolTip="Device collection display name (e.g. 'App Test Devices')"/>
+
+    <TextBlock Grid.Row="10" Grid.Column="0" Text="" Margin="0,0,0,8"/>
+    <CheckBox  Grid.Row="10" Grid.Column="1" x:Name="chkCreateTestColl" Content="Create collection if it does not exist" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Creates an empty direct-membership device collection limited to All Systems when the named collection is missing."/>
+
+    <TextBlock Grid.Row="11" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
+    <TextBlock Grid.Row="11" Grid.Column="1" x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
+
+    <TextBlock Grid.Row="12" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="7-Zip command-line (7z.exe) detection status. Required by Adobe Reader + TeamViewer Host packagers."/>
+    <TextBlock Grid.Row="12" Grid.Column="1" x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
 </Grid>
 '@
 
@@ -2557,6 +2581,9 @@ function New-MecmPreferencesPanel {
     $txtMax = $element.FindName('txtMax')
     $chkAutoDist = $element.FindName('chkAutoDist')
     $txtDPGroup  = $element.FindName('txtDPGroup')
+    $chkTestDeploy     = $element.FindName('chkTestDeploy')
+    $txtTestCollection = $element.FindName('txtTestCollection')
+    $chkCreateTestColl = $element.FindName('chkCreateTestColl')
     $txtConsoleStatus  = $element.FindName('txtConsoleStatus')
     $txtSevenZipStatus = $element.FindName('txtSevenZipStatus')
 
@@ -2568,6 +2595,23 @@ function New-MecmPreferencesPanel {
     $txtMax.Text = [string]$script:Prefs.MaximumRuntimeMins
     $chkAutoDist.IsChecked = [bool]$script:Prefs.ContentDistribution.AutoDistribute
     $txtDPGroup.Text       = [string]$script:Prefs.ContentDistribution.DPGroupName
+    $chkTestDeploy.IsChecked     = [bool]$script:Prefs.ContentDistribution.DeployToTestCollection
+    $txtTestCollection.Text      = [string]$script:Prefs.ContentDistribution.TestCollectionName
+    $chkCreateTestColl.IsChecked = [bool]$script:Prefs.ContentDistribution.CreateTestCollectionIfMissing
+
+    # Test-deployment controls require auto-distribute + DP group: the
+    # deployment only runs after successful content distribution.
+    $updateTestDeployState = {
+        $distReady = [bool]$chkAutoDist.IsChecked -and -not [string]::IsNullOrWhiteSpace($txtDPGroup.Text)
+        $chkTestDeploy.IsEnabled     = $distReady
+        $txtTestCollection.IsEnabled = $distReady -and [bool]$chkTestDeploy.IsChecked
+        $chkCreateTestColl.IsEnabled = $distReady -and [bool]$chkTestDeploy.IsChecked
+    }.GetNewClosure()
+    & $updateTestDeployState
+    $chkAutoDist.Add_Click($updateTestDeployState)
+    $chkAutoDist.Add_Unchecked($updateTestDeployState)
+    $txtDPGroup.Add_TextChanged($updateTestDeployState)
+    $chkTestDeploy.Add_Click($updateTestDeployState)
 
     $cm = $script:Prefs.DetectedTools.ConfigMgrConsole
     if ($cm -and $cm.Found) {
@@ -2604,6 +2648,9 @@ function New-MecmPreferencesPanel {
         $prefsRef.MaximumRuntimeMins   = $maxVal
         $prefsRef.ContentDistribution.AutoDistribute = [bool]$chkAutoDist.IsChecked
         $prefsRef.ContentDistribution.DPGroupName    = $txtDPGroup.Text.Trim()
+        $prefsRef.ContentDistribution.DeployToTestCollection        = [bool]$chkTestDeploy.IsChecked
+        $prefsRef.ContentDistribution.TestCollectionName            = $txtTestCollection.Text.Trim()
+        $prefsRef.ContentDistribution.CreateTestCollectionIfMissing = [bool]$chkCreateTestColl.IsChecked
     }.GetNewClosure()
 
     return @{ Name = 'MECM Preferences'; Element = $element; Commit = $commit }
