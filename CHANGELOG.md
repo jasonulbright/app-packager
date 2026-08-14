@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.1.0.6] - 2026-08-14
+
+### Added
+
+- **PSADT support finished.** The `package-psadt.ps1.template` skeleton
+  (previously TODO-throws in every phase) is now a functional packager for
+  the wrap-a-wrap case: point it at an existing per-app PSADT folder, fill
+  the identity and detection markers, and it stages the full toolkit tree
+  as versioned content with SHA256 hashes over every file — subfolders
+  included, so package integrity verification covers the toolkit with no
+  `-AllowExtra` weakening. New exported `Test-PsadtLayout` detects v3
+  (`Deploy-Application.exe`) vs v4 (`Invoke-AppDeployToolkit.exe`, with a
+  `powershell.exe -File` fallback when the launcher exe is absent) and
+  builds the deployment type command lines, validated against the
+  PSAppDeployToolkit documentation. The stage manifest gains optional
+  `InstallCommandLine` / `UninstallCommandLine` fields that
+  `New-MECMApplicationFromManifest` honors over the generated .bat
+  wrappers — a general mechanism, PSADT is just its first consumer.
+  `DeployMode` stays with the toolkit by default (interactive
+  close-app/defer when a user session exists); `-DeployMode Silent`
+  forces quiet. Toolkit versions are pinned per app in the source folder.
+  Prompted by stephannn's PR #2; implemented per-app instead of global
+  injection so integrity verification and version pinning survive.
+
 ## [1.1.0.5] - 2026-08-14
 
 ### Changed

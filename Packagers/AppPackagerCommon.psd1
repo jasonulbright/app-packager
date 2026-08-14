@@ -44,6 +44,7 @@
         'New-MECMApplicationFromManifest'
         'Remove-CMApplicationRevisionHistoryByCIId'
         'Get-NextPatchVersion'
+        'Test-PsadtLayout'
 
         # Intune Win32 content prep
         'Install-IntuneWinAppUtil'

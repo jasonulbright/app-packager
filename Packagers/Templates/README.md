@@ -6,8 +6,11 @@ Skeleton packagers for new installer formats. Copy a template into
 grid picks it up automatically on next launch.
 
 These files live in a subfolder so they don't pollute the grid as
-"Not runnable" rows. They are NOT runnable as-is — each has
-`throw "TODO: ..."` guards in every phase.
+"Not runnable" rows. Most are NOT runnable as-is — they carry
+`throw "TODO: ..."` guards in every phase. The PSADT template is the
+exception: every phase is implemented, and only the app identity
+markers (vendor/app/publisher, toolkit source path, version, detection)
+need filling.
 
 ## Available templates
 
@@ -16,7 +19,7 @@ These files live in a subfolder so they don't pollute the grid as
 | `package-msix.ps1.template` | MSIX / APPX / MSIXBUNDLE | Script (Add-AppxProvisionedPackage) | Framework ready; native Add-CMWindowsAppxDeploymentType path TODO |
 | `package-intunewin.ps1.template` | Intunewin (Win32) | Script (delegates to inner MSI/EXE) | Skeleton only; .intunewin extraction routine not implemented |
 | `package-squirrel.ps1.template` | Squirrel self-update installers | Script (per-user via Active Setup) | Skeleton only; user-context hand-off pattern documented |
-| `package-psadt.ps1.template` | PSADT v3 + v4 toolkits | Script (Deploy-Application.exe / Invoke-AppDeployToolkit.ps1) | Skeleton only; wrap-a-wrap shape |
+| `package-psadt.ps1.template` | PSADT v3 + v4 toolkits | Script (Deploy-Application.exe / Invoke-AppDeployToolkit.exe) | Functional: wraps an existing per-app toolkit; `Test-PsadtLayout` detects v3/v4 and builds the deployment type commands; full-tree SHA256 integrity; fill identity + detection TODOs only |
 | `package-chocolatey.ps1.template` | Chocolatey / NuGet .nupkg | Script (choco install or inlined chocolateyInstall.ps1) | Skeleton only; relies on choco.exe on targets |
 
 ## Forking a template
@@ -37,6 +40,10 @@ These files live in a subfolder so they don't pollute the grid as
   (install.bat → install.ps1 calling the native installer) unless the
   format makes that impossible. MSIX goes through the Script path via
   Add-AppxProvisionedPackage to stay uniform with MSI / EXE packagers.
+  PSADT packagers point the Script deployment type at the toolkit entry
+  instead, via the manifest's `InstallCommandLine` / `UninstallCommandLine`
+  overrides; the toolkit version is pinned per app inside its source
+  folder, and the whole tree is hash-verified like any other content.
 - Detection clauses prefer RegistryKeyValue (ARP) > File > Script, in
   that order. Script detection is a last resort.
 - Every packager supports the three-phase CLI surface

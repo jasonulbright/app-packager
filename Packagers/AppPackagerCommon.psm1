@@ -1329,6 +1329,82 @@ function New-SingleDetectionClause {
     }
 }
 
+function Test-PsadtLayout {
+    <#
+    .SYNOPSIS
+        Detects the PSADT toolkit generation in a folder and returns the MECM
+        deployment type command lines for it.
+
+    .DESCRIPTION
+        v4 layouts carry Invoke-AppDeployToolkit.ps1 at the root (usually with
+        Invoke-AppDeployToolkit.exe beside it); v3 layouts carry
+        Deploy-Application.exe / Deploy-Application.ps1. The native .exe
+        launcher is preferred when present because it hides the PowerShell
+        window; otherwise the command line falls back to powershell.exe -File.
+
+        DeployMode is deliberately omitted from the generated command lines by
+        default: PSADT runs Interactive when a user session exists and degrades
+        to NonInteractive otherwise, which is the close-app/defer behavior that
+        justifies wrapping with PSADT at all. Pass -DeployMode to force one.
+
+    .OUTPUTS
+        [pscustomobject] Generation ('v3'|'v4'), EntryPoint (file name),
+        InstallCommandLine, UninstallCommandLine.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [ValidateSet('', 'Interactive', 'Silent', 'NonInteractive')]
+        [string]$DeployMode = ''
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "PSADT toolkit folder not found: $Path"
+    }
+
+    $modeSuffix = if ([string]::IsNullOrWhiteSpace($DeployMode)) { '' } else { " -DeployMode $DeployMode" }
+
+    $v4Exe = Join-Path $Path 'Invoke-AppDeployToolkit.exe'
+    $v4Ps1 = Join-Path $Path 'Invoke-AppDeployToolkit.ps1'
+    $v3Exe = Join-Path $Path 'Deploy-Application.exe'
+    $v3Ps1 = Join-Path $Path 'Deploy-Application.ps1'
+
+    if (Test-Path -LiteralPath $v4Ps1) {
+        if (Test-Path -LiteralPath $v4Exe) {
+            $entry = 'Invoke-AppDeployToolkit.exe'
+            $prefix = $entry
+        }
+        else {
+            $entry = 'Invoke-AppDeployToolkit.ps1'
+            $prefix = "powershell.exe -NonInteractive -ExecutionPolicy Bypass -File `"$entry`""
+        }
+        return [pscustomobject]@{
+            Generation           = 'v4'
+            EntryPoint           = $entry
+            InstallCommandLine   = "$prefix -DeploymentType Install$modeSuffix"
+            UninstallCommandLine = "$prefix -DeploymentType Uninstall$modeSuffix"
+        }
+    }
+
+    if ((Test-Path -LiteralPath $v3Exe) -or (Test-Path -LiteralPath $v3Ps1)) {
+        if (Test-Path -LiteralPath $v3Exe) {
+            $entry = 'Deploy-Application.exe'
+            $prefix = $entry
+        }
+        else {
+            $entry = 'Deploy-Application.ps1'
+            $prefix = "powershell.exe -NonInteractive -ExecutionPolicy Bypass -File `"$entry`""
+        }
+        return [pscustomobject]@{
+            Generation           = 'v3'
+            EntryPoint           = $entry
+            InstallCommandLine   = "$prefix -DeploymentType `"Install`"$modeSuffix"
+            UninstallCommandLine = "$prefix -DeploymentType `"Uninstall`"$modeSuffix"
+        }
+    }
+
+    throw "No PSADT entry point found in '$Path' (expected Invoke-AppDeployToolkit.ps1 [v4] or Deploy-Application.exe/.ps1 [v3])."
+}
+
 function Get-NextPatchVersion {
     <#
     .SYNOPSIS
@@ -1523,12 +1599,26 @@ function New-MECMApplicationFromManifest {
         # canonical name after the old one is removed.
         $dtName = $appName
         $dtCreateName = if ($replaceDtName) { "$dtName (staging)" } else { $dtName }
+        # Deployment type command lines default to the generated .bat wrappers;
+        # manifests may override both (PSADT-wrapped apps point at the toolkit
+        # entry, e.g. Invoke-AppDeployToolkit.exe -DeploymentType Install).
+        $installCommand = 'install.bat'
+        $uninstallCommand = 'uninstall.bat'
+        if (-not [string]::IsNullOrWhiteSpace([string]$Manifest.InstallCommandLine)) {
+            $installCommand = [string]$Manifest.InstallCommandLine
+            Write-Log "Install command (manifest)   : $installCommand"
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string]$Manifest.UninstallCommandLine)) {
+            $uninstallCommand = [string]$Manifest.UninstallCommandLine
+            Write-Log "Uninstall command (manifest) : $uninstallCommand"
+        }
+
         $dtParams = @{
             ApplicationName           = $appName
             DeploymentTypeName        = $dtCreateName
             ContentLocation           = $NetworkContentPath
-            InstallCommand            = 'install.bat'
-            UninstallCommand          = 'uninstall.bat'
+            InstallCommand            = $installCommand
+            UninstallCommand          = $uninstallCommand
             InstallationBehaviorType  = 'InstallForSystem'
             LogonRequirementType      = 'WhetherOrNotUserLoggedOn'
             EstimatedRuntimeMins      = $EstimatedRuntimeMins

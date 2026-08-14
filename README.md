@@ -377,7 +377,11 @@ Written by the Stage phase, read by the Package phase. Contains all metadata nee
 
 Five detection types are supported: `RegistryKeyValue`, `RegistryKey`, `File`, `Script`, and `Compound` (multiple clauses with AND/OR connectors).
 
-Optional fields for deployment tool integration (PSADT, Intune, custom wrappers): `InstallerType`, `InstallArgs`, `UninstallArgs`, `UninstallCommand`, `ProductCode`, `RunningProcess`.
+Optional fields for deployment tool integration (PSADT, Intune, custom wrappers): `InstallerType`, `InstallArgs`, `UninstallArgs`, `UninstallCommand`, `ProductCode`, `RunningProcess`. Two further optional fields, `InstallCommandLine` and `UninstallCommandLine`, override the deployment type's command lines entirely (default: the generated `install.bat` / `uninstall.bat`) — this is how PSADT-wrapped apps point MECM at the toolkit entry instead of the wrappers.
+
+### PSADT-wrapped applications
+
+`Packagers/Templates/package-psadt.ps1.template` is a functional packager for the "wrap-a-wrap" case: an app whose PSADT folder (v3 or v4) already exists. Copy it, fill the identity markers (vendor/app/publisher, toolkit source path, version) and the detection block, and it stages the full toolkit tree as versioned content with SHA256 hashes over every file (subfolders included), then creates the MECM Application with the deployment type invoking the toolkit directly — `Invoke-AppDeployToolkit.exe -DeploymentType Install` (v4) or `Deploy-Application.exe -DeploymentType "Install"` (v3), detected by the module's `Test-PsadtLayout`. `DeployMode` is left to the toolkit by default so the interactive close-app/defer UX engages when a user is logged on; pass `-DeployMode Silent` to suppress all UI. Pin the toolkit version per app inside its source folder — refreshing the toolkit is a deliberate re-stage, and package integrity verification covers the toolkit files the same as any installer.
 
 ## Project Structure
 
@@ -499,7 +503,7 @@ Two folders ship starter scaffolding for contributors:
 | `package-msix.ps1.template` | MSIX / APPX / MSIXBUNDLE | Script (Add-AppxProvisionedPackage) |
 | `package-intunewin.ps1.template` | Intunewin (Win32) | Script (delegates to inner MSI/EXE) |
 | `package-squirrel.ps1.template` | Squirrel self-update installers | Script (per-user via Active Setup) |
-| `package-psadt.ps1.template` | PSADT v3 + v4 toolkits | Script (Deploy-Application.exe / Invoke-AppDeployToolkit.ps1) |
+| `package-psadt.ps1.template` | PSADT v3 + v4 toolkits (functional — identity + detection TODOs only) | Script (Deploy-Application.exe / Invoke-AppDeployToolkit.exe) |
 | `package-chocolatey.ps1.template` | Chocolatey / NuGet .nupkg | Script (choco install or inlined chocolateyInstall.ps1) |
 
 To fork: copy the template up one level (drop the `.template` suffix), rename to `package-<appname>.ps1`, edit the header tags, and fill the `TODO` markers. The grid picks the new packager up on next launch. See `Packagers/Templates/README.md` for the full house rules (Script deployment-type uniformity, detection-clause preference order, three-phase CLI surface).
@@ -513,6 +517,7 @@ All packager scripts import the shared module which provides:
 | `Write-Log` | Timestamped, severity-tagged logging to console and optional file |
 | `Initialize-Logging` | Sets up log file output |
 | `Invoke-DownloadWithRetry` | curl.exe download wrapper with 1 retry and 5s delay |
+| `Test-PsadtLayout` | Detects PSADT v3 vs v4 in a toolkit folder and returns the deployment type install/uninstall command lines (exe launcher preferred, powershell.exe -File fallback) |
 | `Test-IsAdmin` | Checks for administrator elevation. No shipped packager calls it: Stage reads installer metadata via COM and writes only user-writable paths, and Package needs share ACLs + CM RBAC, not local admin. Retained for future packagers whose Stage genuinely must elevate |
 | `Connect-CMSite` | Imports ConfigMgr module, creates the missing CMSite PSDrive when a provider is configured, and sets PSDrive location |
 | `Initialize-Folder` | Creates directory if missing |
