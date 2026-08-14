@@ -172,11 +172,21 @@ function Write-LogErrorRecord {
 function Invoke-DownloadWithRetry {
     <#
     .SYNOPSIS
-        Downloads a file via curl.exe with a single retry on failure.
+        Downloads a file via curl.exe, falling back to Invoke-WebRequest, with
+        a single retry on failure.
 
     .DESCRIPTION
-        Wraps curl.exe file-download calls (curl.exe -L --fail --silent --show-error -o <file> <url>)
-        with retry logic. Throws on final failure.
+        curl.exe is primary (curl.exe -L --fail --silent --show-error -o <file> <url>):
+        the in-box Schannel build trusts the Windows certificate store and
+        negotiates modern TLS regardless of per-machine .NET registry state.
+
+        When curl fails, the attempt falls back to Invoke-WebRequest, which
+        discovers WinINET/system proxy settings curl does not read. The
+        fallback sends default credentials to the system proxy (Kerberos/NTLM
+        auth proxies) and suppresses the 5.1 progress bar that cripples
+        download throughput. TLS 1.2 is forced at module import.
+
+        Throws on final failure (both methods, all attempts).
 
         Does NOT wrap scraping/variable-capture calls or URL-resolution calls.
     #>
@@ -212,12 +222,45 @@ function Invoke-DownloadWithRetry {
             return
         }
 
+        Write-Log ("curl.exe failed (exit code {0}); falling back to Invoke-WebRequest." -f $exitCode) -Level WARN -Quiet:$Quiet
+
+        # curl leaves a partial file when the transfer dies mid-stream; remove
+        # it so a fallback/retry never passes integrity checks with torn content.
+        if (Test-Path -LiteralPath $OutFile) {
+            Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+        }
+
+        $savedProgress = $ProgressPreference
+        try {
+            # Authenticated system proxies (the environments where curl fails)
+            # reject anonymous CONNECT; hand the default proxy our credentials.
+            [System.Net.WebRequest]::DefaultWebProxy.Credentials = [System.Net.CredentialCache]::DefaultNetworkCredentials
+
+            # 5.1 redraws the progress bar per buffer read; silencing it is the
+            # difference between KB/s and full line speed on large installers.
+            $ProgressPreference = 'SilentlyContinue'
+
+            Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -ErrorAction Stop
+
+            Write-Log "Download succeeded via Invoke-WebRequest fallback." -Quiet:$Quiet
+            return
+        }
+        catch {
+            Write-Log ("Invoke-WebRequest fallback failed: {0}" -f $_.Exception.Message) -Level WARN -Quiet:$Quiet
+            if (Test-Path -LiteralPath $OutFile) {
+                Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+            }
+        }
+        finally {
+            $ProgressPreference = $savedProgress
+        }
+
         if ($attempt -lt $maxAttempts) {
-            Write-Log ("Download attempt {0} failed (curl exit code {1}). Will retry." -f $attempt, $exitCode) -Level WARN -Quiet:$Quiet
+            Write-Log ("Download attempt {0} failed via both curl.exe and Invoke-WebRequest. Will retry." -f $attempt) -Level WARN -Quiet:$Quiet
         }
     }
 
-    $msg = "Download failed after $maxAttempts attempt(s): $Url"
+    $msg = "Download failed after $maxAttempts attempt(s) via both curl.exe and Invoke-WebRequest: $Url"
     Write-Log $msg -Level ERROR -Quiet:$Quiet
     throw $msg
 }
