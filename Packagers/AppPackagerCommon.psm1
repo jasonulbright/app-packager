@@ -1390,49 +1390,74 @@ function New-MECMApplicationFromManifest {
 
         $step = "Get-CMApplication duplicate check ('$appName')"
         $existing = Get-CMApplication -Name $appName -ErrorAction SilentlyContinue
+        $cmApp = $null
+        $replaceDtName = $null
         if ($existing) {
             $existingApps = @($existing)
             if ($existingApps.Count -gt 1) {
                 throw "Multiple existing MECM applications matched '$appName'; refusing to package until the duplicate names are resolved."
             }
+            $cmApp = $existingApps[0]
 
             $dtName = $appName
-            if (Test-MECMApplicationHasDeploymentType -ApplicationName $appName -DeploymentTypeName $dtName) {
-                Write-Log "Application already exists    : $appName" -Level WARN
-                Write-Log "Deployment type validated     : $dtName"
-                return [UInt32]$existingApps[0].CI_ID
+            $hasDt = Test-MECMApplicationHasDeploymentType -ApplicationName $appName -DeploymentTypeName $dtName
+            $existingVersion = [string]$cmApp.SoftwareVersion
+
+            if ($existingVersion -eq [string]$Manifest.SoftwareVersion) {
+                if ($hasDt) {
+                    Write-Log "Application already exists    : $appName (v$existingVersion, unchanged)" -Level WARN
+                    Write-Log "Deployment type validated     : $dtName"
+                    return [UInt32]$cmApp.CI_ID
+                }
+                throw "Existing MECM application '$appName' is missing deployment type '$dtName'. This looks like a partial prior package run; fix or remove the partial app before packaging again."
             }
 
-            throw "Existing MECM application '$appName' is missing deployment type '$dtName'. This looks like a partial prior package run; fix or remove the partial app before packaging again."
+            # Version change on a reused application name (version-less CMName by
+            # design): replace the deployment type with one pointing at the new
+            # content. The new deployment type is created under a staging name
+            # first, because a deployed application refuses to remove its last
+            # deployment type.
+            Write-Log "Application already exists    : $appName (v$existingVersion -> v$($Manifest.SoftwareVersion), replacing deployment type)" -Level WARN
+            if ($hasDt) {
+                $replaceDtName = $dtName
+            }
+            else {
+                Write-Log "Existing app has no deployment type; adding one for the new version." -Level WARN
+            }
         }
 
-        Write-Log "Creating CM Application      : $appName"
-        $step = "New-CMApplication ('$appName')"
-        $cmAppParams = @{
-            Name             = $appName
-            Publisher        = $Manifest.Publisher
-            SoftwareVersion  = $Manifest.SoftwareVersion
-            Description      = $Comment
-            AutoInstall      = $true
-            ErrorAction      = 'Stop'
-        }
-        # Set Software Center display name if provided (omits channel/arch details)
-        if ($Manifest.DisplayName) {
-            $cmAppParams['LocalizedApplicationName'] = $Manifest.DisplayName
-            Write-Log "Software Center name         : $($Manifest.DisplayName)"
-        }
-        $cmApp = New-CMApplication @cmAppParams
+        if (-not $cmApp) {
+            Write-Log "Creating CM Application      : $appName"
+            $step = "New-CMApplication ('$appName')"
+            $cmAppParams = @{
+                Name             = $appName
+                Publisher        = $Manifest.Publisher
+                SoftwareVersion  = $Manifest.SoftwareVersion
+                Description      = $Comment
+                AutoInstall      = $true
+                ErrorAction      = 'Stop'
+            }
+            # Set Software Center display name if provided (omits channel/arch details)
+            if ($Manifest.DisplayName) {
+                $cmAppParams['LocalizedApplicationName'] = $Manifest.DisplayName
+                Write-Log "Software Center name         : $($Manifest.DisplayName)"
+            }
+            $cmApp = New-CMApplication @cmAppParams
 
-        Write-Log "Application CI_ID            : $($cmApp.CI_ID)"
+            Write-Log "Application CI_ID            : $($cmApp.CI_ID)"
+        }
 
         # Determine detection type (backward compat: missing Type = RegistryKeyValue)
         $detType = if ($Manifest.Detection.Type) { $Manifest.Detection.Type } else { 'RegistryKeyValue' }
 
-        # Common deployment type parameters (splatted)
+        # Common deployment type parameters (splatted). On a version replace the
+        # new deployment type starts under a staging name; it is renamed to the
+        # canonical name after the old one is removed.
         $dtName = $appName
+        $dtCreateName = if ($replaceDtName) { "$dtName (staging)" } else { $dtName }
         $dtParams = @{
             ApplicationName           = $appName
-            DeploymentTypeName        = $dtName
+            DeploymentTypeName        = $dtCreateName
             ContentLocation           = $NetworkContentPath
             InstallCommand            = 'install.bat'
             UninstallCommand          = 'uninstall.bat'
@@ -1517,9 +1542,31 @@ function New-MECMApplicationFromManifest {
 
         Write-Log ("Deployment type parameters   : {0}" -f (($dtParams.Keys | Sort-Object | ForEach-Object { "{0}='{1}'" -f $_, $dtParams[$_] }) -join ' ')) -Level DEBUG
 
-        Write-Log "Adding Script Deployment Type : $dtName"
-        $step = "Add-CMScriptDeploymentType ('$dtName')"
+        Write-Log "Adding Script Deployment Type : $dtCreateName"
+        $step = "Add-CMScriptDeploymentType ('$dtCreateName')"
         Add-CMScriptDeploymentType @dtParams | Out-Null
+
+        if ($replaceDtName) {
+            $step = "Remove-CMDeploymentType ('$replaceDtName')"
+            Remove-CMDeploymentType -ApplicationName $appName -DeploymentTypeName $replaceDtName -Force -ErrorAction Stop
+            Write-Log "Removed old deployment type  : $replaceDtName"
+
+            $step = "Set-CMDeploymentType rename ('$dtCreateName' -> '$dtName')"
+            Set-CMDeploymentType -ApplicationName $appName -DeploymentTypeName $dtCreateName -NewDeploymentTypeName $dtName -ErrorAction Stop
+            Write-Log "Renamed deployment type      : $dtName"
+        }
+
+        if ($existing) {
+            $step = "Set-CMApplication version update ('$appName')"
+            $setAppParams = @{
+                Name            = $appName
+                SoftwareVersion = [string]$Manifest.SoftwareVersion
+                ErrorAction     = 'Stop'
+            }
+            if (-not [string]::IsNullOrWhiteSpace($Comment)) { $setAppParams['Description'] = $Comment }
+            Set-CMApplication @setAppParams
+            Write-Log "Updated application version  : $($Manifest.SoftwareVersion)"
+        }
 
         $step = "Remove-CMApplicationRevisionHistory (CI_ID=$($cmApp.CI_ID))"
         Remove-CMApplicationRevisionHistoryByCIId -CI_ID ([UInt32]$cmApp.CI_ID) -KeepLatest 1

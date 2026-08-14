@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.1.0.2] - 2026-08-14
+
+### Fixed
+
+- **Version-less applications never picked up new versions.** For packagers
+  whose CMName omits the version (by design), the Package phase found the
+  existing application + deployment type and returned success without
+  touching either — the new version's content was staged and copied but
+  never reached MECM. `New-MECMApplicationFromManifest` now compares the
+  manifest `SoftwareVersion` against the existing application's: unchanged
+  versions remain an idempotent no-op; a changed version replaces the
+  deployment type and updates the application's SoftwareVersion (and
+  Description when a comment is passed). The new deployment type is created
+  under a staging name, the old one is removed, then the new one is renamed
+  to the canonical name — ordered that way because a deployed application
+  refuses to remove its last deployment type. Renaming uses
+  `Set-CMDeploymentType -NewDeploymentTypeName` (validated against vendor
+  docs; the parameter is not `-NewName`).
+
+- **specexec packager verifies deployment types server-side.** The run
+  reported success as long as no cmdlet threw; a silently incomplete
+  application (created by a pre-1.0.0.11 partial run) passed unnoticed.
+  The Package phase now logs how many deployment types the existing
+  application has when resuming, and after the create loop queries the
+  site and prints OK/MISSING per expected deployment type, throwing if
+  any of the 6 are absent.
+
 ## [1.1.0.1] - 2026-08-14
 
 ### Fixed
