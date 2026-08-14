@@ -419,8 +419,9 @@ function Invoke-PackageSpecExec {
             if ($existingApps.Count -gt 1) {
                 throw "Multiple existing MECM applications matched '$AppName'; refusing to package until the duplicate names are resolved."
             }
-            Write-Log "Application already exists   : $AppName (resuming; existing deployment types are skipped)" -Level WARN
             $cmApp = $existingApps[0]
+            $resumeDts = @(Get-CMDeploymentType -ApplicationName $AppName -ErrorAction SilentlyContinue)
+            Write-Log "Application already exists   : $AppName (has $($resumeDts.Count) of $($matrix.Count) deployment types; resuming, existing ones are skipped)" -Level WARN
         }
         else {
             Write-Log "Creating CM Application      : $AppName"
@@ -485,6 +486,25 @@ function Invoke-PackageSpecExec {
                 -ErrorAction Stop | Out-Null
 
             Write-Log "  Created: Override=$($entry.OverrideHex) HyperV=$($entry.IsHyperV) Requirements=$($requirements.Count) DetectionClauses=$($clauses.Count)"
+        }
+
+        # --- Verify server-side: every matrix entry must exist as a deployment type ---
+        $step = "Deployment type verification ('$AppName')"
+        $serverDts = @(Get-CMDeploymentType -ApplicationName $AppName -ErrorAction SilentlyContinue)
+        Write-Log ""
+        Write-Log "Deployment types on site     : $($serverDts.Count) of $($matrix.Count) expected"
+        $missingDts = @()
+        foreach ($entry in $matrix) {
+            if (@($serverDts | Where-Object { $_.LocalizedDisplayName -eq $entry.Name }).Count -gt 0) {
+                Write-Log "  OK      $($entry.Name)"
+            }
+            else {
+                $missingDts += $entry.Name
+                Write-Log "  MISSING $($entry.Name)" -Level ERROR
+            }
+        }
+        if ($missingDts.Count -gt 0) {
+            throw "Deployment type verification failed; missing: $($missingDts -join '; ')"
         }
 
         $step = "Remove-CMApplicationRevisionHistory (CI_ID=$($cmApp.CI_ID))"
