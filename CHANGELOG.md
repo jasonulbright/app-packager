@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.1.0.1] - 2026-08-14
+
+### Fixed
+
+- **Grid columns no longer collapse when Debug Columns is toggled.** The
+  star-sized Application column had no minimum width, so showing the four
+  fixed-width debug columns crushed it to a sliver — and the crushed
+  width did not recover when they were hidden again. The column now keeps
+  at least 160 px, extra width scrolls horizontally, and hiding the debug
+  columns restores the layout.
+
+### Added
+
+- **Grid filter box.** A filter above the application grid narrows rows
+  by application, vendor, status, or CM name as you type. Bulk selection
+  (the checkbox-column header cycle and its updates-only step) acts on
+  the visible rows and always clears hidden rows first, so a filtered
+  "select all" can never queue hidden apps into a Stage or Package run.
+
 ## [1.1.0.0] - 2026-08-13
 
 ### Additions
