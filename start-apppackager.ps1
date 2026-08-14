@@ -132,6 +132,12 @@ function Read-Preferences {
                 ExePath         = ''
                 DetectedAt      = ''
             }
+            IntuneWinAppUtil = [pscustomobject]@{
+                Found          = $false
+                DisplayVersion = ''
+                ExePath        = ''
+                DetectedAt     = ''
+            }
         }
         ContentDistribution  = [pscustomobject]@{
             AutoDistribute                = $false
@@ -139,6 +145,9 @@ function Read-Preferences {
             DeployToTestCollection        = $false
             TestCollectionName            = ''
             CreateTestCollectionIfMissing = $false
+        }
+        Intune               = [pscustomobject]@{
+            CreateIntuneWin = $false
         }
     }
 
@@ -261,6 +270,11 @@ function Read-Preferences {
             }
         }
 
+        # Intune: .intunewin production during Package.
+        if ($null -ne $data.Intune -and $null -ne $data.Intune.CreateIntuneWin) {
+            try { $defaults.Intune.CreateIntuneWin = [bool]$data.Intune.CreateIntuneWin } catch { }
+        }
+
         # DetectedTools: last known detection results. Refreshed on launch
         # but persists across sessions so we have something to show before
         # the first detection completes.
@@ -299,6 +313,20 @@ function Read-Preferences {
             if ($null -ne $sz.ExePath)         { $stored.ExePath         = [string]$sz.ExePath }
             if ($null -ne $sz.DetectedAt)      { $stored.DetectedAt      = [string]$sz.DetectedAt }
             $defaults.DetectedTools.SevenZipCli = $stored
+        }
+        if ($null -ne $data.DetectedTools -and $null -ne $data.DetectedTools.IntuneWinAppUtil) {
+            $iw = $data.DetectedTools.IntuneWinAppUtil
+            $stored = [pscustomobject]@{
+                Found          = $false
+                DisplayVersion = ''
+                ExePath        = ''
+                DetectedAt     = ''
+            }
+            if ($null -ne $iw.Found)          { try { $stored.Found = [bool]$iw.Found } catch { } }
+            if ($null -ne $iw.DisplayVersion) { $stored.DisplayVersion = [string]$iw.DisplayVersion }
+            if ($null -ne $iw.ExePath)        { $stored.ExePath        = [string]$iw.ExePath }
+            if ($null -ne $iw.DetectedAt)     { $stored.DetectedAt     = [string]$iw.DetectedAt }
+            $defaults.DetectedTools.IntuneWinAppUtil = $stored
         }
     }
     catch { }
@@ -472,6 +500,48 @@ function Invoke-DetectSevenZipCli {
     return $result
 }
 
+function Get-IntuneWinToolCachePath {
+    return (Join-Path $env:LOCALAPPDATA 'AppPackager\Tools')
+}
+
+function Invoke-DetectIntuneWinAppUtil {
+    # Detects the Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe).
+    # The tool ships as a bare executable with no installer, so there is no
+    # ARP entry to scan. Detection signals, in order:
+    #   1. The path stored in preferences (keeps a manually placed copy).
+    #   2. The AppPackager tool cache under LOCALAPPDATA, the download-on-
+    #      first-use target.
+    #   3. PATH via Get-Command.
+    # Found = true only when IntuneWinAppUtil.exe resolves on disk.
+    param([string]$KnownPath = '')
+
+    $result = [pscustomobject]@{
+        Found          = $false
+        DisplayVersion = ''
+        ExePath        = ''
+        DetectedAt     = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    }
+
+    $candidates = @()
+    if (-not [string]::IsNullOrWhiteSpace($KnownPath)) { $candidates += $KnownPath }
+    $candidates += (Join-Path (Get-IntuneWinToolCachePath) 'IntuneWinAppUtil.exe')
+    $cmd = Get-Command -Name 'IntuneWinAppUtil.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($cmd) { $candidates += $cmd.Source }
+
+    foreach ($c in ($candidates | Where-Object { $_ } | Select-Object -Unique)) {
+        if (Test-Path -LiteralPath $c) {
+            $result.ExePath = [string]$c
+            try {
+                $result.DisplayVersion = [string][System.Diagnostics.FileVersionInfo]::GetVersionInfo($c).FileVersion
+            } catch { }
+            $result.Found = $true
+            break
+        }
+    }
+
+    return $result
+}
+
 $script:Prefs = Read-Preferences
 
 # Refresh tool detection once per launch. Persists into the same
@@ -479,6 +549,7 @@ $script:Prefs = Read-Preferences
 try {
     $script:Prefs.DetectedTools.ConfigMgrConsole = Invoke-DetectConfigMgrConsole
     $script:Prefs.DetectedTools.SevenZipCli      = Invoke-DetectSevenZipCli
+    $script:Prefs.DetectedTools.IntuneWinAppUtil = Invoke-DetectIntuneWinAppUtil -KnownPath ([string]$script:Prefs.DetectedTools.IntuneWinAppUtil.ExePath)
     Save-Preferences -Prefs $script:Prefs
 } catch { }
 
@@ -824,6 +895,83 @@ function Assert-PackagerPackageIntegrity {
     $comparison = Compare-StageFileHashes -Root $networkContentPath -Expected $manifest.FileHashes
     if (-not $comparison.Pass) {
         throw ("Package integrity verification failed: {0}" -f (Get-StageFileHashComparisonMessage -Comparison $comparison))
+    }
+}
+
+function Invoke-PackagerIntuneWinPostStep {
+    # Produces <AppFolder>-<Version>.intunewin from the staged content and
+    # copies it beside the network content version folder. The artifact
+    # lands in the parent of both version folders, never inside them:
+    # stage hash verification fails on any file added to verified content.
+    # Failures never fail the package run - the MECM application already
+    # exists when this executes - so the returned note carries Ok/Message
+    # for the caller to surface.
+    param(
+        [Parameter(Mandatory)]$Result,
+        [Parameter(Mandatory)][string]$PackagerPath,
+        [Parameter(Mandatory)][string]$FileServerPath,
+        [string]$DownloadRoot = $null,
+        [string]$ToolPath = ''
+    )
+
+    $note = [pscustomobject]@{
+        Ok          = $false
+        Message     = ''
+        LocalPath   = ''
+        NetworkPath = ''
+    }
+
+    try {
+        if ([string]::IsNullOrWhiteSpace($ToolPath) -or -not (Test-Path -LiteralPath $ToolPath)) {
+            $note.Message = 'IntuneWinAppUtil.exe not available; skipped. Configure it in MECM Preferences.'
+            return $note
+        }
+
+        $manifestPath = Get-PackagerLoggedPath -Text $Result.StdOut -Label 'Read stage manifest'
+        if ([string]::IsNullOrWhiteSpace($manifestPath) -or -not (Test-Path -LiteralPath $manifestPath)) {
+            $manifestPath = Find-NewestStageManifestForPackager -PackagerPath $PackagerPath -DownloadRoot $DownloadRoot
+        }
+        if ([string]::IsNullOrWhiteSpace($manifestPath) -or -not (Test-Path -LiteralPath $manifestPath)) {
+            $note.Message = 'stage-manifest.json not found; skipped.'
+            return $note
+        }
+
+        $manifest      = Read-StageManifest -Path $manifestPath
+        $contentFolder = Split-Path -Path $manifestPath -Parent
+        $version       = [string]$manifest.SoftwareVersion
+
+        $info = Get-PackagerFolderInfo -ScriptPath $PackagerPath
+        $baseName = if ($info.AppFolder) { [string]$info.AppFolder } else {
+            ([IO.Path]::GetFileNameWithoutExtension($PackagerPath)) -replace '^package-', ''
+        }
+        $outputName = ((('{0}-{1}' -f $baseName, $version) -replace '[\\/:*?"<>|]', '_') + '.intunewin')
+
+        $pkg = New-IntuneWinPackage `
+            -ToolPath $ToolPath `
+            -ContentFolder $contentFolder `
+            -SetupFile 'install.bat' `
+            -OutputFolder (Split-Path -Path $contentFolder -Parent) `
+            -OutputName $outputName
+        $note.LocalPath = [string]$pkg.IntuneWinPath
+
+        $networkContentPath = Get-PackagerLoggedPath -Text $Result.StdOut -Label 'Network content path'
+        if ([string]::IsNullOrWhiteSpace($networkContentPath) -and $info.VendorFolder -and $info.AppFolder) {
+            $networkContentPath = Join-Path (Join-Path (Join-Path $FileServerPath 'Applications') $info.VendorFolder) $info.AppFolder
+            $networkContentPath = Join-Path $networkContentPath $version
+        }
+        if (-not [string]::IsNullOrWhiteSpace($networkContentPath)) {
+            $networkTarget = Join-Path (Split-Path -Path $networkContentPath -Parent) $outputName
+            Copy-Item -LiteralPath $pkg.IntuneWinPath -Destination $networkTarget -Force -ErrorAction Stop
+            $note.NetworkPath = $networkTarget
+        }
+
+        $note.Ok = $true
+        $note.Message = ('created {0} ({1:N1} MB, SHA256 {2})' -f $outputName, ($pkg.SizeBytes / 1MB), $pkg.Sha256.Substring(0, 12))
+        return $note
+    }
+    catch {
+        $note.Message = ('creation failed: {0}' -f $_.Exception.Message)
+        return $note
     }
 }
 
@@ -1174,6 +1322,8 @@ function Invoke-PackagerPackage {
         [int]$EstimatedRuntimeMins = 0,
         [int]$MaximumRuntimeMins = 0,
         [string]$SevenZipPath = '',
+        [switch]$CreateIntuneWin,
+        [string]$IntuneWinToolPath = '',
         [System.Windows.Controls.TextBox]$LogTextBox = $null
     )
 
@@ -1208,6 +1358,17 @@ function Invoke-PackagerPackage {
 
     $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -StructuredLog $structuredLog -LogTextBox $LogTextBox
     Assert-PackagerPackageIntegrity -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot
+
+    # Optional post-step: produce a .intunewin beside the network content.
+    # Runs only after integrity passes; failures ride on the result for the
+    # caller to surface, never thrown - the MECM application already exists
+    # by this point.
+    if ($CreateIntuneWin -and $result.ExitCode -eq 0) {
+        $intuneNote = Invoke-PackagerIntuneWinPostStep -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -ToolPath $IntuneWinToolPath
+        if ($intuneNote) {
+            $result | Add-Member -NotePropertyName IntuneWin -NotePropertyValue $intuneNote -Force
+        }
+    }
     return $result
 }
 
@@ -1240,6 +1401,17 @@ function Get-SevenZipPathForContext {
     try {
         if ($script:Prefs -and $script:Prefs.DetectedTools -and $script:Prefs.DetectedTools.SevenZipCli -and $script:Prefs.DetectedTools.SevenZipCli.Found) {
             return [string]$script:Prefs.DetectedTools.SevenZipCli.ExePath
+        }
+    } catch { }
+    return ''
+}
+
+function Get-IntuneWinToolPathForContext {
+    # Same prefs-safe resolution as Get-SevenZipPathForContext, for the
+    # Win32 Content Prep Tool.
+    try {
+        if ($script:Prefs -and $script:Prefs.DetectedTools -and $script:Prefs.DetectedTools.IntuneWinAppUtil -and $script:Prefs.DetectedTools.IntuneWinAppUtil.Found) {
+            return [string]$script:Prefs.DetectedTools.IntuneWinAppUtil.ExePath
         }
     } catch { }
     return ''
@@ -2516,6 +2688,8 @@ function New-MecmPreferencesPanel {
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
     <Grid.ColumnDefinitions>
         <ColumnDefinition Width="140"/>
@@ -2566,6 +2740,15 @@ function New-MecmPreferencesPanel {
 
     <TextBlock Grid.Row="12" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="7-Zip command-line (7z.exe) detection status. Required by Adobe Reader + TeamViewer Host packagers."/>
     <TextBlock Grid.Row="12" Grid.Column="1" x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
+
+    <TextBlock Grid.Row="13" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe) detection status. Downloaded on first use, or place the exe on PATH."/>
+    <StackPanel Grid.Row="13" Grid.Column="1" Orientation="Horizontal" Margin="0,6,0,0">
+        <TextBlock x:Name="txtIntuneWinStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
+        <Button x:Name="btnIntuneWinDownload" Content="Download" FontSize="11" Margin="10,0,0,0" Padding="10,2" Visibility="Collapsed"/>
+    </StackPanel>
+
+    <TextBlock Grid.Row="14" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="When enabled, a successful Package also produces an .intunewin from the staged content and stores it beside the network content version folder."/>
+    <CheckBox  Grid.Row="14" Grid.Column="1" x:Name="chkIntuneWin" Content="Create .intunewin during Package" FontSize="13" VerticalAlignment="Center" Margin="0,6,0,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 </Grid>
 '@
 
@@ -2586,6 +2769,9 @@ function New-MecmPreferencesPanel {
     $chkCreateTestColl = $element.FindName('chkCreateTestColl')
     $txtConsoleStatus  = $element.FindName('txtConsoleStatus')
     $txtSevenZipStatus = $element.FindName('txtSevenZipStatus')
+    $txtIntuneWinStatus   = $element.FindName('txtIntuneWinStatus')
+    $btnIntuneWinDownload = $element.FindName('btnIntuneWinDownload')
+    $chkIntuneWin         = $element.FindName('chkIntuneWin')
 
     $txtSC.Text  = [string]$script:Prefs.SiteCode
     $txtProvider.Text = [string]$script:Prefs.ProviderMachineName
@@ -2631,6 +2817,42 @@ function New-MecmPreferencesPanel {
         $txtSevenZipStatus.ToolTip = "Detected once per launch via registry ARP + Program Files\7-Zip"
     }
 
+    $chkIntuneWin.IsChecked = [bool]$script:Prefs.Intune.CreateIntuneWin
+    $prefsRefIw = $script:Prefs
+    $updateIntuneWinState = {
+        $iw = $prefsRefIw.DetectedTools.IntuneWinAppUtil
+        if ($iw -and $iw.Found) {
+            $verText = if ([string]::IsNullOrWhiteSpace([string]$iw.DisplayVersion)) { '' } else { (" v{0}" -f $iw.DisplayVersion) }
+            $txtIntuneWinStatus.Text = ([char]0x2713 + " Detected  -  IntuneWinAppUtil{0}" -f $verText)
+            $txtIntuneWinStatus.ToolTip = ("IntuneWinAppUtil.exe: {0}" -f $iw.ExePath)
+            $btnIntuneWinDownload.Visibility = 'Collapsed'
+            $chkIntuneWin.IsEnabled = $true
+        } else {
+            $txtIntuneWinStatus.Text = ([char]0x2717 + " Not detected  -  download it here or place IntuneWinAppUtil.exe on PATH")
+            $txtIntuneWinStatus.ToolTip = "Checked once per launch: preferences path, LOCALAPPDATA tool cache, PATH"
+            $btnIntuneWinDownload.Visibility = 'Visible'
+            $chkIntuneWin.IsEnabled = $false
+        }
+    }.GetNewClosure()
+    & $updateIntuneWinState
+
+    $btnIntuneWinDownload.Add_Click({
+        $btnIntuneWinDownload.IsEnabled = $false
+        $txtIntuneWinStatus.Text = "Downloading Microsoft Win32 Content Prep Tool..."
+        $downloadOk = $false
+        try {
+            $exePath = Install-IntuneWinAppUtil -DestinationFolder (Get-IntuneWinToolCachePath)
+            $prefsRefIw.DetectedTools.IntuneWinAppUtil = Invoke-DetectIntuneWinAppUtil -KnownPath $exePath
+            Save-Preferences -Prefs $prefsRefIw
+            $downloadOk = $true
+        } catch {
+            $txtIntuneWinStatus.Text = ([char]0x2717 + " Download failed  -  {0}" -f $_.Exception.Message)
+        } finally {
+            $btnIntuneWinDownload.IsEnabled = $true
+        }
+        if ($downloadOk) { & $updateIntuneWinState }
+    }.GetNewClosure())
+
     # Closure captures panel-local controls by value. Prefs ref is captured too
     # so the commit writes to the live $script:Prefs without needing $script:
     # scope resolution from inside the closure (which can be unreliable).
@@ -2651,6 +2873,7 @@ function New-MecmPreferencesPanel {
         $prefsRef.ContentDistribution.DeployToTestCollection        = [bool]$chkTestDeploy.IsChecked
         $prefsRef.ContentDistribution.TestCollectionName            = $txtTestCollection.Text.Trim()
         $prefsRef.ContentDistribution.CreateTestCollectionIfMissing = [bool]$chkCreateTestColl.IsChecked
+        $prefsRef.Intune.CreateIntuneWin = [bool]$chkIntuneWin.IsChecked
     }.GetNewClosure()
 
     return @{ Name = 'MECM Preferences'; Element = $element; Commit = $commit }
@@ -3936,11 +4159,19 @@ function Invoke-MultiAppPipeline {
                                 -M365DeployMode $Ctx.M365DeployMode `
                                 -EstimatedRuntimeMins $Ctx.EstimatedRuntimeMins `
                                 -MaximumRuntimeMins $Ctx.MaximumRuntimeMins `
-                                -SevenZipPath $Ctx.SevenZipPath
+                                -SevenZipPath $Ctx.SevenZipPath `
+                                -CreateIntuneWin:([bool]$Ctx.IntuneWinCreate) `
+                                -IntuneWinToolPath ([string]$Ctx.IntuneWinToolPath)
 
                             if ($res.ExitCode -eq 0) {
                                 $row.Status = 'Packaged'
                                 [void]$State.LogQueue.Enqueue(('Packaged. Logs: ' + (Split-Path -Leaf $res.OutLog)))
+                                if ($res.PSObject.Properties['IntuneWin'] -and $res.IntuneWin) {
+                                    [void]$State.LogQueue.Enqueue(('Intunewin: ' + $res.IntuneWin.Message))
+                                    if ($res.IntuneWin.NetworkPath) {
+                                        [void]$State.LogQueue.Enqueue(('Intunewin on network: ' + $res.IntuneWin.NetworkPath))
+                                    }
+                                }
                                 $ver = [string]$row.LatestVersion
                                 try {
                                     if ($ver) { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Version $ver -Result Updated }
@@ -4163,11 +4394,19 @@ function Invoke-MultiAppPipeline {
                                 -M365DeployMode $Ctx.M365DeployMode `
                                 -EstimatedRuntimeMins $Ctx.EstimatedRuntimeMins `
                                 -MaximumRuntimeMins $Ctx.MaximumRuntimeMins `
-                                -SevenZipPath $Ctx.SevenZipPath
+                                -SevenZipPath $Ctx.SevenZipPath `
+                                -CreateIntuneWin:([bool]$Ctx.IntuneWinCreate) `
+                                -IntuneWinToolPath ([string]$Ctx.IntuneWinToolPath)
 
                             if ($pkg.ExitCode -eq 0) {
                                 $row.Status = 'Packaged'
                                 [void]$State.LogQueue.Enqueue(('Packaged. Logs: ' + (Split-Path -Leaf $pkg.OutLog)))
+                                if ($pkg.PSObject.Properties['IntuneWin'] -and $pkg.IntuneWin) {
+                                    [void]$State.LogQueue.Enqueue(('Intunewin: ' + $pkg.IntuneWin.Message))
+                                    if ($pkg.IntuneWin.NetworkPath) {
+                                        [void]$State.LogQueue.Enqueue(('Intunewin on network: ' + $pkg.IntuneWin.NetworkPath))
+                                    }
+                                }
                                 try {
                                     if ($latest) { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Version $latest -Result Updated }
                                     else         { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Result Updated }
@@ -4507,6 +4746,8 @@ $btnPackage.Add_Click({
         MaximumRuntimeMins   = $script:Prefs.MaximumRuntimeMins
         LogFolder            = Join-Path $PSScriptRoot 'Logs'
         SevenZipPath         = Get-SevenZipPathForContext
+        IntuneWinCreate      = ([bool]$script:Prefs.Intune.CreateIntuneWin -and -not [string]::IsNullOrWhiteSpace((Get-IntuneWinToolPathForContext)))
+        IntuneWinToolPath    = Get-IntuneWinToolPathForContext
     }
 })
 
@@ -4593,6 +4834,8 @@ $btnFullRun.Add_Click({
         AdminUiFound         = $script:Prefs.DetectedTools.ConfigMgrConsole.Found
         LogFolder            = Join-Path $PSScriptRoot 'Logs'
         SevenZipPath         = Get-SevenZipPathForContext
+        IntuneWinCreate      = ([bool]$script:Prefs.Intune.CreateIntuneWin -and -not [string]::IsNullOrWhiteSpace((Get-IntuneWinToolPathForContext)))
+        IntuneWinToolPath    = Get-IntuneWinToolPathForContext
     }
 })
 

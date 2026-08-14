@@ -1606,6 +1606,155 @@ function New-MECMApplicationFromManifest {
 }
 
 # ---------------------------------------------------------------------------
+# Intune Win32 content prep
+# ---------------------------------------------------------------------------
+
+function Install-IntuneWinAppUtil {
+    <#
+    .SYNOPSIS
+        Downloads IntuneWinAppUtil.exe into a local tool folder.
+
+    .DESCRIPTION
+        Fetches the Microsoft Win32 Content Prep Tool from its official
+        GitHub repository and verifies the Authenticode signature is Valid
+        and Microsoft-signed before the file lands at its final path. A
+        download that fails verification is deleted and the function
+        throws. The tool is downloaded per workstation on first use and is
+        never redistributed with AppPackager.
+
+    .OUTPUTS
+        [string] Full path to the verified IntuneWinAppUtil.exe.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$DestinationFolder,
+        [string]$DownloadUrl = 'https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/master/IntuneWinAppUtil.exe'
+    )
+
+    Initialize-Folder -Path $DestinationFolder
+    $target = Join-Path $DestinationFolder 'IntuneWinAppUtil.exe'
+    $temp   = Join-Path $DestinationFolder ('IntuneWinAppUtil.' + [Guid]::NewGuid().ToString('N') + '.tmp')
+
+    try {
+        Invoke-DownloadWithRetry -Url $DownloadUrl -OutFile $temp
+
+        $sig = Get-AuthenticodeSignature -LiteralPath $temp
+        if ($sig.Status -ne 'Valid') {
+            throw ("IntuneWinAppUtil.exe download signature status is '{0}', expected 'Valid'; file discarded." -f $sig.Status)
+        }
+        $subject = if ($sig.SignerCertificate) { [string]$sig.SignerCertificate.Subject } else { '' }
+        if ($subject -notmatch 'O=Microsoft Corporation') {
+            throw ("IntuneWinAppUtil.exe download signer is '{0}', expected a Microsoft Corporation certificate; file discarded." -f $subject)
+        }
+
+        Move-Item -LiteralPath $temp -Destination $target -Force
+        Write-Log ("IntuneWinAppUtil.exe verified and installed: {0}" -f $target)
+        return $target
+    }
+    finally {
+        if (Test-Path -LiteralPath $temp) {
+            Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function New-IntuneWinPackage {
+    <#
+    .SYNOPSIS
+        Produces a .intunewin file from a staged content folder.
+
+    .DESCRIPTION
+        Runs the Microsoft Win32 Content Prep Tool against ContentFolder
+        with SetupFile as the setup reference. The tool writes
+        <setup-basename>.intunewin into OutputFolder; when OutputName is
+        given the file is renamed to it. OutputFolder must not be the
+        content folder itself: stage-manifest hash verification treats any
+        file added to staged or network content as an integrity failure.
+
+    .OUTPUTS
+        [pscustomobject] IntuneWinPath, SizeBytes, Sha256, ToolExitCode,
+        DurationSec.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$ToolPath,
+        [Parameter(Mandatory)][string]$ContentFolder,
+        [Parameter(Mandatory)][string]$SetupFile,
+        [Parameter(Mandatory)][string]$OutputFolder,
+        [string]$OutputName = '',
+        [int]$TimeoutSec = 900
+    )
+
+    if (-not (Test-Path -LiteralPath $ToolPath)) {
+        throw "IntuneWinAppUtil.exe not found: $ToolPath"
+    }
+    if (-not (Test-Path -LiteralPath $ContentFolder)) {
+        throw "Content folder not found: $ContentFolder"
+    }
+    $setupPath = Join-Path $ContentFolder $SetupFile
+    if (-not (Test-Path -LiteralPath $setupPath)) {
+        throw "Setup file not found in content folder: $setupPath"
+    }
+    $contentFull = (Resolve-Path -LiteralPath $ContentFolder).ProviderPath.TrimEnd('\')
+    Initialize-Folder -Path $OutputFolder
+    $outputFull = (Resolve-Path -LiteralPath $OutputFolder).ProviderPath.TrimEnd('\')
+    if ($outputFull -ieq $contentFull) {
+        throw "OutputFolder must differ from ContentFolder; a .intunewin inside the content folder fails stage hash verification."
+    }
+
+    $expected = Join-Path $outputFull ([IO.Path]::GetFileNameWithoutExtension($SetupFile) + '.intunewin')
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName  = $ToolPath
+    # -q answers the tool's overwrite prompt; without it a pre-existing
+    # output file stalls the run waiting for console input.
+    $psi.Arguments = ('-c "{0}" -s "{1}" -o "{2}" -q' -f $contentFull, $setupPath, $outputFull)
+    $psi.UseShellExecute        = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.CreateNoWindow         = $true
+
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    try {
+        $stdOutTask = $proc.StandardOutput.ReadToEndAsync()
+        $stdErrTask = $proc.StandardError.ReadToEndAsync()
+        if (-not $proc.WaitForExit($TimeoutSec * 1000)) {
+            try { $proc.Kill() } catch { }
+            throw ("IntuneWinAppUtil.exe did not finish within {0}s; process terminated." -f $TimeoutSec)
+        }
+        $sw.Stop()
+        $exitCode = $proc.ExitCode
+        $stdOut = [string]$stdOutTask.Result
+        $stdErr = [string]$stdErrTask.Result
+    }
+    finally {
+        $proc.Dispose()
+    }
+
+    if ($exitCode -ne 0) {
+        $tail = @((($stdErr, $stdOut) -join "`n") -split "`r?`n" | Where-Object { $_ } | Select-Object -Last 5) -join ' | '
+        throw ("IntuneWinAppUtil.exe exit code {0}: {1}" -f $exitCode, $tail)
+    }
+    if (-not (Test-Path -LiteralPath $expected)) {
+        throw ("IntuneWinAppUtil.exe reported success but the output file is missing: {0}" -f $expected)
+    }
+
+    $final = $expected
+    if (-not [string]::IsNullOrWhiteSpace($OutputName)) {
+        $final = Join-Path $outputFull $OutputName
+        Move-Item -LiteralPath $expected -Destination $final -Force
+    }
+
+    $item = Get-Item -LiteralPath $final
+    return [pscustomobject]@{
+        IntuneWinPath = [string]$item.FullName
+        SizeBytes     = [long]$item.Length
+        Sha256        = (Get-FileHash -LiteralPath $final -Algorithm SHA256).Hash
+        ToolExitCode  = [int]$exitCode
+        DurationSec   = [int]$sw.Elapsed.TotalSeconds
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Packager preferences
 # ---------------------------------------------------------------------------
 
