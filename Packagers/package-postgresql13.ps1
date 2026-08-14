@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: PostgreSQL Global Development Group
 App: PostgreSQL 13 (x64)
 CMName: PostgreSQL 13
@@ -71,7 +71,6 @@ DownloadPageUrl: https://www.postgresql.org/download/windows/
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -148,11 +147,6 @@ function Invoke-StagePostgreSQL {
     Write-Log "PostgreSQL $MajorVersion (x64) - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -255,11 +249,6 @@ function Invoke-PackagePostgreSQL {
     Write-Log "PostgreSQL $MajorVersion (x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 

@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Microsoft
 App: PowerToys
 CMName: PowerToys
@@ -53,7 +53,6 @@ DownloadPageUrl: https://github.com/microsoft/PowerToys/releases
     - PowerShell 5.1
     - ConfigMgr Admin Console installed
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -129,11 +128,6 @@ function Invoke-StagePowerToys {
     Write-Log "PowerToys - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -249,11 +243,6 @@ function Invoke-PackagePowerToys {
     Write-Log "PowerToys - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 

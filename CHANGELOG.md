@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.1.0.5] - 2026-08-14
+
+### Changed
+
+- **Non-admin packaging: local-administrator gates removed from every
+  packager.** The `Test-IsAdmin` exit-gate dated from the temp-install
+  ARP-derivation era; no shipped packager installs anything during Stage
+  anymore (`Find-UninstallEntry` has zero callers, and every msiexec
+  reference lives in generated endpoint wrapper content). Stage reads
+  installer metadata via COM and writes only user-writable paths; Package
+  needs network-share ACLs and CM RBAC, neither of which is local
+  elevation. Removed 186 gate blocks and the "Local administrator"
+  requirement line across 94 packagers/templates, so packaging runs from
+  a standard user account — no admin accounts needed in CM RBAC roles or
+  content-share ACLs. `Test-IsAdmin` stays exported for future packagers
+  whose Stage provably needs elevation; `Samples/AUTHORING.md` documents
+  the new house rule. Idea credit: stephannn (PR #2).
+
 ## [1.1.0.4] - 2026-08-14
 
 ### Added

@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Microsoft
 App: Microsoft Visual C++ v14 Redistributable (x86+x64)
 CMName: Microsoft Visual C++ v14 Redistributable
@@ -73,7 +73,6 @@ DownloadPageUrl: https://learn.microsoft.com/en-us/cpp/windows/latest-supported-
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -169,11 +168,6 @@ function Invoke-StageMsvcRedist {
     Write-Log "MSVC 2015-2022 Redistributable (x86+x64) - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -318,11 +312,6 @@ function Invoke-PackageMsvcRedist {
     Write-Log "MSVC 2015-2022 Redistributable (x86+x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     # --- Resolve version from local staging ---
     Initialize-Folder -Path $BaseDownloadRoot

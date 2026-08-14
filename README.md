@@ -513,7 +513,7 @@ All packager scripts import the shared module which provides:
 | `Write-Log` | Timestamped, severity-tagged logging to console and optional file |
 | `Initialize-Logging` | Sets up log file output |
 | `Invoke-DownloadWithRetry` | curl.exe download wrapper with 1 retry and 5s delay |
-| `Test-IsAdmin` | Checks for administrator elevation |
+| `Test-IsAdmin` | Checks for administrator elevation. No shipped packager calls it: Stage reads installer metadata via COM and writes only user-writable paths, and Package needs share ACLs + CM RBAC, not local admin. Retained for future packagers whose Stage genuinely must elevate |
 | `Connect-CMSite` | Imports ConfigMgr module, creates the missing CMSite PSDrive when a provider is configured, and sets PSDrive location |
 | `Initialize-Folder` | Creates directory if missing |
 | `Test-NetworkShareAccess` | Verifies UNC path is writable |

@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Microsoft
 App: Microsoft Teams (new client)
 CMName: Microsoft Teams
@@ -30,7 +30,6 @@ UpdateCadenceDays: 14
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager module available)
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -171,11 +170,6 @@ function Invoke-StageTeamsNew {
     Write-Log ("=" * 60)
     Write-Log ""
 
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
-
     Initialize-Folder -Path $BaseDownloadRoot
 
     $localBootstrapper = Join-Path $BaseDownloadRoot $BootstrapperFileName
@@ -254,11 +248,6 @@ function Invoke-PackageTeamsNew {
     Write-Log "Microsoft Teams (new client) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     $versionFile = Join-Path $BaseDownloadRoot "staged-version.txt"
     if (-not (Test-Path -LiteralPath $versionFile)) {

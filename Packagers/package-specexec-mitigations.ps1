@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Microsoft
 App: Speculative Execution Mitigations
 CMName: Speculative Execution Mitigations (Intel-AMD-BHI)
@@ -105,7 +105,6 @@ UpdateCadenceDays: 0
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications, Deployment Types, and Global Conditions
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -196,11 +195,6 @@ function Invoke-StageSpecExec {
     Write-Log "SpecExec Mitigations - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     $localContentPath = Join-Path $BaseDownloadRoot $ContentVersion
     Initialize-Folder -Path $localContentPath
@@ -370,11 +364,6 @@ function Invoke-PackageSpecExec {
     Write-Log "SpecExec Mitigations - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     $localContentPath = Join-Path $BaseDownloadRoot $ContentVersion
     if (-not (Test-Path -LiteralPath (Join-Path $localContentPath $InstallScriptName))) {

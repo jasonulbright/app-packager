@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Cisco
 App: Cisco Webex (x64)
 CMName: Cisco Webex
@@ -64,7 +64,6 @@ DownloadPageUrl: https://www.webex.com/downloads.html
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 
 .KNOWN ISSUES
@@ -152,11 +151,6 @@ function Invoke-StageWebex {
     Write-Log "Cisco Webex (x64) - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -266,11 +260,6 @@ function Invoke-PackageWebex {
     Write-Log "Cisco Webex (x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     # --- Resolve version from local staging ---
     Initialize-Folder -Path $BaseDownloadRoot

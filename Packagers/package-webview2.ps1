@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Microsoft
 App: Microsoft Edge WebView2 Runtime (x64)
 CMName: Microsoft Edge WebView2 Runtime
@@ -61,7 +61,6 @@ DownloadPageUrl: https://developer.microsoft.com/en-us/microsoft-edge/webview2/
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -142,11 +141,6 @@ function Invoke-StageWebView2 {
     Write-Log ("=" * 60)
     Write-Log ""
 
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
-
     Initialize-Folder -Path $BaseDownloadRoot
 
     # --- Get version ---
@@ -202,7 +196,7 @@ function Invoke-StageWebView2 {
         -UninstallPs1Content $uninstallContent
 
     # --- Write stage manifest ---
-    # WebView2 ARP key is stable (not version-specific) � use registry detection
+    # WebView2 ARP key is stable (not version-specific) ï¿½ use registry detection
     # instead of file detection in versioned folder path
     $arpRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft EdgeWebView"
 
@@ -254,11 +248,6 @@ function Invoke-PackageWebView2 {
     Write-Log "WebView2 Runtime (x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     # --- Resolve version from local staging ---
     Initialize-Folder -Path $BaseDownloadRoot

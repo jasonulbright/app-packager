@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Microsoft
 App: Power BI Desktop (x64)
 CMName: Power BI Desktop
@@ -27,7 +27,6 @@ UpdateCadenceDays: 30
 .REQUIREMENTS
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (Package phase)
-    - Local administrator
     - Write access to FileServerPath (Package phase)
     - Internet access (Stage phase)
 #>
@@ -132,11 +131,6 @@ function Invoke-StagePowerBIDesktop {
     Write-Log ("=" * 60)
     Write-Log ""
 
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
-
     Initialize-Folder -Path $BaseDownloadRoot
 
     $info = Get-PowerBIDownloadInfo
@@ -206,11 +200,6 @@ function Invoke-PackagePowerBIDesktop {
     Write-Log "Power BI Desktop (x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     $versionFile = Join-Path $BaseDownloadRoot "staged-version.txt"
     if (-not (Test-Path -LiteralPath $versionFile)) {

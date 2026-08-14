@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Eclipse Adoptium
 App: Eclipse Temurin JRE 21 (x64)
 CMName: Eclipse Temurin JRE 21
@@ -51,7 +51,6 @@ DownloadPageUrl: https://adoptium.net/temurin/releases/
     - PowerShell 5.1
     - ConfigMgr Admin Console installed
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -100,11 +99,6 @@ function Invoke-StageTemurinJRE21 {
     Write-Log "Eclipse Temurin JRE 21 (x64) - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -223,11 +217,6 @@ function Invoke-PackageTemurinJRE21 {
     Write-Log "Eclipse Temurin JRE 21 (x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     # --- Resolve version from local staging ---
     Initialize-Folder -Path $BaseDownloadRoot

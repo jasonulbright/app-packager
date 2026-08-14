@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Inkscape Project
 App: Inkscape
 CMName: Inkscape
@@ -54,7 +54,6 @@ DownloadPageUrl: https://inkscape.org/release/
     - PowerShell 5.1
     - ConfigMgr Admin Console installed
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -136,11 +135,6 @@ function Invoke-StageInkscape {
     Write-Log "Inkscape - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -250,11 +244,6 @@ function Invoke-PackageInkscape {
     Write-Log "Inkscape - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 

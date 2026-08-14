@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: VideoLAN
 App: VLC Media Player
 CMName: VLC Media Player
@@ -61,7 +61,6 @@ DownloadPageUrl: https://www.videolan.org/vlc/
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -139,11 +138,6 @@ function Invoke-StageVLC {
     Write-Log "VLC Media Player (x64) - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -259,11 +253,6 @@ function Invoke-PackageVLC {
     Write-Log "VLC Media Player (x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     # --- Resolve version from local staging ---
     Initialize-Folder -Path $BaseDownloadRoot

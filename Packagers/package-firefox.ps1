@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Mozilla
 App: Mozilla Firefox
 CMName: Mozilla Firefox
@@ -61,7 +61,6 @@ DownloadPageUrl: https://www.mozilla.org/en-US/firefox/enterprise/
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -135,11 +134,6 @@ function Invoke-StageFirefox {
     Write-Log "Mozilla Firefox (x64) - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -251,11 +245,6 @@ function Invoke-PackageFirefox {
     Write-Log "Mozilla Firefox (x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     # --- Resolve version from local staging ---
     Initialize-Folder -Path $BaseDownloadRoot

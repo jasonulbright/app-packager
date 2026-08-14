@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: TeamViewer
 App: TeamViewer (x64)
 CMName: TeamViewer
@@ -65,7 +65,6 @@ DownloadPageUrl: https://www.teamviewer.com/en-us/download/windows/
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -173,11 +172,6 @@ function Invoke-StageTeamViewer {
     Write-Log ("=" * 60)
     Write-Log ""
 
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
-
     # --- Download and extract ---
     $extractedMsiPath = Get-TeamViewerMsi
     $MsiFileName = [System.IO.Path]::GetFileName($extractedMsiPath)
@@ -273,11 +267,6 @@ function Invoke-PackageTeamViewer {
     Write-Log "TeamViewer (x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     # --- Resolve version from extracted MSI ---
     Initialize-Folder -Path $BaseDownloadRoot

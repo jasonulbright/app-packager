@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: NVIDIA
 App: NVIDIA Graphics Driver - GeForce Game Ready (x64)
 CMName: NVIDIA Graphics Driver - GeForce Game Ready
@@ -68,7 +68,6 @@ UpdateCadenceDays: 30
 .REQUIREMENTS
     - PowerShell 5.1
     - ConfigMgr Admin Console installed
-    - Local administrator
     - Write access to FileServerPath
     - Outbound HTTPS to gfwsl.geforce.com and us.download.nvidia.com
 #>
@@ -183,11 +182,6 @@ function Invoke-StageNvidiaGeForce {
     Write-Log ("=" * 60)
     Write-Log ""
 
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
-
     Initialize-Folder -Path $BaseDownloadRoot
 
     $release = Resolve-NvidiaGeForceLatest
@@ -285,11 +279,6 @@ function Invoke-PackageNvidiaGeForce {
     Write-Log "NVIDIA Graphics Driver (GeForce Game Ready) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     $release = Resolve-NvidiaGeForceLatest -Quiet
     if (-not $release) { throw "Could not resolve latest NVIDIA GeForce driver for manifest lookup." }

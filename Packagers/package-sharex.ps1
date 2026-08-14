@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: ShareX Team
 App: ShareX
 CMName: ShareX
@@ -53,7 +53,6 @@ DownloadPageUrl: https://getsharex.com/downloads
     - PowerShell 5.1
     - ConfigMgr Admin Console installed
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -129,11 +128,6 @@ function Invoke-StageShareX {
     Write-Log "ShareX - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -236,11 +230,6 @@ function Invoke-PackageShareX {
     Write-Log "ShareX - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 

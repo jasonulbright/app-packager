@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Adobe Inc.
 App: Adobe Acrobat Reader
 CMName: Adobe Acrobat Reader
@@ -77,7 +77,6 @@ RequiresTools: 7-Zip
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -257,11 +256,6 @@ function Invoke-StageAdobeReader {
     Write-Log "Adobe Acrobat Reader - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -470,11 +464,6 @@ function Invoke-PackageAdobeReader {
     Write-Log "Adobe Acrobat Reader - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     # --- Resolve version from local staging ---
     Initialize-Folder -Path $BaseDownloadRoot

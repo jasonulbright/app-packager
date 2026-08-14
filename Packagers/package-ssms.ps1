@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Microsoft
 App: SQL Server Management Studio 22
 CMName: SQL Server Management Studio
@@ -27,7 +27,6 @@ UpdateCadenceDays: 14
 .REQUIREMENTS
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (Package phase)
-    - Local administrator
     - Write access to FileServerPath (Package phase)
     - Internet access during install unless using a layout in a future packager
 #>
@@ -222,11 +221,6 @@ function Invoke-StageSsms {
     Write-Log ("=" * 60)
     Write-Log ""
 
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
-
     Initialize-Folder -Path $BaseDownloadRoot
 
     $release = Get-LatestSsmsRelease
@@ -295,11 +289,6 @@ function Invoke-PackageSsms {
     Write-Log "SQL Server Management Studio 22 - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     $versionFile = Join-Path $BaseDownloadRoot "staged-version.txt"
     if (-not (Test-Path -LiteralPath $versionFile)) {
