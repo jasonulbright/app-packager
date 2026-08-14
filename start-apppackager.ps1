@@ -1418,7 +1418,12 @@ function Get-IntuneWinToolPathForContext {
 }
 
 function Select-OnlyUpdateAvailable {
-    foreach ($item in $script:PackagerData) {
+    # Clear every row first, then select within the visible (filtered) set
+    # only: a row hidden by the grid filter must never keep or gain
+    # Selected=true, or a later Stage/Package would run on rows the user
+    # cannot see.
+    foreach ($item in $script:PackagerData) { $item.Selected = $false }
+    foreach ($item in @($dataGrid.ItemsSource)) {
         $item.Selected = ($item.Status -eq "Update available")
     }
 }
@@ -2120,6 +2125,7 @@ $btnPackage      = $window.FindName('btnPackage')
 $btnFullRun      = $window.FindName('btnFullRun')
 $btnOptions      = $window.FindName('btnOptions')
 $toggleDebugCols = $window.FindName('toggleDebugCols')
+$txtGridFilter = $window.FindName('txtGridFilter')
 $txtComment      = $window.FindName('txtComment')
 $dataGrid        = $window.FindName('dataGrid')
 $colSelected     = $window.FindName('colSelected')
@@ -2217,9 +2223,32 @@ $toggleTheme.Add_Toggled({
 })
 
 # =============================================================================
-# DataGrid binding
+# DataGrid binding + filter
 # =============================================================================
 $dataGrid.ItemsSource = $script:PackagerData
+
+function Update-GridFilter {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Recomputes the grid ItemsSource only.')]
+    param()
+
+    $needle = ([string]$txtGridFilter.Text).Trim().ToLowerInvariant()
+    if (-not $needle) {
+        # Re-bind only when a filter was active: keeping the
+        # ObservableCollection itself as ItemsSource is what lets
+        # Invoke-RefreshGrid's Clear()/Add() render live.
+        if (-not [object]::ReferenceEquals($dataGrid.ItemsSource, $script:PackagerData)) {
+            $dataGrid.ItemsSource = $script:PackagerData
+        }
+        return
+    }
+    $dataGrid.ItemsSource = @($script:PackagerData | Where-Object {
+        ([string]$_.Application).ToLowerInvariant().Contains($needle) -or
+        ([string]$_.Vendor).ToLowerInvariant().Contains($needle) -or
+        ([string]$_.Status).ToLowerInvariant().Contains($needle) -or
+        ([string]$_.CMName).ToLowerInvariant().Contains($needle)
+    })
+}
+$txtGridFilter.Add_TextChanged({ Update-GridFilter })
 
 # Ctrl+Click on a row opens the vendor URL
 $dataGrid.Add_PreviewMouseLeftButtonUp({
@@ -2440,8 +2469,11 @@ $dataGrid.AddHandler(
 
         switch ($script:SelCycleState) {
             0 {
-                foreach ($item in $script:PackagerData) { $item.Selected = $true }
-                Add-LogLine -Message "Selected all rows."
+                # Same visible-set rule as Select-OnlyUpdateAvailable: clear
+                # everywhere, select only what the filter shows.
+                foreach ($item in $script:PackagerData) { $item.Selected = $false }
+                foreach ($item in @($dataGrid.ItemsSource)) { $item.Selected = $true }
+                Add-LogLine -Message "Selected all visible rows."
                 $colSelected.Header.Text = $script:SelCycleSymbolAll
                 $script:SelCycleState = 1
             }
@@ -3888,6 +3920,10 @@ function Invoke-RefreshGrid {
     else {
         $txtStatus.Text = ("Loaded {0} packager(s). Ready." -f $script:PackagerData.Count)
     }
+
+    # A rebuild replaces every row object; a filtered grid would otherwise
+    # keep showing the orphaned old rows.
+    Update-GridFilter
 }
 
 # =============================================================================

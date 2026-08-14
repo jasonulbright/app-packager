@@ -101,10 +101,11 @@ The optional **Administrative Comment** field sits in the sidebar below the Opti
 
 ### Grid features
 
+- **Filter box** — narrows the grid by application, vendor, status, or CM name as you type
 - **Right-click context menu** on any row — Open Log Folder, Open Staged Folder, Open Network Share, Copy Latest Version
 - **Ctrl+Click** any row to open the vendor's product page in the default browser
 - **Row hover tooltips** — hover over any row to see the application's description from the packager script
-- **Updates Only** button — auto-checks only rows with "Update available" status after a version check
+- **Selection cycle header** — clicking the checkbox column header cycles none → all → updates only → none; selection acts on the rows the filter shows and the glyph reflects the current bulk state
 - **Pause / Resume / Cancel** — long multi-app runs can pause after the current app, resume, or cancel without hiding the log drawer
 - **Real-time log streaming** — Stage, Package, and One Click stream packager output line-by-line into the log pane as it runs; the UI keeps the newest 4,000 lines while disk logs remain complete
 - **Debug Columns toggle** — exposes CMName, Script filename, Vendor URL, and Last Checked (ISO 8601 UTC) columns for deeper inspection
