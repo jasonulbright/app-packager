@@ -1,5 +1,10 @@
 # AppPackager
 
+[![Latest release](https://img.shields.io/github/v/release/jasonulbright/app-packager?label=release)](https://github.com/jasonulbright/app-packager/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/jasonulbright/app-packager/total?label=downloads)](https://github.com/jasonulbright/app-packager/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](#prerequisites)
+[![License](https://img.shields.io/github/license/jasonulbright/app-packager)](LICENSE)
+
 PowerShell scripts and a MahApps.Metro WPF GUI that automatically package the latest version of common enterprise applications into Microsoft Endpoint Configuration Manager (MECM) applications.
 
 ## What It Does
