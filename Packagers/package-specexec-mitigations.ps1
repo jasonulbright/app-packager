@@ -112,6 +112,8 @@ param(
     [string]$SiteCode = "MCM",
     [string]$Comment = "",
     [string]$FileServerPath = "\\fileserver\sccm$",
+    [ValidateSet('Nested','Flat')]
+    [string]$ContentLayout = "Nested",
     [string]$DownloadRoot = "C:\temp\ap",
     [string]$AppName = "Speculative Execution Mitigations (Intel-AMD-BHI)",
     [string]$ContentVersion = "2026.08",
@@ -375,9 +377,7 @@ function Invoke-PackageSpecExec {
         throw "Network root path not accessible: $FileServerPath"
     }
 
-    $networkAppRoot = Get-NetworkAppRoot -FileServerPath $FileServerPath -VendorFolder $VendorFolder -AppFolder $AppFolder
-    $networkContentPath = Join-Path $networkAppRoot $ContentVersion
-    Initialize-Folder -Path $networkContentPath
+    $networkContentPath = Get-NetworkContentPath -FileServerPath $FileServerPath -VendorFolder $VendorFolder -AppFolder $AppFolder -Version $ContentVersion -Layout $ContentLayout
 
     Write-Log "Network content path         : $networkContentPath"
 

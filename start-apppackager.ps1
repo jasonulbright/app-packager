@@ -91,6 +91,7 @@ function Read-Preferences {
         SiteCode             = "MCM"
         ProviderMachineName  = ""
         FileShareRoot        = "\\fileserver\sccm$"
+        ContentLayout        = "Nested"
         DownloadRoot         = "C:\temp\ap"
         EstimatedRuntimeMins = 15
         MaximumRuntimeMins   = 30
@@ -165,6 +166,7 @@ function Read-Preferences {
             $defaults.ProviderMachineName = [string]$data.MECM.ServerFQDN
         }
         if ($null -ne $data.FileShareRoot)         { $defaults.FileShareRoot        = [string]$data.FileShareRoot }
+        if ([string]$data.ContentLayout -in @('Nested','Flat')) { $defaults.ContentLayout = [string]$data.ContentLayout }
         if ($null -ne $data.DownloadRoot)          { $defaults.DownloadRoot         = [string]$data.DownloadRoot }
         if ($null -ne $data.EstimatedRuntimeMins)  { $defaults.EstimatedRuntimeMins = [int]$data.EstimatedRuntimeMins }
         if ($null -ne $data.MaximumRuntimeMins)    { $defaults.MaximumRuntimeMins   = [int]$data.MaximumRuntimeMins }
@@ -868,7 +870,8 @@ function Assert-PackagerPackageIntegrity {
         [Parameter(Mandatory)]$Result,
         [Parameter(Mandatory)][string]$PackagerPath,
         [Parameter(Mandatory)][string]$FileServerPath,
-        [string]$DownloadRoot = $null
+        [string]$DownloadRoot = $null,
+        [ValidateSet('Nested','Flat')][string]$ContentLayout = 'Nested'
     )
 
     if ($Result.ExitCode -ne 0) { return }
@@ -888,8 +891,13 @@ function Assert-PackagerPackageIntegrity {
         if (-not $info.VendorFolder -or -not $info.AppFolder) {
             throw "Package integrity verification could not resolve the network content path."
         }
-        $networkContentPath = Join-Path (Join-Path (Join-Path $FileServerPath 'Applications') $info.VendorFolder) $info.AppFolder
-        $networkContentPath = Join-Path $networkContentPath $manifest.SoftwareVersion
+        if ($ContentLayout -eq 'Flat') {
+            $networkContentPath = Join-Path (Join-Path $FileServerPath 'Applications') ('{0}-{1}-{2}' -f $info.VendorFolder, $info.AppFolder, $manifest.SoftwareVersion)
+        }
+        else {
+            $networkContentPath = Join-Path (Join-Path (Join-Path $FileServerPath 'Applications') $info.VendorFolder) $info.AppFolder
+            $networkContentPath = Join-Path $networkContentPath $manifest.SoftwareVersion
+        }
     }
 
     $comparison = Compare-StageFileHashes -Root $networkContentPath -Expected $manifest.FileHashes
@@ -911,7 +919,8 @@ function Invoke-PackagerIntuneWinPostStep {
         [Parameter(Mandatory)][string]$PackagerPath,
         [Parameter(Mandatory)][string]$FileServerPath,
         [string]$DownloadRoot = $null,
-        [string]$ToolPath = ''
+        [string]$ToolPath = '',
+        [ValidateSet('Nested','Flat')][string]$ContentLayout = 'Nested'
     )
 
     $note = [pscustomobject]@{
@@ -956,8 +965,13 @@ function Invoke-PackagerIntuneWinPostStep {
 
         $networkContentPath = Get-PackagerLoggedPath -Text $Result.StdOut -Label 'Network content path'
         if ([string]::IsNullOrWhiteSpace($networkContentPath) -and $info.VendorFolder -and $info.AppFolder) {
-            $networkContentPath = Join-Path (Join-Path (Join-Path $FileServerPath 'Applications') $info.VendorFolder) $info.AppFolder
-            $networkContentPath = Join-Path $networkContentPath $version
+            if ($ContentLayout -eq 'Flat') {
+                $networkContentPath = Join-Path (Join-Path $FileServerPath 'Applications') ('{0}-{1}-{2}' -f $info.VendorFolder, $info.AppFolder, $version)
+            }
+            else {
+                $networkContentPath = Join-Path (Join-Path (Join-Path $FileServerPath 'Applications') $info.VendorFolder) $info.AppFolder
+                $networkContentPath = Join-Path $networkContentPath $version
+            }
         }
         if (-not [string]::IsNullOrWhiteSpace($networkContentPath)) {
             $networkTarget = Join-Path (Split-Path -Path $networkContentPath -Parent) $outputName
@@ -1324,6 +1338,7 @@ function Invoke-PackagerPackage {
         [string]$SevenZipPath = '',
         [switch]$CreateIntuneWin,
         [string]$IntuneWinToolPath = '',
+        [ValidateSet('Nested','Flat')][string]$ContentLayout = 'Nested',
         [System.Windows.Controls.TextBox]$LogTextBox = $null
     )
 
@@ -1345,6 +1360,7 @@ function Invoke-PackagerPackage {
         $argsBase += @('-FileServerPath', $FileServerPath)
     }
     if ($DownloadRoot) { $argsBase += @('-DownloadRoot', $DownloadRoot) }
+    if ($ContentLayout) { $argsBase += @('-ContentLayout', $ContentLayout) }
     if ($M365Channel) { $argsBase += @('-M365Channel', $M365Channel) }
     if ($M365DeployMode) { $argsBase += @('-M365DeployMode', $M365DeployMode) }
     if ($EstimatedRuntimeMins -gt 0) { $argsBase += @('-EstimatedRuntimeMins', [string]$EstimatedRuntimeMins) }
@@ -1357,14 +1373,14 @@ function Invoke-PackagerPackage {
     Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName
 
     $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -StructuredLog $structuredLog -LogTextBox $LogTextBox
-    Assert-PackagerPackageIntegrity -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot
+    Assert-PackagerPackageIntegrity -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -ContentLayout $ContentLayout
 
     # Optional post-step: produce a .intunewin beside the network content.
     # Runs only after integrity passes; failures ride on the result for the
     # caller to surface, never thrown - the MECM application already exists
     # by this point.
     if ($CreateIntuneWin -and $result.ExitCode -eq 0) {
-        $intuneNote = Invoke-PackagerIntuneWinPostStep -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -ToolPath $IntuneWinToolPath
+        $intuneNote = Invoke-PackagerIntuneWinPostStep -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -ToolPath $IntuneWinToolPath -ContentLayout $ContentLayout
         if ($intuneNote) {
             $result | Add-Member -NotePropertyName IntuneWin -NotePropertyValue $intuneNote -Force
         }
@@ -1717,6 +1733,7 @@ function Invoke-BatchUpdate {
         [Parameter(Mandatory)][string]$SiteCode,
         [string]$ProviderMachineName = '',
         [string]$FileServerPath,
+        [ValidateSet('Nested','Flat')][string]$ContentLayout = 'Nested',
         [string]$DownloadRoot,
         [int]$EstimatedRuntimeMins = 15,
         [int]$MaximumRuntimeMins = 30,
@@ -1837,6 +1854,7 @@ function Invoke-BatchUpdate {
         # 4. Invoke the packager for Stage / StageAndPackage
         $pkgArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath, '-SiteCode', $SiteCode)
         if ($FileServerPath)       { $pkgArgs += @('-FileServerPath',       $FileServerPath)       }
+        if ($ContentLayout)        { $pkgArgs += @('-ContentLayout',        $ContentLayout)        }
         if ($DownloadRoot)         { $pkgArgs += @('-DownloadRoot',         $DownloadRoot)         }
         if ($EstimatedRuntimeMins) { $pkgArgs += @('-EstimatedRuntimeMins', $EstimatedRuntimeMins) }
         if ($MaximumRuntimeMins)   { $pkgArgs += @('-MaximumRuntimeMins',   $MaximumRuntimeMins)   }
@@ -1927,6 +1945,7 @@ if ($BatchMode) {
 
     $prefs = if (Test-Path (Get-PreferencesPath)) { Read-Preferences } else { $null }
     $fileServerPath   = if ($prefs -and $prefs.FileShareRoot)             { $prefs.FileShareRoot }             else { $null }
+    $contentLayout    = if ($prefs -and $prefs.ContentLayout)             { [string]$prefs.ContentLayout }     else { 'Nested' }
     $downloadRoot     = if ($prefs -and $prefs.DownloadRoot)              { $prefs.DownloadRoot }              else { $null }
     $providerForBatch = if ($script:Prefs -and $script:Prefs.ProviderMachineName) { [string]$script:Prefs.ProviderMachineName } else { $null }
     $cadenceOverrides = if ($prefs -and $prefs.AppFlow.CadenceOverrides)  { $prefs.AppFlow.CadenceOverrides }  else { $null }
@@ -1952,6 +1971,7 @@ if ($BatchMode) {
         -SiteCode          $SiteCode `
         -ProviderMachineName $providerForBatch `
         -FileServerPath    $fileServerPath `
+        -ContentLayout     $contentLayout `
         -DownloadRoot      $downloadRoot `
         -SevenZipPath      $sevenZipPath `
         -CadenceOverrides  $cadenceOverrides `
@@ -2722,6 +2742,7 @@ function New-MecmPreferencesPanel {
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
     <Grid.ColumnDefinitions>
         <ColumnDefinition Width="140"/>
@@ -2737,50 +2758,56 @@ function New-MecmPreferencesPanel {
     <TextBlock Grid.Row="2" Grid.Column="0" Text="File Share Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
     <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtFS" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="UNC path to the SCCM content file share"/>
 
-    <TextBlock Grid.Row="3" Grid.Column="0" Text="Download Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtDL" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Local folder where installers are downloaded during staging"/>
+    <TextBlock Grid.Row="3" Grid.Column="0" Text="Content Layout:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Share folder layout for packaged content. Applies to future Package runs; existing content stays where it is."/>
+    <ComboBox  Grid.Row="3" Grid.Column="1" x:Name="cboLayout" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Nested keeps an app's versions adjacent for easy retention pruning; Flat is one folder per package.">
+        <ComboBoxItem Content="Nested - Applications\Vendor\App\Version"/>
+        <ComboBoxItem Content="Flat - Applications\Vendor-App-Version"/>
+    </ComboBox>
 
-    <TextBlock Grid.Row="4" Grid.Column="0" Text="Est. Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
+    <TextBlock Grid.Row="4" Grid.Column="0" Text="Download Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <TextBox   Grid.Row="4" Grid.Column="1" x:Name="txtDL" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Local folder where installers are downloaded during staging"/>
+
+    <TextBlock Grid.Row="5" Grid.Column="0" Text="Est. Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
         <TextBox x:Name="txtEst" Width="60" FontSize="13" MaxLength="4" ToolTip="Estimated install runtime in minutes"/>
         <TextBlock Text=" mins" FontSize="13" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray5}"/>
     </StackPanel>
 
-    <TextBlock Grid.Row="5" Grid.Column="0" Text="Max Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
+    <TextBlock Grid.Row="6" Grid.Column="0" Text="Max Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
         <TextBox x:Name="txtMax" Width="60" FontSize="13" MaxLength="4" ToolTip="Maximum allowed install runtime in minutes"/>
         <TextBlock Text=" mins" FontSize="13" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray5}"/>
     </StackPanel>
 
-    <TextBlock Grid.Row="6" Grid.Column="0" Text="Auto-distribute:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, the Package phase calls Start-CMContentDistribution after creating each MECM Application."/>
-    <CheckBox  Grid.Row="6" Grid.Column="1" x:Name="chkAutoDist" Content="Start-CMContentDistribution after Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+    <TextBlock Grid.Row="7" Grid.Column="0" Text="Auto-distribute:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, the Package phase calls Start-CMContentDistribution after creating each MECM Application."/>
+    <CheckBox  Grid.Row="7" Grid.Column="1" x:Name="chkAutoDist" Content="Start-CMContentDistribution after Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
-    <TextBlock Grid.Row="7" Grid.Column="0" Text="DP Group:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact name of the Distribution Point Group to target."/>
-    <TextBox   Grid.Row="7" Grid.Column="1" x:Name="txtDPGroup" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Distribution Point Group display name (e.g. 'All DPs')"/>
+    <TextBlock Grid.Row="8" Grid.Column="0" Text="DP Group:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact name of the Distribution Point Group to target."/>
+    <TextBox   Grid.Row="8" Grid.Column="1" x:Name="txtDPGroup" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Distribution Point Group display name (e.g. 'All DPs')"/>
 
-    <TextBlock Grid.Row="8" Grid.Column="0" Text="Test deployment:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Requires Auto-distribute enabled and a DP Group name. After content distribution, deploys the application (Available, immediately, default options) to the test collection."/>
-    <CheckBox  Grid.Row="8" Grid.Column="1" x:Name="chkTestDeploy" Content="Deploy to test collection after distribution" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+    <TextBlock Grid.Row="9" Grid.Column="0" Text="Test deployment:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Requires Auto-distribute enabled and a DP Group name. After content distribution, deploys the application (Available, immediately, default options) to the test collection."/>
+    <CheckBox  Grid.Row="9" Grid.Column="1" x:Name="chkTestDeploy" Content="Deploy to test collection after distribution" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
-    <TextBlock Grid.Row="9" Grid.Column="0" Text="Test collection:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact device collection name that receives the Available test deployment."/>
-    <TextBox   Grid.Row="9" Grid.Column="1" x:Name="txtTestCollection" FontSize="13" MaxLength="255" Margin="0,0,0,8" ToolTip="Device collection display name (e.g. 'App Test Devices')"/>
+    <TextBlock Grid.Row="10" Grid.Column="0" Text="Test collection:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact device collection name that receives the Available test deployment."/>
+    <TextBox   Grid.Row="10" Grid.Column="1" x:Name="txtTestCollection" FontSize="13" MaxLength="255" Margin="0,0,0,8" ToolTip="Device collection display name (e.g. 'App Test Devices')"/>
 
-    <TextBlock Grid.Row="10" Grid.Column="0" Text="" Margin="0,0,0,8"/>
-    <CheckBox  Grid.Row="10" Grid.Column="1" x:Name="chkCreateTestColl" Content="Create collection if it does not exist" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Creates an empty direct-membership device collection limited to All Systems when the named collection is missing."/>
+    <TextBlock Grid.Row="11" Grid.Column="0" Text="" Margin="0,0,0,8"/>
+    <CheckBox  Grid.Row="11" Grid.Column="1" x:Name="chkCreateTestColl" Content="Create collection if it does not exist" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Creates an empty direct-membership device collection limited to All Systems when the named collection is missing."/>
 
-    <TextBlock Grid.Row="11" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
-    <TextBlock Grid.Row="11" Grid.Column="1" x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="12" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
+    <TextBlock Grid.Row="12" Grid.Column="1" x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
 
-    <TextBlock Grid.Row="12" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="7-Zip command-line (7z.exe) detection status. Required by Adobe Reader + TeamViewer Host packagers."/>
-    <TextBlock Grid.Row="12" Grid.Column="1" x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="13" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="7-Zip command-line (7z.exe) detection status. Required by Adobe Reader + TeamViewer Host packagers."/>
+    <TextBlock Grid.Row="13" Grid.Column="1" x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
 
-    <TextBlock Grid.Row="13" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe) detection status. Downloaded on first use, or place the exe on PATH."/>
-    <StackPanel Grid.Row="13" Grid.Column="1" Orientation="Horizontal" Margin="0,6,0,0">
+    <TextBlock Grid.Row="14" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe) detection status. Downloaded on first use, or place the exe on PATH."/>
+    <StackPanel Grid.Row="14" Grid.Column="1" Orientation="Horizontal" Margin="0,6,0,0">
         <TextBlock x:Name="txtIntuneWinStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
         <Button x:Name="btnIntuneWinDownload" Content="Download" FontSize="11" Margin="10,0,0,0" Padding="10,2" Visibility="Collapsed"/>
     </StackPanel>
 
-    <TextBlock Grid.Row="14" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="When enabled, a successful Package also produces an .intunewin from the staged content and stores it beside the network content version folder."/>
-    <CheckBox  Grid.Row="14" Grid.Column="1" x:Name="chkIntuneWin" Content="Create .intunewin during Package" FontSize="13" VerticalAlignment="Center" Margin="0,6,0,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+    <TextBlock Grid.Row="15" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="When enabled, a successful Package also produces an .intunewin from the staged content and stores it beside the network content version folder."/>
+    <CheckBox  Grid.Row="15" Grid.Column="1" x:Name="chkIntuneWin" Content="Create .intunewin during Package" FontSize="13" VerticalAlignment="Center" Margin="0,6,0,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 </Grid>
 '@
 
@@ -2791,6 +2818,7 @@ function New-MecmPreferencesPanel {
     $txtSC  = $element.FindName('txtSC')
     $txtProvider = $element.FindName('txtProvider')
     $txtFS  = $element.FindName('txtFS')
+    $cboLayout = $element.FindName('cboLayout')
     $txtDL  = $element.FindName('txtDL')
     $txtEst = $element.FindName('txtEst')
     $txtMax = $element.FindName('txtMax')
@@ -2808,6 +2836,7 @@ function New-MecmPreferencesPanel {
     $txtSC.Text  = [string]$script:Prefs.SiteCode
     $txtProvider.Text = [string]$script:Prefs.ProviderMachineName
     $txtFS.Text  = [string]$script:Prefs.FileShareRoot
+    $cboLayout.SelectedIndex = if ([string]$script:Prefs.ContentLayout -eq 'Flat') { 1 } else { 0 }
     $txtDL.Text  = [string]$script:Prefs.DownloadRoot
     $txtEst.Text = [string]$script:Prefs.EstimatedRuntimeMins
     $txtMax.Text = [string]$script:Prefs.MaximumRuntimeMins
@@ -2897,6 +2926,7 @@ function New-MecmPreferencesPanel {
         $prefsRef.SiteCode             = $txtSC.Text.Trim()
         $prefsRef.ProviderMachineName  = $txtProvider.Text.Trim()
         $prefsRef.FileShareRoot        = $txtFS.Text.Trim()
+        $prefsRef.ContentLayout        = if ($cboLayout.SelectedIndex -eq 1) { 'Flat' } else { 'Nested' }
         $prefsRef.DownloadRoot         = $txtDL.Text.Trim()
         $prefsRef.EstimatedRuntimeMins = $estVal
         $prefsRef.MaximumRuntimeMins   = $maxVal
@@ -4197,7 +4227,8 @@ function Invoke-MultiAppPipeline {
                                 -MaximumRuntimeMins $Ctx.MaximumRuntimeMins `
                                 -SevenZipPath $Ctx.SevenZipPath `
                                 -CreateIntuneWin:([bool]$Ctx.IntuneWinCreate) `
-                                -IntuneWinToolPath ([string]$Ctx.IntuneWinToolPath)
+                                -IntuneWinToolPath ([string]$Ctx.IntuneWinToolPath) `
+                                -ContentLayout ([string]$Ctx.ContentLayout)
 
                             if ($res.ExitCode -eq 0) {
                                 $row.Status = 'Packaged'
@@ -4432,7 +4463,8 @@ function Invoke-MultiAppPipeline {
                                 -MaximumRuntimeMins $Ctx.MaximumRuntimeMins `
                                 -SevenZipPath $Ctx.SevenZipPath `
                                 -CreateIntuneWin:([bool]$Ctx.IntuneWinCreate) `
-                                -IntuneWinToolPath ([string]$Ctx.IntuneWinToolPath)
+                                -IntuneWinToolPath ([string]$Ctx.IntuneWinToolPath) `
+                                -ContentLayout ([string]$Ctx.ContentLayout)
 
                             if ($pkg.ExitCode -eq 0) {
                                 $row.Status = 'Packaged'
@@ -4775,6 +4807,7 @@ $btnPackage.Add_Click({
         ProviderMachineName  = $script:Prefs.ProviderMachineName
         Comment              = $txtComment.Text.Trim()
         FileShareRoot        = $fsPathValue
+        ContentLayout        = $script:Prefs.ContentLayout
         DownloadRoot         = $script:Prefs.DownloadRoot
         M365Channel          = $script:Prefs.M365Channel
         M365DeployMode       = $script:Prefs.M365DeployMode
@@ -4862,6 +4895,7 @@ $btnFullRun.Add_Click({
         Overrides            = $script:Prefs.AppFlow.CadenceOverrides
         Comment              = $txtComment.Text.Trim()
         FileShareRoot        = $fsPathValue
+        ContentLayout        = $script:Prefs.ContentLayout
         DownloadRoot         = $dlRootValue
         M365Channel          = $script:Prefs.M365Channel
         M365DeployMode       = $script:Prefs.M365DeployMode

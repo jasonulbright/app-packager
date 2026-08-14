@@ -23,6 +23,7 @@
 
         # Network path
         'Get-NetworkAppRoot'
+        'Get-NetworkContentPath'
 
         # MSI / ARP
         'Get-MsiPropertyMap'

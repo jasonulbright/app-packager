@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.1.0.7] - 2026-08-14
+
+### Added
+
+- **Content Layout toggle: nested or flat share folders.** MECM
+  Preferences gains a Content Layout selector: Nested
+  (`Applications\Vendor\App\Version`, the default and unchanged
+  behavior) or Flat (`Applications\Vendor-App-Version`, one folder per
+  package, for org conventions that mandate it). New exported
+  `Get-NetworkContentPath` is the single construction point for both
+  shapes; all 92 packagers plus the PSADT template now call it (their
+  new `-ContentLayout` parameter defaults to Nested, so CLI behavior is
+  identical unless asked). The GUI passes the preference through
+  Package, One Click, and -BatchMode runs, and the two path-
+  reconstructing fallbacks (package-integrity verification and the
+  .intunewin post-step) are layout-aware. Existing content is never
+  moved; the choice applies to future Package runs. Deliberately a
+  binary toggle rather than a free-form pattern: two enumerable layouts
+  keep every path-touching feature testable against both. Idea credit:
+  stephannn (PR #2), reshaped.
+
 ## [1.1.0.6] - 2026-08-14
 
 ### Added
