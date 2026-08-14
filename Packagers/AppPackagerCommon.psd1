@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AppPackagerCommon.psm1'
-    ModuleVersion     = '0.0.11'
+    ModuleVersion     = '0.0.12'
     GUID              = 'f5cdd2d6-eb09-47bd-8493-16dfd5666455'
     Author            = 'AppPackager'
     Description       = 'Shared helpers for AppPackager packager scripts.'
@@ -43,6 +43,10 @@
         # MECM
         'New-MECMApplicationFromManifest'
         'Remove-CMApplicationRevisionHistoryByCIId'
+
+        # Intune Win32 content prep
+        'Install-IntuneWinAppUtil'
+        'New-IntuneWinPackage'
 
         # Preferences
         'Get-PackagerPreferences'

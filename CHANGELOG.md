@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.1.0.0] - 2026-08-13
+
+### Additions
+
+- **Intune Win32 content prep during Package.** MECM Preferences gains a
+  "Create .intunewin during Package" option plus a Content Prep
+  detected-tool row. When enabled, a successful Package run also produces
+  `<app>-<version>.intunewin` from the staged content (setup reference:
+  `install.bat`) and stores it beside the network content version folder,
+  with a copy beside the local staged version folder. The artifact never
+  lands inside a version folder — stage hash verification treats added
+  files as integrity failures. Prep failures are surfaced in the log and
+  never fail the package run; the MECM application is already created
+  when the post-step executes. Settings persist under `Intune` and
+  `DetectedTools.IntuneWinAppUtil` in `AppPackager.preferences.json`;
+  prefs files without the new keys load with the feature off. Zero
+  per-packager changes — the post-step hangs off the shared Package path,
+  so every packager gains the capability at once.
+- **IntuneWinAppUtil.exe detected tool with download-on-first-use.**
+  Detection checks the stored preferences path, the tool cache under
+  `%LOCALAPPDATA%\AppPackager\Tools`, and PATH, once per launch. The
+  Download button in MECM Preferences fetches the Microsoft Win32 Content
+  Prep Tool from Microsoft's repository and keeps the file only after its
+  Authenticode signature verifies as Valid and Microsoft-signed; a failed
+  verification deletes the download and reports the reason. The
+  "Create .intunewin during Package" option stays locked until the tool
+  is present. The tool is never redistributed with AppPackager.
+- **`AppPackagerCommon` 0.0.12 exports `Install-IntuneWinAppUtil` and
+  `New-IntuneWinPackage`** so packager scripts and ad-hoc callers can
+  produce `.intunewin` files directly. `New-IntuneWinPackage` refuses an
+  output folder equal to the content folder, enforces a bounded runtime
+  on the prep tool, and returns the artifact path, size, and SHA-256.
+
 ## [1.0.0.12] - 2026-08-13
 
 ### Additions
