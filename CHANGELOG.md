@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.1.0.3] - 2026-08-14
+
+### Changed
+
+- **dotnet8 / dotnet10both detection accepts the successor patch.** In-place
+  runtime upgrades replace `dotnet\host\fxr\<version>`, flipping the prior
+  month's app to not-installed and making its still-active deployment
+  reinstall over the new runtime — previously managed with supersedence.
+  Detection is now `(x86-N AND x64-N) OR (x86-N+1 AND x64-N+1)`, where N+1
+  is the packaged version with its patch component incremented
+  (`Get-NextPatchVersion`, new exported helper; falls back to
+  single-version detection with a warning for non-numeric components such
+  as previews). The manifest schema gains `Detection.GroupSizes` — exactly
+  two contiguous clause runs; `New-MECMApplicationFromManifest` passes the
+  second run to `-GroupDetectionClauses` with an `OR` connector on its
+  first clause, and the cmdlet's left-associative expression build
+  parenthesizes the first run, yielding the grouped OR without
+  supersedence management between consecutive monthly packages.
+
+### Removed
+
+- **`package-dotnet10x64.ps1`.** Obsolete; the dual-bitness
+  `package-dotnet10both.ps1` is the only .NET 10 packager.
+
 ## [1.1.0.2] - 2026-08-14
 
 ### Fixed

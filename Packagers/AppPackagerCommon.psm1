@@ -1286,6 +1286,31 @@ function New-SingleDetectionClause {
     }
 }
 
+function Get-NextPatchVersion {
+    <#
+    .SYNOPSIS
+        Returns the version string with its last dotted numeric component
+        incremented by one ('8.0.20' -> '8.0.21').
+    .DESCRIPTION
+        Used by packagers whose detection accepts the packaged version OR its
+        immediate successor, so last month's still-active deployment stops
+        reinstalling over an in-place upgrade. Returns $null when the last
+        component is not purely numeric (e.g. preview/rc suffixes), so callers
+        can fall back to single-version detection.
+    #>
+    param([Parameter(Mandatory)][string]$Version)
+
+    # Every dotted component must be purely numeric; '10.0.0-rc.1' splits to a
+    # numeric final segment and must not be treated as an incrementable patch.
+    $parts = $Version -split '\.'
+    $n = 0
+    foreach ($p in $parts) {
+        if (-not [int]::TryParse($p, [ref]$n)) { return $null }
+    }
+    $parts[$parts.Count - 1] = [string]([int]$parts[$parts.Count - 1] + 1)
+    return ($parts -join '.')
+}
+
 function Test-MECMApplicationHasDeploymentType {
     param(
         [Parameter(Mandatory)][string]$ApplicationName,
@@ -1514,9 +1539,33 @@ function New-MECMApplicationFromManifest {
                 }
                 $dtParams['AddDetectionClause'] = $clauses
 
+                $groupSizes = @()
+                if ($Manifest.Detection.PSObject.Properties.Name -contains 'GroupSizes' -and $null -ne $Manifest.Detection.GroupSizes) {
+                    $groupSizes = @($Manifest.Detection.GroupSizes | ForEach-Object { [int]$_ })
+                }
+
+                if ($groupSizes.Count -gt 0) {
+                    # (run1 AND ...) OR (run2 AND ...): exactly two contiguous
+                    # clause runs. Only the second run is passed to
+                    # -GroupDetectionClauses; the cmdlet's left-associative
+                    # expression build parenthesizes the first run on its own,
+                    # so grouping both runs is impossible (String[] holds one
+                    # group) and unnecessary. OR attaches to the first clause
+                    # of the second run; clauses inside a run keep AND.
+                    if ($groupSizes.Count -ne 2 -or (($groupSizes[0] + $groupSizes[1]) -ne $clauses.Count) -or ($groupSizes -contains 0)) {
+                        throw "Detection.GroupSizes must be exactly two non-zero sizes summing to the clause count (got: '$($groupSizes -join ',')' for $($clauses.Count) clauses)."
+                    }
+                    $secondStart = $groupSizes[0]
+                    $dtParams['GroupDetectionClauses'] = @($clauses[$secondStart..($clauses.Count - 1)] | ForEach-Object { $_.Setting.LogicalName })
+                    $dtParams['DetectionClauseConnector'] = @(@{
+                        LogicalName = $clauses[$secondStart].Setting.LogicalName
+                        Connector   = 'OR'
+                    })
+                    Write-Log ("Detection expression         : (clauses 1..{0}) OR (clauses {1}..{2})" -f $groupSizes[0], ($secondStart + 1), $clauses.Count)
+                }
                 # OR connector: specify OR for each clause beyond the first
                 # AND is the default and needs no explicit connector
-                if ($Manifest.Detection.Connector -eq 'Or' -and $clauses.Count -ge 2) {
+                elseif ($Manifest.Detection.Connector -eq 'Or' -and $clauses.Count -ge 2) {
                     $connectors = @()
                     for ($i = 1; $i -lt $clauses.Count; $i++) {
                         $connectors += @{

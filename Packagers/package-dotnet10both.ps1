@@ -16,7 +16,11 @@ DownloadPageUrl: https://dotnet.microsoft.com/en-us/download/dotnet/10.0
     local folder with compound file-based detection metadata, and creates an
     MECM Application with file-based detection.
     Detection uses hostfxr.dll existence in the version-specific fxr path for
-    both architectures (x86 AND x64).
+    both architectures, and also accepts the immediate successor patch:
+    (x86-N AND x64-N) OR (x86-N+1 AND x64-N+1). An in-place upgrade to next
+    month's runtime therefore keeps this app detected, so its still-active
+    deployment does not reinstall on top and no supersedence management is
+    needed between consecutive monthly packages.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
@@ -256,6 +260,58 @@ function Invoke-StageDotNet10 {
     Write-Log "Detection x86 path           : $x86DetectionPath"
     Write-Log "Detection x64 path           : $x64DetectionPath"
     Write-Log "Detection file               : hostfxr.dll"
+
+    $clauses = @(
+        @{
+            Type         = "File"
+            FilePath     = $x86DetectionPath
+            FileName     = "hostfxr.dll"
+            PropertyType = "Existence"
+            Is64Bit      = $false
+        },
+        @{
+            Type         = "File"
+            FilePath     = $x64DetectionPath
+            FileName     = "hostfxr.dll"
+            PropertyType = "Existence"
+            Is64Bit      = $true
+        }
+    )
+
+    # In-place upgrades replace the fxr\<version> folder, which flips this
+    # app's detection to not-installed and makes its still-active deployment
+    # reinstall over next month's runtime. Detection therefore also accepts
+    # the immediate successor patch: (x86-N AND x64-N) OR (x86-N+1 AND x64-N+1).
+    $detection = @{
+        Type      = "Compound"
+        Connector = "And"
+        Clauses   = $clauses
+    }
+    $nextVersion = Get-NextPatchVersion -Version $version
+    if ($nextVersion) {
+        Write-Log "Detection also accepts       : $nextVersion (successor patch)"
+        $detection.Connector  = "Or"
+        $detection.GroupSizes = @(2, 2)
+        $detection.Clauses = $clauses + @(
+            @{
+                Type         = "File"
+                FilePath     = "{0} (x86)\dotnet\host\fxr\{1}" -f $env:ProgramFiles, $nextVersion
+                FileName     = "hostfxr.dll"
+                PropertyType = "Existence"
+                Is64Bit      = $false
+            },
+            @{
+                Type         = "File"
+                FilePath     = "{0}\dotnet\host\fxr\{1}" -f $env:ProgramFiles, $nextVersion
+                FileName     = "hostfxr.dll"
+                PropertyType = "Existence"
+                Is64Bit      = $true
+            }
+        )
+    }
+    else {
+        Write-Log "Non-numeric patch component in '$version'; single-version detection only." -Level WARN
+    }
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -268,26 +324,7 @@ function Invoke-StageDotNet10 {
         InstallArgs     = "/install /quiet /norestart"
         UninstallArgs   = "/uninstall /quiet /norestart"
         RunningProcess  = @()
-        Detection       = @{
-            Type      = "Compound"
-            Connector = "And"
-            Clauses   = @(
-                @{
-                    Type         = "File"
-                    FilePath     = $x86DetectionPath
-                    FileName     = "hostfxr.dll"
-                    PropertyType = "Existence"
-                    Is64Bit      = $false
-                },
-                @{
-                    Type         = "File"
-                    FilePath     = $x64DetectionPath
-                    FileName     = "hostfxr.dll"
-                    PropertyType = "Existence"
-                    Is64Bit      = $true
-                }
-            )
-        }
+        Detection       = $detection
     }
 
     # Save version marker for Package phase
