@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Microsoft
 App: Microsoft ODBC Driver 18 for SQL Server (x64)
 CMName: Microsoft ODBC Driver 18 for SQL Server
@@ -65,7 +65,6 @@ DownloadPageUrl: https://learn.microsoft.com/en-us/sql/connect/odbc/download-odb
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -159,11 +158,6 @@ function Invoke-StageOdbc18 {
     Write-Log "Microsoft ODBC Driver 18 (x64) - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -276,11 +270,6 @@ function Invoke-PackageOdbc18 {
     Write-Log "Microsoft ODBC Driver 18 (x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     # --- Resolve version from local staging ---
     Initialize-Folder -Path $BaseDownloadRoot

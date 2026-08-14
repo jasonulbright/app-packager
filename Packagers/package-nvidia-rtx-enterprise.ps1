@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: NVIDIA
 App: NVIDIA Graphics Driver - RTX Enterprise (x64)
 CMName: NVIDIA Graphics Driver - RTX Enterprise
@@ -70,7 +70,6 @@ UpdateCadenceDays: 60
 .REQUIREMENTS
     - PowerShell 5.1
     - ConfigMgr Admin Console installed
-    - Local administrator
     - Write access to FileServerPath
     - Outbound HTTPS to gfwsl.geforce.com and us.download.nvidia.com
 #>
@@ -193,11 +192,6 @@ function Invoke-StageNvidiaRTXEnterprise {
     Write-Log ("=" * 60)
     Write-Log ""
 
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
-
     Initialize-Folder -Path $BaseDownloadRoot
 
     $release = Resolve-NvidiaRTXEnterpriseLatest
@@ -295,11 +289,6 @@ function Invoke-PackageNvidiaRTXEnterprise {
     Write-Log "NVIDIA Graphics Driver (RTX Enterprise) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     $release = Resolve-NvidiaRTXEnterpriseLatest -Quiet
     if (-not $release) { throw "Could not resolve latest NVIDIA RTX Enterprise driver for manifest lookup." }

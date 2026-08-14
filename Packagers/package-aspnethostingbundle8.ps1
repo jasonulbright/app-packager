@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Microsoft
 App: ASP.NET 8 Server Hosting Bundle (x64)
 CMName: Microsoft .NET 8
@@ -61,7 +61,6 @@ DownloadPageUrl: https://dotnet.microsoft.com/en-us/download/dotnet/8.0
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -142,11 +141,6 @@ function Invoke-StageASPNETHostingBundle8 {
     Write-Log "ASP.NET 8 Hosting Bundle - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -251,11 +245,6 @@ function Invoke-PackageASPNETHostingBundle8 {
     Write-Log "ASP.NET 8 Hosting Bundle - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     # --- Resolve version from local staging ---
     Initialize-Folder -Path $BaseDownloadRoot

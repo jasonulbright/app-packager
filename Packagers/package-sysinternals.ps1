@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Microsoft
 App: Sysinternals Suite
 CMName: Sysinternals Suite
@@ -64,7 +64,6 @@ DownloadPageUrl: https://learn.microsoft.com/en-us/sysinternals/downloads/
     - PowerShell 5.1
     - ConfigMgr Admin Console installed
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -143,11 +142,6 @@ function Invoke-StageSysinternals {
     Write-Log "Sysinternals Suite - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -248,11 +242,6 @@ function Invoke-PackageSysinternals {
     Write-Log "Sysinternals Suite - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 

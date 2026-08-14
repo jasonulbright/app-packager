@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Microsoft
 App: Visual Studio Code (System)
 CMName: Visual Studio Code (System)
@@ -23,7 +23,6 @@ UpdateCadenceDays: 14
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager module available)
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -116,11 +115,6 @@ function Invoke-StageVSCodeSystem {
     Write-Log ("=" * 60)
     Write-Log ""
 
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
-
     Initialize-Folder -Path $BaseDownloadRoot
 
     $version = Get-LatestVSCodeVersion
@@ -183,11 +177,6 @@ function Invoke-PackageVSCodeSystem {
     Write-Log "Visual Studio Code (System) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     $versionFile = Join-Path $BaseDownloadRoot "staged-version.txt"
     if (-not (Test-Path -LiteralPath $versionFile)) {

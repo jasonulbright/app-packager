@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: TODO
 App: TODO
 CMName: TODO
@@ -133,11 +133,6 @@ function Invoke-StageApp {
     Write-Log ("=" * 60)
     Write-Log ""
 
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
-
     Initialize-Folder -Path $BaseDownloadRoot
 
     $msiUrl = Resolve-MsiUrl
@@ -236,11 +231,6 @@ function Invoke-PackageApp {
     Write-Log "TODO - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 

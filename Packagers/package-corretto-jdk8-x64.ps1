@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Amazon
 App: Amazon Corretto JDK 8 (x64)
 CMName: Amazon Corretto JDK 8 (x64)
@@ -51,7 +51,6 @@ DownloadPageUrl: https://aws.amazon.com/corretto/
     - PowerShell 5.1
     - ConfigMgr Admin Console installed
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -99,11 +98,6 @@ function Invoke-StageCorrettoJDK8X64 {
     Write-Log "Amazon Corretto JDK 8 (x64) - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -220,11 +214,6 @@ function Invoke-PackageCorrettoJDK8X64 {
     Write-Log "Amazon Corretto JDK 8 (x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     # --- Resolve version from local staging ---
     Initialize-Folder -Path $BaseDownloadRoot

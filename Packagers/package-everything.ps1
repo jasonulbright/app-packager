@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Voidtools
 App: Everything (x64)
 CMName: Everything
@@ -61,7 +61,6 @@ DownloadPageUrl: https://www.voidtools.com/downloads/
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -136,11 +135,6 @@ function Invoke-StageEverything {
     Write-Log "Everything (x64) - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -252,11 +246,6 @@ function Invoke-PackageEverything {
     Write-Log "Everything (x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     # --- Resolve version from local staging ---
     Initialize-Folder -Path $BaseDownloadRoot

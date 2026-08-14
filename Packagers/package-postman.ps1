@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Postman
 App: Postman (User)
 CMName: Postman
@@ -210,11 +210,6 @@ function Invoke-PackagePostman {
     Write-Log "Postman (User) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     $versionFile = Join-Path $BaseDownloadRoot "staged-version.txt"
     if (-not (Test-Path -LiteralPath $versionFile)) {

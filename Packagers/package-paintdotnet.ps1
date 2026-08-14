@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: dotPDN LLC
 App: Paint.NET
 CMName: Paint.NET
@@ -62,7 +62,6 @@ DownloadPageUrl: https://www.getpaint.net/download.html
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -135,11 +134,6 @@ function Invoke-StagePaintDotNet {
     Write-Log "Paint.NET (x64) - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -276,11 +270,6 @@ function Invoke-PackagePaintDotNet {
     Write-Log "Paint.NET (x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     # --- Resolve version from staged MSI ---
     Initialize-Folder -Path $BaseDownloadRoot

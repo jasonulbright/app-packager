@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Microsoft
 App: PowerShell 7
 CMName: PowerShell 7
@@ -62,7 +62,6 @@ DownloadPageUrl: https://github.com/PowerShell/PowerShell/releases
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -135,11 +134,6 @@ function Invoke-StagePowerShell7 {
     Write-Log "PowerShell 7 (x64) - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -264,11 +258,6 @@ function Invoke-PackagePowerShell7 {
     Write-Log "PowerShell 7 (x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     # --- Resolve version from local staging ---
     Initialize-Folder -Path $BaseDownloadRoot

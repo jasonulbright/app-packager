@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: DBeaver Corp
 App: DBeaver Community
 CMName: DBeaver Community
@@ -54,7 +54,6 @@ DownloadPageUrl: https://dbeaver.io/download/
     - PowerShell 5.1
     - ConfigMgr Admin Console installed
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -132,11 +131,6 @@ function Invoke-StageDBeaver {
     Write-Log "DBeaver Community - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -254,11 +248,6 @@ function Invoke-PackageDBeaver {
     Write-Log "DBeaver Community - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 

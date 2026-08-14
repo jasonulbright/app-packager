@@ -155,7 +155,7 @@ Align label:value lines to the width shown in existing packagers (30 chars for t
 
 ## Admin elevation
 
-Package requires admin because content copy to network shares can require it in some environments, and CM module cmdlets need it. Stage should avoid admin-only work whenever possible, but a few packagers need elevation to extract vendor archives, inspect installer metadata, or run vendor tooling. Check `Test-IsAdmin` only where the phase actually needs elevation, and exit with a clear message when elevation is required.
+No phase requires local admin. Stage derives detection from installer metadata (MSI properties via COM, file versions) instead of temp installs, downloads and extracts under the user-writable DownloadRoot, and Package needs network-share ACLs plus CM RBAC — neither is local elevation, so packaging works from a standard user account. Do not add a `Test-IsAdmin` gate to a new packager unless its Stage provably writes protected paths or runs vendor tooling that demands elevation; if it does, gate only that phase and exit with a clear message.
 
 ## Common mistakes
 

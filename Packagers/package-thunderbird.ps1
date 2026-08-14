@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Mozilla
 App: Thunderbird
 CMName: Thunderbird
@@ -67,7 +67,6 @@ DownloadPageUrl: https://www.thunderbird.net/en-US/
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -142,11 +141,6 @@ function Invoke-StageThunderbird {
     Write-Log "Thunderbird (x64) - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -255,11 +249,6 @@ function Invoke-PackageThunderbird {
     Write-Log "Thunderbird (x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     # --- Resolve version from local staging ---
     Initialize-Folder -Path $BaseDownloadRoot

@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: 7-Zip
 App: 7-Zip
 CMName: 7-Zip
@@ -59,7 +59,6 @@ UpdateCadenceDays: 90
     - PowerShell 5.1
     - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
-    - Local administrator
     - Write access to FileServerPath
 #>
 
@@ -166,11 +165,6 @@ function Invoke-Stage7Zip {
     Write-Log "7-Zip (x64) - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     Initialize-Folder -Path $BaseDownloadRoot
 
@@ -288,11 +282,6 @@ function Invoke-Package7Zip {
     Write-Log "7-Zip (x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     # --- Resolve version from local staging ---
     Initialize-Folder -Path $BaseDownloadRoot

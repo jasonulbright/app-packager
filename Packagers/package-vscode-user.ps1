@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Microsoft
 App: Visual Studio Code (User)
 CMName: Visual Studio Code (User)
@@ -179,11 +179,6 @@ function Invoke-PackageVSCodeUser {
     Write-Log "Visual Studio Code (User) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
-
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Run PowerShell as Administrator." -Level ERROR
-        exit 1
-    }
 
     $versionFile = Join-Path $BaseDownloadRoot "staged-version.txt"
     if (-not (Test-Path -LiteralPath $versionFile)) {
