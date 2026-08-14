@@ -70,6 +70,8 @@ param(
     [string]$SiteCode = "MCM",
     [string]$Comment = "",
     [string]$FileServerPath = "\\fileserver\sccm$",
+    [ValidateSet('Nested','Flat')]
+    [string]$ContentLayout = "Nested",
     [string]$DownloadRoot = "C:\temp\ap",
     [int]$EstimatedRuntimeMins = 15,
     [int]$MaximumRuntimeMins = 30,
@@ -306,9 +308,7 @@ function Invoke-PackagePython {
         throw "Network root path not accessible: $FileServerPath"
     }
 
-    $networkAppRoot = Get-NetworkAppRoot -FileServerPath $FileServerPath -VendorFolder $VendorFolder -AppFolder $AppFolder
-    $networkContentPath = Join-Path $networkAppRoot $manifest.SoftwareVersion
-    Initialize-Folder -Path $networkContentPath
+    $networkContentPath = Get-NetworkContentPath -FileServerPath $FileServerPath -VendorFolder $VendorFolder -AppFolder $AppFolder -Version $manifest.SoftwareVersion -Layout $ContentLayout
 
     Write-Log "Network content path         : $networkContentPath"
     Write-Log ""

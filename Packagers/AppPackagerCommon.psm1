@@ -271,6 +271,44 @@ function Invoke-DownloadWithRetry {
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
+function Get-NetworkContentPath {
+    <#
+    .SYNOPSIS
+        Creates and returns the network content folder for one application
+        version in the configured share layout.
+
+    .DESCRIPTION
+        Nested (default): <FileServerPath>\Applications\<Vendor>\<App>\<Version>
+        Flat:             <FileServerPath>\Applications\<Vendor>-<App>-<Version>
+
+        Both layouts live under Applications\. Nested keeps an app's version
+        folders adjacent (retention pruning deletes old version folders in
+        place); Flat serves org conventions that mandate one folder per
+        package. The layout choice must stay consistent across a site: mixing
+        them leaves content split across two trees.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$FileServerPath,
+        [Parameter(Mandatory)][string]$VendorFolder,
+        [Parameter(Mandatory)][string]$AppFolder,
+        [Parameter(Mandatory)][string]$Version,
+        [ValidateSet('Nested', 'Flat')][string]$Layout = 'Nested'
+    )
+
+    if ($Layout -eq 'Flat') {
+        $appsRoot    = Join-Path $FileServerPath 'Applications'
+        $contentPath = Join-Path $appsRoot ('{0}-{1}-{2}' -f $VendorFolder, $AppFolder, $Version)
+        Initialize-Folder -Path $appsRoot
+        Initialize-Folder -Path $contentPath
+        return $contentPath
+    }
+
+    $appRoot     = Get-NetworkAppRoot -FileServerPath $FileServerPath -VendorFolder $VendorFolder -AppFolder $AppFolder
+    $contentPath = Join-Path $appRoot $Version
+    Initialize-Folder -Path $contentPath
+    return $contentPath
+}
+
 # ---------------------------------------------------------------------------
 # Environment & pre-flight checks
 # ---------------------------------------------------------------------------
