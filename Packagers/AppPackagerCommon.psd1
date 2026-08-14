@@ -43,6 +43,7 @@
         # MECM
         'New-MECMApplicationFromManifest'
         'Remove-CMApplicationRevisionHistoryByCIId'
+        'Get-NextPatchVersion'
 
         # Intune Win32 content prep
         'Install-IntuneWinAppUtil'
