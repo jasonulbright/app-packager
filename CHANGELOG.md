@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.1.0.4] - 2026-08-14
+
+### Added
+
+- **Invoke-WebRequest fallback for downloads.** `Invoke-DownloadWithRetry`
+  keeps in-box curl.exe primary — the Schannel build trusts the Windows
+  certificate store and negotiates modern TLS independent of per-machine
+  .NET registry state — and falls back to `Invoke-WebRequest` when curl
+  fails, covering networks that force a WinINET-configured proxy curl
+  cannot see. The fallback sends default credentials to the system proxy
+  (Kerberos/NTLM auth), uses `-UseBasicParsing`, suppresses the 5.1
+  progress bar that throttles large downloads, and deletes partial files
+  between methods and attempts so torn content can never pass integrity
+  verification. Scraping/URL-resolution calls are unchanged. Idea credit:
+  stephannn (PR #2).
+
 ## [1.1.0.3] - 2026-08-14
 
 ### Changed
