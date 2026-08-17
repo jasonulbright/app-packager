@@ -3639,6 +3639,7 @@ $script:BgPS       = $null
 $script:BgHandle   = $null
 $script:BgState    = $null
 $script:BgTimer    = $null
+$script:BgGraveyard = @()
 
 function Initialize-BackgroundWorker {
     if ($script:BgRunspace -and $script:BgRunspace.RunspaceStateInfo.State -eq 'Opened') { return }
@@ -3706,17 +3707,12 @@ function Invoke-MultiAppPipeline {
 
     Initialize-BackgroundWorker
 
-    # Cancel any in-flight pipeline. Stop is best-effort; the current
-    # packager may still finish its current step before yielding.
-    if ($script:BgTimer) {
-        try { $script:BgTimer.Stop() } catch { $null = $_ }
-        $script:BgTimer = $null
-    }
-    if ($script:BgPS)    {
-        try { [void]$script:BgPS.Stop() } catch { $null = $_ }
-        try { $script:BgPS.Dispose() }   catch { $null = $_ }
-        $script:BgPS = $null
-    }
+    # Cancel any in-flight pipeline. BeginStop is best-effort and
+    # non-blocking; the stopping pipeline parks in the graveyard until it
+    # actually stops instead of freezing the UI thread on a stuck CM call.
+    $script:BgGraveyard = @(Stop-SuiteBgWork -PowerShell $script:BgPS -Timer $script:BgTimer -Graveyard $script:BgGraveyard)
+    $script:BgTimer  = $null
+    $script:BgPS     = $null
     $script:BgHandle = $null
     $script:BgState  = $null
 
@@ -4593,23 +4589,14 @@ $window.Add_Closing({
         DebugColumns = ($toggleDebugCols.IsOn -eq $true)
     }
 
-    # Dispose the async pipeline runspace so the bg thread doesn't keep
-    # the process alive after the window closes. Per
-    # reference_wpf_async_progress_overlay.md.
-    if ($script:BgTimer) {
-        try { $script:BgTimer.Stop() } catch { $null = $_ }
-        $script:BgTimer = $null
-    }
-    if ($script:BgPS)    {
-        try { [void]$script:BgPS.Stop() } catch { $null = $_ }
-        try { $script:BgPS.Dispose() }   catch { $null = $_ }
-        $script:BgPS = $null
-    }
-    if ($script:BgRunspace) {
-        try { $script:BgRunspace.Close() }   catch { $null = $_ }
-        try { $script:BgRunspace.Dispose() } catch { $null = $_ }
-        $script:BgRunspace = $null
-    }
+    # Tear down the async pipeline without blocking shutdown: a stuck
+    # pipeline stops asynchronously and the runspace closes async so the
+    # bg thread cannot keep the process alive or freeze the close.
+    $script:BgGraveyard = @(Stop-SuiteBgWork -PowerShell $script:BgPS -Timer $script:BgTimer -Graveyard $script:BgGraveyard)
+    $script:BgTimer = $null
+    $script:BgPS    = $null
+    Close-SuiteBgRunspace -Runspace $script:BgRunspace
+    $script:BgRunspace = $null
     $script:BgHandle = $null
     $script:BgState  = $null
 })
