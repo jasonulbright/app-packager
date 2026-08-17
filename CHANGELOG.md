@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.2.0.0] - 2026-08-16
+
+### Changed
+
+- **Shared plumbing now comes from the vendored `SuiteCommon` module**
+  (0.3.0, at `Lib\SuiteCommon\`), joining the rest of the tool suite.
+  `AppPackagerCommon` drops its own logging trio and CM drive mechanics:
+  `Connect-CMSite` stays as a thin wrapper that keeps the app-side
+  provider resolution chain (preferences, the AdminUI connect script,
+  `APP_PACKAGER_CM_PROVIDER`) and its fail-fast guard, then delegates
+  the drive and session work to the shared core with site verification
+  off. `APP_PACKAGER_VERBOSE` bridges to `SUITE_VERBOSE` at import, so
+  existing packager-script habits keep working. The GUI shell drops its
+  title-bar drag block, window-state persistence, button theming, and
+  message dialog for the shared implementations; preferences (nested
+  schema) and the owner-chrome dialog helper stay app-side by design.
+- Behavior gains from the shared layer: title-bar hook state no longer
+  leaks when a window closes, a maximized close persists the
+  pre-maximize geometry instead of full-screen extents, an off-screen
+  saved position is clamped into the nearest monitor instead of
+  discarding the saved size, message-dialog icons render as glyphs, and
+  Escape closes OK-only dialogs.
+- **Pipeline teardown no longer blocks the UI thread.** Canceling an
+  in-flight run and closing the window both used a synchronous
+  `PowerShell.Stop()` / `Runspace.Close()`, which froze for as long as a
+  packager was stuck inside a CM/CIM call; teardown now stops
+  asynchronously into a reaped graveyard and closes the runspace async.
+
 ## [1.1.0.7] - 2026-08-14
 
 ### Added

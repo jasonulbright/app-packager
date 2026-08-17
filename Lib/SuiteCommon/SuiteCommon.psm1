@@ -388,6 +388,22 @@ function Connect-CMSite {
         if ($drive) { $provider = [string]$drive.Root }
     }
 
+    # Verbose-only sanity check: a drive named for the wrong site code
+    # connects fine but every subsequent CM cmdlet dies with "Key cannot
+    # be null. Parameter name: key". Surface the mismatch here so the log
+    # explains the failure instead of the cmdlet's opaque message.
+    if ($script:__SuiteVerbose -and -not [string]::IsNullOrWhiteSpace($provider)) {
+        try {
+            $check = Test-CMSiteCodeMatchesProvider -SiteCode $SiteCode -ProviderMachineName $provider
+            if ($check -and -not $check.Match) {
+                Write-Log ("Site code mismatch: drive is named '{0}' but provider {1} serves site code(s) {2}. CM cmdlets typically fail with 'Key cannot be null. Parameter name: key' in this state - correct the configured site code." -f $SiteCode, $provider, ($check.SiteCodes -join ', ')) -Level WARN
+            }
+            elseif ($check) {
+                Write-Log ("Provider confirms site code  : {0} on {1}" -f $SiteCode, $provider) -Level DEBUG
+            }
+        } catch { $null = $_ }
+    }
+
     $script:ConnectedSiteCode    = $SiteCode
     $script:ConnectedSMSProvider = $provider
     $script:ConnectedAt          = Get-Date
