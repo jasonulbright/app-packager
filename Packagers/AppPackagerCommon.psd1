@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AppPackagerCommon.psm1'
-    ModuleVersion     = '0.0.12'
+    ModuleVersion     = '0.0.13'
     GUID              = 'f5cdd2d6-eb09-47bd-8493-16dfd5666455'
     Author            = 'AppPackager'
     Description       = 'Shared helpers for AppPackager packager scripts.'
@@ -8,9 +8,6 @@
 
     FunctionsToExport = @(
         # Logging
-        'Initialize-Logging'
-        'Write-Log'
-        'Write-LogErrorRecord'
 
         # Download
         'Invoke-DownloadWithRetry'
