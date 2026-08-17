@@ -864,6 +864,10 @@ function New-MsiWrapperContent {
         [string[]]$PostInstallKillProcesses = @()
     )
 
+    # The filename lands inside a single-quoted literal in the generated
+    # script; an unescaped apostrophe terminates the string early.
+    $MsiFileName = $MsiFileName -replace "'", "''"
+
     $installLines = @(
         ('$msiPath = Join-Path $PSScriptRoot ''{0}''' -f $MsiFileName),
         '$args = @(''/i'', "`"$msiPath`"", ''/qn'', ''/norestart'')'
@@ -1013,6 +1017,13 @@ function New-ExeWrapperContent {
         [Parameter(Mandatory)][string]$UninstallCommand,
         [string]$UninstallArgs = ''
     )
+
+    # Filename and uninstall path land inside single-quoted literals in the
+    # generated script; an unescaped apostrophe terminates the string early.
+    # InstallArgs/UninstallArgs are excluded: they are caller-authored
+    # PowerShell element lists interpolated into @() as-is.
+    $InstallerFileName = $InstallerFileName -replace "'", "''"
+    $UninstallCommand  = $UninstallCommand -replace "'", "''"
 
     $install = (
         ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $InstallerFileName),
@@ -2168,6 +2179,382 @@ function Update-PackagerHistory {
 
     Save-PackagerHistory -History $history
 }
+
+
+# ---------------------------------------------------------------------------
+# Ad-hoc drop intake: analyze a dropped installer, stage it through the
+# normal manifest path, optionally graduate it into the packager catalog.
+# ---------------------------------------------------------------------------
+
+function Get-InstallerAnalysis {
+    <#
+    .SYNOPSIS
+        Runs the vendored installer analysis over one file and returns the
+        deployment-relevant digest.
+
+    .DESCRIPTION
+        Orchestrates InstallerAnalysisCommon (vendored at
+        ..\Lib\InstallerAnalysisCommon): engine identification by binary
+        signature, MSI properties when applicable, package metadata,
+        silent-switch prediction, and the aggregated deployment fields.
+        Confidence is the roadmap's gate: MSI-derived identity is
+        authoritative; everything else is predicted and requires operator
+        confirmation before Package.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Returns the aggregate analysis for one installer.')]
+    param(
+        [Parameter(Mandatory)][string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "Installer not found: $Path"
+    }
+    if (-not (Get-Module -Name InstallerAnalysisCommon)) {
+        Import-Module -Name (Join-Path $PSScriptRoot '..\Lib\InstallerAnalysisCommon\InstallerAnalysisCommon.psd1') -Global -DisableNameChecking
+    }
+
+    $fileInfo = Get-InstallerFileInfo -Path $Path
+    $type     = Get-InstallerType -Path $Path
+
+    $msiProps = $null
+    $msiSummary = $null
+    if ($type -eq 'MSI') {
+        $msiProps   = Get-MsiProperties -MsiPath $Path
+        $msiSummary = Get-MsiSummaryInfo -MsiPath $Path
+    }
+    $pkgMeta  = Get-PackageMetadataFor -Path $Path -InstallerType $type
+    $switches = Get-SilentSwitches -InstallerType $type -FilePath $Path -MsiProperties $msiProps
+    $fields   = Get-DeploymentFields -FileInfo $fileInfo -MsiProperties $msiProps -Switches $switches `
+        -PackageMetadata $pkgMeta -InstallerType $type -MsiSummary $msiSummary
+
+    $productCode = ''
+    if ($msiProps -and $msiProps.Contains('ProductCode')) { $productCode = [string]$msiProps['ProductCode'] }
+
+    # Get-SilentSwitches returns full command lines; the wrapper generators
+    # want bare arguments, so strip the leading installer filename.
+    $installCommand   = if ($switches) { [string]$switches.Install }   else { '' }
+    $uninstallCommand = if ($switches) { [string]$switches.Uninstall } else { '' }
+    $installArgs = ''
+    $uninstallArgs = ''
+    if ($type -eq 'MSI') {
+        $installArgs   = '/qn /norestart'
+        $uninstallArgs = '/qn /norestart'
+    }
+    else {
+        $fileNameEscaped = [regex]::Escape((Split-Path -Leaf $Path))
+        if ($installCommand -match ('^"?' + $fileNameEscaped + '"?\s+(?<args>\S.*)$')) {
+            $installArgs = $Matches['args'].Trim()
+        }
+    }
+
+    [pscustomobject]@{
+        Path                 = (Resolve-Path -LiteralPath $Path).Path
+        FileName             = Split-Path -Leaf $Path
+        InstallerType        = $type
+        AppName              = [string]$fields.DisplayName
+        Publisher            = [string]$fields.Vendor
+        SoftwareVersion      = [string]$fields.DisplayVersion
+        ProductCode          = $productCode
+        InstallArgs          = $installArgs
+        UninstallArgs        = $uninstallArgs
+        InstallCommand       = $installCommand
+        UninstallCommand     = $uninstallCommand
+        UninstallRegistryKey = [string]$fields.UninstallRegistryKey
+        Architecture         = if ($msiSummary -and $msiSummary.Architecture) { [string]$msiSummary.Architecture } else { [string]$fileInfo.Architecture }
+        Confidence           = if ($type -eq 'MSI') { 'Authoritative' } else { 'Predicted' }
+        Switches             = $switches
+        Fields               = $fields
+    }
+}
+
+function New-AdHocStage {
+    <#
+    .SYNOPSIS
+        Stages a dropped installer as a versioned content folder with
+        wrappers and a stage manifest - the same shape every packager
+        produces, so Package consumes it unchanged.
+
+    .DESCRIPTION
+        Layout: <DownloadRoot>\<AppFolder>\<Version>\ holding the installer,
+        the install/uninstall wrapper set, and stage-manifest.json with
+        SHA256 hashes. Detection is RegistryKeyValue on the ARP key: the
+        ProductCode key for an MSI (deterministic), or the analysis-
+        predicted uninstall key otherwise (operator-confirmed upstream).
+    #>
+    param(
+        [Parameter(Mandatory)]$Analysis,
+        [Parameter(Mandatory)][string]$DownloadRoot,
+        [string]$AppName,
+        [string]$Publisher,
+        [string]$SoftwareVersion,
+        [string]$InstallArgs,
+        [string]$UninstallArgs,
+        [string]$UninstallCommand
+    )
+
+    if (-not $AppName)         { $AppName         = [string]$Analysis.AppName }
+    if (-not $Publisher)       { $Publisher       = [string]$Analysis.Publisher }
+    if (-not $SoftwareVersion) { $SoftwareVersion = [string]$Analysis.SoftwareVersion }
+    if (-not $InstallArgs)     { $InstallArgs     = [string]$Analysis.InstallArgs }
+    if (-not $PSBoundParameters.ContainsKey('UninstallArgs') -or $null -eq $UninstallArgs) { $UninstallArgs = [string]$Analysis.UninstallArgs }
+    if ([string]::IsNullOrWhiteSpace($AppName))         { throw 'Ad-hoc stage requires an application name.' }
+    if ([string]::IsNullOrWhiteSpace($SoftwareVersion)) { throw 'Ad-hoc stage requires a version.' }
+    if ($Analysis.InstallerType -eq 'MSP') {
+        throw 'MSI patches (.msp) are not supported for ad-hoc staging; they apply against an installed base MSI, not as a standalone deployment.'
+    }
+    if ($Analysis.InstallerType -ne 'MSI' -and [string]::IsNullOrWhiteSpace($InstallArgs)) {
+        throw 'Ad-hoc stage requires install arguments for a non-MSI installer.'
+    }
+    if ([string]::IsNullOrWhiteSpace($Publisher))       { $Publisher = 'Unknown' }
+
+    $installerName = [string]$Analysis.FileName
+    # Wrapper .ps1 files are written -Encoding ASCII (deployment targets read
+    # them with Windows PowerShell defaults); a non-ASCII filename would be
+    # silently mangled inside the wrapper and fail only on target devices.
+    if ($installerName -match '[^\x00-\x7F]') {
+        throw "Installer filename contains non-ASCII characters; rename the file to plain ASCII before staging: $installerName"
+    }
+
+    # Folder-name sanitation: identity fields become path segments. A value
+    # that sanitizes to nothing must not silently collapse into the parent
+    # folder (Join-Path with '' returns the parent).
+    $sanitize = { param($s) (($s -replace '[\\/:*?"<>|]', '') -replace '\s+', ' ').Trim() }
+    $vendorFolder = & $sanitize $Publisher
+    $appFolder    = & $sanitize $AppName
+    $versionFolder = & $sanitize $SoftwareVersion
+    if ([string]::IsNullOrWhiteSpace($vendorFolder))  { $vendorFolder = 'Unknown' }
+    if ([string]::IsNullOrWhiteSpace($appFolder))     { throw "Application name '$AppName' contains no usable path characters." }
+    if ([string]::IsNullOrWhiteSpace($versionFolder)) { throw "Version '$SoftwareVersion' contains no usable path characters." }
+
+    $baseRoot = Join-Path (Join-Path $DownloadRoot $vendorFolder) $appFolder
+    $stagedPath = Join-Path $baseRoot $versionFolder
+    Initialize-Folder -Path $stagedPath
+    $stagedInstaller = Join-Path $stagedPath $installerName
+    Copy-Item -LiteralPath $Analysis.Path -Destination $stagedInstaller -Force
+    Write-Log "Staged dropped installer     : $stagedInstaller"
+
+    $isMsi = ($Analysis.InstallerType -eq 'MSI')
+    # New-ExeWrapperContent interpolates InstallArgs/UninstallArgs into an
+    # @() literal, so plain space-separated args become a quoted element list.
+    $toArgList = {
+        param($s)
+        (($s -split '\s+') | Where-Object { $_ } | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ', '
+    }
+    if ($isMsi) {
+        $wrapperContent = New-MsiWrapperContent -MsiFileName $installerName
+    }
+    else {
+        if ([string]::IsNullOrWhiteSpace($UninstallCommand)) { $UninstallCommand = [string]$Analysis.UninstallCommand }
+        # Split "path args" into -FilePath and -ArgumentList halves; the path
+        # may be quoted (analysis emits '"uninstall.exe" /S').
+        $uninstallExe  = $UninstallCommand
+        $uninstallTail = $UninstallArgs
+        if ($UninstallCommand -match '^\s*"(?<exe>[^"]+)"\s*(?<tail>.*)$' -or
+            $UninstallCommand -match '^\s*(?<exe>\S+)\s+(?<tail>.+)$') {
+            $uninstallExe = $Matches['exe']
+            if ([string]::IsNullOrWhiteSpace($uninstallTail)) { $uninstallTail = $Matches['tail'].Trim() }
+        }
+        if ([string]::IsNullOrWhiteSpace($uninstallExe)) {
+            # Wrapper still ships; the operator-visible manifest carries the
+            # gap so the generated uninstall is an explicit no-op, not a lie.
+            $uninstallExe = 'cmd.exe'
+            $uninstallTail = '/c exit 0'
+        }
+        $wrapperContent = New-ExeWrapperContent -InstallerFileName $installerName `
+            -InstallArgs (& $toArgList $InstallArgs) `
+            -UninstallCommand $uninstallExe `
+            -UninstallArgs (& $toArgList $uninstallTail)
+    }
+    Write-ContentWrappers -OutputPath $stagedPath `
+        -InstallPs1Content $wrapperContent.Install `
+        -UninstallPs1Content $wrapperContent.Uninstall
+
+    $is64 = ([string]$Analysis.Architecture) -notmatch '^(x86|Intel)$'
+    if ($isMsi -and $Analysis.ProductCode) {
+        $arpRelative = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\' + $Analysis.ProductCode
+    }
+    else {
+        # Analysis predicts a full hive path; the manifest wants the
+        # HKLM-relative form. A WOW6432Node prediction means a 32-bit view.
+        $arpRelative = ([string]$Analysis.UninstallRegistryKey) -replace '^HK(LM|CU):\\', ''
+        if ($arpRelative -match '(?i)\\?WOW6432Node\\') {
+            $arpRelative = $arpRelative -replace '(?i)WOW6432Node\\', ''
+            $is64 = $false
+        }
+        if ([string]::IsNullOrWhiteSpace($arpRelative)) {
+            $arpRelative = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\' + $AppName
+        }
+    }
+
+    $manifestPath = Join-Path $stagedPath 'stage-manifest.json'
+    Write-StageManifest -Path $manifestPath -ManifestData @{
+        AppName         = $AppName
+        Publisher       = $Publisher
+        SoftwareVersion = $SoftwareVersion
+        InstallerFile   = $installerName
+        InstallerType   = if ($isMsi) { 'MSI' } else { 'EXE' }
+        DetectedEngine  = [string]$Analysis.InstallerType
+        InstallArgs     = $InstallArgs
+        UninstallArgs   = $UninstallArgs
+        UninstallCommand = if ($isMsi) { '' } else { $UninstallCommand }
+        ProductCode     = [string]$Analysis.ProductCode
+        RunningProcess  = @()
+        AdHocSource     = [string]$Analysis.Path
+        Detection       = @{
+            Type                = 'RegistryKeyValue'
+            RegistryKeyRelative = $arpRelative
+            ValueName           = 'DisplayVersion'
+            DisplayName         = $AppName
+            DisplayVersion      = $SoftwareVersion
+            Is64Bit             = $is64
+        }
+    }
+    Write-Log "Ad-hoc stage complete        : $stagedPath"
+
+    [pscustomobject]@{
+        StagedPath   = $stagedPath
+        ManifestPath = $manifestPath
+        VendorFolder = $vendorFolder
+        AppFolder    = $appFolder
+    }
+}
+
+function Invoke-AdHocPackage {
+    <#
+    .SYNOPSIS
+        Packages an ad-hoc staged folder: copies content to the network
+        version folder and creates the MECM application from the manifest -
+        the same path every packager takes.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$StagedPath,
+        [Parameter(Mandatory)][string]$VendorFolder,
+        [Parameter(Mandatory)][string]$AppFolder,
+        [Parameter(Mandatory)][string]$FileServerPath,
+        [Parameter(Mandatory)][string]$SiteCode,
+        [string]$Comment = '',
+        [ValidateSet('Nested', 'Flat')][string]$ContentLayout = 'Nested',
+        [int]$EstimatedRuntimeMins = 15,
+        [int]$MaximumRuntimeMins = 30
+    )
+
+    $manifest = Read-StageManifest -Path (Join-Path $StagedPath 'stage-manifest.json')
+    if (-not (Test-NetworkShareAccess -Path $FileServerPath)) {
+        throw "Network root path not accessible: $FileServerPath"
+    }
+
+    # Version becomes a path segment; strip the same characters the stage
+    # sanitized so local and network folder names agree.
+    $versionSegment = ((([string]$manifest.SoftwareVersion) -replace '[\\/:*?"<>|]', '') -replace '\s+', ' ').Trim()
+    if ([string]::IsNullOrWhiteSpace($versionSegment)) {
+        throw ("Manifest version '{0}' contains no usable path characters." -f $manifest.SoftwareVersion)
+    }
+    $networkContentPath = Get-NetworkContentPath -FileServerPath $FileServerPath `
+        -VendorFolder $VendorFolder -AppFolder $AppFolder `
+        -Version $versionSegment -Layout $ContentLayout
+    Initialize-Folder -Path $networkContentPath
+
+    foreach ($f in (Get-ChildItem -Path $StagedPath -File)) {
+        if ($f.Name -eq 'stage-manifest.json') { continue }
+        Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $networkContentPath $f.Name) -Force
+    }
+    Write-Log "Ad-hoc content on network    : $networkContentPath"
+
+    return New-MECMApplicationFromManifest `
+        -Manifest $manifest `
+        -SiteCode $SiteCode `
+        -Comment $Comment `
+        -NetworkContentPath $networkContentPath `
+        -EstimatedRuntimeMins $EstimatedRuntimeMins `
+        -MaximumRuntimeMins $MaximumRuntimeMins
+}
+
+function New-PackagerFromDrop {
+    <#
+    .SYNOPSIS
+        Graduates an analyzed drop into the packager catalog: writes
+        Packagers\package-<slug>.ps1 from the matching template with the
+        analysis-filled identity values.
+
+    .DESCRIPTION
+        Identity, folder segments, and installer filename are baked; the
+        download-source resolution stays a TODO by nature - a dropped file
+        carries no URL. The generated file satisfies the grid's discovery
+        contract immediately (header metadata, GetLatestVersionOnly, phase
+        switches) and refuses to overwrite an existing packager.
+    #>
+    param(
+        [Parameter(Mandatory)]$Analysis,
+        [Parameter(Mandatory)][string]$PackagersRoot,
+        [string]$AppName,
+        [string]$Publisher,
+        [string]$SoftwareVersion
+    )
+
+    if (-not $AppName)         { $AppName         = [string]$Analysis.AppName }
+    if (-not $Publisher)       { $Publisher       = [string]$Analysis.Publisher }
+    if (-not $SoftwareVersion) { $SoftwareVersion = [string]$Analysis.SoftwareVersion }
+    if ([string]::IsNullOrWhiteSpace($AppName)) { throw 'A packager needs an application name.' }
+
+    $isMsi = ($Analysis.InstallerType -eq 'MSI')
+    $templateName = if ($isMsi) { 'package-template-msi.ps1' } else { 'package-template-exe.ps1' }
+    $templatePath = Join-Path (Split-Path $PackagersRoot -Parent) (Join-Path 'Samples' $templateName)
+    if (-not (Test-Path -LiteralPath $templatePath)) { throw "Template not found: $templatePath" }
+
+    $slug = (($AppName.ToLowerInvariant() -replace '[^a-z0-9]+', '-').Trim('-'))
+    $target = Join-Path $PackagersRoot ("package-{0}.ps1" -f $slug)
+    if (Test-Path -LiteralPath $target) { throw "Packager already exists: $target" }
+
+    $sanitize = { param($s) (($s -replace '[\\/:*?"<>|]', '') -replace '\s+', ' ').Trim() }
+    $vendorFolder = & $sanitize $Publisher
+    $appFolder    = & $sanitize $AppName
+
+    # Identity values originate in the dropped file's own version resource /
+    # MSI tables: untrusted text. Substitutions into live double-quoted
+    # literals must neutralize `, $, and " or the resource string executes
+    # as code the next time the generated packager runs; substitutions into
+    # the doc comment must not carry a comment terminator.
+    $escapeDq = { param($s) (([string]$s -replace '`', '``') -replace '\$', '`$') -replace '"', '`"' }
+    $escapeComment = { param($s) [string]$s -replace '#>', '# >' }
+    $appNameDq   = & $escapeDq $AppName
+    $publisherDq = & $escapeDq $Publisher
+    $appNameCmt   = & $escapeComment $AppName
+    $publisherCmt = & $escapeComment $Publisher
+
+    # Literal String.Replace throughout: values may contain characters regex
+    # replacement strings would reinterpret.
+    $c = Get-Content -LiteralPath $templatePath -Raw
+    $c = $c.Replace('Vendor: TODO', "Vendor: $publisherCmt")
+    $c = $c.Replace('App: TODO', "App: $appNameCmt")
+    $c = $c.Replace('CMName: TODO', "CMName: $appNameCmt")
+    $c = $c.Replace('$VendorFolder = "TODO"', ('$VendorFolder = "{0}"' -f (& $escapeDq $vendorFolder)))
+    $c = $c.Replace('$AppFolder    = "TODO"', ('$AppFolder    = "{0}"' -f (& $escapeDq $appFolder)))
+    $c = $c.Replace('Packages TODO (x64)', "Packages $appNameCmt")
+    $c = $c.Replace('"TODO - STAGE phase"', ('"{0} - STAGE phase"' -f $appNameDq))
+    $c = $c.Replace('"TODO - PACKAGE phase"', ('"{0} - PACKAGE phase"' -f $appNameDq))
+    $c = $c.Replace('"TODO Auto-Packager starting"', ('"{0} Auto-Packager starting"' -f $appNameDq))
+    if ($isMsi) {
+        $c = $c.Replace('$MsiFileName      = "TODO-installer.msi"', ('$MsiFileName      = "{0}"' -f (& $escapeDq $Analysis.FileName)))
+    }
+    else {
+        $c = $c.Replace('AppName          = "TODO"', ('AppName          = "{0}"' -f $appNameDq))
+        $c = $c.Replace('Publisher        = "TODO"', ('Publisher        = "{0}"' -f $publisherDq))
+        if (-not [string]::IsNullOrWhiteSpace([string]$Analysis.InstallArgs)) {
+            $c = $c.Replace('$installArgs   = "/S"', ('$installArgs   = "{0}"' -f (& $escapeDq $Analysis.InstallArgs)))
+        }
+    }
+
+    $parseErrors = $null
+    [void][System.Management.Automation.Language.Parser]::ParseInput($c, [ref]$null, [ref]$parseErrors)
+    if ($parseErrors.Count -gt 0) {
+        throw ("Generated packager does not parse ({0}); refusing to write it. First error: {1}" -f $parseErrors.Count, $parseErrors[0].Message)
+    }
+
+    Set-Content -LiteralPath $target -Value $c -Encoding UTF8
+    Write-Log "Packager written             : $target (download source is a TODO; identity and folders are filled)"
+    return $target
+}
+
 
 # ---------------------------------------------------------------------------
 # Module export (belt-and-suspenders with .psd1 FunctionsToExport)

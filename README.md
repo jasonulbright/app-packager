@@ -17,6 +17,8 @@ Each packager script operates in two phases:
 
 The GUI (`start-apppackager.ps1`) provides a visual front-end that discovers packager scripts automatically, lets you check latest versions, query MECM for current versions, and stage or package selected applications.
 
+**Drop to package** — Drag an `.msi` or `.exe` installer onto the window and the app analyzes it (engine detection, MSI property tables, silent-switch prediction), opens an editable manifest preview, and stages or packages it through the same manifest pipeline the packager scripts use. MSI identity is authoritative; for other installers the predicted values must be explicitly confirmed before Stage + Package enables. A dropped installer that turns out to be a recurring need can be saved as a starter packager script generated from the matching template, with identity, folders, and filename pre-filled and the download source left as the one remaining TODO.
+
 ![AppPackager](screenshots/main-dark.png)
 
 ## Prerequisites
@@ -538,6 +540,10 @@ All packager scripts import the shared module which provides:
 | `New-OdtConfigXml` | Generates full ODT configuration XML for M365 download/install phases |
 | `Get-LatestTemurinRelease` | Queries Adoptium API for latest Eclipse Temurin MSI (JRE/JDK, x64/x86) |
 | `Get-LatestCorrettoRelease` | Queries GitHub releases for latest Amazon Corretto MSI (JDK, x64/x86) |
+| `Get-InstallerAnalysis` | Runs the vendored installer analysis over one file: engine detection, MSI properties, silent-switch and ARP-key prediction, with an Authoritative/Predicted confidence flag |
+| `New-AdHocStage` | Stages a dropped installer as a versioned content folder with wrappers and a schema-v3 stage manifest |
+| `Invoke-AdHocPackage` | Copies ad-hoc staged content to the network share and creates the MECM application from its manifest |
+| `New-PackagerFromDrop` | Writes a starter `package-<app>.ps1` from the matching template with analysis-filled identity values |
 
 ## License
 
