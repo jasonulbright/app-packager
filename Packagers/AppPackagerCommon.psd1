@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AppPackagerCommon.psm1'
-    ModuleVersion     = '0.0.13'
+    ModuleVersion     = '0.0.14'
     GUID              = 'f5cdd2d6-eb09-47bd-8493-16dfd5666455'
     Author            = 'AppPackager'
     Description       = 'Shared helpers for AppPackager packager scripts.'
@@ -63,6 +63,12 @@
         'Read-PackagerHistory'
         'Save-PackagerHistory'
         'Update-PackagerHistory'
+
+        # Ad-hoc drop intake
+        'Get-InstallerAnalysis'
+        'New-AdHocStage'
+        'Invoke-AdHocPackage'
+        'New-PackagerFromDrop'
     )
 
     CmdletsToExport   = @()

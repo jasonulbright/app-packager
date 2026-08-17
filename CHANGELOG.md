@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.3.0.0] - 2026-08-17
+
+### Added
+
+- **Drop-to-package intake.** Drag an `.msi` or `.exe` installer onto the
+  window: the vendored `InstallerAnalysisCommon` module (at
+  `Lib\InstallerAnalysisCommon\`) identifies the installer engine, reads
+  MSI property tables, and predicts silent switches and the ARP uninstall
+  key; an editable preview dialog shows the resulting manifest before
+  anything runs. MSI identity is authoritative and detection uses the
+  ProductCode ARP key. For every other engine the values are predictions
+  and Stage + Package stays disabled until the operator confirms them —
+  Stage alone is always available. Multiple dropped installers queue
+  through one background pipeline run with the usual progress overlay,
+  cancel, and per-item log lines.
+- **Save as Packager.** A drop can graduate into the catalog: the app
+  writes `Packagers/package-<app>.ps1` from the matching template with
+  identity, folder segments, and installer filename filled in. The
+  download-source resolution remains the template's TODO — a dropped
+  file carries no origin URL — and the generated script satisfies grid
+  discovery immediately. Existing packagers are never overwritten.
+- `AppPackagerCommon` 0.0.14: `Get-InstallerAnalysis`, `New-AdHocStage`,
+  `Invoke-AdHocPackage`, `New-PackagerFromDrop`. Ad-hoc staging emits the
+  same schema-v3 `stage-manifest.json` (hashes included) as the packager
+  templates, so `New-MECMApplicationFromManifest` consumes it unchanged.
+
 ## [1.2.0.1] - 2026-08-16
 
 ### Changed

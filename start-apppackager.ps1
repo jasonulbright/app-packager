@@ -36,8 +36,8 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.0.0
-    Updated    : 2026-05-02
+    Version    : 1.3.0.0
+    Updated    : 2026-08-17
 #>
 
 param(
@@ -4268,6 +4268,500 @@ function Invoke-MultiAppPipeline {
     })
     $script:BgTimer.Start()
 }
+
+# =============================================================================
+# Drop-to-package intake: drag an installer onto the window, confirm the
+# analyzed manifest, stage/package through the shared ad-hoc pipeline.
+# =============================================================================
+
+function Show-DropIntakeDialog {
+    param(
+        [Parameter(Mandatory)]$Owner,
+        [Parameter(Mandatory)]$Analysis,
+        [bool]$PackageAvailable,
+        [string]$PackageUnavailableReason
+    )
+
+    $dlgXaml = @'
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="Installer Drop"
+    Width="620" Height="560"
+    MinWidth="560" MinHeight="480"
+    WindowStartupLocation="CenterOwner"
+    TitleCharacterCasing="Normal"
+    ShowIconOnTitleBar="False"
+    GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+    BorderThickness="1">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+    <Grid Margin="20,16,20,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" x:Name="txtDropFile" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+        <TextBlock Grid.Row="1" x:Name="txtDropDetected" Margin="0,4,0,12" Opacity="0.75"/>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" MinWidth="130"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Application" VerticalAlignment="Center" Margin="0,0,12,8"/>
+            <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtDropAppName" Height="28" Margin="0,0,0,8"/>
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Publisher" VerticalAlignment="Center" Margin="0,0,12,8"/>
+            <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtDropPublisher" Height="28" Margin="0,0,0,8"/>
+
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Version" VerticalAlignment="Center" Margin="0,0,12,8"/>
+            <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtDropVersion" Height="28" Margin="0,0,0,8"/>
+
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Install args" VerticalAlignment="Center" Margin="0,0,12,8"/>
+            <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtDropInstallArgs" Height="28" Margin="0,0,0,8"/>
+
+            <TextBlock Grid.Row="4" Grid.Column="0" x:Name="lblDropUninstall" Text="Uninstall command" VerticalAlignment="Center" Margin="0,0,12,8"/>
+            <TextBox   Grid.Row="4" Grid.Column="1" x:Name="txtDropUninstallCmd" Height="28" Margin="0,0,0,8"/>
+
+            <TextBlock Grid.Row="5" Grid.Column="0" Text="Detection" VerticalAlignment="Top" Margin="0,4,12,0"/>
+            <TextBlock Grid.Row="5" Grid.Column="1" x:Name="txtDropDetection" TextWrapping="Wrap" Opacity="0.75" Margin="0,4,0,0"/>
+        </Grid>
+
+        <CheckBox Grid.Row="3" x:Name="chkDropConfirm" Margin="0,12,0,0"
+                  Content="I verified the predicted silent switches and detection for this installer"/>
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button x:Name="btnDropSavePackager" Content="Save as Packager" MinWidth="130" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource MahApps.Styles.Button.Square}"/>
+            <Button x:Name="btnDropStage" Content="Stage" MinWidth="90" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource MahApps.Styles.Button.Square}"/>
+            <Button x:Name="btnDropStagePackage" Content="Stage + Package" MinWidth="130" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource MahApps.Styles.Button.Square.Accent}"/>
+            <Button x:Name="btnDropCancel" Content="Cancel" MinWidth="90" Height="32" IsCancel="True" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource MahApps.Styles.Button.Square}"/>
+        </StackPanel>
+    </Grid>
+</Controls:MetroWindow>
+'@
+
+    [xml]$xml = $dlgXaml
+    $reader = New-Object System.Xml.XmlNodeReader $xml
+    $dlg    = [System.Windows.Markup.XamlReader]::Load($reader)
+    Install-TitleBarDragFallback -Window $dlg
+    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
+
+    $txtFile      = $dlg.FindName('txtDropFile')
+    $txtDetected  = $dlg.FindName('txtDropDetected')
+    $txtAppName   = $dlg.FindName('txtDropAppName')
+    $txtPublisher = $dlg.FindName('txtDropPublisher')
+    $txtVersion   = $dlg.FindName('txtDropVersion')
+    $txtArgs      = $dlg.FindName('txtDropInstallArgs')
+    $lblUninst    = $dlg.FindName('lblDropUninstall')
+    $txtUninst    = $dlg.FindName('txtDropUninstallCmd')
+    $txtDetect    = $dlg.FindName('txtDropDetection')
+    $chkConfirm   = $dlg.FindName('chkDropConfirm')
+    $btnSave      = $dlg.FindName('btnDropSavePackager')
+    $btnStageOnly = $dlg.FindName('btnDropStage')
+    $btnStagePkg  = $dlg.FindName('btnDropStagePackage')
+    $btnCancelDlg = $dlg.FindName('btnDropCancel')
+
+    $isMsi = ([string]$Analysis.InstallerType -eq 'MSI')
+
+    $txtFile.Text     = [string]$Analysis.FileName
+    $txtDetected.Text = ('Detected: {0}   Confidence: {1}   Architecture: {2}' -f `
+        $Analysis.InstallerType, $Analysis.Confidence, $Analysis.Architecture)
+    $txtAppName.Text   = [string]$Analysis.AppName
+    $txtPublisher.Text = [string]$Analysis.Publisher
+    $txtVersion.Text   = [string]$Analysis.SoftwareVersion
+    $txtArgs.Text      = [string]$Analysis.InstallArgs
+    $txtUninst.Text    = [string]$Analysis.UninstallCommand
+
+    if ($isMsi) {
+        # MSI wrappers always run msiexec /qn /norestart against the file;
+        # detection is the ProductCode ARP key. Nothing to edit or confirm.
+        $txtArgs.IsReadOnly = $true
+        $txtUninst.Visibility = [System.Windows.Visibility]::Collapsed
+        $lblUninst.Visibility = [System.Windows.Visibility]::Collapsed
+        $chkConfirm.Visibility = [System.Windows.Visibility]::Collapsed
+        $txtDetect.Text = 'Registry: ARP key for ProductCode ' + $Analysis.ProductCode + ' (DisplayVersion match)'
+    }
+    else {
+        $predicted = [string]$Analysis.UninstallRegistryKey
+        if ([string]::IsNullOrWhiteSpace($predicted)) { $predicted = 'ARP key derived from the application name (verify after first install)' }
+        $txtDetect.Text = 'Registry (predicted): ' + $predicted + ' (DisplayVersion match)'
+    }
+
+    $updateGate = {
+        $confirmed = $isMsi -or ($chkConfirm.IsChecked -eq $true)
+        $btnStagePkg.IsEnabled = $confirmed -and $PackageAvailable
+        if (-not $PackageAvailable) {
+            $btnStagePkg.ToolTip = $PackageUnavailableReason
+        }
+        elseif (-not $confirmed) {
+            $btnStagePkg.ToolTip = 'Confirm the predicted values first. Packaging a wrong silent switch deploys a broken app.'
+        }
+        else {
+            $btnStagePkg.ToolTip = $null
+        }
+    }
+    & $updateGate
+    $chkConfirm.Add_Checked({ & $updateGate })
+    $chkConfirm.Add_Unchecked({ & $updateGate })
+
+    $script:DropIntakeResult = $null
+    $readValues = {
+        @{
+            AppName          = $txtAppName.Text.Trim()
+            Publisher        = $txtPublisher.Text.Trim()
+            SoftwareVersion  = $txtVersion.Text.Trim()
+            InstallArgs      = $txtArgs.Text.Trim()
+            UninstallCommand = $txtUninst.Text.Trim()
+        }
+    }
+    $validate = {
+        $v = & $readValues
+        if ([string]::IsNullOrWhiteSpace($v.AppName)) { return 'Application name is required.' }
+        if ([string]::IsNullOrWhiteSpace($v.SoftwareVersion)) { return 'Version is required.' }
+        if (-not $isMsi -and [string]::IsNullOrWhiteSpace($v.InstallArgs)) { return 'Install args are required for a non-MSI installer.' }
+        return $null
+    }
+    $chooseAction = {
+        param($action)
+        $problem = & $validate
+        if ($problem) {
+            [void](Show-ThemedMessage -Owner $dlg -Title 'Missing Value' -Message $problem -Buttons OK -Icon Warning)
+            return
+        }
+        $script:DropIntakeResult = @{ Action = $action; Values = (& $readValues) }
+        $dlg.Close()
+    }
+
+    $btnStageOnly.Add_Click({ & $chooseAction 'Stage' })
+    $btnStagePkg.Add_Click({ & $chooseAction 'StageAndPackage' })
+    $btnSave.Add_Click({ & $chooseAction 'SavePackager' })
+    $btnCancelDlg.Add_Click({ $dlg.Close() })
+
+    [void]$dlg.ShowDialog()
+    return $script:DropIntakeResult
+}
+
+function Invoke-AdHocPipeline {
+    param(
+        [Parameter(Mandatory)][array]$Jobs,
+        [Parameter(Mandatory)][hashtable]$Context
+    )
+
+    Initialize-BackgroundWorker
+
+    $script:BgGraveyard = @(Stop-SuiteBgWork -PowerShell $script:BgPS -Timer $script:BgTimer -Graveyard $script:BgGraveyard)
+    $script:BgTimer  = $null
+    $script:BgPS     = $null
+    $script:BgHandle = $null
+    $script:BgState  = $null
+
+    $script:BgState = [hashtable]::Synchronized(@{
+        Step            = 'Starting...'
+        Done            = $false
+        ErrorMsg        = $null
+        Paused          = $false
+        CancelRequested = $false
+        Canceled        = $false
+        LogQueue        = New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]'
+        Counts          = $null
+    })
+
+    Set-ActionButtonsEnabled -Enabled $false
+    $window.Cursor = [System.Windows.Input.Cursors]::Wait
+    $txtProgressTitle.Text = 'Processing dropped installers'
+    $txtProgressStep.Text  = 'Starting...'
+    $btnPausePipeline.Content = 'Pause'
+    $btnPausePipeline.IsEnabled = $true
+    $btnCancelPipeline.IsEnabled = $true
+    $progressOverlay.Visibility = [System.Windows.Visibility]::Visible
+
+    $jobsArray = @($Jobs)
+
+    $script:BgPS = [powershell]::Create()
+    $script:BgPS.Runspace = $script:BgRunspace
+    [void]$script:BgPS.AddScript({
+        param($JobsIn, $Ctx, $State)
+
+        $counts = [ordered]@{ Staged = 0; Packaged = 0; Failed = 0 }
+        $cmConnected = $null
+
+        try {
+            $jobs = @($JobsIn)
+            $n = $jobs.Count
+            $i = 0
+            foreach ($job in $jobs) {
+                while ([bool]$State.Paused -and -not [bool]$State.CancelRequested) {
+                    $State.Step = 'Paused before next installer'
+                    Start-Sleep -Milliseconds 250
+                }
+                if ([bool]$State.CancelRequested) {
+                    $State.Canceled = $true
+                    [void]$State.LogQueue.Enqueue('Canceled. Stopped before the next installer.')
+                    break
+                }
+
+                $i++
+                $v = $job.Values
+                $State.Step = ('Stage {0}/{1}: {2}' -f $i, $n, $v.AppName)
+                try {
+                    $stage = New-AdHocStage -Analysis $job.Analysis `
+                        -DownloadRoot $Ctx.DownloadRoot `
+                        -AppName $v.AppName -Publisher $v.Publisher `
+                        -SoftwareVersion $v.SoftwareVersion `
+                        -InstallArgs $v.InstallArgs `
+                        -UninstallCommand $v.UninstallCommand
+                    $counts['Staged']++
+                    [void]$State.LogQueue.Enqueue(('Staged: {0} {1} -> {2}' -f $v.AppName, $v.SoftwareVersion, $stage.StagedPath))
+                }
+                catch {
+                    $counts['Failed']++
+                    [void]$State.LogQueue.Enqueue(('Stage failed: {0}: {1}' -f $v.AppName, $_.Exception.Message))
+                    continue
+                }
+
+                if ($job.Action -ne 'StageAndPackage') { continue }
+
+                if ($null -eq $cmConnected) {
+                    $State.Step = 'Connecting to site ' + $Ctx.SiteCode
+                    $cmConnected = [bool](Connect-CMSite -SiteCode $Ctx.SiteCode -ProviderMachineName $Ctx.ProviderMachineName)
+                    if (-not $cmConnected) {
+                        [void]$State.LogQueue.Enqueue('Site connection failed. Staged content is intact; packaging skipped.')
+                    }
+                }
+                if (-not $cmConnected) {
+                    $counts['Failed']++
+                    continue
+                }
+
+                $State.Step = ('Package {0}/{1}: {2}' -f $i, $n, $v.AppName)
+                try {
+                    $app = Invoke-AdHocPackage -StagedPath $stage.StagedPath `
+                        -VendorFolder $stage.VendorFolder -AppFolder $stage.AppFolder `
+                        -FileServerPath $Ctx.FileShareRoot -SiteCode $Ctx.SiteCode `
+                        -Comment $Ctx.Comment -ContentLayout $Ctx.ContentLayout `
+                        -EstimatedRuntimeMins $Ctx.EstimatedRuntimeMins `
+                        -MaximumRuntimeMins $Ctx.MaximumRuntimeMins
+                    $counts['Packaged']++
+                    [void]$State.LogQueue.Enqueue(('Packaged: {0} {1}' -f $v.AppName, $v.SoftwareVersion))
+                    $null = $app
+                }
+                catch {
+                    $counts['Failed']++
+                    [void]$State.LogQueue.Enqueue(('Package failed: {0}: {1}' -f $v.AppName, $_.Exception.Message))
+                }
+            }
+            $State.Counts = $counts
+        }
+        catch {
+            $State.ErrorMsg = $_.Exception.Message
+        }
+        finally {
+            $State.Done = $true
+        }
+    }).AddArgument($jobsArray).AddArgument($Context).AddArgument($script:BgState)
+
+    $script:BgHandle = $script:BgPS.BeginInvoke()
+
+    $script:BgTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $script:BgTimer.Interval = [TimeSpan]::FromMilliseconds(100)
+    $script:BgTimer.Add_Tick({
+        if ($script:BgState -and $script:BgState.LogQueue) {
+            $line = $null
+            while ($script:BgState.LogQueue.TryDequeue([ref]$line)) {
+                Add-LogLine -Message $line
+            }
+        }
+        if ($script:BgState) {
+            $cur = [string]$script:BgState.Step
+            if ($txtProgressStep.Text -ne $cur) { $txtProgressStep.Text = $cur }
+        }
+
+        if ($script:BgState -and $script:BgState.Done) {
+            $doneState = $script:BgState
+            $script:BgTimer.Stop()
+            try { [void]$script:BgPS.EndInvoke($script:BgHandle) } catch { $null = $_ }
+            try { $script:BgPS.Dispose() } catch { $null = $_ }
+            $script:BgPS     = $null
+            $script:BgHandle = $null
+
+            $line = $null
+            if ($doneState.LogQueue) {
+                while ($doneState.LogQueue.TryDequeue([ref]$line)) {
+                    Add-LogLine -Message $line
+                }
+            }
+
+            if ($doneState.ErrorMsg) {
+                Add-LogLine -Message ('Drop intake failed: ' + $doneState.ErrorMsg)
+                $txtStatus.Text = 'Failed.'
+            }
+            else {
+                if ($doneState.Counts) {
+                    $summaryEntries = @($doneState.Counts.GetEnumerator() | Where-Object { $_.Value -gt 0 })
+                    if ($summaryEntries.Count -gt 0) {
+                        Add-LogSeparator
+                        Add-LogLine -Message 'Drop intake summary:'
+                        foreach ($entry in $summaryEntries) {
+                            Add-LogLine -Message ('  {0,-18} {1}' -f $entry.Key, $entry.Value)
+                        }
+                    }
+                }
+                $txtStatus.Text = if ([bool]$doneState.Canceled) { 'Canceled.' } else { 'Complete.' }
+            }
+
+            $progressOverlay.Visibility = [System.Windows.Visibility]::Collapsed
+            $window.Cursor = $null
+            Set-ActionButtonsEnabled -Enabled $true
+            $btnPausePipeline.Content = 'Pause'
+            $btnPausePipeline.IsEnabled = $true
+            $btnCancelPipeline.IsEnabled = $true
+            $script:BgTimer = $null
+            $script:BgState = $null
+        }
+    })
+    $script:BgTimer.Start()
+}
+
+function Invoke-DropIntake {
+    param([Parameter(Mandatory)][string[]]$Paths)
+
+    # The action buttons are disabled while a pipeline runs, but the window
+    # itself still receives drops; starting a second pipeline here would
+    # hard-stop the running one mid-flight.
+    if ($script:BgState -and -not [bool]$script:BgState.Done) {
+        [void](Show-ThemedMessage -Owner $window -Title 'Pipeline Running' `
+            -Message 'A pipeline is already running. Wait for it to finish (or cancel it), then drop the installer again.' `
+            -Buttons OK -Icon Info)
+        return
+    }
+
+    $installers = @($Paths | Where-Object { $_ -match '\.(msi|exe)$' -and (Test-Path -LiteralPath $_ -PathType Leaf) })
+    $ignored = @($Paths).Count - $installers.Count
+    if ($ignored -gt 0) {
+        Add-LogLine -Message ("Ignored {0} dropped item(s): only .msi and .exe files are supported." -f $ignored)
+    }
+    if ($installers.Count -eq 0) { return }
+
+    if ([string]::IsNullOrWhiteSpace($script:Prefs.DownloadRoot)) {
+        [void](Show-ThemedMessage -Owner $window -Title 'Download Root Required' `
+            -Message 'Staging a dropped installer needs a Download Root. Open OPTIONS -> MECM Preferences to configure it.' `
+            -Buttons OK -Icon Warning)
+        return
+    }
+
+    # Packaging prerequisites decide whether Stage + Package is offered at all.
+    $packageAvailable = $true
+    $packageReason = ''
+    if (-not $script:Prefs.DetectedTools.ConfigMgrConsole.Found) {
+        $packageAvailable = $false; $packageReason = 'The Configuration Manager Console is not detected on this workstation.'
+    }
+    elseif ([string]::IsNullOrWhiteSpace($script:Prefs.SiteCode)) {
+        $packageAvailable = $false; $packageReason = 'SiteCode is not configured (OPTIONS -> MECM Preferences).'
+    }
+    elseif ([string]::IsNullOrWhiteSpace($script:Prefs.FileShareRoot)) {
+        $packageAvailable = $false; $packageReason = 'File Share Root is not configured (OPTIONS -> MECM Preferences).'
+    }
+
+    $jobs = @()
+    foreach ($installer in $installers) {
+        $window.Cursor = [System.Windows.Input.Cursors]::Wait
+        try {
+            $analysis = Get-InstallerAnalysis -Path $installer
+        }
+        catch {
+            $window.Cursor = $null
+            Add-LogLine -Message ('Analysis failed for {0}: {1}' -f (Split-Path -Leaf $installer), $_.Exception.Message)
+            continue
+        }
+        $window.Cursor = $null
+        Add-LogLine -Message ('Analyzed drop: {0} ({1}, {2})' -f $analysis.FileName, $analysis.InstallerType, $analysis.Confidence)
+
+        $choice = Show-DropIntakeDialog -Owner $window -Analysis $analysis `
+            -PackageAvailable $packageAvailable -PackageUnavailableReason $packageReason
+        if (-not $choice) {
+            Add-LogLine -Message ('Skipped: ' + $analysis.FileName)
+            continue
+        }
+
+        if ($choice.Action -eq 'SavePackager') {
+            try {
+                $generated = New-PackagerFromDrop -Analysis $analysis `
+                    -PackagersRoot (Join-Path $PSScriptRoot 'Packagers') `
+                    -AppName $choice.Values.AppName -Publisher $choice.Values.Publisher `
+                    -SoftwareVersion $choice.Values.SoftwareVersion
+                Add-LogLine -Message ('Packager written: {0}. Fill in the download source before first use.' -f (Split-Path -Leaf $generated))
+                Invoke-RefreshGrid
+            }
+            catch {
+                [void](Show-ThemedMessage -Owner $window -Title 'Save Failed' -Message $_.Exception.Message -Buttons OK -Icon Error)
+            }
+            continue
+        }
+
+        $jobs += ,@{ Analysis = $analysis; Values = $choice.Values; Action = $choice.Action }
+    }
+
+    if ($jobs.Count -eq 0) { return }
+
+    $txtStatus.Text = 'Processing dropped installers...'
+    Invoke-AdHocPipeline -Jobs $jobs -Context @{
+        DownloadRoot         = $script:Prefs.DownloadRoot
+        SiteCode             = $script:Prefs.SiteCode
+        ProviderMachineName  = $script:Prefs.ProviderMachineName
+        FileShareRoot        = $script:Prefs.FileShareRoot
+        ContentLayout        = $script:Prefs.ContentLayout
+        Comment              = $txtComment.Text.Trim()
+        EstimatedRuntimeMins = $script:Prefs.EstimatedRuntimeMins
+        MaximumRuntimeMins   = $script:Prefs.MaximumRuntimeMins
+    }
+}
+
+$script:PendingDropQueue = New-Object System.Collections.Queue
+$window.AllowDrop = $true
+$window.Add_PreviewDragOver({
+    param($senderObj, $e)
+    if ($e.Data.GetDataPresent([System.Windows.DataFormats]::FileDrop)) {
+        $e.Effects = [System.Windows.DragDropEffects]::Copy
+        $e.Handled = $true
+    }
+})
+$window.Add_PreviewDrop({
+    param($senderObj, $e)
+    if (-not $e.Data.GetDataPresent([System.Windows.DataFormats]::FileDrop)) { return }
+    $e.Handled = $true
+    # Queue per drop: a shared last-writer-wins variable would lose the
+    # first drop if two land before the dispatcher drains.
+    $script:PendingDropQueue.Enqueue(@($e.Data.GetData([System.Windows.DataFormats]::FileDrop)))
+    # Defer past the drag-drop callback so the intake dialog does not block
+    # the OLE drop source (Explorer hangs until DoDragDrop returns).
+    [void]$window.Dispatcher.BeginInvoke([action]{
+        if ($script:PendingDropQueue.Count -gt 0) {
+            Invoke-DropIntake -Paths ([string[]]$script:PendingDropQueue.Dequeue())
+        }
+    })
+})
 
 # =============================================================================
 # Action button handlers
