@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0.1] - 2026-08-16
+
+### Changed
+
+- **Vendored `SuiteCommon` 0.3.2.** Window restore applies the saved
+  geometry before maximizing, so un-maximizing returns to the saved size
+  instead of the XAML defaults.
+
 ## [1.2.0.0] - 2026-08-16
 
 ### Changed

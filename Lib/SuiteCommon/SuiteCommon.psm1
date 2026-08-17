@@ -778,9 +778,7 @@ function Restore-WindowState {
         $w    = if ($null -ne $s.Width)  { [int]$s.Width  } else { $null }
         $h    = if ($null -ne $s.Height) { [int]$s.Height } else { $null }
 
-        if ($s.Maximized) {
-            $Window.WindowState = [System.Windows.WindowState]::Maximized
-        } elseif ($null -ne $left -and $null -ne $top -and $null -ne $w -and $null -ne $h) {
+        if ($null -ne $left -and $null -ne $top -and $null -ne $w -and $null -ne $h) {
             # A saved position off every connected screen is clamped into the
             # nearest monitor's working area. Discarding the whole geometry
             # instead loses a still-valid window size whenever a monitor
@@ -794,6 +792,12 @@ function Restore-WindowState {
             $Window.Top    = $top
             $Window.Width  = [Math]::Max($Window.MinWidth,  $w)
             $Window.Height = [Math]::Max($Window.MinHeight, $h)
+        }
+        # Geometry is applied even when maximizing: it becomes the window's
+        # normal bounds, so un-maximizing returns to the saved size instead
+        # of the XAML defaults.
+        if ($s.Maximized) {
+            $Window.WindowState = [System.Windows.WindowState]::Maximized
         }
 
         if ($OnStateLoaded) { & $OnStateLoaded $s }
@@ -1215,6 +1219,15 @@ function New-SuiteBgRunspace {
         if ($LogPath) { Initialize-Logging -LogPath $LogPath -Attach }
     }).AddArgument($ModulePath).AddArgument($LogPath)
     [void]$initPS.Invoke()
+    # A failed bootstrap (bad module path, import error) otherwise surfaces
+    # much later as an unrelated "term not recognized" from the first
+    # background operation; name the real cause here.
+    if ($initPS.HadErrors) {
+        foreach ($e in $initPS.Streams.Error) {
+            Write-Log ("Background runspace initialization error: {0}" -f $e.ToString()) -Level ERROR
+        }
+        Write-Log ("Background runspace initialized with errors (module: {0}); background operations may fail." -f $ModulePath) -Level WARN
+    }
     $initPS.Dispose()
     return $rs
 }
