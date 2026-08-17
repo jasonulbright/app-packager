@@ -25,144 +25,20 @@
 #>
 
 # ---------------------------------------------------------------------------
-# Logging
+# Shared core
 # ---------------------------------------------------------------------------
 
-$script:__AppPackagerLogPath = $null
-$script:__AppPackagerVerbose = $false
-
-function Initialize-Logging {
-    param(
-        [string]$LogPath,
-        [switch]$VerboseLogging
-    )
-
-    $script:__AppPackagerLogPath = $LogPath
-
-    # Verbose diagnostics: explicit switch wins; otherwise the
-    # APP_PACKAGER_VERBOSE env var enables it (set by the GUI host or the
-    # operator's shell) unless it holds an explicit "off" value.
-    $envVerbose = $env:APP_PACKAGER_VERBOSE
-    $script:__AppPackagerVerbose = [bool]$VerboseLogging -or
-        (-not [string]::IsNullOrWhiteSpace($envVerbose) -and $envVerbose -notin @('0', 'false', 'no'))
-
-    if ($LogPath) {
-        $parentDir = Split-Path -Path $LogPath -Parent
-        if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
-            New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
-        }
-
-        $header = "[{0}] [INFO ] === Log initialized ===" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-        Set-Content -LiteralPath $LogPath -Value $header -Encoding UTF8
-    }
-
-    if ($script:__AppPackagerVerbose) {
-        Write-Log "Verbose logging enabled (DEBUG lines on console and in log file)." -Level DEBUG
-    }
+# SuiteCommon (vendored at ..\Lib\SuiteCommon) supplies logging, settings,
+# and the CM connection core. Guarded, not -Force: a -Force reimport of
+# this module (background runspace init) must not reset SuiteCommon's
+# attached logging state.
+if (-not (Get-Module -Name SuiteCommon)) {
+    Import-Module -Name (Join-Path $PSScriptRoot '..\Lib\SuiteCommon\SuiteCommon.psd1') -Global -DisableNameChecking
 }
-
-function Write-Log {
-    <#
-    .SYNOPSIS
-        Writes a timestamped, severity-tagged log message.
-
-    .DESCRIPTION
-        INFO  -> Write-Host (stdout)
-        WARN  -> Write-Host (stdout)
-        ERROR -> Write-Host (stdout) + $host.UI.WriteErrorLine (stderr)
-        DEBUG -> log file always; Write-Host (stdout) only when verbose
-                 logging is enabled (Initialize-Logging -VerboseLogging or
-                 APP_PACKAGER_VERBOSE env var).
-
-        -Quiet suppresses all console output but still writes to the log file.
-    #>
-    param(
-        [AllowEmptyString()]
-        [Parameter(Mandatory, Position = 0)]
-        [string]$Message,
-
-        [ValidateSet('INFO', 'WARN', 'ERROR', 'DEBUG')]
-        [string]$Level = 'INFO',
-
-        [switch]$Quiet
-    )
-
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $formatted = "[{0}] [{1,-5}] {2}" -f $timestamp, $Level, $Message
-
-    $suppressConsole = $Quiet -or ($Level -eq 'DEBUG' -and -not $script:__AppPackagerVerbose)
-
-    if (-not $suppressConsole) {
-        Write-Host $formatted
-
-        if ($Level -eq 'ERROR') {
-            $host.UI.WriteErrorLine($formatted)
-        }
-    }
-
-    if ($script:__AppPackagerLogPath) {
-        Add-Content -LiteralPath $script:__AppPackagerLogPath -Value $formatted -Encoding UTF8 -ErrorAction SilentlyContinue
-    }
-}
-
-function Write-LogErrorRecord {
-    <#
-    .SYNOPSIS
-        Logs full diagnostics for an ErrorRecord: exception chain, error id,
-        failing file/line/statement, and the script stack trace.
-
-    .DESCRIPTION
-        Designed for catch blocks. The InvocationInfo position and
-        ScriptStackTrace identify the exact line of code that threw, which a
-        bare $_.Exception.Message ("SCRIPT FAILED: Key cannot be null...")
-        never reveals.
-
-    .PARAMETER Level
-        Log level for the diagnostic lines. Default ERROR. Pass DEBUG when the
-        caller already emits its own single ERROR summary line and the detail
-        should only land in the log file (unless verbose logging is enabled).
-    #>
-    param(
-        [Parameter(Mandatory)]
-        [System.Management.Automation.ErrorRecord]$ErrorRecord,
-
-        [string]$Context = '',
-
-        [ValidateSet('ERROR', 'WARN', 'DEBUG')]
-        [string]$Level = 'ERROR'
-    )
-
-    if ($Context) {
-        Write-Log ("Failure context              : {0}" -f $Context) -Level $Level
-    }
-
-    $ex = $ErrorRecord.Exception
-    if ($ex) {
-        Write-Log ("Exception                    : {0}: {1}" -f $ex.GetType().FullName, $ex.Message) -Level $Level
-        $inner = $ex.InnerException
-        while ($inner) {
-            Write-Log ("Inner exception              : {0}: {1}" -f $inner.GetType().FullName, $inner.Message) -Level $Level
-            $inner = $inner.InnerException
-        }
-    }
-
-    Write-Log ("FullyQualifiedErrorId        : {0}" -f $ErrorRecord.FullyQualifiedErrorId) -Level $Level
-
-    $ii = $ErrorRecord.InvocationInfo
-    if ($ii) {
-        if ($ii.ScriptName) {
-            Write-Log ("Failing location             : {0}:{1}" -f $ii.ScriptName, $ii.ScriptLineNumber) -Level $Level
-        }
-        if ($ii.Line) {
-            Write-Log ("Failing statement            : {0}" -f $ii.Line.Trim()) -Level $Level
-        }
-    }
-
-    if ($ErrorRecord.ScriptStackTrace) {
-        foreach ($frame in ($ErrorRecord.ScriptStackTrace -split "`r?`n")) {
-            Write-Log ("Stack                        : {0}" -f $frame) -Level $Level
-        }
-    }
+# Packager scripts and operators set APP_PACKAGER_VERBOSE; SuiteCommon
+# gates DEBUG on SUITE_VERBOSE. Bridge once at import.
+if (-not [string]::IsNullOrWhiteSpace($env:APP_PACKAGER_VERBOSE) -and [string]::IsNullOrWhiteSpace($env:SUITE_VERBOSE)) {
+    $env:SUITE_VERBOSE = $env:APP_PACKAGER_VERBOSE
 }
 
 # ---------------------------------------------------------------------------
@@ -339,32 +215,6 @@ function Get-AppPackagerRootPreferences {
     }
 }
 
-function Resolve-ConfigurationManagerModulePath {
-    $candidates = @()
-
-    if ($env:SMS_ADMIN_UI_PATH) {
-        $candidates += (Join-Path $env:SMS_ADMIN_UI_PATH '..\ConfigurationManager.psd1')
-        $candidates += (Join-Path (Split-Path -Parent $env:SMS_ADMIN_UI_PATH) 'ConfigurationManager.psd1')
-    }
-
-    $prefs = Get-AppPackagerRootPreferences
-    if ($prefs -and $prefs.DetectedTools -and $prefs.DetectedTools.ConfigMgrConsole -and $prefs.DetectedTools.ConfigMgrConsole.ModulePath) {
-        $candidates += [string]$prefs.DetectedTools.ConfigMgrConsole.ModulePath
-    }
-
-    $candidates += @(
-        'C:\Program Files (x86)\Microsoft Configuration Manager\AdminConsole\bin\ConfigurationManager.psd1',
-        'C:\Program Files\Microsoft Configuration Manager\AdminConsole\bin\ConfigurationManager.psd1',
-        'C:\Program Files (x86)\Microsoft Endpoint Manager\AdminConsole\bin\ConfigurationManager.psd1',
-        'C:\Program Files\Microsoft Endpoint Manager\AdminConsole\bin\ConfigurationManager.psd1'
-    )
-
-    foreach ($candidate in ($candidates | Where-Object { $_ } | Select-Object -Unique)) {
-        if (Test-Path -LiteralPath $candidate) { return $candidate }
-    }
-
-    return $null
-}
 
 function Resolve-CMProviderMachineName {
     param([string]$ProviderMachineName)
@@ -398,126 +248,23 @@ function Resolve-CMProviderMachineName {
     return $null
 }
 
-function Test-CMSiteCodeMatchesProvider {
-    <#
-    .SYNOPSIS
-        Asks the SMS Provider which site code(s) it actually serves.
-
-    .DESCRIPTION
-        Queries root\sms:SMS_ProviderLocation on the provider machine. A
-        CMSite PSDrive whose NAME does not match a real site code on its Root
-        server is the classic cause of CM cmdlets failing with
-        "Key cannot be null. Parameter name: key". Returns $null when the
-        query itself fails (offline provider, no WMI rights).
-    #>
-    param(
-        [Parameter(Mandatory)][string]$SiteCode,
-        [Parameter(Mandatory)][string]$ProviderMachineName
-    )
-
-    try {
-        $locations = @(Get-WmiObject -ComputerName $ProviderMachineName -Namespace 'root\sms' -Class 'SMS_ProviderLocation' -ErrorAction Stop)
-        $codes = @($locations | ForEach-Object { [string]$_.SiteCode } | Where-Object { $_ } | Select-Object -Unique)
-        if ($codes.Count -eq 0) { return $null }
-
-        return [pscustomobject]@{
-            Match     = ($codes -contains $SiteCode)
-            SiteCodes = $codes
-        }
-    }
-    catch {
-        Write-Log ("Provider site-code query failed for {0}: {1}" -f $ProviderMachineName, $_.Exception.Message) -Level DEBUG
-        return $null
-    }
-}
 
 function Connect-CMSite {
     param(
         [Parameter(Mandatory)][string]$SiteCode,
         [string]$ProviderMachineName = $null
     )
-
-    try {
-        if (-not (Get-Module -Name ConfigurationManager -ErrorAction SilentlyContinue)) {
-            $cmModulePath = Resolve-ConfigurationManagerModulePath
-            $moduleSource = if ($cmModulePath) { $cmModulePath } else { 'PSModulePath lookup' }
-            Write-Log ("ConfigurationManager module  : importing from {0}" -f $moduleSource) -Level DEBUG
-            if ($cmModulePath -and (Test-Path -LiteralPath $cmModulePath)) {
-                Import-Module $cmModulePath -ErrorAction Stop
-            }
-            else {
-                Import-Module ConfigurationManager -ErrorAction Stop
-            }
-        }
-        else {
-            Write-Log "ConfigurationManager module  : already loaded" -Level DEBUG
-        }
-
-        $cmDrives = @(Get-PSDrive -PSProvider CMSite -ErrorAction SilentlyContinue)
-        $driveList = if ($cmDrives.Count -gt 0) {
-            ($cmDrives | ForEach-Object { "{0} -> {1}" -f $_.Name, $_.Root }) -join '; '
-        } else { '(none)' }
-        Write-Log ("CMSite drives in session     : {0}" -f $driveList) -Level DEBUG
-
-        $siteDrive = Get-PSDrive -Name $SiteCode -PSProvider CMSite -ErrorAction SilentlyContinue
-        $staleRoot = $null
-        $connected = $false
-
-        if ($siteDrive) {
-            try {
-                Set-Location "$($SiteCode):\" -ErrorAction Stop
-                $connected = $true
-            }
-            catch {
-                # Entering an existing drive can fail when its provider
-                # connection is gone (e.g. provider restart). Tear it down
-                # and rebuild from the provider instead of giving up.
-                Write-Log ("Set-Location {0}: failed on existing drive ({1}); recreating it." -f $SiteCode, $_.Exception.Message)
-                $staleRoot = [string]$siteDrive.Root
-                Remove-PSDrive -Name $SiteCode -Force -ErrorAction SilentlyContinue
-            }
-        }
-
-        if (-not $connected) {
-            $provider = Resolve-CMProviderMachineName -ProviderMachineName $ProviderMachineName
-            if ([string]::IsNullOrWhiteSpace($provider)) { $provider = $staleRoot }
-            if ([string]::IsNullOrWhiteSpace($provider)) {
-                throw "Configuration Manager PSDrive '$SiteCode' is not available and no provider machine name is configured. Set Provider Machine in MECM Preferences, copy the ProviderMachineName value from the AdminUI connect script, or set APP_PACKAGER_CM_PROVIDER."
-            }
-
-            Write-Log "Connecting to CM provider     : $provider"
-            New-PSDrive -Name $SiteCode -PSProvider CMSite -Root $provider -ErrorAction Stop | Out-Null
-            Set-Location "$($SiteCode):\" -ErrorAction Stop
-        }
-
-        Write-Log "Connected to CM site: $SiteCode"
-
-        # Verbose-only sanity check: a drive named for the wrong site code
-        # connects fine but every subsequent CM cmdlet dies with
-        # "Key cannot be null. Parameter name: key". Surface that here so the
-        # log explains the failure instead of the cmdlet's opaque message.
-        if ($script:__AppPackagerVerbose) {
-            $drive = Get-PSDrive -Name $SiteCode -PSProvider CMSite -ErrorAction SilentlyContinue
-            if ($drive -and -not [string]::IsNullOrWhiteSpace([string]$drive.Root)) {
-                $check = Test-CMSiteCodeMatchesProvider -SiteCode $SiteCode -ProviderMachineName ([string]$drive.Root)
-                if ($check) {
-                    if ($check.Match) {
-                        Write-Log ("Provider confirms site code  : {0} on {1}" -f $SiteCode, $drive.Root) -Level DEBUG
-                    }
-                    else {
-                        Write-Log ("Site code mismatch: drive is named '{0}' but provider {1} serves site code(s) {2}. CM cmdlets typically fail with 'Key cannot be null. Parameter name: key' in this state - correct the SiteCode in MECM Preferences / -SiteCode." -f $SiteCode, $drive.Root, ($check.SiteCodes -join ', ')) -Level WARN
-                    }
-                }
-            }
-        }
-
-        return $true
-    }
-    catch {
-        Write-LogErrorRecord -ErrorRecord $_ -Context ("Connect-CMSite SiteCode={0}" -f $SiteCode) -Level DEBUG
-        Write-Log "Failed to connect to CM site: $($_.Exception.Message)" -Level ERROR
+    # Resolution stays app-side: preferences, the AdminUI connect script,
+    # and APP_PACKAGER_CM_PROVIDER feed Resolve-CMProviderMachineName; the
+    # drive and session mechanics live in SuiteCommon. Site verification
+    # stays off: packager runs never queried the site on connect.
+    $provider = Resolve-CMProviderMachineName -ProviderMachineName $ProviderMachineName
+    if ([string]::IsNullOrWhiteSpace($provider) -and
+        -not (Get-PSDrive -Name $SiteCode -PSProvider CMSite -ErrorAction SilentlyContinue)) {
+        Write-Log "Configuration Manager PSDrive '$SiteCode' is not available and no provider machine name is configured. Set Provider Machine in MECM Preferences, copy the ProviderMachineName value from the AdminUI connect script, or set APP_PACKAGER_CM_PROVIDER." -Level ERROR
         return $false
     }
+    return (SuiteCommon\Connect-CMSite -SiteCode $SiteCode -SMSProvider $provider -SkipSiteVerification)
 }
 
 function Initialize-Folder {
