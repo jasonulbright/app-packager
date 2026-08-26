@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.3.0.0
+    Version    : 1.4.0.0
     Updated    : 2026-08-17
 #>
 
@@ -149,6 +149,9 @@ function Read-Preferences {
         }
         Intune               = [pscustomobject]@{
             CreateIntuneWin = $false
+        }
+        DeploymentConditions = [pscustomobject]@{
+            Apps = [pscustomobject]@{}
         }
     }
 
@@ -275,6 +278,34 @@ function Read-Preferences {
         # Intune: .intunewin production during Package.
         if ($null -ne $data.Intune -and $null -ne $data.Intune.CreateIntuneWin) {
             try { $defaults.Intune.CreateIntuneWin = [bool]$data.Intune.CreateIntuneWin } catch { }
+        }
+
+        # DeploymentConditions: per-app requirement rule selections applied
+        # at Package time. Entries that reduce to no conditions are dropped;
+        # invalid values fall back silently like the other sections.
+        if ($null -ne $data.DeploymentConditions -and $null -ne $data.DeploymentConditions.Apps) {
+            $condProps = [ordered]@{}
+            foreach ($prop in $data.DeploymentConditions.Apps.PSObject.Properties) {
+                if ($prop.Name -notmatch '^package-') { continue }
+                $entry = $prop.Value
+                $arch = 'Any'
+                if ([string]$entry.Architecture -in @('x64', 'ARM64')) { $arch = [string]$entry.Architecture }
+                $network = 'Any'
+                if ([string]$entry.Network -in @('VpnOnly', 'OnSiteOnly')) { $network = [string]$entry.Network }
+                $langs = @()
+                if ($null -ne $entry.Languages) {
+                    $langs = @($entry.Languages |
+                        Where-Object { [string]$_ -match '^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,2}$' } |
+                        ForEach-Object { [string]$_ })
+                }
+                if ($arch -eq 'Any' -and $network -eq 'Any' -and $langs.Count -eq 0) { continue }
+                $condProps[$prop.Name] = [pscustomobject]@{
+                    Architecture = $arch
+                    Languages    = $langs
+                    Network      = $network
+                }
+            }
+            $defaults.DeploymentConditions.Apps = [pscustomobject]$condProps
         }
 
         # DetectedTools: last known detection results. Refreshed on launch
@@ -1339,6 +1370,7 @@ function Invoke-PackagerPackage {
         [switch]$CreateIntuneWin,
         [string]$IntuneWinToolPath = '',
         [ValidateSet('Nested','Flat')][string]$ContentLayout = 'Nested',
+        [string]$RequirementsJson = '',
         [System.Windows.Controls.TextBox]$LogTextBox = $null
     )
 
@@ -1370,7 +1402,7 @@ function Invoke-PackagerPackage {
     $psi.RedirectStandardError  = $true
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow  = $true
-    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName
+    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName -RequirementsJson $RequirementsJson
 
     $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -StructuredLog $structuredLog -LogTextBox $LogTextBox
     Assert-PackagerPackageIntegrity -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -ContentLayout $ContentLayout
@@ -1399,7 +1431,8 @@ function Set-PackagerEnvironment {
     param(
         [Parameter(Mandatory)][System.Diagnostics.ProcessStartInfo]$StartInfo,
         [string]$SevenZipPath,
-        [string]$ProviderMachineName
+        [string]$ProviderMachineName,
+        [string]$RequirementsJson
     )
     if (-not [string]::IsNullOrWhiteSpace($SevenZipPath)) {
         $StartInfo.EnvironmentVariables['APP_PACKAGER_SEVENZIP'] = [string]$SevenZipPath
@@ -1407,6 +1440,52 @@ function Set-PackagerEnvironment {
     if (-not [string]::IsNullOrWhiteSpace($ProviderMachineName)) {
         $StartInfo.EnvironmentVariables['APP_PACKAGER_CM_PROVIDER'] = [string]$ProviderMachineName
     }
+    if (-not [string]::IsNullOrWhiteSpace($RequirementsJson)) {
+        $StartInfo.EnvironmentVariables['APP_PACKAGER_REQUIREMENTS'] = [string]$RequirementsJson
+    }
+}
+
+function ConvertTo-RequirementsJson {
+    # Maps one Deployment Conditions prefs entry onto the
+    # APP_PACKAGER_REQUIREMENTS JSON that New-DeploymentTypeRequirementRules
+    # consumes. Returns '' when the entry asks for nothing so callers can
+    # skip setting the env var.
+    param($Entry)
+
+    if (-not $Entry) { return '' }
+    $rules = @()
+    if ([string]$Entry.Architecture -in @('x64', 'ARM64')) {
+        $rules += @{ ConditionId = 'cpu-arch'; Value = [string]$Entry.Architecture }
+    }
+    $langs = @()
+    if ($null -ne $Entry.Languages) {
+        $langs = @($Entry.Languages | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ })
+    }
+    if ($langs.Count -gt 0) {
+        $rules += @{ ConditionId = 'os-language'; Cultures = $langs }
+    }
+    switch ([string]$Entry.Network) {
+        'VpnOnly'    { $rules += @{ ConditionId = 'vpn-connected'; Value = $true } }
+        'OnSiteOnly' { $rules += @{ ConditionId = 'vpn-connected'; Value = $false } }
+    }
+    if ($rules.Count -eq 0) { return '' }
+    return (@{ SchemaVersion = 1; Rules = $rules } | ConvertTo-Json -Depth 4 -Compress)
+}
+
+function Get-RequirementsMapForContext {
+    # Prebuilt on the UI thread because the background STA runspace has its
+    # own session state and cannot read $script:Prefs.
+    $map = @{}
+    try {
+        $apps = $script:Prefs.DeploymentConditions.Apps
+        if ($apps) {
+            foreach ($prop in $apps.PSObject.Properties) {
+                $json = ConvertTo-RequirementsJson -Entry $prop.Value
+                if ($json) { $map[$prop.Name] = $json }
+            }
+        }
+    } catch { }
+    return $map
 }
 
 function Get-SevenZipPathForContext {
@@ -1670,6 +1749,7 @@ function Invoke-BatchUpdate {
         [string]$Comment = '',
         [string]$SevenZipPath = '',
         [pscustomobject]$CadenceOverrides,
+        [pscustomobject]$ConditionApps = $null,
         [switch]$Force
     )
 
@@ -1791,11 +1871,19 @@ function Invoke-BatchUpdate {
         if ($Comment)              { $pkgArgs += @('-Comment',              $Comment)              }
         if ($OnUpdateFound -eq 'Stage') { $pkgArgs += '-StageOnly' }
 
+        $requirementsJson = ''
+        if ($ConditionApps) {
+            $condProp = $ConditionApps.PSObject.Properties[$baseName]
+            if ($condProp) { $requirementsJson = ConvertTo-RequirementsJson -Entry $condProp.Value }
+        }
+
         try {
             $restoreSevenZipEnv = $false
             $previousSevenZipEnv = $null
             $restoreProviderEnv = $false
             $previousProviderEnv = $null
+            $restoreRequirementsEnv = $false
+            $previousRequirementsEnv = $null
             $packagerWorkingDirectory = Split-Path -Parent $scriptPath
             $pushedPackagerLocation = $false
             try {
@@ -1808,6 +1896,11 @@ function Invoke-BatchUpdate {
                     $restoreProviderEnv = $true
                     $previousProviderEnv = $env:APP_PACKAGER_CM_PROVIDER
                     $env:APP_PACKAGER_CM_PROVIDER = $ProviderMachineName
+                }
+                if (-not [string]::IsNullOrWhiteSpace($requirementsJson)) {
+                    $restoreRequirementsEnv = $true
+                    $previousRequirementsEnv = $env:APP_PACKAGER_REQUIREMENTS
+                    $env:APP_PACKAGER_REQUIREMENTS = $requirementsJson
                 }
 
                 Push-Location -LiteralPath $packagerWorkingDirectory
@@ -1835,6 +1928,14 @@ function Invoke-BatchUpdate {
                     }
                     else {
                         Remove-Item Env:\APP_PACKAGER_CM_PROVIDER -ErrorAction SilentlyContinue
+                    }
+                }
+                if ($restoreRequirementsEnv) {
+                    if ($null -ne $previousRequirementsEnv) {
+                        $env:APP_PACKAGER_REQUIREMENTS = $previousRequirementsEnv
+                    }
+                    else {
+                        Remove-Item Env:\APP_PACKAGER_REQUIREMENTS -ErrorAction SilentlyContinue
                     }
                 }
             }
@@ -1879,6 +1980,7 @@ if ($BatchMode) {
     $downloadRoot     = if ($prefs -and $prefs.DownloadRoot)              { $prefs.DownloadRoot }              else { $null }
     $providerForBatch = if ($script:Prefs -and $script:Prefs.ProviderMachineName) { [string]$script:Prefs.ProviderMachineName } else { $null }
     $cadenceOverrides = if ($prefs -and $prefs.AppFlow.CadenceOverrides)  { $prefs.AppFlow.CadenceOverrides }  else { $null }
+    $conditionApps    = if ($prefs -and $prefs.DeploymentConditions -and $prefs.DeploymentConditions.Apps) { $prefs.DeploymentConditions.Apps } else { $null }
     $sevenZipPath     = $null
     if ($prefs -and $prefs.DetectedTools -and $prefs.DetectedTools.SevenZipCli -and $prefs.DetectedTools.SevenZipCli.Found) {
         $sevenZipPath = [string]$prefs.DetectedTools.SevenZipCli.ExePath
@@ -1905,6 +2007,7 @@ if ($BatchMode) {
         -DownloadRoot      $downloadRoot `
         -SevenZipPath      $sevenZipPath `
         -CadenceOverrides  $cadenceOverrides `
+        -ConditionApps     $conditionApps `
         -Force:$Force
 
     Write-Log "" -Level INFO
@@ -3436,6 +3539,183 @@ function New-PackagerPreferencesPanel {
     }
 }
 
+function New-DeploymentConditionsPanel {
+    $xaml = @'
+<DockPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+           xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+           xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro">
+    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" FontSize="12"
+               Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,10"
+               Text="Per-app requirement rules attached to the deployment type at Package time. The client evaluates them at install time, so no collections are involved. Site conditions are created in MECM on first use; change a name below to attach to a condition your site already has."/>
+    <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="1" Padding="10,8,10,8" Margin="0,0,0,10">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="CPU architecture condition:" VerticalAlignment="Center" FontSize="12" Margin="0,0,10,6"/>
+            <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtArchGc" FontSize="12" Margin="0,0,0,6"
+                       ToolTip="Site global condition name for the WQL query on Win32_Processor.Architecture (9 = x64, 12 = ARM64)"/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="OS language condition:" VerticalAlignment="Center" FontSize="12" Margin="0,0,10,6"/>
+            <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtLangGc" FontSize="12" Margin="0,0,0,6"
+                       ToolTip="Name of the built-in Operating System Language site condition. Must already exist on the site."/>
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="VPN condition:" VerticalAlignment="Center" FontSize="12" Margin="0,0,10,6"/>
+            <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtVpnGc" FontSize="12" Margin="0,0,0,6"
+                       ToolTip="Site global condition name for the script that reports whether a VPN adapter is active"/>
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="VPN adapter patterns:" VerticalAlignment="Center" FontSize="12" Margin="0,0,10,0"/>
+            <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtVpnPatterns" FontSize="12"
+                       ToolTip="Comma-separated adapter description substrings that identify a VPN client. The script also matches interface aliases containing 'vpn'. Changes apply when the condition is next created; an existing site condition keeps its script."/>
+        </Grid>
+    </Border>
+    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" FontSize="11"
+               Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,8"
+               Text="OS languages take comma-separated culture codes (e.g. de-DE, en-US); empty means no language requirement. Network 'VPN only' installs only when a VPN adapter is active, 'On-site only' installs only when it is not."/>
+    <DataGrid x:Name="dgCondApps" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+              GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0" BorderThickness="0"
+              IsTextSearchEnabled="True" TextSearch.TextPath="Application">
+        <DataGrid.Columns>
+            <DataGridTextColumn Header="Application" Width="*" Binding="{Binding Application}" IsReadOnly="True"/>
+            <DataGridTextColumn Header="Vendor" Width="140" Binding="{Binding Vendor}" IsReadOnly="True"/>
+            <DataGridComboBoxColumn Header="Architecture" Width="110" SelectedItemBinding="{Binding ArchitectureDisplay, UpdateSourceTrigger=PropertyChanged}"/>
+            <DataGridTextColumn Header="OS languages" Width="150" Binding="{Binding LanguagesDisplay, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"/>
+            <DataGridComboBoxColumn Header="Network" Width="110" SelectedItemBinding="{Binding NetworkDisplay, UpdateSourceTrigger=PropertyChanged}"/>
+        </DataGrid.Columns>
+    </DataGrid>
+</DockPanel>
+'@
+
+    [xml]$xml = $xaml
+    $reader = New-Object System.Xml.XmlNodeReader $xml
+    $element = [System.Windows.Markup.XamlReader]::Load($reader)
+
+    $txtArchGc      = $element.FindName('txtArchGc')
+    $txtLangGc      = $element.FindName('txtLangGc')
+    $txtVpnGc       = $element.FindName('txtVpnGc')
+    $txtVpnPatterns = $element.FindName('txtVpnPatterns')
+    $dgCondApps     = $element.FindName('dgCondApps')
+
+    $dgCondApps.Columns[2].ItemsSource = [string[]]@('Any', 'x64 only', 'ARM64 only')
+    $dgCondApps.Columns[4].ItemsSource = [string[]]@('Any', 'VPN only', 'On-site only')
+
+    $condDoc = Get-ConditionTemplates
+    $archTemplate = @($condDoc.Conditions | Where-Object { [string]$_.Id -eq 'cpu-arch' })
+    $langTemplate = @($condDoc.Conditions | Where-Object { [string]$_.Id -eq 'os-language' })
+    $vpnTemplate  = @($condDoc.Conditions | Where-Object { [string]$_.Id -eq 'vpn-connected' })
+    $archTemplate = if ($archTemplate.Count -gt 0) { $archTemplate[0] } else { $null }
+    $langTemplate = if ($langTemplate.Count -gt 0) { $langTemplate[0] } else { $null }
+    $vpnTemplate  = if ($vpnTemplate.Count  -gt 0) { $vpnTemplate[0]  } else { $null }
+
+    if ($archTemplate) { $txtArchGc.Text = [string]$archTemplate.GlobalConditionName } else { $txtArchGc.IsEnabled = $false }
+    if ($langTemplate) { $txtLangGc.Text = [string]$langTemplate.GlobalConditionName } else { $txtLangGc.IsEnabled = $false }
+    if ($vpnTemplate) {
+        $txtVpnGc.Text       = [string]$vpnTemplate.GlobalConditionName
+        $txtVpnPatterns.Text = (@($vpnTemplate.AdapterPatterns) -join ', ')
+    }
+    else {
+        $txtVpnGc.IsEnabled       = $false
+        $txtVpnPatterns.IsEnabled = $false
+    }
+
+    $archToDisplay = @{ 'Any' = 'Any'; 'x64' = 'x64 only'; 'ARM64' = 'ARM64 only' }
+    $networkToDisplay = @{ 'Any' = 'Any'; 'VpnOnly' = 'VPN only'; 'OnSiteOnly' = 'On-site only' }
+
+    $currentApps = $script:Prefs.DeploymentConditions.Apps
+    $rows = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
+    $packagers = Get-Packagers -Root $PackagersRoot | Sort-Object Vendor, Application
+    foreach ($p in $packagers) {
+        $base = [System.IO.Path]::GetFileNameWithoutExtension($p.Script)
+        $arch = 'Any'
+        $network = 'Any'
+        $langsText = ''
+        $entryProp = $null
+        if ($currentApps) { $entryProp = $currentApps.PSObject.Properties[$base] }
+        if ($entryProp) {
+            $entry = $entryProp.Value
+            if ([string]$entry.Architecture -in @('x64', 'ARM64')) { $arch = [string]$entry.Architecture }
+            if ([string]$entry.Network -in @('VpnOnly', 'OnSiteOnly')) { $network = [string]$entry.Network }
+            if ($entry.Languages) { $langsText = (@($entry.Languages) -join ', ') }
+        }
+        $rows.Add([pscustomobject]@{
+            Packager            = $base
+            Application         = $p.Application
+            Vendor              = $p.Vendor
+            ArchitectureDisplay = $archToDisplay[$arch]
+            LanguagesDisplay    = $langsText
+            NetworkDisplay      = $networkToDisplay[$network]
+        })
+    }
+    $dgCondApps.ItemsSource = $rows
+
+    $condState = @{
+        Doc   = $condDoc
+        Dirty = $false
+        InitialArchGc   = $txtArchGc.Text
+        InitialLangGc   = $txtLangGc.Text
+        InitialVpnGc    = $txtVpnGc.Text
+        InitialPatterns = $txtVpnPatterns.Text
+    }
+
+    $prefsRef = $script:Prefs
+    $commit = {
+        [void]$dgCondApps.CommitEdit([System.Windows.Controls.DataGridEditingUnit]::Cell, $true)
+        [void]$dgCondApps.CommitEdit([System.Windows.Controls.DataGridEditingUnit]::Row,  $true)
+
+        $displayToArch = @{ 'Any' = 'Any'; 'x64 only' = 'x64'; 'ARM64 only' = 'ARM64' }
+        $displayToNetwork = @{ 'Any' = 'Any'; 'VPN only' = 'VpnOnly'; 'On-site only' = 'OnSiteOnly' }
+
+        $condProps = [ordered]@{}
+        foreach ($row in $rows) {
+            $arch = 'Any'
+            if ($displayToArch.ContainsKey([string]$row.ArchitectureDisplay)) { $arch = $displayToArch[[string]$row.ArchitectureDisplay] }
+            $network = 'Any'
+            if ($displayToNetwork.ContainsKey([string]$row.NetworkDisplay)) { $network = $displayToNetwork[[string]$row.NetworkDisplay] }
+            $langs = @([string]$row.LanguagesDisplay -split '[,;]' |
+                ForEach-Object { $_.Trim() } |
+                Where-Object { $_ -match '^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,2}$' })
+            if ($arch -eq 'Any' -and $network -eq 'Any' -and $langs.Count -eq 0) { continue }
+            $condProps[$row.Packager] = [pscustomobject]@{
+                Architecture = $arch
+                Languages    = $langs
+                Network      = $network
+            }
+        }
+        $prefsRef.DeploymentConditions.Apps = [pscustomobject]$condProps
+
+        if ($archTemplate -and -not [string]::IsNullOrWhiteSpace($txtArchGc.Text)) {
+            $archTemplate.GlobalConditionName = $txtArchGc.Text.Trim()
+        }
+        if ($langTemplate -and -not [string]::IsNullOrWhiteSpace($txtLangGc.Text)) {
+            $langTemplate.GlobalConditionName = $txtLangGc.Text.Trim()
+        }
+        if ($vpnTemplate) {
+            if (-not [string]::IsNullOrWhiteSpace($txtVpnGc.Text)) {
+                $vpnTemplate.GlobalConditionName = $txtVpnGc.Text.Trim()
+            }
+            $patterns = @([string]$txtVpnPatterns.Text -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            if ($patterns.Count -gt 0) { $vpnTemplate.AdapterPatterns = $patterns }
+        }
+        if ($txtArchGc.Text -ne $condState.InitialArchGc -or
+            $txtLangGc.Text -ne $condState.InitialLangGc -or
+            $txtVpnGc.Text -ne $condState.InitialVpnGc -or
+            $txtVpnPatterns.Text -ne $condState.InitialPatterns) {
+            $condState.Dirty = $true
+        }
+    }.GetNewClosure()
+
+    return @{
+        Name           = 'Deployment Conditions'
+        Element        = $element
+        Commit         = $commit
+        ConditionState = $condState
+    }
+}
+
 function Show-OptionsDialog {
     param(
         [Parameter(Mandatory)]$Owner,
@@ -3510,12 +3790,13 @@ function Show-OptionsDialog {
     $btnOK       = $dlg.FindName('btnOK')
     $btnCancel   = $dlg.FindName('btnCancel')
 
-    # All four panels live in the unified Options window now.
+    # All panels live in the unified Options window.
     $panels = @(
         (New-MecmPreferencesPanel),
         (New-PackagerPreferencesPanel),
         (New-AppFlowPanel),
-        (New-ProductFilterPanel)
+        (New-ProductFilterPanel),
+        (New-DeploymentConditionsPanel)
     )
 
     foreach ($p in $panels) { [void]$lstNav.Items.Add($p.Name) }
@@ -3544,6 +3825,9 @@ function Show-OptionsDialog {
             foreach ($p in $panels) {
                 if ($p.CwaSwitches) { Save-CwaSwitches -Switches $p.CwaSwitches }
                 if ($p.TvConfig)    { Save-TvHostConfig -Config $p.TvConfig }
+                if ($p.ConditionState -and $p.ConditionState.Dirty) {
+                    [void](Save-ConditionTemplates -Templates $p.ConditionState.Doc)
+                }
             }
             Invoke-RefreshGrid
             $script:OptionsDlgResult = $true
@@ -3878,6 +4162,8 @@ function Invoke-MultiAppPipeline {
                         $row.Status = 'Packaging...'
                         [void]$State.LogQueue.Enqueue(('Package: {0} ({1})' -f $app, $scrName))
                         try {
+                            $reqJson = ''
+                            if ($Ctx.RequirementsByApp) { $reqJson = [string]$Ctx.RequirementsByApp[$baseName] }
                             $res = Invoke-PackagerPackage `
                                 -PackagerPath $path `
                                 -SiteCode $Ctx.SiteCode `
@@ -3893,7 +4179,8 @@ function Invoke-MultiAppPipeline {
                                 -SevenZipPath $Ctx.SevenZipPath `
                                 -CreateIntuneWin:([bool]$Ctx.IntuneWinCreate) `
                                 -IntuneWinToolPath ([string]$Ctx.IntuneWinToolPath) `
-                                -ContentLayout ([string]$Ctx.ContentLayout)
+                                -ContentLayout ([string]$Ctx.ContentLayout) `
+                                -RequirementsJson $reqJson
 
                             if ($res.ExitCode -eq 0) {
                                 $row.Status = 'Packaged'
@@ -4114,6 +4401,8 @@ function Invoke-MultiAppPipeline {
                         [void]$State.LogQueue.Enqueue(('Package: ' + $app))
 
                         try {
+                            $reqJson = ''
+                            if ($Ctx.RequirementsByApp) { $reqJson = [string]$Ctx.RequirementsByApp[$baseName] }
                             $pkg = Invoke-PackagerPackage `
                                 -PackagerPath $path `
                                 -SiteCode $Ctx.SiteCode `
@@ -4129,7 +4418,8 @@ function Invoke-MultiAppPipeline {
                                 -SevenZipPath $Ctx.SevenZipPath `
                                 -CreateIntuneWin:([bool]$Ctx.IntuneWinCreate) `
                                 -IntuneWinToolPath ([string]$Ctx.IntuneWinToolPath) `
-                                -ContentLayout ([string]$Ctx.ContentLayout)
+                                -ContentLayout ([string]$Ctx.ContentLayout) `
+                                -RequirementsJson $reqJson
 
                             if ($pkg.ExitCode -eq 0) {
                                 $row.Status = 'Packaged'
@@ -4976,6 +5266,7 @@ $btnPackage.Add_Click({
         SevenZipPath         = Get-SevenZipPathForContext
         IntuneWinCreate      = ([bool]$script:Prefs.Intune.CreateIntuneWin -and -not [string]::IsNullOrWhiteSpace((Get-IntuneWinToolPathForContext)))
         IntuneWinToolPath    = Get-IntuneWinToolPathForContext
+        RequirementsByApp    = Get-RequirementsMapForContext
     }
 })
 
@@ -5065,6 +5356,7 @@ $btnFullRun.Add_Click({
         SevenZipPath         = Get-SevenZipPathForContext
         IntuneWinCreate      = ([bool]$script:Prefs.Intune.CreateIntuneWin -and -not [string]::IsNullOrWhiteSpace((Get-IntuneWinToolPathForContext)))
         IntuneWinToolPath    = Get-IntuneWinToolPathForContext
+        RequirementsByApp    = Get-RequirementsMapForContext
     }
 })
 

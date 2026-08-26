@@ -97,6 +97,14 @@ CWA switches persist to `Packagers/citrix-workspace-switches.json`; TeamViewer H
 
 **Product Filter** — show or hide individual packager scripts in the main grid, grouped by vendor in a checkbox TreeView with Select All / Select None helpers. Hidden applications persist to `AppPackager.preferences.json`. On the first Check MECM run, the tool offers to auto-hide applications not found in your MECM environment.
 
+**Deployment Conditions** — per-app requirement rules attached to the deployment type each Package run creates. The client evaluates requirement rules at deployment evaluation time, so no collections (and no collection-evaluation load) are involved. Three conditions ship:
+
+- **Architecture** — `Any` / `x64 only` / `ARM64 only`, backed by a WQL global condition on `Win32_Processor.Architecture` (9 = x64, 12 = ARM64). The numeric property compares identically on every OS language, and unlike the OS-platform requirement list it needs no update when a new Windows version releases.
+- **OS languages** — comma-separated culture codes (e.g. `de-DE, en-US`) mapped onto the site's built-in Operating System Language condition with a OneOf rule. Useful when a packaged build is single-language and MUI or English builds are deployed separately.
+- **Network** — `Any` / `VPN only` / `On-site only`, backed by a Boolean script global condition that reports whether an IP-enabled adapter description matches a configurable VPN client pattern list (or an interface alias contains `vpn`). `VPN only` suits a small CDN-sourced deployment that should avoid pulling large content over the tunnel; `On-site only` suits its full-content counterpart.
+
+Global conditions are created on the site the first time a rule needs them and are matched by name, so changing a condition's name in the panel attaches to a condition the site already has instead of creating a duplicate. The panel's per-app grid persists to `AppPackager.preferences.json`; condition names and VPN adapter patterns persist to `Packagers/condition-templates.json` (built-in defaults apply until the panel writes it). Selections apply on Package and One Click Stage-and-Package runs, and requirement resolution fails the run before anything is created when a rule can't be built — a package never silently ships without the rules configured for it.
+
 ### Sidebar comment and toggles
 
 The optional **Administrative Comment** field sits in the sidebar below the Options button for per-run entry. **Debug Columns** and **Light Theme** are toggle switches at the sidebar bottom. Window size, position, theme, and debug-column state are persisted automatically across sessions.
@@ -137,6 +145,7 @@ All packager scripts accept the same core parameters:
 |---|---|
 | `-SiteCode` | ConfigMgr site code PSDrive name (default: `MCM`) |
 | `APP_PACKAGER_CM_PROVIDER` | Optional environment override for the SMS Provider machine used to create a missing `CMSite` PSDrive |
+| `APP_PACKAGER_REQUIREMENTS` | Optional environment JSON (`{"SchemaVersion":1,"Rules":[...]}`) of requirement rule specs applied to the deployment type; the GUI sets it per app from the Deployment Conditions panel |
 | `-Comment` | Optional administrative comment stored on the CM Application Description |
 | `-FileServerPath` | UNC root containing the `Applications` folder (default: `\\fileserver\sccm$`) |
 | `-DownloadRoot` | Local root folder for staging (default: `C:\temp\ap`) |
@@ -532,7 +541,9 @@ All packager scripts import the shared module which provides:
 | `New-ExeWrapperContent` | Returns EXE install/uninstall .ps1 content strings |
 | `Get-NetworkAppRoot` | Constructs and initializes the network share path |
 | `Write-StageManifest` / `Read-StageManifest` | JSON manifest serialization |
-| `New-MECMApplicationFromManifest` | Creates MECM Application + deployment type from manifest |
+| `New-MECMApplicationFromManifest` | Creates MECM Application + deployment type from manifest, attaching requirement rules from the manifest `Requirements` array or `APP_PACKAGER_REQUIREMENTS` |
+| `Get-ConditionTemplates` / `Save-ConditionTemplates` | Condition template document: built-in defaults (CPU architecture WQL, built-in OS language, VPN adapter script) with an optional `condition-templates.json` override |
+| `New-DeploymentTypeRequirementRules` | Resolves requirement specs to CM requirement rule objects, creating missing global conditions by name (get-or-create, so existing site conditions are reused) |
 | `Remove-CMApplicationRevisionHistoryByCIId` | Trims old application revisions |
 | `Install-IntuneWinAppUtil` | Downloads the Win32 Content Prep Tool, keeping it only after Microsoft Authenticode signature verification |
 | `New-IntuneWinPackage` | Runs IntuneWinAppUtil.exe against a content folder; returns the `.intunewin` path, size, and SHA-256 |

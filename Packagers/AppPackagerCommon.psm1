@@ -1261,6 +1261,318 @@ function Test-MECMApplicationHasDeploymentType {
 }
 
 
+function Get-ConditionTemplatesPath {
+    return (Join-Path $PSScriptRoot 'condition-templates.json')
+}
+
+function Get-DefaultConditionTemplates {
+    <#
+    .SYNOPSIS
+        Returns the built-in condition template document.
+
+    .DESCRIPTION
+        Each template maps a stable Id (referenced by requirement specs) to
+        a CM global condition. Kind selects the creation cmdlet (BuiltIn is
+        never created, only resolved); RuleType selects the requirement
+        rule cmdlet the spec value binds through.
+    #>
+    return [pscustomobject]@{
+        SchemaVersion = 1
+        Conditions    = @(
+            [pscustomobject]@{
+                Id                  = 'cpu-arch'
+                GlobalConditionName = 'APKG - CPU Architecture'
+                Kind                = 'Wql'
+                RuleType            = 'CommonValue'
+                DataType            = 'Integer'
+                Namespace           = 'root\cimv2'
+                Class               = 'Win32_Processor'
+                Property            = 'Architecture'
+                # Win32_OperatingSystem.OSArchitecture returns a localized
+                # string; the numeric processor architecture compares the
+                # same on every OS language.
+                Values              = [pscustomobject]@{ x64 = '9'; ARM64 = '12' }
+                Description         = 'Win32_Processor.Architecture (9 = x64, 12 = ARM64).'
+            }
+            [pscustomobject]@{
+                Id                  = 'os-language'
+                GlobalConditionName = 'Operating System Language'
+                Kind                = 'BuiltIn'
+                RuleType            = 'OperatingSystemLanguage'
+                # The site ships two conditions under this name; PlatformType
+                # 1 is Windows, 2 is Mobile.
+                PlatformType        = 1
+            }
+            [pscustomobject]@{
+                Id                  = 'vpn-connected'
+                GlobalConditionName = 'APKG - VPN Connected'
+                Kind                = 'Script'
+                RuleType            = 'Boolean'
+                DataType            = 'Boolean'
+                AdapterPatterns     = @('Zscaler', 'Juniper', 'PANGP', 'Cisco AnyConnect', 'Fortinet')
+                AliasPattern        = 'vpn'
+                Description         = 'True when an IP-enabled network adapter description matches a configured VPN client pattern or an interface alias contains the alias pattern.'
+            }
+        )
+    }
+}
+
+function Get-ConditionTemplates {
+    <#
+    .SYNOPSIS
+        Returns the condition template document (file override or built-in defaults).
+
+    .DESCRIPTION
+        condition-templates.json beside the module overrides the built-in
+        defaults when present and parseable; the Deployment Conditions
+        options panel writes it. A missing or malformed file falls back to
+        defaults so the Package phase never depends on the file existing.
+    #>
+    $path = Get-ConditionTemplatesPath
+    if (Test-Path -LiteralPath $path) {
+        try {
+            $doc = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            if ($doc -and $doc.Conditions) { return $doc }
+            Write-Log ("Condition templates file has no Conditions; using built-in defaults: {0}" -f $path) -Level WARN
+        }
+        catch {
+            Write-Log ("Condition templates file unreadable; using built-in defaults: {0}" -f $_.Exception.Message) -Level WARN
+        }
+    }
+    return Get-DefaultConditionTemplates
+}
+
+function Save-ConditionTemplates {
+    param([Parameter(Mandatory)][pscustomobject]$Templates)
+    $path = Get-ConditionTemplatesPath
+    $Templates | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $path -Encoding UTF8
+    return $path
+}
+
+function New-VpnConditionScriptText {
+    <#
+    .SYNOPSIS
+        Builds the client-side detection script for the VPN-connected global condition.
+
+    .DESCRIPTION
+        The generated script runs on clients inside the CM agent's
+        requirement evaluation, so it must emit exactly one boolean and
+        nothing else on the output stream.
+    #>
+    param(
+        [string[]]$AdapterPatterns = @(),
+        [string]$AliasPattern = ''
+    )
+
+    $quoted = @($AdapterPatterns | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object {
+        "'" + ([string]$_ -replace "'", "''") + "'"
+    })
+
+    $lines = @(
+        ('$patterns = @({0})' -f ($quoted -join ', '))
+        '$found = $false'
+        'foreach ($adapter in @(Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration -Filter "IPEnabled=''True''" -ErrorAction SilentlyContinue)) {'
+        '    foreach ($p in $patterns) {'
+        '        if ($adapter.Description -like (''*'' + $p + ''*'')) { $found = $true }'
+        '    }'
+        '}'
+    )
+    if (-not [string]::IsNullOrWhiteSpace($AliasPattern)) {
+        $aliasLike = '*' + ([string]$AliasPattern -replace "'", "''") + '*'
+        $lines += @(
+            'if (-not $found) {'
+            ('    foreach ($ip in @(Get-CimInstance -ClassName MSFT_NetIPAddress -Namespace ''root/StandardCimv2'' -ErrorAction SilentlyContinue)) {')
+            ('        if ($ip.InterfaceAlias -like ''{0}'') {{ $found = $true }}' -f $aliasLike)
+            '    }'
+            '}'
+        )
+    }
+    $lines += '$found'
+    return ($lines -join "`r`n")
+}
+
+function Get-OrCreateGlobalConditionFromTemplate {
+    <#
+    .SYNOPSIS
+        Resolves a condition template to a CM global condition, creating it when absent.
+
+    .DESCRIPTION
+        Must be called from the CM site drive. Matching is by name, so an
+        existing site condition of any origin is attached rather than
+        duplicated; renaming a template's GlobalConditionName points it at
+        a site's own condition.
+    #>
+    param([Parameter(Mandatory)][pscustomobject]$Template)
+
+    $name = [string]$Template.GlobalConditionName
+    if ([string]::IsNullOrWhiteSpace($name)) {
+        throw "Condition template '$($Template.Id)' has no GlobalConditionName."
+    }
+
+    # A name can match several site conditions (the stock Operating System
+    # Language exists once per PlatformType: 1 = Windows, 2 = Mobile).
+    # Passing an array to a requirement rule cmdlet's -InputObject fails,
+    # so narrow by the template's PlatformType and require a single match.
+    $existing = @(Get-CMGlobalCondition -Name $name)
+    if ($existing.Count -gt 1 -and $Template.PSObject.Properties['PlatformType'] -and $Template.PlatformType) {
+        $existing = @($existing | Where-Object { [int]$_.PlatformType -eq [int]$Template.PlatformType })
+    }
+    if ($existing.Count -gt 1) {
+        throw "Global condition name '$name' matches $($existing.Count) site conditions; add a PlatformType to the '$($Template.Id)' template or rename to a unique condition."
+    }
+    if ($existing.Count -eq 1) {
+        Write-Log ("Global condition (existing)  : {0}" -f $name)
+        return $existing[0]
+    }
+
+    switch ([string]$Template.Kind) {
+        'BuiltIn' {
+            throw "Built-in global condition '$name' was not found on the site."
+        }
+        'Wql' {
+            Write-Log ("Global condition (creating)  : {0}" -f $name)
+            return New-CMGlobalConditionWqlQuery `
+                -Name $name `
+                -DataType ([string]$Template.DataType) `
+                -Namespace ([string]$Template.Namespace) `
+                -Class ([string]$Template.Class) `
+                -Property ([string]$Template.Property) `
+                -Description ([string]$Template.Description)
+        }
+        'Script' {
+            Write-Log ("Global condition (creating)  : {0}" -f $name)
+            $scriptText = ''
+            if ($Template.PSObject.Properties['ScriptText'] -and $Template.ScriptText) {
+                $scriptText = (@($Template.ScriptText) -join "`r`n")
+            }
+            else {
+                $scriptText = New-VpnConditionScriptText -AdapterPatterns @($Template.AdapterPatterns) -AliasPattern ([string]$Template.AliasPattern)
+            }
+            return New-CMGlobalConditionScript `
+                -Name $name `
+                -DataType ([string]$Template.DataType) `
+                -ScriptLanguage PowerShell `
+                -ScriptText $scriptText `
+                -Description ([string]$Template.Description)
+        }
+        default {
+            throw "Condition template '$($Template.Id)' has unsupported Kind '$($Template.Kind)'."
+        }
+    }
+}
+
+function Get-DeploymentTypeRequirementSpecs {
+    <#
+    .SYNOPSIS
+        Collects requirement rule specs for the deployment type being created.
+
+    .DESCRIPTION
+        Two sources merge: a manifest Requirements array and the
+        APP_PACKAGER_REQUIREMENTS environment JSON the GUI sets per app
+        ({ SchemaVersion, Rules: [...] }). Malformed environment JSON
+        throws instead of packaging without the rules the operator
+        configured.
+    #>
+    param([pscustomobject]$Manifest)
+
+    $specs = @()
+    if ($Manifest -and $Manifest.PSObject.Properties['Requirements'] -and $Manifest.Requirements) {
+        $specs += @($Manifest.Requirements)
+    }
+
+    $envJson = $env:APP_PACKAGER_REQUIREMENTS
+    if (-not [string]::IsNullOrWhiteSpace($envJson)) {
+        try {
+            $parsed = $envJson | ConvertFrom-Json -ErrorAction Stop
+        }
+        catch {
+            throw "APP_PACKAGER_REQUIREMENTS is not valid JSON: $($_.Exception.Message)"
+        }
+        if ($parsed -and $parsed.PSObject.Properties['Rules'] -and $parsed.Rules) {
+            $specs += @($parsed.Rules)
+        }
+    }
+
+    # No comma wrap: an empty array must unroll to zero pipeline objects
+    # so callers' @(...) sees Count 0, not a one-element array-of-array.
+    return $specs
+}
+
+function New-DeploymentTypeRequirementRules {
+    <#
+    .SYNOPSIS
+        Builds CM requirement rule objects from condition templates and specs.
+
+    .DESCRIPTION
+        Must be called from the CM site drive. Unknown condition ids and
+        unmapped values throw so a package run never creates a deployment
+        type missing rules the operator asked for.
+
+    .OUTPUTS
+        Requirement rule array; empty when no specs are configured.
+    #>
+    param([pscustomobject]$Manifest)
+
+    $specs = @(Get-DeploymentTypeRequirementSpecs -Manifest $Manifest)
+    if ($specs.Count -eq 0) { return @() }
+
+    $doc = Get-ConditionTemplates
+    $rules = @()
+    foreach ($spec in $specs) {
+        $condId = [string]$spec.ConditionId
+        $found = @($doc.Conditions | Where-Object { [string]$_.Id -eq $condId })
+        if ($found.Count -eq 0) {
+            throw "Requirement rule references unknown condition id '$condId'."
+        }
+        $template = $found[0]
+        $gc = Get-OrCreateGlobalConditionFromTemplate -Template $template
+
+        switch ([string]$template.RuleType) {
+            'CommonValue' {
+                $value1 = [string]$spec.Value
+                if ($template.PSObject.Properties['Values'] -and $template.Values) {
+                    $mapped = $template.Values.PSObject.Properties[$value1]
+                    if (-not $mapped) {
+                        $known = (@($template.Values.PSObject.Properties | ForEach-Object { $_.Name }) -join ', ')
+                        throw "Condition '$condId' has no mapping for value '$value1' (known: $known)."
+                    }
+                    $value1 = [string]$mapped.Value
+                }
+                if ([string]::IsNullOrWhiteSpace($value1)) {
+                    throw "Condition '$condId' requires a Value."
+                }
+                $rules += New-CMRequirementRuleCommonValue -InputObject $gc -RuleOperator IsEquals -Value1 $value1
+            }
+            'OperatingSystemLanguage' {
+                $cultures = @()
+                foreach ($c in @($spec.Cultures)) {
+                    if ([string]::IsNullOrWhiteSpace([string]$c)) { continue }
+                    $cultures += [System.Globalization.CultureInfo]::GetCultureInfo([string]$c)
+                }
+                if ($cultures.Count -eq 0) {
+                    throw "Condition '$condId' requires at least one culture code (e.g. de-DE)."
+                }
+                $rules += New-CMRequirementRuleOperatingSystemLanguageValue -InputObject $gc -RuleOperator OneOf -Culture $cultures
+            }
+            'Boolean' {
+                # [bool]'false' is $true; Convert.ToBoolean parses the
+                # string form and throws on anything else.
+                $boolValue = $false
+                if ($spec.Value -is [bool]) { $boolValue = $spec.Value }
+                else { $boolValue = [System.Convert]::ToBoolean([string]$spec.Value) }
+                $rules += New-CMRequirementRuleBooleanValue -InputObject $gc -Value $boolValue
+            }
+            default {
+                throw "Condition '$condId' has unsupported RuleType '$($template.RuleType)'."
+            }
+        }
+        Write-Log ("Requirement rule             : {0} ({1})" -f $condId, $template.GlobalConditionName)
+    }
+
+    return $rules
+}
+
+
 function New-MECMApplicationFromManifest {
     <#
     .SYNOPSIS
@@ -1365,6 +1677,13 @@ function New-MECMApplicationFromManifest {
                 Write-Log "Existing app has no deployment type; adding one for the new version." -Level WARN
             }
         }
+
+        # Requirement rules resolve before any create/replace so a bad spec
+        # fails the run without leaving a partial application behind. Rule
+        # objects must be built on the CM drive; they survive the later
+        # detection-clause drive switch.
+        $step = 'Requirement rules'
+        $requirementRules = @(New-DeploymentTypeRequirementRules -Manifest $Manifest)
 
         if (-not $cmApp) {
             Write-Log "Creating CM Application      : $appName"
@@ -1516,6 +1835,11 @@ function New-MECMApplicationFromManifest {
             if (-not (Connect-CMSite -SiteCode $SiteCode)) {
                 throw "CM site reconnection failed."
             }
+        }
+
+        if ($requirementRules.Count -gt 0) {
+            $dtParams['AddRequirement'] = $requirementRules
+            Write-Log ("Requirement rules attached   : {0}" -f $requirementRules.Count)
         }
 
         Write-Log ("Deployment type parameters   : {0}" -f (($dtParams.Keys | Sort-Object | ForEach-Object { "{0}='{1}'" -f $_, $dtParams[$_] }) -join ' ')) -Level DEBUG

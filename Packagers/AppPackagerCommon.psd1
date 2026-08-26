@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AppPackagerCommon.psm1'
-    ModuleVersion     = '0.0.14'
+    ModuleVersion     = '0.0.15'
     GUID              = 'f5cdd2d6-eb09-47bd-8493-16dfd5666455'
     Author            = 'AppPackager'
     Description       = 'Shared helpers for AppPackager packager scripts.'
@@ -43,6 +43,16 @@
         'Remove-CMApplicationRevisionHistoryByCIId'
         'Get-NextPatchVersion'
         'Test-PsadtLayout'
+
+        # Deployment type requirement rules
+        'Get-ConditionTemplatesPath'
+        'Get-DefaultConditionTemplates'
+        'Get-ConditionTemplates'
+        'Save-ConditionTemplates'
+        'New-VpnConditionScriptText'
+        'Get-OrCreateGlobalConditionFromTemplate'
+        'Get-DeploymentTypeRequirementSpecs'
+        'New-DeploymentTypeRequirementRules'
 
         # Intune Win32 content prep
         'Install-IntuneWinAppUtil'
