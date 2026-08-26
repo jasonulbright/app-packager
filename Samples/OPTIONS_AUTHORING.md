@@ -16,14 +16,15 @@ Each panel is built by a **factory function** that returns a hashtable with a fi
 }
 ```
 
-Four factories ship today:
+Five factories ship today:
 
 - `New-MecmPreferencesPanel`
 - `New-PackagerPreferencesPanel`
 - `New-AppFlowPanel` (the "One Click Settings" panel)
 - `New-ProductFilterPanel`
+- `New-DeploymentConditionsPanel`
 
-All four follow the same shape. Copy any one as a starting point. `New-MecmPreferencesPanel` is the simplest - flat form, no sub-dialogs.
+All five follow the same shape. Copy any one as a starting point. `New-MecmPreferencesPanel` is the simplest - flat form, no sub-dialogs. `New-DeploymentConditionsPanel` shows a per-app grid with `DataGridComboBoxColumn`s (ItemsSource assigned by column index after load) plus the sibling-JSON save pattern with a dirty flag so the override file is only written when something changed.
 
 The master `Show-OptionsDialog` hosts the ListBox + ContentControl + OK/Cancel. It builds the panel array at dialog open:
 

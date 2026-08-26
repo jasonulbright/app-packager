@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.4.0.0] - 2026-08-17
+
+### Added
+
+- **Deployment Conditions.** A fifth Options panel attaches CM
+  requirement rules to the deployment type each Package run creates,
+  per app: architecture (x64 / ARM64 via a WQL global condition on
+  `Win32_Processor.Architecture` — numeric, so culture-invariant and
+  immune to new-OS-release list churn), OS language (culture codes
+  against the site's built-in Operating System Language condition), and
+  network context (VPN only / on-site only via a Boolean script global
+  condition matching configurable VPN adapter description patterns).
+  Requirement rules evaluate on the client at deployment evaluation
+  time — no collections, no collection-evaluation load. Global
+  conditions are created on first use and matched by name, so renaming
+  one in the panel attaches to a condition the site already has.
+  Per-app selections persist to `AppPackager.preferences.json`;
+  condition names and adapter patterns persist to
+  `Packagers/condition-templates.json` with built-in defaults until the
+  panel writes it. Applies to Package, One Click Stage-and-Package, and
+  `-BatchMode` runs.
+- `AppPackagerCommon` 0.0.15: `Get-ConditionTemplates`,
+  `Save-ConditionTemplates`, `New-VpnConditionScriptText`,
+  `Get-OrCreateGlobalConditionFromTemplate`,
+  `Get-DeploymentTypeRequirementSpecs`, and
+  `New-DeploymentTypeRequirementRules`.
+  `New-MECMApplicationFromManifest` consumes requirement specs from a
+  manifest `Requirements` array or the `APP_PACKAGER_REQUIREMENTS`
+  environment JSON the GUI sets per app. Requirement resolution runs
+  before any application or deployment type is created, so a spec that
+  cannot be built fails the run instead of packaging without the
+  operator's rules.
+
 ## [1.3.0.0] - 2026-08-17
 
 ### Added
