@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AppPackagerCommon.psm1'
-    ModuleVersion     = '0.0.16'
+    ModuleVersion     = '0.0.17'
     GUID              = 'f5cdd2d6-eb09-47bd-8493-16dfd5666455'
     Author            = 'AppPackager'
     Description       = 'Shared helpers for AppPackager packager scripts.'
@@ -54,6 +54,7 @@
         'Get-DeploymentTypeRequirementSpecs'
         'New-DeploymentTypeRequirementRules'
         'Get-ManifestDeploymentTypeSpecs'
+        'Get-RequestedPackagerVariants'
 
         # Intune Win32 content prep
         'Install-IntuneWinAppUtil'
