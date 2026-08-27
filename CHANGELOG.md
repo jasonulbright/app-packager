@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.4.0.1] - 2026-08-27
+
+### Added
+
+- **Multi-deployment-type manifests (common layer).** A stage manifest
+  may carry an optional `DeploymentTypes` array; each entry names a
+  variant (`NameSuffix` — the deployment type becomes
+  `<AppName> - <NameSuffix>`), an optional `ContentSubpath` under the
+  network content root, and its own commands, detection, behavior
+  overrides, and `Requirements`. Entries are created in manifest order —
+  CM assigns priority by creation order and installs the first
+  deployment type whose requirements pass — so the most specific variant
+  is listed first and the unconditional fallback (an entry with no
+  `Requirements`) last. On a version replace the whole set is staged,
+  the old set removed, and the staged names promoted. Manifests without
+  the array behave exactly as before. On a multi-DT manifest the
+  `APP_PACKAGER_REQUIREMENTS` environment JSON is ignored with a logged
+  warning: per-entry `Requirements` are authoritative, so an
+  unconditional fallback cannot be gated by accident.
+  `AppPackagerCommon` 0.0.16 adds `Get-ManifestDeploymentTypeSpecs`.
+  No packager or GUI changes; GUI variant selection arrives with a
+  later increment.
+
 ## [1.4.0.0] - 2026-08-17
 
 ### Added
