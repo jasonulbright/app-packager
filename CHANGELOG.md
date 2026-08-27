@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.0.3] - 2026-08-27
+
+### Added
+
+- **7-Zip: first variant-split consumer.** With the Architecture split
+  selected, the Stage phase also downloads the ARM64 exe installer
+  (version-matched against the staged x64 MSI, or the run fails),
+  stages it under `arm64\` with its own wrappers, and writes a
+  two-entry `DeploymentTypes` manifest: ARM64 gated to ARM64 CPUs
+  (priority 1), x64 gated to x64 (priority 2). The exe variant detects
+  on the exe installer's fixed `Uninstall\7-Zip` ARP key. The Package
+  phase network copy is now recursive so variant subfolders ship.
+  Without the split selected, nothing changes.
+
 ## [1.4.0.2] - 2026-08-27
 
 ### Added
