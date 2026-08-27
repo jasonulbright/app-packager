@@ -3021,3 +3021,42 @@ function New-PackagerFromDrop {
 # ---------------------------------------------------------------------------
 
 Export-ModuleMember -Function *
+
+function Get-RequestedPackagerVariants {
+    <#
+    .SYNOPSIS
+        Parses the APP_PACKAGER_VARIANTS environment JSON the GUI sets for
+        a SupportsVariants packager.
+
+    .DESCRIPTION
+        Returns $null when no variant split is requested. Malformed JSON
+        throws instead of silently packaging without the operator's split.
+
+    .OUTPUTS
+        [pscustomobject] Split ('Architecture' | 'Language' | 'Network')
+        and Languages (culture codes; only meaningful for a Language
+        split), or $null.
+    #>
+    $envJson = $env:APP_PACKAGER_VARIANTS
+    if ([string]::IsNullOrWhiteSpace($envJson)) { return $null }
+    try {
+        $parsed = $envJson | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw "APP_PACKAGER_VARIANTS is not valid JSON: $($_.Exception.Message)"
+    }
+    $split = [string]$parsed.Split
+    if ($split -notin @('Architecture', 'Language', 'Network')) {
+        throw "APP_PACKAGER_VARIANTS Split must be Architecture, Language, or Network (got '$split')."
+    }
+    $languages = @()
+    if ($parsed.PSObject.Properties['Languages'] -and $parsed.Languages) {
+        $languages = @($parsed.Languages | ForEach-Object { [string]$_ } | Where-Object { $_ })
+    }
+    if ($split -eq 'Language' -and $languages.Count -eq 0) {
+        throw 'APP_PACKAGER_VARIANTS requests a Language split with no Languages.'
+    }
+    return [pscustomobject]@{ Split = $split; Languages = $languages }
+}
+
+Export-ModuleMember -Function Get-RequestedPackagerVariants

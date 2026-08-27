@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.4.0.2] - 2026-08-27
+
+### Added
+
+- **Variant split selection (GUI).** Packagers declare stageable
+  variants with a `SupportsVariants:` header tag (comma-separated:
+  `Architecture`, `Language`, `Network`, parsed like the other header
+  tags). The Deployment Conditions grid gains a Variant split column,
+  enabled only for declaring packagers; the selection persists per app
+  under `DeploymentConditions.Apps.<packager>.Split` and reaches the
+  packager child as `APP_PACKAGER_VARIANTS` JSON on every Package path
+  (GUI, One Click, `-BatchMode`). `AppPackagerCommon` 0.0.17 adds
+  `Get-RequestedPackagerVariants` for packagers to consume the request;
+  no packager implements a split yet — those land with the first
+  consumers.
+
 ## [1.4.0.1] - 2026-08-27
 
 ### Added

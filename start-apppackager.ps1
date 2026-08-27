@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.4.0.1
+    Version    : 1.4.0.2
     Updated    : 2026-08-17
 #>
 
@@ -298,11 +298,14 @@ function Read-Preferences {
                         Where-Object { [string]$_ -match '^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,2}$' } |
                         ForEach-Object { [string]$_ })
                 }
-                if ($arch -eq 'Any' -and $network -eq 'Any' -and $langs.Count -eq 0) { continue }
+                $split = 'None'
+                if ([string]$entry.Split -in @('Architecture', 'Language', 'Network')) { $split = [string]$entry.Split }
+                if ($arch -eq 'Any' -and $network -eq 'Any' -and $langs.Count -eq 0 -and $split -eq 'None') { continue }
                 $condProps[$prop.Name] = [pscustomobject]@{
                     Architecture = $arch
                     Languages    = $langs
                     Network      = $network
+                    Split        = $split
                 }
             }
             $defaults.DeploymentConditions.Apps = [pscustomobject]$condProps
@@ -617,6 +620,7 @@ function Get-PackagerMetadata {
         DownloadPageUrl   = $null
         Description       = $null
         UpdateCadenceDays = $null
+        SupportsVariants  = @()
     }
 
     $lines = Get-Content -LiteralPath $Path -TotalCount 200 -ErrorAction Stop
@@ -632,6 +636,10 @@ function Get-PackagerMetadata {
         if (-not $meta.CPE             -and $l -match '^\s*(?:#\s*)?CPE\s*:\s*(.+?)\s*$')             { $meta.CPE             = $Matches[1].Trim(); continue }
         if (-not $meta.ReleaseNotesUrl -and $l -match '^\s*(?:#\s*)?ReleaseNotesUrl\s*:\s*(.+?)\s*$') { $meta.ReleaseNotesUrl = $Matches[1].Trim(); continue }
         if (-not $meta.DownloadPageUrl -and $l -match '^\s*(?:#\s*)?DownloadPageUrl\s*:\s*(.+?)\s*$') { $meta.DownloadPageUrl = $Matches[1].Trim(); continue }
+        if ($meta.SupportsVariants.Count -eq 0 -and $l -match '^\s*(?:#\s*)?SupportsVariants\s*:\s*(.+?)\s*$') {
+            $meta.SupportsVariants = @($Matches[1] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -in @('Architecture', 'Language', 'Network') })
+            continue
+        }
         if ($null -eq $meta.UpdateCadenceDays -and $l -match '^\s*(?:#\s*)?UpdateCadenceDays\s*:\s*(\d+)\s*$') {
             $days = [int]$Matches[1]
             if ($days -ge 1) { $meta.UpdateCadenceDays = $days }
@@ -659,6 +667,7 @@ function Get-PackagerMetadata {
         DownloadPageUrl   = $meta.DownloadPageUrl
         Description       = $meta.Description
         UpdateCadenceDays = $meta.UpdateCadenceDays
+        SupportsVariants  = @($meta.SupportsVariants)
         Script            = (Split-Path -Leaf $Path)
         FullPath          = $Path
     }
@@ -1371,6 +1380,7 @@ function Invoke-PackagerPackage {
         [string]$IntuneWinToolPath = '',
         [ValidateSet('Nested','Flat')][string]$ContentLayout = 'Nested',
         [string]$RequirementsJson = '',
+        [string]$VariantsJson = '',
         [System.Windows.Controls.TextBox]$LogTextBox = $null
     )
 
@@ -1402,7 +1412,7 @@ function Invoke-PackagerPackage {
     $psi.RedirectStandardError  = $true
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow  = $true
-    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName -RequirementsJson $RequirementsJson
+    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName -RequirementsJson $RequirementsJson -VariantsJson $VariantsJson
 
     $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -StructuredLog $structuredLog -LogTextBox $LogTextBox
     Assert-PackagerPackageIntegrity -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -ContentLayout $ContentLayout
@@ -1432,7 +1442,8 @@ function Set-PackagerEnvironment {
         [Parameter(Mandatory)][System.Diagnostics.ProcessStartInfo]$StartInfo,
         [string]$SevenZipPath,
         [string]$ProviderMachineName,
-        [string]$RequirementsJson
+        [string]$RequirementsJson,
+        [string]$VariantsJson
     )
     if (-not [string]::IsNullOrWhiteSpace($SevenZipPath)) {
         $StartInfo.EnvironmentVariables['APP_PACKAGER_SEVENZIP'] = [string]$SevenZipPath
@@ -1442,6 +1453,9 @@ function Set-PackagerEnvironment {
     }
     if (-not [string]::IsNullOrWhiteSpace($RequirementsJson)) {
         $StartInfo.EnvironmentVariables['APP_PACKAGER_REQUIREMENTS'] = [string]$RequirementsJson
+    }
+    if (-not [string]::IsNullOrWhiteSpace($VariantsJson)) {
+        $StartInfo.EnvironmentVariables['APP_PACKAGER_VARIANTS'] = [string]$VariantsJson
     }
 }
 
@@ -1470,6 +1484,37 @@ function ConvertTo-RequirementsJson {
     }
     if ($rules.Count -eq 0) { return '' }
     return (@{ SchemaVersion = 1; Rules = $rules } | ConvertTo-Json -Depth 4 -Compress)
+}
+
+function ConvertTo-VariantsJson {
+    # Maps one Deployment Conditions prefs entry onto the
+    # APP_PACKAGER_VARIANTS JSON a SupportsVariants packager consumes via
+    # Get-RequestedPackagerVariants. Returns '' when no split is selected.
+    param($Entry)
+
+    if (-not $Entry -or -not $Entry.PSObject.Properties['Split']) { return '' }
+    $split = [string]$Entry.Split
+    if ($split -notin @('Architecture', 'Language', 'Network')) { return '' }
+    $doc = @{ SchemaVersion = 1; Split = $split }
+    if ($split -eq 'Language' -and $null -ne $Entry.Languages) {
+        $doc['Languages'] = @($Entry.Languages | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ })
+    }
+    return ($doc | ConvertTo-Json -Depth 4 -Compress)
+}
+
+function Get-VariantsMapForContext {
+    # Prebuilt on the UI thread, same reason as Get-RequirementsMapForContext.
+    $map = @{}
+    try {
+        $apps = $script:Prefs.DeploymentConditions.Apps
+        if ($apps) {
+            foreach ($prop in $apps.PSObject.Properties) {
+                $json = ConvertTo-VariantsJson -Entry $prop.Value
+                if ($json) { $map[$prop.Name] = $json }
+            }
+        }
+    } catch { }
+    return $map
 }
 
 function Get-RequirementsMapForContext {
@@ -1872,9 +1917,13 @@ function Invoke-BatchUpdate {
         if ($OnUpdateFound -eq 'Stage') { $pkgArgs += '-StageOnly' }
 
         $requirementsJson = ''
+        $variantsJson = ''
         if ($ConditionApps) {
             $condProp = $ConditionApps.PSObject.Properties[$baseName]
-            if ($condProp) { $requirementsJson = ConvertTo-RequirementsJson -Entry $condProp.Value }
+            if ($condProp) {
+                $requirementsJson = ConvertTo-RequirementsJson -Entry $condProp.Value
+                $variantsJson = ConvertTo-VariantsJson -Entry $condProp.Value
+            }
         }
 
         try {
@@ -1884,6 +1933,8 @@ function Invoke-BatchUpdate {
             $previousProviderEnv = $null
             $restoreRequirementsEnv = $false
             $previousRequirementsEnv = $null
+            $restoreVariantsEnv = $false
+            $previousVariantsEnv = $null
             $packagerWorkingDirectory = Split-Path -Parent $scriptPath
             $pushedPackagerLocation = $false
             try {
@@ -1901,6 +1952,11 @@ function Invoke-BatchUpdate {
                     $restoreRequirementsEnv = $true
                     $previousRequirementsEnv = $env:APP_PACKAGER_REQUIREMENTS
                     $env:APP_PACKAGER_REQUIREMENTS = $requirementsJson
+                }
+                if (-not [string]::IsNullOrWhiteSpace($variantsJson)) {
+                    $restoreVariantsEnv = $true
+                    $previousVariantsEnv = $env:APP_PACKAGER_VARIANTS
+                    $env:APP_PACKAGER_VARIANTS = $variantsJson
                 }
 
                 Push-Location -LiteralPath $packagerWorkingDirectory
@@ -1928,6 +1984,14 @@ function Invoke-BatchUpdate {
                     }
                     else {
                         Remove-Item Env:\APP_PACKAGER_CM_PROVIDER -ErrorAction SilentlyContinue
+                    }
+                }
+                if ($restoreVariantsEnv) {
+                    if ($null -ne $previousVariantsEnv) {
+                        $env:APP_PACKAGER_VARIANTS = $previousVariantsEnv
+                    }
+                    else {
+                        Remove-Item Env:\APP_PACKAGER_VARIANTS -ErrorAction SilentlyContinue
                     }
                 }
                 if ($restoreRequirementsEnv) {
@@ -3585,6 +3649,15 @@ function New-DeploymentConditionsPanel {
             <DataGridComboBoxColumn Header="Architecture" Width="110" SelectedItemBinding="{Binding ArchitectureDisplay, UpdateSourceTrigger=PropertyChanged}"/>
             <DataGridTextColumn Header="OS languages" Width="150" Binding="{Binding LanguagesDisplay, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"/>
             <DataGridComboBoxColumn Header="Network" Width="110" SelectedItemBinding="{Binding NetworkDisplay, UpdateSourceTrigger=PropertyChanged}"/>
+            <DataGridTemplateColumn Header="Variant split" Width="120">
+                <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                        <ComboBox ItemsSource="{Binding VariantOptions}" SelectedItem="{Binding SplitDisplay, UpdateSourceTrigger=PropertyChanged}"
+                                  IsEnabled="{Binding VariantCapable}" FontSize="12" BorderThickness="0" Background="Transparent"
+                                  ToolTip="Stage one application with multiple deployment types. Only offered where the packager declares SupportsVariants."/>
+                    </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
         </DataGrid.Columns>
     </DataGrid>
 </DockPanel>
@@ -3635,12 +3708,15 @@ function New-DeploymentConditionsPanel {
         $langsText = ''
         $entryProp = $null
         if ($currentApps) { $entryProp = $currentApps.PSObject.Properties[$base] }
+        $split = 'None'
         if ($entryProp) {
             $entry = $entryProp.Value
             if ([string]$entry.Architecture -in @('x64', 'ARM64')) { $arch = [string]$entry.Architecture }
             if ([string]$entry.Network -in @('VpnOnly', 'OnSiteOnly')) { $network = [string]$entry.Network }
             if ($entry.Languages) { $langsText = (@($entry.Languages) -join ', ') }
+            if ($entry.PSObject.Properties['Split'] -and [string]$entry.Split -in @($p.SupportsVariants)) { $split = [string]$entry.Split }
         }
+        $variantOptions = @('None') + @($p.SupportsVariants)
         $rows.Add([pscustomobject]@{
             Packager            = $base
             Application         = $p.Application
@@ -3648,6 +3724,9 @@ function New-DeploymentConditionsPanel {
             ArchitectureDisplay = $archToDisplay[$arch]
             LanguagesDisplay    = $langsText
             NetworkDisplay      = $networkToDisplay[$network]
+            VariantOptions      = [string[]]$variantOptions
+            VariantCapable      = (@($p.SupportsVariants).Count -gt 0)
+            SplitDisplay        = $split
         })
     }
     $dgCondApps.ItemsSource = $rows
@@ -3678,11 +3757,14 @@ function New-DeploymentConditionsPanel {
             $langs = @([string]$row.LanguagesDisplay -split '[,;]' |
                 ForEach-Object { $_.Trim() } |
                 Where-Object { $_ -match '^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,2}$' })
-            if ($arch -eq 'Any' -and $network -eq 'Any' -and $langs.Count -eq 0) { continue }
+            $split = 'None'
+            if ([string]$row.SplitDisplay -in @('Architecture', 'Language', 'Network') -and $row.VariantCapable) { $split = [string]$row.SplitDisplay }
+            if ($arch -eq 'Any' -and $network -eq 'Any' -and $langs.Count -eq 0 -and $split -eq 'None') { continue }
             $condProps[$row.Packager] = [pscustomobject]@{
                 Architecture = $arch
                 Languages    = $langs
                 Network      = $network
+                Split        = $split
             }
         }
         $prefsRef.DeploymentConditions.Apps = [pscustomobject]$condProps
@@ -4164,6 +4246,8 @@ function Invoke-MultiAppPipeline {
                         try {
                             $reqJson = ''
                             if ($Ctx.RequirementsByApp) { $reqJson = [string]$Ctx.RequirementsByApp[$baseName] }
+                            $varJson = ''
+                            if ($Ctx.VariantsByApp) { $varJson = [string]$Ctx.VariantsByApp[$baseName] }
                             $res = Invoke-PackagerPackage `
                                 -PackagerPath $path `
                                 -SiteCode $Ctx.SiteCode `
@@ -4180,7 +4264,8 @@ function Invoke-MultiAppPipeline {
                                 -CreateIntuneWin:([bool]$Ctx.IntuneWinCreate) `
                                 -IntuneWinToolPath ([string]$Ctx.IntuneWinToolPath) `
                                 -ContentLayout ([string]$Ctx.ContentLayout) `
-                                -RequirementsJson $reqJson
+                                -RequirementsJson $reqJson `
+                                -VariantsJson $varJson
 
                             if ($res.ExitCode -eq 0) {
                                 $row.Status = 'Packaged'
@@ -4403,6 +4488,8 @@ function Invoke-MultiAppPipeline {
                         try {
                             $reqJson = ''
                             if ($Ctx.RequirementsByApp) { $reqJson = [string]$Ctx.RequirementsByApp[$baseName] }
+                            $varJson = ''
+                            if ($Ctx.VariantsByApp) { $varJson = [string]$Ctx.VariantsByApp[$baseName] }
                             $pkg = Invoke-PackagerPackage `
                                 -PackagerPath $path `
                                 -SiteCode $Ctx.SiteCode `
@@ -4419,7 +4506,8 @@ function Invoke-MultiAppPipeline {
                                 -CreateIntuneWin:([bool]$Ctx.IntuneWinCreate) `
                                 -IntuneWinToolPath ([string]$Ctx.IntuneWinToolPath) `
                                 -ContentLayout ([string]$Ctx.ContentLayout) `
-                                -RequirementsJson $reqJson
+                                -RequirementsJson $reqJson `
+                                -VariantsJson $varJson
 
                             if ($pkg.ExitCode -eq 0) {
                                 $row.Status = 'Packaged'
@@ -5267,6 +5355,7 @@ $btnPackage.Add_Click({
         IntuneWinCreate      = ([bool]$script:Prefs.Intune.CreateIntuneWin -and -not [string]::IsNullOrWhiteSpace((Get-IntuneWinToolPathForContext)))
         IntuneWinToolPath    = Get-IntuneWinToolPathForContext
         RequirementsByApp    = Get-RequirementsMapForContext
+        VariantsByApp        = Get-VariantsMapForContext
     }
 })
 
@@ -5357,6 +5446,7 @@ $btnFullRun.Add_Click({
         IntuneWinCreate      = ([bool]$script:Prefs.Intune.CreateIntuneWin -and -not [string]::IsNullOrWhiteSpace((Get-IntuneWinToolPathForContext)))
         IntuneWinToolPath    = Get-IntuneWinToolPathForContext
         RequirementsByApp    = Get-RequirementsMapForContext
+        VariantsByApp        = Get-VariantsMapForContext
     }
 })
 
