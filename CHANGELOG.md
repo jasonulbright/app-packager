@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.4.0.6] - 2026-08-27
+
+### Added
+
+- **Firefox language split.** With the Language split selected and
+  culture codes entered in OS languages, Firefox stages one MSI per
+  language (Mozilla locale resolved from the culture code, falling back
+  to the primary subtag: de-DE finds de) plus the en-US payload as the
+  unconditional fallback. Each language's deployment type is gated to
+  its OS language; the split app is named `Mozilla Firefox (x64)`.
+  A language with no Mozilla installer fails the run instead of
+  packaging without it.
+
 ## [1.4.0.5] - 2026-08-27
 
 ### Changed
