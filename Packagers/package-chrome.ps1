@@ -6,6 +6,7 @@ VendorUrl: https://chromeenterprise.google/browser/download/
 CPE: cpe:2.3:a:google:chrome:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://chromereleases.googleblog.com/
 DownloadPageUrl: https://chromeenterprise.google/download/
+SupportsVariants: Architecture
 
 .SYNOPSIS
     Packages Google Chrome MSI for MECM.
@@ -98,6 +99,8 @@ if ($StageOnly -and $PackageOnly) {
 $ChromeVersionApiUrl = "https://versionhistory.googleapis.com/v1/chrome/platforms/win64/channels/stable/versions/all/releases?order_by=version+desc&filter=fraction=1&pageSize=1"
 $MsiDownloadUrl      = "https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi"
 $MsiFileName         = "googlechromestandaloneenterprise64.msi"
+$ArmMsiDownloadUrl   = "https://dl.google.com/dl/chrome/install/GoogleChromeStandaloneEnterprise_Arm64.msi"
+$ArmMsiFileName      = "googlechromestandaloneenterprisearm64.msi"
 
 $VendorFolder = "Google"
 $AppFolder    = "Google Chrome"
@@ -196,12 +199,66 @@ function Invoke-StageChrome {
         -InstallPs1Content $wrapperContent.Install `
         -UninstallPs1Content $wrapperContent.Uninstall
 
+    # --- Optional ARM64 variant (Architecture split) ---
+    # Google ships an ARM64 enterprise MSI; it carries its own ProductCode,
+    # so the variant detects on its own ARP key.
+    $deploymentTypes = $null
+    $variants = Get-RequestedPackagerVariants
+    if ($variants -and $variants.Split -eq 'Architecture') {
+        Write-Log ""
+        Write-Log "Architecture split requested : staging ARM64 variant"
+
+        $localArmMsi = Join-Path $BaseDownloadRoot $ArmMsiFileName
+        Invoke-DownloadWithRetry -Url $ArmMsiDownloadUrl -OutFile $localArmMsi
+
+        $armProps = Get-MsiPropertyMap -MsiPath $localArmMsi
+        $armVersion = $armProps["ProductVersion"]
+        $armProductCode = $armProps["ProductCode"]
+        if ([string]::IsNullOrWhiteSpace($armVersion) -or [string]::IsNullOrWhiteSpace($armProductCode)) {
+            throw "ARM64 MSI is missing ProductVersion or ProductCode."
+        }
+        if ($armVersion -ne $productVersionRaw) {
+            throw "ARM64 MSI version ($armVersion) does not match the staged x64 version ($productVersionRaw); refusing to ship a mismatched pair."
+        }
+
+        $armContentPath = Join-Path $localContentPath "arm64"
+        Initialize-Folder -Path $armContentPath
+        Copy-Item -LiteralPath $localArmMsi -Destination (Join-Path $armContentPath $ArmMsiFileName) -Force -ErrorAction Stop
+        Write-Log "Copied ARM64 MSI to staged   : $armContentPath"
+
+        $armWrappers = New-MsiWrapperContent -MsiFileName $ArmMsiFileName
+        Write-ContentWrappers -OutputPath $armContentPath `
+            -InstallPs1Content $armWrappers.Install `
+            -UninstallPs1Content $armWrappers.Uninstall
+
+        # Both entries are gated: a machine that is neither x64 nor ARM64
+        # should install neither variant.
+        $deploymentTypes = @(
+            @{
+                NameSuffix     = 'ARM64'
+                ContentSubpath = 'arm64'
+                Detection      = @{
+                    Type                = 'RegistryKeyValue'
+                    RegistryKeyRelative = ('SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\' + $armProductCode)
+                    ValueName           = 'DisplayVersion'
+                    ExpectedValue       = $armVersion
+                    Is64Bit             = $true
+                }
+                Requirements   = @(@{ ConditionId = 'cpu-arch'; Value = 'ARM64' })
+            },
+            @{
+                NameSuffix   = 'x64'
+                Requirements = @(@{ ConditionId = 'cpu-arch'; Value = 'x64' })
+            }
+        )
+    }
+
     # --- Write stage manifest ---
     $publisher = "Google LLC"
     $appName = "Google Chrome $productVersionRaw"
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
-    Write-StageManifest -Path $manifestPath -ManifestData @{
+    $manifestData = @{
         AppName         = $appName
         Publisher       = $publisher
         SoftwareVersion = $productVersionRaw
@@ -219,6 +276,8 @@ function Invoke-StageChrome {
             Is64Bit             = $true
         }
     }
+    if ($deploymentTypes) { $manifestData['DeploymentTypes'] = $deploymentTypes }
+    Write-StageManifest -Path $manifestPath -ManifestData $manifestData
 
     Write-Log ""
     Write-Log "Stage complete               : $localContentPath"
@@ -275,17 +334,22 @@ function Invoke-PackageChrome {
     Write-Log "Network content path         : $networkContentPath"
     Write-Log ""
 
-    # --- Copy staged content to network ---
-    $localFiles = Get-ChildItem -Path $localContentPath -File -ErrorAction Stop
+    # --- Copy staged content to network (recursive: a variant split stages
+    # its payload in a subfolder) ---
+    $localRoot = (Resolve-Path -LiteralPath $localContentPath).Path
+    $localFiles = Get-ChildItem -Path $localContentPath -File -Recurse -ErrorAction Stop
     foreach ($f in $localFiles) {
         if ($f.Name -eq "stage-manifest.json") { continue }
-        $dest = Join-Path $networkContentPath $f.Name
+        $relative = $f.FullName.Substring($localRoot.Length).TrimStart('\')
+        $dest = Join-Path $networkContentPath $relative
+        $destDir = Split-Path -Parent $dest
+        if (-not (Test-Path -LiteralPath $destDir)) { New-Item -ItemType Directory -Path $destDir -Force -ErrorAction Stop | Out-Null }
         if (-not (Test-Path -LiteralPath $dest)) {
             Copy-Item -LiteralPath $f.FullName -Destination $dest -Force -ErrorAction Stop
-            Write-Log "Copied to network            : $($f.Name)"
+            Write-Log "Copied to network            : $relative"
         }
         else {
-            Write-Log "Already on network           : $($f.Name)"
+            Write-Log "Already on network           : $relative"
         }
     }
 
