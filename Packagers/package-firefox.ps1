@@ -2,7 +2,7 @@
 Vendor: Mozilla
 App: Mozilla Firefox
 CMName: Mozilla Firefox
-SupportsVariants: Architecture
+SupportsVariants: Architecture, Language
 VendorUrl: https://www.mozilla.org/firefox/enterprise/
 CPE: cpe:2.3:a:mozilla:firefox:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.mozilla.org/en-US/firefox/releases/
@@ -196,12 +196,69 @@ function Invoke-StageFirefox {
         -InstallPs1Content $wrappers.Install `
         -UninstallPs1Content $customUninstall
 
+    # --- Optional language variants (Language split) ---
+    # Mozilla locale names differ from culture codes (de, fr, es-ES,
+    # pt-BR); try the full culture first, then the primary subtag.
+    function Resolve-FirefoxLocaleUrl {
+        param([Parameter(Mandatory)][string]$Culture, [Parameter(Mandatory)][string]$FileName)
+        $candidates = @($Culture)
+        $primary = ($Culture -split '-')[0]
+        if ($primary -ne $Culture) { $candidates += $primary }
+        foreach ($locale in $candidates) {
+            $url = "$DownloadBase/$version/win64/$locale/" + ($FileName -replace ' ', '%20')
+            try {
+                $resp = Invoke-WebRequest -Uri $url -Method Head -UseBasicParsing -ErrorAction Stop
+                if ($resp.StatusCode -eq 200) { return [pscustomobject]@{ Locale = $locale; Url = $url } }
+            } catch { continue }
+        }
+        return $null
+    }
+
+    $deploymentTypes = $null
+    $variants = Get-RequestedPackagerVariants
+    if ($variants -and $variants.Split -eq 'Language') {
+        Write-Log ""
+        Write-Log ("Language split requested     : {0}" -f (@($variants.Languages) -join ', '))
+
+        $msiWrappersForLang = New-MsiWrapperContent -MsiFileName $msiFileName
+        $langEntries = @()
+        foreach ($culture in @($variants.Languages)) {
+            if ($culture -match '^en(-US)?$') { Write-Log "Skipping $culture (the en-US fallback already covers it)."; continue }
+            $resolved = Resolve-FirefoxLocaleUrl -Culture $culture -FileName $msiFileName
+            if (-not $resolved) { throw "No Firefox $version installer found for language '$culture' (tried the culture and its primary subtag)." }
+
+            $langFolder = $resolved.Locale
+            $localLangMsi = Join-Path $BaseDownloadRoot ("{0}-{1}" -f $resolved.Locale, $msiFileName)
+            if (-not (Test-Path -LiteralPath $localLangMsi)) {
+                Write-Log "Language download URL        : $($resolved.Url)"
+                Invoke-DownloadWithRetry -Url $resolved.Url -OutFile $localLangMsi
+            }
+
+            $langContentPath = Join-Path $localContentPath $langFolder
+            Initialize-Folder -Path $langContentPath
+            Copy-Item -LiteralPath $localLangMsi -Destination (Join-Path $langContentPath $msiFileName) -Force -ErrorAction Stop
+            Write-Log "Copied $langFolder MSI to staged : $langContentPath"
+
+            Write-ContentWrappers -OutputPath $langContentPath `
+                -InstallPs1Content $msiWrappersForLang.Install `
+                -UninstallPs1Content $customUninstall
+
+            $langEntries += @{
+                NameSuffix     = $culture
+                ContentSubpath = $langFolder
+                Requirements   = @(@{ ConditionId = 'os-language'; Cultures = @($culture) })
+            }
+        }
+        if ($langEntries.Count -eq 0) { throw "Language split requested but every language reduced to the en-US fallback." }
+
+        # en-US payload at the content root is the unconditional fallback.
+        $deploymentTypes = $langEntries + @(@{ NameSuffix = 'en-US' })
+    }
+
     # --- Optional ARM64 variant (Architecture split) ---
     # Mozilla ships win64-aarch64 as an exe installer only. Both
     # architectures install to the same Program Files path, so the file
     # detection and the helper.exe uninstall carry over unchanged.
-    $deploymentTypes = $null
-    $variants = Get-RequestedPackagerVariants
     if ($variants -and $variants.Split -eq 'Architecture') {
         Write-Log ""
         Write-Log "Architecture split requested : staging ARM64 variant"
@@ -244,9 +301,12 @@ function Invoke-StageFirefox {
     # --- Write stage manifest ---
     $detectionPath = "{0}\Mozilla Firefox" -f $env:ProgramFiles
 
-    # The split covers both architectures, so the name drops the bitness
-    # but keeps the language: the payload is still en-US only.
-    $appName   = if ($deploymentTypes) { "Mozilla Firefox (en-US)" } else { "Mozilla Firefox (x64 en-US)" }
+    # A split app's name drops only the marker its deployment types now
+    # cover: the architecture split stays en-US, the language split stays
+    # x64-only.
+    $appName = if ($variants -and $variants.Split -eq 'Architecture') { "Mozilla Firefox (en-US)" }
+               elseif ($variants -and $variants.Split -eq 'Language') { "Mozilla Firefox (x64)" }
+               else { "Mozilla Firefox (x64 en-US)" }
     $publisher = "Mozilla"
 
     Write-Log ""
