@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.4.0.7] - 2026-08-27
+
+### Added
+
+- **M365 Apps (x64) network split.** With the Network split selected,
+  one application carries both deploy modes: an Online (CDN-direct)
+  deployment type gated to VPN-connected machines with existence-only
+  detection, and the Managed (version-pinned, precached) deployment
+  type as the unconditional on-site fallback. The Managed payload
+  stages at the content root, the Online payload under `online\`. The
+  M365DeployMode choice is ignored with a logged warning when the
+  split is active — the split stages both. The split app is named
+  `M365 Apps for Enterprise (x64) (<channel>)`. The other five M365
+  SKU packagers keep single-mode behavior for now.
+
 ## [1.4.0.6] - 2026-08-27
 
 ### Added
