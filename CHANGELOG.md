@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.4.0.5] - 2026-08-27
+
+### Changed
+
+- **Split apps drop the bitness from their names.** An application whose
+  deployment types cover both architectures no longer carries an
+  architecture marker: the 7-Zip split creates `7-Zip` (instead of the
+  MSI ProductName `7-Zip <version> (x64 edition)`) and the Firefox split
+  creates `Mozilla Firefox (en-US)` (the payload is still en-US only,
+  so the language stays). Chrome's name had no bitness to drop.
+  Single-deployment-type runs keep their existing names, so apps
+  packaged without the split keep upgrading in place. A site that
+  packaged before enabling the split gets the new name as a new
+  application; retire the old-named one after the first split run.
+
 ## [1.4.0.4] - 2026-08-27
 
 ### Added

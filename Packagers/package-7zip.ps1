@@ -336,7 +336,10 @@ function Invoke-Stage7Zip {
     $publisher = $manufacturer
     if ([string]::IsNullOrWhiteSpace($publisher)) { $publisher = "Igor Pavlov" }
 
-    $appName = $productName
+    # One application covering both architectures drops the MSI's
+    # "(x64 edition)" (and embedded version) from its name; single-DT runs
+    # keep the ProductName so existing site apps keep upgrading in place.
+    $appName = if ($deploymentTypes) { "7-Zip" } else { $productName }
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
     $manifestData = @{
