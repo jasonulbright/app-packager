@@ -7,9 +7,10 @@ CPE: cpe:2.3:a:7-zip:7-zip:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.7-zip.org/history.txt
 DownloadPageUrl: https://www.7-zip.org/download.html
 UpdateCadenceDays: 90
+SupportsVariants: Architecture
 
 .SYNOPSIS
-    Packages 7-Zip (x64) MSI for MECM.
+    Packages 7-Zip (x64) MSI for MECM, optionally with an ARM64 variant.
 
 .DESCRIPTION
     Downloads the latest 7-Zip x64 MSI from the official 7-zip.org download page,
@@ -95,6 +96,7 @@ $AppFolder    = "7-Zip"
 
 $BaseDownloadRoot = Join-Path $DownloadRoot "7-Zip"
 $MsiFileName      = "7zip-x64.msi"
+$ArmExeFileName   = "7zip-arm64.exe"
 
 # --- Functions ---
 
@@ -137,6 +139,41 @@ function Resolve-7ZipX64MsiUrl {
     }
     catch {
         Write-Log "Failed to resolve 7-Zip MSI URL: $($_.Exception.Message)" -Level ERROR
+        return $null
+    }
+}
+
+
+function Resolve-7ZipArm64ExeUrl {
+    param([switch]$Quiet)
+
+    try {
+        $html = (curl.exe -L --fail --silent --show-error $DownloadPageUrl) -join "`n"
+        if ($LASTEXITCODE -ne 0) { throw "Failed to fetch 7-Zip download page: $DownloadPageUrl" }
+
+        # Links are relative (a/7z2501-arm64.exe) or absolute GitHub release
+        # URLs; [uri]::new against the site base handles both.
+        $rx = [regex]'href\s*=\s*"(?<href>[^"]*?7z(?<ver>\d{4})-arm64\.exe)"'
+        $rxMatches = $rx.Matches($html)
+        if (-not $rxMatches -or $rxMatches.Count -lt 1) {
+            throw "Could not locate any ARM64 exe links on the download page."
+        }
+
+        $candidates = foreach ($m in $rxMatches) {
+            [pscustomobject]@{
+                Href      = $m.Groups["href"].Value
+                VerDigits = [int]$m.Groups["ver"].Value
+            }
+        }
+        $best = $candidates | Sort-Object VerDigits -Descending | Select-Object -First 1
+        $base = [uri]"https://www.7-zip.org/"
+        $final = ([uri]::new($base, $best.Href)).AbsoluteUri
+
+        Write-Log "Resolved ARM64 exe URL       : $final" -Quiet:$Quiet
+        return [pscustomobject]@{ Url = $final; VerDigits = $best.VerDigits }
+    }
+    catch {
+        Write-Log "Failed to resolve 7-Zip ARM64 exe URL: $($_.Exception.Message)" -Level ERROR
         return $null
     }
 }
@@ -240,6 +277,61 @@ function Invoke-Stage7Zip {
         -InstallPs1Content $wrapperContent.Install `
         -UninstallPs1Content $wrapperContent.Uninstall
 
+    # --- Optional ARM64 variant (Architecture split) ---
+    # The x64 payload is an MSI; the vendor ships ARM64 as an exe installer
+    # only, so the variant carries its own wrappers and detects on the exe
+    # installer's fixed ARP key instead of a ProductCode.
+    $deploymentTypes = $null
+    $variants = Get-RequestedPackagerVariants
+    if ($variants -and $variants.Split -eq 'Architecture') {
+        Write-Log ""
+        Write-Log "Architecture split requested : staging ARM64 variant"
+
+        $armInfo = Resolve-7ZipArm64ExeUrl
+        if (-not $armInfo) { throw "Architecture split requested but the ARM64 exe URL could not be resolved." }
+
+        $expectedDigits = $displayVersion -replace '\.', ''
+        if ([string]$armInfo.VerDigits -ne $expectedDigits) {
+            throw "ARM64 exe version ($($armInfo.VerDigits)) does not match the staged x64 version ($displayVersion); refusing to ship a mismatched pair."
+        }
+
+        $localArmExe = Join-Path $BaseDownloadRoot $ArmExeFileName
+        Invoke-DownloadWithRetry -Url $armInfo.Url -OutFile $localArmExe
+
+        $armContentPath = Join-Path $localContentPath "arm64"
+        Initialize-Folder -Path $armContentPath
+        Copy-Item -LiteralPath $localArmExe -Destination (Join-Path $armContentPath $ArmExeFileName) -Force -ErrorAction Stop
+        Write-Log "Copied ARM64 exe to staged   : $armContentPath"
+
+        $armWrappers = New-ExeWrapperContent -InstallerFileName $ArmExeFileName -InstallArgs "'/S'" `
+            -UninstallCommand 'C:\Program Files\7-Zip\Uninstall.exe' -UninstallArgs "'/S'"
+        Write-ContentWrappers -OutputPath $armContentPath `
+            -InstallPs1Content $armWrappers.Install `
+            -UninstallPs1Content $armWrappers.Uninstall
+
+        # Both entries are gated: a machine that is neither x64 nor ARM64
+        # should install neither variant.
+        $deploymentTypes = @(
+            @{
+                NameSuffix     = 'ARM64'
+                ContentSubpath = 'arm64'
+                Detection      = @{
+                    Type                = 'RegistryKeyValue'
+                    RegistryKeyRelative = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\7-Zip'
+                    ValueName           = 'DisplayVersion'
+                    DisplayName         = $productName
+                    DisplayVersion      = $displayVersion
+                    Is64Bit             = $true
+                }
+                Requirements   = @(@{ ConditionId = 'cpu-arch'; Value = 'ARM64' })
+            },
+            @{
+                NameSuffix   = 'x64'
+                Requirements = @(@{ ConditionId = 'cpu-arch'; Value = 'x64' })
+            }
+        )
+    }
+
     # --- Write stage manifest ---
     $publisher = $manufacturer
     if ([string]::IsNullOrWhiteSpace($publisher)) { $publisher = "Igor Pavlov" }
@@ -247,7 +339,7 @@ function Invoke-Stage7Zip {
     $appName = $productName
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
-    Write-StageManifest -Path $manifestPath -ManifestData @{
+    $manifestData = @{
         AppName         = $appName
         Publisher       = $publisher
         SoftwareVersion = $displayVersion
@@ -266,6 +358,8 @@ function Invoke-Stage7Zip {
             Is64Bit             = $arpEntry.Is64Bit
         }
     }
+    if ($deploymentTypes) { $manifestData['DeploymentTypes'] = $deploymentTypes }
+    Write-StageManifest -Path $manifestPath -ManifestData $manifestData
 
     Write-Log ""
     Write-Log "Stage complete               : $localContentPath"
@@ -322,17 +416,22 @@ function Invoke-Package7Zip {
     Write-Log "Network content path         : $networkContentPath"
     Write-Log ""
 
-    # --- Copy staged content to network ---
-    $localFiles = Get-ChildItem -Path $localContentPath -File -ErrorAction Stop
+    # --- Copy staged content to network (recursive: a variant split stages
+    # its payload in a subfolder) ---
+    $localRoot = (Resolve-Path -LiteralPath $localContentPath).Path
+    $localFiles = Get-ChildItem -Path $localContentPath -File -Recurse -ErrorAction Stop
     foreach ($f in $localFiles) {
         if ($f.Name -eq "stage-manifest.json") { continue }
-        $dest = Join-Path $networkContentPath $f.Name
+        $relative = $f.FullName.Substring($localRoot.Length).TrimStart('\')
+        $dest = Join-Path $networkContentPath $relative
+        $destDir = Split-Path -Parent $dest
+        if (-not (Test-Path -LiteralPath $destDir)) { New-Item -ItemType Directory -Path $destDir -Force -ErrorAction Stop | Out-Null }
         if (-not (Test-Path -LiteralPath $dest)) {
             Copy-Item -LiteralPath $f.FullName -Destination $dest -Force -ErrorAction Stop
-            Write-Log "Copied to network            : $($f.Name)"
+            Write-Log "Copied to network            : $relative"
         }
         else {
-            Write-Log "Already on network           : $($f.Name)"
+            Write-Log "Already on network           : $relative"
         }
     }
 
