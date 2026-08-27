@@ -1473,14 +1473,17 @@ function Get-DeploymentTypeRequirementSpecs {
         throws instead of packaging without the rules the operator
         configured.
     #>
-    param([pscustomobject]$Manifest)
+    param(
+        [pscustomobject]$Manifest,
+        [switch]$IgnoreEnvironment
+    )
 
     $specs = @()
     if ($Manifest -and $Manifest.PSObject.Properties['Requirements'] -and $Manifest.Requirements) {
         $specs += @($Manifest.Requirements)
     }
 
-    $envJson = $env:APP_PACKAGER_REQUIREMENTS
+    $envJson = $(if ($IgnoreEnvironment) { $null } else { $env:APP_PACKAGER_REQUIREMENTS })
     if (-not [string]::IsNullOrWhiteSpace($envJson)) {
         try {
             $parsed = $envJson | ConvertFrom-Json -ErrorAction Stop
@@ -1511,9 +1514,12 @@ function New-DeploymentTypeRequirementRules {
     .OUTPUTS
         Requirement rule array; empty when no specs are configured.
     #>
-    param([pscustomobject]$Manifest)
+    param(
+        [pscustomobject]$Manifest,
+        [switch]$IgnoreEnvironment
+    )
 
-    $specs = @(Get-DeploymentTypeRequirementSpecs -Manifest $Manifest)
+    $specs = @(Get-DeploymentTypeRequirementSpecs -Manifest $Manifest -IgnoreEnvironment:$IgnoreEnvironment)
     if ($specs.Count -eq 0) { return @() }
 
     $doc = Get-ConditionTemplates
@@ -1572,6 +1578,112 @@ function New-DeploymentTypeRequirementRules {
     return $rules
 }
 
+
+function Get-ManifestDeploymentTypeSpecs {
+    <#
+    .SYNOPSIS
+        Resolves a stage manifest into an ordered deployment type spec list.
+
+    .DESCRIPTION
+        A manifest without a DeploymentTypes array yields one spec built
+        from the base fields (today's single-DT behavior, byte for byte).
+        A DeploymentTypes array yields one spec per entry in manifest
+        order; CM assigns deployment type priority by creation order and
+        the client installs the first deployment type whose requirements
+        pass, so authors list the most specific variant first and the
+        unconditional fallback last. Entry fields override the base
+        manifest field of the same name; ContentSubpath is relative to
+        the network content root. On a multi-DT manifest the
+        APP_PACKAGER_REQUIREMENTS environment JSON is ignored (per-DT
+        Requirements arrays are authoritative) - the caller logs that.
+
+    .OUTPUTS
+        [pscustomobject[]] DtName, ContentLocation, InstallCommand,
+        UninstallCommand, Detection, RequirementSource, plus behavior
+        overrides (PostExecutionBehavior, InstallationBehaviorType,
+        LogonRequirementType, RequireUserInteraction).
+    #>
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Manifest,
+        [Parameter(Mandatory)][string]$NetworkContentPath,
+        [Parameter(Mandatory)][string]$AppName
+    )
+
+    $entries = @()
+    if ($Manifest.PSObject.Properties['DeploymentTypes'] -and $Manifest.DeploymentTypes) {
+        $entries = @($Manifest.DeploymentTypes)
+    }
+
+    $base = {
+        param($Entry, $Field)
+        if ($Entry -and $Entry.PSObject.Properties[$Field] -and $null -ne $Entry.$Field -and ('' -ne [string]$Entry.$Field -or $Entry.$Field -is [bool])) { return $Entry.$Field }
+        if ($Manifest.PSObject.Properties[$Field]) { return $Manifest.$Field }
+        return $null
+    }
+
+    if ($entries.Count -eq 0) {
+        # RequirementSource $Manifest keeps the single-DT contract: manifest
+        # Requirements plus the environment JSON, exactly as before.
+        return ,([pscustomobject]@{
+            DtName                   = $AppName
+            ContentLocation          = $NetworkContentPath
+            InstallCommand           = $(if (-not [string]::IsNullOrWhiteSpace([string]$Manifest.InstallCommandLine)) { [string]$Manifest.InstallCommandLine } else { 'install.bat' })
+            UninstallCommand         = $(if (-not [string]::IsNullOrWhiteSpace([string]$Manifest.UninstallCommandLine)) { [string]$Manifest.UninstallCommandLine } else { 'uninstall.bat' })
+            Detection                = $Manifest.Detection
+            RequirementSource        = $Manifest
+            PostExecutionBehavior    = $Manifest.PostExecutionBehavior
+            InstallationBehaviorType = $Manifest.InstallationBehaviorType
+            LogonRequirementType     = $Manifest.LogonRequirementType
+            RequireUserInteraction   = ($Manifest.RequireUserInteraction -eq $true)
+        })
+    }
+
+    $specs = @()
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($entry in $entries) {
+        $suffix = [string]$entry.NameSuffix
+        if ([string]::IsNullOrWhiteSpace($suffix)) {
+            throw "Every DeploymentTypes entry requires a NameSuffix; the deployment type name becomes '<AppName> - <NameSuffix>'."
+        }
+        $dtName = "$AppName - $suffix"
+        if (-not $seen.Add($dtName)) {
+            throw "DeploymentTypes entries produce a duplicate deployment type name '$dtName'."
+        }
+
+        $content = $NetworkContentPath
+        if (-not [string]::IsNullOrWhiteSpace([string]$entry.ContentSubpath)) {
+            $content = Join-Path $NetworkContentPath ([string]$entry.ContentSubpath)
+        }
+
+        $detection = & $base $entry 'Detection'
+        if (-not $detection) {
+            throw "DeploymentTypes entry '$suffix' has no Detection and the manifest has no base Detection."
+        }
+
+        # Requirements resolve strictly from the entry: a variant without
+        # rules is the unconditional fallback by design, and inheriting the
+        # base or environment rules here would gate the fallback by accident.
+        # @() over a missing property yields @($null) with one element; the
+        # Where-Object keeps a rule-less entry a true unconditional fallback.
+        $reqSource = [pscustomobject]@{ Requirements = @(@($entry.Requirements) | Where-Object { $null -ne $_ }) }
+
+        $installOverride = [string](& $base $entry 'InstallCommandLine')
+        $uninstallOverride = [string](& $base $entry 'UninstallCommandLine')
+        $specs += [pscustomobject]@{
+            DtName                   = $dtName
+            ContentLocation          = $content
+            InstallCommand           = $(if (-not [string]::IsNullOrWhiteSpace($installOverride)) { $installOverride } else { 'install.bat' })
+            UninstallCommand         = $(if (-not [string]::IsNullOrWhiteSpace($uninstallOverride)) { $uninstallOverride } else { 'uninstall.bat' })
+            Detection                = $detection
+            RequirementSource        = $reqSource
+            PostExecutionBehavior    = (& $base $entry 'PostExecutionBehavior')
+            InstallationBehaviorType = (& $base $entry 'InstallationBehaviorType')
+            LogonRequirementType     = (& $base $entry 'LogonRequirementType')
+            RequireUserInteraction   = ((& $base $entry 'RequireUserInteraction') -eq $true)
+        }
+    }
+    return $specs
+}
 
 function New-MECMApplicationFromManifest {
     <#
@@ -1640,10 +1752,20 @@ function New-MECMApplicationFromManifest {
 
         Write-Log ("Manifest fields              : AppName='{0}' Publisher='{1}' SoftwareVersion='{2}' DetectionType='{3}'" -f $appName, $Manifest.Publisher, $Manifest.SoftwareVersion, $Manifest.Detection.Type) -Level DEBUG
 
+        $step = 'Deployment type spec resolution'
+        $dtSpecs = @(Get-ManifestDeploymentTypeSpecs -Manifest $Manifest -NetworkContentPath $NetworkContentPath -AppName $appName)
+        $isMultiDt = ($dtSpecs.Count -gt 1 -or $dtSpecs[0].DtName -ne $appName)
+        if ($isMultiDt) {
+            Write-Log ("Deployment types (manifest)  : {0}" -f (($dtSpecs | ForEach-Object { $_.DtName }) -join ', '))
+            if (-not [string]::IsNullOrWhiteSpace($env:APP_PACKAGER_REQUIREMENTS)) {
+                Write-Log "APP_PACKAGER_REQUIREMENTS ignored: a DeploymentTypes manifest carries its own per-deployment-type Requirements." -Level WARN
+            }
+        }
+
         $step = "Get-CMApplication duplicate check ('$appName')"
         $existing = Get-CMApplication -Name $appName -ErrorAction SilentlyContinue
         $cmApp = $null
-        $replaceDtName = $null
+        $replaceDtNames = @()
         if ($existing) {
             $existingApps = @($existing)
             if ($existingApps.Count -gt 1) {
@@ -1651,39 +1773,41 @@ function New-MECMApplicationFromManifest {
             }
             $cmApp = $existingApps[0]
 
-            $dtName = $appName
-            $hasDt = Test-MECMApplicationHasDeploymentType -ApplicationName $appName -DeploymentTypeName $dtName
+            $missingDts = @($dtSpecs | Where-Object { -not (Test-MECMApplicationHasDeploymentType -ApplicationName $appName -DeploymentTypeName $_.DtName) })
             $existingVersion = [string]$cmApp.SoftwareVersion
 
             if ($existingVersion -eq [string]$Manifest.SoftwareVersion) {
-                if ($hasDt) {
+                if ($missingDts.Count -eq 0) {
                     Write-Log "Application already exists    : $appName (v$existingVersion, unchanged)" -Level WARN
-                    Write-Log "Deployment type validated     : $dtName"
+                    Write-Log ("Deployment type(s) validated : {0}" -f (($dtSpecs | ForEach-Object { $_.DtName }) -join ', '))
                     return [UInt32]$cmApp.CI_ID
                 }
-                throw "Existing MECM application '$appName' is missing deployment type '$dtName'. This looks like a partial prior package run; fix or remove the partial app before packaging again."
+                throw ("Existing MECM application '$appName' is missing deployment type(s): {0}. This looks like a partial prior package run; fix or remove the partial app before packaging again." -f (($missingDts | ForEach-Object { $_.DtName }) -join ', '))
             }
 
             # Version change on a reused application name (version-less CMName by
-            # design): replace the deployment type with one pointing at the new
-            # content. The new deployment type is created under a staging name
-            # first, because a deployed application refuses to remove its last
-            # deployment type.
-            Write-Log "Application already exists    : $appName (v$existingVersion -> v$($Manifest.SoftwareVersion), replacing deployment type)" -Level WARN
-            if ($hasDt) {
-                $replaceDtName = $dtName
-            }
-            else {
-                Write-Log "Existing app has no deployment type; adding one for the new version." -Level WARN
+            # design): replace every deployment type with the new set pointing at
+            # the new content. New deployment types are created under staging
+            # names first, because a deployed application refuses to remove its
+            # last deployment type.
+            Write-Log "Application already exists    : $appName (v$existingVersion -> v$($Manifest.SoftwareVersion), replacing deployment types)" -Level WARN
+            $step = "Get-CMDeploymentType inventory ('$appName')"
+            $replaceDtNames = @(Get-CMDeploymentType -ApplicationName $appName -ErrorAction Stop | ForEach-Object { [string]$_.LocalizedDisplayName })
+            if ($replaceDtNames.Count -eq 0) {
+                Write-Log "Existing app has no deployment type; adding the new set." -Level WARN
             }
         }
 
-        # Requirement rules resolve before any create/replace so a bad spec
-        # fails the run without leaving a partial application behind. Rule
-        # objects must be built on the CM drive; they survive the later
-        # detection-clause drive switch.
+        # Requirement rules resolve for every deployment type before any
+        # create/replace so a bad spec fails the run without leaving a
+        # partial application behind. Rule objects must be built on the CM
+        # drive; they survive the later detection-clause drive switch. On a
+        # multi-DT manifest the per-entry Requirements are authoritative and
+        # the environment JSON is excluded.
         $step = 'Requirement rules'
-        $requirementRules = @(New-DeploymentTypeRequirementRules -Manifest $Manifest)
+        foreach ($spec in $dtSpecs) {
+            $spec | Add-Member -NotePropertyName RequirementRules -NotePropertyValue @(New-DeploymentTypeRequirementRules -Manifest $spec.RequirementSource -IgnoreEnvironment:$isMultiDt)
+        }
 
         if (-not $cmApp) {
             Write-Log "Creating CM Application      : $appName"
@@ -1706,156 +1830,168 @@ function New-MECMApplicationFromManifest {
             Write-Log "Application CI_ID            : $($cmApp.CI_ID)"
         }
 
-        # Determine detection type (backward compat: missing Type = RegistryKeyValue)
-        $detType = if ($Manifest.Detection.Type) { $Manifest.Detection.Type } else { 'RegistryKeyValue' }
+        # Create every deployment type in spec order: CM assigns priority by
+        # creation order and the client installs the first deployment type
+        # whose requirements pass, so the most specific variant is listed
+        # first and the unconditional fallback last. On a version replace
+        # each new deployment type starts under a staging name; the old set
+        # is removed and the staged names take the canonical names only
+        # after every new deployment type created successfully.
+        $stagedRenames = @()
+        foreach ($spec in $dtSpecs) {
+            $det = $spec.Detection
+            $detType = if ($det.Type) { $det.Type } else { 'RegistryKeyValue' }
 
-        # Common deployment type parameters (splatted). On a version replace the
-        # new deployment type starts under a staging name; it is renamed to the
-        # canonical name after the old one is removed.
-        $dtName = $appName
-        $dtCreateName = if ($replaceDtName) { "$dtName (staging)" } else { $dtName }
-        # Deployment type command lines default to the generated .bat wrappers;
-        # manifests may override both (PSADT-wrapped apps point at the toolkit
-        # entry, e.g. Invoke-AppDeployToolkit.exe -DeploymentType Install).
-        $installCommand = 'install.bat'
-        $uninstallCommand = 'uninstall.bat'
-        if (-not [string]::IsNullOrWhiteSpace([string]$Manifest.InstallCommandLine)) {
-            $installCommand = [string]$Manifest.InstallCommandLine
-            Write-Log "Install command (manifest)   : $installCommand"
-        }
-        if (-not [string]::IsNullOrWhiteSpace([string]$Manifest.UninstallCommandLine)) {
-            $uninstallCommand = [string]$Manifest.UninstallCommandLine
-            Write-Log "Uninstall command (manifest) : $uninstallCommand"
-        }
+            $dtName = $spec.DtName
+            $dtCreateName = if ($replaceDtNames.Count -gt 0) { "$dtName (staging)" } else { $dtName }
+            # Deployment type command lines default to the generated .bat
+            # wrappers; manifests may override both (PSADT-wrapped apps point
+            # at the toolkit entry, e.g. Invoke-AppDeployToolkit.exe
+            # -DeploymentType Install).
+            $installCommand = [string]$spec.InstallCommand
+            $uninstallCommand = [string]$spec.UninstallCommand
+            if ($installCommand -ne 'install.bat') {
+                Write-Log "Install command (manifest)   : $installCommand"
+            }
+            if ($uninstallCommand -ne 'uninstall.bat') {
+                Write-Log "Uninstall command (manifest) : $uninstallCommand"
+            }
 
-        $dtParams = @{
-            ApplicationName           = $appName
-            DeploymentTypeName        = $dtCreateName
-            ContentLocation           = $NetworkContentPath
-            InstallCommand            = $installCommand
-            UninstallCommand          = $uninstallCommand
-            InstallationBehaviorType  = 'InstallForSystem'
-            LogonRequirementType      = 'WhetherOrNotUserLoggedOn'
-            EstimatedRuntimeMins      = $EstimatedRuntimeMins
-            MaximumRuntimeMins        = $MaximumRuntimeMins
-            ContentFallback           = $true
-            SlowNetworkDeploymentMode = 'Download'
-            UserInteractionMode       = 'Hidden'
-            ErrorAction               = 'Stop'
-        }
+            $dtParams = @{
+                ApplicationName           = $appName
+                DeploymentTypeName        = $dtCreateName
+                ContentLocation           = $spec.ContentLocation
+                InstallCommand            = $installCommand
+                UninstallCommand          = $uninstallCommand
+                InstallationBehaviorType  = 'InstallForSystem'
+                LogonRequirementType      = 'WhetherOrNotUserLoggedOn'
+                EstimatedRuntimeMins      = $EstimatedRuntimeMins
+                MaximumRuntimeMins        = $MaximumRuntimeMins
+                ContentFallback           = $true
+                SlowNetworkDeploymentMode = 'Download'
+                UserInteractionMode       = 'Hidden'
+                ErrorAction               = 'Stop'
+            }
 
-        # Manifest field name matches the cmdlet's parameter TYPE
-        # (PostExecutionBehavior); the actual parameter name is
-        # -RebootBehavior. See Add-CMScriptDeploymentType docs.
-        # Default to BasedOnExitCode when the manifest doesn't specify so
-        # MSI 3010 "reboot required" exits actually propagate to the CCM
-        # client. The cmdlet's own default is NoAction, which silently drops
-        # 3010s and breaks install chains that need a reboot between apps.
-        if ($Manifest.PostExecutionBehavior) {
-            $dtParams['RebootBehavior'] = $Manifest.PostExecutionBehavior
-        }
-        else {
-            $dtParams['RebootBehavior'] = 'BasedOnExitCode'
-        }
-
-        if ($Manifest.InstallationBehaviorType) {
-            $dtParams['InstallationBehaviorType'] = $Manifest.InstallationBehaviorType
-        }
-        if ($Manifest.LogonRequirementType) {
-            $dtParams['LogonRequirementType'] = $Manifest.LogonRequirementType
-        }
-        if ($Manifest.RequireUserInteraction -eq $true) {
-            $dtParams['RequireUserInteraction'] = $true
-        }
-
-        if ($detType -eq 'Script') {
-            # Script-based detection: pass script text, no clause objects needed
-            $lang = if ($Manifest.Detection.ScriptLanguage) { $Manifest.Detection.ScriptLanguage } else { 'PowerShell' }
-            $dtParams['ScriptLanguage'] = $lang
-            $dtParams['ScriptText']     = $Manifest.Detection.ScriptText
-        }
-        else {
-            # Clause-based detection: leave CM PSDrive to create clause objects
-            # (CM PSDrive context can interfere with parameter binding)
-            $step = "New detection clause(s) (type=$detType)"
-            Set-Location C: -ErrorAction Stop
-
-            if ($detType -eq 'Compound') {
-                $clauses = @()
-                foreach ($c in $Manifest.Detection.Clauses) {
-                    $clauses += New-SingleDetectionClause -Det $c
-                }
-                $dtParams['AddDetectionClause'] = $clauses
-
-                $groupSizes = @()
-                if ($Manifest.Detection.PSObject.Properties.Name -contains 'GroupSizes' -and $null -ne $Manifest.Detection.GroupSizes) {
-                    $groupSizes = @($Manifest.Detection.GroupSizes | ForEach-Object { [int]$_ })
-                }
-
-                if ($groupSizes.Count -gt 0) {
-                    # (run1 AND ...) OR (run2 AND ...): exactly two contiguous
-                    # clause runs. Only the second run is passed to
-                    # -GroupDetectionClauses; the cmdlet's left-associative
-                    # expression build parenthesizes the first run on its own,
-                    # so grouping both runs is impossible (String[] holds one
-                    # group) and unnecessary. OR attaches to the first clause
-                    # of the second run; clauses inside a run keep AND.
-                    if ($groupSizes.Count -ne 2 -or (($groupSizes[0] + $groupSizes[1]) -ne $clauses.Count) -or ($groupSizes -contains 0)) {
-                        throw "Detection.GroupSizes must be exactly two non-zero sizes summing to the clause count (got: '$($groupSizes -join ',')' for $($clauses.Count) clauses)."
-                    }
-                    $secondStart = $groupSizes[0]
-                    $dtParams['GroupDetectionClauses'] = @($clauses[$secondStart..($clauses.Count - 1)] | ForEach-Object { $_.Setting.LogicalName })
-                    $dtParams['DetectionClauseConnector'] = @(@{
-                        LogicalName = $clauses[$secondStart].Setting.LogicalName
-                        Connector   = 'OR'
-                    })
-                    Write-Log ("Detection expression         : (clauses 1..{0}) OR (clauses {1}..{2})" -f $groupSizes[0], ($secondStart + 1), $clauses.Count)
-                }
-                # OR connector: specify OR for each clause beyond the first
-                # AND is the default and needs no explicit connector
-                elseif ($Manifest.Detection.Connector -eq 'Or' -and $clauses.Count -ge 2) {
-                    $connectors = @()
-                    for ($i = 1; $i -lt $clauses.Count; $i++) {
-                        $connectors += @{
-                            LogicalName = $clauses[$i].Setting.LogicalName
-                            Connector   = 'OR'
-                        }
-                    }
-                    $dtParams['DetectionClauseConnector'] = $connectors
-                }
+            # Manifest field name matches the cmdlet's parameter TYPE
+            # (PostExecutionBehavior); the actual parameter name is
+            # -RebootBehavior. See Add-CMScriptDeploymentType docs.
+            # Default to BasedOnExitCode when the manifest doesn't specify so
+            # MSI 3010 "reboot required" exits actually propagate to the CCM
+            # client. The cmdlet's own default is NoAction, which silently drops
+            # 3010s and breaks install chains that need a reboot between apps.
+            if ($spec.PostExecutionBehavior) {
+                $dtParams['RebootBehavior'] = $spec.PostExecutionBehavior
             }
             else {
-                # Single clause: RegistryKeyValue, RegistryKey, or File
-                $clause = New-SingleDetectionClause -Det $Manifest.Detection
-                $dtParams['AddDetectionClause'] = @($clause)
+                $dtParams['RebootBehavior'] = 'BasedOnExitCode'
             }
 
-            # Reconnect to CM site for Add-CMScriptDeploymentType
-            $step = "Connect-CMSite reconnect (SiteCode=$SiteCode)"
-            if (-not (Connect-CMSite -SiteCode $SiteCode)) {
-                throw "CM site reconnection failed."
+            if ($spec.InstallationBehaviorType) {
+                $dtParams['InstallationBehaviorType'] = $spec.InstallationBehaviorType
+            }
+            if ($spec.LogonRequirementType) {
+                $dtParams['LogonRequirementType'] = $spec.LogonRequirementType
+            }
+            if ($spec.RequireUserInteraction -eq $true) {
+                $dtParams['RequireUserInteraction'] = $true
+            }
+
+            if ($detType -eq 'Script') {
+                # Script-based detection: pass script text, no clause objects needed
+                $lang = if ($det.ScriptLanguage) { $det.ScriptLanguage } else { 'PowerShell' }
+                $dtParams['ScriptLanguage'] = $lang
+                $dtParams['ScriptText']     = $det.ScriptText
+            }
+            else {
+                # Clause-based detection: leave CM PSDrive to create clause objects
+                # (CM PSDrive context can interfere with parameter binding)
+                $step = "New detection clause(s) (type=$detType, dt='$dtName')"
+                Set-Location C: -ErrorAction Stop
+
+                if ($detType -eq 'Compound') {
+                    $clauses = @()
+                    foreach ($c in $det.Clauses) {
+                        $clauses += New-SingleDetectionClause -Det $c
+                    }
+                    $dtParams['AddDetectionClause'] = $clauses
+
+                    $groupSizes = @()
+                    if ($det.PSObject.Properties.Name -contains 'GroupSizes' -and $null -ne $det.GroupSizes) {
+                        $groupSizes = @($det.GroupSizes | ForEach-Object { [int]$_ })
+                    }
+
+                    if ($groupSizes.Count -gt 0) {
+                        # (run1 AND ...) OR (run2 AND ...): exactly two contiguous
+                        # clause runs. Only the second run is passed to
+                        # -GroupDetectionClauses; the cmdlet's left-associative
+                        # expression build parenthesizes the first run on its own,
+                        # so grouping both runs is impossible (String[] holds one
+                        # group) and unnecessary. OR attaches to the first clause
+                        # of the second run; clauses inside a run keep AND.
+                        if ($groupSizes.Count -ne 2 -or (($groupSizes[0] + $groupSizes[1]) -ne $clauses.Count) -or ($groupSizes -contains 0)) {
+                            throw "Detection.GroupSizes must be exactly two non-zero sizes summing to the clause count (got: '$($groupSizes -join ',')' for $($clauses.Count) clauses)."
+                        }
+                        $secondStart = $groupSizes[0]
+                        $dtParams['GroupDetectionClauses'] = @($clauses[$secondStart..($clauses.Count - 1)] | ForEach-Object { $_.Setting.LogicalName })
+                        $dtParams['DetectionClauseConnector'] = @(@{
+                            LogicalName = $clauses[$secondStart].Setting.LogicalName
+                            Connector   = 'OR'
+                        })
+                        Write-Log ("Detection expression         : (clauses 1..{0}) OR (clauses {1}..{2})" -f $groupSizes[0], ($secondStart + 1), $clauses.Count)
+                    }
+                    # OR connector: specify OR for each clause beyond the first
+                    # AND is the default and needs no explicit connector
+                    elseif ($det.Connector -eq 'Or' -and $clauses.Count -ge 2) {
+                        $connectors = @()
+                        for ($i = 1; $i -lt $clauses.Count; $i++) {
+                            $connectors += @{
+                                LogicalName = $clauses[$i].Setting.LogicalName
+                                Connector   = 'OR'
+                            }
+                        }
+                        $dtParams['DetectionClauseConnector'] = $connectors
+                    }
+                }
+                else {
+                    # Single clause: RegistryKeyValue, RegistryKey, or File
+                    $clause = New-SingleDetectionClause -Det $det
+                    $dtParams['AddDetectionClause'] = @($clause)
+                }
+
+                # Reconnect to CM site for Add-CMScriptDeploymentType
+                $step = "Connect-CMSite reconnect (SiteCode=$SiteCode)"
+                if (-not (Connect-CMSite -SiteCode $SiteCode)) {
+                    throw "CM site reconnection failed."
+                }
+            }
+
+            $requirementRules = @($spec.RequirementRules)
+            if ($requirementRules.Count -gt 0) {
+                $dtParams['AddRequirement'] = $requirementRules
+                Write-Log ("Requirement rules attached   : {0} ('{1}')" -f $requirementRules.Count, $dtName)
+            }
+
+            Write-Log ("Deployment type parameters   : {0}" -f (($dtParams.Keys | Sort-Object | ForEach-Object { "{0}='{1}'" -f $_, $dtParams[$_] }) -join ' ')) -Level DEBUG
+
+            Write-Log "Adding Script Deployment Type : $dtCreateName"
+            $step = "Add-CMScriptDeploymentType ('$dtCreateName')"
+            Add-CMScriptDeploymentType @dtParams | Out-Null
+
+            if ($dtCreateName -ne $dtName) {
+                $stagedRenames += [pscustomobject]@{ From = $dtCreateName; To = $dtName }
             }
         }
 
-        if ($requirementRules.Count -gt 0) {
-            $dtParams['AddRequirement'] = $requirementRules
-            Write-Log ("Requirement rules attached   : {0}" -f $requirementRules.Count)
+        foreach ($oldDt in $replaceDtNames) {
+            $step = "Remove-CMDeploymentType ('$oldDt')"
+            Remove-CMDeploymentType -ApplicationName $appName -DeploymentTypeName $oldDt -Force -ErrorAction Stop
+            Write-Log "Removed old deployment type  : $oldDt"
         }
-
-        Write-Log ("Deployment type parameters   : {0}" -f (($dtParams.Keys | Sort-Object | ForEach-Object { "{0}='{1}'" -f $_, $dtParams[$_] }) -join ' ')) -Level DEBUG
-
-        Write-Log "Adding Script Deployment Type : $dtCreateName"
-        $step = "Add-CMScriptDeploymentType ('$dtCreateName')"
-        Add-CMScriptDeploymentType @dtParams | Out-Null
-
-        if ($replaceDtName) {
-            $step = "Remove-CMDeploymentType ('$replaceDtName')"
-            Remove-CMDeploymentType -ApplicationName $appName -DeploymentTypeName $replaceDtName -Force -ErrorAction Stop
-            Write-Log "Removed old deployment type  : $replaceDtName"
-
-            $step = "Set-CMDeploymentType rename ('$dtCreateName' -> '$dtName')"
-            Set-CMDeploymentType -ApplicationName $appName -DeploymentTypeName $dtCreateName -NewDeploymentTypeName $dtName -ErrorAction Stop
-            Write-Log "Renamed deployment type      : $dtName"
+        foreach ($rename in $stagedRenames) {
+            $step = "Set-CMDeploymentType rename ('$($rename.From)' -> '$($rename.To)')"
+            Set-CMDeploymentType -ApplicationName $appName -DeploymentTypeName $rename.From -NewDeploymentTypeName $rename.To -ErrorAction Stop
+            Write-Log "Renamed deployment type      : $($rename.To)"
         }
 
         if ($existing) {
