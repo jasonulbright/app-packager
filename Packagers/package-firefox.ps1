@@ -244,7 +244,9 @@ function Invoke-StageFirefox {
     # --- Write stage manifest ---
     $detectionPath = "{0}\Mozilla Firefox" -f $env:ProgramFiles
 
-    $appName   = "Mozilla Firefox (x64 en-US)"
+    # The split covers both architectures, so the name drops the bitness
+    # but keeps the language: the payload is still en-US only.
+    $appName   = if ($deploymentTypes) { "Mozilla Firefox (en-US)" } else { "Mozilla Firefox (x64 en-US)" }
     $publisher = "Mozilla"
 
     Write-Log ""
