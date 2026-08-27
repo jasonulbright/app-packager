@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.0.4] - 2026-08-27
+
+### Added
+
+- **Chrome and Firefox ARM64 variant splits.** With the Architecture
+  split selected, Chrome also stages Google's ARM64 enterprise MSI
+  (version-matched against x64, detected on its own ProductCode ARP
+  key) and Firefox stages Mozilla's win64-aarch64 exe installer (same
+  install path, so the existing file detection and helper.exe uninstall
+  carry over). Both network copies are now recursive. Without the
+  split, both packagers behave as before.
+
 ## [1.4.0.3] - 2026-08-27
 
 ### Added

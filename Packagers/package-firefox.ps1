@@ -2,6 +2,7 @@
 Vendor: Mozilla
 App: Mozilla Firefox
 CMName: Mozilla Firefox
+SupportsVariants: Architecture
 VendorUrl: https://www.mozilla.org/firefox/enterprise/
 CPE: cpe:2.3:a:mozilla:firefox:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.mozilla.org/en-US/firefox/releases/
@@ -195,6 +196,51 @@ function Invoke-StageFirefox {
         -InstallPs1Content $wrappers.Install `
         -UninstallPs1Content $customUninstall
 
+    # --- Optional ARM64 variant (Architecture split) ---
+    # Mozilla ships win64-aarch64 as an exe installer only. Both
+    # architectures install to the same Program Files path, so the file
+    # detection and the helper.exe uninstall carry over unchanged.
+    $deploymentTypes = $null
+    $variants = Get-RequestedPackagerVariants
+    if ($variants -and $variants.Split -eq 'Architecture') {
+        Write-Log ""
+        Write-Log "Architecture split requested : staging ARM64 variant"
+
+        $armExeFileName = "Firefox Setup $version.exe"
+        $armUrl = "$DownloadBase/$version/win64-aarch64/en-US/" + ($armExeFileName -replace ' ', '%20')
+        $localArmExe = Join-Path $BaseDownloadRoot $armExeFileName
+        if (-not (Test-Path -LiteralPath $localArmExe)) {
+            Write-Log "ARM64 download URL           : $armUrl"
+            Invoke-DownloadWithRetry -Url $armUrl -OutFile $localArmExe
+        }
+
+        $armContentPath = Join-Path $localContentPath "arm64"
+        Initialize-Folder -Path $armContentPath
+        Copy-Item -LiteralPath $localArmExe -Destination (Join-Path $armContentPath $armExeFileName) -Force -ErrorAction Stop
+        Write-Log "Copied ARM64 exe to staged   : $armContentPath"
+
+        $armWrappers = New-ExeWrapperContent -InstallerFileName $armExeFileName -InstallArgs "'/S'" `
+            -UninstallCommand 'unused'
+        Write-ContentWrappers -OutputPath $armContentPath `
+            -InstallPs1Content $armWrappers.Install `
+            -UninstallPs1Content $customUninstall
+
+        # Both entries are gated: a machine that is neither x64 nor ARM64
+        # should install neither variant. Detection comes from the base
+        # manifest entry; the install path is identical on both.
+        $deploymentTypes = @(
+            @{
+                NameSuffix     = 'ARM64'
+                ContentSubpath = 'arm64'
+                Requirements   = @(@{ ConditionId = 'cpu-arch'; Value = 'ARM64' })
+            },
+            @{
+                NameSuffix   = 'x64'
+                Requirements = @(@{ ConditionId = 'cpu-arch'; Value = 'x64' })
+            }
+        )
+    }
+
     # --- Write stage manifest ---
     $detectionPath = "{0}\Mozilla Firefox" -f $env:ProgramFiles
 
@@ -207,7 +253,7 @@ function Invoke-StageFirefox {
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
-    Write-StageManifest -Path $manifestPath -ManifestData @{
+    $manifestData = @{
         AppName         = $appName
         Publisher       = $publisher
         SoftwareVersion = $version
@@ -226,6 +272,8 @@ function Invoke-StageFirefox {
             Is64Bit       = $true
         }
     }
+    if ($deploymentTypes) { $manifestData['DeploymentTypes'] = $deploymentTypes }
+    Write-StageManifest -Path $manifestPath -ManifestData $manifestData
 
     # Save version marker for Package phase
     Set-Content -LiteralPath (Join-Path $BaseDownloadRoot "staged-version.txt") -Value $version -Encoding ASCII -ErrorAction Stop
@@ -280,17 +328,22 @@ function Invoke-PackageFirefox {
     Write-Log "Network content path         : $networkContentPath"
     Write-Log ""
 
-    # --- Copy staged content to network ---
-    $localFiles = Get-ChildItem -Path $localContentPath -File -ErrorAction Stop
+    # --- Copy staged content to network (recursive: a variant split stages
+    # its payload in a subfolder) ---
+    $localRoot = (Resolve-Path -LiteralPath $localContentPath).Path
+    $localFiles = Get-ChildItem -Path $localContentPath -File -Recurse -ErrorAction Stop
     foreach ($f in $localFiles) {
         if ($f.Name -eq "stage-manifest.json") { continue }
-        $dest = Join-Path $networkContentPath $f.Name
+        $relative = $f.FullName.Substring($localRoot.Length).TrimStart('\')
+        $dest = Join-Path $networkContentPath $relative
+        $destDir = Split-Path -Parent $dest
+        if (-not (Test-Path -LiteralPath $destDir)) { New-Item -ItemType Directory -Path $destDir -Force -ErrorAction Stop | Out-Null }
         if (-not (Test-Path -LiteralPath $dest)) {
             Copy-Item -LiteralPath $f.FullName -Destination $dest -Force -ErrorAction Stop
-            Write-Log "Copied to network            : $($f.Name)"
+            Write-Log "Copied to network            : $relative"
         }
         else {
-            Write-Log "Already on network           : $($f.Name)"
+            Write-Log "Already on network           : $relative"
         }
     }
 
