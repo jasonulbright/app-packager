@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.4.0.8] - 2026-08-27
+
+### Added
+
+- **Network split for the remaining M365 SKUs.** The x86 Apps, Project
+  (x64/x86), and Visio (x64/x86) packagers gain the same Network split
+  shipped for Apps x64 in 1.4.0.7: Online deployment type gated to VPN
+  with existence detection, Managed precached fallback, per-SKU
+  detection executables and 32/64-bit registry views.
+
 ## [1.4.0.7] - 2026-08-27
 
 ### Added
