@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Microsoft
 App: M365 Visio (x86)
 CMName: M365 Visio
@@ -6,6 +6,7 @@ VendorUrl: https://www.microsoft.com/microsoft-365
 CPE: cpe:2.3:a:microsoft:365_apps:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/en-us/officeupdates/update-history-microsoft365-apps-by-date
 DownloadPageUrl: https://www.microsoft.com/en-us/microsoft-365
+SupportsVariants: Network
 
 .SYNOPSIS
     Packages M365 Visio (x86) for MECM using the Office Deployment Tool.
@@ -180,7 +181,19 @@ function Invoke-StageM365Visio {
 
     Initialize-Folder -Path $BaseDownloadRoot
 
-    $isOnline = ($M365DeployMode -eq 'Online')
+    # Network split: one application carrying both modes - the Online
+    # (CDN) deployment type gated to VPN, the Managed (precached) one as
+    # the unconditional on-site fallback. The Managed payload stages at
+    # the content root; Online staging follows below.
+    $variants = Get-RequestedPackagerVariants
+    $networkSplit = ($variants -and $variants.Split -eq 'Network')
+    $isOnline = ($M365DeployMode -eq 'Online') -and -not $networkSplit
+    if ($networkSplit) {
+        Write-Log "Network split requested      : staging Managed (root) + Online (online\) payloads"
+        if ($M365DeployMode -eq 'Online') {
+            Write-Log "M365DeployMode 'Online' ignored: the network split stages both modes." -Level WARN
+        }
+    }
     Write-Log "Deploy mode                  : $M365DeployMode"
 
     # --- Load preferences ---
@@ -309,6 +322,46 @@ function Invoke-StageM365Visio {
         -InstallPs1Content $installPs1 `
         -UninstallPs1Content $uninstallPs1
 
+    # --- Optional Online payload (Network split) ---
+    $deploymentTypes = $null
+    if ($networkSplit) {
+        $onlineContentPath = Join-Path $localContentPath "online"
+        Initialize-Folder -Path $onlineContentPath
+
+        Copy-Item -LiteralPath $contentSetupExe -Destination (Join-Path $onlineContentPath "setup.exe") -Force -ErrorAction Stop
+
+        # Online install.xml: no SourcePath, no Version - pulls latest
+        # from the CDN over the VPN-side connection.
+        $onlineInstallXml = New-OdtConfigXml -OfficeClientEdition $Architecture -ProductIds $ProductIds -Channel $ChannelName -CompanyName $companyName -ExcludeApps $excludeApps
+        Set-Content -LiteralPath (Join-Path $onlineContentPath "install.xml") -Value $onlineInstallXml -Encoding ASCII -ErrorAction Stop
+        Set-Content -LiteralPath (Join-Path $onlineContentPath "uninstall.xml") -Value $uninstallXml -Encoding ASCII -ErrorAction Stop
+        Write-ContentWrappers -OutputPath $onlineContentPath `
+            -InstallPs1Content $installPs1 `
+            -UninstallPs1Content $uninstallPs1
+        Write-Log "Online payload staged        : $onlineContentPath"
+
+        $deploymentTypes = @(
+            @{
+                NameSuffix     = 'Online'
+                ContentSubpath = 'online'
+                # Existence-only detection: the CDN install is whatever is
+                # current, so a version pin would false-negative.
+                Detection      = @{
+                    Type         = 'File'
+                    FilePath     = $DetectionPath
+                    FileName     = $DetectionExe
+                    PropertyType = 'Existence'
+                    Is64Bit      = $false
+                }
+                Requirements   = @(@{ ConditionId = 'vpn-connected'; Value = $true })
+            },
+            @{
+                NameSuffix = 'Managed'
+            }
+        )
+        $appName = "M365 Visio (x86) ($($ch.Tag))"
+    }
+
     # --- Write stage manifest ---
     $publisher = "Microsoft"
 
@@ -318,7 +371,7 @@ function Invoke-StageM365Visio {
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
-    Write-StageManifest -Path $manifestPath -ManifestData @{
+    $manifestData = @{
         AppName         = $appName
         DisplayName     = "M365 Visio (x86)"
         Publisher       = $publisher
@@ -330,6 +383,8 @@ function Invoke-StageM365Visio {
         RunningProcess  = @("VISIO")
         Detection       = $detection
     }
+    if ($deploymentTypes) { $manifestData['DeploymentTypes'] = $deploymentTypes }
+    Write-StageManifest -Path $manifestPath -ManifestData $manifestData
 
     # Save version marker for Package phase
     Set-Content -LiteralPath (Join-Path $BaseDownloadRoot "staged-version.txt") -Value $version -Encoding ASCII -ErrorAction Stop
