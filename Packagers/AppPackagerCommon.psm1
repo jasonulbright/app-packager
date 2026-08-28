@@ -659,6 +659,17 @@ function Write-StageManifest {
     $ManifestData['StagedAt'] = (Get-Date -Format 'o')
     $ManifestData['FileHashes'] = @($fileHashes)
 
+    # A build staged under operator command overrides records them, so the
+    # manifest distinguishes it from a stock build.
+    $stageOverrides = Get-RequestedCommandOverrides
+    if ($stageOverrides) {
+        $ManifestData['CommandOverrides'] = @{
+            Install   = [string]$stageOverrides.Install
+            Uninstall = [string]$stageOverrides.Uninstall
+        }
+        Write-Log "Command overrides recorded in manifest."
+    }
+
     $json = $ManifestData | ConvertTo-Json -Depth 8
     Set-Content -LiteralPath $Path -Value $json -Encoding UTF8 -ErrorAction Stop
     Write-Log "Wrote stage manifest         : $Path"
