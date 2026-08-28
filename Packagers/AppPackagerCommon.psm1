@@ -1762,6 +1762,27 @@ function New-MECMApplicationFromManifest {
             }
         }
 
+        # Operator command overrides replace the deployment type commands
+        # on single-DT apps; a multi-DT manifest carries per-variant
+        # commands, so the flat override is refused rather than applied to
+        # every variant.
+        $commandOverrides = Get-RequestedCommandOverrides
+        if ($commandOverrides) {
+            if ($isMultiDt) {
+                Write-Log "APP_PACKAGER_COMMANDS ignored: a DeploymentTypes manifest carries per-deployment-type commands." -Level WARN
+            }
+            else {
+                if (-not [string]::IsNullOrWhiteSpace($commandOverrides.Install)) {
+                    $dtSpecs[0].InstallCommand = $commandOverrides.Install
+                    Write-Log ("Install command (override)   : {0}" -f $commandOverrides.Install)
+                }
+                if (-not [string]::IsNullOrWhiteSpace($commandOverrides.Uninstall)) {
+                    $dtSpecs[0].UninstallCommand = $commandOverrides.Uninstall
+                    Write-Log ("Uninstall command (override) : {0}" -f $commandOverrides.Uninstall)
+                }
+            }
+        }
+
         $step = "Get-CMApplication duplicate check ('$appName')"
         $existing = Get-CMApplication -Name $appName -ErrorAction SilentlyContinue
         $cmApp = $null
@@ -3060,3 +3081,36 @@ function Get-RequestedPackagerVariants {
 }
 
 Export-ModuleMember -Function Get-RequestedPackagerVariants
+
+function Get-RequestedCommandOverrides {
+    <#
+    .SYNOPSIS
+        Parses the APP_PACKAGER_COMMANDS environment JSON the GUI sets
+        when the operator overrides an app's install or uninstall command.
+
+    .DESCRIPTION
+        Returns $null when no override is configured. Malformed JSON or an
+        override with neither command throws instead of silently packaging
+        with the wrong commands.
+
+    .OUTPUTS
+        [pscustomobject] Install and Uninstall (either may be empty), or
+        $null.
+    #>
+    $envJson = $env:APP_PACKAGER_COMMANDS
+    if ([string]::IsNullOrWhiteSpace($envJson)) { return $null }
+    try {
+        $parsed = $envJson | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw "APP_PACKAGER_COMMANDS is not valid JSON: $($_.Exception.Message)"
+    }
+    $install = [string]$parsed.Install
+    $uninstall = [string]$parsed.Uninstall
+    if ([string]::IsNullOrWhiteSpace($install) -and [string]::IsNullOrWhiteSpace($uninstall)) {
+        throw 'APP_PACKAGER_COMMANDS carries neither an Install nor an Uninstall command.'
+    }
+    return [pscustomobject]@{ Install = $install.Trim(); Uninstall = $uninstall.Trim() }
+}
+
+Export-ModuleMember -Function Get-RequestedCommandOverrides
