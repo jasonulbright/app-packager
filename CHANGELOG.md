@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.4.0.11] - 2026-08-28
+
+### Added
+
+- **Override record in the stage manifest.** A build staged while
+  command overrides are active records them in a `CommandOverrides`
+  manifest field, so a package built with custom switches is
+  distinguishable from a stock build. Stock builds write no field.
+  `AppPackagerCommon` 0.0.19.
+
 ## [1.4.0.10] - 2026-08-28
 
 ### Added
