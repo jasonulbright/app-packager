@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.0.10] - 2026-08-28
+
+### Added
+
+- **Command override editor.** The Deployment Conditions grid gains a
+  Commands column: the button reads Default or Modified per app and
+  opens a themed editor with the install and uninstall command fields
+  (watermarked with the shipped defaults), Save, Cancel, and a
+  one-click Revert to default. Edits persist through the panel's OK to
+  `CommandOverrides.Apps` in `AppPackager.preferences.json` and apply
+  on the next Package run via the 1.4.0.9 plumbing.
+
 ## [1.4.0.9] - 2026-08-28
 
 ### Added

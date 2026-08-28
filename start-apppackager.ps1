@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.4.0.9
+    Version    : 1.4.0.10
     Updated    : 2026-08-17
 #>
 
@@ -3683,6 +3683,98 @@ function New-PackagerPreferencesPanel {
     }
 }
 
+function Show-CommandOverrideDialog {
+    # Modal editor for one app's install/uninstall command overrides.
+    # Returns $null on cancel, otherwise @{ Install; Uninstall } with
+    # trimmed values (both empty = revert to the shipped commands).
+    param(
+        [Parameter(Mandatory)][string]$AppLabel,
+        [AllowEmptyString()][string]$Install = '',
+        [AllowEmptyString()][string]$Uninstall = '',
+        [Parameter(Mandatory)]$Owner
+    )
+    $dlgXaml = @'
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="" Width="560" SizeToContent="Height" MinWidth="440"
+    WindowStartupLocation="CenterOwner" TitleCharacterCasing="Normal"
+    GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+    NonActiveGlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+    BorderThickness="1" ResizeMode="NoResize" ShowIconOnTitleBar="False">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <Style x:Key="DialogButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="MinWidth" Value="110"/><Setter Property="Height" Value="32"/>
+                <Setter Property="Margin" Value="0,0,8,0"/>
+                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
+            </Style>
+            <Style x:Key="DialogAccentButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="MinWidth" Value="110"/><Setter Property="Height" Value="32"/>
+                <Setter Property="Margin" Value="0,0,8,0"/>
+                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+    <Grid Margin="16,12,16,12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock x:Name="txtIntro" Grid.Row="0" TextWrapping="Wrap" FontSize="12" Margin="0,4,0,12"/>
+        <TextBlock Grid.Row="1" Text="Install command:" FontSize="12" Margin="0,0,0,4"/>
+        <TextBox   x:Name="txtInstall" Grid.Row="2" FontSize="12" FontFamily="Consolas" Margin="0,0,0,10"
+                   Controls:TextBoxHelper.Watermark="install.bat (packager default)"/>
+        <TextBlock Grid.Row="3" Text="Uninstall command:" FontSize="12" Margin="0,0,0,4"/>
+        <TextBox   x:Name="txtUninstall" Grid.Row="4" FontSize="12" FontFamily="Consolas" Margin="0,0,0,16"
+                   Controls:TextBoxHelper.Watermark="uninstall.bat (packager default)"/>
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="btnRevert" Content="Revert to default" Style="{StaticResource DialogButton}"/>
+            <Button x:Name="btnSave"   Content="Save"              Style="{StaticResource DialogAccentButton}" IsDefault="True"/>
+            <Button x:Name="btnCancel" Content="Cancel"            Style="{StaticResource DialogButton}" IsCancel="True"/>
+        </StackPanel>
+    </Grid>
+</Controls:MetroWindow>
+'@
+    [xml]$dx = $dlgXaml
+    $reader2 = New-Object System.Xml.XmlNodeReader $dx
+    $dlg = [System.Windows.Markup.XamlReader]::Load($reader2)
+    $dlg.Owner = $Owner
+    $dlg.Title = "Command overrides - $AppLabel"
+    Install-TitleBarDragFallback -Window $dlg
+    $theme = [ControlzEx.Theming.ThemeManager]::Current.DetectTheme($Owner)
+    if ($theme) { [void][ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($dlg, $theme) }
+    try {
+        $dlg.WindowTitleBrush          = $Owner.WindowTitleBrush
+        $dlg.NonActiveWindowTitleBrush = $Owner.NonActiveWindowTitleBrush
+        $dlg.GlowBrush                 = $Owner.GlowBrush
+        $dlg.NonActiveGlowBrush        = $Owner.NonActiveGlowBrush
+    } catch { $null = $_ }
+    $dlg.FindName('txtIntro').Text = "Replaces the deployment type command lines the next time $AppLabel is packaged. An empty field keeps the packager's shipped command. Not applied to variant-split apps, whose variants carry their own commands."
+    $txtInstall = $dlg.FindName('txtInstall')
+    $txtUninstall = $dlg.FindName('txtUninstall')
+    $txtInstall.Text = $Install
+    $txtUninstall.Text = $Uninstall
+    $result = $null
+    $dlg.FindName('btnRevert').Add_Click({ $txtInstall.Text = ''; $txtUninstall.Text = '' }.GetNewClosure())
+    $dlg.FindName('btnSave').Add_Click({ $dlg.DialogResult = $true; $dlg.Close() })
+    $dlg.FindName('btnCancel').Add_Click({ $dlg.DialogResult = $false; $dlg.Close() })
+    if ([bool]$dlg.ShowDialog()) {
+        $result = @{ Install = $txtInstall.Text.Trim(); Uninstall = $txtUninstall.Text.Trim() }
+    }
+    return $result
+}
+
 function New-DeploymentConditionsPanel {
     $xaml = @'
 <DockPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -3729,6 +3821,15 @@ function New-DeploymentConditionsPanel {
             <DataGridComboBoxColumn Header="Architecture" Width="110" SelectedItemBinding="{Binding ArchitectureDisplay, UpdateSourceTrigger=PropertyChanged}"/>
             <DataGridTextColumn Header="OS languages" Width="150" Binding="{Binding LanguagesDisplay, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"/>
             <DataGridComboBoxColumn Header="Network" Width="110" SelectedItemBinding="{Binding NetworkDisplay, UpdateSourceTrigger=PropertyChanged}"/>
+            <DataGridTemplateColumn Header="Commands" Width="100">
+                <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                        <Button Content="{Binding CommandLabel}" FontSize="11" Padding="6,1,6,1" Margin="2"
+                                Tag="{Binding}" x:Name="btnRowCommands"
+                                ToolTip="Override the install/uninstall command lines for this app. Empty fields use the packager's shipped commands."/>
+                    </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
             <DataGridTemplateColumn Header="Variant split" Width="120">
                 <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
@@ -3779,6 +3880,7 @@ function New-DeploymentConditionsPanel {
     $networkToDisplay = @{ 'Any' = 'Any'; 'VpnOnly' = 'VPN only'; 'OnSiteOnly' = 'On-site only' }
 
     $currentApps = $script:Prefs.DeploymentConditions.Apps
+    $currentCommands = $script:Prefs.CommandOverrides.Apps
     $rows = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
     $packagers = Get-Packagers -Root $PackagersRoot | Sort-Object Vendor, Application
     foreach ($p in $packagers) {
@@ -3796,6 +3898,15 @@ function New-DeploymentConditionsPanel {
             if ($entry.Languages) { $langsText = (@($entry.Languages) -join ', ') }
             if ($entry.PSObject.Properties['Split'] -and [string]$entry.Split -in @($p.SupportsVariants)) { $split = [string]$entry.Split }
         }
+        $cmdInstall = ''
+        $cmdUninstall = ''
+        if ($currentCommands) {
+            $cmdProp = $currentCommands.PSObject.Properties[$base]
+            if ($cmdProp) {
+                $cmdInstall = ([string]$cmdProp.Value.Install).Trim()
+                $cmdUninstall = ([string]$cmdProp.Value.Uninstall).Trim()
+            }
+        }
         $variantOptions = @('None') + @($p.SupportsVariants)
         $rows.Add([pscustomobject]@{
             Packager            = $base
@@ -3807,9 +3918,30 @@ function New-DeploymentConditionsPanel {
             VariantOptions      = [string[]]$variantOptions
             VariantCapable      = (@($p.SupportsVariants).Count -gt 0)
             SplitDisplay        = $split
+            CmdInstall          = $cmdInstall
+            CmdUninstall        = $cmdUninstall
+            CommandLabel        = $(if ($cmdInstall -or $cmdUninstall) { 'Modified' } else { 'Default' })
         })
     }
     $dgCondApps.ItemsSource = $rows
+
+    # Template-column buttons share one routed handler; the row rides in
+    # on the button's Tag. Combo boxes in the split column do not raise
+    # Button.Click, so no filtering is needed.
+    $dgCondApps.AddHandler([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent, [System.Windows.RoutedEventHandler]{
+        param($s, $e)
+        $btn = $e.OriginalSource
+        if ($btn -isnot [System.Windows.Controls.Button]) { return }
+        $row = $btn.Tag
+        if (-not $row -or -not $row.PSObject.Properties['CmdInstall']) { return }
+        $edited = Show-CommandOverrideDialog -AppLabel ([string]$row.Application) -Install ([string]$row.CmdInstall) -Uninstall ([string]$row.CmdUninstall) -Owner $window
+        if ($null -ne $edited) {
+            $row.CmdInstall = [string]$edited.Install
+            $row.CmdUninstall = [string]$edited.Uninstall
+            $row.CommandLabel = $(if ($row.CmdInstall -or $row.CmdUninstall) { 'Modified' } else { 'Default' })
+            $dgCondApps.Items.Refresh()
+        }
+    })
 
     $condState = @{
         Doc   = $condDoc
@@ -3848,6 +3980,18 @@ function New-DeploymentConditionsPanel {
             }
         }
         $prefsRef.DeploymentConditions.Apps = [pscustomobject]$condProps
+
+        $cmdProps = [ordered]@{}
+        foreach ($row in $rows) {
+            $inst = ([string]$row.CmdInstall).Trim()
+            $uninst = ([string]$row.CmdUninstall).Trim()
+            if (-not $inst -and -not $uninst) { continue }
+            $cmdProps[$row.Packager] = [pscustomobject]@{
+                Install   = $inst
+                Uninstall = $uninst
+            }
+        }
+        $prefsRef.CommandOverrides.Apps = [pscustomobject]$cmdProps
 
         if ($archTemplate -and -not [string]::IsNullOrWhiteSpace($txtArchGc.Text)) {
             $archTemplate.GlobalConditionName = $txtArchGc.Text.Trim()
