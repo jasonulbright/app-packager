@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.4.0.8
+    Version    : 1.4.0.9
     Updated    : 2026-08-17
 #>
 
@@ -151,6 +151,9 @@ function Read-Preferences {
             CreateIntuneWin = $false
         }
         DeploymentConditions = [pscustomobject]@{
+            Apps = [pscustomobject]@{}
+        }
+        CommandOverrides = [pscustomobject]@{
             Apps = [pscustomobject]@{}
         }
     }
@@ -309,6 +312,24 @@ function Read-Preferences {
                 }
             }
             $defaults.DeploymentConditions.Apps = [pscustomobject]$condProps
+        }
+
+        # CommandOverrides: per-app install/uninstall command replacements.
+        # Entries with neither command are dropped; whitespace trims away.
+        if ($null -ne $data.CommandOverrides -and $null -ne $data.CommandOverrides.Apps) {
+            $cmdProps = [ordered]@{}
+            foreach ($prop in $data.CommandOverrides.Apps.PSObject.Properties) {
+                if ($prop.Name -notmatch '^package-') { continue }
+                $entry = $prop.Value
+                $inst = ([string]$entry.Install).Trim()
+                $uninst = ([string]$entry.Uninstall).Trim()
+                if (-not $inst -and -not $uninst) { continue }
+                $cmdProps[$prop.Name] = [pscustomobject]@{
+                    Install   = $inst
+                    Uninstall = $uninst
+                }
+            }
+            $defaults.CommandOverrides.Apps = [pscustomobject]$cmdProps
         }
 
         # DetectedTools: last known detection results. Refreshed on launch
@@ -1381,6 +1402,7 @@ function Invoke-PackagerPackage {
         [ValidateSet('Nested','Flat')][string]$ContentLayout = 'Nested',
         [string]$RequirementsJson = '',
         [string]$VariantsJson = '',
+        [string]$CommandsJson = '',
         [System.Windows.Controls.TextBox]$LogTextBox = $null
     )
 
@@ -1412,7 +1434,7 @@ function Invoke-PackagerPackage {
     $psi.RedirectStandardError  = $true
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow  = $true
-    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName -RequirementsJson $RequirementsJson -VariantsJson $VariantsJson
+    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName -RequirementsJson $RequirementsJson -VariantsJson $VariantsJson -CommandsJson $CommandsJson
 
     $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -StructuredLog $structuredLog -LogTextBox $LogTextBox
     Assert-PackagerPackageIntegrity -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -ContentLayout $ContentLayout
@@ -1443,7 +1465,8 @@ function Set-PackagerEnvironment {
         [string]$SevenZipPath,
         [string]$ProviderMachineName,
         [string]$RequirementsJson,
-        [string]$VariantsJson
+        [string]$VariantsJson,
+        [string]$CommandsJson
     )
     if (-not [string]::IsNullOrWhiteSpace($SevenZipPath)) {
         $StartInfo.EnvironmentVariables['APP_PACKAGER_SEVENZIP'] = [string]$SevenZipPath
@@ -1456,6 +1479,9 @@ function Set-PackagerEnvironment {
     }
     if (-not [string]::IsNullOrWhiteSpace($VariantsJson)) {
         $StartInfo.EnvironmentVariables['APP_PACKAGER_VARIANTS'] = [string]$VariantsJson
+    }
+    if (-not [string]::IsNullOrWhiteSpace($CommandsJson)) {
+        $StartInfo.EnvironmentVariables['APP_PACKAGER_COMMANDS'] = [string]$CommandsJson
     }
 }
 
@@ -1500,6 +1526,37 @@ function ConvertTo-VariantsJson {
         $doc['Languages'] = @($Entry.Languages | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ })
     }
     return ($doc | ConvertTo-Json -Depth 4 -Compress)
+}
+
+function ConvertTo-CommandsJson {
+    # Maps one CommandOverrides prefs entry onto the APP_PACKAGER_COMMANDS
+    # JSON that Get-RequestedCommandOverrides consumes. Returns '' when
+    # the entry carries no command.
+    param($Entry)
+
+    if (-not $Entry) { return '' }
+    $inst = ([string]$Entry.Install).Trim()
+    $uninst = ([string]$Entry.Uninstall).Trim()
+    if (-not $inst -and -not $uninst) { return '' }
+    $doc = @{ SchemaVersion = 1 }
+    if ($inst) { $doc['Install'] = $inst }
+    if ($uninst) { $doc['Uninstall'] = $uninst }
+    return ($doc | ConvertTo-Json -Depth 3 -Compress)
+}
+
+function Get-CommandsMapForContext {
+    # Prebuilt on the UI thread, same reason as Get-RequirementsMapForContext.
+    $map = @{}
+    try {
+        $apps = $script:Prefs.CommandOverrides.Apps
+        if ($apps) {
+            foreach ($prop in $apps.PSObject.Properties) {
+                $json = ConvertTo-CommandsJson -Entry $prop.Value
+                if ($json) { $map[$prop.Name] = $json }
+            }
+        }
+    } catch { }
+    return $map
 }
 
 function Get-VariantsMapForContext {
@@ -1795,6 +1852,7 @@ function Invoke-BatchUpdate {
         [string]$SevenZipPath = '',
         [pscustomobject]$CadenceOverrides,
         [pscustomobject]$ConditionApps = $null,
+        [pscustomobject]$CommandApps = $null,
         [switch]$Force
     )
 
@@ -1918,12 +1976,17 @@ function Invoke-BatchUpdate {
 
         $requirementsJson = ''
         $variantsJson = ''
+        $commandsJson = ''
         if ($ConditionApps) {
             $condProp = $ConditionApps.PSObject.Properties[$baseName]
             if ($condProp) {
                 $requirementsJson = ConvertTo-RequirementsJson -Entry $condProp.Value
                 $variantsJson = ConvertTo-VariantsJson -Entry $condProp.Value
             }
+        }
+        if ($CommandApps) {
+            $cmdProp = $CommandApps.PSObject.Properties[$baseName]
+            if ($cmdProp) { $commandsJson = ConvertTo-CommandsJson -Entry $cmdProp.Value }
         }
 
         try {
@@ -1935,6 +1998,8 @@ function Invoke-BatchUpdate {
             $previousRequirementsEnv = $null
             $restoreVariantsEnv = $false
             $previousVariantsEnv = $null
+            $restoreCommandsEnv = $false
+            $previousCommandsEnv = $null
             $packagerWorkingDirectory = Split-Path -Parent $scriptPath
             $pushedPackagerLocation = $false
             try {
@@ -1957,6 +2022,11 @@ function Invoke-BatchUpdate {
                     $restoreVariantsEnv = $true
                     $previousVariantsEnv = $env:APP_PACKAGER_VARIANTS
                     $env:APP_PACKAGER_VARIANTS = $variantsJson
+                }
+                if (-not [string]::IsNullOrWhiteSpace($commandsJson)) {
+                    $restoreCommandsEnv = $true
+                    $previousCommandsEnv = $env:APP_PACKAGER_COMMANDS
+                    $env:APP_PACKAGER_COMMANDS = $commandsJson
                 }
 
                 Push-Location -LiteralPath $packagerWorkingDirectory
@@ -1984,6 +2054,14 @@ function Invoke-BatchUpdate {
                     }
                     else {
                         Remove-Item Env:\APP_PACKAGER_CM_PROVIDER -ErrorAction SilentlyContinue
+                    }
+                }
+                if ($restoreCommandsEnv) {
+                    if ($null -ne $previousCommandsEnv) {
+                        $env:APP_PACKAGER_COMMANDS = $previousCommandsEnv
+                    }
+                    else {
+                        Remove-Item Env:\APP_PACKAGER_COMMANDS -ErrorAction SilentlyContinue
                     }
                 }
                 if ($restoreVariantsEnv) {
@@ -2045,6 +2123,7 @@ if ($BatchMode) {
     $providerForBatch = if ($script:Prefs -and $script:Prefs.ProviderMachineName) { [string]$script:Prefs.ProviderMachineName } else { $null }
     $cadenceOverrides = if ($prefs -and $prefs.AppFlow.CadenceOverrides)  { $prefs.AppFlow.CadenceOverrides }  else { $null }
     $conditionApps    = if ($prefs -and $prefs.DeploymentConditions -and $prefs.DeploymentConditions.Apps) { $prefs.DeploymentConditions.Apps } else { $null }
+    $commandApps      = if ($prefs -and $prefs.CommandOverrides -and $prefs.CommandOverrides.Apps) { $prefs.CommandOverrides.Apps } else { $null }
     $sevenZipPath     = $null
     if ($prefs -and $prefs.DetectedTools -and $prefs.DetectedTools.SevenZipCli -and $prefs.DetectedTools.SevenZipCli.Found) {
         $sevenZipPath = [string]$prefs.DetectedTools.SevenZipCli.ExePath
@@ -2072,6 +2151,7 @@ if ($BatchMode) {
         -SevenZipPath      $sevenZipPath `
         -CadenceOverrides  $cadenceOverrides `
         -ConditionApps     $conditionApps `
+        -CommandApps       $commandApps `
         -Force:$Force
 
     Write-Log "" -Level INFO
@@ -4248,6 +4328,8 @@ function Invoke-MultiAppPipeline {
                             if ($Ctx.RequirementsByApp) { $reqJson = [string]$Ctx.RequirementsByApp[$baseName] }
                             $varJson = ''
                             if ($Ctx.VariantsByApp) { $varJson = [string]$Ctx.VariantsByApp[$baseName] }
+                            $cmdJson = ''
+                            if ($Ctx.CommandsByApp) { $cmdJson = [string]$Ctx.CommandsByApp[$baseName] }
                             $res = Invoke-PackagerPackage `
                                 -PackagerPath $path `
                                 -SiteCode $Ctx.SiteCode `
@@ -4265,7 +4347,8 @@ function Invoke-MultiAppPipeline {
                                 -IntuneWinToolPath ([string]$Ctx.IntuneWinToolPath) `
                                 -ContentLayout ([string]$Ctx.ContentLayout) `
                                 -RequirementsJson $reqJson `
-                                -VariantsJson $varJson
+                                -VariantsJson $varJson `
+                                -CommandsJson $cmdJson
 
                             if ($res.ExitCode -eq 0) {
                                 $row.Status = 'Packaged'
@@ -4490,6 +4573,8 @@ function Invoke-MultiAppPipeline {
                             if ($Ctx.RequirementsByApp) { $reqJson = [string]$Ctx.RequirementsByApp[$baseName] }
                             $varJson = ''
                             if ($Ctx.VariantsByApp) { $varJson = [string]$Ctx.VariantsByApp[$baseName] }
+                            $cmdJson = ''
+                            if ($Ctx.CommandsByApp) { $cmdJson = [string]$Ctx.CommandsByApp[$baseName] }
                             $pkg = Invoke-PackagerPackage `
                                 -PackagerPath $path `
                                 -SiteCode $Ctx.SiteCode `
@@ -4507,7 +4592,8 @@ function Invoke-MultiAppPipeline {
                                 -IntuneWinToolPath ([string]$Ctx.IntuneWinToolPath) `
                                 -ContentLayout ([string]$Ctx.ContentLayout) `
                                 -RequirementsJson $reqJson `
-                                -VariantsJson $varJson
+                                -VariantsJson $varJson `
+                                -CommandsJson $cmdJson
 
                             if ($pkg.ExitCode -eq 0) {
                                 $row.Status = 'Packaged'
@@ -5356,6 +5442,7 @@ $btnPackage.Add_Click({
         IntuneWinToolPath    = Get-IntuneWinToolPathForContext
         RequirementsByApp    = Get-RequirementsMapForContext
         VariantsByApp        = Get-VariantsMapForContext
+        CommandsByApp        = Get-CommandsMapForContext
     }
 })
 
@@ -5447,6 +5534,7 @@ $btnFullRun.Add_Click({
         IntuneWinToolPath    = Get-IntuneWinToolPathForContext
         RequirementsByApp    = Get-RequirementsMapForContext
         VariantsByApp        = Get-VariantsMapForContext
+        CommandsByApp        = Get-CommandsMapForContext
     }
 })
 

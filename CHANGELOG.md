@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.4.0.9] - 2026-08-28
+
+### Added
+
+- **Per-app command overrides (plumbing).** Preferences gain a
+  `CommandOverrides.Apps.<packager>` section with `Install` and
+  `Uninstall` command replacements. Overrides reach the packager child
+  as `APP_PACKAGER_COMMANDS` JSON on every Package path and the common
+  layer swaps them onto the deployment type at creation, logging both
+  the override and the values. A multi-deployment-type manifest refuses
+  the flat override with a warning (variants carry their own commands).
+  Empty or absent entries change nothing. `AppPackagerCommon` 0.0.18
+  adds `Get-RequestedCommandOverrides`. The editor UI arrives in the
+  next increment; until then the section is hand-editable in
+  `AppPackager.preferences.json`.
+
 ## [1.4.0.8] - 2026-08-27
 
 ### Added
