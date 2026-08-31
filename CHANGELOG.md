@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.4.0.12] - 2026-08-28
+
+### Added
+
+- **Intune Win32 publishing (common layer).** `AppPackagerCommon` 0.0.20
+  adds `Publish-IntuneWin32App`: the complete Graph v1.0 flow that turns
+  a packaged `.intunewin` into an Intune Win32 app — app creation with
+  commands and detection rules mapped from the stage manifest, content
+  version and file registration, chunked block-blob upload of the
+  encrypted payload, commit with the package's file encryption info, and
+  the committed-version patch. Supporting functions:
+  `Get-IntuneWinEncryptionInfo` (reads Detection.xml from the package),
+  `Export-IntuneWinPayload`, `Get-MsGraphToken` (client credentials),
+  `Invoke-GraphJson`, `Invoke-AzureBlobUpload`, and
+  `ConvertTo-IntuneWin32Rules` (registry/file/script detection mapping;
+  OR-connected compound detections are refused rather than silently
+  narrowed — use Script detection for those apps). Requires an Entra app
+  registration with `DeviceManagementApps.ReadWrite.All`. Assignment
+  stays with the operator in the Intune console. All request and
+  resource shapes follow the documented Graph v1.0 contracts; live
+  tenant validation and GUI integration follow in the 1.5.0 line.
+
 ## [1.4.0.11] - 2026-08-28
 
 ### Added
