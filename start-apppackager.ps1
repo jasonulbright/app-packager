@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.4.0.13
+    Version    : 1.4.0.14
     Updated    : 2026-08-17
 #>
 
@@ -149,6 +149,9 @@ function Read-Preferences {
         }
         Intune               = [pscustomobject]@{
             CreateIntuneWin       = $false
+            # MECM = today's flow; MECMAndIntune = MECM app + Graph publish;
+            # IntuneOnly = stage + .intunewin + Graph publish, no site touch.
+            DeploymentTarget      = 'MECM'
             PublishToIntune       = $false
             TenantId              = ''
             ClientId              = ''
@@ -287,6 +290,13 @@ function Read-Preferences {
         if ($null -ne $data.Intune) {
             if ($null -ne $data.Intune.CreateIntuneWin) { try { $defaults.Intune.CreateIntuneWin = [bool]$data.Intune.CreateIntuneWin } catch { } }
             if ($null -ne $data.Intune.PublishToIntune) { try { $defaults.Intune.PublishToIntune = [bool]$data.Intune.PublishToIntune } catch { } }
+            if ([string]$data.Intune.DeploymentTarget -in @('MECM', 'MECMAndIntune', 'IntuneOnly')) {
+                $defaults.Intune.DeploymentTarget = [string]$data.Intune.DeploymentTarget
+            }
+            elseif ($defaults.Intune.PublishToIntune) {
+                # Pre-1.4.0.14 prefs expressed publishing as a bare toggle.
+                $defaults.Intune.DeploymentTarget = 'MECMAndIntune'
+            }
             if ($null -ne $data.Intune.TenantId)              { $defaults.Intune.TenantId              = [string]$data.Intune.TenantId }
             if ($null -ne $data.Intune.ClientId)              { $defaults.Intune.ClientId              = [string]$data.Intune.ClientId }
             if ($null -ne $data.Intune.ClientSecretProtected) { $defaults.Intune.ClientSecretProtected = [string]$data.Intune.ClientSecretProtected }
@@ -990,7 +1000,8 @@ function Invoke-PackagerIntuneWinPostStep {
         [Parameter(Mandatory)][string]$FileServerPath,
         [string]$DownloadRoot = $null,
         [string]$ToolPath = '',
-        [ValidateSet('Nested','Flat')][string]$ContentLayout = 'Nested'
+        [ValidateSet('Nested','Flat')][string]$ContentLayout = 'Nested',
+        [switch]$SkipNetworkCopy
     )
 
     $note = [pscustomobject]@{
@@ -1033,8 +1044,8 @@ function Invoke-PackagerIntuneWinPostStep {
             -OutputName $outputName
         $note.LocalPath = [string]$pkg.IntuneWinPath
 
-        $networkContentPath = Get-PackagerLoggedPath -Text $Result.StdOut -Label 'Network content path'
-        if ([string]::IsNullOrWhiteSpace($networkContentPath) -and $info.VendorFolder -and $info.AppFolder) {
+        $networkContentPath = if ($SkipNetworkCopy) { '' } else { Get-PackagerLoggedPath -Text $Result.StdOut -Label 'Network content path' }
+        if (-not $SkipNetworkCopy -and [string]::IsNullOrWhiteSpace($networkContentPath) -and $info.VendorFolder -and $info.AppFolder) {
             if ($ContentLayout -eq 'Flat') {
                 $networkContentPath = Join-Path (Join-Path $FileServerPath 'Applications') ('{0}-{1}-{2}' -f $info.VendorFolder, $info.AppFolder, $version)
             }
@@ -1410,6 +1421,7 @@ function Invoke-PackagerPackage {
         [switch]$CreateIntuneWin,
         [string]$IntuneWinToolPath = '',
         [hashtable]$IntunePublishConfig = $null,
+        [ValidateSet('MECM', 'MECMAndIntune', 'IntuneOnly')][string]$DeploymentTarget = 'MECM',
         [ValidateSet('Nested','Flat')][string]$ContentLayout = 'Nested',
         [string]$RequirementsJson = '',
         [string]$VariantsJson = '',
@@ -1430,7 +1442,11 @@ function Invoke-PackagerPackage {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "powershell.exe"
     $psi.WorkingDirectory = Split-Path -Parent $PackagerPath
-    $argsBase = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PackagerPath, '-PackageOnly', '-SiteCode', $SiteCode, '-Comment', $Comment, '-LogPath', $structuredLog)
+    # Intune-only runs stop at Stage: no site connection, no share copy,
+    # no MECM application. The .intunewin build and Graph publish below
+    # work entirely from the local staged content.
+    $phaseSwitch = if ($DeploymentTarget -eq 'IntuneOnly') { '-StageOnly' } else { '-PackageOnly' }
+    $argsBase = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PackagerPath, $phaseSwitch, '-SiteCode', $SiteCode, '-Comment', $Comment, '-LogPath', $structuredLog)
     if (Test-PackagerSupportsFileServerPath -PackagerPath $PackagerPath) {
         $argsBase += @('-FileServerPath', $FileServerPath)
     }
@@ -1448,14 +1464,22 @@ function Invoke-PackagerPackage {
     Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName -RequirementsJson $RequirementsJson -VariantsJson $VariantsJson -CommandsJson $CommandsJson
 
     $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -StructuredLog $structuredLog -LogTextBox $LogTextBox
-    Assert-PackagerPackageIntegrity -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -ContentLayout $ContentLayout
+    if ($DeploymentTarget -ne 'IntuneOnly') {
+        # Network-copy verification; an Intune-only run never copies to the
+        # share (stage integrity is verified when the manifest is written).
+        Assert-PackagerPackageIntegrity -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -ContentLayout $ContentLayout
+    }
 
     # Optional post-step: produce a .intunewin beside the network content.
     # Runs only after integrity passes; failures ride on the result for the
     # caller to surface, never thrown - the MECM application already exists
     # by this point.
-    if ($CreateIntuneWin -and $result.ExitCode -eq 0) {
-        $intuneNote = Invoke-PackagerIntuneWinPostStep -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -ToolPath $IntuneWinToolPath -ContentLayout $ContentLayout
+    $intuneOnly = ($DeploymentTarget -eq 'IntuneOnly')
+    if (($CreateIntuneWin -or $intuneOnly) -and $result.ExitCode -eq 0) {
+        $intuneNote = Invoke-PackagerIntuneWinPostStep -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -ToolPath $IntuneWinToolPath -ContentLayout $ContentLayout -SkipNetworkCopy:$intuneOnly
+        if ($intuneOnly -and -not $IntunePublishConfig -and $intuneNote.Ok) {
+            $result | Add-Member -NotePropertyName IntunePublish -NotePropertyValue ([pscustomobject]@{ Ok = $false; Message = 'Intune credentials not configured; set Tenant ID, Client ID, and Client Secret in MECM Preferences.' }) -Force
+        }
         if ($IntunePublishConfig -and $intuneNote.Ok) {
             $pubNote = [pscustomobject]@{ Ok = $false; Message = '' }
             try {
@@ -1639,7 +1663,9 @@ function Get-IntunePublishConfigForContext {
     param($Prefs = $script:Prefs)
     try {
         $i = $Prefs.Intune
-        if (-not $i -or -not [bool]$i.PublishToIntune) { return $null }
+        if (-not $i) { return $null }
+        $target = [string]$i.DeploymentTarget
+        if ($target -notin @('MECMAndIntune', 'IntuneOnly') -and -not [bool]$i.PublishToIntune) { return $null }
         if ([string]::IsNullOrWhiteSpace([string]$i.TenantId) -or
             [string]::IsNullOrWhiteSpace([string]$i.ClientId) -or
             [string]::IsNullOrWhiteSpace([string]$i.ClientSecretProtected)) { return $null }
@@ -2784,8 +2810,12 @@ function New-MecmPreferencesPanel {
     <TextBox   Grid.Row="17" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,6,0,0"/>
     <TextBlock Grid.Row="18" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
     <PasswordBox Grid.Row="18" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,6,0,0"/>
-    <TextBlock Grid.Row="19" Grid.Column="0" Text="Intune Publish:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="After a successful Package with .intunewin creation enabled, publish the app to Intune as a Win32 app via Graph. Repeat publishes update the existing app."/>
-    <CheckBox  Grid.Row="19" Grid.Column="1" x:Name="chkIntunePublish" Content="Publish to Intune after Package" FontSize="13" VerticalAlignment="Center" Margin="0,6,0,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+    <TextBlock Grid.Row="19" Grid.Column="0" Text="Deployment Target:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Where Package creates applications. MECM only: today's flow. MECM + Intune: MECM app plus a Graph publish of the .intunewin. Intune only: stage, build the .intunewin, and publish via Graph - no ConfigMgr console, site, or file share needed. Repeat publishes update the existing Intune app."/>
+    <ComboBox  Grid.Row="19" Grid.Column="1" x:Name="cboDeployTarget" FontSize="13" Margin="0,6,0,0" Width="260" HorizontalAlignment="Left">
+        <ComboBoxItem Content="MECM only" Tag="MECM"/>
+        <ComboBoxItem Content="MECM + Intune" Tag="MECMAndIntune"/>
+        <ComboBoxItem Content="Intune only" Tag="IntuneOnly"/>
+    </ComboBox>
 </Grid>
 </ScrollViewer>
 '@
@@ -2814,7 +2844,7 @@ function New-MecmPreferencesPanel {
     $txtIntuneTenant      = $element.FindName('txtIntuneTenant')
     $txtIntuneClient      = $element.FindName('txtIntuneClient')
     $pwdIntuneSecret      = $element.FindName('pwdIntuneSecret')
-    $chkIntunePublish     = $element.FindName('chkIntunePublish')
+    $cboDeployTarget      = $element.FindName('cboDeployTarget')
 
     $txtSC.Text  = [string]$script:Prefs.SiteCode
     $txtProvider.Text = [string]$script:Prefs.ProviderMachineName
@@ -2864,7 +2894,11 @@ function New-MecmPreferencesPanel {
     $chkIntuneWin.IsChecked = [bool]$script:Prefs.Intune.CreateIntuneWin
     $txtIntuneTenant.Text = [string]$script:Prefs.Intune.TenantId
     $txtIntuneClient.Text = [string]$script:Prefs.Intune.ClientId
-    $chkIntunePublish.IsChecked = [bool]$script:Prefs.Intune.PublishToIntune
+    $currentTarget = [string]$script:Prefs.Intune.DeploymentTarget
+    foreach ($item in $cboDeployTarget.Items) {
+        if ([string]$item.Tag -eq $currentTarget) { $cboDeployTarget.SelectedItem = $item; break }
+    }
+    if (-not $cboDeployTarget.SelectedItem) { $cboDeployTarget.SelectedIndex = 0 }
     $prefsRefIw = $script:Prefs
     $updateIntuneWinState = {
         $iw = $prefsRefIw.DetectedTools.IntuneWinAppUtil
@@ -2922,7 +2956,8 @@ function New-MecmPreferencesPanel {
         $prefsRef.ContentDistribution.TestCollectionName            = $txtTestCollection.Text.Trim()
         $prefsRef.ContentDistribution.CreateTestCollectionIfMissing = [bool]$chkCreateTestColl.IsChecked
         $prefsRef.Intune.CreateIntuneWin = [bool]$chkIntuneWin.IsChecked
-        $prefsRef.Intune.PublishToIntune = [bool]$chkIntunePublish.IsChecked
+        $prefsRef.Intune.DeploymentTarget = [string]$cboDeployTarget.SelectedItem.Tag
+        $prefsRef.Intune.PublishToIntune = ($prefsRef.Intune.DeploymentTarget -ne 'MECM')
         $prefsRef.Intune.TenantId = $txtIntuneTenant.Text.Trim()
         $prefsRef.Intune.ClientId = $txtIntuneClient.Text.Trim()
         # An empty box keeps the stored secret; a typed value replaces it,
@@ -4568,6 +4603,7 @@ function Invoke-MultiAppPipeline {
                                 -CreateIntuneWin:([bool]$Ctx.IntuneWinCreate) `
                                 -IntuneWinToolPath ([string]$Ctx.IntuneWinToolPath) `
                                 -IntunePublishConfig $Ctx.IntunePublishConfig `
+                                -DeploymentTarget $(if ([string]$Ctx.DeploymentTarget -in @('MECM','MECMAndIntune','IntuneOnly')) { [string]$Ctx.DeploymentTarget } else { 'MECM' }) `
                                 -ContentLayout ([string]$Ctx.ContentLayout) `
                                 -RequirementsJson $reqJson `
                                 -VariantsJson $varJson `
@@ -4817,6 +4853,7 @@ function Invoke-MultiAppPipeline {
                                 -CreateIntuneWin:([bool]$Ctx.IntuneWinCreate) `
                                 -IntuneWinToolPath ([string]$Ctx.IntuneWinToolPath) `
                                 -IntunePublishConfig $Ctx.IntunePublishConfig `
+                                -DeploymentTarget $(if ([string]$Ctx.DeploymentTarget -in @('MECM','MECMAndIntune','IntuneOnly')) { [string]$Ctx.DeploymentTarget } else { 'MECM' }) `
                                 -ContentLayout ([string]$Ctx.ContentLayout) `
                                 -RequirementsJson $reqJson `
                                 -VariantsJson $varJson `
@@ -5674,6 +5711,7 @@ $btnPackage.Add_Click({
         VariantsByApp        = Get-VariantsMapForContext
         CommandsByApp        = Get-CommandsMapForContext
         IntunePublishConfig  = Get-IntunePublishConfigForContext
+        DeploymentTarget     = [string]$script:Prefs.Intune.DeploymentTarget
     }
 })
 
@@ -5767,6 +5805,7 @@ $btnFullRun.Add_Click({
         VariantsByApp        = Get-VariantsMapForContext
         CommandsByApp        = Get-CommandsMapForContext
         IntunePublishConfig  = Get-IntunePublishConfigForContext
+        DeploymentTarget     = [string]$script:Prefs.Intune.DeploymentTarget
     }
 })
 
