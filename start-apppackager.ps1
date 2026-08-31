@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.4.0.12
+    Version    : 1.4.0.13
     Updated    : 2026-08-17
 #>
 
@@ -148,7 +148,12 @@ function Read-Preferences {
             CreateTestCollectionIfMissing = $false
         }
         Intune               = [pscustomobject]@{
-            CreateIntuneWin = $false
+            CreateIntuneWin       = $false
+            PublishToIntune       = $false
+            TenantId              = ''
+            ClientId              = ''
+            # DPAPI-protected (ConvertFrom-SecureString); never plaintext.
+            ClientSecretProtected = ''
         }
         DeploymentConditions = [pscustomobject]@{
             Apps = [pscustomobject]@{}
@@ -278,9 +283,13 @@ function Read-Preferences {
             }
         }
 
-        # Intune: .intunewin production during Package.
-        if ($null -ne $data.Intune -and $null -ne $data.Intune.CreateIntuneWin) {
-            try { $defaults.Intune.CreateIntuneWin = [bool]$data.Intune.CreateIntuneWin } catch { }
+        # Intune: .intunewin production and Graph publishing during Package.
+        if ($null -ne $data.Intune) {
+            if ($null -ne $data.Intune.CreateIntuneWin) { try { $defaults.Intune.CreateIntuneWin = [bool]$data.Intune.CreateIntuneWin } catch { } }
+            if ($null -ne $data.Intune.PublishToIntune) { try { $defaults.Intune.PublishToIntune = [bool]$data.Intune.PublishToIntune } catch { } }
+            if ($null -ne $data.Intune.TenantId)              { $defaults.Intune.TenantId              = [string]$data.Intune.TenantId }
+            if ($null -ne $data.Intune.ClientId)              { $defaults.Intune.ClientId              = [string]$data.Intune.ClientId }
+            if ($null -ne $data.Intune.ClientSecretProtected) { $defaults.Intune.ClientSecretProtected = [string]$data.Intune.ClientSecretProtected }
         }
 
         # DeploymentConditions: per-app requirement rule selections applied
@@ -1040,6 +1049,7 @@ function Invoke-PackagerIntuneWinPostStep {
             $note.NetworkPath = $networkTarget
         }
 
+        $note | Add-Member -NotePropertyName ManifestPath -NotePropertyValue $manifestPath -Force
         $note.Ok = $true
         $note.Message = ('created {0} ({1:N1} MB, SHA256 {2})' -f $outputName, ($pkg.SizeBytes / 1MB), $pkg.Sha256.Substring(0, 12))
         return $note
@@ -1399,6 +1409,7 @@ function Invoke-PackagerPackage {
         [string]$SevenZipPath = '',
         [switch]$CreateIntuneWin,
         [string]$IntuneWinToolPath = '',
+        [hashtable]$IntunePublishConfig = $null,
         [ValidateSet('Nested','Flat')][string]$ContentLayout = 'Nested',
         [string]$RequirementsJson = '',
         [string]$VariantsJson = '',
@@ -1445,6 +1456,24 @@ function Invoke-PackagerPackage {
     # by this point.
     if ($CreateIntuneWin -and $result.ExitCode -eq 0) {
         $intuneNote = Invoke-PackagerIntuneWinPostStep -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -ToolPath $IntuneWinToolPath -ContentLayout $ContentLayout
+        if ($IntunePublishConfig -and $intuneNote.Ok) {
+            $pubNote = [pscustomobject]@{ Ok = $false; Message = '' }
+            try {
+                $manifest = Read-StageManifest -Path $intuneNote.ManifestPath
+                if ($manifest.PSObject.Properties['DeploymentTypes'] -and $manifest.DeploymentTypes) {
+                    $pubNote.Message = 'variant-split app; Intune publish skipped (single-payload apps only for now).'
+                }
+                else {
+                    $pubId = Publish-IntuneWin32App -TenantId $IntunePublishConfig.TenantId -ClientId $IntunePublishConfig.ClientId -ClientSecret $IntunePublishConfig.ClientSecret -IntuneWinPath $intuneNote.LocalPath -Manifest $manifest -Description $Comment
+                    $pubNote.Ok = $true
+                    $pubNote.Message = ('published (app id {0})' -f $pubId)
+                }
+            }
+            catch {
+                $pubNote.Message = ('publish failed: {0}' -f $_.Exception.Message)
+            }
+            $result | Add-Member -NotePropertyName IntunePublish -NotePropertyValue $pubNote -Force
+        }
         if ($intuneNote) {
             $result | Add-Member -NotePropertyName IntuneWin -NotePropertyValue $intuneNote -Force
         }
@@ -1601,6 +1630,25 @@ function Get-SevenZipPathForContext {
         }
     } catch { }
     return ''
+}
+
+function Get-IntunePublishConfigForContext {
+    # Decrypts the stored client secret (DPAPI, current Windows user)
+    # just-in-time. Returns $null when publishing is off or incomplete,
+    # so callers can pass the result straight through.
+    param($Prefs = $script:Prefs)
+    try {
+        $i = $Prefs.Intune
+        if (-not $i -or -not [bool]$i.PublishToIntune) { return $null }
+        if ([string]::IsNullOrWhiteSpace([string]$i.TenantId) -or
+            [string]::IsNullOrWhiteSpace([string]$i.ClientId) -or
+            [string]::IsNullOrWhiteSpace([string]$i.ClientSecretProtected)) { return $null }
+        $sec = ConvertTo-SecureString -String ([string]$i.ClientSecretProtected) -ErrorAction Stop
+        $ptr = [Runtime.InteropServices.Marshal]::SecureStringToGlobalAllocUnicode($sec)
+        try { $plain = [Runtime.InteropServices.Marshal]::PtrToStringUni($ptr) }
+        finally { [Runtime.InteropServices.Marshal]::ZeroFreeGlobalAllocUnicode($ptr) }
+        return @{ TenantId = [string]$i.TenantId; ClientId = [string]$i.ClientId; ClientSecret = $plain }
+    } catch { return $null }
 }
 
 function Get-IntuneWinToolPathForContext {
@@ -2639,10 +2687,16 @@ function New-PanelStub {
 
 function New-MecmPreferencesPanel {
     $xaml = @'
-<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+<ScrollViewer xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro">
+      xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+<Grid Margin="0,0,4,0">
     <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
@@ -2724,7 +2778,16 @@ function New-MecmPreferencesPanel {
 
     <TextBlock Grid.Row="15" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="When enabled, a successful Package also produces an .intunewin from the staged content and stores it beside the network content version folder."/>
     <CheckBox  Grid.Row="15" Grid.Column="1" x:Name="chkIntuneWin" Content="Create .intunewin during Package" FontSize="13" VerticalAlignment="Center" Margin="0,6,0,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+    <TextBlock Grid.Row="16" Grid.Column="0" Text="Intune Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
+    <TextBox   Grid.Row="16" Grid.Column="1" x:Name="txtIntuneTenant" FontSize="13" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="17" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
+    <TextBox   Grid.Row="17" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="18" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
+    <PasswordBox Grid.Row="18" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="19" Grid.Column="0" Text="Intune Publish:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="After a successful Package with .intunewin creation enabled, publish the app to Intune as a Win32 app via Graph. Repeat publishes update the existing app."/>
+    <CheckBox  Grid.Row="19" Grid.Column="1" x:Name="chkIntunePublish" Content="Publish to Intune after Package" FontSize="13" VerticalAlignment="Center" Margin="0,6,0,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 </Grid>
+</ScrollViewer>
 '@
 
     [xml]$xml = $xaml
@@ -2748,6 +2811,10 @@ function New-MecmPreferencesPanel {
     $txtIntuneWinStatus   = $element.FindName('txtIntuneWinStatus')
     $btnIntuneWinDownload = $element.FindName('btnIntuneWinDownload')
     $chkIntuneWin         = $element.FindName('chkIntuneWin')
+    $txtIntuneTenant      = $element.FindName('txtIntuneTenant')
+    $txtIntuneClient      = $element.FindName('txtIntuneClient')
+    $pwdIntuneSecret      = $element.FindName('pwdIntuneSecret')
+    $chkIntunePublish     = $element.FindName('chkIntunePublish')
 
     $txtSC.Text  = [string]$script:Prefs.SiteCode
     $txtProvider.Text = [string]$script:Prefs.ProviderMachineName
@@ -2795,6 +2862,9 @@ function New-MecmPreferencesPanel {
     }
 
     $chkIntuneWin.IsChecked = [bool]$script:Prefs.Intune.CreateIntuneWin
+    $txtIntuneTenant.Text = [string]$script:Prefs.Intune.TenantId
+    $txtIntuneClient.Text = [string]$script:Prefs.Intune.ClientId
+    $chkIntunePublish.IsChecked = [bool]$script:Prefs.Intune.PublishToIntune
     $prefsRefIw = $script:Prefs
     $updateIntuneWinState = {
         $iw = $prefsRefIw.DetectedTools.IntuneWinAppUtil
@@ -2852,6 +2922,14 @@ function New-MecmPreferencesPanel {
         $prefsRef.ContentDistribution.TestCollectionName            = $txtTestCollection.Text.Trim()
         $prefsRef.ContentDistribution.CreateTestCollectionIfMissing = [bool]$chkCreateTestColl.IsChecked
         $prefsRef.Intune.CreateIntuneWin = [bool]$chkIntuneWin.IsChecked
+        $prefsRef.Intune.PublishToIntune = [bool]$chkIntunePublish.IsChecked
+        $prefsRef.Intune.TenantId = $txtIntuneTenant.Text.Trim()
+        $prefsRef.Intune.ClientId = $txtIntuneClient.Text.Trim()
+        # An empty box keeps the stored secret; a typed value replaces it,
+        # protected with DPAPI for the current Windows user.
+        if ($pwdIntuneSecret.SecurePassword.Length -gt 0) {
+            $prefsRef.Intune.ClientSecretProtected = ($pwdIntuneSecret.SecurePassword | ConvertFrom-SecureString)
+        }
     }.GetNewClosure()
 
     return @{ Name = 'MECM Preferences'; Element = $element; Commit = $commit }
@@ -4489,6 +4567,7 @@ function Invoke-MultiAppPipeline {
                                 -SevenZipPath $Ctx.SevenZipPath `
                                 -CreateIntuneWin:([bool]$Ctx.IntuneWinCreate) `
                                 -IntuneWinToolPath ([string]$Ctx.IntuneWinToolPath) `
+                                -IntunePublishConfig $Ctx.IntunePublishConfig `
                                 -ContentLayout ([string]$Ctx.ContentLayout) `
                                 -RequirementsJson $reqJson `
                                 -VariantsJson $varJson `
@@ -4497,6 +4576,9 @@ function Invoke-MultiAppPipeline {
                             if ($res.ExitCode -eq 0) {
                                 $row.Status = 'Packaged'
                                 [void]$State.LogQueue.Enqueue(('Packaged. Logs: ' + (Split-Path -Leaf $res.OutLog)))
+                                if ($res.PSObject.Properties['IntunePublish'] -and $res.IntunePublish) {
+                                    [void]$State.LogQueue.Enqueue(('Intune publish: ' + $res.IntunePublish.Message))
+                                }
                                 if ($res.PSObject.Properties['IntuneWin'] -and $res.IntuneWin) {
                                     [void]$State.LogQueue.Enqueue(('Intunewin: ' + $res.IntuneWin.Message))
                                     if ($res.IntuneWin.NetworkPath) {
@@ -4734,6 +4816,7 @@ function Invoke-MultiAppPipeline {
                                 -SevenZipPath $Ctx.SevenZipPath `
                                 -CreateIntuneWin:([bool]$Ctx.IntuneWinCreate) `
                                 -IntuneWinToolPath ([string]$Ctx.IntuneWinToolPath) `
+                                -IntunePublishConfig $Ctx.IntunePublishConfig `
                                 -ContentLayout ([string]$Ctx.ContentLayout) `
                                 -RequirementsJson $reqJson `
                                 -VariantsJson $varJson `
@@ -4742,6 +4825,9 @@ function Invoke-MultiAppPipeline {
                             if ($pkg.ExitCode -eq 0) {
                                 $row.Status = 'Packaged'
                                 [void]$State.LogQueue.Enqueue(('Packaged. Logs: ' + (Split-Path -Leaf $pkg.OutLog)))
+                                if ($pkg.PSObject.Properties['IntunePublish'] -and $pkg.IntunePublish) {
+                                    [void]$State.LogQueue.Enqueue(('Intune publish: ' + $pkg.IntunePublish.Message))
+                                }
                                 if ($pkg.PSObject.Properties['IntuneWin'] -and $pkg.IntuneWin) {
                                     [void]$State.LogQueue.Enqueue(('Intunewin: ' + $pkg.IntuneWin.Message))
                                     if ($pkg.IntuneWin.NetworkPath) {
@@ -5587,6 +5673,7 @@ $btnPackage.Add_Click({
         RequirementsByApp    = Get-RequirementsMapForContext
         VariantsByApp        = Get-VariantsMapForContext
         CommandsByApp        = Get-CommandsMapForContext
+        IntunePublishConfig  = Get-IntunePublishConfigForContext
     }
 })
 
@@ -5679,6 +5766,7 @@ $btnFullRun.Add_Click({
         RequirementsByApp    = Get-RequirementsMapForContext
         VariantsByApp        = Get-VariantsMapForContext
         CommandsByApp        = Get-CommandsMapForContext
+        IntunePublishConfig  = Get-IntunePublishConfigForContext
     }
 })
 
