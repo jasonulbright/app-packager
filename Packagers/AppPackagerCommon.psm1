@@ -3125,3 +3125,401 @@ function Get-RequestedCommandOverrides {
 }
 
 Export-ModuleMember -Function Get-RequestedCommandOverrides
+
+# ---------------------------------------------------------------------------
+# Intune Win32 publishing (Graph)
+# ---------------------------------------------------------------------------
+
+function Get-IntuneWinEncryptionInfo {
+    <#
+    .SYNOPSIS
+        Reads the metadata and encryption info from a .intunewin file.
+
+    .DESCRIPTION
+        A .intunewin file is a zip whose IntuneWinPackage/Metadata/Detection.xml
+        carries the fields the Graph commit action needs (fileEncryptionInfo)
+        plus the setup file name and unencrypted size. The encrypted payload
+        itself is IntuneWinPackage/Contents/IntunePackage.intunewin.
+
+    .OUTPUTS
+        [pscustomobject] Name, FileName, SetupFile, UnencryptedContentSize,
+        EncryptionKey, MacKey, InitializationVector, Mac, ProfileIdentifier,
+        FileDigest, FileDigestAlgorithm.
+    #>
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) { throw "IntuneWin file not found: $Path" }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($Path)
+    try {
+        $entry = $zip.Entries | Where-Object { $_.FullName -eq 'IntuneWinPackage/Metadata/Detection.xml' } | Select-Object -First 1
+        if (-not $entry) { throw "Detection.xml not found inside $Path; not a valid .intunewin package." }
+        $reader = New-Object System.IO.StreamReader($entry.Open())
+        try { [xml]$doc = $reader.ReadToEnd() } finally { $reader.Dispose() }
+
+        $info = $doc.ApplicationInfo
+        $enc = $info.EncryptionInfo
+        if (-not $enc) { throw "Detection.xml carries no EncryptionInfo; the package cannot be committed." }
+
+        return [pscustomobject]@{
+            Name                   = [string]$info.Name
+            FileName               = [string]$info.FileName
+            SetupFile              = [string]$info.SetupFile
+            UnencryptedContentSize = [long]$info.UnencryptedContentSize
+            EncryptionKey          = [string]$enc.EncryptionKey
+            MacKey                 = [string]$enc.MacKey
+            InitializationVector   = [string]$enc.InitializationVector
+            Mac                    = [string]$enc.Mac
+            ProfileIdentifier      = [string]$enc.ProfileIdentifier
+            FileDigest             = [string]$enc.FileDigest
+            FileDigestAlgorithm    = [string]$enc.FileDigestAlgorithm
+        }
+    }
+    finally { $zip.Dispose() }
+}
+
+function Export-IntuneWinPayload {
+    <#
+    .SYNOPSIS
+        Extracts the encrypted payload from a .intunewin file.
+
+    .DESCRIPTION
+        The bytes uploaded to Azure Storage are the inner encrypted
+        IntunePackage.intunewin, not the outer zip.
+
+    .OUTPUTS
+        [pscustomobject] Path and Size of the extracted payload.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Destination
+    )
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($Path)
+    try {
+        $entry = $zip.Entries | Where-Object { $_.FullName -eq 'IntuneWinPackage/Contents/IntunePackage.intunewin' } | Select-Object -First 1
+        if (-not $entry) { throw "Encrypted payload not found inside $Path; not a valid .intunewin package." }
+        [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $Destination, $true)
+        return [pscustomobject]@{ Path = $Destination; Size = (Get-Item -LiteralPath $Destination).Length }
+    }
+    finally { $zip.Dispose() }
+}
+
+function Get-MsGraphToken {
+    <#
+    .SYNOPSIS
+        Acquires an app-only Graph token via the client-credentials flow.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$TenantId,
+        [Parameter(Mandatory)][string]$ClientId,
+        [Parameter(Mandatory)][string]$ClientSecret
+    )
+
+    $resp = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token" -Body @{
+        grant_type    = 'client_credentials'
+        client_id     = $ClientId
+        client_secret = $ClientSecret
+        scope         = 'https://graph.microsoft.com/.default'
+    } -ErrorAction Stop
+    if (-not $resp.access_token) { throw 'Token endpoint returned no access_token.' }
+    return [string]$resp.access_token
+}
+
+function Invoke-GraphJson {
+    <#
+    .SYNOPSIS
+        One Graph REST call. Central so retries and tests hang off one seam.
+    #>
+    param(
+        [Parameter(Mandatory)][ValidateSet('GET', 'POST', 'PATCH', 'DELETE')][string]$Method,
+        [Parameter(Mandatory)][string]$Uri,
+        [Parameter(Mandatory)][string]$Token,
+        $Body = $null
+    )
+
+    $params = @{
+        Method      = $Method
+        Uri         = $Uri
+        Headers     = @{ Authorization = "Bearer $Token" }
+        ContentType = 'application/json'
+        ErrorAction = 'Stop'
+    }
+    if ($null -ne $Body) { $params['Body'] = ($Body | ConvertTo-Json -Depth 12) }
+    return Invoke-RestMethod @params
+}
+
+function Invoke-AzureBlobUpload {
+    <#
+    .SYNOPSIS
+        Uploads a file to an Azure block-blob SAS URI in chunks.
+
+    .DESCRIPTION
+        Standard block-blob protocol: PUT each chunk to
+        <uri>&comp=block&blockid=<base64 id>, then PUT the ordered block
+        list to <uri>&comp=blocklist. 6 MiB chunks keep each request under
+        proxy limits without ballooning the block count.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Uri,
+        [Parameter(Mandatory)][string]$FilePath,
+        [int]$ChunkSizeMB = 6
+    )
+
+    $chunkSize = $ChunkSizeMB * 1MB
+    $stream = [System.IO.File]::OpenRead($FilePath)
+    $blockIds = New-Object System.Collections.Generic.List[string]
+    try {
+        $buffer = New-Object byte[] $chunkSize
+        $index = 0
+        while (($read = $stream.Read($buffer, 0, $chunkSize)) -gt 0) {
+            $blockId = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(('block-{0:D6}' -f $index)))
+            $blockIds.Add($blockId)
+            $chunk = if ($read -eq $chunkSize) { $buffer } else { $buffer[0..($read - 1)] }
+            $blockUri = '{0}&comp=block&blockid={1}' -f $Uri, [uri]::EscapeDataString($blockId)
+            Invoke-RestMethod -Method Put -Uri $blockUri -Body $chunk -Headers @{ 'x-ms-blob-type' = 'BlockBlob' } -ContentType 'application/octet-stream' -ErrorAction Stop | Out-Null
+            $index++
+        }
+        $blockListXml = '<?xml version="1.0" encoding="utf-8"?><BlockList>' + (($blockIds | ForEach-Object { "<Latest>$_</Latest>" }) -join '') + '</BlockList>'
+        Invoke-RestMethod -Method Put -Uri ('{0}&comp=blocklist' -f $Uri) -Body $blockListXml -ContentType 'text/plain; charset=iso-8859-1' -ErrorAction Stop | Out-Null
+        Write-Log ("Uploaded payload             : {0} block(s)" -f $blockIds.Count)
+    }
+    finally { $stream.Dispose() }
+}
+
+function ConvertTo-IntuneWin32Rules {
+    <#
+    .SYNOPSIS
+        Maps a stage manifest Detection onto Graph win32LobApp rules.
+
+    .DESCRIPTION
+        Field names per the v1.0 win32LobApp*Rule resources. RegistryKeyValue
+        compares DisplayVersion-style strings with a version operation when
+        the expected value parses as a version, string equality otherwise.
+        Compound detections map clause-per-rule (Graph ANDs all detection
+        rules; OR-connected compounds are refused rather than silently
+        narrowed).
+    #>
+    param([Parameter(Mandatory)][pscustomobject]$Manifest)
+
+    $det = $Manifest.Detection
+    $type = if ($det.Type) { [string]$det.Type } else { 'RegistryKeyValue' }
+
+    $mapOne = {
+        param($d, $dType)
+        switch ($dType) {
+            'RegistryKeyValue' {
+                $expected = if ($d.ExpectedValue) { [string]$d.ExpectedValue } else { [string]$d.DisplayVersion }
+                $valName = if ($d.ValueName) { [string]$d.ValueName } else { 'DisplayVersion' }
+                $ver = $null
+                $opType = if ([version]::TryParse($expected, [ref]$ver)) { 'version' } else { 'string' }
+                $op = if ($d.Operator -eq 'GreaterEquals') { 'greaterThanOrEqual' } else { 'equal' }
+                @{
+                    '@odata.type'        = '#microsoft.graph.win32LobAppRegistryRule'
+                    ruleType             = 'detection'
+                    check32BitOn64System = (-not [bool]$d.Is64Bit)
+                    keyPath              = ('HKEY_LOCAL_MACHINE\' + ([string]$d.RegistryKeyRelative))
+                    valueName            = $valName
+                    operationType        = $opType
+                    operator             = $op
+                    comparisonValue      = $expected
+                }
+            }
+            'RegistryKey' {
+                @{
+                    '@odata.type'        = '#microsoft.graph.win32LobAppRegistryRule'
+                    ruleType             = 'detection'
+                    check32BitOn64System = (-not [bool]$d.Is64Bit)
+                    keyPath              = ('HKEY_LOCAL_MACHINE\' + ([string]$d.RegistryKeyRelative))
+                    valueName            = $null
+                    operationType        = 'exists'
+                    operator             = 'notConfigured'
+                    comparisonValue      = $null
+                }
+            }
+            'File' {
+                $propType = [string]$d.PropertyType
+                if ($propType -eq 'Version') {
+                    $op = if ($d.Operator -eq 'GreaterEquals') { 'greaterThanOrEqual' } else { 'equal' }
+                    @{
+                        '@odata.type'        = '#microsoft.graph.win32LobAppFileSystemRule'
+                        ruleType             = 'detection'
+                        path                 = [string]$d.FilePath
+                        fileOrFolderName     = [string]$d.FileName
+                        check32BitOn64System = (-not [bool]$d.Is64Bit)
+                        operationType        = 'version'
+                        operator             = $op
+                        comparisonValue      = [string]$d.ExpectedValue
+                    }
+                }
+                else {
+                    @{
+                        '@odata.type'        = '#microsoft.graph.win32LobAppFileSystemRule'
+                        ruleType             = 'detection'
+                        path                 = [string]$d.FilePath
+                        fileOrFolderName     = [string]$d.FileName
+                        check32BitOn64System = (-not [bool]$d.Is64Bit)
+                        operationType        = 'exists'
+                        operator             = 'notConfigured'
+                        comparisonValue      = $null
+                    }
+                }
+            }
+            'Script' {
+                @{
+                    '@odata.type'         = '#microsoft.graph.win32LobAppPowerShellScriptRule'
+                    ruleType              = 'detection'
+                    enforceSignatureCheck = $false
+                    runAs32Bit            = $false
+                    scriptContent         = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$d.ScriptText))
+                    operationType         = 'notConfigured'
+                    operator              = 'notConfigured'
+                }
+            }
+            default { throw "Detection type '$dType' has no Intune rule mapping." }
+        }
+    }
+
+    if ($type -eq 'Compound') {
+        if ([string]$det.Connector -eq 'Or' -or ($det.PSObject.Properties['GroupSizes'] -and $det.GroupSizes)) {
+            throw 'OR-connected compound detections cannot map to Intune rules (Graph ANDs all detection rules); use a Script detection for this app.'
+        }
+        return @($det.Clauses | ForEach-Object { & $mapOne $_ ([string]$_.Type) })
+    }
+    return @(& $mapOne $det $type)
+}
+
+function Publish-IntuneWin32App {
+    <#
+    .SYNOPSIS
+        Publishes a packaged .intunewin as an Intune Win32 app via Graph.
+
+    .DESCRIPTION
+        The complete v1.0 flow: create the win32LobApp (metadata, commands,
+        detection rules from the stage manifest), create a content version
+        and file entry, wait for the Azure Storage URI, upload the encrypted
+        payload in blocks, commit with the package's fileEncryptionInfo,
+        wait for commit, and patch committedContentVersion. Assignment is
+        left to the operator in the Intune console.
+
+        Requires an Entra app registration with application permission
+        DeviceManagementApps.ReadWrite.All (admin-consented).
+
+    .OUTPUTS
+        [string] The created mobile app id.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$TenantId,
+        [Parameter(Mandatory)][string]$ClientId,
+        [Parameter(Mandatory)][string]$ClientSecret,
+        [Parameter(Mandatory)][string]$IntuneWinPath,
+        [Parameter(Mandatory)][pscustomobject]$Manifest,
+        [AllowEmptyString()][string]$Description = '',
+        [string]$MinimumSupportedWindowsRelease = 'Windows10_21H2',
+        [ValidateSet('x86', 'x64')][string]$Architecture = 'x64',
+        [string]$GraphBase = 'https://graph.microsoft.com/v1.0',
+        [int]$PollTimeoutSec = 600
+    )
+
+    $meta = Get-IntuneWinEncryptionInfo -Path $IntuneWinPath
+    $rules = @(ConvertTo-IntuneWin32Rules -Manifest $Manifest)
+
+    $installCommand = if (-not [string]::IsNullOrWhiteSpace([string]$Manifest.InstallCommandLine)) { [string]$Manifest.InstallCommandLine } else { 'install.bat' }
+    $uninstallCommand = if (-not [string]::IsNullOrWhiteSpace([string]$Manifest.UninstallCommandLine)) { [string]$Manifest.UninstallCommandLine } else { 'uninstall.bat' }
+
+    $token = Get-MsGraphToken -TenantId $TenantId -ClientId $ClientId -ClientSecret $ClientSecret
+
+    $appBody = @{
+        '@odata.type'                  = '#microsoft.graph.win32LobApp'
+        displayName                    = [string]$Manifest.AppName
+        description                    = $(if ($Description) { $Description } else { [string]$Manifest.AppName })
+        publisher                      = [string]$Manifest.Publisher
+        fileName                       = (Split-Path -Leaf $IntuneWinPath)
+        setupFilePath                  = $meta.SetupFile
+        installCommandLine             = $installCommand
+        uninstallCommandLine           = $uninstallCommand
+        applicableArchitectures        = $Architecture
+        minimumSupportedWindowsRelease = $MinimumSupportedWindowsRelease
+        installExperience              = @{
+            runAsAccount          = 'system'
+            deviceRestartBehavior = 'basedOnReturnCode'
+        }
+        rules                          = $rules
+        returnCodes                    = @(
+            @{ returnCode = 0;    type = 'success' }
+            @{ returnCode = 1707; type = 'success' }
+            @{ returnCode = 3010; type = 'softReboot' }
+            @{ returnCode = 1641; type = 'hardReboot' }
+            @{ returnCode = 1618; type = 'retry' }
+        )
+    }
+    Write-Log ("Creating Intune Win32 app    : {0}" -f $Manifest.AppName)
+    $app = Invoke-GraphJson -Method POST -Uri "$GraphBase/deviceAppManagement/mobileApps" -Token $token -Body $appBody
+    $appId = [string]$app.id
+    Write-Log ("Intune app id                : {0}" -f $appId)
+
+    $lobBase = "$GraphBase/deviceAppManagement/mobileApps/$appId/microsoft.graph.win32LobApp"
+    $content = Invoke-GraphJson -Method POST -Uri "$lobBase/contentVersions" -Token $token -Body @{}
+    $contentId = [string]$content.id
+
+    $payload = Export-IntuneWinPayload -Path $IntuneWinPath -Destination ([System.IO.Path]::GetTempFileName())
+    try {
+        $fileBody = @{
+            '@odata.type' = '#microsoft.graph.mobileAppContentFile'
+            name          = $meta.FileName
+            size          = [long]$meta.UnencryptedContentSize
+            sizeEncrypted = [long]$payload.Size
+            manifest      = $null
+            isDependency  = $false
+        }
+        $file = Invoke-GraphJson -Method POST -Uri "$lobBase/contentVersions/$contentId/files" -Token $token -Body $fileBody
+        $fileId = [string]$file.id
+        $fileUri = "$lobBase/contentVersions/$contentId/files/$fileId"
+
+        $deadline = (Get-Date).AddSeconds($PollTimeoutSec)
+        do {
+            Start-Sleep -Seconds 3
+            $file = Invoke-GraphJson -Method GET -Uri $fileUri -Token $token
+            if ([string]$file.uploadState -match 'Failed|TimedOut') { throw "Azure storage URI request failed: $($file.uploadState)" }
+        } until ($file.azureStorageUri -or (Get-Date) -gt $deadline)
+        if (-not $file.azureStorageUri) { throw 'Timed out waiting for the Azure storage upload URI.' }
+
+        Write-Log "Uploading encrypted payload  : $([math]::Round($payload.Size / 1MB, 1)) MB"
+        Invoke-AzureBlobUpload -Uri ([string]$file.azureStorageUri) -FilePath $payload.Path
+
+        $commitBody = @{
+            fileEncryptionInfo = @{
+                encryptionKey        = $meta.EncryptionKey
+                macKey               = $meta.MacKey
+                initializationVector = $meta.InitializationVector
+                mac                  = $meta.Mac
+                profileIdentifier    = $meta.ProfileIdentifier
+                fileDigest           = $meta.FileDigest
+                fileDigestAlgorithm  = $meta.FileDigestAlgorithm
+            }
+        }
+        Invoke-GraphJson -Method POST -Uri "$fileUri/commit" -Token $token -Body $commitBody | Out-Null
+
+        $deadline = (Get-Date).AddSeconds($PollTimeoutSec)
+        do {
+            Start-Sleep -Seconds 5
+            $file = Invoke-GraphJson -Method GET -Uri $fileUri -Token $token
+            if ([string]$file.uploadState -match 'commitFileFailed|commitFileTimedOut') { throw "Content commit failed: $($file.uploadState)" }
+        } until ([string]$file.uploadState -eq 'commitFileSuccess' -or (Get-Date) -gt $deadline)
+        if ([string]$file.uploadState -ne 'commitFileSuccess') { throw "Timed out waiting for content commit (last state: $($file.uploadState))." }
+
+        Invoke-GraphJson -Method PATCH -Uri "$GraphBase/deviceAppManagement/mobileApps/$appId" -Token $token -Body @{
+            '@odata.type'           = '#microsoft.graph.win32LobApp'
+            committedContentVersion = $contentId
+        } | Out-Null
+
+        Write-Log ("Published to Intune          : {0} (app id {1})" -f $Manifest.AppName, $appId)
+        return $appId
+    }
+    finally {
+        Remove-Item -LiteralPath $payload.Path -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Export-ModuleMember -Function Get-IntuneWinEncryptionInfo, Export-IntuneWinPayload, Get-MsGraphToken, Invoke-GraphJson, Invoke-AzureBlobUpload, ConvertTo-IntuneWin32Rules, Publish-IntuneWin32App
