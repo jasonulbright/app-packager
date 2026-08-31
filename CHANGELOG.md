@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.4.0.14] - 2026-08-31
+
+### Added
+
+- **Intune-only deployment target.** The publish toggle becomes a
+  three-way Deployment Target: `MECM only`, `MECM + Intune`, and
+  `Intune only`. In Intune-only mode, Package runs the packager's Stage
+  phase (no site connection, no file share, no MECM application),
+  builds the `.intunewin` from the staged content, and publishes to
+  Intune via Graph — a ConfigMgr console is not required. The network
+  copy and its integrity verification are skipped (stage integrity is
+  still verified when the manifest is written), and missing Intune
+  credentials surface as a clear log note instead of a half-finished
+  run. Pre-1.4.0.14 preferences with the publish toggle on migrate to
+  `MECM + Intune`. MECM-specific features (deployment conditions,
+  variant splits, auto-distribute, test deployment) do not apply in
+  Intune-only mode.
+
 ## [1.4.0.13] - 2026-08-28
 
 ### Added
