@@ -3430,6 +3430,12 @@ function Publish-IntuneWin32App {
 
     $token = Get-MsGraphToken -TenantId $TenantId -ClientId $ClientId -ClientSecret $ClientSecret
 
+    # Repeat publishes update the existing app (new content version on the
+    # same app identity) instead of stacking duplicates in the console.
+    $filterName = ([string]$Manifest.AppName) -replace "'", "''"
+    $existing = Invoke-GraphJson -Method GET -Uri ("$GraphBase/deviceAppManagement/mobileApps?`$filter=displayName eq '$filterName'") -Token $token
+    $existingApp = @($existing.value | Where-Object { $_.'@odata.type' -eq '#microsoft.graph.win32LobApp' }) | Select-Object -First 1
+
     $appBody = @{
         '@odata.type'                  = '#microsoft.graph.win32LobApp'
         displayName                    = [string]$Manifest.AppName
@@ -3454,10 +3460,17 @@ function Publish-IntuneWin32App {
             @{ returnCode = 1618; type = 'retry' }
         )
     }
-    Write-Log ("Creating Intune Win32 app    : {0}" -f $Manifest.AppName)
-    $app = Invoke-GraphJson -Method POST -Uri "$GraphBase/deviceAppManagement/mobileApps" -Token $token -Body $appBody
-    $appId = [string]$app.id
-    Write-Log ("Intune app id                : {0}" -f $appId)
+    if ($existingApp) {
+        $appId = [string]$existingApp.id
+        Write-Log ("Updating Intune Win32 app    : {0} (app id {1})" -f $Manifest.AppName, $appId)
+        Invoke-GraphJson -Method PATCH -Uri "$GraphBase/deviceAppManagement/mobileApps/$appId" -Token $token -Body $appBody | Out-Null
+    }
+    else {
+        Write-Log ("Creating Intune Win32 app    : {0}" -f $Manifest.AppName)
+        $app = Invoke-GraphJson -Method POST -Uri "$GraphBase/deviceAppManagement/mobileApps" -Token $token -Body $appBody
+        $appId = [string]$app.id
+        Write-Log ("Intune app id                : {0}" -f $appId)
+    }
 
     $lobBase = "$GraphBase/deviceAppManagement/mobileApps/$appId/microsoft.graph.win32LobApp"
     $content = Invoke-GraphJson -Method POST -Uri "$lobBase/contentVersions" -Token $token -Body @{}

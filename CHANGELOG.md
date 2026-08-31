@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.4.0.13] - 2026-08-28
+
+### Added
+
+- **Intune publishing wired into the app.** MECM Preferences gains
+  Intune Tenant ID, Client ID, Client Secret (stored DPAPI-protected
+  for the current Windows user; an empty field keeps the saved secret),
+  and a "Publish to Intune after Package" toggle. With .intunewin
+  creation and publishing both enabled, a successful Package publishes
+  the app to Intune via Graph; repeat runs update the existing app
+  (new content version on the same app identity) instead of creating
+  duplicates. Variant-split apps skip publishing with a note — Intune
+  carries one payload per app. The publish outcome surfaces in the run
+  log next to the Intunewin note. The MECM Preferences panel now
+  scrolls. `AppPackagerCommon` 0.0.21. Everything is built and
+  unit-tested; first live tenant validation stamps the 1.5.0 line.
+
 ## [1.4.0.12] - 2026-08-28
 
 ### Added
