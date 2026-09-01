@@ -158,9 +158,9 @@ All packager scripts accept the same core parameters:
 | `-GetLatestVersionOnly` | Output the latest version string and exit |
 | `-LogPath` | Path to a structured log file (timestamps + severity levels) |
 
-## Supported Applications (133)
+## Supported Applications (158)
 
-All 133 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op. The original 83 are end-to-end validated against MECM; the newest additions (including the 2026-08-31 batch of sixteen: Anaconda, AnyDesk, Brave, CCleaner, Citrix Workspace CR, CPU-Z, CutePDF Writer, Greenshot, Opera, pgAdmin 4, PyCharm, Slack, TreeSize Free, XenCenter, XenServer VM Tools, Zoom Workplace) inherit the same Stage to manifest to Package shape; Greenshot and Zoom from the new batch are additionally end-to-end validated against MECM.
+All 158 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op. The original 83 are end-to-end validated against MECM; the newest additions (including the 2026-08-31 batch of sixteen: Anaconda, AnyDesk, Brave, CCleaner, Citrix Workspace CR, CPU-Z, CutePDF Writer, Greenshot, Opera, pgAdmin 4, PyCharm, Slack, TreeSize Free, XenCenter, XenServer VM Tools, Zoom Workplace) inherit the same Stage to manifest to Package shape; Greenshot and Zoom from the new batch are additionally end-to-end validated against MECM.
 
 `package-specexec-mitigations.ps1` is the repo's first multi-deployment-type packager: one application, six Script deployment types (Intel HT-on / Intel HT-off / AMD, each in standard and Hyper-V-host variants), routed by global-condition requirement rules (CPU vendor WQL, HT-state script, Hyper-V vmms registry key) and detected by `FeatureSettingsOverride` / `FeatureSettingsOverrideMask` DWORDs. It generates its own content (no vendor download); `-GetLatestVersionOnly` reports the pinned `-ContentVersion`. Deployment targets: the SpecExec collections from the general-scripts repo (`MECM/Collections/New-SpecExecTargetCollections.ps1`).
 
@@ -168,38 +168,93 @@ All 133 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 |---|---|---|---|
 | package-7zip.ps1 | Igor Pavlov | 7-Zip (x64) | RegistryKeyValue |
 | package-adobereader.ps1 | Adobe Inc. | Adobe Acrobat Reader DC (x64) | File version |
-| package-audacity.ps1 | Audacity Team | Audacity (x64) | File version |
+| package-agentransack.ps1 | Mythicsoft | Agent Ransack | RegistryKeyValue |
+| package-aimp.ps1 | AIMP DevTeam | AIMP | File existence |
+| package-amazondcv.ps1 | Amazon Web Services | Amazon DCV Client | RegistryKeyValue |
+| package-amazonworkspaces.ps1 | Amazon Web Services | Amazon WorkSpaces | RegistryKeyValue |
+| package-anaconda.ps1 | Anaconda, Inc. | Anaconda | File existence |
+| package-androidstudio.ps1 | Google | Android Studio | File existence |
+| package-anyburn.ps1 | PowerSoft | AnyBurn | Script (ARP scan) |
+| package-anydesk.ps1 | AnyDesk Software GmbH | AnyDesk | File version |
+| package-arduinoide.ps1 | Arduino | Arduino IDE | RegistryKeyValue |
 | package-aspnethostingbundle8.ps1 | Microsoft | ASP.NET Core Hosting Bundle 8 | RegistryKey existence |
+| package-audacity.ps1 | Audacity Team | Audacity (x64) | File version |
+| package-awscli.ps1 | Amazon | AWS Command Line Interface | RegistryKeyValue |
+| package-awssamcli.ps1 | Amazon Web Services | AWS SAM CLI | RegistryKeyValue |
+| package-awsssmplugin.ps1 | Amazon Web Services | AWS Session Manager Plugin | File existence |
+| package-awstools.ps1 | Amazon | AWS Tools for Windows | RegistryKeyValue |
+| package-awsvpnclient.ps1 | Amazon | AWS VPN Client | RegistryKeyValue |
+| package-axcrypt.ps1 | AxCrypt | AxCrypt | RegistryKeyValue |
+| package-azurefunctionscore.ps1 | Microsoft | Azure Functions Core Tools | RegistryKeyValue |
+| package-bambustudio.ps1 | Bambu Lab | Bambu Studio | File version |
+| package-bcuninstaller.ps1 | Marcin Szeniak | Bulk Crap Uninstaller | RegistryKeyValue |
 | package-bitwarden.ps1 | Bitwarden Inc. | Bitwarden Desktop (x64) | File version |
+| package-bleachbit.ps1 | BleachBit | BleachBit | File version |
+| package-blender.ps1 | Blender Foundation | Blender | RegistryKeyValue |
+| package-boxdrive.ps1 | Box | Box Drive | RegistryKeyValue |
+| package-brave.ps1 | Brave Software | Brave Browser | File version |
+| package-burnaware.ps1 | Burnaware | BurnAware Free | RegistryKeyValue |
+| package-calibrite.ps1 | Calibrite | Calibrite PROFILER | File version |
+| package-ccleaner.ps1 | Piriform Software Ltd. | CCleaner | RegistryKeyValue |
+| package-certifytheweb.ps1 | Webprofusion | Certify The Web | RegistryKeyValue |
+| package-chefworkstation.ps1 | Chef Software | Chef Workstation | RegistryKeyValue |
 | package-chrome.ps1 | Google | Google Chrome Enterprise (x64) | RegistryKeyValue |
-| package-corretto-jdk8-x64.ps1 | Amazon | Amazon Corretto JDK 8 (x64) | RegistryKeyValue |
-| package-corretto-jdk8-x86.ps1 | Amazon | Amazon Corretto JDK 8 (x86) | RegistryKeyValue |
+| package-citrixworkspace-cr.ps1 | Cloud Software Group | Citrix Workspace CR | RegistryKeyValue |
+| package-clockify.ps1 | CAKE.com | Clockify | RegistryKeyValue |
+| package-cloudcompare.ps1 | CloudCompare Project | CloudCompare | File version |
+| package-cloudflarewarp.ps1 | Cloudflare | Cloudflare WARP | RegistryKeyValue |
+| package-cmake.ps1 | Kitware | CMake | RegistryKeyValue |
+| package-codemeterruntime.ps1 | WIBU-SYSTEMS | CodeMeter Runtime Kit | Compound |
+| package-colourcontrastanalyser.ps1 | TPGi | Colour Contrast Analyser | RegistryKeyValue |
 | package-corretto-jdk11-x64.ps1 | Amazon | Amazon Corretto JDK 11 (x64) | RegistryKeyValue |
 | package-corretto-jdk11-x86.ps1 | Amazon | Amazon Corretto JDK 11 (x86) | RegistryKeyValue |
 | package-corretto-jdk17.ps1 | Amazon | Amazon Corretto JDK 17 (x64) | RegistryKeyValue |
 | package-corretto-jdk21.ps1 | Amazon | Amazon Corretto JDK 21 (x64) | RegistryKeyValue |
 | package-corretto-jdk25.ps1 | Amazon | Amazon Corretto JDK 25 (x64) | RegistryKeyValue |
+| package-corretto-jdk8-x64.ps1 | Amazon | Amazon Corretto JDK 8 (x64) | RegistryKeyValue |
+| package-corretto-jdk8-x86.ps1 | Amazon | Amazon Corretto JDK 8 (x86) | RegistryKeyValue |
+| package-cpuz.ps1 | CPUID | CPU-Z | File existence |
+| package-cryptomator.ps1 | Skymatic | Cryptomator | RegistryKeyValue |
+| package-cutepdfwriter.ps1 | Acro Software Inc. | CutePDF Writer | RegistryKeyValue |
+| package-cyberduck.ps1 | iterate GmbH | Cyberduck | File existence |
+| package-datagrip.ps1 | JetBrains | DataGrip | RegistryKey existence |
+| package-daxstudio.ps1 | DAX Studio | DAX Studio | File existence |
+| package-dbbrowsersqlite.ps1 | DB Browser for SQLite Team | DB Browser for SQLite | RegistryKeyValue |
 | package-dbeaver.ps1 | DBeaver Corp | DBeaver Community | File version |
+| package-dbvisualizer.ps1 | DbVis Software AB | DbVisualizer | File version |
+| package-defraggler.ps1 | Piriform Software Ltd. | Defraggler | File version |
+| package-dellcommandupdate.ps1 | Dell Inc. | Dell Command Update | File version |
+| package-displaylink.ps1 | DisplayLink | DisplayLink Graphics | File version |
+| package-dngrep.ps1 | dnGREP | dnGREP | RegistryKeyValue |
+| package-dotnet10both.ps1 | Microsoft | .NET Desktop Runtime 10 (x86+x64) | Compound grouped OR: (x86-N AND x64-N) OR (x86-N+1 AND x64-N+1) file existence |
 | package-dotnet8.ps1 | Microsoft | .NET Desktop Runtime 8 (x86+x64) | Compound grouped OR: (x86-N AND x64-N) OR (x86-N+1 AND x64-N+1) file existence |
 | package-dotnet9x64.ps1 | Microsoft | .NET Desktop Runtime 9 (x64) | File existence |
-| package-dotnet10both.ps1 | Microsoft | .NET Desktop Runtime 10 (x86+x64) | Compound grouped OR: (x86-N AND x64-N) OR (x86-N+1 AND x64-N+1) file existence |
+| package-draftable.ps1 | Draftable | Draftable Desktop | RegistryKeyValue |
 | package-drawio.ps1 | JGraph Ltd | draw.io | RegistryKeyValue |
+| package-duodesktop.ps1 | Cisco | Duo Desktop | RegistryKeyValue |
 | package-edge.ps1 | Microsoft | Microsoft Edge (x64) | Compound (OR, 2x File version) |
 | package-everything.ps1 | Voidtools | Everything (x64) | RegistryKeyValue |
 | package-firefox.ps1 | Mozilla | Mozilla Firefox (x64) | File version |
+| package-freecad.ps1 | FreeCAD Team | FreeCAD | RegistryKeyValue |
+| package-geogebra.ps1 | International GeoGebra Institute | GeoGebra Classic | RegistryKeyValue |
+| package-gephi.ps1 | Gephi Consortium | Gephi | File existence |
 | package-gimp.ps1 | The GIMP Team | GIMP (x64) | RegistryKeyValue |
 | package-git.ps1 | Git | Git for Windows (x64) | File version |
+| package-githubcli.ps1 | GitHub | GitHub CLI | RegistryKeyValue |
+| package-goland.ps1 | JetBrains | GoLand | RegistryKey existence |
+| package-gpg4win.ps1 | g10 Code GmbH | Gpg4win | RegistryKeyValue |
+| package-greenshot.ps1 | Greenshot | Greenshot | File existence |
 | package-inkscape.ps1 | Inkscape Project | Inkscape (x64) | RegistryKeyValue |
 | package-keepass.ps1 | Dominik Reichl | KeePass | RegistryKeyValue |
 | package-libreoffice.ps1 | The Document Foundation | LibreOffice (x64) | RegistryKeyValue |
-| package-malwarebytes.ps1 | Malwarebytes | Malwarebytes | RegistryKeyValue |
-| package-mremoteng.ps1 | mRemoteNG | mRemoteNG | RegistryKeyValue |
 | package-m365apps-x64.ps1 | Microsoft | M365 Apps for Enterprise (x64) | File version (WINWORD.EXE) |
 | package-m365apps-x86.ps1 | Microsoft | M365 Apps for Enterprise (x86) | File version (WINWORD.EXE) |
-| package-m365visio-x64.ps1 | Microsoft | M365 Visio (x64) | File version (VISIO.EXE) |
-| package-m365visio-x86.ps1 | Microsoft | M365 Visio (x86) | File version (VISIO.EXE) |
 | package-m365project-x64.ps1 | Microsoft | M365 Project (x64) | File version (WINPROJ.EXE) |
 | package-m365project-x86.ps1 | Microsoft | M365 Project (x86) | File version (WINPROJ.EXE) |
+| package-m365visio-x64.ps1 | Microsoft | M365 Visio (x64) | File version (VISIO.EXE) |
+| package-m365visio-x86.ps1 | Microsoft | M365 Visio (x86) | File version (VISIO.EXE) |
+| package-malwarebytes.ps1 | Malwarebytes | Malwarebytes | RegistryKeyValue |
+| package-mremoteng.ps1 | mRemoteNG | mRemoteNG | RegistryKeyValue |
 | package-msodbcsql18.ps1 | Microsoft | ODBC Driver 18 for SQL Server | RegistryKeyValue |
 | package-msoledb.ps1 | Microsoft | OLE DB Driver for SQL Server | RegistryKeyValue |
 | package-msvcruntimes.ps1 | Microsoft | VC++ 2015-2022 Redistributable (x86+x64) | Compound (AND, 2x RegistryKeyValue) |
@@ -207,46 +262,54 @@ All 133 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-notepadplusplus.ps1 | Notepad++ | Notepad++ (x64) | File version |
 | package-nvidia-geforce.ps1 | NVIDIA | NVIDIA Graphics Driver - GeForce Game Ready (x64) | RegistryKeyValue |
 | package-nvidia-rtx-enterprise.ps1 | NVIDIA | NVIDIA Graphics Driver - RTX Enterprise (x64) | RegistryKeyValue |
+| package-opera.ps1 | Opera Software | Opera Browser | File version |
 | package-paintdotnet.ps1 | dotPDN LLC | Paint.NET (x64) | RegistryKeyValue |
+| package-pgadmin4.ps1 | pgAdmin Development Team | pgAdmin 4 | File existence |
 | package-positron.ps1 | Posit Software, PBC | Positron (x64) | File existence |
-| package-postman.ps1 | Postman | Postman (User) | File version (user context) |
 | package-postgresql13.ps1 | PostgreSQL Global Development Group | PostgreSQL 13 (x64) | File version |
 | package-postgresql14.ps1 | PostgreSQL Global Development Group | PostgreSQL 14 (x64) | File version |
 | package-postgresql15.ps1 | PostgreSQL Global Development Group | PostgreSQL 15 (x64) | File version |
 | package-postgresql16.ps1 | PostgreSQL Global Development Group | PostgreSQL 16 (x64) | File version |
 | package-postgresql17.ps1 | PostgreSQL Global Development Group | PostgreSQL 17 (x64) | File version |
+| package-postman.ps1 | Postman | Postman (User) | File version (user context) |
 | package-powerbi-desktop.ps1 | Microsoft | Power BI Desktop (x64) | File version |
 | package-powershell7.ps1 | Microsoft | PowerShell 7 (x64) | RegistryKeyValue |
 | package-powertoys.ps1 | Microsoft Corporation | PowerToys (x64) | File version |
 | package-putty.ps1 | Simon Tatham | PuTTY (x64) | RegistryKeyValue |
+| package-pycharm.ps1 | JetBrains | PyCharm Community | RegistryKey existence |
 | package-python.ps1 | Python Software Foundation | Python (x64) | File existence |
 | package-r.ps1 | The R Foundation | R for Windows (x64) | File existence |
+| package-redshiftodbc.ps1 | Amazon Web Services | Amazon Redshift ODBC Driver | RegistryKeyValue |
+| package-remotedesktopmanager.ps1 | Devolutions | Remote Desktop Manager | RegistryKeyValue |
 | package-rstudio.ps1 | Posit Software, PBC | RStudio Desktop (x64) | RegistryKeyValue |
 | package-sharex.ps1 | ShareX Team | ShareX | File version |
+| package-slack.ps1 | Slack Technologies | Slack | RegistryKeyValue |
 | package-soapui.ps1 | SmartBear Software | SoapUI | File existence |
 | package-specexec-mitigations.ps1 | Microsoft | Speculative Execution Mitigations (Intel-AMD-BHI) | RegistryKeyValue (per-DT DWORD) |
+| package-spectrapdf.ps1 | Signal Ridge Labs | Spectra PDF | RegistryKeyValue |
 | package-ssms.ps1 | Microsoft | SQL Server Management Studio 22 | File version |
 | package-sysinternals.ps1 | Microsoft | Sysinternals Suite | File existence |
 | package-teams-new.ps1 | Microsoft | Microsoft Teams (new client) | File existence |
 | package-teamviewer.ps1 | TeamViewer | TeamViewer (x64) | RegistryKeyValue |
 | package-teamviewerhost.ps1 | TeamViewer | TeamViewer Host (x64) | File |
-| package-temurin-jdk8-x64.ps1 | Eclipse Adoptium | Eclipse Temurin JDK 8 (x64) | RegistryKeyValue |
-| package-temurin-jdk8-x86.ps1 | Eclipse Adoptium | Eclipse Temurin JDK 8 (x86) | RegistryKeyValue |
 | package-temurin-jdk11-x64.ps1 | Eclipse Adoptium | Eclipse Temurin JDK 11 (x64) | RegistryKeyValue |
 | package-temurin-jdk11-x86.ps1 | Eclipse Adoptium | Eclipse Temurin JDK 11 (x86) | RegistryKeyValue |
 | package-temurin-jdk17.ps1 | Eclipse Adoptium | Eclipse Temurin JDK 17 (x64) | RegistryKeyValue |
 | package-temurin-jdk21.ps1 | Eclipse Adoptium | Eclipse Temurin JDK 21 (x64) | RegistryKeyValue |
 | package-temurin-jdk25.ps1 | Eclipse Adoptium | Eclipse Temurin JDK 25 (x64) | RegistryKeyValue |
-| package-temurin-jre8-x64.ps1 | Eclipse Adoptium | Eclipse Temurin JRE 8 (x64) | RegistryKeyValue |
-| package-temurin-jre8-x86.ps1 | Eclipse Adoptium | Eclipse Temurin JRE 8 (x86) | RegistryKeyValue |
+| package-temurin-jdk8-x64.ps1 | Eclipse Adoptium | Eclipse Temurin JDK 8 (x64) | RegistryKeyValue |
+| package-temurin-jdk8-x86.ps1 | Eclipse Adoptium | Eclipse Temurin JDK 8 (x86) | RegistryKeyValue |
 | package-temurin-jre11-x64.ps1 | Eclipse Adoptium | Eclipse Temurin JRE 11 (x64) | RegistryKeyValue |
 | package-temurin-jre11-x86.ps1 | Eclipse Adoptium | Eclipse Temurin JRE 11 (x86) | RegistryKeyValue |
 | package-temurin-jre17.ps1 | Eclipse Adoptium | Eclipse Temurin JRE 17 (x64) | RegistryKeyValue |
 | package-temurin-jre21.ps1 | Eclipse Adoptium | Eclipse Temurin JRE 21 (x64) | RegistryKeyValue |
 | package-temurin-jre25.ps1 | Eclipse Adoptium | Eclipse Temurin JRE 25 (x64) | RegistryKeyValue |
+| package-temurin-jre8-x64.ps1 | Eclipse Adoptium | Eclipse Temurin JRE 8 (x64) | RegistryKeyValue |
+| package-temurin-jre8-x86.ps1 | Eclipse Adoptium | Eclipse Temurin JRE 8 (x86) | RegistryKeyValue |
 | package-thunderbird.ps1 | Mozilla Foundation | Thunderbird (x64) | File version |
 | package-tortoisegit.ps1 | TortoiseGit | TortoiseGit (x64) | RegistryKeyValue |
 | package-tortoisesvn.ps1 | TortoiseSVN | TortoiseSVN (x64) | RegistryKeyValue |
+| package-treesizefree.ps1 | JAM Software | TreeSize Free | File version |
 | package-vim.ps1 | The Vim Project | Vim (x64) | RegistryKeyValue |
 | package-vlc.ps1 | VideoLAN | VLC Media Player (x64) | RegistryKeyValue |
 | package-vscode-system.ps1 | Microsoft | Visual Studio Code (System) | File version |
@@ -255,9 +318,12 @@ All 133 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-webview2.ps1 | Microsoft | WebView2 Evergreen Runtime | File version |
 | package-windirstat.ps1 | WinDirStat Team | WinDirStat (x64) | File version |
 | package-winmerge.ps1 | WinMerge | WinMerge (x64) | File version |
-| package-winscp.ps1 | WinSCP | WinSCP | RegistryKeyValue |
 | package-winrar.ps1 | win.rar GmbH | WinRAR (x64) | RegistryKeyValue |
+| package-winscp.ps1 | WinSCP | WinSCP | RegistryKeyValue |
 | package-wireshark.ps1 | Wireshark Foundation | Wireshark (x64) | RegistryKeyValue |
+| package-xencenter.ps1 | Cloud Software Group | XenCenter | RegistryKeyValue |
+| package-xenserver-vmtools.ps1 | Cloud Software Group | XenServer VM Tools | RegistryKeyValue |
+| package-zoom.ps1 | Zoom Video Communications | Zoom Workplace | RegistryKeyValue |
 
 ## Vendor Version Monitor
 

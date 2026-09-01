@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.4.0.18] - 2026-08-31
+
+### Added
+
+- **Twenty-five new packagers (133 → 158), Enterprise App Catalog parity
+  wave 2**: Clockify, CloudCompare, Cloudflare WARP, CMake, CodeMeter
+  Runtime Kit, Colour Contrast Analyser, Cryptomator, Cyberduck,
+  DataGrip, DAX Studio, DB Browser for SQLite, DbVisualizer, Defraggler,
+  Dell Command Update (resolved from the Dell client catalog cab),
+  Devolutions Remote Desktop Manager, DisplayLink Graphics, dnGREP,
+  Draftable Desktop, Duo Desktop, FreeCAD, GeoGebra Classic, Gephi,
+  GitHub CLI, GoLand, and Gpg4win (substituted for GnuPG VS-Desktop,
+  which is contract-only with no public download). All stage-verified
+  with installer magic checks before staging.
+
+### Changed
+
+- README supported-applications table regenerated from packager headers;
+  it now lists all 158 packagers (61 rows had gone stale across prior
+  waves).
+- CATALOG-PARITY.csv updated with wave 2 verdicts (24 rows plus Gpg4win
+  to Added-1.4.0.18; GnuPG VS-Desktop to Skip-Wall with evidence).
+
 ## [1.4.0.17] - 2026-08-31
 
 ### Fixed
