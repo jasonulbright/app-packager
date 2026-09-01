@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.4.0.22] - 2026-08-31
+
+### Added
+
+- **Twenty-three new packagers (226 → 249), Enterprise App Catalog parity
+  wave 6**: PeaZip, PicPick (free edition is personal-use only — noted in
+  the script), Pidgin, Proton VPN, PSPad, QGIS and QGIS LTR (separate
+  coexisting applications), Rainmeter, Rancher Desktop, Raspberry Pi
+  Imager, RenderDoc, Rocket.Chat, RustDesk (remote-access deployment
+  considerations noted in the header), RVTools, Salesforce CLI,
+  ScreenToGif, SharePoint Online Management Shell, Shotcut, Simplenote,
+  SMath Studio, Softerra LDAP Browser, Stellarium, SyncBackFree. All
+  stage-verified with installer magic checks.
+
+### Changed
+
+- CATALOG-PARITY.csv wave 6 verdicts: 23 rows to Added-1.4.0.22; Power BI
+  ALM Toolkit and doPDF to Skip-Wall with evidence.
+
 ## [1.4.0.21] - 2026-08-31
 
 ### Added

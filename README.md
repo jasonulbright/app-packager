@@ -158,9 +158,9 @@ All packager scripts accept the same core parameters:
 | `-GetLatestVersionOnly` | Output the latest version string and exit |
 | `-LogPath` | Path to a structured log file (timestamps + severity levels) |
 
-## Supported Applications (226)
+## Supported Applications (249)
 
-All 226 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op. The original 83 are end-to-end validated against MECM; the newest additions (including the 2026-08-31 batch of sixteen: Anaconda, AnyDesk, Brave, CCleaner, Citrix Workspace CR, CPU-Z, CutePDF Writer, Greenshot, Opera, pgAdmin 4, PyCharm, Slack, TreeSize Free, XenCenter, XenServer VM Tools, Zoom Workplace) inherit the same Stage to manifest to Package shape; Greenshot and Zoom from the new batch are additionally end-to-end validated against MECM.
+All 249 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op. The original 83 are end-to-end validated against MECM; the newest additions (including the 2026-08-31 batch of sixteen: Anaconda, AnyDesk, Brave, CCleaner, Citrix Workspace CR, CPU-Z, CutePDF Writer, Greenshot, Opera, pgAdmin 4, PyCharm, Slack, TreeSize Free, XenCenter, XenServer VM Tools, Zoom Workplace) inherit the same Stage to manifest to Package shape; Greenshot and Zoom from the new batch are additionally end-to-end validated against MECM.
 
 `package-specexec-mitigations.ps1` is the repo's first multi-deployment-type packager: one application, six Script deployment types (Intel HT-on / Intel HT-off / AMD, each in standard and Hyper-V-host variants), routed by global-condition requirement rules (CPU vendor WQL, HT-state script, Hyper-V vmms registry key) and detected by `FeatureSettingsOverride` / `FeatureSettingsOverrideMask` DWORDs. It generates its own content (no vendor download); `-GetLatestVersionOnly` reports the pinned `-ContentVersion`. Deployment targets: the SpecExec collections from the general-scripts repo (`MECM/Collections/New-SpecExecTargetCollections.ps1`).
 
@@ -321,7 +321,10 @@ All 226 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-pdfgear.ps1 | PDFgear Software | PDFgear | RegistryKeyValue |
 | package-pdfsam.ps1 | Sober Lemur S.r.l. | PDFsam Basic | RegistryKeyValue |
 | package-pdfstudioviewer.ps1 | Qoppa Software | PDF Studio Viewer | File existence |
+| package-peazip.ps1 | Giorgio Tani | PeaZip | RegistryKeyValue |
 | package-pgadmin4.ps1 | pgAdmin Development Team | pgAdmin 4 | File existence |
+| package-picpick.ps1 | NGWIN | PicPick | Script |
+| package-pidgin.ps1 | Pidgin | Pidgin | Script |
 | package-positron.ps1 | Posit Software, PBC | Positron (x64) | File existence |
 | package-postgresql13.ps1 | PostgreSQL Global Development Group | PostgreSQL 13 (x64) | File version |
 | package-postgresql14.ps1 | PostgreSQL Global Development Group | PostgreSQL 14 (x64) | File version |
@@ -332,27 +335,47 @@ All 226 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-powerbi-desktop.ps1 | Microsoft | Power BI Desktop (x64) | File version |
 | package-powershell7.ps1 | Microsoft | PowerShell 7 (x64) | RegistryKeyValue |
 | package-powertoys.ps1 | Microsoft Corporation | PowerToys (x64) | File version |
+| package-protonvpn.ps1 | Proton AG | Proton VPN | RegistryKeyValue |
+| package-pspad.ps1 | Jan Fiala | PSPad | File existence |
 | package-putty.ps1 | Simon Tatham | PuTTY (x64) | RegistryKeyValue |
 | package-pwsafe.ps1 | Rony Shapiro | Password Safe | RegistryKeyValue |
 | package-pycharm.ps1 | JetBrains | PyCharm Community | RegistryKey existence |
 | package-python.ps1 | Python Software Foundation | Python (x64) | File existence |
+| package-qgis-ltr.ps1 | QGIS | QGIS LTR | RegistryKeyValue |
+| package-qgis.ps1 | QGIS | QGIS | RegistryKeyValue |
 | package-r.ps1 | The R Foundation | R for Windows (x64) | File existence |
+| package-rainmeter.ps1 | Rainmeter | Rainmeter | File existence |
+| package-rancherdesktop.ps1 | SUSE | Rancher Desktop | RegistryKeyValue |
 | package-redshiftodbc.ps1 | Amazon Web Services | Amazon Redshift ODBC Driver | RegistryKeyValue |
 | package-remotedesktopmanager.ps1 | Devolutions | Remote Desktop Manager | RegistryKeyValue |
+| package-renderdoc.ps1 | Baldur Karlsson | RenderDoc | RegistryKeyValue |
+| package-rocketchat.ps1 | Rocket.Chat | Rocket.Chat | RegistryKeyValue |
+| package-rpiimager.ps1 | Raspberry Pi Ltd | Raspberry Pi Imager | RegistryKeyValue |
 | package-rstudio.ps1 | Posit Software, PBC | RStudio Desktop (x64) | RegistryKeyValue |
+| package-rustdesk.ps1 | Purslane Tech Pte. Ltd. | RustDesk | RegistryKeyValue |
+| package-rvtools.ps1 | Dell | RVTools | RegistryKeyValue |
+| package-salesforcecli.ps1 | Salesforce | Salesforce CLI | RegistryKeyValue |
+| package-screentogif.ps1 | Nicke Manarin | ScreenToGif | RegistryKeyValue |
 | package-semeru-jdk11.ps1 | IBM | IBM Semeru Runtime Open Edition JDK 11 | RegistryKeyValue |
 | package-semeru-jdk17.ps1 | IBM | IBM Semeru Runtime Open Edition JDK 17 | RegistryKeyValue |
 | package-semeru-jdk8.ps1 | IBM | IBM Semeru Runtime Open Edition JDK 8 | RegistryKeyValue |
 | package-semeru-jre11.ps1 | IBM | IBM Semeru Runtime Open Edition JRE 11 | RegistryKeyValue |
 | package-semeru-jre17.ps1 | IBM | IBM Semeru Runtime Open Edition JRE 17 | RegistryKeyValue |
 | package-semeru-jre8.ps1 | IBM | IBM Semeru Runtime Open Edition JRE 8 | RegistryKeyValue |
+| package-sharepointonlinemanagementshell.ps1 | Microsoft | SharePoint Online Management Shell | RegistryKeyValue |
 | package-sharex.ps1 | ShareX Team | ShareX | File version |
+| package-shotcut.ps1 | Meltytech | Shotcut | RegistryKeyValue |
+| package-simplenote.ps1 | Automattic | Simplenote | File version |
 | package-slack.ps1 | Slack Technologies | Slack | RegistryKeyValue |
+| package-smathstudio.ps1 | SMath | SMath Studio | RegistryKey existence |
 | package-soapui.ps1 | SmartBear Software | SoapUI | File existence |
+| package-softerraldapbrowser.ps1 | Softerra | Softerra LDAP Browser | RegistryKeyValue |
 | package-specexec-mitigations.ps1 | Microsoft | Speculative Execution Mitigations (Intel-AMD-BHI) | RegistryKeyValue (per-DT DWORD) |
 | package-spectrapdf.ps1 | Signal Ridge Labs | Spectra PDF | RegistryKeyValue |
 | package-sqlserver2022express.ps1 | Microsoft | Microsoft SQL Server 2022 Express | RegistryKeyValue |
 | package-ssms.ps1 | Microsoft | SQL Server Management Studio 22 | File version |
+| package-stellarium.ps1 | Stellarium | Stellarium | RegistryKeyValue |
+| package-syncbackfree.ps1 | 2BrightSparks | SyncBackFree | File version |
 | package-sysinternals.ps1 | Microsoft | Sysinternals Suite | File existence |
 | package-teams-new.ps1 | Microsoft | Microsoft Teams (new client) | File existence |
 | package-teamviewer.ps1 | TeamViewer | TeamViewer (x64) | RegistryKeyValue |
