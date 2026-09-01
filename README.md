@@ -158,9 +158,9 @@ All packager scripts accept the same core parameters:
 | `-GetLatestVersionOnly` | Output the latest version string and exit |
 | `-LogPath` | Path to a structured log file (timestamps + severity levels) |
 
-## Supported Applications (203)
+## Supported Applications (226)
 
-All 203 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op. The original 83 are end-to-end validated against MECM; the newest additions (including the 2026-08-31 batch of sixteen: Anaconda, AnyDesk, Brave, CCleaner, Citrix Workspace CR, CPU-Z, CutePDF Writer, Greenshot, Opera, pgAdmin 4, PyCharm, Slack, TreeSize Free, XenCenter, XenServer VM Tools, Zoom Workplace) inherit the same Stage to manifest to Package shape; Greenshot and Zoom from the new batch are additionally end-to-end validated against MECM.
+All 226 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op. The original 83 are end-to-end validated against MECM; the newest additions (including the 2026-08-31 batch of sixteen: Anaconda, AnyDesk, Brave, CCleaner, Citrix Workspace CR, CPU-Z, CutePDF Writer, Greenshot, Opera, pgAdmin 4, PyCharm, Slack, TreeSize Free, XenCenter, XenServer VM Tools, Zoom Workplace) inherit the same Stage to manifest to Package shape; Greenshot and Zoom from the new batch are additionally end-to-end validated against MECM.
 
 `package-specexec-mitigations.ps1` is the repo's first multi-deployment-type packager: one application, six Script deployment types (Intel HT-on / Intel HT-off / AMD, each in standard and Hyper-V-host variants), routed by global-condition requirement rules (CPU vendor WQL, HT-state script, Hyper-V vmms registry key) and detected by `FeatureSettingsOverride` / `FeatureSettingsOverrideMask` DWORDs. It generates its own content (no vendor download); `-GetLatestVersionOnly` reports the pinned `-ContentVersion`. Deployment targets: the SpecExec collections from the general-scripts repo (`MECM/Collections/New-SpecExecTargetCollections.ps1`).
 
@@ -290,15 +290,37 @@ All 203 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-msoledb.ps1 | Microsoft | OLE DB Driver for SQL Server | RegistryKeyValue |
 | package-msvcruntimes.ps1 | Microsoft | VC++ 2015-2022 Redistributable (x86+x64) | Compound (AND, 2x RegistryKeyValue) |
 | package-musescore.ps1 | MuseScore | MuseScore Studio | RegistryKeyValue |
+| package-mysqlconnectornet.ps1 | Oracle | MySQL Connector/NET | RegistryKeyValue |
 | package-nagstamon.ps1 | Henri Wahl | Nagstamon | RegistryKeyValue |
 | package-naps2.ps1 | NAPS2 | NAPS2 | RegistryKeyValue |
 | package-netbird.ps1 | NetBird | NetBird | RegistryKeyValue |
+| package-netlogo.ps1 | Northwestern University | NetLogo | RegistryKeyValue |
+| package-networkmanager.ps1 | BornToBeRoot | NETworkManager | RegistryKeyValue |
+| package-nextcloud.ps1 | Nextcloud GmbH | Nextcloud | RegistryKeyValue |
 | package-nodejs.ps1 | OpenJS Foundation | Node.js LTS (x64) | RegistryKeyValue |
+| package-nomachine.ps1 | NoMachine | NoMachine | Compound |
 | package-notepadplusplus.ps1 | Notepad++ | Notepad++ (x64) | File version |
+| package-nvda.ps1 | NV Access | NVDA | Compound |
 | package-nvidia-geforce.ps1 | NVIDIA | NVIDIA Graphics Driver - GeForce Game Ready (x64) | RegistryKeyValue |
 | package-nvidia-rtx-enterprise.ps1 | NVIDIA | NVIDIA Graphics Driver - RTX Enterprise (x64) | RegistryKeyValue |
+| package-obsidian.ps1 | Obsidian | Obsidian | File version |
+| package-ocenaudio.ps1 | Ocenaudio Team | ocenaudio | Script |
+| package-ohmyposh.ps1 | Jan De Dobbeleer | Oh My Posh | Script |
+| package-openshot.ps1 | OpenShot Studios, LLC | OpenShot Video Editor | Script |
+| package-openvpn.ps1 | OpenVPN Inc. | OpenVPN | RegistryKeyValue |
+| package-openwebstart.ps1 | Karakun AG | OpenWebStart | File version |
 | package-opera.ps1 | Opera Software | Opera Browser | File version |
+| package-orcaslicer.ps1 | SoftFever | OrcaSlicer | File version |
+| package-ownclouddesktop.ps1 | ownCloud GmbH | ownCloud Desktop Client | RegistryKeyValue |
 | package-paintdotnet.ps1 | dotPDN LLC | Paint.NET (x64) | RegistryKeyValue |
+| package-pandoc.ps1 | John MacFarlane | Pandoc | RegistryKeyValue |
+| package-parallelsclient.ps1 | Parallels | Parallels Client | RegistryKeyValue |
+| package-pathcopycopy.ps1 | Charles Lechasseur | Path Copy Copy | RegistryKeyValue |
+| package-pdf24creator.ps1 | geek software GmbH | PDF24 Creator | RegistryKeyValue |
+| package-pdfcreator.ps1 | pdfforge GmbH | PDFCreator | File version |
+| package-pdfgear.ps1 | PDFgear Software | PDFgear | RegistryKeyValue |
+| package-pdfsam.ps1 | Sober Lemur S.r.l. | PDFsam Basic | RegistryKeyValue |
+| package-pdfstudioviewer.ps1 | Qoppa Software | PDF Studio Viewer | File existence |
 | package-pgadmin4.ps1 | pgAdmin Development Team | pgAdmin 4 | File existence |
 | package-positron.ps1 | Posit Software, PBC | Positron (x64) | File existence |
 | package-postgresql13.ps1 | PostgreSQL Global Development Group | PostgreSQL 13 (x64) | File version |
@@ -311,6 +333,7 @@ All 203 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-powershell7.ps1 | Microsoft | PowerShell 7 (x64) | RegistryKeyValue |
 | package-powertoys.ps1 | Microsoft Corporation | PowerToys (x64) | File version |
 | package-putty.ps1 | Simon Tatham | PuTTY (x64) | RegistryKeyValue |
+| package-pwsafe.ps1 | Rony Shapiro | Password Safe | RegistryKeyValue |
 | package-pycharm.ps1 | JetBrains | PyCharm Community | RegistryKey existence |
 | package-python.ps1 | Python Software Foundation | Python (x64) | File existence |
 | package-r.ps1 | The R Foundation | R for Windows (x64) | File existence |
