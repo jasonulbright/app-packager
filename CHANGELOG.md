@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.4.0.16] - 2026-08-31
+
+### Added
+
+- **Twenty-five new packagers (108 → 133), Enterprise App Catalog parity
+  wave 1**: Agent Ransack, AIMP, AWS CLI v2, AWS Tools for Windows, AWS
+  VPN Client, Amazon DCV Client, Amazon Redshift ODBC driver, Amazon
+  WorkSpaces, Android Studio, AnyBurn, Arduino IDE, AWS SAM CLI, AWS
+  Session Manager Plugin, AxCrypt, Azure Functions Core Tools, Bambu
+  Studio, BleachBit, Blender, Box Drive, Bulk Crap Uninstaller, BurnAware
+  Free, Calibrite Profiler, Certify The Web, Chef Workstation — and
+  Spectra PDF, the first-party PDF application (released via GitHub;
+  acquisition through the authenticated gh CLI). All stage-verified with
+  populated detection; payload magic checks (MZ/OLE) throughout so an
+  HTML-answering endpoint can never stage as an installer.
+- **CATALOG-PARITY.csv**: all 933 Enterprise App Catalog entries plus
+  Spectra PDF dispositioned with reasons (supported / added / splinter /
+  EOL / wall / licensed / tenant-agent / niche / component). Burp Suite
+  Community moved to walled during this wave — PortSwigger gated
+  anonymous downloads as of 2026.4 (verified).
+
 ## [1.4.0.15] - 2026-08-31
 
 ### Added
