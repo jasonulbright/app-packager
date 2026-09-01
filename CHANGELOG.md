@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.4.0.15] - 2026-08-31
+
+### Added
+
+- **Sixteen new packagers** (91 → 108, from the validated packr
+  definition set): Anaconda, AnyDesk, Brave, CCleaner, Citrix Workspace
+  Current Release, CPU-Z, CutePDF Writer, Greenshot, Opera, pgAdmin 4,
+  PyCharm, Slack, TreeSize Free, XenCenter, XenServer VM Tools, and
+  Zoom Workplace. All parse clean, resolve versions, and stage with
+  populated detection; Greenshot and Zoom Workplace are additionally
+  end-to-end validated against MECM. The Citrix Workspace CR packager
+  honors the switches configured in `citrix-workspace-switches.json`.
+  Notes: Slack currently resolves its version but Slack has stopped
+  publishing the advertised MSI (their API's own download link 404s) —
+  the packager prefers the API's URL and self-corrects when the MSI
+  returns; several EXE packagers verify the downloaded payload starts
+  with an MZ header so a vendor page returned with HTTP 200 can never
+  stage as an installer (found live with CPU-Z's interstitial).
+  Not ported by design: Tableau and VMware Tools (vendor login/EULA
+  walls), WizTree (direct link now walled), Obsidian (release asset
+  drift), FileZilla and Foxit Reader (installer behavior).
+
 ## [1.4.0.14] - 2026-08-31
 
 ### Added
