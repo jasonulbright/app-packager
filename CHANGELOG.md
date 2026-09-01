@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.4.0.19] - 2026-08-31
+
+### Added
+
+- **Twenty-five new packagers (158 → 183), Enterprise App Catalog parity
+  wave 3**: Chrome Remote Desktop Host, Google Credential Provider for
+  Windows, Google Drive for desktop, Go, Graphviz, grepWin, gsudo,
+  HandBrake, HashTools, HeidiSQL, HWMonitor, IAP Desktop, IBM Aspera
+  Connect, IBM Semeru JDK 8/11/17 and JRE 8/11/17, ImageGlass, IrfanView,
+  Joplin, KDiff3, KeePassXC, KeyStore Explorer. All stage-verified with
+  installer magic checks before staging. HandBrake requires the .NET
+  Desktop Runtime as a dependency; GCPW requires the domains-allowed
+  policy delivered separately.
+
+### Changed
+
+- CATALOG-PARITY.csv updated with wave 3 verdicts (25 rows to
+  Added-1.4.0.19); README table and count updated to 183.
+
 ## [1.4.0.18] - 2026-08-31
 
 ### Added
