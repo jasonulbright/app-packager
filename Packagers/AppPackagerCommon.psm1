@@ -958,7 +958,9 @@ function New-MsixWrapperContent {
             'Add-AppxProvisionedPackage -Online -PackagePath $msixPath -SkipLicense | Out-Null'
         )
         $uninstallBody = @(
+            'Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem',
             ('$msixPath = Join-Path $PSScriptRoot ''{0}''' -f $MsixFileName),
+            'if (-not (Test-Path -LiteralPath $msixPath)) { exit 0 }',
             '# Provisioned-package removal needs the PackageName, which is stored',
             '# inside the MSIX AppxManifest. Import-Metadata pattern: read the',
             '# manifest during install and stash the name; for the uninstall path',
@@ -982,7 +984,9 @@ function New-MsixWrapperContent {
             'Add-AppxPackage -Path $msixPath'
         )
         $uninstallBody = @(
+            'Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem',
             ('$msixPath = Join-Path $PSScriptRoot ''{0}''' -f $MsixFileName),
+            'if (-not (Test-Path -LiteralPath $msixPath)) { exit 0 }',
             '$zip = [System.IO.Compression.ZipFile]::OpenRead($msixPath)',
             'try {',
             '    $entry = $zip.GetEntry(''AppxManifest.xml'')',

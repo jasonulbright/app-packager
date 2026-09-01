@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.4.0.21] - 2026-08-31
+
+### Added
+
+- **Twenty-three new packagers (203 → 226), Enterprise App Catalog parity
+  wave 5**: NetLogo, NETworkManager, Nextcloud desktop, NoMachine, NVDA,
+  Obsidian, ocenaudio, Oh My Posh (first MSIX packager — device-wide
+  provisioned package), OpenShot, OpenVPN, OpenWebStart, MySQL
+  Connector/NET, OrcaSlicer, ownCloud desktop, Pandoc, Parallels Client,
+  Password Safe, Path Copy Copy, PDF Studio Viewer, PDF24 Creator,
+  PDFCreator (installed with /COMPONENTS=none to exclude the bundled
+  PDF Architect offer), PDFgear, PDFsam Basic. All stage-verified with
+  installer magic checks.
+
+### Fixed
+
+- MSIX wrapper uninstall scripts from `New-MsixWrapperContent` referenced
+  `[System.IO.Compression.ZipFile]` without loading the assembly and
+  failed when the staged MSIX was missing; both uninstall bodies now load
+  the compression assemblies and exit 0 when the package file is absent.
+
+### Changed
+
+- CATALOG-PARITY.csv wave 5 verdicts: 23 rows to Added-1.4.0.21; OpenLens
+  to Skip-EOL (dead since 2023); PaperCut Mobility Print to
+  Skip-Component (client is generated per-site by the customer's server).
+
 ## [1.4.0.20] - 2026-08-31
 
 ### Added
