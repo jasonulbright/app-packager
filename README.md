@@ -158,9 +158,9 @@ All packager scripts accept the same core parameters:
 | `-GetLatestVersionOnly` | Output the latest version string and exit |
 | `-LogPath` | Path to a structured log file (timestamps + severity levels) |
 
-## Supported Applications (249)
+## Supported Applications (273)
 
-All 249 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op. The original 83 are end-to-end validated against MECM; the newest additions (including the 2026-08-31 batch of sixteen: Anaconda, AnyDesk, Brave, CCleaner, Citrix Workspace CR, CPU-Z, CutePDF Writer, Greenshot, Opera, pgAdmin 4, PyCharm, Slack, TreeSize Free, XenCenter, XenServer VM Tools, Zoom Workplace) inherit the same Stage to manifest to Package shape; Greenshot and Zoom from the new batch are additionally end-to-end validated against MECM.
+All 273 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op. The original 83 are end-to-end validated against MECM; the newest additions (including the 2026-08-31 batch of sixteen: Anaconda, AnyDesk, Brave, CCleaner, Citrix Workspace CR, CPU-Z, CutePDF Writer, Greenshot, Opera, pgAdmin 4, PyCharm, Slack, TreeSize Free, XenCenter, XenServer VM Tools, Zoom Workplace) inherit the same Stage to manifest to Package shape; Greenshot and Zoom from the new batch are additionally end-to-end validated against MECM.
 
 `package-specexec-mitigations.ps1` is the repo's first multi-deployment-type packager: one application, six Script deployment types (Intel HT-on / Intel HT-off / AMD, each in standard and Hyper-V-host variants), routed by global-condition requirement rules (CPU vendor WQL, HT-state script, Hyper-V vmms registry key) and detected by `FeatureSettingsOverride` / `FeatureSettingsOverrideMask` DWORDs. It generates its own content (no vendor download); `-GetLatestVersionOnly` reports the pinned `-ContentVersion`. Deployment targets: the SpecExec collections from the general-scripts repo (`MECM/Collections/New-SpecExecTargetCollections.ps1`).
 
@@ -197,6 +197,7 @@ All 249 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-blender.ps1 | Blender Foundation | Blender | RegistryKeyValue |
 | package-boxdrive.ps1 | Box | Box Drive | RegistryKeyValue |
 | package-brave.ps1 | Brave Software | Brave Browser | File version |
+| package-bulkrenameutility.ps1 | TGRMN Software | Bulk Rename Utility | Script |
 | package-burnaware.ps1 | Burnaware | BurnAware Free | RegistryKeyValue |
 | package-calibre.ps1 | Kovid Goyal | calibre | RegistryKeyValue |
 | package-calibrite.ps1 | Calibrite | Calibrite PROFILER | File version |
@@ -221,6 +222,7 @@ All 249 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-corretto-jdk8-x86.ps1 | Amazon | Amazon Corretto JDK 8 (x86) | RegistryKeyValue |
 | package-cpuz.ps1 | CPUID | CPU-Z | File existence |
 | package-cryptomator.ps1 | Skymatic | Cryptomator | RegistryKeyValue |
+| package-cura.ps1 | UltiMaker | UltiMaker Cura | RegistryKeyValue |
 | package-cutepdfwriter.ps1 | Acro Software Inc. | CutePDF Writer | RegistryKeyValue |
 | package-cyberduck.ps1 | iterate GmbH | Cyberduck | File existence |
 | package-datagrip.ps1 | JetBrains | DataGrip | RegistryKey existence |
@@ -306,6 +308,7 @@ All 249 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-obsidian.ps1 | Obsidian | Obsidian | File version |
 | package-ocenaudio.ps1 | Ocenaudio Team | ocenaudio | Script |
 | package-ohmyposh.ps1 | Jan De Dobbeleer | Oh My Posh | Script |
+| package-omnissahorizonclient.ps1 | Omnissa | Omnissa Horizon Client | File version |
 | package-openshot.ps1 | OpenShot Studios, LLC | OpenShot Video Editor | Script |
 | package-openvpn.ps1 | OpenVPN Inc. | OpenVPN | RegistryKeyValue |
 | package-openwebstart.ps1 | Karakun AG | OpenWebStart | File version |
@@ -367,6 +370,7 @@ All 249 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-shotcut.ps1 | Meltytech | Shotcut | RegistryKeyValue |
 | package-simplenote.ps1 | Automattic | Simplenote | File version |
 | package-slack.ps1 | Slack Technologies | Slack | RegistryKeyValue |
+| package-smartty.ps1 | Sysprogs | SmarTTY | RegistryKeyValue |
 | package-smathstudio.ps1 | SMath | SMath Studio | RegistryKey existence |
 | package-soapui.ps1 | SmartBear Software | SoapUI | File existence |
 | package-softerraldapbrowser.ps1 | Softerra | Softerra LDAP Browser | RegistryKeyValue |
@@ -376,8 +380,12 @@ All 249 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-ssms.ps1 | Microsoft | SQL Server Management Studio 22 | File version |
 | package-stellarium.ps1 | Stellarium | Stellarium | RegistryKeyValue |
 | package-syncbackfree.ps1 | 2BrightSparks | SyncBackFree | File version |
+| package-synologydriveclient.ps1 | Synology | Synology Drive Client | RegistryKeyValue |
 | package-sysinternals.ps1 | Microsoft | Sysinternals Suite | File existence |
+| package-tabulareditor2.ps1 | Tabular Editor ApS | Tabular Editor 2 | RegistryKeyValue |
+| package-tailscale.ps1 | Tailscale | Tailscale | RegistryKeyValue |
 | package-teams-new.ps1 | Microsoft | Microsoft Teams (new client) | File existence |
+| package-teamspeak3client.ps1 | TeamSpeak Systems GmbH | TeamSpeak 3 Client | File version |
 | package-teamviewer.ps1 | TeamViewer | TeamViewer (x64) | RegistryKeyValue |
 | package-teamviewerhost.ps1 | TeamViewer | TeamViewer Host (x64) | File |
 | package-temurin-jdk11-x64.ps1 | Eclipse Adoptium | Eclipse Temurin JDK 11 (x64) | RegistryKeyValue |
@@ -394,15 +402,28 @@ All 249 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-temurin-jre25.ps1 | Eclipse Adoptium | Eclipse Temurin JRE 25 (x64) | RegistryKeyValue |
 | package-temurin-jre8-x64.ps1 | Eclipse Adoptium | Eclipse Temurin JRE 8 (x64) | RegistryKeyValue |
 | package-temurin-jre8-x86.ps1 | Eclipse Adoptium | Eclipse Temurin JRE 8 (x86) | RegistryKeyValue |
+| package-teracopy.ps1 | Code Sector | TeraCopy | Script |
+| package-thonny.ps1 | Aivar Annamaa | Thonny | RegistryKeyValue |
 | package-thunderbird.ps1 | Mozilla Foundation | Thunderbird (x64) | File version |
+| package-tightvnc.ps1 | GlavSoft | TightVNC | RegistryKeyValue |
 | package-tortoisegit.ps1 | TortoiseGit | TortoiseGit (x64) | RegistryKeyValue |
+| package-tortoisehg.ps1 | TortoiseHg | TortoiseHg | RegistryKeyValue |
 | package-tortoisesvn.ps1 | TortoiseSVN | TortoiseSVN (x64) | RegistryKeyValue |
 | package-treesizefree.ps1 | JAM Software | TreeSize Free | File version |
+| package-turbovnc.ps1 | The VirtualGL Project | TurboVNC | RegistryKeyValue |
+| package-typora.ps1 | Typora | Typora | File version |
+| package-ultravnc.ps1 | uvnc bvba | UltraVNC | RegistryKeyValue |
+| package-unityhub.ps1 | Unity Technologies | Unity Hub | File version |
+| package-urbackupclient.ps1 | UrBackup | UrBackup Client | RegistryKeyValue |
+| package-vagrant.ps1 | HashiCorp | Vagrant | RegistryKeyValue |
+| package-veracrypt.ps1 | AM Crypto | VeraCrypt | RegistryKeyValue |
 | package-vim.ps1 | The Vim Project | Vim (x64) | RegistryKeyValue |
 | package-vlc.ps1 | VideoLAN | VLC Media Player (x64) | RegistryKeyValue |
 | package-vscode-system.ps1 | Microsoft | Visual Studio Code (System) | File version |
 | package-vscode-user.ps1 | Microsoft | Visual Studio Code (User) | File version (user context) |
+| package-vscodium.ps1 | VSCodium | VSCodium | RegistryKeyValue |
 | package-webex.ps1 | Cisco | Webex (x64) | RegistryKeyValue |
+| package-webstorm.ps1 | JetBrains | WebStorm | RegistryKey existence |
 | package-webview2.ps1 | Microsoft | WebView2 Evergreen Runtime | File version |
 | package-windirstat.ps1 | WinDirStat Team | WinDirStat (x64) | File version |
 | package-windowsadk.ps1 | Microsoft | Windows ADK for Windows 11 | RegistryKeyValue |
@@ -411,9 +432,12 @@ All 249 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-winmerge.ps1 | WinMerge | WinMerge (x64) | File version |
 | package-winrar.ps1 | win.rar GmbH | WinRAR (x64) | RegistryKeyValue |
 | package-winscp.ps1 | WinSCP | WinSCP | RegistryKeyValue |
+| package-wireguard.ps1 | WireGuard | WireGuard | RegistryKeyValue |
 | package-wireshark.ps1 | Wireshark Foundation | Wireshark (x64) | RegistryKeyValue |
 | package-xencenter.ps1 | Cloud Software Group | XenCenter | RegistryKeyValue |
 | package-xenserver-vmtools.ps1 | Cloud Software Group | XenServer VM Tools | RegistryKeyValue |
+| package-xnviewmp.ps1 | XnSoft | XnView MP | RegistryKeyValue |
+| package-yubicoauthenticator.ps1 | Yubico | Yubico Authenticator | RegistryKeyValue |
 | package-zoom.ps1 | Zoom Video Communications | Zoom Workplace | RegistryKeyValue |
 
 ## Vendor Version Monitor
