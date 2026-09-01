@@ -158,9 +158,9 @@ All packager scripts accept the same core parameters:
 | `-GetLatestVersionOnly` | Output the latest version string and exit |
 | `-LogPath` | Path to a structured log file (timestamps + severity levels) |
 
-## Supported Applications (183)
+## Supported Applications (203)
 
-All 183 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op. The original 83 are end-to-end validated against MECM; the newest additions (including the 2026-08-31 batch of sixteen: Anaconda, AnyDesk, Brave, CCleaner, Citrix Workspace CR, CPU-Z, CutePDF Writer, Greenshot, Opera, pgAdmin 4, PyCharm, Slack, TreeSize Free, XenCenter, XenServer VM Tools, Zoom Workplace) inherit the same Stage to manifest to Package shape; Greenshot and Zoom from the new batch are additionally end-to-end validated against MECM.
+All 203 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op. The original 83 are end-to-end validated against MECM; the newest additions (including the 2026-08-31 batch of sixteen: Anaconda, AnyDesk, Brave, CCleaner, Citrix Workspace CR, CPU-Z, CutePDF Writer, Greenshot, Opera, pgAdmin 4, PyCharm, Slack, TreeSize Free, XenCenter, XenServer VM Tools, Zoom Workplace) inherit the same Stage to manifest to Package shape; Greenshot and Zoom from the new batch are additionally end-to-end validated against MECM.
 
 `package-specexec-mitigations.ps1` is the repo's first multi-deployment-type packager: one application, six Script deployment types (Intel HT-on / Intel HT-off / AMD, each in standard and Hyper-V-host variants), routed by global-condition requirement rules (CPU vendor WQL, HT-state script, Hyper-V vmms registry key) and detected by `FeatureSettingsOverride` / `FeatureSettingsOverrideMask` DWORDs. It generates its own content (no vendor download); `-GetLatestVersionOnly` reports the pinned `-ContentVersion`. Deployment targets: the SpecExec collections from the general-scripts repo (`MECM/Collections/New-SpecExecTargetCollections.ps1`).
 
@@ -186,7 +186,10 @@ All 183 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-awstools.ps1 | Amazon | AWS Tools for Windows | RegistryKeyValue |
 | package-awsvpnclient.ps1 | Amazon | AWS VPN Client | RegistryKeyValue |
 | package-axcrypt.ps1 | AxCrypt | AxCrypt | RegistryKeyValue |
+| package-azurecli.ps1 | Microsoft | Azure CLI | RegistryKeyValue |
 | package-azurefunctionscore.ps1 | Microsoft | Azure Functions Core Tools | RegistryKeyValue |
+| package-azurepowershell.ps1 | Microsoft | Azure PowerShell | RegistryKeyValue |
+| package-azurestorageexplorer.ps1 | Microsoft | Microsoft Azure Storage Explorer | File existence |
 | package-bambustudio.ps1 | Bambu Lab | Bambu Studio | File version |
 | package-bcuninstaller.ps1 | Marcin Szeniak | Bulk Crap Uninstaller | RegistryKeyValue |
 | package-bitwarden.ps1 | Bitwarden Inc. | Bitwarden Desktop (x64) | File version |
@@ -195,6 +198,7 @@ All 183 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-boxdrive.ps1 | Box | Box Drive | RegistryKeyValue |
 | package-brave.ps1 | Brave Software | Brave Browser | File version |
 | package-burnaware.ps1 | Burnaware | BurnAware Free | RegistryKeyValue |
+| package-calibre.ps1 | Kovid Goyal | calibre | RegistryKeyValue |
 | package-calibrite.ps1 | Calibrite | Calibrite PROFILER | File version |
 | package-ccleaner.ps1 | Piriform Software Ltd. | CCleaner | RegistryKeyValue |
 | package-certifytheweb.ps1 | Webprofusion | Certify The Web | RegistryKeyValue |
@@ -237,6 +241,7 @@ All 183 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-edge.ps1 | Microsoft | Microsoft Edge (x64) | Compound (OR, 2x File version) |
 | package-everything.ps1 | Voidtools | Everything (x64) | RegistryKeyValue |
 | package-firefox.ps1 | Mozilla | Mozilla Firefox (x64) | File version |
+| package-firefoxesr.ps1 | Mozilla | Mozilla Firefox ESR | File version |
 | package-freecad.ps1 | FreeCAD Team | FreeCAD | RegistryKeyValue |
 | package-gcpw.ps1 | Google | Google Credential Provider for Windows | RegistryKeyValue |
 | package-geogebra.ps1 | International GeoGebra Institute | GeoGebra Classic | RegistryKeyValue |
@@ -259,12 +264,16 @@ All 183 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-iapdesktop.ps1 | Google | IAP Desktop | RegistryKeyValue |
 | package-imageglass.ps1 | Duong Dieu Phap | ImageGlass | RegistryKeyValue |
 | package-inkscape.ps1 | Inkscape Project | Inkscape (x64) | RegistryKeyValue |
+| package-intunedebugtoolkit.ps1 | MSEndpointMgr | Intune Debug Toolkit | RegistryKeyValue |
 | package-irfanview.ps1 | Irfan Skiljan | IrfanView | File version |
 | package-joplin.ps1 | Laurent Cozic | Joplin | File version |
 | package-kdiff3.ps1 | KDE e.V. | KDiff3 | RegistryKeyValue |
 | package-keepass.ps1 | Dominik Reichl | KeePass | RegistryKeyValue |
 | package-keepassxc.ps1 | KeePassXC Team | KeePassXC | RegistryKeyValue |
 | package-keystoreexplorer.ps1 | Kai Kramer | KeyStore Explorer | RegistryKeyValue |
+| package-kreya.ps1 | riok GmbH | Kreya | RegistryKeyValue |
+| package-krita.ps1 | KDE | Krita | RegistryKeyValue |
+| package-liberica-jdk21.ps1 | BellSoft | Liberica JDK 21 | RegistryKeyValue |
 | package-libreoffice.ps1 | The Document Foundation | LibreOffice (x64) | RegistryKeyValue |
 | package-m365apps-x64.ps1 | Microsoft | M365 Apps for Enterprise (x64) | File version (WINWORD.EXE) |
 | package-m365apps-x86.ps1 | Microsoft | M365 Apps for Enterprise (x86) | File version (WINWORD.EXE) |
@@ -273,10 +282,17 @@ All 183 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-m365visio-x64.ps1 | Microsoft | M365 Visio (x64) | File version (VISIO.EXE) |
 | package-m365visio-x86.ps1 | Microsoft | M365 Visio (x86) | File version (VISIO.EXE) |
 | package-malwarebytes.ps1 | Malwarebytes | Malwarebytes | RegistryKeyValue |
+| package-mariadb-server.ps1 | MariaDB | MariaDB Server | RegistryKeyValue |
+| package-mattermost.ps1 | Mattermost | Mattermost Desktop | RegistryKeyValue |
+| package-mongodbcompass.ps1 | MongoDB | MongoDB Compass | RegistryKeyValue |
 | package-mremoteng.ps1 | mRemoteNG | mRemoteNG | RegistryKeyValue |
 | package-msodbcsql18.ps1 | Microsoft | ODBC Driver 18 for SQL Server | RegistryKeyValue |
 | package-msoledb.ps1 | Microsoft | OLE DB Driver for SQL Server | RegistryKeyValue |
 | package-msvcruntimes.ps1 | Microsoft | VC++ 2015-2022 Redistributable (x86+x64) | Compound (AND, 2x RegistryKeyValue) |
+| package-musescore.ps1 | MuseScore | MuseScore Studio | RegistryKeyValue |
+| package-nagstamon.ps1 | Henri Wahl | Nagstamon | RegistryKeyValue |
+| package-naps2.ps1 | NAPS2 | NAPS2 | RegistryKeyValue |
+| package-netbird.ps1 | NetBird | NetBird | RegistryKeyValue |
 | package-nodejs.ps1 | OpenJS Foundation | Node.js LTS (x64) | RegistryKeyValue |
 | package-notepadplusplus.ps1 | Notepad++ | Notepad++ (x64) | File version |
 | package-nvidia-geforce.ps1 | NVIDIA | NVIDIA Graphics Driver - GeForce Game Ready (x64) | RegistryKeyValue |
@@ -312,6 +328,7 @@ All 183 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-soapui.ps1 | SmartBear Software | SoapUI | File existence |
 | package-specexec-mitigations.ps1 | Microsoft | Speculative Execution Mitigations (Intel-AMD-BHI) | RegistryKeyValue (per-DT DWORD) |
 | package-spectrapdf.ps1 | Signal Ridge Labs | Spectra PDF | RegistryKeyValue |
+| package-sqlserver2022express.ps1 | Microsoft | Microsoft SQL Server 2022 Express | RegistryKeyValue |
 | package-ssms.ps1 | Microsoft | SQL Server Management Studio 22 | File version |
 | package-sysinternals.ps1 | Microsoft | Sysinternals Suite | File existence |
 | package-teams-new.ps1 | Microsoft | Microsoft Teams (new client) | File existence |
@@ -342,6 +359,9 @@ All 183 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-webex.ps1 | Cisco | Webex (x64) | RegistryKeyValue |
 | package-webview2.ps1 | Microsoft | WebView2 Evergreen Runtime | File version |
 | package-windirstat.ps1 | WinDirStat Team | WinDirStat (x64) | File version |
+| package-windowsadk.ps1 | Microsoft | Windows ADK for Windows 11 | RegistryKeyValue |
+| package-windowsadmincenter.ps1 | Microsoft | Windows Admin Center | File version |
+| package-windowspeaddon.ps1 | Microsoft | Windows PE add-on for the Windows ADK | RegistryKeyValue |
 | package-winmerge.ps1 | WinMerge | WinMerge (x64) | File version |
 | package-winrar.ps1 | win.rar GmbH | WinRAR (x64) | RegistryKeyValue |
 | package-winscp.ps1 | WinSCP | WinSCP | RegistryKeyValue |
