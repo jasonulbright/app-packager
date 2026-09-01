@@ -158,9 +158,9 @@ All packager scripts accept the same core parameters:
 | `-GetLatestVersionOnly` | Output the latest version string and exit |
 | `-LogPath` | Path to a structured log file (timestamps + severity levels) |
 
-## Supported Applications (273)
+## Supported Applications (284)
 
-All 273 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op. The original 83 are end-to-end validated against MECM; the newest additions (including the 2026-08-31 batch of sixteen: Anaconda, AnyDesk, Brave, CCleaner, Citrix Workspace CR, CPU-Z, CutePDF Writer, Greenshot, Opera, pgAdmin 4, PyCharm, Slack, TreeSize Free, XenCenter, XenServer VM Tools, Zoom Workplace) inherit the same Stage to manifest to Package shape; Greenshot and Zoom from the new batch are additionally end-to-end validated against MECM.
+All 284 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op. The original 83 are end-to-end validated against MECM; the newest additions (including the 2026-08-31 batch of sixteen: Anaconda, AnyDesk, Brave, CCleaner, Citrix Workspace CR, CPU-Z, CutePDF Writer, Greenshot, Opera, pgAdmin 4, PyCharm, Slack, TreeSize Free, XenCenter, XenServer VM Tools, Zoom Workplace) inherit the same Stage to manifest to Package shape; Greenshot and Zoom from the new batch are additionally end-to-end validated against MECM.
 
 `package-specexec-mitigations.ps1` is the repo's first multi-deployment-type packager: one application, six Script deployment types (Intel HT-on / Intel HT-off / AMD, each in standard and Hyper-V-host variants), routed by global-condition requirement rules (CPU vendor WQL, HT-state script, Hyper-V vmms registry key) and detected by `FeatureSettingsOverride` / `FeatureSettingsOverrideMask` DWORDs. It generates its own content (no vendor download); `-GetLatestVersionOnly` reports the pinned `-ContentVersion`. Deployment targets: the SpecExec collections from the general-scripts repo (`MECM/Collections/New-SpecExecTargetCollections.ps1`).
 
@@ -438,7 +438,18 @@ All 273 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-xenserver-vmtools.ps1 | Cloud Software Group | XenServer VM Tools | RegistryKeyValue |
 | package-xnviewmp.ps1 | XnSoft | XnView MP | RegistryKeyValue |
 | package-yubicoauthenticator.ps1 | Yubico | Yubico Authenticator | RegistryKeyValue |
+| package-yubicopivtool.ps1 | Yubico | Yubico PIV Tool | RegistryKeyValue |
+| package-yubikeymanagercli.ps1 | Yubico | YubiKey Manager CLI | RegistryKeyValue |
+| package-zeal.ps1 | Zeal | Zeal | RegistryKeyValue |
 | package-zoom.ps1 | Zoom Video Communications | Zoom Workplace | RegistryKeyValue |
+| package-zotero.ps1 | Corporation for Digital Scholarship | Zotero | File version |
+| package-zulip.ps1 | Zulip | Zulip Desktop | RegistryKeyValue |
+| package-zulu-jdk11.ps1 | Azul | Azul Zulu JDK 11 (x64) | RegistryKeyValue |
+| package-zulu-jdk17.ps1 | Azul | Azul Zulu JDK 17 (x64) | RegistryKeyValue |
+| package-zulu-jdk8.ps1 | Azul | Azul Zulu JDK 8 (x64) | RegistryKeyValue |
+| package-zulu-jre11.ps1 | Azul | Azul Zulu JRE 11 (x64) | RegistryKeyValue |
+| package-zulu-jre17.ps1 | Azul | Azul Zulu JRE 17 (x64) | RegistryKeyValue |
+| package-zulu-jre8.ps1 | Azul | Azul Zulu JRE 8 (x64) | RegistryKeyValue |
 
 ## Vendor Version Monitor
 

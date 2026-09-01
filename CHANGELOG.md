@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.4.0.24] - 2026-09-01
+
+### Added
+
+- **Eleven new packagers (273 → 284), Enterprise App Catalog parity
+  wave 8 — final wave**: Yubico PIV Tool, YubiKey Manager CLI, Zeal,
+  Zotero, Zulip Desktop, and the Azul Zulu family (JDK 8/11/17 and
+  JRE 8/11/17 via the Azul metadata API). All stage-verified with
+  installer magic checks.
+- **Enterprise App Catalog parity effort complete.** All 933 catalog
+  entries are dispositioned in CATALOG-PARITY.csv: 176 ported across
+  releases 1.4.0.16–1.4.0.24, 60 already supported, and 697 skipped with
+  reasons (niche, splinter packages, licensed suites, managed agents,
+  EOL, components, or download walls — each with evidence).
+
+### Changed
+
+- CATALOG-PARITY.csv wave 8 verdicts: final 11 rows to Added-1.4.0.24;
+  no Add rows remain.
+
 ## [1.4.0.23] - 2026-09-01
 
 ### Added
