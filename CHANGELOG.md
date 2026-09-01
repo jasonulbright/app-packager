@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.4.0.23] - 2026-09-01
+
+### Added
+
+- **Twenty-four new packagers (249 → 273), Enterprise App Catalog parity
+  wave 7**: Synology Drive Client, SmarTTY, Tabular Editor 2, Tailscale,
+  TeamSpeak 3 client (TS6 is beta-only), TeraCopy, Bulk Rename Utility,
+  Thonny, TightVNC, TortoiseHg, TurboVNC, Typora, UltiMaker Cura,
+  UltraVNC, Unity Hub, UrBackup Client, Vagrant, VeraCrypt, Omnissa
+  Horizon Client (anonymous download confirmed; version resolved via the
+  Customer Connect API with SHA256 verification), VSCodium, WebStorm,
+  WireGuard, XnView MP, Yubico Authenticator. All stage-verified with
+  installer magic checks. Both VNC servers install without password
+  configuration by design — MECM command lines are readable from content;
+  configure authentication in a separate step before exposing them.
+
+### Changed
+
+- CATALOG-PARITY.csv wave 7 verdicts: 24 rows to Added-1.4.0.23; VariCAD
+  Viewer to Skip-Wall (unversioned network-installer stub only).
+
 ## [1.4.0.22] - 2026-08-31
 
 ### Added
