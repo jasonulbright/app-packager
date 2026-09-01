@@ -158,9 +158,9 @@ All packager scripts accept the same core parameters:
 | `-GetLatestVersionOnly` | Output the latest version string and exit |
 | `-LogPath` | Path to a structured log file (timestamps + severity levels) |
 
-## Supported Applications (158)
+## Supported Applications (183)
 
-All 158 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op. The original 83 are end-to-end validated against MECM; the newest additions (including the 2026-08-31 batch of sixteen: Anaconda, AnyDesk, Brave, CCleaner, Citrix Workspace CR, CPU-Z, CutePDF Writer, Greenshot, Opera, pgAdmin 4, PyCharm, Slack, TreeSize Free, XenCenter, XenServer VM Tools, Zoom Workplace) inherit the same Stage to manifest to Package shape; Greenshot and Zoom from the new batch are additionally end-to-end validated against MECM.
+All 183 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op. The original 83 are end-to-end validated against MECM; the newest additions (including the 2026-08-31 batch of sixteen: Anaconda, AnyDesk, Brave, CCleaner, Citrix Workspace CR, CPU-Z, CutePDF Writer, Greenshot, Opera, pgAdmin 4, PyCharm, Slack, TreeSize Free, XenCenter, XenServer VM Tools, Zoom Workplace) inherit the same Stage to manifest to Package shape; Greenshot and Zoom from the new batch are additionally end-to-end validated against MECM.
 
 `package-specexec-mitigations.ps1` is the repo's first multi-deployment-type packager: one application, six Script deployment types (Intel HT-on / Intel HT-off / AMD, each in standard and Hyper-V-host variants), routed by global-condition requirement rules (CPU vendor WQL, HT-state script, Hyper-V vmms registry key) and detected by `FeatureSettingsOverride` / `FeatureSettingsOverrideMask` DWORDs. It generates its own content (no vendor download); `-GetLatestVersionOnly` reports the pinned `-ContentVersion`. Deployment targets: the SpecExec collections from the general-scripts repo (`MECM/Collections/New-SpecExecTargetCollections.ps1`).
 
@@ -177,6 +177,7 @@ All 158 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-anyburn.ps1 | PowerSoft | AnyBurn | Script (ARP scan) |
 | package-anydesk.ps1 | AnyDesk Software GmbH | AnyDesk | File version |
 | package-arduinoide.ps1 | Arduino | Arduino IDE | RegistryKeyValue |
+| package-asperaconnect.ps1 | IBM | IBM Aspera Connect | RegistryKeyValue |
 | package-aspnethostingbundle8.ps1 | Microsoft | ASP.NET Core Hosting Bundle 8 | RegistryKey existence |
 | package-audacity.ps1 | Audacity Team | Audacity (x64) | File version |
 | package-awscli.ps1 | Amazon | AWS Command Line Interface | RegistryKeyValue |
@@ -199,6 +200,7 @@ All 158 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-certifytheweb.ps1 | Webprofusion | Certify The Web | RegistryKeyValue |
 | package-chefworkstation.ps1 | Chef Software | Chef Workstation | RegistryKeyValue |
 | package-chrome.ps1 | Google | Google Chrome Enterprise (x64) | RegistryKeyValue |
+| package-chromeremotedesktophost.ps1 | Google | Chrome Remote Desktop Host | RegistryKeyValue |
 | package-citrixworkspace-cr.ps1 | Cloud Software Group | Citrix Workspace CR | RegistryKeyValue |
 | package-clockify.ps1 | CAKE.com | Clockify | RegistryKeyValue |
 | package-cloudcompare.ps1 | CloudCompare Project | CloudCompare | File version |
@@ -236,16 +238,33 @@ All 158 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-everything.ps1 | Voidtools | Everything (x64) | RegistryKeyValue |
 | package-firefox.ps1 | Mozilla | Mozilla Firefox (x64) | File version |
 | package-freecad.ps1 | FreeCAD Team | FreeCAD | RegistryKeyValue |
+| package-gcpw.ps1 | Google | Google Credential Provider for Windows | RegistryKeyValue |
 | package-geogebra.ps1 | International GeoGebra Institute | GeoGebra Classic | RegistryKeyValue |
 | package-gephi.ps1 | Gephi Consortium | Gephi | File existence |
 | package-gimp.ps1 | The GIMP Team | GIMP (x64) | RegistryKeyValue |
 | package-git.ps1 | Git | Git for Windows (x64) | File version |
 | package-githubcli.ps1 | GitHub | GitHub CLI | RegistryKeyValue |
+| package-go.ps1 | Google | Go Programming Language | RegistryKeyValue |
 | package-goland.ps1 | JetBrains | GoLand | RegistryKey existence |
+| package-googledrive.ps1 | Google | Google Drive | RegistryKeyValue |
 | package-gpg4win.ps1 | g10 Code GmbH | Gpg4win | RegistryKeyValue |
+| package-graphviz.ps1 | Graphviz | Graphviz | RegistryKeyValue |
 | package-greenshot.ps1 | Greenshot | Greenshot | File existence |
+| package-grepwin.ps1 | Stefan Kueng | grepWin | RegistryKeyValue |
+| package-gsudo.ps1 | gerardog | gsudo | RegistryKeyValue |
+| package-handbrake.ps1 | HandBrake Team | HandBrake | File version |
+| package-hashtools.ps1 | Binary Fortress Software | HashTools | File version |
+| package-heidisql.ps1 | Ansgar Becker | HeidiSQL | File version |
+| package-hwmonitor.ps1 | CPUID | HWMonitor | File existence |
+| package-iapdesktop.ps1 | Google | IAP Desktop | RegistryKeyValue |
+| package-imageglass.ps1 | Duong Dieu Phap | ImageGlass | RegistryKeyValue |
 | package-inkscape.ps1 | Inkscape Project | Inkscape (x64) | RegistryKeyValue |
+| package-irfanview.ps1 | Irfan Skiljan | IrfanView | File version |
+| package-joplin.ps1 | Laurent Cozic | Joplin | File version |
+| package-kdiff3.ps1 | KDE e.V. | KDiff3 | RegistryKeyValue |
 | package-keepass.ps1 | Dominik Reichl | KeePass | RegistryKeyValue |
+| package-keepassxc.ps1 | KeePassXC Team | KeePassXC | RegistryKeyValue |
+| package-keystoreexplorer.ps1 | Kai Kramer | KeyStore Explorer | RegistryKeyValue |
 | package-libreoffice.ps1 | The Document Foundation | LibreOffice (x64) | RegistryKeyValue |
 | package-m365apps-x64.ps1 | Microsoft | M365 Apps for Enterprise (x64) | File version (WINWORD.EXE) |
 | package-m365apps-x86.ps1 | Microsoft | M365 Apps for Enterprise (x86) | File version (WINWORD.EXE) |
@@ -282,6 +301,12 @@ All 158 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `
 | package-redshiftodbc.ps1 | Amazon Web Services | Amazon Redshift ODBC Driver | RegistryKeyValue |
 | package-remotedesktopmanager.ps1 | Devolutions | Remote Desktop Manager | RegistryKeyValue |
 | package-rstudio.ps1 | Posit Software, PBC | RStudio Desktop (x64) | RegistryKeyValue |
+| package-semeru-jdk11.ps1 | IBM | IBM Semeru Runtime Open Edition JDK 11 | RegistryKeyValue |
+| package-semeru-jdk17.ps1 | IBM | IBM Semeru Runtime Open Edition JDK 17 | RegistryKeyValue |
+| package-semeru-jdk8.ps1 | IBM | IBM Semeru Runtime Open Edition JDK 8 | RegistryKeyValue |
+| package-semeru-jre11.ps1 | IBM | IBM Semeru Runtime Open Edition JRE 11 | RegistryKeyValue |
+| package-semeru-jre17.ps1 | IBM | IBM Semeru Runtime Open Edition JRE 17 | RegistryKeyValue |
+| package-semeru-jre8.ps1 | IBM | IBM Semeru Runtime Open Edition JRE 8 | RegistryKeyValue |
 | package-sharex.ps1 | ShareX Team | ShareX | File version |
 | package-slack.ps1 | Slack Technologies | Slack | RegistryKeyValue |
 | package-soapui.ps1 | SmartBear Software | SoapUI | File existence |
