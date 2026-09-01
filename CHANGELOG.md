@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.4.0.17] - 2026-08-31
+
+### Fixed
+
+- **Spectra PDF packager pointed at the wrong repository**: acquisition
+  now targets `jasonulbright/spectra-pdf` (current releases, 1.1.20)
+  instead of the archived legacy `spectrapdf` repository (stale 0.9.0).
+  Stage phase re-verified against 1.1.20.
+
 ## [1.4.0.16] - 2026-08-31
 
 ### Added

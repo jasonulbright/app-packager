@@ -2,10 +2,10 @@
 Vendor: Signal Ridge Labs
 App: Spectra PDF
 CMName: Spectra PDF
-VendorUrl: https://github.com/jasonulbright/spectrapdf
+VendorUrl: https://github.com/jasonulbright/spectra-pdf
 CPE: cpe:2.3:a:signalridgelabs:spectra_pdf:*:*:*:*:*:*:*:*
-ReleaseNotesUrl: https://github.com/jasonulbright/spectrapdf/releases
-DownloadPageUrl: https://github.com/jasonulbright/spectrapdf/releases
+ReleaseNotesUrl: https://github.com/jasonulbright/spectra-pdf/releases
+DownloadPageUrl: https://github.com/jasonulbright/spectra-pdf/releases
 UpdateCadenceDays: 90
 
 .SYNOPSIS
@@ -24,7 +24,7 @@ UpdateCadenceDays: 90
       -PackageOnly  Copy to network, create MECM application
 
 .REQUIREMENTS
-    - GitHub CLI (gh) authenticated with access to jasonulbright/spectrapdf
+    - GitHub CLI (gh) authenticated with access to jasonulbright/spectra-pdf
     - PowerShell 5.1, ConfigMgr console for the Package phase
 #>
 
@@ -53,7 +53,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$Repo             = 'jasonulbright/spectrapdf'
+$Repo             = 'jasonulbright/spectra-pdf'
 $VendorFolder     = 'Signal Ridge Labs'
 $AppFolder        = 'Spectra PDF'
 $BaseDownloadRoot = Join-Path $DownloadRoot 'SpectraPDF'
