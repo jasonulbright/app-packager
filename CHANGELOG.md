@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.4.0.20] - 2026-08-31
+
+### Added
+
+- **Twenty new packagers (183 → 203), Enterprise App Catalog parity
+  wave 4**: Calibre, Kreya, Krita, Liberica JDK 21, MariaDB Server (12.3
+  LTS), Mattermost Desktop, Azure CLI, Azure PowerShell, Azure Storage
+  Explorer, SQL Server 2022 Express (self-contained Express Core media,
+  extract-and-setup wrappers), Windows Admin Center v2, Windows ADK for
+  Windows 11 and the Windows PE add-on (full offline /layout staging),
+  MongoDB Compass, Firefox ESR, Intune Debug Toolkit, MuseScore Studio 4,
+  Nagstamon, NAPS2, NetBird. All stage-verified with installer magic
+  checks. WinPE add-on must be deployed as a dependency of the ADK
+  application; Firefox ESR and rapid channel share an install path — do
+  not target one collection with both.
+
+### Changed
+
+- CATALOG-PARITY.csv wave 4 verdicts: 20 rows to Added-1.4.0.20; KNIME
+  (7-Zip SFX, no silent per-machine install), Lens Desktop (per-user
+  rolling channel), Mendeley (per-user only) to Skip-Wall; legacy
+  Microsoft LAPS and Azure Data CLI (both deprecated) to Skip-EOL.
+
 ## [1.4.0.19] - 2026-08-31
 
 ### Added
