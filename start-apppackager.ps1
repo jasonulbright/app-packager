@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.5.0.9
+    Version    : 1.5.0.10
     Updated    : 2026-09-02
 #>
 
@@ -1024,6 +1024,86 @@ function Assert-PackagerPackageIntegrity {
     }
 }
 
+function Get-ExistingConflictFromOutput {
+    # Parses packager stdout for the marker New-MECMApplicationFromManifest
+    # writes when it skips an application that already exists at the same
+    # version. Returns $null when the run reported no such conflict.
+    param([AllowEmptyString()][string]$Output = '')
+
+    if ([string]::IsNullOrWhiteSpace($Output)) { return $null }
+    $match = [regex]::Match(
+        $Output,
+        "\[APP_PACKAGER_CONFLICT\]\s+existing-same-version\s+app='([^']*)'\s+version='([^']*)'"
+    )
+    if (-not $match.Success) { return $null }
+    return [pscustomobject]@{
+        AppName = $match.Groups[1].Value
+        Version = $match.Groups[2].Value
+    }
+}
+
+function Invoke-PackagerPackageWithConflictPrompt {
+    # Runs the package phase under the engine default (Skip), then acts on the
+    # operator's answer when the engine reports an application already at this
+    # version. Runs that report no conflict never touch the UI thread.
+    #
+    # The prompt itself belongs to the UI thread: this runs in the background
+    # runspace, so it parks a request on the synchronized state and polls for
+    # the answer, the same handshake the Pause button uses.
+    param(
+        [Parameter(Mandatory)][hashtable]$State,
+        [Parameter(Mandatory)][string]$AppLabel,
+        [Parameter(Mandatory)][hashtable]$PackageArgs
+    )
+
+    $res = Invoke-PackagerPackage @PackageArgs
+    if ($res.ExitCode -ne 0) { return $res }
+
+    $conflict = Get-ExistingConflictFromOutput -Output ([string]$res.StdOut)
+    if (-not $conflict) { return $res }
+
+    # An apply-to-all answer lives for this run only and is never persisted.
+    $decision = [string]$State.ConflictDecisionForAll
+    if ([string]::IsNullOrWhiteSpace($decision)) {
+        $State.ConflictResponse = $null
+        $State.ConflictRequest = [pscustomobject]@{
+            AppLabel = $AppLabel
+            AppName  = $conflict.AppName
+            Version  = $conflict.Version
+        }
+        while ($null -eq $State.ConflictResponse -and -not [bool]$State.CancelRequested) {
+            $State.Step = ('Waiting for overwrite decision: {0}' -f $AppLabel)
+            Start-Sleep -Milliseconds 150
+        }
+        $answer = $State.ConflictResponse
+        $State.ConflictRequest = $null
+        $State.ConflictResponse = $null
+        if ($null -eq $answer) { return $res }
+        $decision = [string]$answer.Choice
+        if ([bool]$answer.ApplyToAll -and $decision -ne 'Cancel') {
+            $State.ConflictDecisionForAll = $decision
+        }
+    }
+
+    switch ($decision) {
+        'Overwrite' {
+            [void]$State.LogQueue.Enqueue(('Existing {0} v{1}: replacing deployment types.' -f $conflict.AppName, $conflict.Version))
+            $retryArgs = @{} + $PackageArgs
+            $retryArgs['OnExisting'] = 'Overwrite'
+            return (Invoke-PackagerPackage @retryArgs)
+        }
+        'Cancel' {
+            $State.CancelRequested = $true
+            [void]$State.LogQueue.Enqueue(('Existing {0} v{1}: run canceled at the operator''s request.' -f $conflict.AppName, $conflict.Version))
+            return $res
+        }
+        default {
+            [void]$State.LogQueue.Enqueue(('Existing {0} v{1}: left unchanged.' -f $conflict.AppName, $conflict.Version))
+            return $res
+        }
+    }
+}
+
 function Invoke-PackagerIntuneWinPostStep {
     # Produces <AppFolder>-<Version>.intunewin from the staged content and
     # copies it beside the network content version folder. The artifact
@@ -1464,6 +1544,7 @@ function Invoke-PackagerPackage {
         [string]$RequirementsJson = '',
         [string]$VariantsJson = '',
         [string]$CommandsJson = '',
+        [ValidateSet('', 'Skip', 'Overwrite', 'Fail')][string]$OnExisting = '',
         [System.Windows.Controls.TextBox]$LogTextBox = $null
     )
 
@@ -1499,7 +1580,7 @@ function Invoke-PackagerPackage {
     $psi.RedirectStandardError  = $true
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow  = $true
-    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName -RequirementsJson $RequirementsJson -VariantsJson $VariantsJson -CommandsJson $CommandsJson
+    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName -RequirementsJson $RequirementsJson -VariantsJson $VariantsJson -CommandsJson $CommandsJson -OnExisting $OnExisting
 
     $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -StructuredLog $structuredLog -LogTextBox $LogTextBox
     if ($DeploymentTarget -ne 'IntuneOnly') {
@@ -1564,8 +1645,12 @@ function Set-PackagerEnvironment {
         [string]$ProviderMachineName,
         [string]$RequirementsJson,
         [string]$VariantsJson,
-        [string]$CommandsJson
+        [string]$CommandsJson,
+        [string]$OnExisting
     )
+    if (-not [string]::IsNullOrWhiteSpace($OnExisting)) {
+        $StartInfo.EnvironmentVariables['APP_PACKAGER_ON_EXISTING'] = [string]$OnExisting
+    }
     if (-not [string]::IsNullOrWhiteSpace($SevenZipPath)) {
         $StartInfo.EnvironmentVariables['APP_PACKAGER_SEVENZIP'] = [string]$SevenZipPath
     }
@@ -4537,6 +4622,76 @@ function Show-CommandOverrideDialog {
     return $result
 }
 
+function Show-ExistingConflictDialog {
+    # Modal choice for one same-version existing application. Returns
+    # @{ Choice = 'Skip'|'Overwrite'|'Cancel'; ApplyToAll = [bool] }.
+    param(
+        [Parameter(Mandatory)][string]$AppName,
+        [Parameter(Mandatory)][string]$Version,
+        [Parameter(Mandatory)]$Owner
+    )
+    $dlgXaml = @'
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="" Width="560" SizeToContent="Height" MinWidth="460"
+    WindowStartupLocation="CenterOwner" TitleCharacterCasing="Normal"
+    GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+    NonActiveGlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+    BorderThickness="1" ResizeMode="NoResize" ShowIconOnTitleBar="False">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <Style x:Key="DialogButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="MinWidth" Value="120"/><Setter Property="Height" Value="32"/>
+                <Setter Property="Margin" Value="0,0,8,0"/>
+                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
+            </Style>
+            <Style x:Key="DialogAccentButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="MinWidth" Value="120"/><Setter Property="Height" Value="32"/>
+                <Setter Property="Margin" Value="0,0,8,0"/>
+                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+    <Grid Margin="16,12,16,12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock x:Name="txtIntro" Grid.Row="0" TextWrapping="Wrap" FontSize="12" Margin="0,4,0,12"/>
+        <CheckBox  x:Name="chkAll" Grid.Row="1" FontSize="12" Margin="0,0,0,16"
+                   Content="Do this for all remaining conflicts in this run"/>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="btnSkip"      Content="Skip"          Style="{StaticResource DialogButton}"/>
+            <Button x:Name="btnOverwrite" Content="Overwrite"     Style="{StaticResource DialogAccentButton}" IsDefault="True"/>
+            <Button x:Name="btnCancel"    Content="Cancel run"    Style="{StaticResource DialogButton}" IsCancel="True"/>
+        </StackPanel>
+    </Grid>
+</Controls:MetroWindow>
+'@
+    [xml]$dx = $dlgXaml
+    $reader = New-Object System.Xml.XmlNodeReader $dx
+    $dlg = [System.Windows.Markup.XamlReader]::Load($reader)
+    $dlg.Title = 'Application already exists'
+    Install-TitleBarDragFallback -Window $dlg
+    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
+    $dlg.FindName('txtIntro').Text = "$AppName is already in the site at version $Version and was left unchanged. Overwrite replaces its deployment types from the content just staged; the application object and any deployments are kept."
+    $chkAll = $dlg.FindName('chkAll')
+    $script:ConflictDialogChoice = 'Skip'
+    $dlg.FindName('btnSkip').Add_Click({ $script:ConflictDialogChoice = 'Skip'; $dlg.Close() }.GetNewClosure())
+    $dlg.FindName('btnOverwrite').Add_Click({ $script:ConflictDialogChoice = 'Overwrite'; $dlg.Close() }.GetNewClosure())
+    $dlg.FindName('btnCancel').Add_Click({ $script:ConflictDialogChoice = 'Cancel'; $dlg.Close() }.GetNewClosure())
+    [void]$dlg.ShowDialog()
+    return @{ Choice = [string]$script:ConflictDialogChoice; ApplyToAll = [bool]$chkAll.IsChecked }
+}
+
 function New-DeploymentConditionsPanel {
     $xaml = @'
 <DockPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -5396,7 +5551,13 @@ function Invoke-MultiAppPipeline {
         Canceled        = $false
         LogQueue        = New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]'
         Counts          = $null
+        # Existing-application overwrite handshake. ConflictDecisionForAll
+        # lives for this run only; nothing about it is persisted.
+        ConflictRequest        = $null
+        ConflictResponse       = $null
+        ConflictDecisionForAll = ''
     })
+    $script:ConflictPromptOpen = $false
 
     Set-ActionButtonsEnabled -Enabled $false
     $window.Cursor = [System.Windows.Input.Cursors]::Wait
@@ -5552,27 +5713,29 @@ function Invoke-MultiAppPipeline {
                             if ($Ctx.VariantsByApp) { $varJson = [string]$Ctx.VariantsByApp[$baseName] }
                             $cmdJson = ''
                             if ($Ctx.CommandsByApp) { $cmdJson = [string]$Ctx.CommandsByApp[$baseName] }
-                            $res = Invoke-PackagerPackage `
-                                -PackagerPath $path `
-                                -SiteCode $Ctx.SiteCode `
-                                -ProviderMachineName $Ctx.ProviderMachineName `
-                                -Comment $Ctx.Comment `
-                                -FileServerPath $Ctx.FileShareRoot `
-                                -LogFolder $Ctx.LogFolder `
-                                -DownloadRoot $Ctx.DownloadRoot `
-                                -M365Channel $Ctx.M365Channel `
-                                -M365DeployMode $Ctx.M365DeployMode `
-                                -EstimatedRuntimeMins $Ctx.EstimatedRuntimeMins `
-                                -MaximumRuntimeMins $Ctx.MaximumRuntimeMins `
-                                -SevenZipPath $Ctx.SevenZipPath `
-                                -CreateIntuneWin:([bool]$Ctx.IntuneWinCreate) `
-                                -IntuneWinToolPath ([string]$Ctx.IntuneWinToolPath) `
-                                -IntunePublishConfig $Ctx.IntunePublishConfig `
-                                -DeploymentTarget $(if ([string]$Ctx.DeploymentTarget -in @('MECM','MECMAndIntune','IntuneOnly')) { [string]$Ctx.DeploymentTarget } else { 'MECM' }) `
-                                -ContentLayout ([string]$Ctx.ContentLayout) `
-                                -RequirementsJson $reqJson `
-                                -VariantsJson $varJson `
-                                -CommandsJson $cmdJson
+                            $packageArgs = @{
+                                PackagerPath         = $path
+                                SiteCode             = $Ctx.SiteCode
+                                ProviderMachineName  = $Ctx.ProviderMachineName
+                                Comment              = $Ctx.Comment
+                                FileServerPath       = $Ctx.FileShareRoot
+                                LogFolder            = $Ctx.LogFolder
+                                DownloadRoot         = $Ctx.DownloadRoot
+                                M365Channel          = $Ctx.M365Channel
+                                M365DeployMode       = $Ctx.M365DeployMode
+                                EstimatedRuntimeMins = $Ctx.EstimatedRuntimeMins
+                                MaximumRuntimeMins   = $Ctx.MaximumRuntimeMins
+                                SevenZipPath         = $Ctx.SevenZipPath
+                                CreateIntuneWin      = [bool]$Ctx.IntuneWinCreate
+                                IntuneWinToolPath    = [string]$Ctx.IntuneWinToolPath
+                                IntunePublishConfig  = $Ctx.IntunePublishConfig
+                                DeploymentTarget     = $(if ([string]$Ctx.DeploymentTarget -in @('MECM','MECMAndIntune','IntuneOnly')) { [string]$Ctx.DeploymentTarget } else { 'MECM' })
+                                ContentLayout        = [string]$Ctx.ContentLayout
+                                RequirementsJson     = $reqJson
+                                VariantsJson         = $varJson
+                                CommandsJson         = $cmdJson
+                            }
+                            $res = Invoke-PackagerPackageWithConflictPrompt -State $State -AppLabel $app -PackageArgs $packageArgs
 
                             if ($res.ExitCode -eq 0) {
                                 $row.Status = 'Packaged'
@@ -5807,27 +5970,29 @@ function Invoke-MultiAppPipeline {
                             if ($Ctx.VariantsByApp) { $varJson = [string]$Ctx.VariantsByApp[$baseName] }
                             $cmdJson = ''
                             if ($Ctx.CommandsByApp) { $cmdJson = [string]$Ctx.CommandsByApp[$baseName] }
-                            $pkg = Invoke-PackagerPackage `
-                                -PackagerPath $path `
-                                -SiteCode $Ctx.SiteCode `
-                                -ProviderMachineName $Ctx.ProviderMachineName `
-                                -Comment $Ctx.Comment `
-                                -FileServerPath $Ctx.FileShareRoot `
-                                -LogFolder $Ctx.LogFolder `
-                                -DownloadRoot $Ctx.DownloadRoot `
-                                -M365Channel $Ctx.M365Channel `
-                                -M365DeployMode $Ctx.M365DeployMode `
-                                -EstimatedRuntimeMins $Ctx.EstimatedRuntimeMins `
-                                -MaximumRuntimeMins $Ctx.MaximumRuntimeMins `
-                                -SevenZipPath $Ctx.SevenZipPath `
-                                -CreateIntuneWin:([bool]$Ctx.IntuneWinCreate) `
-                                -IntuneWinToolPath ([string]$Ctx.IntuneWinToolPath) `
-                                -IntunePublishConfig $Ctx.IntunePublishConfig `
-                                -DeploymentTarget $(if ([string]$Ctx.DeploymentTarget -in @('MECM','MECMAndIntune','IntuneOnly')) { [string]$Ctx.DeploymentTarget } else { 'MECM' }) `
-                                -ContentLayout ([string]$Ctx.ContentLayout) `
-                                -RequirementsJson $reqJson `
-                                -VariantsJson $varJson `
-                                -CommandsJson $cmdJson
+                            $packageArgs = @{
+                                PackagerPath         = $path
+                                SiteCode             = $Ctx.SiteCode
+                                ProviderMachineName  = $Ctx.ProviderMachineName
+                                Comment              = $Ctx.Comment
+                                FileServerPath       = $Ctx.FileShareRoot
+                                LogFolder            = $Ctx.LogFolder
+                                DownloadRoot         = $Ctx.DownloadRoot
+                                M365Channel          = $Ctx.M365Channel
+                                M365DeployMode       = $Ctx.M365DeployMode
+                                EstimatedRuntimeMins = $Ctx.EstimatedRuntimeMins
+                                MaximumRuntimeMins   = $Ctx.MaximumRuntimeMins
+                                SevenZipPath         = $Ctx.SevenZipPath
+                                CreateIntuneWin      = [bool]$Ctx.IntuneWinCreate
+                                IntuneWinToolPath    = [string]$Ctx.IntuneWinToolPath
+                                IntunePublishConfig  = $Ctx.IntunePublishConfig
+                                DeploymentTarget     = $(if ([string]$Ctx.DeploymentTarget -in @('MECM','MECMAndIntune','IntuneOnly')) { [string]$Ctx.DeploymentTarget } else { 'MECM' })
+                                ContentLayout        = [string]$Ctx.ContentLayout
+                                RequirementsJson     = $reqJson
+                                VariantsJson         = $varJson
+                                CommandsJson         = $cmdJson
+                            }
+                            $pkg = Invoke-PackagerPackageWithConflictPrompt -State $State -AppLabel $app -PackageArgs $packageArgs
 
                             if ($pkg.ExitCode -eq 0) {
                                 $row.Status = 'Packaged'
@@ -5908,6 +6073,29 @@ function Invoke-MultiAppPipeline {
                 $btnCancelPipeline.IsEnabled = $true
             }
         }
+        # Existing-application conflict: the bg loop is parked waiting for an
+        # answer. ConflictPromptOpen guards against a second modal being
+        # opened by the next tick while this one is still on screen.
+        if ($script:BgState -and $script:BgState.ConflictRequest -and -not $script:ConflictPromptOpen) {
+            $script:ConflictPromptOpen = $true
+            try {
+                $req = $script:BgState.ConflictRequest
+                $answer = Show-ExistingConflictDialog -AppName ([string]$req.AppName) -Version ([string]$req.Version) -Owner $window
+                $script:BgState.ConflictResponse = [pscustomobject]@{
+                    Choice     = [string]$answer.Choice
+                    ApplyToAll = [bool]$answer.ApplyToAll
+                }
+            }
+            catch {
+                # A dialog failure must not park the pipeline forever.
+                $script:BgState.ConflictResponse = [pscustomobject]@{ Choice = 'Skip'; ApplyToAll = $false }
+                Add-LogLine -Message ('Conflict prompt failed, keeping the existing application: ' + $_.Exception.Message)
+            }
+            finally {
+                $script:ConflictPromptOpen = $false
+            }
+        }
+
         # Re-render the grid so row.Status flips done in the bg are visible.
         try { $dataGrid.Items.Refresh() } catch { }
 

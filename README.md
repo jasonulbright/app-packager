@@ -141,6 +141,8 @@ A **Variant split** column offers multi-deployment-type staging where a packager
 
 A **Commands** column opens the per-app command override editor: edit the install and uninstall command lines the deployment type will carry, against watermarked shipped defaults, with one-click revert per field. The button label reads Default or Modified so overridden apps are visible at a glance. Overrides reach the packager as `APP_PACKAGER_COMMANDS` environment JSON, are recorded in the stage manifest, and an explicit override always beats the manifest's generated command.
 
+When a Package or One Click Stage-and-Package run reaches an application the site already holds at the same version, the run leaves it alone and asks: **Skip**, **Overwrite**, or **Cancel run**, with a **Do this for all remaining conflicts** checkbox. Overwrite replaces that application's deployment types from the content just staged and keeps the application object and its deployments — the way to re-cut an app whose wrappers or deployment type settings came from an older generator. The answer applies to the current run only and is never saved; apps that raise no conflict are never interrupted.
+
 Global conditions are created on the site the first time a rule needs them and are matched by name, so changing a condition's name in the panel attaches to a condition the site already has instead of creating a duplicate. The panel's per-app grid persists to `AppPackager.preferences.json`; condition names and VPN adapter patterns persist to `Packagers/condition-templates.json` (built-in defaults apply until the panel writes it). Selections apply on Package and One Click Stage-and-Package runs, and requirement resolution fails the run before anything is created when a rule can't be built — a package never silently ships without the rules configured for it.
 
 **About** — application name, installed version (parsed from the script header, the single source of truth), MIT license, a clickable link to the GitHub repository, the timestamp of the last update check, and the latest known release. The same **Update now** action offered in the sidebar is repeated here, enabled only once a check has actually found a newer release; a **Release notes** button opens the releases page.
@@ -188,6 +190,7 @@ All packager scripts accept the same core parameters:
 | `APP_PACKAGER_REQUIREMENTS` | Optional environment JSON (`{"SchemaVersion":1,"Rules":[...]}`) of requirement rule specs applied to the deployment type; the GUI sets it per app from the Deployment Conditions panel |
 | `APP_PACKAGER_VARIANTS` | Optional environment JSON selecting a multi-deployment-type variant split for packagers that declare `SupportsVariants:`; the GUI sets it from the Variant split column |
 | `APP_PACKAGER_COMMANDS` | Optional environment JSON of per-app install/uninstall command overrides; the GUI sets it from the Commands editor. Ignored with a warning when a DeploymentTypes manifest carries per-deployment-type commands |
+| `APP_PACKAGER_ON_EXISTING` | Optional `Skip` (default), `Overwrite`, or `Fail`, deciding what a Package run does when the site already holds this application at this version. `Overwrite` replaces the deployment types in place, keeping the application object and its deployments. An unrecognized value fails the run |
 | `-Comment` | Optional administrative comment stored on the CM Application Description |
 | `-FileServerPath` | UNC root containing the `Applications` folder (default: `\\fileserver\sccm$`) |
 | `-DownloadRoot` | Local root folder for staging (default: `C:\temp\ap`) |
@@ -196,6 +199,7 @@ All packager scripts accept the same core parameters:
 | `-StageOnly` | Run only the Stage phase |
 | `-PackageOnly` | Run only the Package phase |
 | `-GetLatestVersionOnly` | Output the latest version string and exit |
+| `-OnExisting` | Passed through to `New-MECMApplicationFromManifest`: `Skip` / `Overwrite` / `Fail`. Outranks `APP_PACKAGER_ON_EXISTING`; unset falls through to that variable and then to `Skip` |
 | `-LogPath` | Path to a structured log file (timestamps + severity levels) |
 
 ## Supported Applications (284)
@@ -816,7 +820,8 @@ All packager scripts import the shared module which provides:
 | `New-ExeWrapperContent` | Returns EXE install/uninstall .ps1 content strings |
 | `Get-NetworkAppRoot` | Constructs and initializes the network share path |
 | `Write-StageManifest` / `Read-StageManifest` | JSON manifest serialization |
-| `New-MECMApplicationFromManifest` | Creates MECM Application + deployment type from manifest, attaching requirement rules from the manifest `Requirements` array or `APP_PACKAGER_REQUIREMENTS` |
+| `New-MECMApplicationFromManifest` | Creates MECM Application + deployment type from manifest, attaching requirement rules from the manifest `Requirements` array or `APP_PACKAGER_REQUIREMENTS`. `-OnExisting` decides the same-name, same-version case |
+| `Resolve-OnExistingBehavior` | Resolves `Skip` / `Overwrite` / `Fail` from the parameter, then `APP_PACKAGER_ON_EXISTING`, then the default |
 | `Get-ConditionTemplates` / `Save-ConditionTemplates` | Condition template document: built-in defaults (CPU architecture WQL, built-in OS language, VPN adapter script) with an optional `condition-templates.json` override |
 | `New-DeploymentTypeRequirementRules` | Resolves requirement specs to CM requirement rule objects, creating missing global conditions by name (get-or-create, so existing site conditions are reused) |
 | `Remove-CMApplicationRevisionHistoryByCIId` | Trims old application revisions |
