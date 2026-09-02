@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Burnaware
 App: BurnAware Free
 CMName: BurnAware Free
@@ -6,6 +6,7 @@ VendorUrl: https://www.burnaware.com/
 CPE: cpe:2.3:a:burnaware:burnaware:*:*:*:*:free:*:*:*
 ReleaseNotesUrl: https://www.burnaware.com/history.html
 DownloadPageUrl: https://www.burnaware.com/download.html
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

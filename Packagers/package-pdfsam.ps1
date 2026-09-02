@@ -5,6 +5,7 @@ CMName: PDFsam Basic
 VendorUrl: https://pdfsam.org/
 ReleaseNotesUrl: https://github.com/torakiki/pdfsam/releases
 DownloadPageUrl: https://pdfsam.org/download-pdfsam-basic/
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

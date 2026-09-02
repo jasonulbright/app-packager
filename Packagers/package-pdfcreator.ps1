@@ -6,6 +6,7 @@ VendorUrl: https://www.pdfforge.org/pdfcreator
 CPE: cpe:2.3:a:pdfforge:pdfcreator:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.pdfforge.org/pdfcreator/changelog
 DownloadPageUrl: https://www.pdfforge.org/pdfcreator/download
+IconSource: External
 UpdateCadenceDays: 60
 
 .SYNOPSIS

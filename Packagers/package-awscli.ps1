@@ -6,6 +6,7 @@ VendorUrl: https://aws.amazon.com/cli/
 CPE: cpe:2.3:a:amazon:aws_command_line_interface:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/aws/aws-cli/blob/v2/CHANGELOG.rst
 DownloadPageUrl: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+IconSource: None
 UpdateCadenceDays: 14
 
 .SYNOPSIS

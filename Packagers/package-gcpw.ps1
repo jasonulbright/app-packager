@@ -6,6 +6,7 @@ VendorUrl: https://tools.google.com/dlpage/gcpw/
 CPE: cpe:2.3:a:google:credential_provider_for_windows:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://support.google.com/a/answer/9250996
 DownloadPageUrl: https://tools.google.com/dlpage/gcpw/
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

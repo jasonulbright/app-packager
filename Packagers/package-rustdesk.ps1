@@ -6,6 +6,7 @@ VendorUrl: https://rustdesk.com/
 CPE: cpe:2.3:a:rustdesk:rustdesk:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/rustdesk/rustdesk/releases
 DownloadPageUrl: https://github.com/rustdesk/rustdesk/releases
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

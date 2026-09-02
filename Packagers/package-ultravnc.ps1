@@ -6,6 +6,7 @@ VendorUrl: https://uvnc.com/
 CPE: cpe:2.3:a:uvnc:ultravnc:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://uvnc.com/downloads/ultravnc.html
 DownloadPageUrl: https://uvnc.com/downloads/ultravnc.html
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

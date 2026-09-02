@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: WinMerge
 App: WinMerge
 CMName: WinMerge
@@ -6,6 +6,7 @@ VendorUrl: https://winmerge.org/
 CPE: cpe:2.3:a:winmerge:winmerge:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/WinMerge/winmerge/releases
 DownloadPageUrl: https://winmerge.org/downloads/
+IconSource: External
 
 .SYNOPSIS
     Packages WinMerge (x64) for MECM.

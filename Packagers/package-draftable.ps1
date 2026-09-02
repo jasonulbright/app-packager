@@ -6,6 +6,7 @@ VendorUrl: https://www.draftable.com/
 CPE: cpe:2.3:a:draftable:draftable_desktop:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://help.draftable.com/hc/en-us
 DownloadPageUrl: https://www.draftable.com/desktop
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

@@ -5,6 +5,7 @@ CMName: PDFgear
 VendorUrl: https://www.pdfgear.com/
 ReleaseNotesUrl: https://www.pdfgear.com/download/
 DownloadPageUrl: https://www.pdfgear.com/download/
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

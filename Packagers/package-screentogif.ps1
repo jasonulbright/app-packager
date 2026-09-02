@@ -6,6 +6,7 @@ VendorUrl: https://www.screentogif.com/
 CPE: cpe:2.3:a:screentogif:screentogif:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/NickeManarin/ScreenToGif/releases
 DownloadPageUrl: https://github.com/NickeManarin/ScreenToGif/releases/latest
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

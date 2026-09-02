@@ -6,6 +6,7 @@ VendorUrl: https://orcaslicer.com/
 CPE: cpe:2.3:a:softfever:orcaslicer:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/SoftFever/OrcaSlicer/releases
 DownloadPageUrl: https://github.com/SoftFever/OrcaSlicer/releases/latest
+IconSource: Installer
 UpdateCadenceDays: 45
 
 .SYNOPSIS

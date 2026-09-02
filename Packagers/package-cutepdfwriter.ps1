@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Acro Software Inc.
 App: CutePDF Writer
 CMName: CutePDF Writer
@@ -6,6 +6,7 @@ VendorUrl: https://www.cutepdf.com/
 CPE: cpe:2.3:a:acrosoftware:cutepdf_writer:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.cutepdf.com/Products/CutePDF/writer.asp
 DownloadPageUrl: https://www.cutepdf.com/products/cutepdf/writer.asp
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

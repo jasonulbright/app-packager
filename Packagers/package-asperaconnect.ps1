@@ -6,6 +6,7 @@ VendorUrl: https://www.ibm.com/aspera/connect/
 CPE: cpe:2.3:a:ibm:aspera_connect:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.ibm.com/aspera/connect/
 DownloadPageUrl: https://www.ibm.com/aspera/connect/
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

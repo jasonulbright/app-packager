@@ -6,6 +6,7 @@ VendorUrl: https://www.7-zip.org/
 CPE: cpe:2.3:a:7-zip:7-zip:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.7-zip.org/history.txt
 DownloadPageUrl: https://www.7-zip.org/download.html
+IconSource: External
 UpdateCadenceDays: 90
 SupportsVariants: Architecture
 

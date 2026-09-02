@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Binary Fortress Software
 App: HashTools
 CMName: HashTools
@@ -6,6 +6,7 @@ VendorUrl: https://www.binaryfortress.com/HashTools/
 CPE: cpe:2.3:a:binaryfortress:hashtools:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.binaryfortress.com/HashTools/ChangeLog/
 DownloadPageUrl: https://www.binaryfortress.com/HashTools/Download/
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

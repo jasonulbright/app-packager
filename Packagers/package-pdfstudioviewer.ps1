@@ -5,6 +5,7 @@ CMName: PDF Studio Viewer
 VendorUrl: https://www.qoppa.com/
 ReleaseNotesUrl: https://www.qoppa.com/pdfstudioviewer/
 DownloadPageUrl: https://www.qoppa.com/pdfstudioviewer/download/
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

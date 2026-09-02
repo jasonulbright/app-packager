@@ -5,6 +5,7 @@ CMName: CloudCompare
 VendorUrl: https://www.cloudcompare.org/
 ReleaseNotesUrl: https://github.com/CloudCompare/CloudCompare/releases
 DownloadPageUrl: https://www.cloudcompare.org/release/index.html
+IconSource: External
 UpdateCadenceDays: 180
 
 .SYNOPSIS

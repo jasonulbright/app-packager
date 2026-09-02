@@ -6,6 +6,7 @@ VendorUrl: https://www.ldapbrowser.com/
 CPE: cpe:2.3:a:softerra:ldap_browser:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.ldapbrowser.com/resources/english/2026/releasenotes.html
 DownloadPageUrl: https://www.ldapbrowser.com/download.htm
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

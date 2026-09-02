@@ -1067,8 +1067,15 @@ function Get-InstallerIcon {
                 try {
                     [System.IO.File]::WriteAllBytes($temp, $bytes)
                     Initialize-IconNativeType
+                    # Same transient-load retry as the direct PE path; the temp
+                    # file was written a moment ago.
                     $peSize = 0
-                    $peBytes = [AppPackager.IconNative]::ExtractLargestIcon($temp, [ref]$peSize)
+                    $peBytes = $null
+                    foreach ($delayMs in 0, 400, 1200) {
+                        if ($delayMs) { Start-Sleep -Milliseconds $delayMs }
+                        $peBytes = [AppPackager.IconNative]::ExtractLargestIcon($temp, [ref]$peSize)
+                        if ($peBytes) { break }
+                    }
                     if ($peBytes) { $bytes = $peBytes; $pixelSize = $peSize; $source = 'MsiIconTablePe' }
                 }
                 finally { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
@@ -1077,8 +1084,17 @@ function Get-InstallerIcon {
     }
     else {
         Initialize-IconNativeType
+        # LoadLibraryExW fails transiently on a freshly written file (an
+        # on-access scan still holds it) and the helper returns null with no
+        # error, which would silently degrade to the 32px fallback on the
+        # very first probe of a just-downloaded payload.
         $nativeSize = 0
-        $bytes = [AppPackager.IconNative]::ExtractLargestIcon($full, [ref]$nativeSize)
+        $bytes = $null
+        foreach ($delayMs in 0, 400, 1200) {
+            if ($delayMs) { Start-Sleep -Milliseconds $delayMs }
+            $bytes = [AppPackager.IconNative]::ExtractLargestIcon($full, [ref]$nativeSize)
+            if ($bytes) { break }
+        }
         if ($bytes) {
             $pixelSize = $nativeSize
             $source = 'PeResource'

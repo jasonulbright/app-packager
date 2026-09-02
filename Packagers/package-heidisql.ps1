@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Ansgar Becker
 App: HeidiSQL
 CMName: HeidiSQL
@@ -6,6 +6,7 @@ VendorUrl: https://www.heidisql.com/
 CPE: cpe:2.3:a:heidisql:heidisql:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.heidisql.com/whatsnew.php
 DownloadPageUrl: https://www.heidisql.com/download.php
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

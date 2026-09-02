@@ -6,6 +6,7 @@ VendorUrl: https://www.opera.com/
 CPE: cpe:2.3:a:opera:opera:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://blogs.opera.com/desktop/
 DownloadPageUrl: https://www.opera.com/download
+IconSource: Installer
 UpdateCadenceDays: 21
 
 .SYNOPSIS

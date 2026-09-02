@@ -6,6 +6,7 @@ VendorUrl: https://dotnet.microsoft.com/download/dotnet/8.0
 CPE: cpe:2.3:a:microsoft:.net:8.*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/dotnet/core/tree/main/release-notes/8.0
 DownloadPageUrl: https://dotnet.microsoft.com/en-us/download/dotnet/8.0
+IconSource: None
 
 .SYNOPSIS
     Packages .NET 8 Windows Desktop Runtime (x86 and x64) for MECM.

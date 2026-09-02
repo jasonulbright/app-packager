@@ -6,6 +6,7 @@ VendorUrl: https://www.tightvnc.com/
 CPE: cpe:2.3:a:tightvnc:tightvnc:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.tightvnc.com/whatsnew.php
 DownloadPageUrl: https://www.tightvnc.com/download.php
+IconSource: External
 UpdateCadenceDays: 180
 
 .SYNOPSIS

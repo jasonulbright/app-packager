@@ -6,6 +6,7 @@ VendorUrl: https://keepassxc.org/
 CPE: cpe:2.3:a:keepassxc:keepassxc:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://keepassxc.org/blog/
 DownloadPageUrl: https://keepassxc.org/download/#windows
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

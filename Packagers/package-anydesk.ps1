@@ -6,6 +6,7 @@ VendorUrl: https://anydesk.com/
 CPE: cpe:2.3:a:anydesk:anydesk:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://anydesk.com/en/changelog/windows
 DownloadPageUrl: https://anydesk.com/en/downloads/windows
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

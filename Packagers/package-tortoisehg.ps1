@@ -6,6 +6,7 @@ VendorUrl: https://tortoisehg.bitbucket.io/
 CPE: cpe:2.3:a:tortoisehg:tortoisehg:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://foss.heptapod.net/mercurial/tortoisehg/thg/-/wikis/ReleaseNotes
 DownloadPageUrl: https://tortoisehg.bitbucket.io/download/index.html
+IconSource: Installer
 UpdateCadenceDays: 120
 
 .SYNOPSIS

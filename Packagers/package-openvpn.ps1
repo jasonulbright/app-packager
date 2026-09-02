@@ -6,6 +6,7 @@ VendorUrl: https://openvpn.net/community/
 CPE: cpe:2.3:a:openvpn:openvpn:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/OpenVPN/openvpn/blob/master/Changes.rst
 DownloadPageUrl: https://openvpn.net/community-downloads/
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

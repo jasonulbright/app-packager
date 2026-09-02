@@ -6,6 +6,7 @@ VendorUrl: https://www.wibu.com/
 CPE: cpe:2.3:a:wibu:codemeter_runtime:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.wibu.com/support/user/user-software.html
 DownloadPageUrl: https://www.wibu.com/us/support/user/downloads-user-software.html
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

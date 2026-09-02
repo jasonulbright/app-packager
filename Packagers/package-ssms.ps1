@@ -6,6 +6,7 @@ VendorUrl: https://learn.microsoft.com/en-us/ssms/sql-server-management-studio-s
 CPE: cpe:2.3:a:microsoft:sql_server_management_studio:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/en-us/ssms/release-history
 DownloadPageUrl: https://learn.microsoft.com/en-us/ssms/download-sql-server-management-studio-ssms
+IconSource: External
 UpdateCadenceDays: 14
 
 .SYNOPSIS

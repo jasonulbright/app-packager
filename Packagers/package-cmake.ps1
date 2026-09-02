@@ -6,6 +6,7 @@ VendorUrl: https://cmake.org/
 CPE: cpe:2.3:a:kitware:cmake:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/Kitware/CMake/releases
 DownloadPageUrl: https://cmake.org/download/
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

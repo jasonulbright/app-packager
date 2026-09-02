@@ -6,6 +6,7 @@ VendorUrl: https://www.geogebra.org/
 CPE: cpe:2.3:a:geogebra:geogebra:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.geogebra.org/m/mMcexbAF
 DownloadPageUrl: https://www.geogebra.org/download
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

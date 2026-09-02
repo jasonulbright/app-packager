@@ -6,6 +6,7 @@ VendorUrl: https://pwsafe.org/
 CPE: cpe:2.3:a:pwsafe:password_safe:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/pwsafe/pwsafe/releases
 DownloadPageUrl: https://pwsafe.org/
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

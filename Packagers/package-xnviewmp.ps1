@@ -6,6 +6,7 @@ VendorUrl: https://www.xnview.com/en/xnviewmp/
 CPE: cpe:2.3:a:xnview:xnview_mp:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://newsgroup.xnview.com/viewforum.php?f=60
 DownloadPageUrl: https://www.xnview.com/en/xnviewmp/
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Microsoft
 App: Visual Studio Code (User)
 CMName: Visual Studio Code (User)
@@ -6,6 +6,7 @@ VendorUrl: https://code.visualstudio.com/docs/setup/windows
 CPE: cpe:2.3:a:microsoft:visual_studio_code:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://code.visualstudio.com/updates
 DownloadPageUrl: https://code.visualstudio.com/Download
+IconSource: Installer
 UpdateCadenceDays: 14
 
 .SYNOPSIS

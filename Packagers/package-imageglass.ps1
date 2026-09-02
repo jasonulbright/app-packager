@@ -6,6 +6,7 @@ VendorUrl: https://imageglass.org/
 CPE: cpe:2.3:a:imageglass:imageglass:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/d2phap/ImageGlass/releases
 DownloadPageUrl: https://imageglass.org/download
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

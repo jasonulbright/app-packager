@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Cloud Software Group
 App: Citrix Workspace app for Windows (Current Release)
 CMName: Citrix Workspace CR
@@ -6,6 +6,7 @@ VendorUrl: https://www.citrix.com/downloads/workspace-app/
 CPE: cpe:2.3:a:citrix:workspace_app:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://docs.citrix.com/en-us/citrix-workspace-app-for-windows/whats-new.html
 DownloadPageUrl: https://www.citrix.com/downloads/workspace-app/windows/workspace-app-for-windows-latest.html
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

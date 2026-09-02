@@ -6,6 +6,7 @@ VendorUrl: https://www.veracrypt.io/
 CPE: cpe:2.3:a:veracrypt:veracrypt:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.veracrypt.io/en/Release%20Notes.html
 DownloadPageUrl: https://www.veracrypt.io/en/Downloads.html
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

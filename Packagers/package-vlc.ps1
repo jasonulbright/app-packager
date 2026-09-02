@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: VideoLAN
 App: VLC Media Player
 CMName: VLC Media Player
@@ -6,6 +6,7 @@ VendorUrl: https://www.videolan.org/vlc/
 CPE: cpe:2.3:a:videolan:vlc_media_player:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.videolan.org/vlc/releases/
 DownloadPageUrl: https://www.videolan.org/vlc/
+IconSource: Installer
 
 .SYNOPSIS
     Packages VLC Media Player (x64) MSI for MECM.

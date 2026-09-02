@@ -6,6 +6,7 @@ VendorUrl: https://handbrake.fr/
 CPE: cpe:2.3:a:handbrake:handbrake:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/HandBrake/HandBrake/releases
 DownloadPageUrl: https://handbrake.fr/downloads.php
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

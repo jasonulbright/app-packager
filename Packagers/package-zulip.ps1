@@ -6,6 +6,7 @@ VendorUrl: https://zulip.com/
 CPE: cpe:2.3:a:zulip:zulip_desktop:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/zulip/zulip-desktop/releases
 DownloadPageUrl: https://zulip.com/apps/windows
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

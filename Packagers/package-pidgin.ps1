@@ -6,6 +6,7 @@ VendorUrl: https://pidgin.im/
 CPE: cpe:2.3:a:pidgin:pidgin:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://keep.imfreedom.org/pidgin/pidgin/file/tip/ChangeLog
 DownloadPageUrl: https://sourceforge.net/projects/pidgin/files/Pidgin/
+IconSource: External
 UpdateCadenceDays: 120
 
 .SYNOPSIS

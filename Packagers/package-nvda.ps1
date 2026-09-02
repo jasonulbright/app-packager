@@ -5,6 +5,7 @@ CMName: NVDA
 VendorUrl: https://www.nvaccess.org/
 ReleaseNotesUrl: https://www.nvaccess.org/post/
 DownloadPageUrl: https://www.nvaccess.org/download/
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

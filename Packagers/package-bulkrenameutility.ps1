@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: TGRMN Software
 App: Bulk Rename Utility
 CMName: Bulk Rename Utility
@@ -6,6 +6,7 @@ VendorUrl: https://www.bulkrenameutility.co.uk/
 CPE: cpe:2.3:a:tgrmn:bulk_rename_utility:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.bulkrenameutility.co.uk/Downloads/BRUChangelog.pdf
 DownloadPageUrl: https://www.bulkrenameutility.co.uk/Download.php
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

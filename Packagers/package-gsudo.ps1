@@ -6,6 +6,7 @@ VendorUrl: https://gerardog.github.io/gsudo/
 CPE: cpe:2.3:a:gerardog:gsudo:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/gerardog/gsudo/releases
 DownloadPageUrl: https://github.com/gerardog/gsudo/releases
+IconSource: None
 UpdateCadenceDays: 90
 
 .SYNOPSIS

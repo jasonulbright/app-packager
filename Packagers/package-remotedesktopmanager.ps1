@@ -6,6 +6,7 @@ VendorUrl: https://devolutions.net/
 CPE: cpe:2.3:a:devolutions:remote_desktop_manager:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://devolutions.net/remote-desktop-manager/home/whatsnew/
 DownloadPageUrl: https://devolutions.net/remote-desktop-manager/home/download/
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

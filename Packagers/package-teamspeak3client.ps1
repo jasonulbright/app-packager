@@ -6,6 +6,7 @@ VendorUrl: https://teamspeak.com/
 CPE: cpe:2.3:a:teamspeak:teamspeak3_client:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://teamspeak.com/en/downloads/
 DownloadPageUrl: https://teamspeak.com/en/downloads/
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

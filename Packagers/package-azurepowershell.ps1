@@ -6,6 +6,7 @@ VendorUrl: https://learn.microsoft.com/powershell/azure/
 CPE: cpe:2.3:a:microsoft:azure_powershell:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/Azure/azure-powershell/releases
 DownloadPageUrl: https://github.com/Azure/azure-powershell/releases/latest
+IconSource: None
 UpdateCadenceDays: 30
 
 .SYNOPSIS

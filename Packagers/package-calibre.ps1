@@ -6,6 +6,7 @@ VendorUrl: https://calibre-ebook.com/
 CPE: cpe:2.3:a:calibre-ebook:calibre:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://calibre-ebook.com/whats-new
 DownloadPageUrl: https://calibre-ebook.com/download_windows64
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

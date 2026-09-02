@@ -6,6 +6,7 @@ VendorUrl: https://netbird.io/
 CPE: cpe:2.3:a:netbird:netbird:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/netbirdio/netbird/releases
 DownloadPageUrl: https://netbird.io/download
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

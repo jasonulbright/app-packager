@@ -5,6 +5,7 @@ CMName: RenderDoc
 VendorUrl: https://renderdoc.org/
 ReleaseNotesUrl: https://github.com/baldurk/renderdoc/releases
 DownloadPageUrl: https://renderdoc.org/builds
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

@@ -6,6 +6,7 @@ VendorUrl: https://clients.amazonworkspaces.com/
 CPE: cpe:2.3:a:amazon:workspaces:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://docs.aws.amazon.com/workspaces/latest/userguide/amazon-workspaces-windows-client.html
 DownloadPageUrl: https://clients.amazonworkspaces.com/
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

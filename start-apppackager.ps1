@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.5.0.6
+    Version    : 1.5.0.7
     Updated    : 2026-09-02
 #>
 
@@ -2060,6 +2060,237 @@ function Open-UpdateReleasePage {
 }
 
 # =============================================================================
+# Packager icon pack
+# =============================================================================
+$script:IconPackRepo      = 'jasonulbright/app-packager-icons'
+$script:IconPackUserAgent = 'AppPackager-IconPack'
+$script:IconPackAssetName = 'icon-pack.zip'
+$script:IconPackSumsName  = 'checksums.txt'
+
+function Get-IconPackRoot {
+    param([string]$AppRoot = $PSScriptRoot)
+    Join-Path (Join-Path $AppRoot 'Packagers') 'Icons'
+}
+
+function Get-IconPackManifestPath {
+    param([string]$AppRoot = $PSScriptRoot)
+    Join-Path (Get-IconPackRoot -AppRoot $AppRoot) 'manifest.json'
+}
+
+function Read-IconPackManifest {
+    <#
+    .SYNOPSIS
+        Reads an installed icon pack manifest.
+
+    .DESCRIPTION
+        Returns PackVersion, MinAppVersion, and IconCount. A missing,
+        unreadable, or malformed manifest returns $null so the caller can show
+        the not-installed state instead of failing.
+    #>
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+
+    try {
+        $data = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        return $null
+    }
+    if ($null -eq $data) { return $null }
+
+    $icons = @()
+    if ($data.PSObject.Properties.Name -contains 'Icons' -and $data.Icons) { $icons = @($data.Icons) }
+
+    return [pscustomobject]@{
+        PackVersion   = [string]$data.PackVersion
+        MinAppVersion = [string]$data.MinAppVersion
+        IconCount     = $icons.Count
+    }
+}
+
+function Test-IconPackAppVersion {
+    <#
+    .SYNOPSIS
+        Reports whether the running app satisfies a pack's MinAppVersion.
+
+    .DESCRIPTION
+        An absent or unparseable version on either side is treated as
+        satisfied: the pack is decoration and an unreadable bound must not
+        block an install, only the warning that goes with it.
+    #>
+    param(
+        [AllowNull()][string]$MinAppVersion,
+        [AllowNull()][string]$CurrentVersion
+    )
+
+    $min     = $null
+    $current = $null
+    if (-not [version]::TryParse(($MinAppVersion  -as [string]), [ref]$min))     { return $true }
+    if (-not [version]::TryParse(($CurrentVersion -as [string]), [ref]$current)) { return $true }
+    return ($current -ge $min)
+}
+
+function Get-IconPackChecksum {
+    # checksums.txt is sha256sum output: "<hash> *<filename>" or "<hash>  <filename>".
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$ChecksumText,
+        [Parameter(Mandatory)][string]$FileName
+    )
+
+    foreach ($line in ($ChecksumText -split "`r?`n")) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        $m = [regex]::Match($line.Trim(), '^([0-9a-fA-F]{64})\s+\*?(.+)$')
+        if (-not $m.Success) { continue }
+        if ($m.Groups[2].Value.Trim() -eq $FileName) { return $m.Groups[1].Value.ToLowerInvariant() }
+    }
+    return $null
+}
+
+function Test-IconPackChecksum {
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [AllowNull()][string]$ExpectedSha256
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ExpectedSha256)) { return $false }
+    if (-not (Test-Path -LiteralPath $FilePath -PathType Leaf)) { return $false }
+    $actual = (Get-FileHash -LiteralPath $FilePath -Algorithm SHA256).Hash
+    return ($actual -eq $ExpectedSha256.Trim().ToUpperInvariant())
+}
+
+function Select-IconPackAsset {
+    <#
+    .SYNOPSIS
+        Picks the pack zip and checksum download URLs out of a release object.
+
+    .DESCRIPTION
+        Returns PackUrl, SumsUrl, and Tag. A release missing either asset
+        yields $null for that URL, which the caller reports as an empty
+        release rather than treating as an error.
+    #>
+    param([AllowNull()]$Release)
+
+    if ($null -eq $Release) { return $null }
+
+    $assets  = @()
+    if ($Release.PSObject.Properties.Name -contains 'assets' -and $Release.assets) { $assets = @($Release.assets) }
+    $packUrl = ($assets | Where-Object { $_.name -eq $script:IconPackAssetName } | Select-Object -First 1).browser_download_url
+    $sumsUrl = ($assets | Where-Object { $_.name -eq $script:IconPackSumsName  } | Select-Object -First 1).browser_download_url
+
+    return [pscustomobject]@{
+        Tag     = [string]$Release.tag_name
+        PackUrl = $packUrl
+        SumsUrl = $sumsUrl
+    }
+}
+
+function Get-IconPackStatusText {
+    param([AllowNull()]$Manifest)
+
+    if ($null -eq $Manifest) {
+        return ([char]0x2717 + ' Not installed  -  download the pack to use IconSource External packagers')
+    }
+    $version = if ([string]::IsNullOrWhiteSpace($Manifest.PackVersion)) { 'unknown' } else { $Manifest.PackVersion }
+    if ($Manifest.IconCount -eq 0) {
+        return ([char]0x2713 + " Installed  -  pack v{0}, no icons yet" -f $version)
+    }
+    $noun = if ($Manifest.IconCount -eq 1) { 'icon' } else { 'icons' }
+    return ([char]0x2713 + " Installed  -  pack v{0}, {1} {2}" -f $version, $Manifest.IconCount, $noun)
+}
+
+function Install-IconPack {
+    <#
+    .SYNOPSIS
+        Downloads, verifies, and extracts the latest icon pack release.
+
+    .DESCRIPTION
+        Fetches the release through the GitHub API, verifies icon-pack.zip
+        against checksums.txt, and extracts it into Packagers\Icons. Files
+        are downloaded to a scratch folder outside the app so nothing carries
+        a zone identifier into the extracted tree. A MinAppVersion newer than
+        the running app warns and still installs.
+
+    .OUTPUTS
+        [pscustomobject] Installed, Message, Manifest.
+    #>
+    param(
+        [string]$AppRoot = $PSScriptRoot,
+        [string]$Repo    = $script:IconPackRepo
+    )
+
+    $destination = Get-IconPackRoot -AppRoot $AppRoot
+    $scratch     = Join-Path ([IO.Path]::GetTempPath()) ('apicons-' + [Guid]::NewGuid().ToString('N'))
+    $result      = [pscustomobject]@{ Installed = $false; Message = ''; Manifest = $null }
+
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        $headers = @{ 'User-Agent' = $script:IconPackUserAgent }
+
+        try {
+            $release = Invoke-RestMethod -Uri ("https://api.github.com/repos/{0}/releases/latest" -f $Repo) `
+                -Headers $headers -UseBasicParsing -TimeoutSec 20
+        } catch {
+            $status = $null
+            if ($_.Exception.Response) { $status = [int]$_.Exception.Response.StatusCode }
+            if ($status -eq 403 -or $status -eq 429) {
+                $result.Message = 'GitHub rate limit reached; try again later.'
+            } elseif ($status -eq 404) {
+                $result.Message = 'No icon pack release is published yet.'
+            } else {
+                $result.Message = ("Icon pack lookup failed: {0}" -f $_.Exception.Message)
+            }
+            return $result
+        }
+
+        $selection = Select-IconPackAsset -Release $release
+        if ($null -eq $selection -or -not $selection.PackUrl -or -not $selection.SumsUrl) {
+            $result.Message = 'The latest icon pack release carries no pack assets.'
+            return $result
+        }
+
+        New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+        $zipPath  = Join-Path $scratch $script:IconPackAssetName
+        $sumsPath = Join-Path $scratch $script:IconPackSumsName
+
+        Invoke-WebRequest -Uri $selection.PackUrl -OutFile $zipPath  -UseBasicParsing -Headers $headers -TimeoutSec 120
+        Invoke-WebRequest -Uri $selection.SumsUrl -OutFile $sumsPath -UseBasicParsing -Headers $headers -TimeoutSec 60
+
+        $expected = Get-IconPackChecksum -ChecksumText (Get-Content -LiteralPath $sumsPath -Raw) -FileName $script:IconPackAssetName
+        if (-not (Test-IconPackChecksum -FilePath $zipPath -ExpectedSha256 $expected)) {
+            $result.Message = 'Icon pack checksum did not match; nothing was extracted.'
+            return $result
+        }
+
+        $extracted = Join-Path $scratch 'extracted'
+        Expand-Archive -LiteralPath $zipPath -DestinationPath $extracted -Force
+
+        if (-not (Test-Path -LiteralPath $destination)) { New-Item -ItemType Directory -Path $destination -Force | Out-Null }
+        Get-ChildItem -LiteralPath $extracted -Force | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination $destination -Recurse -Force
+        }
+
+        $manifest = Read-IconPackManifest -Path (Get-IconPackManifestPath -AppRoot $AppRoot)
+        $result.Manifest  = $manifest
+        $result.Installed = $true
+
+        $warning = ''
+        if ($manifest -and -not (Test-IconPackAppVersion -MinAppVersion $manifest.MinAppVersion -CurrentVersion (Get-AppVersion))) {
+            $warning = (" Pack targets AppPackager {0} or newer; installed anyway." -f $manifest.MinAppVersion)
+        }
+        $count = if ($manifest) { $manifest.IconCount } else { 0 }
+        $result.Message = ("Icon pack {0} installed into {1} ({2} icons).{3}" -f $selection.Tag, $destination, $count, $warning)
+        return $result
+    }
+    catch {
+        $result.Message = ("Icon pack install failed: {0}" -f $_.Exception.Message)
+        return $result
+    }
+    finally {
+        if (Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+# =============================================================================
 # Window state persistence
 # =============================================================================
 function Get-WindowStatePath {
@@ -3096,6 +3327,7 @@ function New-MecmPreferencesPanel {
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
     <Grid.ColumnDefinitions>
         <ColumnDefinition Width="140"/>
@@ -3159,16 +3391,22 @@ function New-MecmPreferencesPanel {
         <Button x:Name="btnIntuneWinDownload" Content="Download" FontSize="11" Margin="10,0,0,0" Padding="10,2" Visibility="Collapsed"/>
     </StackPanel>
 
-    <TextBlock Grid.Row="15" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="When enabled, a successful Package also produces an .intunewin from the staged content and stores it beside the network content version folder."/>
-    <CheckBox  Grid.Row="15" Grid.Column="1" x:Name="chkIntuneWin" Content="Create .intunewin during Package" FontSize="13" VerticalAlignment="Center" Margin="0,6,0,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-    <TextBlock Grid.Row="16" Grid.Column="0" Text="Intune Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
-    <TextBox   Grid.Row="16" Grid.Column="1" x:Name="txtIntuneTenant" FontSize="13" Margin="0,6,0,0"/>
-    <TextBlock Grid.Row="17" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
-    <TextBox   Grid.Row="17" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,6,0,0"/>
-    <TextBlock Grid.Row="18" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
-    <PasswordBox Grid.Row="18" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,6,0,0"/>
-    <TextBlock Grid.Row="19" Grid.Column="0" Text="Deployment Target:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Where Package creates applications. MECM only: today's flow. MECM + Intune: MECM app plus a Graph publish of the .intunewin. Intune only: stage, build the .intunewin, and publish via Graph - no ConfigMgr console, site, or file share needed. Repeat publishes update the existing Intune app."/>
-    <ComboBox  Grid.Row="19" Grid.Column="1" x:Name="cboDeployTarget" FontSize="13" Margin="0,6,0,0" Width="260" HorizontalAlignment="Left">
+    <TextBlock Grid.Row="15" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Packager icon pack for IconSource External packagers. Installs into Packagers\Icons and is read at stage time."/>
+    <StackPanel Grid.Row="15" Grid.Column="1" Orientation="Horizontal" Margin="0,6,0,0">
+        <TextBlock x:Name="txtIconPackStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
+        <Button x:Name="btnIconPackDownload" Content="Download packager icon pack" FontSize="11" Margin="10,0,0,0" Padding="10,2" ToolTip="Fetches the latest pack release, verifies its sha256 against checksums.txt, and extracts it into Packagers\Icons. Existing icons with the same name are replaced."/>
+    </StackPanel>
+
+    <TextBlock Grid.Row="16" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="When enabled, a successful Package also produces an .intunewin from the staged content and stores it beside the network content version folder."/>
+    <CheckBox  Grid.Row="16" Grid.Column="1" x:Name="chkIntuneWin" Content="Create .intunewin during Package" FontSize="13" VerticalAlignment="Center" Margin="0,6,0,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+    <TextBlock Grid.Row="17" Grid.Column="0" Text="Intune Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
+    <TextBox   Grid.Row="17" Grid.Column="1" x:Name="txtIntuneTenant" FontSize="13" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="18" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
+    <TextBox   Grid.Row="18" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="19" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
+    <PasswordBox Grid.Row="19" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="20" Grid.Column="0" Text="Deployment Target:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Where Package creates applications. MECM only: today's flow. MECM + Intune: MECM app plus a Graph publish of the .intunewin. Intune only: stage, build the .intunewin, and publish via Graph - no ConfigMgr console, site, or file share needed. Repeat publishes update the existing Intune app."/>
+    <ComboBox  Grid.Row="20" Grid.Column="1" x:Name="cboDeployTarget" FontSize="13" Margin="0,6,0,0" Width="260" HorizontalAlignment="Left">
         <ComboBoxItem Content="MECM only" Tag="MECM"/>
         <ComboBoxItem Content="MECM + Intune" Tag="MECMAndIntune"/>
         <ComboBoxItem Content="Intune only" Tag="IntuneOnly"/>
@@ -3197,6 +3435,8 @@ function New-MecmPreferencesPanel {
     $txtSevenZipStatus = $element.FindName('txtSevenZipStatus')
     $txtIntuneWinStatus   = $element.FindName('txtIntuneWinStatus')
     $btnIntuneWinDownload = $element.FindName('btnIntuneWinDownload')
+    $txtIconPackStatus    = $element.FindName('txtIconPackStatus')
+    $btnIconPackDownload  = $element.FindName('btnIconPackDownload')
     $chkIntuneWin         = $element.FindName('chkIntuneWin')
     $txtIntuneTenant      = $element.FindName('txtIntuneTenant')
     $txtIntuneClient      = $element.FindName('txtIntuneClient')
@@ -3289,6 +3529,30 @@ function New-MecmPreferencesPanel {
             $btnIntuneWinDownload.IsEnabled = $true
         }
         if ($downloadOk) { & $updateIntuneWinState }
+    }.GetNewClosure())
+
+    $updateIconPackState = {
+        $txtIconPackStatus.Text = Get-IconPackStatusText -Manifest (Read-IconPackManifest -Path (Get-IconPackManifestPath))
+        $txtIconPackStatus.ToolTip = ("Manifest: {0}" -f (Get-IconPackManifestPath))
+    }.GetNewClosure()
+    & $updateIconPackState
+
+    $btnIconPackDownload.Add_Click({
+        $btnIconPackDownload.IsEnabled = $false
+        $txtIconPackStatus.Text = 'Downloading packager icon pack...'
+        try {
+            $outcome = Install-IconPack
+            Add-LogLine -Message $outcome.Message
+            $failureText = $outcome.Message
+        } finally {
+            $btnIconPackDownload.IsEnabled = $true
+            & $updateIconPackState
+            # A failed fetch leaves no manifest change, so the refreshed status
+            # line would silently repeat itself; the reason replaces it instead.
+            if ($outcome -and -not $outcome.Installed) {
+                $txtIconPackStatus.Text = ([char]0x2717 + ' ' + $failureText)
+            }
+        }
     }.GetNewClosure())
 
     # Closure captures panel-local controls by value. Prefs ref is captured too

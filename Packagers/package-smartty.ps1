@@ -6,6 +6,7 @@ VendorUrl: https://sysprogs.com/SmarTTY/
 CPE: cpe:2.3:a:sysprogs:smartty:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://sysprogs.com/SmarTTY/
 DownloadPageUrl: https://sysprogs.com/SmarTTY/download/
+IconSource: Installer
 UpdateCadenceDays: 365
 
 .SYNOPSIS

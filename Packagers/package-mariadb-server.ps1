@@ -6,6 +6,7 @@ VendorUrl: https://mariadb.org/
 CPE: cpe:2.3:a:mariadb:mariadb:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://mariadb.com/docs/release-notes/
 DownloadPageUrl: https://mariadb.org/download/
+IconSource: None
 UpdateCadenceDays: 90
 
 .SYNOPSIS

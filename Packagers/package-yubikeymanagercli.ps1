@@ -6,6 +6,7 @@ VendorUrl: https://developers.yubico.com/yubikey-manager/
 CPE: cpe:2.3:a:yubico:yubikey_manager:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/Yubico/yubikey-manager/releases
 DownloadPageUrl: https://developers.yubico.com/yubikey-manager/Releases/
+IconSource: None
 UpdateCadenceDays: 120
 
 .SYNOPSIS

@@ -6,6 +6,7 @@ VendorUrl: https://brave.com/
 CPE: cpe:2.3:a:brave:brave:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/brave/brave-browser/releases
 DownloadPageUrl: https://brave.com/download/
+IconSource: Installer
 UpdateCadenceDays: 14
 
 .SYNOPSIS

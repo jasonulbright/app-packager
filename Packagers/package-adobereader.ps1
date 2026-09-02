@@ -6,6 +6,7 @@ VendorUrl: https://www.adobe.com/acrobat/pdf-reader.html
 CPE: cpe:2.3:a:adobe:acrobat_reader_dc:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.adobe.com/devnet-docs/acrobatetk/tools/ReleaseNotesDC/index.html
 DownloadPageUrl: https://www.adobe.com/acrobat/pdf-reader.html
+IconSource: Installer
 RequiresTools: 7-Zip
 
 .SYNOPSIS

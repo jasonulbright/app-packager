@@ -6,6 +6,7 @@ VendorUrl: https://www.zotero.org/
 CPE: cpe:2.3:a:zotero:zotero:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.zotero.org/support/changelog
 DownloadPageUrl: https://www.zotero.org/download/
+IconSource: Installer
 UpdateCadenceDays: 45
 
 .SYNOPSIS

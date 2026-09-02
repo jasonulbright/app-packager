@@ -6,6 +6,7 @@ VendorUrl: https://www.python.org/downloads/
 CPE: cpe:2.3:a:python:python:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://docs.python.org/3/whatsnew/
 DownloadPageUrl: https://www.python.org/downloads/
+IconSource: Installer
 
 .SYNOPSIS
     Packages the latest Python (x64) for MECM.

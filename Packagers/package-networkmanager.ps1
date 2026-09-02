@@ -5,6 +5,7 @@ CMName: NETworkManager
 VendorUrl: https://borntoberoot.net/NETworkManager/
 ReleaseNotesUrl: https://github.com/BornToBeRoot/NETworkManager/releases
 DownloadPageUrl: https://github.com/BornToBeRoot/NETworkManager/releases/latest
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

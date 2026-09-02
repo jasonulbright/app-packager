@@ -5,6 +5,7 @@ CMName: ShareX
 VendorUrl: https://getsharex.com/
 ReleaseNotesUrl: https://github.com/ShareX/ShareX/releases
 DownloadPageUrl: https://getsharex.com/downloads
+IconSource: Installer
 
 .SYNOPSIS
     Packages ShareX for MECM.

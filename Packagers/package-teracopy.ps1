@@ -6,6 +6,7 @@ VendorUrl: https://www.codesector.com/
 CPE: cpe:2.3:a:codesector:teracopy:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://blog.codesector.com/category/teracopy/
 DownloadPageUrl: https://www.codesector.com/downloads
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

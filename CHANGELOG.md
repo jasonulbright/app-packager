@@ -1,5 +1,61 @@
 # Changelog
 
+## [1.5.0.7] - 2026-09-02
+
+
+### Application Icons
+
+- **IconSource marked across all 284 packagers** — every packager's icon
+  extraction was tested against its real installer payload under Windows
+  PowerShell 5.1. Final verdicts: 216 `Installer` (a true >=48px icon reads
+  from the payload's PE resources or MSI Icon table), 34 `External`
+  (operator-supplied icon via the pack), 27 `None` (CLI tools, runtimes,
+  drivers), 7 untagged (payloads over the 700 MB probe ceiling, and Slack's
+  vendor-side download outage).
+- **Get-InstallerIcon transient-load retry** — `LoadLibraryExW` on a freshly
+  written file can fail while an on-access scan still holds it, and the
+  helper returned null with no error, silently degrading the very first
+  probe of a just-downloaded payload to the 32px fallback. Both native
+  extraction paths now retry with backoff (0/400/1200 ms) before falling
+  back. Five fresh-process probes now return the true 256px resource every
+  time; during wave QA the same flaw had mis-marked 21 applications, all
+  re-verified and corrected.
+### Added
+
+- **Packager icon pack** — `IconSource: External` packagers read
+  `Packagers\Icons\<packagername>.ico|.png` at stage time; those files now come
+  from a separate public repository, `jasonulbright/app-packager-icons`,
+  published as an `icon-pack.zip` release asset with a `checksums.txt`. The
+  pack carries a `manifest.json` of `PackVersion`, `MinAppVersion`, and an
+  `Icons` array of `{ File, Packager }`. Release v1.0.0 is structure-only: no
+  vendor artwork is committed by the project.
+- **Options: Icon Pack row** — MECM Preferences gains an Icon Pack row beside
+  the ConfigMgr Console, 7-Zip CLI, and Content Prep detection rows. The status
+  line reads the installed `Packagers\Icons\manifest.json` for pack version and
+  icon count; the Download packager icon pack button resolves the icons
+  repository's latest release through the GitHub API, downloads the zip and
+  checksum file to a scratch folder, verifies SHA-256, and extracts into
+  `Packagers\Icons` via `Invoke-WebRequest` + `Expand-Archive` so no extracted
+  file carries the Mark-of-the-Web.
+- **Install-IconPack** — the download path, factored over pure helpers:
+  `Read-IconPackManifest`, `Test-IconPackAppVersion`, `Get-IconPackChecksum`,
+  `Test-IconPackChecksum`, `Select-IconPackAsset`, `Get-IconPackStatusText`. A
+  missing release, a release with no pack assets, and an HTTP 403/429 rate
+  limit each produce a plain status message and a log line rather than an
+  exception. A `MinAppVersion` newer than the running application warns and
+  still installs; a checksum mismatch extracts nothing.
+- **Tests\Invoke-IconPackSmoke.ps1** — 33 headless cases over manifest read,
+  version compare, checksum parse and verify, asset selection, and status text.
+  AST-extracted from `start-apppackager.ps1`; loads no WPF assemblies and makes
+  no network call.
+
+### Changed
+
+- **README** — new Application Icons section documenting the three `IconSource`
+  values, the installer extraction rules, the external pack and its manifest
+  schema, and the Options download button. The Version Monitor header-tag table
+  now points at it instead of carrying the full description.
+
 ## [1.5.0.6] - 2026-09-02
 
 ### Fixed

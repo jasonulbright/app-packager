@@ -6,6 +6,7 @@ VendorUrl: https://www.microsoft.com/sql-server/sql-server-downloads
 CPE: cpe:2.3:a:microsoft:sql_server:2022:*:*:*:express:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/sql/database-engine/configure-windows/sql-server-version-updates
 DownloadPageUrl: https://www.microsoft.com/download/details.aspx?id=104781
+IconSource: External
 UpdateCadenceDays: 180
 
 .SYNOPSIS

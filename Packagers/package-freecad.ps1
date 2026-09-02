@@ -6,6 +6,7 @@ VendorUrl: https://www.freecad.org/
 CPE: cpe:2.3:a:freecad:freecad:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/FreeCAD/FreeCAD/releases
 DownloadPageUrl: https://www.freecad.org/downloads.php
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

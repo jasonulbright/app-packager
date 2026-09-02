@@ -6,6 +6,7 @@ VendorUrl: https://www.openshot.org/
 CPE: cpe:2.3:a:openshot:openshot_video_editor:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/OpenShot/openshot-qt/releases
 DownloadPageUrl: https://www.openshot.org/download/
+IconSource: Installer
 UpdateCadenceDays: 120
 
 .SYNOPSIS

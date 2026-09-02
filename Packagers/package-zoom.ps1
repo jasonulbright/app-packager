@@ -6,6 +6,7 @@ VendorUrl: https://zoom.us/download
 CPE: cpe:2.3:a:zoom:zoom:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://support.zoom.com/hc/en/article?id=zm_kb&sysparm_article=KB0061222
 DownloadPageUrl: https://zoom.us/download
+IconSource: Installer
 UpdateCadenceDays: 14
 
 .SYNOPSIS

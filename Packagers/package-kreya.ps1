@@ -6,6 +6,7 @@ VendorUrl: https://kreya.app/
 CPE: cpe:2.3:a:riok:kreya:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://kreya.app/changelog/
 DownloadPageUrl: https://kreya.app/downloads/
+IconSource: Installer
 UpdateCadenceDays: 45
 
 .SYNOPSIS

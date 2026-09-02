@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: TortoiseSVN
 App: TortoiseSVN
 CMName: TortoiseSVN
@@ -6,6 +6,7 @@ VendorUrl: https://tortoisesvn.net/
 CPE: cpe:2.3:a:tortoisesvn:tortoisesvn:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://tortoisesvn.net/Changelog.txt
 DownloadPageUrl: https://tortoisesvn.net/downloads.html
+IconSource: Installer
 
 .SYNOPSIS
     Packages TortoiseSVN (x64) MSI for MECM.

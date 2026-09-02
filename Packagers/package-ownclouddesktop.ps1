@@ -6,6 +6,7 @@ VendorUrl: https://owncloud.com/desktop-app/
 CPE: cpe:2.3:a:owncloud:owncloud_desktop:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/owncloud/client/releases
 DownloadPageUrl: https://owncloud.com/desktop-app/
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

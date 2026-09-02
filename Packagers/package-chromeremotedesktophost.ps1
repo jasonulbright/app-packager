@@ -6,6 +6,7 @@ VendorUrl: https://remotedesktop.google.com/
 CPE: cpe:2.3:a:google:chrome_remote_desktop:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://chromereleases.googleblog.com/
 DownloadPageUrl: https://remotedesktop.google.com/access
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

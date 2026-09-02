@@ -6,6 +6,7 @@ VendorUrl: https://picpick.app/
 CPE: cpe:2.3:a:ngwin:picpick:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://picpick.app/en/changelog/
 DownloadPageUrl: https://picpick.app/en/download/free/
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

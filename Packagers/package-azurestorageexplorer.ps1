@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Microsoft
 App: Azure Storage Explorer (x64)
 CMName: Microsoft Azure Storage Explorer
@@ -6,6 +6,7 @@ VendorUrl: https://azure.microsoft.com/products/storage/storage-explorer/
 CPE: cpe:2.3:a:microsoft:azure_storage_explorer:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/microsoft/AzureStorageExplorer/releases
 DownloadPageUrl: https://github.com/microsoft/AzureStorageExplorer/releases/latest
+IconSource: Installer
 UpdateCadenceDays: 45
 
 .SYNOPSIS

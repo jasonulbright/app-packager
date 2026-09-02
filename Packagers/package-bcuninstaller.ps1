@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Marcin Szeniak
 App: Bulk Crap Uninstaller
 CMName: Bulk Crap Uninstaller
@@ -6,6 +6,7 @@ VendorUrl: https://www.bcuninstaller.com/
 CPE: cpe:2.3:a:bcuninstaller:bulk_crap_uninstaller:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/Klocman/Bulk-Crap-Uninstaller/releases
 DownloadPageUrl: https://github.com/Klocman/Bulk-Crap-Uninstaller/releases/latest
+IconSource: Installer
 UpdateCadenceDays: 120
 
 .SYNOPSIS

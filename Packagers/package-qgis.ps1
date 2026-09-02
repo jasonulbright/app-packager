@@ -6,6 +6,7 @@ VendorUrl: https://qgis.org/
 CPE: cpe:2.3:a:qgis:qgis:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://qgis.org/project/visual-changelogs/
 DownloadPageUrl: https://qgis.org/download/
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

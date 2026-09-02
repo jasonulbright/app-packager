@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: OpenJS Foundation
 App: Node.js LTS
 CMName: Node.js LTS
@@ -6,6 +6,7 @@ VendorUrl: https://nodejs.org/
 CPE: cpe:2.3:a:nodejs:node.js:*:*:*:*:lts:*:*:*
 ReleaseNotesUrl: https://nodejs.org/en/blog/release
 DownloadPageUrl: https://nodejs.org/en/download/
+IconSource: Installer
 
 .SYNOPSIS
     Packages Node.js LTS (x64) MSI for MECM.

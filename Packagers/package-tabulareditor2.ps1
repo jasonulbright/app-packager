@@ -6,6 +6,7 @@ VendorUrl: https://tabulareditor.com/
 CPE: cpe:2.3:a:tabulareditor:tabular_editor:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/TabularEditor/TabularEditor/releases
 DownloadPageUrl: https://github.com/TabularEditor/TabularEditor/releases/latest
+IconSource: Installer
 UpdateCadenceDays: 120
 
 .SYNOPSIS

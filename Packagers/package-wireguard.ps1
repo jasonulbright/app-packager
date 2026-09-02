@@ -6,6 +6,7 @@ VendorUrl: https://www.wireguard.com/
 CPE: cpe:2.3:a:wireguard:wireguard:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://git.zx2c4.com/wireguard-windows/log/
 DownloadPageUrl: https://download.wireguard.com/windows-client/
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

@@ -6,6 +6,7 @@ VendorUrl: https://www.synaptics.com/products/displaylink-graphics
 CPE: cpe:2.3:a:displaylink:displaylink_graphics:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://support.displaylink.com/knowledgebase/topics/106669-windows-release-notes
 DownloadPageUrl: https://www.synaptics.com/products/displaylink-graphics/downloads/windows
+IconSource: Installer
 UpdateCadenceDays: 120
 
 .SYNOPSIS

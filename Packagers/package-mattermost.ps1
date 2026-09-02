@@ -6,6 +6,7 @@ VendorUrl: https://mattermost.com/
 CPE: cpe:2.3:a:mattermost:mattermost_desktop:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/mattermost/desktop/releases
 DownloadPageUrl: https://mattermost.com/apps/
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

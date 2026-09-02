@@ -6,6 +6,7 @@ VendorUrl: https://obsidian.md/
 CPE: cpe:2.3:a:obsidian:obsidian:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://obsidian.md/changelog/
 DownloadPageUrl: https://github.com/obsidianmd/obsidian-releases/releases
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

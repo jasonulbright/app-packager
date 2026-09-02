@@ -6,6 +6,7 @@ VendorUrl: https://pathcopycopy.github.io/
 CPE: cpe:2.3:a:pathcopycopy:path_copy_copy:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/clechasseur/pathcopycopy/releases
 DownloadPageUrl: https://pathcopycopy.github.io/
+IconSource: External
 UpdateCadenceDays: 180
 
 .SYNOPSIS

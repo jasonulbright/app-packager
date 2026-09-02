@@ -5,6 +5,7 @@ CMName: Positron
 VendorUrl: https://positron.posit.co/
 ReleaseNotesUrl: https://github.com/posit-dev/positron/releases
 DownloadPageUrl: https://github.com/posit-dev/positron/releases
+IconSource: Installer
 
 .SYNOPSIS
     Packages Positron IDE (x64) for MECM.

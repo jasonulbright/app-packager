@@ -6,6 +6,7 @@ VendorUrl: https://www.postgresql.org/
 CPE: cpe:2.3:a:postgresql:postgresql:15.*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.postgresql.org/docs/15/release.html
 DownloadPageUrl: https://www.postgresql.org/download/windows/
+IconSource: Installer
 
 .SYNOPSIS
     Packages PostgreSQL 15 (x64) for MECM.

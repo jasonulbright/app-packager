@@ -6,6 +6,7 @@ VendorUrl: https://www.jetbrains.com/go/
 CPE: cpe:2.3:a:jetbrains:goland:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.jetbrains.com/go/whatsnew/
 DownloadPageUrl: https://www.jetbrains.com/go/download/?section=windows
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

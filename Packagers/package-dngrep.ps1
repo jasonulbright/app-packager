@@ -6,6 +6,7 @@ VendorUrl: https://dngrep.github.io/
 CPE: cpe:2.3:a:dngrep:dngrep:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/dnGrep/dnGrep/releases
 DownloadPageUrl: https://github.com/dnGrep/dnGrep/releases
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

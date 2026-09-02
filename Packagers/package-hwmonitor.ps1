@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: CPUID
 App: HWMonitor
 CMName: HWMonitor
@@ -6,6 +6,7 @@ VendorUrl: https://www.cpuid.com/softwares/hwmonitor.html
 CPE: cpe:2.3:a:cpuid:hwmonitor:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.cpuid.com/softwares/hwmonitor.html
 DownloadPageUrl: https://www.cpuid.com/softwares/hwmonitor.html
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

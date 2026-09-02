@@ -6,6 +6,7 @@ VendorUrl: https://graphviz.org/
 CPE: cpe:2.3:a:graphviz:graphviz:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://gitlab.com/graphviz/graphviz/-/blob/main/CHANGELOG.md
 DownloadPageUrl: https://graphviz.org/download/
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

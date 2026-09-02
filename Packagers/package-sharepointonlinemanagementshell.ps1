@@ -5,6 +5,7 @@ CMName: SharePoint Online Management Shell
 VendorUrl: https://www.microsoft.com/
 ReleaseNotesUrl: https://learn.microsoft.com/powershell/sharepoint/sharepoint-online/connect-sharepoint-online
 DownloadPageUrl: https://www.microsoft.com/en-us/download/details.aspx?id=35588
+IconSource: None
 UpdateCadenceDays: 60
 
 .SYNOPSIS

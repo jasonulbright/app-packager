@@ -6,6 +6,7 @@ VendorUrl: https://posit.co/download/rstudio-desktop/
 CPE: cpe:2.3:a:posit:rstudio:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://docs.posit.co/ide/news/
 DownloadPageUrl: https://posit.co/download/rstudio-desktop/
+IconSource: Installer
 
 .SYNOPSIS
     Packages RStudio Desktop (x64) for MECM.

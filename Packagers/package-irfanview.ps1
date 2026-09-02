@@ -6,6 +6,7 @@ VendorUrl: https://www.irfanview.com/
 CPE: cpe:2.3:a:irfanview:irfanview:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.irfanview.info/main_history.htm
 DownloadPageUrl: https://www.irfanview.info/64bit.htm
+IconSource: External
 UpdateCadenceDays: 180
 
 .SYNOPSIS

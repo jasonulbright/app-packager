@@ -6,6 +6,7 @@ VendorUrl: https://docs.aws.amazon.com/redshift/latest/mgmt/configure-odbc-conne
 CPE: cpe:2.3:a:amazon:redshift_odbc_driver:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/aws/amazon-redshift-odbc-driver/releases
 DownloadPageUrl: https://docs.aws.amazon.com/redshift/latest/mgmt/odbc20-install-win.html
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

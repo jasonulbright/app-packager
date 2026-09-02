@@ -6,6 +6,7 @@ VendorUrl: https://openwebstart.com/
 CPE: cpe:2.3:a:karakun:openwebstart:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/karakun/OpenWebStart/releases
 DownloadPageUrl: https://openwebstart.com/download/
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

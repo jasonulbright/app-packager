@@ -21,10 +21,12 @@ To choose the folder or pin a version, download the script and run it directly:
 
 ```powershell
 irm https://raw.githubusercontent.com/jasonulbright/app-packager/main/install.ps1 -OutFile install.ps1
-.\install.ps1 -InstallPath 'D:\Tools\AppPackager' -Version 1.5.0.4
+.\install.ps1 -InstallPath 'D:\Tools\AppPackager' -Version 1.5.0.6
 ```
 
 `-Force` is required to replace a non-empty folder that holds no existing AppPackager install.
+
+Application icons are not part of the install. `Packagers\Icons\` is created on demand from the Options window — see [Application Icons](#application-icons).
 
 ## Updating
 
@@ -95,7 +97,7 @@ All five actions share the same persistent history file at `%LOCALAPPDATA%\AppPa
 
 Clicking **Options** opens a unified settings window with a left-nav list and a right content pane (Discord / VS Code style). A single OK commits every panel's changes in one action, and Cancel discards them all.
 
-**MECM Preferences** — Site Code, Provider Machine, File Share Root, Content Layout, Download Root, estimated/maximum deployment runtime, an Auto-distribute-to-DP checkbox + DP Group Name, a test-deployment group (Deploy to test collection, Test collection name, Create collection if it does not exist), and a "Create .intunewin during Package" option. Content Layout selects the share folder shape for packaged content: **Nested** (`Applications\Vendor\App\Version`, the default — an app's versions sit adjacent, so retention pruning is deleting old version folders in place) or **Flat** (`Applications\Vendor-App-Version`, one folder per package, for org conventions that mandate it). It applies to future Package runs; existing content stays where it is, so pick one and stay with it — mixing layouts splits content across two trees. Provider Machine is the `$ProviderMachineName` value from the ConfigMgr AdminUI-generated connect script. The bottom of the panel shows detected-tools status: ConfigMgr Console (name, version, install path in tooltip), 7-Zip CLI (display name, version, exe path), and Content Prep (IntuneWinAppUtil.exe version and path, with a Download button when missing). Each row shows a checkmark + version when found or an `X` + guidance when missing.
+**MECM Preferences** — Site Code, Provider Machine, File Share Root, Content Layout, Download Root, estimated/maximum deployment runtime, an Auto-distribute-to-DP checkbox + DP Group Name, a test-deployment group (Deploy to test collection, Test collection name, Create collection if it does not exist), and a "Create .intunewin during Package" option. Content Layout selects the share folder shape for packaged content: **Nested** (`Applications\Vendor\App\Version`, the default — an app's versions sit adjacent, so retention pruning is deleting old version folders in place) or **Flat** (`Applications\Vendor-App-Version`, one folder per package, for org conventions that mandate it). It applies to future Package runs; existing content stays where it is, so pick one and stay with it — mixing layouts splits content across two trees. Provider Machine is the `$ProviderMachineName` value from the ConfigMgr AdminUI-generated connect script. The bottom of the panel shows detected-tools status: ConfigMgr Console (name, version, install path in tooltip), 7-Zip CLI (display name, version, exe path), Content Prep (IntuneWinAppUtil.exe version and path, with a Download button when missing), and Icon Pack (installed pack version and icon count, with a Download packager icon pack button — see [Application Icons](#application-icons)). Each row shows a checkmark + version when found or an `X` + guidance when missing.
 
 When Auto-distribute is enabled and DP Group Name is populated, every Package phase (manual or One Click) calls `Start-CMContentDistribution -ApplicationName <app> -DistributionPointGroupName <group>` after creating the MECM Application. "Already been targeted" is silently treated as success so re-packaging is idempotent.
 
@@ -546,8 +548,46 @@ UpdateCadenceDays: 90
 | `ReleaseNotesUrl` | Link shown in the HTML report's Links column |
 | `DownloadPageUrl` | Link shown in the HTML report's Links column |
 | `UpdateCadenceDays` | Default cadence for Full Run's Report action. Integer days between vendor re-queries. Falls back to 7 when absent. Override per-app in App Flow. |
-| `IconSource` | Where the application icon comes from. `Installer` extracts the largest icon resource from the staged installer (PE resource directory, or the MSI `Icon` table preferring `ARPPRODUCTICON`) into the version folder as `app-icon.ico`; `External` copies `Packagers\Icons\<packagername>.ico\|.png`; `None` or absent stages no icon. The extracted icon is recorded as `Icon` in the stage manifest, covered by the manifest file hashes, applied to the MECM application via `Set-CMApplication -IconLocationFile`, and sent as the Intune `win32LobApp` `largeIcon`. Icons whose largest image is under 32px are rejected — generic installer stubs ship 16/32px only. |
+| `IconSource` | Where the application icon comes from: `Installer`, `External`, or `None`. See [Application Icons](#application-icons). |
 | `RequiresTools` | Comma-separated list of detected tools the packager depends on (currently `7-Zip`). Read-only metadata today; surfaced via `Get-PackagerMetadata` and reserved for future preflight warnings when a declared dependency isn't present in DetectedTools. |
+
+## Application Icons
+
+An application icon makes a packaged app recognizable in Software Center and the Company Portal. Where the icon comes from is a per-packager decision, declared by the `IconSource` header tag.
+
+### `IconSource` values
+
+| Value | Behavior |
+|---|---|
+| `Installer` | `Add-StageIcon` extracts the largest icon resource from the staged installer — the PE resource directory for an `.exe`, or the MSI `Icon` table preferring `ARPPRODUCTICON` — and writes it into the version folder as `app-icon.ico`. Icons whose largest image is under 32px are rejected: generic installer stubs ship 16/32px only, and a 32px icon looks wrong at Software Center's display size. |
+| `External` | Copies `Packagers\Icons\<packagername>.ico` or `.png` into the version folder as `app-icon.ico` / `app-icon.png`. `<packagername>` is the packager script's file name without the `package-` prefix and the `.ps1` extension, so `package-7zip.ps1` reads `Packagers\Icons\7zip.ico`. When both extensions exist, `.ico` wins. A missing file logs a warning and the stage continues without an icon. |
+| `None` or absent | No icon is staged. Every untagged packager stays on this path. |
+
+Whichever path produced it, the icon is recorded as `Icon` in `stage-manifest.json`, covered by the manifest file hashes, applied to the MECM application via `Set-CMApplication -IconLocationFile`, and sent as the Intune `win32LobApp` `largeIcon`. An icon is decoration: a failed extraction or a missing external file never fails a stage.
+
+### The external icon pack
+
+`External` packagers read from `Packagers\Icons\`, which ships empty. The icons themselves live in a separate repository, [jasonulbright/app-packager-icons](https://github.com/jasonulbright/app-packager-icons), published as an `icon-pack.zip` release asset alongside a `checksums.txt`. Application icons are the property of their respective vendors; the pack is operator-contributed and this project commits no vendor artwork itself.
+
+The pack carries a `manifest.json`:
+
+| Field | Meaning |
+|---|---|
+| `PackVersion` | Version of the pack. Shown in the Options status line. |
+| `MinAppVersion` | Oldest AppPackager version the pack targets. |
+| `Icons` | One `{ "File", "Packager" }` entry per icon. |
+
+### Downloading the pack
+
+Options → MECM Preferences carries an **Icon Pack** row beside the other detected-tool rows: a status line reading the installed `Packagers\Icons\manifest.json` for the pack version and icon count, and a **Download packager icon pack** button.
+
+The button resolves the icons repository's latest release through the GitHub API, downloads `icon-pack.zip` and `checksums.txt` to a scratch folder, verifies the zip's SHA-256 against the checksum file, and extracts it into `Packagers\Icons\`. Nothing is extracted when the hash does not match. As with `install.ps1`, the download and extract go through `Invoke-WebRequest` and `Expand-Archive`, so no extracted file carries the Mark-of-the-Web.
+
+Failures are reported on the status line and logged, never thrown:
+
+- No release published, or a release with no pack assets — a plain message, nothing extracted.
+- GitHub rate limit reached — logged with a try-again-later message.
+- `MinAppVersion` newer than the running application — a warning; the pack installs anyway.
 
 ## Content Staging Layout
 

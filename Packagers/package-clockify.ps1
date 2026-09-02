@@ -6,6 +6,7 @@ VendorUrl: https://clockify.me/
 CPE: cpe:2.3:a:cake:clockify:*:*:*:*:*:windows:*:*
 ReleaseNotesUrl: https://clockify.me/help/whats-new
 DownloadPageUrl: https://clockify.me/apps
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS
