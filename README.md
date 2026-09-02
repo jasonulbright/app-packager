@@ -54,6 +54,8 @@ Or with custom parameters:
 
 **No network or MECM actions occur on launch.** The GUI loads packager scripts locally (pre-populating the Latest and Last Checked columns from any persistent history) and waits for you to act.
 
+**First-run setup** — on a machine with no `AppPackager.preferences.json` yet, a themed Setup window opens over the main window once the grid has loaded. It asks for the environment first (MECM only, MECM + Intune, or Intune only) and then shows only the settings that choice needs: Site Code, Provider Machine, File Share Root, and Download Root for MECM targets, Tenant ID, Client ID, and Client Secret for Intune targets. Saving writes the same preference keys the Options window writes — the client secret DPAPI-protected for the current Windows user, an empty secret box keeping any saved one — and the main window picks the settings up without a restart. A "Don't show this again" checkbox lets you dismiss the wizard permanently without configuring anything; skipping or closing it without that box ticked brings it back on the next launch. Existing installs are unaffected: a preferences file from an earlier version counts as already set up.
+
 The sidebar has five workflow actions at the top, a single **Options** button below them, a sidebar comment field, and Debug Columns / theme toggles at the bottom:
 
 - **One Click** — iterates the apps you've marked as tracked in One Click Settings and runs Check Latest → Stage → Package per the action you've chosen. Cadence gating throttles Report-only runs; Stage and Stage-and-Package always run. Before staging, a MECM pre-flight query skips any tracked app whose version is already in MECM, avoiding wasted downloads. Multi-app loops (Check Latest, Stage, Package, One Click) run on a background STA runspace with an animated progress overlay so the window stays responsive instead of freezing during long downloads / extracts / MECM round-trips
@@ -61,6 +63,8 @@ The sidebar has five workflow actions at the top, a single **Options** button be
 - **Check MECM** — queries your ConfigMgr site for the currently deployed version
 - **Stage Packages** — downloads installers, extracts metadata, generates wrappers and manifests locally
 - **Package Apps** — reads manifests, copies content to network share, creates MECM applications
+
+The sidebar adapts to the Deployment Target set in MECM Preferences: with **Intune only**, Check MECM is disabled with a tooltip explaining why and Package Apps reads **Publish Apps**.
 
 All five actions share the same persistent history file at `%LOCALAPPDATA%\AppPackager\app-history.json`, so Latest Version and Last Checked survive across sessions.
 

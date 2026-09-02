@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.5.0.0] - 2026-09-01
+
+### Added
+
+- **First-run setup wizard**: a themed modal Setup window opens after the
+  main window loads when no preferences file exists. Step one picks the
+  environment (MECM only / MECM + Intune / Intune only), mapping to the
+  existing `DeploymentTarget` values; step two shows only the fields that
+  target needs — Site Code, Provider Machine, File Share Root, and Download
+  Root for MECM, Tenant ID, Client ID, and Client Secret for Intune, with
+  the secret DPAPI-protected and an empty box keeping the saved one. Save
+  writes through `Save-Preferences` and sets `PublishToIntune` from the
+  target exactly as the Options window does, then refreshes the grid — no
+  restart. A "Don't show this again" checkbox suppresses the wizard without
+  configuring anything; Skip or closing without it leaves the wizard due
+  next launch. Preference files written before the flag existed are stamped
+  `FirstRunCompleted` on load, so upgrading users never see it.
+- **Deployment-target-aware sidebar**: `Update-SidebarForDeploymentTarget`
+  applies the target to the sidebar from one place — at launch, after the
+  Options window OK, and after the wizard saves — and the decision itself
+  sits in the WPF-free `Get-SidebarTargetState`. With target `IntuneOnly`,
+  Check MECM is disabled (not hidden) with a tooltip naming the missing
+  ConfigMgr site, Package Apps reads Publish Apps with a matching tooltip,
+  and the One Click MECM pre-flight version query is skipped before it can
+  open a provider connection, logging the skip per app. `MECM` and
+  `MECMAndIntune` are unchanged.
+
+### Fixed
+
+- Intune-only runs no longer trip the MECM gates: the Package/Publish and
+  One Click click handlers required the ConfigMgr Console, SiteCode, and
+  File Share Root regardless of Deployment Target, so target `IntuneOnly`
+  could never start a run on a console-less workstation. Those gates now
+  apply only to MECM targets; an Intune-only Publish instead requires the
+  Intune credentials to be configured and says so.
+
 ## [1.4.0.24] - 2026-09-01
 
 ### Added
