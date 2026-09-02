@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.5.0.12
+    Version    : 1.5.0.13
     Updated    : 2026-09-02
 #>
 
@@ -2117,7 +2117,7 @@ function Invoke-SelfUpdate {
         if (-not (Test-Path -LiteralPath $installer)) {
             $installer = Join-Path ([IO.Path]::GetTempPath()) ('apinstall-' + [Guid]::NewGuid().ToString('N') + '.ps1')
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-            # Release-asset host, not raw.githubusercontent.com — proxies that
+            # Release-asset host, not raw.githubusercontent.com - proxies that
             # block the raw host allow the asset host the packagers use.
             $installerUrl = ("https://github.com/{0}/releases/latest/download/install.ps1" -f $script:UpdateRepo)
             $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
