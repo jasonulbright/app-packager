@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.4.0.24
+    Version    : 1.5.0.0
     Updated    : 2026-08-17
 #>
 
@@ -86,6 +86,28 @@ function Get-PreferencesPath {
     Join-Path $PSScriptRoot "AppPackager.preferences.json"
 }
 
+function Resolve-FirstRunCompleted {
+    # A preferences file written before the flag existed belongs to a
+    # configured user: absence of the flag in an existing file counts as
+    # completed, so only a genuinely missing file triggers the wizard.
+    param(
+        $StoredValue,
+        [bool]$PreferencesFileExisted
+    )
+
+    if (-not $PreferencesFileExisted) { return $false }
+    if ($null -eq $StoredValue) { return $true }
+    try { return [bool]$StoredValue } catch { return $true }
+}
+
+function Test-FirstRunWizardNeeded {
+    param([Parameter(Mandatory)][pscustomobject]$Prefs)
+
+    $completed = $false
+    try { $completed = [bool]$Prefs.FirstRunCompleted } catch { $completed = $false }
+    return (-not $completed)
+}
+
 function Read-Preferences {
     $defaults = [pscustomobject]@{
         SiteCode             = "MCM"
@@ -110,6 +132,7 @@ function Read-Preferences {
             InstallPath        = ""
         }
         HiddenApplications   = @()
+        FirstRunCompleted    = $false
         AppFlow              = [pscustomobject]@{
             Tracked          = @()
             Action           = 'Report'
@@ -168,6 +191,7 @@ function Read-Preferences {
 
     $path = Get-PreferencesPath
     if (-not (Test-Path -LiteralPath $path)) { return $defaults }
+    $defaults.FirstRunCompleted = Resolve-FirstRunCompleted -StoredValue $null -PreferencesFileExisted $true
 
     try {
         $raw = Get-Content -LiteralPath $path -Raw -ErrorAction Stop
@@ -228,6 +252,7 @@ function Read-Preferences {
         }
 
         if ($null -ne $data.HiddenApplications)    { $defaults.HiddenApplications  = @($data.HiddenApplications) }
+        $defaults.FirstRunCompleted = Resolve-FirstRunCompleted -StoredValue $data.FirstRunCompleted -PreferencesFileExisted $true
 
         # AppFlow: 1-click Full Run settings. Schema is additive; missing key
         # keeps the defaults above so older prefs files from v1.0 still load.
@@ -2509,6 +2534,50 @@ function Set-ActionButtonsEnabled {
     $btnPackage.IsEnabled     = $Enabled
     $btnFullRun.IsEnabled     = $Enabled
     $btnOptions.IsEnabled     = $Enabled
+    Update-SidebarForDeploymentTarget
+}
+
+# =============================================================================
+# Sidebar state for the Deployment Target preference
+# -----------------------------------------------------------------------------
+# Get-SidebarTargetState holds the decision and touches no WPF types, so it is
+# exercised headlessly. Update-SidebarForDeploymentTarget applies it and is the
+# only writer of these two buttons' label and tooltips; it runs at launch and
+# after every path that can change Prefs.Intune.DeploymentTarget.
+# =============================================================================
+function Get-SidebarTargetState {
+    param([string]$DeploymentTarget)
+
+    if ($DeploymentTarget -eq 'IntuneOnly') {
+        return @{
+            CheckMecmEnabled  = $false
+            CheckMecmToolTip  = "Check MECM needs a ConfigMgr site. The Deployment Target is Intune only - change it in Options, MECM Preferences, to use this."
+            PackageContent    = 'Publish Apps'
+            PackageToolTip    = 'Stage each checked app, build the .intunewin, and publish it to Intune'
+            SkipMecmPreflight = $true
+        }
+    }
+
+    return @{
+        CheckMecmEnabled  = $true
+        CheckMecmToolTip  = 'Query MECM for the currently deployed version of each checked app'
+        PackageContent    = 'Package Apps'
+        PackageToolTip    = 'Build MECM Application + Deployment Type for every checked app'
+        SkipMecmPreflight = $false
+    }
+}
+
+function Update-SidebarForDeploymentTarget {
+    $state = Get-SidebarTargetState -DeploymentTarget ([string]$script:Prefs.Intune.DeploymentTarget)
+
+    # Disabled rather than hidden: the button stays discoverable and its
+    # tooltip states why it cannot run.
+    # Only the disable is forced here; enablement otherwise stays with
+    # Set-ActionButtonsEnabled, which calls back into this function.
+    if (-not $state.CheckMecmEnabled) { $btnCheckMECM.IsEnabled = $false }
+    $btnCheckMECM.ToolTip = $state.CheckMecmToolTip
+    $btnPackage.Content     = $state.PackageContent
+    $btnPackage.ToolTip     = $state.PackageToolTip
 }
 
 $btnPausePipeline.Add_Click({
@@ -4249,6 +4318,7 @@ function Show-OptionsDialog {
                 }
             }
             Invoke-RefreshGrid
+            Update-SidebarForDeploymentTarget
             $script:OptionsDlgResult = $true
             $dlg.Close()
         } catch {
@@ -4262,6 +4332,222 @@ function Show-OptionsDialog {
 
     if ($script:OptionsDlgResult) {
         Add-LogLine -Message "Options saved."
+    }
+}
+
+# =============================================================================
+# First-run setup wizard - deployment target plus the minimum settings that
+# target needs. Writes through the same preference keys and persistence path
+# as the Options window; the target selection shows or hides the two groups.
+# =============================================================================
+function Show-FirstRunWizard {
+    param([Parameter(Mandatory)]$Owner)
+
+    $dlgXaml = @'
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="Setup"
+    Width="720" Height="560"
+    MinWidth="640" MinHeight="480"
+    WindowStartupLocation="CenterOwner"
+    TitleCharacterCasing="Normal"
+    ShowIconOnTitleBar="False"
+    ShowMaxRestoreButton="False"
+    ShowMinButton="False"
+    GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+    BorderThickness="1">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <ScrollViewer Grid.Row="0" Margin="20,18,20,12" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+                <TextBlock Text="Welcome to AppPackager" FontSize="18" FontWeight="Bold" Margin="0,0,0,6"/>
+                <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,16"
+                           Text="Pick where packaged applications should land, then fill in the settings that target needs. Everything here can be changed later in Options - MECM Preferences."/>
+
+                <TextBlock Text="Environment" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
+                <ComboBox x:Name="cboTarget" FontSize="13" Width="280" HorizontalAlignment="Left" Margin="0,0,0,16"
+                          ToolTip="Where Package creates applications. MECM only: today's flow. MECM + Intune: MECM app plus a Graph publish of the .intunewin. Intune only: stage, build the .intunewin, and publish via Graph - no ConfigMgr console, site, or file share needed. Repeat publishes update the existing Intune app.">
+                    <ComboBoxItem Content="MECM only" Tag="MECM"/>
+                    <ComboBoxItem Content="MECM + Intune" Tag="MECMAndIntune"/>
+                    <ComboBoxItem Content="Intune only" Tag="IntuneOnly"/>
+                </ComboBox>
+
+                <GroupBox x:Name="grpMecm" Header="ConfigMgr" Margin="0,0,0,14">
+                    <Grid Margin="0,8,0,4">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Site Code:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                        <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWizSC" Width="80" FontSize="13" HorizontalAlignment="Left" MaxLength="5" Margin="0,0,0,8" ToolTip="ConfigMgr site code PSDrive name (e.g., MCM)"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Provider Machine:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtWizProvider" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="SMS Provider server from the ConfigMgr AdminUI connect script's ProviderMachineName value"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="File Share Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                        <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtWizFS" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="UNC path to the SCCM content file share"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Download Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,4"/>
+                        <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtWizDL" FontSize="13" MaxLength="200" Margin="0,0,0,4" ToolTip="Local folder where installers are downloaded during staging"/>
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox x:Name="grpIntune" Header="Intune" Margin="0,0,0,4">
+                    <Grid Margin="0,8,0,4">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
+                        <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWizTenant" FontSize="13" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
+                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtWizClient" FontSize="13" Margin="0,0,0,8" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,4" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
+                        <PasswordBox Grid.Row="2" Grid.Column="1" x:Name="pwdWizSecret" FontSize="13" Margin="0,0,0,4" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
+                    </Grid>
+                </GroupBox>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="1" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
+            <Grid Margin="20,12,20,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <CheckBox Grid.Column="0" x:Name="chkWizDontAsk" Content="Don't show this again" FontSize="12" VerticalAlignment="Center"
+                          Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                          ToolTip="Suppresses this wizard on future launches even when nothing is configured here. Saving always suppresses it."/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="btnWizSave" Content="Save" MinWidth="90" Height="32" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource MahApps.Styles.Button.Square.Accent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    <Button x:Name="btnWizSkip" Content="Skip" MinWidth="90" Height="32" IsCancel="True" Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Controls:MetroWindow>
+'@
+
+    [xml]$xml = $dlgXaml
+    $reader = New-Object System.Xml.XmlNodeReader $xml
+    $dlg    = [System.Windows.Markup.XamlReader]::Load($reader)
+    Install-TitleBarDragFallback -Window $dlg
+    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
+
+    $cboTarget      = $dlg.FindName('cboTarget')
+    $grpMecm        = $dlg.FindName('grpMecm')
+    $grpIntune      = $dlg.FindName('grpIntune')
+    $txtWizSC       = $dlg.FindName('txtWizSC')
+    $txtWizProvider = $dlg.FindName('txtWizProvider')
+    $txtWizFS       = $dlg.FindName('txtWizFS')
+    $txtWizDL       = $dlg.FindName('txtWizDL')
+    $txtWizTenant   = $dlg.FindName('txtWizTenant')
+    $txtWizClient   = $dlg.FindName('txtWizClient')
+    $pwdWizSecret   = $dlg.FindName('pwdWizSecret')
+    $chkWizDontAsk  = $dlg.FindName('chkWizDontAsk')
+    $btnWizSave     = $dlg.FindName('btnWizSave')
+    $btnWizSkip     = $dlg.FindName('btnWizSkip')
+
+    $txtWizSC.Text       = [string]$script:Prefs.SiteCode
+    $txtWizProvider.Text = [string]$script:Prefs.ProviderMachineName
+    $txtWizFS.Text       = [string]$script:Prefs.FileShareRoot
+    $txtWizDL.Text       = [string]$script:Prefs.DownloadRoot
+    $txtWizTenant.Text   = [string]$script:Prefs.Intune.TenantId
+    $txtWizClient.Text   = [string]$script:Prefs.Intune.ClientId
+
+    $currentTarget = [string]$script:Prefs.Intune.DeploymentTarget
+    foreach ($item in $cboTarget.Items) {
+        if ([string]$item.Tag -eq $currentTarget) { $cboTarget.SelectedItem = $item; break }
+    }
+    if (-not $cboTarget.SelectedItem) { $cboTarget.SelectedIndex = 0 }
+
+    $updateGroupState = {
+        $tag = if ($cboTarget.SelectedItem) { [string]$cboTarget.SelectedItem.Tag } else { 'MECM' }
+        $grpMecm.Visibility   = if ($tag -eq 'IntuneOnly') { 'Collapsed' } else { 'Visible' }
+        $grpIntune.Visibility = if ($tag -eq 'MECM') { 'Collapsed' } else { 'Visible' }
+    }.GetNewClosure()
+    & $updateGroupState
+    $cboTarget.Add_SelectionChanged($updateGroupState)
+
+    $script:FirstRunDlgSaved = $false
+    $prefsRef = $script:Prefs
+    $btnWizSave.Add_Click({
+        try {
+            $target = [string]$cboTarget.SelectedItem.Tag
+            if ($target -ne 'IntuneOnly') {
+                $prefsRef.SiteCode            = $txtWizSC.Text.Trim()
+                $prefsRef.ProviderMachineName = $txtWizProvider.Text.Trim()
+                $prefsRef.FileShareRoot       = $txtWizFS.Text.Trim()
+                $prefsRef.DownloadRoot        = $txtWizDL.Text.Trim()
+            }
+            if ($target -ne 'MECM') {
+                $prefsRef.Intune.TenantId = $txtWizTenant.Text.Trim()
+                $prefsRef.Intune.ClientId = $txtWizClient.Text.Trim()
+                # An empty box keeps the stored secret; a typed value replaces it,
+                # protected with DPAPI for the current Windows user.
+                if ($pwdWizSecret.SecurePassword.Length -gt 0) {
+                    $prefsRef.Intune.ClientSecretProtected = ($pwdWizSecret.SecurePassword | ConvertFrom-SecureString)
+                }
+            }
+            $prefsRef.Intune.DeploymentTarget = $target
+            $prefsRef.Intune.PublishToIntune  = ($target -ne 'MECM')
+            $prefsRef.FirstRunCompleted       = $true
+            Save-Preferences -Prefs $prefsRef
+            Invoke-RefreshGrid
+            Update-SidebarForDeploymentTarget
+            $script:FirstRunDlgSaved = $true
+            $dlg.Close()
+        } catch {
+            [void](Show-ThemedMessage -Owner $dlg -Title 'Save Failed' -Message $_.Exception.Message -Buttons OK -Icon Error)
+        }
+    }.GetNewClosure())
+
+    # Skip and window close share one path: the flag persists only when the
+    # suppression box is checked, otherwise the wizard returns next launch.
+    $dlg.Add_Closing({
+        if ($script:FirstRunDlgSaved) { return }
+        if ([bool]$chkWizDontAsk.IsChecked) {
+            $prefsRef.FirstRunCompleted = $true
+            try { Save-Preferences -Prefs $prefsRef } catch { }
+        }
+    }.GetNewClosure())
+
+    $btnWizSkip.Add_Click({ $dlg.Close() })
+
+    [void]$dlg.ShowDialog()
+
+    if ($script:FirstRunDlgSaved) {
+        Add-LogLine -Message ("Setup complete: deployment target = {0}." -f [string]$script:Prefs.Intune.DeploymentTarget)
     }
 }
 
@@ -4727,8 +5013,13 @@ function Invoke-MultiAppPipeline {
                             continue
                         }
 
-                        # 1a. MECM pre-flight for Stage/StageAndPackage
-                        if ($Ctx.Action -in @('Stage','StageAndPackage')) {
+                        # 1a. MECM pre-flight for Stage/StageAndPackage.
+                        # IntuneOnly has no site to query; the query would open a
+                        # provider connection, so it is skipped before that.
+                        if ($Ctx.Action -in @('Stage','StageAndPackage') -and [string]$Ctx.DeploymentTarget -eq 'IntuneOnly') {
+                            [void]$State.LogQueue.Enqueue(('MECM pre-flight skipped for {0}: deployment target is Intune only.' -f $app))
+                        }
+                        elseif ($Ctx.Action -in @('Stage','StageAndPackage')) {
                             $cmName = [string]$row.CMName
                             if (-not [string]::IsNullOrWhiteSpace($cmName) -and $Ctx.AdminUiFound) {
                                 try {
@@ -5662,7 +5953,10 @@ $btnStage.Add_Click({
 
 # --- 4. Package Apps ---
 $btnPackage.Add_Click({
-    if (-not $script:Prefs.DetectedTools.ConfigMgrConsole.Found) {
+    # Intune-only runs never touch the site or the share, so the console,
+    # SiteCode, and File Share Root gates apply only to MECM targets.
+    $intuneOnlyRun = ([string]$script:Prefs.Intune.DeploymentTarget -eq 'IntuneOnly')
+    if (-not $intuneOnlyRun -and -not $script:Prefs.DetectedTools.ConfigMgrConsole.Found) {
         Add-LogLine -Message "Package requires the ConfigMgr Console. Not detected on this workstation."
         $txtStatus.Text = "ConfigMgr Console not installed."
         [void](Show-ThemedMessage -Owner $window -Title 'Console Required' `
@@ -5672,16 +5966,22 @@ $btnPackage.Add_Click({
     }
 
     $siteCodeValue = $script:Prefs.SiteCode
-    if ([string]::IsNullOrWhiteSpace($siteCodeValue)) {
+    if (-not $intuneOnlyRun -and [string]::IsNullOrWhiteSpace($siteCodeValue)) {
         Add-LogLine -Message "SiteCode is required. Open Preferences to configure."
         $txtStatus.Text = "SiteCode is required."
         return
     }
 
     $fsPathValue = $script:Prefs.FileShareRoot
-    if ([string]::IsNullOrWhiteSpace($fsPathValue)) {
+    if (-not $intuneOnlyRun -and [string]::IsNullOrWhiteSpace($fsPathValue)) {
         Add-LogLine -Message "File Share Root is required. Open Preferences to configure."
         $txtStatus.Text = "File Share Root is required."
+        return
+    }
+
+    if ($intuneOnlyRun -and -not (Get-IntunePublishConfigForContext)) {
+        Add-LogLine -Message "Publish requires Intune credentials. Open MECM Preferences to configure Tenant ID, Client ID, and Client Secret."
+        $txtStatus.Text = "Intune credentials required."
         return
     }
 
@@ -5721,15 +6021,18 @@ $btnPackage.Add_Click({
 # there mirrors the original per-row cadence / MECM pre-flight / Stage /
 # Package logic so history entries and row.Status flips stay identical.
 $btnFullRun.Add_Click({
+    # Intune-only runs never touch the site, so the SiteCode and console
+    # gates apply only to MECM targets.
+    $intuneOnlyRun = ([string]$script:Prefs.Intune.DeploymentTarget -eq 'IntuneOnly')
     $siteCodeValue = $script:Prefs.SiteCode
-    if ([string]::IsNullOrWhiteSpace($siteCodeValue)) {
+    if (-not $intuneOnlyRun -and [string]::IsNullOrWhiteSpace($siteCodeValue)) {
         Add-LogLine -Message "SiteCode is required. Open MECM Preferences to configure."
         $txtStatus.Text = "SiteCode is required."
         return
     }
 
     $actionPlanned = $script:Prefs.AppFlow.Action
-    if ($actionPlanned -eq 'StageAndPackage' -and -not $script:Prefs.DetectedTools.ConfigMgrConsole.Found) {
+    if (-not $intuneOnlyRun -and $actionPlanned -eq 'StageAndPackage' -and -not $script:Prefs.DetectedTools.ConfigMgrConsole.Found) {
         Add-LogLine -Message "One Click with Stage and Package requires the ConfigMgr Console. Not detected on this workstation."
         $txtStatus.Text = "ConfigMgr Console not installed."
         [void](Show-ThemedMessage -Owner $window -Title 'Console Required' `
@@ -5816,6 +6119,11 @@ $window.Add_Loaded({
     Add-LogLine -Message ("Loading packagers from: {0}" -f $PackagersRoot)
     Invoke-RefreshGrid
     Add-LogLine -Message ("{0} packager(s) loaded. Ready." -f $script:PackagerData.Count)
+    Update-SidebarForDeploymentTarget
+
+    if (Test-FirstRunWizardNeeded -Prefs $script:Prefs) {
+        Show-FirstRunWizard -Owner $window
+    }
 })
 
 $window.Add_Closing({
