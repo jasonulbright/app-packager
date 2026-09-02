@@ -11,8 +11,16 @@ This is the class of work commercial third-party patching catalogs sell as a sub
 
 ## Install
 
+From a PowerShell prompt:
+
 ```powershell
 curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -ZipPath "$env:TEMP\ap.zip"
+```
+
+From cmd.exe (`;` is not a command separator there, so the PowerShell line fails with a curl "-Force is badly used" error):
+
+```bat
+curl.exe -Lso "%TEMP%\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip && powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive $env:TEMP\ap.zip $env:TEMP\ap-setup -Force; & $env:TEMP\ap-setup\install.ps1 -ZipPath $env:TEMP\ap.zip"
 ```
 
 Installs the latest release into `%LOCALAPPDATA%\AppPackager`. Only a zip crosses the wire: content filters commonly block `.ps1` (and sometimes `.txt`) downloads outright while allowing archives, so the bootstrap downloads the release zip through `curl.exe` and runs the installer from inside it against the same zip — no script file is ever fetched over the network, and curl downloads carry no Mark-of-the-Web. Drop a `checksums.txt` beside the zip to have the install verified; without one it proceeds and says so.
