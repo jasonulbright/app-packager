@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.5.0.12] - 2026-09-02
+
+### Fixed
+
+- **Installer works behind SSL-inspecting proxies.** The install one-liner
+  fetched `install.ps1` from raw.githubusercontent.com, which content
+  filters commonly block while allowing the release-asset host the
+  packagers already download from (observed live behind such a proxy: the
+  fetch returned the filter's interstitial page). `install.ps1` is now
+  published as a release asset and the README one-liner uses
+  `releases/latest/download/install.ps1`; the script's own API and asset
+  downloads, the GUI update check, and the self-update installer fetch all
+  go through `curl.exe` first with `Invoke-WebRequest` as the fallback —
+  the same order `Invoke-DownloadWithRetry` uses in the packagers.
+
 ## [1.5.0.11] - 2026-09-02
 
 ### Added

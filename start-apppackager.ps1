@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.5.0.11
+    Version    : 1.5.0.12
     Updated    : 2026-09-02
 #>
 
@@ -2049,8 +2049,18 @@ function Start-UpdateCheck {
             param($State, $Repo, $UserAgent)
             try {
                 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-                $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" `
-                    -Headers @{ 'User-Agent' = $UserAgent } -UseBasicParsing -TimeoutSec 20
+                # curl.exe first: SSL-inspecting proxies that break the .NET
+                # chain commonly pass curl, which the packagers already use.
+                $release = $null
+                $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+                if ($curl) {
+                    $json = (& $curl.Source -L --fail --silent --max-time 20 -A $UserAgent "https://api.github.com/repos/$Repo/releases/latest") -join "`n"
+                    if ($LASTEXITCODE -eq 0 -and $json) { $release = $json | ConvertFrom-Json }
+                }
+                if (-not $release) {
+                    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" `
+                        -Headers @{ 'User-Agent' = $UserAgent } -UseBasicParsing -TimeoutSec 20
+                }
                 $State.Latest = $release.tag_name
                 $State.Url    = $release.html_url
             } catch {
@@ -2107,8 +2117,18 @@ function Invoke-SelfUpdate {
         if (-not (Test-Path -LiteralPath $installer)) {
             $installer = Join-Path ([IO.Path]::GetTempPath()) ('apinstall-' + [Guid]::NewGuid().ToString('N') + '.ps1')
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-            Invoke-WebRequest -Uri ("https://raw.githubusercontent.com/{0}/main/install.ps1" -f $script:UpdateRepo) `
-                -OutFile $installer -UseBasicParsing -Headers @{ 'User-Agent' = $script:UpdateUserAgent }
+            # Release-asset host, not raw.githubusercontent.com — proxies that
+            # block the raw host allow the asset host the packagers use.
+            $installerUrl = ("https://github.com/{0}/releases/latest/download/install.ps1" -f $script:UpdateRepo)
+            $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+            $fetched = $false
+            if ($curl) {
+                & $curl.Source -L --fail --silent -A $script:UpdateUserAgent -o $installer $installerUrl
+                $fetched = ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $installer))
+            }
+            if (-not $fetched) {
+                Invoke-WebRequest -Uri $installerUrl -OutFile $installer -UseBasicParsing -Headers @{ 'User-Agent' = $script:UpdateUserAgent }
+            }
         }
 
         # The updater replaces the folder this process is running from, so it
