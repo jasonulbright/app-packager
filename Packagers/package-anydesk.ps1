@@ -277,22 +277,7 @@ function Invoke-PackageAnyDesk {
 
     # --- Copy staged content to network (recursive: a variant split stages
     # its payload in a subfolder) ---
-    $localRoot = (Resolve-Path -LiteralPath $localContentPath).Path
-    $localFiles = Get-ChildItem -Path $localContentPath -File -Recurse -ErrorAction Stop
-    foreach ($f in $localFiles) {
-        if ($f.Name -eq "stage-manifest.json") { continue }
-        $relative = $f.FullName.Substring($localRoot.Length).TrimStart('\')
-        $dest = Join-Path $networkContentPath $relative
-        $destDir = Split-Path -Parent $dest
-        if (-not (Test-Path -LiteralPath $destDir)) { New-Item -ItemType Directory -Path $destDir -Force -ErrorAction Stop | Out-Null }
-        if (-not (Test-Path -LiteralPath $dest)) {
-            Copy-Item -LiteralPath $f.FullName -Destination $dest -Force -ErrorAction Stop
-            Write-Log "Copied to network            : $relative"
-        }
-        else {
-            Write-Log "Already on network           : $relative"
-        }
-    }
+    Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
     # --- MECM application ---
     New-MECMApplicationFromManifest `

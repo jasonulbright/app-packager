@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.5.0.6] - 2026-09-02
+
+### Fixed
+
+- **Sync-StagedContentToNetwork** — new exported helper replacing every
+  packager's Package-phase copy loop. Enumerates the stage recursively,
+  recreates intermediate directories, and skips `stage-manifest.json`. A
+  destination file that already exists is compared by SHA-256 — against the
+  manifest `FileHashes` record when `-Manifest` is supplied, otherwise
+  against the local file — and overwritten on mismatch. Logs
+  `Refreshed on network` / `Already on network` / `Copied to network` in the
+  column-aligned style; `-PassThru` returns Copied/Refreshed/Unchanged.
+- **Stale share content** — the old loops keyed on `Test-Path` alone, so
+  re-staging the same `SoftwareVersion` with changed wrapper content left the
+  share on the previous generation and
+  `New-MECMApplicationFromManifest`'s `Compare-StageFileHashes` check failed
+  package integrity. Reproduced on DBeaver 26.2.0, whose wrappers changed
+  across 1.5.0.1-1.5.0.3.
+- **Packager copy loops** — 285 call sites converted across 283 packagers and
+  the two `Samples` templates: 243 flat loops, 36 recursive
+  `$localRoot`-relative loops (multi-DT architecture and language splits stage
+  into subfolders), and 6 ODT loops that copied Office data directories whole
+  and never revisited their contents.
+- **New-MECMApplicationFromStagedContent** — the drop-to-package path copied
+  flat and unconditionally; it now uses the same helper and so covers nested
+  drop layouts.
+
+### Remaining
+
+- **package-specexec-mitigations** — the one packager left on its own copy
+  loop. It writes no stage manifest, so it has no `FileHashes` to verify
+  against, and its loop already overwrites unconditionally.
+- **install.ps1** — version header still reads 1.5.0.4, unchanged from before
+  this release.
+
+Full changelog: CHANGELOG.md
+
 ## [1.5.0.5] - 2026-09-02
 
 ### Fixed

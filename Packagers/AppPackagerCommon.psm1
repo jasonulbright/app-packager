@@ -613,6 +613,112 @@ function Compare-StageFileHashes {
     }
 }
 
+function Sync-StagedContentToNetwork {
+    <#
+    .SYNOPSIS
+        Copies staged content to the network share, refreshing stale files.
+
+    .DESCRIPTION
+        Enumerates the local stage recursively and mirrors it under
+        NetworkContentPath, recreating intermediate directories. Presence alone
+        is not proof of currency: a destination file that already exists is
+        compared by SHA-256 and overwritten on mismatch. Re-staging the same
+        SoftwareVersion with different wrapper content therefore leaves the
+        share matching the stage manifest, which New-MECMApplicationFromManifest
+        verifies through Compare-StageFileHashes.
+
+        When Manifest carries FileHashes, the expected hash for a relative path
+        comes from that record; otherwise the local file is hashed. The stage
+        manifest itself is never copied.
+
+    .OUTPUTS
+        Nothing unless -PassThru is supplied, in which case a summary object
+        with Copied/Refreshed/Unchanged counts and the relative paths touched.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$LocalContentPath,
+        [Parameter(Mandatory)][string]$NetworkContentPath,
+        [AllowNull()][object]$Manifest,
+        [string[]]$Exclude = @('stage-manifest.json'),
+        [switch]$PassThru
+    )
+
+    $localRoot = (Resolve-Path -LiteralPath $LocalContentPath -ErrorAction Stop).Path.TrimEnd('\', '/')
+
+    $excludeSet = @{}
+    foreach ($item in @($Exclude)) {
+        if ([string]::IsNullOrWhiteSpace($item)) { continue }
+        $normalized = ([string]$item).TrimStart('\', '/') -replace '/', '\'
+        $excludeSet[$normalized.ToLowerInvariant()] = $true
+    }
+
+    $expectedMap = @{}
+    if ($null -ne $Manifest -and $Manifest.PSObject.Properties.Name -contains 'FileHashes' -and $null -ne $Manifest.FileHashes) {
+        foreach ($entry in @($Manifest.FileHashes)) {
+            if ($null -eq $entry -or [string]::IsNullOrWhiteSpace([string]$entry.RelativePath)) { continue }
+            $relative = ([string]$entry.RelativePath).TrimStart('\', '/') -replace '/', '\'
+            $expectedMap[$relative.ToLowerInvariant()] = ([string]$entry.Sha256).ToUpperInvariant()
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $NetworkContentPath)) {
+        New-Item -ItemType Directory -Path $NetworkContentPath -Force -ErrorAction Stop | Out-Null
+    }
+
+    $copied = New-Object System.Collections.Generic.List[string]
+    $refreshed = New-Object System.Collections.Generic.List[string]
+    $unchanged = New-Object System.Collections.Generic.List[string]
+
+    $localFiles = @(Get-ChildItem -LiteralPath $localRoot -File -Recurse -Force -ErrorAction Stop | Sort-Object FullName)
+    foreach ($f in $localFiles) {
+        $relative = $f.FullName.Substring($localRoot.Length).TrimStart('\', '/') -replace '/', '\'
+        if ($excludeSet.ContainsKey($relative.ToLowerInvariant())) { continue }
+
+        $dest = Join-Path $NetworkContentPath $relative
+        $destDir = Split-Path -Parent $dest
+        if ($destDir -and -not (Test-Path -LiteralPath $destDir)) {
+            New-Item -ItemType Directory -Path $destDir -Force -ErrorAction Stop | Out-Null
+        }
+
+        if (-not (Test-Path -LiteralPath $dest)) {
+            Copy-Item -LiteralPath $f.FullName -Destination $dest -Force -ErrorAction Stop
+            Write-Log "Copied to network            : $relative"
+            $copied.Add($relative)
+            continue
+        }
+
+        $expected = $expectedMap[$relative.ToLowerInvariant()]
+        if ([string]::IsNullOrWhiteSpace($expected)) {
+            $expected = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256 -ErrorAction Stop).Hash.ToUpperInvariant()
+        }
+        $actual = (Get-FileHash -LiteralPath $dest -Algorithm SHA256 -ErrorAction Stop).Hash.ToUpperInvariant()
+
+        if ($actual -eq $expected) {
+            Write-Log "Already on network           : $relative"
+            $unchanged.Add($relative)
+        }
+        else {
+            Copy-Item -LiteralPath $f.FullName -Destination $dest -Force -ErrorAction Stop
+            Write-Log "Refreshed on network         : $relative"
+            $refreshed.Add($relative)
+        }
+    }
+
+    if ($PassThru) {
+        return [pscustomobject]@{
+            LocalContentPath   = $localRoot
+            NetworkContentPath = $NetworkContentPath
+            Copied             = @($copied.ToArray())
+            Refreshed          = @($refreshed.ToArray())
+            Unchanged          = @($unchanged.ToArray())
+            CopiedCount        = $copied.Count
+            RefreshedCount     = $refreshed.Count
+            UnchangedCount     = $unchanged.Count
+        }
+    }
+}
+
 function Format-StageFileHashComparison {
     param([Parameter(Mandatory)]$Comparison)
 
@@ -3645,10 +3751,7 @@ function Invoke-AdHocPackage {
         -Version $versionSegment -Layout $ContentLayout
     Initialize-Folder -Path $networkContentPath
 
-    foreach ($f in (Get-ChildItem -Path $StagedPath -File)) {
-        if ($f.Name -eq 'stage-manifest.json') { continue }
-        Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $networkContentPath $f.Name) -Force
-    }
+    Sync-StagedContentToNetwork -LocalContentPath $StagedPath -NetworkContentPath $networkContentPath -Manifest $manifest
     Write-Log "Ad-hoc content on network    : $networkContentPath"
 
     return New-MECMApplicationFromManifest `
