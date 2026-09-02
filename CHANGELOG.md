@@ -1,4 +1,18 @@
 # Changelog
+
+## [1.5.0.5] - 2026-09-02
+
+### Fixed
+
+- **Get-InstallerIcon** — enforces Configuration Manager's documented 256 KB
+  icon image limit (Learn: create-applications, packages-and-programs). An
+  oversized file is re-encoded as a single PNG, downscaling through
+  256/128/64px until it fits, with the PNG-compressed-frame decode path
+  System.Drawing.Icon cannot handle; a file that still exceeds the limit is
+  rejected with a WARN instead of staged. The DBeaver pilot icon (270 KB
+  .ico) now stages as a 7.6 KB 256px PNG. The Intune publish path picks up
+  the staged icon from the content folder next to the manifest.
+
 ## [1.5.0.4] - 2026-09-02
 
 ### Application Icons
