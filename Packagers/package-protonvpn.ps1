@@ -6,6 +6,7 @@ VendorUrl: https://protonvpn.com/
 CPE: cpe:2.3:a:proton:protonvpn:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://protonvpn.com/download/windows-releases.json
 DownloadPageUrl: https://protonvpn.com/download-windows
+IconSource: External
 UpdateCadenceDays: 30
 
 .SYNOPSIS

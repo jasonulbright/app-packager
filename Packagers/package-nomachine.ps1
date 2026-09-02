@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: NoMachine
 App: NoMachine
 CMName: NoMachine
@@ -6,6 +6,7 @@ VendorUrl: https://www.nomachine.com/
 CPE: cpe:2.3:a:nomachine:nomachine:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.nomachine.com/history
 DownloadPageUrl: https://download.nomachine.com/download/?id=41&platform=windows
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

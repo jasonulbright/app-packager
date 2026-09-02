@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Kai Kramer
 App: KeyStore Explorer
 CMName: KeyStore Explorer
@@ -6,6 +6,7 @@ VendorUrl: https://keystore-explorer.org/
 CPE: cpe:2.3:a:keystore-explorer:keystore_explorer:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/kaikramer/keystore-explorer/releases
 DownloadPageUrl: https://keystore-explorer.org/downloads.html
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

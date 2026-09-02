@@ -6,6 +6,7 @@ VendorUrl: https://dev.mysql.com/downloads/connector/net/
 CPE: cpe:2.3:a:oracle:mysql_connectors:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://dev.mysql.com/doc/relnotes/connector-net/en/
 DownloadPageUrl: https://dev.mysql.com/downloads/connector/net/
+IconSource: External
 UpdateCadenceDays: 90
 
 .SYNOPSIS

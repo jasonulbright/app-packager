@@ -6,6 +6,7 @@ VendorUrl: https://www.cloudflare.com/
 CPE: cpe:2.3:a:cloudflare:warp:*:*:*:*:*:windows:*:*
 ReleaseNotesUrl: https://developers.cloudflare.com/cloudflare-one/changelog/warp/
 DownloadPageUrl: https://developers.cloudflare.com/warp-client/get-started/windows/
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

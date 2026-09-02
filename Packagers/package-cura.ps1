@@ -6,6 +6,7 @@ VendorUrl: https://ultimaker.com/software/ultimaker-cura/
 CPE: cpe:2.3:a:ultimaker:cura:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/Ultimaker/Cura/releases
 DownloadPageUrl: https://github.com/Ultimaker/Cura/releases/latest
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

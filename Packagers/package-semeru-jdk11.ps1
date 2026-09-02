@@ -6,6 +6,7 @@ VendorUrl: https://developer.ibm.com/languages/java/semeru-runtimes/
 CPE: cpe:2.3:a:ibm:semeru_runtime:*:*:*:*:open:*:*:*
 ReleaseNotesUrl: https://github.com/ibmruntimes/semeru11-binaries/releases
 DownloadPageUrl: https://developer.ibm.com/languages/java/semeru-runtimes/downloads/
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

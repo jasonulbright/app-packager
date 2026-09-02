@@ -6,6 +6,7 @@ VendorUrl: https://www.yubico.com/products/yubico-authenticator/
 CPE: cpe:2.3:a:yubico:yubico_authenticator:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/Yubico/yubioath-flutter/releases
 DownloadPageUrl: https://www.yubico.com/products/yubico-authenticator/
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

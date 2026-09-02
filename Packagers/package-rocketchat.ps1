@@ -5,6 +5,7 @@ CMName: Rocket.Chat
 VendorUrl: https://rocket.chat/
 ReleaseNotesUrl: https://github.com/RocketChat/Rocket.Chat.Electron/releases
 DownloadPageUrl: https://github.com/RocketChat/Rocket.Chat.Electron/releases
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

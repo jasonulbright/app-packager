@@ -6,6 +6,7 @@ VendorUrl: https://www.ccleaner.com/defraggler
 CPE: cpe:2.3:a:piriform:defraggler:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.ccleaner.com/defraggler/version-history
 DownloadPageUrl: https://www.ccleaner.com/defraggler
+IconSource: Installer
 UpdateCadenceDays: 365
 
 .SYNOPSIS

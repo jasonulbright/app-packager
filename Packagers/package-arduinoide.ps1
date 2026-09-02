@@ -6,6 +6,7 @@ VendorUrl: https://www.arduino.cc/en/software
 CPE: cpe:2.3:a:arduino:arduino_ide:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/arduino/arduino-ide/releases
 DownloadPageUrl: https://github.com/arduino/arduino-ide/releases/latest
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

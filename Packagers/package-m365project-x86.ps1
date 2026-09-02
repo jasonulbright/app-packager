@@ -6,6 +6,7 @@ VendorUrl: https://www.microsoft.com/microsoft-365
 CPE: cpe:2.3:a:microsoft:365_apps:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/en-us/officeupdates/update-history-microsoft365-apps-by-date
 DownloadPageUrl: https://www.microsoft.com/en-us/microsoft-365
+IconSource: External
 SupportsVariants: Network
 
 .SYNOPSIS

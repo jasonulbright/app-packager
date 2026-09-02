@@ -6,6 +6,7 @@ VendorUrl: https://dotnet.microsoft.com/download/dotnet/10.0
 CPE: cpe:2.3:a:microsoft:.net:10.*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/dotnet/core/tree/main/release-notes/10.0
 DownloadPageUrl: https://dotnet.microsoft.com/en-us/download/dotnet/10.0
+IconSource: None
 
 .SYNOPSIS
     Packages .NET 10 Windows Desktop Runtime (x86 and x64) for MECM.

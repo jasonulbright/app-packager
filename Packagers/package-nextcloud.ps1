@@ -6,6 +6,7 @@ VendorUrl: https://nextcloud.com/
 CPE: cpe:2.3:a:nextcloud:desktop:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/nextcloud-releases/desktop/releases
 DownloadPageUrl: https://nextcloud.com/install/#install-clients
+IconSource: Installer
 UpdateCadenceDays: 45
 
 .SYNOPSIS

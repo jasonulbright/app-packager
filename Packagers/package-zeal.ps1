@@ -6,6 +6,7 @@ VendorUrl: https://zealdocs.org/
 CPE: cpe:2.3:a:zealdocs:zeal:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/zealdocs/zeal/releases
 DownloadPageUrl: https://zealdocs.org/download.html
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

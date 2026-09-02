@@ -6,6 +6,7 @@ VendorUrl: https://www.ccleaner.com/
 CPE: cpe:2.3:a:piriform:ccleaner:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.ccleaner.com/ccleaner/version-history
 DownloadPageUrl: https://www.ccleaner.com/ccleaner/download
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

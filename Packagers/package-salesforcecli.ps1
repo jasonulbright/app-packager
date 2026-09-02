@@ -5,6 +5,7 @@ CMName: Salesforce CLI
 VendorUrl: https://developer.salesforce.com/tools/salesforcecli
 ReleaseNotesUrl: https://github.com/salesforcecli/cli/releases
 DownloadPageUrl: https://developer.salesforce.com/tools/salesforcecli
+IconSource: Installer
 UpdateCadenceDays: 14
 
 .SYNOPSIS

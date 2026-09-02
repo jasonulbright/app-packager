@@ -6,6 +6,7 @@ VendorUrl: https://www.shotcut.org/
 CPE: cpe:2.3:a:meltytech:shotcut:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/mltframework/shotcut/releases
 DownloadPageUrl: https://www.shotcut.org/download/
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

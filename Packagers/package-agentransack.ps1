@@ -6,6 +6,7 @@ VendorUrl: https://www.mythicsoft.com/agentransack/
 CPE: cpe:2.3:a:mythicsoft:agent_ransack:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.mythicsoft.com/agentransack/whatsnew/
 DownloadPageUrl: https://www.mythicsoft.com/agentransack/download/
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

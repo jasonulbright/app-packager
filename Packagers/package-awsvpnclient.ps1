@@ -6,6 +6,7 @@ VendorUrl: https://aws.amazon.com/vpn/client-vpn-download/
 CPE: cpe:2.3:a:amazon:aws_vpn_client:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://docs.aws.amazon.com/vpn/latest/clientvpn-user/release-notes.html
 DownloadPageUrl: https://aws.amazon.com/vpn/client-vpn-download/
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

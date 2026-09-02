@@ -6,6 +6,7 @@ VendorUrl: https://go.dev/
 CPE: cpe:2.3:a:golang:go:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://go.dev/doc/devel/release
 DownloadPageUrl: https://go.dev/dl/
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

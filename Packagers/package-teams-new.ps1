@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Microsoft
 App: Microsoft Teams (new client)
 CMName: Microsoft Teams
@@ -6,6 +6,7 @@ VendorUrl: https://learn.microsoft.com/en-us/microsoftteams/teams-client-bulk-in
 CPE: cpe:2.3:a:microsoft:teams:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/en-us/officeupdates/teams-app-versioning
 DownloadPageUrl: https://learn.microsoft.com/en-us/microsoftteams/teams-client-bulk-install
+IconSource: Installer
 UpdateCadenceDays: 14
 
 .SYNOPSIS

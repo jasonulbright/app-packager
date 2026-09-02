@@ -6,6 +6,7 @@ VendorUrl: https://www.robware.net/
 CPE: cpe:2.3:a:robware:rvtools:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.dell.com/support/kbdoc/en-us/000325532
 DownloadPageUrl: https://www.dell.com/support/kbdoc/en-us/000325532
+IconSource: External
 UpdateCadenceDays: 120
 
 .SYNOPSIS

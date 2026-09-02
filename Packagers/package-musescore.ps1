@@ -6,6 +6,7 @@ VendorUrl: https://musescore.org/
 CPE: cpe:2.3:a:musescore:musescore:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/musescore/MuseScore/releases
 DownloadPageUrl: https://musescore.org/en/download
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

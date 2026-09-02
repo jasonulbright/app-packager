@@ -6,6 +6,7 @@ VendorUrl: https://www.urbackup.org/
 CPE: cpe:2.3:a:urbackup:urbackup:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.urbackup.org/changelog.html
 DownloadPageUrl: https://www.urbackup.org/download.html
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

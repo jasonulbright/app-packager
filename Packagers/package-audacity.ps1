@@ -6,6 +6,7 @@ VendorUrl: https://www.audacityteam.org/
 CPE: cpe:2.3:a:audacityteam:audacity:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.audacityteam.org/releases/
 DownloadPageUrl: https://www.audacityteam.org/download/
+IconSource: Installer
 
 .SYNOPSIS
     Packages Audacity (x64) for MECM.

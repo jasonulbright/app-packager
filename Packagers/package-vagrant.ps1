@@ -6,6 +6,7 @@ VendorUrl: https://developer.hashicorp.com/vagrant
 CPE: cpe:2.3:a:hashicorp:vagrant:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/hashicorp/vagrant/blob/main/CHANGELOG.md
 DownloadPageUrl: https://releases.hashicorp.com/vagrant/
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

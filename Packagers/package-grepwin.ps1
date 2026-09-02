@@ -6,6 +6,7 @@ VendorUrl: https://tools.stefankueng.com/grepWin.html
 CPE: cpe:2.3:a:stefankueng:grepwin:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/stefankueng/grepWin/releases
 DownloadPageUrl: https://github.com/stefankueng/grepWin/releases
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

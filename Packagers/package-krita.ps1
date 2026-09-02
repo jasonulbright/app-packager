@@ -6,6 +6,7 @@ VendorUrl: https://krita.org/
 CPE: cpe:2.3:a:kde:krita:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://krita.org/en/news/
 DownloadPageUrl: https://krita.org/en/download/
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

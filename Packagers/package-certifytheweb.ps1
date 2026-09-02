@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Webprofusion
 App: Certify The Web
 CMName: Certify The Web
@@ -6,6 +6,7 @@ VendorUrl: https://certifytheweb.com/
 CPE: cpe:2.3:a:webprofusion:certify_the_web:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/webprofusion/certify/blob/master/CHANGELOG.md
 DownloadPageUrl: https://certifytheweb.com/home/download
+IconSource: Installer
 UpdateCadenceDays: 120
 
 .SYNOPSIS

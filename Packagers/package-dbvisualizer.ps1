@@ -6,6 +6,7 @@ VendorUrl: https://www.dbvis.com/
 CPE: cpe:2.3:a:dbvis:dbvisualizer:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.dbvis.com/releasenotes/
 DownloadPageUrl: https://www.dbvis.com/download/
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

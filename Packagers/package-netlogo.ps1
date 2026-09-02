@@ -5,6 +5,7 @@ CMName: NetLogo
 VendorUrl: https://www.netlogo.org/
 ReleaseNotesUrl: https://github.com/NetLogo/NetLogo/releases
 DownloadPageUrl: https://www.netlogo.org/download/
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

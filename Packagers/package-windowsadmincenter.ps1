@@ -6,6 +6,7 @@ VendorUrl: https://learn.microsoft.com/windows-server/manage/windows-admin-cente
 CPE: cpe:2.3:a:microsoft:windows_admin_center:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/windows-server/manage/windows-admin-center/support/release-history
 DownloadPageUrl: https://www.microsoft.com/evalcenter/download-windows-admin-center
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

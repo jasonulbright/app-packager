@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: AIMP DevTeam
 App: AIMP
 CMName: AIMP
@@ -6,6 +6,7 @@ VendorUrl: https://www.aimp.ru/
 CPE: cpe:2.3:a:aimp:aimp:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.aimp.ru/?do=changelog&os=desktop
 DownloadPageUrl: https://www.aimp.ru/?do=download&os=windows
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

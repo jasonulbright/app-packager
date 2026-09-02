@@ -6,6 +6,7 @@ VendorUrl: https://chromeenterprise.google/browser/download/
 CPE: cpe:2.3:a:google:chrome:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://chromereleases.googleblog.com/
 DownloadPageUrl: https://chromeenterprise.google/download/
+IconSource: Installer
 SupportsVariants: Architecture
 
 .SYNOPSIS

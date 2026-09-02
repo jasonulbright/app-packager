@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: TortoiseGit
 App: TortoiseGit
 CMName: TortoiseGit
@@ -6,6 +6,7 @@ VendorUrl: https://tortoisegit.org/
 CPE: cpe:2.3:a:tortoisegit:tortoisegit:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://tortoisegit.org/changelog
 DownloadPageUrl: https://tortoisegit.org/download/
+IconSource: Installer
 
 .SYNOPSIS
     Packages TortoiseGit (x64) MSI for MECM.

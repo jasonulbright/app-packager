@@ -6,6 +6,7 @@ VendorUrl: https://www.dell.com/
 CPE: cpe:2.3:a:dell:command_update:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.dell.com/support/kbdoc/en-us/000177325/dell-command-update
 DownloadPageUrl: https://www.dell.com/support/kbdoc/en-us/000177325/dell-command-update
+IconSource: Installer
 UpdateCadenceDays: 120
 
 .SYNOPSIS

@@ -6,6 +6,7 @@ VendorUrl: https://www.amazondcv.com/
 CPE: cpe:2.3:a:amazon:dcv:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://docs.aws.amazon.com/dcv/latest/adminguide/doc-history-release-notes.html
 DownloadPageUrl: https://www.amazondcv.com/
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

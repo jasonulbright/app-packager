@@ -6,6 +6,7 @@ VendorUrl: https://typora.io/
 CPE: cpe:2.3:a:typora:typora:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://typora.io/releases/windows
 DownloadPageUrl: https://typora.io/#windows
+IconSource: External
 UpdateCadenceDays: 90
 
 .SYNOPSIS

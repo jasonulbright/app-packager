@@ -6,6 +6,7 @@ VendorUrl: https://www.mongodb.com/products/tools/compass
 CPE: cpe:2.3:a:mongodb:compass:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/mongodb-js/compass/releases
 DownloadPageUrl: https://www.mongodb.com/try/download/compass
+IconSource: External
 UpdateCadenceDays: 30
 
 .SYNOPSIS

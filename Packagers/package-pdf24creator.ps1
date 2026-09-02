@@ -5,6 +5,7 @@ CMName: PDF24 Creator
 VendorUrl: https://www.pdf24.org/
 ReleaseNotesUrl: https://creator.pdf24.org/listVersions.php
 DownloadPageUrl: https://creator.pdf24.org/listVersions.php
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

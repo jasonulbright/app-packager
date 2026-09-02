@@ -6,6 +6,7 @@ VendorUrl: https://www.bleachbit.org/
 CPE: cpe:2.3:a:bleachbit:bleachbit:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.bleachbit.org/news
 DownloadPageUrl: https://www.bleachbit.org/download/windows
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

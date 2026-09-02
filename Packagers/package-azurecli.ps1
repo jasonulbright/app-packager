@@ -6,6 +6,7 @@ VendorUrl: https://learn.microsoft.com/cli/azure/
 CPE: cpe:2.3:a:microsoft:azure_cli:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/cli/azure/release-notes-azure-cli
 DownloadPageUrl: https://learn.microsoft.com/cli/azure/install-azure-cli-windows
+IconSource: None
 UpdateCadenceDays: 30
 
 .SYNOPSIS

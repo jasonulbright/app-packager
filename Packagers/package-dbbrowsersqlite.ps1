@@ -6,6 +6,7 @@ VendorUrl: https://sqlitebrowser.org/
 CPE: cpe:2.3:a:sqlitebrowser:db_browser_for_sqlite:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/sqlitebrowser/sqlitebrowser/releases
 DownloadPageUrl: https://sqlitebrowser.org/dl/
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

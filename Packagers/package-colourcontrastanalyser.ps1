@@ -6,6 +6,7 @@ VendorUrl: https://www.tpgi.com/color-contrast-checker/
 CPE: cpe:2.3:a:tpgi:colour_contrast_analyser:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/ThePacielloGroup/CCAe/releases
 DownloadPageUrl: https://www.tpgi.com/color-contrast-checker/
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

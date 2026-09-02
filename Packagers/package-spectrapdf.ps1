@@ -6,6 +6,7 @@ VendorUrl: https://github.com/jasonulbright/spectra-pdf
 CPE: cpe:2.3:a:signalridgelabs:spectra_pdf:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/jasonulbright/spectra-pdf/releases
 DownloadPageUrl: https://github.com/jasonulbright/spectra-pdf/releases
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

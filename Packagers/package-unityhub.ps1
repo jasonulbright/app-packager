@@ -6,6 +6,7 @@ VendorUrl: https://unity.com/
 CPE: cpe:2.3:a:unity:unity_hub:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://unity.com/unity-hub/release-notes
 DownloadPageUrl: https://unity.com/download
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

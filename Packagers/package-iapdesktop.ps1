@@ -6,6 +6,7 @@ VendorUrl: https://googlecloudplatform.github.io/iap-desktop/
 CPE: cpe:2.3:a:google:iap_desktop:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/GoogleCloudPlatform/iap-desktop/releases
 DownloadPageUrl: https://googlecloudplatform.github.io/iap-desktop/install/
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

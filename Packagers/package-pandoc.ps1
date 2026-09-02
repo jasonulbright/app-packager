@@ -6,6 +6,7 @@ VendorUrl: https://pandoc.org/
 CPE: cpe:2.3:a:johnmacfarlane:pandoc:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/jgm/pandoc/releases
 DownloadPageUrl: https://pandoc.org/installing.html
+IconSource: None
 UpdateCadenceDays: 45
 
 .SYNOPSIS

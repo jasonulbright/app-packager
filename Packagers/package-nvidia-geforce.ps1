@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: NVIDIA
 App: NVIDIA Graphics Driver - GeForce Game Ready (x64)
 CMName: NVIDIA Graphics Driver - GeForce Game Ready
@@ -6,6 +6,7 @@ VendorUrl: https://www.nvidia.com/Download/index.aspx
 CPE: cpe:2.3:a:nvidia:gpu_display_driver:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.nvidia.com/en-us/drivers/drivers-faq/
 DownloadPageUrl: https://www.nvidia.com/Download/index.aspx
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

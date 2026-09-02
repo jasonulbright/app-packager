@@ -6,6 +6,7 @@ VendorUrl: https://www.google.com/drive/download/
 CPE: cpe:2.3:a:google:drive_for_desktop:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://support.google.com/a/answer/7577057
 DownloadPageUrl: https://support.google.com/a/answer/7577057
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

@@ -6,6 +6,7 @@ VendorUrl: https://www.synology.com/
 CPE: cpe:2.3:a:synology:drive_client:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.synology.com/en-global/releaseNote/DriveClient
 DownloadPageUrl: https://archive.synology.com/download/Utility/SynologyDriveClient
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

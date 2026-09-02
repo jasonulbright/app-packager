@@ -6,6 +6,7 @@ VendorUrl: https://git-scm.com/
 CPE: cpe:2.3:a:git-scm:git:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/git-for-windows/git/releases
 DownloadPageUrl: https://git-scm.com/download/win
+IconSource: Installer
 
 .SYNOPSIS
     Packages Git for Windows (x64) for MECM.

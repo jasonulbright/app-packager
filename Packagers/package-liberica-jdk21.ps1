@@ -6,6 +6,7 @@ VendorUrl: https://bell-sw.com/libericajdk/
 CPE: cpe:2.3:a:bell-sw:liberica_jdk:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://bell-sw.com/pages/liberica-release-notes/
 DownloadPageUrl: https://bell-sw.com/pages/downloads/#jdk-21-lts
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

@@ -6,6 +6,7 @@ VendorUrl: https://www.box.com/resources/downloads
 CPE: cpe:2.3:a:box:box_drive:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://support.box.com/hc/en-us/articles/360043697154-Box-Drive-Release-Notes
 DownloadPageUrl: https://www.box.com/resources/downloads
+IconSource: Installer
 UpdateCadenceDays: 45
 
 .SYNOPSIS

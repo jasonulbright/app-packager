@@ -6,6 +6,7 @@ VendorUrl: https://www.xenserver.com/
 CPE: cpe:2.3:a:citrix:xencenter:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://docs.xenserver.com/en-us/xenserver/8/whats-new.html
 DownloadPageUrl: https://www.xenserver.com/downloads
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

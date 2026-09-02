@@ -6,6 +6,7 @@ VendorUrl: https://docs.aws.amazon.com/systems-manager/latest/userguide/session-
 CPE: cpe:2.3:a:amazon:session_manager_plugin:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://docs.aws.amazon.com/systems-manager/latest/userguide/plugin-version-history.html
 DownloadPageUrl: https://docs.aws.amazon.com/systems-manager/latest/userguide/install-plugin-windows.html
+IconSource: None
 UpdateCadenceDays: 60
 
 .SYNOPSIS

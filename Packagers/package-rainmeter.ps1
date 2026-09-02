@@ -6,6 +6,7 @@ VendorUrl: https://www.rainmeter.net/
 CPE: cpe:2.3:a:rainmeter:rainmeter:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/rainmeter/rainmeter/releases
 DownloadPageUrl: https://www.rainmeter.net/
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

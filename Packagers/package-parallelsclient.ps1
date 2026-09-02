@@ -6,6 +6,7 @@ VendorUrl: https://www.parallels.com/products/ras/
 CPE: cpe:2.3:a:parallels:remote_application_server:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.parallels.com/products/ras/resources/
 DownloadPageUrl: https://www.parallels.com/products/ras/download/links/
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

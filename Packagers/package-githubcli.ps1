@@ -6,6 +6,7 @@ VendorUrl: https://cli.github.com/
 CPE: cpe:2.3:a:github:cli:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/cli/cli/releases
 DownloadPageUrl: https://github.com/cli/cli/releases/latest
+IconSource: None
 UpdateCadenceDays: 30
 
 .SYNOPSIS

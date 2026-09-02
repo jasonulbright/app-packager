@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Azul
 App: Azul Zulu JDK 17 (x64)
 CMName: Azul Zulu JDK 17 (x64)
@@ -6,6 +6,7 @@ VendorUrl: https://www.azul.com/downloads/?package=jdk
 CPE: cpe:2.3:a:azul:zulu:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://docs.azul.com/core/release-notes
 DownloadPageUrl: https://www.azul.com/downloads/?version=java-17-lts&os=windows&architecture=x86-64-bit&package=jdk
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

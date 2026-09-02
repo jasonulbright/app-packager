@@ -6,6 +6,7 @@ VendorUrl: https://www.axcrypt.net/
 CPE: cpe:2.3:a:axcrypt:axcrypt:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.axcrypt.net/download/
 DownloadPageUrl: https://www.axcrypt.net/download/
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

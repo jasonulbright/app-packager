@@ -6,6 +6,7 @@ VendorUrl: https://apps.kde.org/kdiff3/
 CPE: cpe:2.3:a:kde:kdiff3:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://invent.kde.org/sdk/kdiff3/-/releases
 DownloadPageUrl: https://download.kde.org/stable/kdiff3/
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

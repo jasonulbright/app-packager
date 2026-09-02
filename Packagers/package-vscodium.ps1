@@ -6,6 +6,7 @@ VendorUrl: https://vscodium.com/
 CPE: cpe:2.3:a:vscodium:vscodium:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/VSCodium/vscodium/releases
 DownloadPageUrl: https://github.com/VSCodium/vscodium/releases/latest
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

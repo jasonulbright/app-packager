@@ -6,6 +6,7 @@ VendorUrl: https://rancherdesktop.io/
 CPE: cpe:2.3:a:suse:rancher_desktop:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/rancher-sandbox/rancher-desktop/releases
 DownloadPageUrl: https://rancherdesktop.io/
+IconSource: External
 UpdateCadenceDays: 60
 
 .SYNOPSIS

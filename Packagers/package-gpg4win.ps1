@@ -6,6 +6,7 @@ VendorUrl: https://www.gpg4win.org/
 CPE: cpe:2.3:a:gpg4win:gpg4win:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.gpg4win.org/version-history.html
 DownloadPageUrl: https://www.gpg4win.org/download.html
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

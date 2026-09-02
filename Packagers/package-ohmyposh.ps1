@@ -6,6 +6,7 @@ VendorUrl: https://ohmyposh.dev/
 CPE: cpe:2.3:a:ohmyposh:oh-my-posh:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/JanDeDobbeleer/oh-my-posh/releases
 DownloadPageUrl: https://github.com/JanDeDobbeleer/oh-my-posh/releases
+IconSource: None
 UpdateCadenceDays: 30
 
 .SYNOPSIS

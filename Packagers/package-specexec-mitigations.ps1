@@ -6,6 +6,7 @@ VendorUrl: https://support.microsoft.com/en-us/topic/kb4073119-windows-client-gu
 CPE:
 ReleaseNotesUrl:
 DownloadPageUrl:
+IconSource: None
 UpdateCadenceDays: 0
 
 .SYNOPSIS

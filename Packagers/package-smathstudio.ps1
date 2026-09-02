@@ -6,6 +6,7 @@ VendorUrl: https://smath.com/
 CPE: cpe:2.3:a:smath:smath_studio:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://smath.com/en-US/view/SMathStudio/history
 DownloadPageUrl: https://smath.com/en-US/view/SMathStudio/download
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

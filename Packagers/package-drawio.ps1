@@ -1,10 +1,11 @@
-﻿<#
+<#
 Vendor: JGraph Ltd
 App: draw.io
 CMName: draw.io
 VendorUrl: https://www.drawio.com/
 ReleaseNotesUrl: https://github.com/jgraph/drawio-desktop/releases
 DownloadPageUrl: https://github.com/jgraph/drawio-desktop/releases
+IconSource: Installer
 
 .SYNOPSIS
     Packages draw.io Desktop for MECM.

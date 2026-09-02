@@ -6,6 +6,7 @@ VendorUrl: https://msendpointmgr.com/
 CPE: cpe:2.3:a:msendpointmgr:intune_debug_toolkit:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/MSEndpointMgr/IntuneDebugToolkit
 DownloadPageUrl: https://github.com/MSEndpointMgr/IntuneDebugToolkit
+IconSource: External
 UpdateCadenceDays: 180
 
 .SYNOPSIS

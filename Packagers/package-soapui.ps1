@@ -6,6 +6,7 @@ VendorUrl: https://www.soapui.org/
 CPE: cpe:2.3:a:smartbear:soapui:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.soapui.org/downloads/latest-release/
 DownloadPageUrl: https://www.soapui.org/downloads/soapui/
+IconSource: Installer
 
 .SYNOPSIS
     Packages SoapUI Open Source for MECM.

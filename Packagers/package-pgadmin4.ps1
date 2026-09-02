@@ -6,6 +6,7 @@ VendorUrl: https://www.pgadmin.org/
 CPE: cpe:2.3:a:pgadmin:pgadmin_4:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.pgadmin.org/docs/pgadmin4/latest/release_notes.html
 DownloadPageUrl: https://www.pgadmin.org/download/pgadmin-4-windows/
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

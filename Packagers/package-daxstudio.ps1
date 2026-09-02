@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: DAX Studio
 App: DAX Studio
 CMName: DAX Studio
@@ -6,6 +6,7 @@ VendorUrl: https://daxstudio.org/
 CPE: cpe:2.3:a:daxstudio:dax_studio:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/DaxStudio/DaxStudio/releases
 DownloadPageUrl: https://daxstudio.org/downloads/
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

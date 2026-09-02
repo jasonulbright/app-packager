@@ -6,6 +6,7 @@ VendorUrl: https://anyburn.com/
 CPE: cpe:2.3:a:anyburn:anyburn:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://anyburn.com/tutorials/history.htm
 DownloadPageUrl: https://anyburn.com/download.htm
+IconSource: Installer
 UpdateCadenceDays: 120
 
 .SYNOPSIS

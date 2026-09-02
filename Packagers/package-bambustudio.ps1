@@ -6,6 +6,7 @@ VendorUrl: https://bambulab.com/en/download/studio
 CPE: cpe:2.3:a:bambulab:bambu_studio:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/bambulab/BambuStudio/releases
 DownloadPageUrl: https://bambulab.com/en/download/studio
+IconSource: Installer
 UpdateCadenceDays: 45
 
 .SYNOPSIS

@@ -6,6 +6,7 @@ VendorUrl: https://www.gimp.org/
 CPE: cpe:2.3:a:gimp:gimp:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.gimp.org/news/
 DownloadPageUrl: https://www.gimp.org/downloads/
+IconSource: Installer
 
 .SYNOPSIS
     Packages GIMP (x64) for MECM.

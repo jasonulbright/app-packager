@@ -6,6 +6,7 @@ VendorUrl: https://duo.com/
 CPE: cpe:2.3:a:duo:duo_desktop:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://duo.com/docs/checklist-release-notes
 DownloadPageUrl: https://duo.com/docs/duo-desktop
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

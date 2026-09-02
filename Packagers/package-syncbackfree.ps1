@@ -6,6 +6,7 @@ VendorUrl: https://www.2brightsparks.com/
 CPE: cpe:2.3:a:2brightsparks:syncback_free:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.2brightsparks.com/syncback/changes.html
 DownloadPageUrl: https://www.2brightsparks.com/download-syncbackfree.html
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

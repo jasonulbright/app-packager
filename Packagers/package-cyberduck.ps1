@@ -6,6 +6,7 @@ VendorUrl: https://cyberduck.io/
 CPE: cpe:2.3:a:cyberduck:cyberduck:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://cyberduck.io/changelog/
 DownloadPageUrl: https://cyberduck.io/download/
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

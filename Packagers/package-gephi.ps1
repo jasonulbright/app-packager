@@ -1,4 +1,4 @@
-<#
+﻿<#
 Vendor: Gephi Consortium
 App: Gephi
 CMName: Gephi
@@ -6,6 +6,7 @@ VendorUrl: https://gephi.org/
 CPE: cpe:2.3:a:gephi:gephi:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/gephi/gephi/releases
 DownloadPageUrl: https://gephi.org/users/download/
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

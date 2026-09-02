@@ -6,6 +6,7 @@ VendorUrl: https://www.blender.org/
 CPE: cpe:2.3:a:blender:blender:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.blender.org/download/releases/
 DownloadPageUrl: https://www.blender.org/download/
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

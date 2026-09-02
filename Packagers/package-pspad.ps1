@@ -6,6 +6,7 @@ VendorUrl: https://www.pspad.com/
 CPE: cpe:2.3:a:pspad:pspad:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.pspad.com/en/history.php
 DownloadPageUrl: https://www.pspad.com/en/download.php
+IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS

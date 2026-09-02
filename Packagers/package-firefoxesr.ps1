@@ -6,6 +6,7 @@ VendorUrl: https://www.mozilla.org/firefox/enterprise/
 CPE: cpe:2.3:a:mozilla:firefox_esr:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.mozilla.org/en-US/firefox/organizations/notes/
 DownloadPageUrl: https://www.mozilla.org/en-US/firefox/enterprise/
+IconSource: External
 UpdateCadenceDays: 30
 
 .SYNOPSIS

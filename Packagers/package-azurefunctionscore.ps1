@@ -6,6 +6,7 @@ VendorUrl: https://learn.microsoft.com/azure/azure-functions/functions-run-local
 CPE: cpe:2.3:a:microsoft:azure_functions_core_tools:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/Azure/azure-functions-core-tools/releases
 DownloadPageUrl: https://github.com/Azure/azure-functions-core-tools/releases/latest
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

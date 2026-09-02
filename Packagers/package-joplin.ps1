@@ -6,6 +6,7 @@ VendorUrl: https://joplinapp.org/
 CPE: cpe:2.3:a:joplinapp:joplin:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://joplinapp.org/help/about/changelog/desktop/
 DownloadPageUrl: https://joplinapp.org/download/
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

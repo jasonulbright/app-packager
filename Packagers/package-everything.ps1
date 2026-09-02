@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Voidtools
 App: Everything (x64)
 CMName: Everything
@@ -6,6 +6,7 @@ VendorUrl: https://www.voidtools.com/
 CPE: cpe:2.3:a:voidtools:everything:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.voidtools.com/changelog/
 DownloadPageUrl: https://www.voidtools.com/downloads/
+IconSource: Installer
 
 .SYNOPSIS
     Packages Everything (x64) MSI for MECM.

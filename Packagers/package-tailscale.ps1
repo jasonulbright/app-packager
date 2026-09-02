@@ -6,6 +6,7 @@ VendorUrl: https://tailscale.com/
 CPE: cpe:2.3:a:tailscale:tailscale:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://tailscale.com/changelog
 DownloadPageUrl: https://pkgs.tailscale.com/stable/
+IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS

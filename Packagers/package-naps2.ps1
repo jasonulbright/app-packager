@@ -6,6 +6,7 @@ VendorUrl: https://www.naps2.com/
 CPE: cpe:2.3:a:naps2:naps2:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/cyanfish/naps2/releases
 DownloadPageUrl: https://www.naps2.com/download
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

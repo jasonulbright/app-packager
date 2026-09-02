@@ -6,6 +6,7 @@ VendorUrl: https://cran.r-project.org/
 CPE: cpe:2.3:a:r-project:r:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://cran.r-project.org/bin/windows/base/NEWS.html
 DownloadPageUrl: https://cran.r-project.org/bin/windows/base/
+IconSource: Installer
 
 .SYNOPSIS
     Packages R for Windows (x64) for MECM.

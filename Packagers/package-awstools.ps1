@@ -6,6 +6,7 @@ VendorUrl: https://aws.amazon.com/powershell/
 CPE: cpe:2.3:a:amazon:aws_tools_for_windows:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/aws/aws-tools-for-powershell/blob/main/changelogs/CHANGELOG.ALL.md
 DownloadPageUrl: https://aws.amazon.com/powershell/
+IconSource: None
 UpdateCadenceDays: 180
 
 .SYNOPSIS

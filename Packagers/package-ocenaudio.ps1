@@ -6,6 +6,7 @@ VendorUrl: https://www.ocenaudio.com/
 CPE: cpe:2.3:a:ocenaudio:ocenaudio:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.ocenaudio.com/whatsnew
 DownloadPageUrl: https://www.ocenaudio.com/download
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

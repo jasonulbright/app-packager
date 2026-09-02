@@ -6,6 +6,7 @@ VendorUrl: https://peazip.github.io/
 CPE: cpe:2.3:a:peazip:peazip:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/peazip/PeaZip/releases
 DownloadPageUrl: https://github.com/peazip/PeaZip/releases/latest
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

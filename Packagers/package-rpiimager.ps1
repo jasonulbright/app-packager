@@ -5,6 +5,7 @@ CMName: Raspberry Pi Imager
 VendorUrl: https://www.raspberrypi.com/software/
 ReleaseNotesUrl: https://github.com/raspberrypi/rpi-imager/releases
 DownloadPageUrl: https://github.com/raspberrypi/rpi-imager/releases
+IconSource: External
 UpdateCadenceDays: 60
 
 .SYNOPSIS

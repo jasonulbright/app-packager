@@ -6,6 +6,7 @@ VendorUrl: https://developers.yubico.com/yubico-piv-tool/
 CPE: cpe:2.3:a:yubico:yubico_piv_tool:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://developers.yubico.com/yubico-piv-tool/Release_Notes.html
 DownloadPageUrl: https://developers.yubico.com/yubico-piv-tool/Releases/
+IconSource: None
 UpdateCadenceDays: 120
 
 .SYNOPSIS

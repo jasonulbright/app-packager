@@ -6,6 +6,7 @@ VendorUrl: https://cryptomator.org/
 CPE: cpe:2.3:a:cryptomator:cryptomator:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/cryptomator/cryptomator/releases
 DownloadPageUrl: https://cryptomator.org/downloads/
+IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS

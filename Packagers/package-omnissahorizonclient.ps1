@@ -6,6 +6,7 @@ VendorUrl: https://www.omnissa.com/
 CPE: cpe:2.3:a:omnissa:horizon_client:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://docs.omnissa.com/category/HorizonClientforWindowsReleaseNotes
 DownloadPageUrl: https://customerconnect.omnissa.com/downloads/info/slug/virtual_desktop_and_apps/omnissa_horizon_clients/8
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS

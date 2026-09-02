@@ -6,6 +6,7 @@ VendorUrl: https://aws.amazon.com/corretto/
 CPE: cpe:2.3:a:amazon:corretto:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/corretto/corretto-17/releases
 DownloadPageUrl: https://aws.amazon.com/corretto/
+IconSource: None
 
 .SYNOPSIS
     Packages Amazon Corretto JDK 17 (x64) MSI for MECM.

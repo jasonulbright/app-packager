@@ -6,6 +6,7 @@ VendorUrl: https://www.jam-software.com/treesize_free
 CPE: cpe:2.3:a:jam-software:treesize_free:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.jam-software.com/treesize_free/changes.shtml
 DownloadPageUrl: https://www.jam-software.com/treesize_free
+IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS
