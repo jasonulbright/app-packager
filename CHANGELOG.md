@@ -133,12 +133,6 @@
 - `Tests\Invoke-OnExistingSmoke.ps1` 14/14; `Invoke-PackagerSmoke.ps1`
   1136/1136.
 
-### Remaining
-
-- The conflict prompt has not been driven through the GUI on the lab;
-  the seam is covered by the parse test and the engine side is proven
-  live.
-
 ## [1.5.0.9] - 2026-09-02
 
 ### Fixed
@@ -195,7 +189,6 @@
   icons apply.
 
 ## [1.5.0.7] - 2026-09-02
-
 
 ### Application Icons
 
@@ -277,14 +270,6 @@
   flat and unconditionally; it now uses the same helper and so covers nested
   drop layouts.
 
-### Remaining
-
-- **package-specexec-mitigations** — the one packager left on its own copy
-  loop. It writes no stage manifest, so it has no `FileHashes` to verify
-  against, and its loop already overwrites unconditionally.
-- **install.ps1** — version header still reads 1.5.0.4, unchanged from before
-  this release.
-
 Full changelog: CHANGELOG.md
 
 ## [1.5.0.5] - 2026-09-02
@@ -339,14 +324,6 @@ Full changelog: CHANGELOG.md
   base64 `value`) for `Publish-IntuneWin32App` to set `largeIcon` on the
   `win32LobApp` body. New optional `-IconPath` parameter; without it the
   icon is resolved from the manifest's `Icon` name beside the `.intunewin`.
-
-### Remaining
-
-- `start-apppackager.ps1` does not yet pass `-IconPath` to
-  `Publish-IntuneWin32App`, so the Intune icon resolves only when
-  `app-icon.*` sits beside the `.intunewin` output.
-- `Packagers\Icons\` does not exist yet; `IconSource: External` warns and
-  continues until a packager needs it.
 
 Full changelog: CHANGELOG.md
 
@@ -470,15 +447,6 @@ Full changelog: CHANGELOG.md
   `%LOCALAPPDATA%\DBeaver`, registers `DBeaver 26.2.0 (current user)` in
   `HKCU` ARP, and reports `dbeaver.exe` file version `26.2.0.0`. The generated
   uninstall wrapper exits 0 and removes `dbeaver.exe` and the ARP entry.
-
-### Remaining
-
-- The per-user uninstaller leaves `%LOCALAPPDATA%\DBeaver\dbeaver.ini.bak`
-  behind. Detection targets `dbeaver.exe`, so the leftover does not make an
-  uninstalled endpoint report as installed.
-- Machine-scope install and uninstall were not re-exercised live for this
-  change; the System command lines are byte-identical to the shipped ones apart
-  from the `Uninstall.exe` casing and the `$env:ProgramFiles` expansion.
 
 Full changelog: CHANGELOG.md
 
