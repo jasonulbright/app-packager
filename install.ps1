@@ -46,6 +46,7 @@
 param(
     [string]$InstallPath = (Join-Path $env:LOCALAPPDATA 'AppPackager'),
     [string]$Version,
+    [string]$ZipPath,
     [switch]$Force
 )
 
@@ -161,40 +162,71 @@ function Invoke-Install {
     param(
         [Parameter(Mandatory)][string]$InstallPath,
         [string]$Version,
+        [string]$ZipPath,
         [switch]$Force
     )
 
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-    Write-Step 'Resolving release...'
-    $release     = Get-ReleaseMetadata -Version $Version
-    $tag         = $release.tag_name
-    $realVersion = $tag.TrimStart('v')
-    $zipName     = "AppPackager-$realVersion.zip"
-    Write-Step ("Release {0} ({1})" -f $tag, $zipName)
-
-    $zipUrl = Get-ReleaseAssetUrl -Release $release -Name $zipName
-    $sumUrl = Get-ReleaseAssetUrl -Release $release -Name 'checksums.txt'
-
     $work = Join-Path ([IO.Path]::GetTempPath()) ("apinstall-" + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $work -Force | Out-Null
 
     try {
-        $zipPath = Join-Path $work $zipName
-        Write-Step 'Downloading package...'
-        Invoke-InstallerDownloadFile -Url $zipUrl -OutFile $zipPath
+        if (-not [string]::IsNullOrWhiteSpace($ZipPath)) {
+            # Pre-downloaded zip: content filters that block script and text
+            # downloads still allow archives, so the zip may be the only file
+            # that can reach the machine. The checksum is verified only when a
+            # checksums.txt sits beside the zip.
+            if (-not (Test-Path -LiteralPath $ZipPath -PathType Leaf)) {
+                throw ("Zip not found: {0}" -f $ZipPath)
+            }
+            Write-Step ("Installing from local zip    : {0}" -f $ZipPath)
+            $zipName = [IO.Path]::GetFileName($ZipPath)
+            $localZip = Join-Path $work $zipName
+            Copy-Item -LiteralPath $ZipPath -Destination $localZip -Force
+            Unblock-File -LiteralPath $localZip -ErrorAction SilentlyContinue
+            $zipPath = $localZip
 
-        Write-Step 'Verifying checksum...'
-        $sumPath = Join-Path $work 'checksums.txt'
-        Invoke-InstallerDownloadFile -Url $sumUrl -OutFile $sumPath
-        $expected = Get-ChecksumForFile -ChecksumText (Get-Content -LiteralPath $sumPath -Raw) -FileName $zipName
-        if (-not $expected) { throw ("checksums.txt lists no SHA-256 for {0}." -f $zipName) }
-
-        $actual = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($actual -ne $expected) {
-            throw ("Checksum mismatch for {0}. Expected {1}, got {2}." -f $zipName, $expected, $actual)
+            $sumsBeside = Join-Path (Split-Path -Parent $ZipPath) 'checksums.txt'
+            if (Test-Path -LiteralPath $sumsBeside -PathType Leaf) {
+                $expected = Get-ChecksumForFile -ChecksumText (Get-Content -LiteralPath $sumsBeside -Raw) -FileName $zipName
+                $actual = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+                if ($expected -and $actual -ne $expected) {
+                    throw ("Checksum mismatch for {0}. Expected {1}, got {2}." -f $zipName, $expected, $actual)
+                }
+                if ($expected) { Write-Step ("Checksum OK ({0})" -f $expected.Substring(0, 16)) }
+            }
+            else {
+                Write-Step 'No checksums.txt beside the zip; installing unverified.'
+            }
         }
-        Write-Step ("Checksum OK ({0})" -f $expected.Substring(0, 16))
+        else {
+            Write-Step 'Resolving release...'
+            $release     = Get-ReleaseMetadata -Version $Version
+            $tag         = $release.tag_name
+            $realVersion = $tag.TrimStart('v')
+            $zipName     = "AppPackager-$realVersion.zip"
+            Write-Step ("Release {0} ({1})" -f $tag, $zipName)
+
+            $zipUrl = Get-ReleaseAssetUrl -Release $release -Name $zipName
+            $sumUrl = Get-ReleaseAssetUrl -Release $release -Name 'checksums.txt'
+
+            $zipPath = Join-Path $work $zipName
+            Write-Step 'Downloading package...'
+            Invoke-InstallerDownloadFile -Url $zipUrl -OutFile $zipPath
+
+            Write-Step 'Verifying checksum...'
+            $sumPath = Join-Path $work 'checksums.txt'
+            Invoke-InstallerDownloadFile -Url $sumUrl -OutFile $sumPath
+            $expected = Get-ChecksumForFile -ChecksumText (Get-Content -LiteralPath $sumPath -Raw) -FileName $zipName
+            if (-not $expected) { throw ("checksums.txt lists no SHA-256 for {0}." -f $zipName) }
+
+            $actual = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $expected) {
+                throw ("Checksum mismatch for {0}. Expected {1}, got {2}." -f $zipName, $expected, $actual)
+            }
+            Write-Step ("Checksum OK ({0})" -f $expected.Substring(0, 16))
+        }
 
         $stage = Join-Path $work 'stage'
         Expand-Archive -LiteralPath $zipPath -DestinationPath $stage -Force
@@ -256,5 +288,5 @@ function Invoke-Install {
 
 # Dot-sourcing loads the helpers for testing without performing an install.
 if ($MyInvocation.InvocationName -ne '.') {
-    Invoke-Install -InstallPath $InstallPath -Version $Version -Force:$Force
+    Invoke-Install -InstallPath $InstallPath -Version $Version -ZipPath $ZipPath -Force:$Force
 }

@@ -12,21 +12,18 @@ This is the class of work commercial third-party patching catalogs sell as a sub
 ## Install
 
 ```powershell
-curl.exe -Lso "$env:TEMP\install.ps1" https://github.com/jasonulbright/app-packager/releases/latest/download/install.ps1; & "$env:TEMP\install.ps1"
+curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -ZipPath "$env:TEMP\ap.zip"
 ```
 
-Installs the latest release into `%LOCALAPPDATA%\AppPackager`. The bootstrapper resolves the release from the GitHub API, downloads `AppPackager-<version>.zip`, verifies its SHA-256 against the release's `checksums.txt`, and extracts it. Every download — the bootstrap fetch above included — goes through `curl.exe`, which passes proxy/SSL-inspection setups that break PowerShell's own web cmdlets, and curl downloads carry no Mark-of-the-Web — the block that otherwise makes packager child processes fail with unrelated unknown-command errors.
+Installs the latest release into `%LOCALAPPDATA%\AppPackager`. Only a zip crosses the wire: content filters commonly block `.ps1` (and sometimes `.txt`) downloads outright while allowing archives, so the bootstrap downloads the release zip through `curl.exe` and runs the installer from inside it against the same zip — no script file is ever fetched over the network, and curl downloads carry no Mark-of-the-Web. Drop a `checksums.txt` beside the zip to have the install verified; without one it proceeds and says so.
 
-To choose the folder or pin a version, download the script and run it directly:
+On an unrestricted network, the installer can do the whole flow itself — resolve the release from the GitHub API, download, verify SHA-256, extract:
 
 ```powershell
-curl.exe -Lso install.ps1 https://github.com/jasonulbright/app-packager/releases/latest/download/install.ps1
-.\install.ps1 -InstallPath 'D:\Tools\AppPackager' -Version 1.5.0.6
+curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 1.5.0.6
 ```
 
-`-Force` is required to replace a non-empty folder that holds no existing AppPackager install.
-
-If even the curl download is blocked, fetch `install.ps1` and the release zip in a browser and run `.\install.ps1 -Version <version>` from the same folder.
+Omitting `-ZipPath` makes it download and checksum-verify the requested release; `-InstallPath` picks the folder and `-Version` pins a release. `-Force` is required to replace a non-empty folder that holds no existing AppPackager install. If even the curl download is blocked, fetch the zip in a browser and run the same `-ZipPath` command against it.
 
 Application icons are not part of the install. `Packagers\Icons\` is created on demand from the Options window — see [Application Icons](#application-icons).
 

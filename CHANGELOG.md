@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.5.0.14] - 2026-09-02
+
+### Fixed
+
+- **Bootstrap survives script-download blocking.** Content filters that
+  block .ps1 file downloads outright (observed live: curl fetched the
+  filter's block page as install.ps1) defeat any script-based one-liner
+  regardless of transport. Releases now carry an unversioned
+  AppPackager.zip alias asset, the README one-liner downloads only that
+  zip and runs install.ps1 from inside it, and install.ps1 gains
+  -ZipPath to install from an already-downloaded zip - verified against
+  a checksums.txt beside it when present, unverified with a notice when
+  not. No script or text file crosses the wire on the default path.
+
 ## [1.5.0.13] - 2026-09-02
 
 ### Fixed

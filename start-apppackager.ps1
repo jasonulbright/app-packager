@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.5.0.13
+    Version    : 1.5.0.14
     Updated    : 2026-09-02
 #>
 
