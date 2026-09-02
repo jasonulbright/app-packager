@@ -68,7 +68,35 @@ function Get-ReleaseMetadata {
         "https://api.github.com/repos/$script:Repo/releases/tags/v$($Version.TrimStart('v'))"
     }
 
-    Invoke-RestMethod -Uri $uri -Headers @{ 'User-Agent' = $script:UserAgent } -UseBasicParsing
+    $json = Invoke-InstallerDownloadText -Url $uri
+    $json | ConvertFrom-Json
+}
+
+function Invoke-InstallerDownloadText {
+    # curl.exe first: proxies that break Invoke-WebRequest's chain (SSL
+    # inspection) commonly pass curl, which the packagers already rely on.
+    param([Parameter(Mandatory)][string]$Url)
+
+    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($curl) {
+        $text = (& $curl.Source -L --fail --silent --show-error -A $script:UserAgent $Url) -join "`n"
+        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($text)) { return $text }
+    }
+    Invoke-RestMethod -Uri $Url -Headers @{ 'User-Agent' = $script:UserAgent } -UseBasicParsing
+}
+
+function Invoke-InstallerDownloadFile {
+    param(
+        [Parameter(Mandatory)][string]$Url,
+        [Parameter(Mandatory)][string]$OutFile
+    )
+
+    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($curl) {
+        & $curl.Source -L --fail --silent --show-error -A $script:UserAgent -o $OutFile $Url
+        if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $OutFile)) { return }
+    }
+    Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -Headers @{ 'User-Agent' = $script:UserAgent }
 }
 
 function Get-ReleaseAssetUrl {
@@ -154,11 +182,11 @@ function Invoke-Install {
     try {
         $zipPath = Join-Path $work $zipName
         Write-Step 'Downloading package...'
-        Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing -Headers @{ 'User-Agent' = $script:UserAgent }
+        Invoke-InstallerDownloadFile -Url $zipUrl -OutFile $zipPath
 
         Write-Step 'Verifying checksum...'
         $sumPath = Join-Path $work 'checksums.txt'
-        Invoke-WebRequest -Uri $sumUrl -OutFile $sumPath -UseBasicParsing -Headers @{ 'User-Agent' = $script:UserAgent }
+        Invoke-InstallerDownloadFile -Url $sumUrl -OutFile $sumPath
         $expected = Get-ChecksumForFile -ChecksumText (Get-Content -LiteralPath $sumPath -Raw) -FileName $zipName
         if (-not $expected) { throw ("checksums.txt lists no SHA-256 for {0}." -f $zipName) }
 
