@@ -527,11 +527,11 @@ function Get-ChocolateyMetadata {
     }
 
     # nuspec ships with multiple XSD namespace versions over the years:
-    #   2010/07 — original NuGet spec
-    #   2011/08 — adds licenseUrl/projectUrl extras
-    #   2012/06 — adds developmentDependency
-    #   2013/05 — current Chocolatey gallery default (added contentFiles, repo metadata)
-    #   2017/09 — modern NuGet with license/repository/contentFiles
+    #   2010/07 - original NuGet spec
+    #   2011/08 - adds licenseUrl/projectUrl extras
+    #   2012/06 - adds developmentDependency
+    #   2013/05 - current Chocolatey gallery default (added contentFiles, repo metadata)
+    #   2017/09 - modern NuGet with license/repository/contentFiles
     # Any of these can show up in the wild. We register every known namespace
     # alias and probe each XPath in order, then fall back to no-namespace lookup.
     $ns = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)

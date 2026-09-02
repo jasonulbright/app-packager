@@ -230,13 +230,13 @@ function Invoke-StageM365Apps {
         Copy-Item -LiteralPath $setupExe -Destination $contentSetupExe -Force -ErrorAction Stop
         Write-Log "Copied setup.exe to content  : $contentSetupExe"
 
-        # Install XML: no SourcePath, no Version ï¿½ pulls latest from CDN
+        # Install XML: no SourcePath, no Version - pulls latest from CDN
         $installXmlPath = Join-Path $localContentPath "install.xml"
         $installXml = New-OdtConfigXml -OfficeClientEdition $Architecture -ProductIds $ProductIds -Channel $ChannelName -CompanyName $companyName -ExcludeApps $excludeApps
         Set-Content -LiteralPath $installXmlPath -Value $installXml -Encoding ASCII -ErrorAction Stop
         Write-Log "Written install.xml          : $installXmlPath (online, no version pin)"
 
-        # Detection: existence only ï¿½ WSUS/CDN handles updates
+        # Detection: existence only - WSUS/CDN handles updates
         $detection = @{
             Type         = "File"
             FilePath     = $DetectionPath
@@ -261,7 +261,7 @@ function Invoke-StageM365Apps {
         # Download ODT
         $setupExe = Get-OdtSetupExe
 
-        # Download config ï¿½ includes SourcePath for offline caching
+        # Download config - includes SourcePath for offline caching
         $downloadXmlPath = Join-Path $BaseDownloadRoot "download.xml"
         $downloadXml = New-OdtConfigXml -OfficeClientEdition $Architecture -Version $version -ProductIds $ProductIds -SourcePath $localContentPath -Channel $ChannelName -CompanyName $companyName -ExcludeApps $excludeApps
         Set-Content -LiteralPath $downloadXmlPath -Value $downloadXml -Encoding ASCII -ErrorAction Stop

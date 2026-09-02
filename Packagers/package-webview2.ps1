@@ -199,7 +199,7 @@ function Invoke-StageWebView2 {
         -UninstallPs1Content $uninstallContent
 
     # --- Write stage manifest ---
-    # WebView2 ARP key is stable (not version-specific) ï¿½ use registry detection
+    # WebView2 ARP key is stable (not version-specific) - use registry detection
     # instead of file detection in versioned folder path
     $arpRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft EdgeWebView"
 

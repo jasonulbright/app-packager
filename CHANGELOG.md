@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.5.0.13] - 2026-09-02
+
+### Fixed
+
+- **All shipped PowerShell files are pure ASCII.** Windows PowerShell 5.1
+  reads a BOM-less file as ANSI, so any non-ASCII character risks mojibake
+  or string damage depending on which tool last saved the file. Six
+  typographic characters (em dashes) were replaced with ASCII, and nine
+  already-corrupted replacement-character sequences in the six M365
+  packagers and package-webview2 - remnants of an earlier bad re-encode
+  where dashes used to be - were repaired. The install one-liner in the
+  README also bootstraps through curl.exe now instead of irm, because
+  SSL-inspecting proxies that block PowerShell's web cmdlets pass curl.
+
 ## [1.5.0.12] - 2026-09-02
 
 ### Fixed
