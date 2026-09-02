@@ -1599,7 +1599,15 @@ function Remove-CMApplicationRevisionHistoryByCIId {
     if ($revs.Count -le $KeepLatest) { return }
 
     foreach ($rev in ($revs | Select-Object -Skip $KeepLatest)) {
-        Remove-CMApplicationRevisionHistory -Id $CI_ID -Revision $rev -Force -ErrorAction Stop
+        try {
+            Remove-CMApplicationRevisionHistory -Id $CI_ID -Revision $rev -Force -ErrorAction Stop
+        }
+        catch [System.Management.Automation.ItemNotFoundException] {
+            # Removing one revision can retire others in the same chain, so a
+            # revision enumerated a moment ago may already be gone. Cleanup is
+            # housekeeping and must not fail a completed application.
+            Write-Log ("Revision {0} already removed : CI_ID {1}" -f $rev, $CI_ID) -Level DEBUG
+        }
     }
 }
 
@@ -2601,7 +2609,10 @@ function New-MECMApplicationFromManifest {
         [AllowEmptyString()][string]$Comment = '',
         [Parameter(Mandatory)][string]$NetworkContentPath,
         [int]$EstimatedRuntimeMins = 15,
-        [int]$MaximumRuntimeMins = 30
+        [int]$MaximumRuntimeMins = 30,
+        # Empty means unset: Resolve-OnExistingBehavior falls through to the
+        # environment variable and then to Skip.
+        [AllowEmptyString()][string]$OnExisting = ''
     )
 
     $orig = Get-Location
@@ -2670,6 +2681,7 @@ function New-MECMApplicationFromManifest {
         $existing = Get-CMApplication -Name $appName -ErrorAction SilentlyContinue
         $cmApp = $null
         $replaceDtNames = @()
+        $replaceExisting = $false
         if ($existing) {
             $existingApps = @($existing)
             if ($existingApps.Count -gt 1) {
@@ -2681,28 +2693,55 @@ function New-MECMApplicationFromManifest {
             $existingVersion = [string]$cmApp.SoftwareVersion
 
             if ($existingVersion -eq [string]$Manifest.SoftwareVersion) {
-                if ($missingDts.Count -eq 0) {
-                    Write-Log "Application already exists    : $appName (v$existingVersion, unchanged)" -Level WARN
-                    Write-Log ("Deployment type(s) validated : {0}" -f (($dtSpecs | ForEach-Object { $_.DtName }) -join ', '))
-                    # An idempotent rerun still applies the icon, so a package
-                    # created before icon support (or before a pack install)
-                    # gains one without a version change.
-                    Set-CMApplicationIconFromManifest -Manifest $Manifest -AppName $appName -NetworkContentPath $NetworkContentPath
-                    return [UInt32]$cmApp.CI_ID
+                # Not $onExisting: variable names are case-insensitive, so that
+                # would assign the result object into the [string]-constrained
+                # $OnExisting parameter and coerce it to its ToString().
+                $existingPolicy = Resolve-OnExistingBehavior -Requested $OnExisting
+                Write-Log ("On-existing behavior         : {0} (source: {1})" -f $existingPolicy.Behavior, $existingPolicy.Source)
+
+                if ($existingPolicy.Behavior -eq 'Fail') {
+                    throw ("Existing MECM application '$appName' is already at version $existingVersion and OnExisting=Fail was requested.")
                 }
-                throw ("Existing MECM application '$appName' is missing deployment type(s): {0}. This looks like a partial prior package run; fix or remove the partial app before packaging again." -f (($missingDts | ForEach-Object { $_.DtName }) -join ', '))
+
+                if ($existingPolicy.Behavior -eq 'Skip') {
+                    if ($missingDts.Count -eq 0) {
+                        Write-Log "Application already exists    : $appName (v$existingVersion, unchanged)" -Level WARN
+                        Write-Log ("Deployment type(s) validated : {0}" -f (($dtSpecs | ForEach-Object { $_.DtName }) -join ', '))
+                        # Machine-readable companion to the line above: the GUI
+                        # parses it to offer the operator an overwrite re-run.
+                        Write-Log ("{0} app='{1}' version='{2}'" -f $script:OnExistingConflictMarker, $appName, $existingVersion)
+                        # An idempotent rerun still applies the icon, so a package
+                        # created before icon support (or before a pack install)
+                        # gains one without a version change.
+                        Set-CMApplicationIconFromManifest -Manifest $Manifest -AppName $appName -NetworkContentPath $NetworkContentPath
+                        return [UInt32]$cmApp.CI_ID
+                    }
+                    throw ("Existing MECM application '$appName' is missing deployment type(s): {0}. This looks like a partial prior package run; fix or remove the partial app before packaging again." -f (($missingDts | ForEach-Object { $_.DtName }) -join ', '))
+                }
+
+                # Overwrite: same content path, same version, wrong deployment
+                # types. Takes the version-change replacement path below so the
+                # application object and its deployments survive.
+                Write-Log "Existing application         : overwriting deployment types (same version, operator choice)" -Level WARN
+                $replaceExisting = $true
+            }
+            else {
+                # Version change on a reused application name (version-less CMName by
+                # design): replace every deployment type with the new set pointing at
+                # the new content.
+                Write-Log "Application already exists    : $appName (v$existingVersion -> v$($Manifest.SoftwareVersion), replacing deployment types)" -Level WARN
+                $replaceExisting = $true
             }
 
-            # Version change on a reused application name (version-less CMName by
-            # design): replace every deployment type with the new set pointing at
-            # the new content. New deployment types are created under staging
-            # names first, because a deployed application refuses to remove its
-            # last deployment type.
-            Write-Log "Application already exists    : $appName (v$existingVersion -> v$($Manifest.SoftwareVersion), replacing deployment types)" -Level WARN
-            $step = "Get-CMDeploymentType inventory ('$appName')"
-            $replaceDtNames = @(Get-CMDeploymentType -ApplicationName $appName -ErrorAction Stop | ForEach-Object { [string]$_.LocalizedDisplayName })
-            if ($replaceDtNames.Count -eq 0) {
-                Write-Log "Existing app has no deployment type; adding the new set." -Level WARN
+            # New deployment types are created under staging names first,
+            # because a deployed application refuses to remove its last
+            # deployment type.
+            if ($replaceExisting) {
+                $step = "Get-CMDeploymentType inventory ('$appName')"
+                $replaceDtNames = @(Get-CMDeploymentType -ApplicationName $appName -ErrorAction Stop | ForEach-Object { [string]$_.LocalizedDisplayName })
+                if ($replaceDtNames.Count -eq 0) {
+                    Write-Log "Existing app has no deployment type; adding the new set." -Level WARN
+                }
             }
         }
 
@@ -2910,6 +2949,7 @@ function New-MECMApplicationFromManifest {
                 ErrorAction     = 'Stop'
             }
             if (-not [string]::IsNullOrWhiteSpace($Comment)) { $setAppParams['Description'] = $Comment }
+            if (-not [string]::IsNullOrWhiteSpace([string]$Manifest.Publisher)) { $setAppParams['Publisher'] = [string]$Manifest.Publisher }
             Set-CMApplication @setAppParams
             Write-Log "Updated application version  : $($Manifest.SoftwareVersion)"
         }
@@ -4001,6 +4041,58 @@ function Get-RequestedCommandOverrides {
 }
 
 Export-ModuleMember -Function Get-RequestedCommandOverrides
+
+# Prefix of the machine-readable line emitted when a same-version existing
+# application is skipped. The GUI matches on this to offer an overwrite re-run.
+$script:OnExistingConflictMarker = '[APP_PACKAGER_CONFLICT] existing-same-version'
+
+function Get-OnExistingConflictMarker {
+    <#
+    .SYNOPSIS
+        Returns the marker prefix that flags a skipped same-version
+        existing application in packager output.
+    #>
+    return $script:OnExistingConflictMarker
+}
+
+function Resolve-OnExistingBehavior {
+    <#
+    .SYNOPSIS
+        Resolves what to do when an application of the same name and version
+        already exists in the site.
+
+    .DESCRIPTION
+        Precedence is explicit parameter, then the APP_PACKAGER_ON_EXISTING
+        environment variable, then Skip. An unrecognized value throws rather
+        than falling back, so a typo cannot silently package under the wrong
+        behavior.
+
+    .OUTPUTS
+        [pscustomobject] Behavior ('Skip', 'Overwrite' or 'Fail') and Source.
+    #>
+    param([AllowEmptyString()][string]$Requested = '')
+
+    $valid = @('Skip', 'Overwrite', 'Fail')
+
+    $value = [string]$Requested
+    $source = 'parameter'
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        $value = [string]$env:APP_PACKAGER_ON_EXISTING
+        $source = 'APP_PACKAGER_ON_EXISTING'
+    }
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        return [pscustomobject]@{ Behavior = 'Skip'; Source = 'default' }
+    }
+
+    $trimmed = $value.Trim()
+    $match = @($valid | Where-Object { $_ -eq $trimmed })
+    if ($match.Count -ne 1) {
+        throw ("OnExisting value '{0}' from {1} is not one of: {2}." -f $trimmed, $source, ($valid -join ', '))
+    }
+    return [pscustomobject]@{ Behavior = [string]$match[0]; Source = $source }
+}
+
+Export-ModuleMember -Function Resolve-OnExistingBehavior, Get-OnExistingConflictMarker
 
 # ---------------------------------------------------------------------------
 # Intune Win32 publishing (Graph)

@@ -1,5 +1,74 @@
 # Changelog
 
+## [1.5.0.10] - 2026-09-02
+
+## Same-Version Applications Can Be Overwritten Without Losing the App Object
+
+### Engine
+
+- **New-MECMApplicationFromManifest** — gains an OnExisting behavior
+  resolved from the `-OnExisting` parameter, then the
+  `APP_PACKAGER_ON_EXISTING` environment variable, then `Skip`.
+  `Skip` is the previous behavior exactly. `Overwrite` runs the existing
+  deployment-type replacement machinery on a same-version match.
+  `Fail` throws naming the application and its version. An unrecognized
+  value throws rather than defaulting.
+- **Resolve-OnExistingBehavior** — new exported resolver returning
+  Behavior and Source; the source is logged as
+  `On-existing behavior         : Overwrite (source: APP_PACKAGER_ON_EXISTING)`.
+- **Deployment-type replacement is one path** — the same-version
+  Overwrite branch and the version-change branch both set
+  `$replaceExisting` and share a single `Get-CMDeploymentType`
+  inventory, staging-name create, remove-old, rename sequence. Multi-DT
+  manifests take the identical path, one staging name per spec.
+- **Set-CMApplication on an existing application** — now also re-applies
+  Publisher alongside SoftwareVersion and Description; the icon apply
+  already ran on this path.
+- **Remove-CMApplicationRevisionHistoryByCIId** — tolerates
+  ItemNotFound per revision. Removing one revision can retire others in
+  the same chain, which failed a completed application during cleanup.
+- **Conflict marker** — a skipped same-version application emits
+  `[APP_PACKAGER_CONFLICT] existing-same-version app='<name>' version='<v>'`
+  for the GUI to parse.
+
+### GUI
+
+- **Invoke-PackagerPackageWithConflictPrompt** — wraps the Package and
+  One Click package phases. The first attempt runs under Skip; on a
+  marker hit the background loop parks a request on the synchronized
+  pipeline state and the DispatcherTimer opens a themed Skip /
+  Overwrite / Cancel run dialog with a "Do this for all remaining
+  conflicts" checkbox, then the app's package phase is re-invoked with
+  `APP_PACKAGER_ON_EXISTING=Overwrite`. Runs without a conflict never
+  touch the UI thread. The apply-to-all answer lives for the run only
+  and is not persisted.
+- **Invoke-PackagerPackage / Set-PackagerEnvironment** — carry
+  `-OnExisting` onto the child process environment block.
+
+### Packagers
+
+- **No packager edits** — all 284 `package-*.ps1` reach the behavior
+  through the environment variable the engine reads directly.
+
+### Verified
+
+- Live on the lab site against `Audacity 3.7.9`, provider read-back per
+  run. Skip: deployment type `DeploymentType_b7d4bf9c` unchanged,
+  DateCreated unchanged, marker emitted. Fail: threw naming the
+  application, nothing written. Overwrite: deployment type replaced
+  (`b7d4bf9c` -> `371d77d9`, DateCreated 13:54:46 -> 13:56:50), count
+  still 1, and the application object survived — ModelName
+  `Application_f65ed79c-64e6-4c0c-9c05-790e8cb7529c` unchanged across
+  all three runs.
+- `Tests\Invoke-OnExistingSmoke.ps1` 14/14; `Invoke-PackagerSmoke.ps1`
+  1136/1136.
+
+### Remaining
+
+- The conflict prompt has not been driven through the GUI on the lab;
+  the seam is covered by the parse test and the engine side is proven
+  live.
+
 ## [1.5.0.9] - 2026-09-02
 
 ### Fixed
