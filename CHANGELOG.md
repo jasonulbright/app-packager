@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.5.0.9] - 2026-09-02
+
+### Fixed
+
+- **Set-CMApplicationIconFromManifest** — the existence check ran while
+  the session sat on the CMSite provider drive, where a bare UNC
+  Test-Path resolves through the CM provider and fails, so the first
+  package run reported the just-copied icon as not found. The check is
+  now FileSystem-qualified. Found and fixed during a live end-to-end run
+  on the lab site.
+- **Idempotent package runs apply the icon** — the unchanged-version
+  early return skipped icon application entirely, so a package created
+  before icon support could never gain one without a version change.
+  The icon now applies on that path too.
+
+### Verified
+
+- Full chain exercised live from the GUI: stage extracted the Audacity
+  icon, Package copied it with the content, Set-CMApplication applied
+  it, the provider read-back shows the icon payload on the application
+  object, and the console's Software Center tab displays the product
+  icon.
+
 ## [1.5.0.8] - 2026-09-02
 
 ### Application Icons
