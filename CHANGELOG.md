@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.5.0.11] - 2026-09-02
+
+### Added
+
+- **Install-IconPackFromFile** — installs the icon pack from a local or
+  UNC `icon-pack.zip` for hosts whose proxy or SSL inspection blocks the
+  release download. A `checksums.txt` beside the zip is verified when
+  present; without one the install proceeds and the status message says
+  the pack was unverified. A checksum mismatch extracts nothing. The zip
+  is copied to a scratch folder and unblocked before extraction so
+  nothing carries a zone identifier from the original location. The
+  Options Icon Pack row gains an **Install from file...** button beside
+  the download button; the download path now shares one
+  `Complete-IconPackInstall` extraction with the file path.
+
 ## [1.5.0.10] - 2026-09-02
 
 ## Same-Version Applications Can Be Overwritten Without Losing the App Object
