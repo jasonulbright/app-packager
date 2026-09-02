@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.0.3] - 2026-09-02
+
+### Changed
+
+- **package-dbeaver** — Disable AI now sets DBeaver's documented
+  `DBEAVER_AI_DISABLED=true` environment variable (Machine scope for a
+  system install, User scope for a user install) instead of appending
+  `-Dai.disabled=true` to `dbeaver.ini`. The variable survives upgrades —
+  the installer replaces `dbeaver.ini` on every run — and setting it is
+  naturally idempotent, removing the append/dedupe logic entirely. Per
+  vendor documentation the permanent disable cannot be re-enabled from
+  Preferences; clearing it means removing the variable.
+
 ## [1.5.0.2] - 2026-09-02
 
 ### Fixed
