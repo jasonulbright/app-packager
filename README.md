@@ -583,7 +583,7 @@ The pack carries a `manifest.json`:
 
 ### Downloading the pack
 
-Options → MECM Preferences carries an **Icon Pack** row beside the other detected-tool rows: a status line reading the installed `Packagers\Icons\manifest.json` for the pack version and icon count, and a **Download packager icon pack** button.
+Options → MECM Preferences carries an **Icon Pack** row beside the other detected-tool rows: a status line reading the installed `Packagers\Icons\manifest.json` for the pack version and icon count, a **Download packager icon pack** button, and an **Install from file...** button for hosts whose proxy or SSL inspection blocks the release download — browse to a local or UNC `icon-pack.zip`; a `checksums.txt` beside it is verified when present, and without one the install proceeds with an unverified note in the status line.
 
 The button resolves the icons repository's latest release through the GitHub API, downloads `icon-pack.zip` and `checksums.txt` to a scratch folder, verifies the zip's SHA-256 against the checksum file, and extracts it into `Packagers\Icons\`. Nothing is extracted when the hash does not match. As with `install.ps1`, the download and extract go through `Invoke-WebRequest` and `Expand-Archive`, so no extracted file carries the Mark-of-the-Web.
 

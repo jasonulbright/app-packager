@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.5.0.10
+    Version    : 1.5.0.11
     Updated    : 2026-09-02
 #>
 
@@ -2346,25 +2346,108 @@ function Install-IconPack {
             return $result
         }
 
-        $extracted = Join-Path $scratch 'extracted'
-        Expand-Archive -LiteralPath $zipPath -DestinationPath $extracted -Force
-
-        if (-not (Test-Path -LiteralPath $destination)) { New-Item -ItemType Directory -Path $destination -Force | Out-Null }
-        Get-ChildItem -LiteralPath $extracted -Force | ForEach-Object {
-            Copy-Item -LiteralPath $_.FullName -Destination $destination -Recurse -Force
-        }
-
-        $manifest = Read-IconPackManifest -Path (Get-IconPackManifestPath -AppRoot $AppRoot)
-        $result.Manifest  = $manifest
-        $result.Installed = $true
-
-        $warning = ''
-        if ($manifest -and -not (Test-IconPackAppVersion -MinAppVersion $manifest.MinAppVersion -CurrentVersion (Get-AppVersion))) {
-            $warning = (" Pack targets AppPackager {0} or newer; installed anyway." -f $manifest.MinAppVersion)
-        }
-        $count = if ($manifest) { $manifest.IconCount } else { 0 }
-        $result.Message = ("Icon pack {0} installed into {1} ({2} icons).{3}" -f $selection.Tag, $destination, $count, $warning)
+        return Complete-IconPackInstall -ZipPath $zipPath -AppRoot $AppRoot -SourceLabel $selection.Tag -Scratch $scratch
+    }
+    catch {
+        $result.Message = ("Icon pack install failed: {0}" -f $_.Exception.Message)
         return $result
+    }
+    finally {
+        if (Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+function Complete-IconPackInstall {
+    <#
+    .SYNOPSIS
+        Extracts a verified icon pack zip into Packagers\Icons.
+
+    .OUTPUTS
+        [pscustomobject] Installed, Message, Manifest.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$ZipPath,
+        [string]$AppRoot = $PSScriptRoot,
+        [string]$SourceLabel = 'pack',
+        [string]$Scratch = ''
+    )
+
+    $result = [pscustomobject]@{ Installed = $false; Message = ''; Manifest = $null }
+    $destination = Get-IconPackRoot -AppRoot $AppRoot
+    if ([string]::IsNullOrWhiteSpace($Scratch)) {
+        $Scratch = Join-Path ([IO.Path]::GetTempPath()) ('apicons-' + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $Scratch -Force | Out-Null
+    }
+
+    $extracted = Join-Path $Scratch 'extracted'
+    Expand-Archive -LiteralPath $ZipPath -DestinationPath $extracted -Force
+
+    if (-not (Test-Path -LiteralPath $destination)) { New-Item -ItemType Directory -Path $destination -Force | Out-Null }
+    Get-ChildItem -LiteralPath $extracted -Force | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $destination -Recurse -Force
+    }
+
+    $manifest = Read-IconPackManifest -Path (Get-IconPackManifestPath -AppRoot $AppRoot)
+    $result.Manifest  = $manifest
+    $result.Installed = $true
+
+    $warning = ''
+    if ($manifest -and -not (Test-IconPackAppVersion -MinAppVersion $manifest.MinAppVersion -CurrentVersion (Get-AppVersion))) {
+        $warning = (" Pack targets AppPackager {0} or newer; installed anyway." -f $manifest.MinAppVersion)
+    }
+    $count = if ($manifest) { $manifest.IconCount } else { 0 }
+    $result.Message = ("Icon pack {0} installed into {1} ({2} icons).{3}" -f $SourceLabel, $destination, $count, $warning)
+    return $result
+}
+
+function Install-IconPackFromFile {
+    <#
+    .SYNOPSIS
+        Installs an icon pack from a local or UNC zip, for hosts whose proxy
+        blocks the release download.
+
+    .DESCRIPTION
+        A checksums.txt beside the zip is verified when present; without one
+        the install proceeds and the message says the pack was unverified.
+        The zip is copied to a scratch folder first so the extraction source
+        never carries a zone identifier from the original location.
+
+    .OUTPUTS
+        [pscustomobject] Installed, Message, Manifest.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$ZipPath,
+        [string]$AppRoot = $PSScriptRoot
+    )
+
+    $result  = [pscustomobject]@{ Installed = $false; Message = ''; Manifest = $null }
+    $scratch = Join-Path ([IO.Path]::GetTempPath()) ('apicons-' + [Guid]::NewGuid().ToString('N'))
+
+    try {
+        if (-not (Test-Path -LiteralPath $ZipPath -PathType Leaf)) {
+            $result.Message = ("Icon pack file not found: {0}" -f $ZipPath)
+            return $result
+        }
+
+        New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+        $localZip = Join-Path $scratch ([IO.Path]::GetFileName($ZipPath))
+        Copy-Item -LiteralPath $ZipPath -Destination $localZip -Force
+        Unblock-File -LiteralPath $localZip -ErrorAction SilentlyContinue
+
+        $sumsBeside = Join-Path (Split-Path -Parent $ZipPath) $script:IconPackSumsName
+        $verifyNote = ' Checksum not verified (no checksums.txt beside the zip).'
+        if (Test-Path -LiteralPath $sumsBeside -PathType Leaf) {
+            $expected = Get-IconPackChecksum -ChecksumText (Get-Content -LiteralPath $sumsBeside -Raw) -FileName ([IO.Path]::GetFileName($ZipPath))
+            if (-not (Test-IconPackChecksum -FilePath $localZip -ExpectedSha256 $expected)) {
+                $result.Message = 'Icon pack checksum did not match; nothing was extracted.'
+                return $result
+            }
+            $verifyNote = ''
+        }
+
+        $installed = Complete-IconPackInstall -ZipPath $localZip -AppRoot $AppRoot -SourceLabel 'from file' -Scratch $scratch
+        $installed.Message += $verifyNote
+        return $installed
     }
     catch {
         $result.Message = ("Icon pack install failed: {0}" -f $_.Exception.Message)
@@ -3480,6 +3563,7 @@ function New-MecmPreferencesPanel {
     <StackPanel Grid.Row="15" Grid.Column="1" Orientation="Horizontal" Margin="0,6,0,0">
         <TextBlock x:Name="txtIconPackStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
         <Button x:Name="btnIconPackDownload" Content="Download packager icon pack" FontSize="11" Margin="10,0,0,0" Padding="10,2" ToolTip="Fetches the latest pack release, verifies its sha256 against checksums.txt, and extracts it into Packagers\Icons. Existing icons with the same name are replaced."/>
+        <Button x:Name="btnIconPackFromFile" Content="Install from file..." FontSize="11" Margin="6,0,0,0" Padding="10,2" ToolTip="Installs an icon pack from a local or UNC icon-pack.zip when the release download is blocked (proxy/SSL inspection). A checksums.txt beside the zip is verified when present."/>
     </StackPanel>
 
     <TextBlock Grid.Row="16" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="When enabled, a successful Package also produces an .intunewin from the staged content and stores it beside the network content version folder."/>
@@ -3522,6 +3606,7 @@ function New-MecmPreferencesPanel {
     $btnIntuneWinDownload = $element.FindName('btnIntuneWinDownload')
     $txtIconPackStatus    = $element.FindName('txtIconPackStatus')
     $btnIconPackDownload  = $element.FindName('btnIconPackDownload')
+    $btnIconPackFromFile  = $element.FindName('btnIconPackFromFile')
     $chkIntuneWin         = $element.FindName('chkIntuneWin')
     $txtIntuneTenant      = $element.FindName('txtIntuneTenant')
     $txtIntuneClient      = $element.FindName('txtIntuneClient')
@@ -3634,6 +3719,26 @@ function New-MecmPreferencesPanel {
             & $updateIconPackState
             # A failed fetch leaves no manifest change, so the refreshed status
             # line would silently repeat itself; the reason replaces it instead.
+            if ($outcome -and -not $outcome.Installed) {
+                $txtIconPackStatus.Text = ([char]0x2717 + ' ' + $failureText)
+            }
+        }
+    }.GetNewClosure())
+
+    $btnIconPackFromFile.Add_Click({
+        $dlg = New-Object Microsoft.Win32.OpenFileDialog
+        $dlg.Title  = 'Select icon pack zip'
+        $dlg.Filter = 'Icon pack (*.zip)|*.zip'
+        if (-not $dlg.ShowDialog()) { return }
+        $btnIconPackFromFile.IsEnabled = $false
+        $txtIconPackStatus.Text = 'Installing icon pack from file...'
+        try {
+            $outcome = Install-IconPackFromFile -ZipPath $dlg.FileName
+            Add-LogLine -Message $outcome.Message
+            $failureText = $outcome.Message
+        } finally {
+            $btnIconPackFromFile.IsEnabled = $true
+            & $updateIconPackState
             if ($outcome -and -not $outcome.Installed) {
                 $txtIconPackStatus.Text = ([char]0x2717 + ' ' + $failureText)
             }
