@@ -6,7 +6,7 @@ VendorUrl: https://turbovnc.org/
 CPE: cpe:2.3:a:virtualgl:turbovnc:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/TurboVNC/turbovnc/releases
 DownloadPageUrl: https://github.com/TurboVNC/turbovnc/releases/latest
-IconSource: Installer
+IconSource: External
 UpdateCadenceDays: 90
 
 .SYNOPSIS

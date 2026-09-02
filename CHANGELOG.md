@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.5.0.8] - 2026-09-02
+
+### Application Icons
+
+- **Full icon pack published** — icon-pack.zip v1.1.0 on the icons
+  repository carries a PNG for every one of the 284 packagers (32-512px
+  true sizes, each under 256 KB), harvested from installer payloads
+  (PeResource 99, MsiIconTable 106, MsiIconTablePe 4), archive-dives to
+  the inner application executable (InnerExe 21), genuine small icons
+  kept at true size (TrueSmall 9), and vendor-published assets for the
+  rest. The GUI's Download packager icon pack button was exercised
+  end-to-end against the live release: checksum verified, 284 icons
+  extracted into Packagers\Icons. The folder is gitignored — the pack
+  is distributed only as the single release zip.
+
+### Fixed
+
+- **ConvertTo-SingleLargestIconFrame** — an MSI Icon-table stream is a
+  multi-frame .ico whose first directory entry is often the smallest
+  frame; the PNG conversion read entry 0, so a stream reported at 256px
+  could write a 16px image. The largest frame is now promoted to a
+  single-frame icon before conversion; verified live against a
+  multi-frame stream (reported and decoded sizes now agree).
+- **package-inkscape** — the composed media.inkscape.org download URL
+  404s (filenames carry a build date, commit hash, and gallery suffix);
+  the MSI link is now read off the release page. Stage re-verified live
+  at 1.4.4.
+- **package-thonny / package-turbovnc** — both installers embed the
+  default Inno Setup icon, which IconSource: Installer would stage as
+  the product icon; flipped to External so the pack's real product
+  icons apply.
+
 ## [1.5.0.7] - 2026-09-02
 
 

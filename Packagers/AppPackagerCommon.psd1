@@ -30,6 +30,7 @@
         'Get-InstallerIcon'
         'Get-MsiIconBytes'
         'Get-IconBytesDimension'
+        'ConvertTo-SingleLargestIconFrame'
         'Get-PackagerIconSource'
         'Add-StageIcon'
         'Set-CMApplicationIconFromManifest'
