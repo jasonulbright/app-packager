@@ -44,7 +44,7 @@ param(
     [switch]$VerboseLog
 )
 
-Import-Module "$PSScriptRoot\AppPackagerCommon.psd1" -Force
+Import-Module "$PSScriptRoot\AppPackagerCommon.psd1" -Force -ErrorAction Stop
 Initialize-Logging -LogPath $LogPath -VerboseLogging:$VerboseLog
 
 if ($StageOnly -and $PackageOnly) {

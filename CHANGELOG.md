@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.5.0.2] - 2026-09-02
+
+### Fixed
+
+- **Mark-of-the-Web no longer fails runs with misleading errors.** Files
+  extracted from a downloaded zip carry the downloaded-file block; module
+  imports in packager child processes then failed non-terminating while the
+  script kept running, so the failure surfaced as an unrelated
+  unknown-command error mid-stage (observed live: a clean extract at a
+  work site reported a stage-manifest command as not recognized). Three
+  layers now catch it at the source: the GUI scans the application folder
+  for blocked files at launch and offers a one-click Unblock All (with the
+  manual `Unblock-File` command logged when declined); `AppPackagerCommon`
+  makes its SuiteCommon core import terminating and rethrows with a plain
+  message naming the Mark-of-the-Web and the unblock command; and all 284
+  packagers import the common module with `-ErrorAction Stop`, so a failed
+  import stops the run at the import line with the real cause instead of
+  dying later on a missing function.
+
 ## [1.5.0.1] - 2026-09-02
 
 ### Packager Preferences
