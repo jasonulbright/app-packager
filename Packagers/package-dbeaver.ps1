@@ -6,6 +6,7 @@ VendorUrl: https://dbeaver.io/
 CPE: cpe:2.3:a:dbeaver:dbeaver:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/dbeaver/dbeaver/releases
 DownloadPageUrl: https://dbeaver.io/download/
+IconSource: Installer
 
 .SYNOPSIS
     Packages DBeaver Community Edition for MECM.

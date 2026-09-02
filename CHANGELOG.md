@@ -1,4 +1,105 @@
 # Changelog
+## [1.5.0.4] - 2026-09-02
+
+### Application Icons
+
+- **Get-InstallerIcon** — extracts an application icon from an installer into
+  a MECM-compatible `.ico` or `.png`. PE inputs are read through a new
+  `AppPackager.IconNative` P/Invoke helper (`LoadLibraryExW` with
+  `LOAD_LIBRARY_AS_DATAFILE`, `EnumResourceNamesW`, `FindResourceW`) that
+  parses the first `RT_GROUP_ICON` directory and rebuilds a single-image
+  icon file from the largest `RT_ICON`, so the reported pixel size is the
+  true resource size rather than a shell-scaled handle;
+  `ExtractAssociatedIcon` is the 32px fallback. MSI inputs read the `Icon`
+  table, preferring the stream named by `ARPPRODUCTICON`, and fall back to
+  the PE reader when the stream holds an executable. Returns `$null` when no
+  icon exists. PNG-compressed 256px frames are copied out verbatim because
+  `System.Drawing.Icon` cannot decode them. `Add-Type` is guarded on the
+  AppDomain type, not script scope, since a `-Force` reimport resets one and
+  not the other.
+- **Icon quality gate** — icons whose largest image is under 32px are
+  rejected. Generic NSIS/Inno setup stubs carry 16/32px only and cannot be
+  told apart from real icons by content, so the size floor plus the
+  per-packager `IconSource` opt-in is the control.
+- **IconSource header tag** — `Installer` extracts from the staged payload
+  into the version folder as `app-icon.ico`, `External` copies
+  `Packagers\Icons\<packagername>.ico|.png`, `None` or absent is a no-op.
+  Declared on `package-dbeaver.ps1` only.
+- **Add-StageIcon** — called from `Write-StageManifest` before the file
+  hashes are computed, so the icon is covered by stage integrity like any
+  other payload file. The packager script is resolved from the call stack,
+  leaving all 284 packagers' `Write-StageManifest` calls unchanged. Records
+  `Icon` in the stage manifest and never throws.
+- **Set-CMApplicationIconFromManifest** — applies the manifest's icon via
+  `Set-CMApplication -IconLocationFile` after application creation in
+  `New-MECMApplicationFromManifest`, covering the single- and
+  multi-deployment-type paths. Warns on failure, never fails the run.
+- **Get-IconMimeContent** — builds the Graph `mimeContent` (`type` plus
+  base64 `value`) for `Publish-IntuneWin32App` to set `largeIcon` on the
+  `win32LobApp` body. New optional `-IconPath` parameter; without it the
+  icon is resolved from the manifest's `Icon` name beside the `.intunewin`.
+
+### Remaining
+
+- `start-apppackager.ps1` does not yet pass `-IconPath` to
+  `Publish-IntuneWin32App`, so the Intune icon resolves only when
+  `app-icon.*` sits beside the `.intunewin` output.
+- `Packagers\Icons\` does not exist yet; `IconSource: External` warns and
+  continues until a packager needs it.
+
+Full changelog: CHANGELOG.md
+
+### Bootstrap Installer
+
+- **install.ps1** — new repo-root bootstrapper. Resolves a release from the
+  GitHub releases API (latest, or a pinned `-Version`), downloads the
+  `AppPackager-<version>.zip` asset, verifies its SHA-256 against the
+  release's `checksums.txt`, and extracts to `-InstallPath`
+  (`%LOCALAPPDATA%\AppPackager` by default). `Invoke-WebRequest` +
+  `Expand-Archive` throughout, so no extracted file carries the
+  Mark-of-the-Web; a defensive `Unblock-File` sweep covers proxy-rewritten
+  downloads. Parameterless defaults make it safe under `irm <url> | iex`,
+  and dot-sourcing loads the helpers without installing.
+- **Get-PreservedStateFile** — update path enumerates the user state kept
+  inside the application folder using the same rule `.gitignore` applies to
+  the release zip (every `*.json`, plus `Logs`), backs it up, replaces the
+  folder, and restores it. Covers `AppPackager.preferences.json`,
+  `AppPackager.windowstate.json`, `Packagers/packager-preferences.json`,
+  `citrix-workspace-switches.json`, `teamviewer-host-config.json`, and
+  `condition-templates.json`. Files dropped by a release no longer linger.
+- **Test-AppPackagerFolder** — a non-empty target with no
+  `start-apppackager.ps1` in it is refused unless `-Force` is passed.
+
+### Update Detection
+
+- **Get-AppVersion** — parses `Version :` out of the script header comment,
+  making the header the single source of truth for the running version.
+- **Start-UpdateCheck** — launch-time check on its own MTA runspace with a
+  `DispatcherTimer` drain, throttled to once per 24 hours through
+  `%LOCALAPPDATA%\AppPackager\update-check.json`. Every failure path is
+  swallowed to a log line; launch is never delayed or blocked. Within the
+  throttle window the cached result still drives the indicator.
+- **Test-UpdateCheckDue / Test-UpdateAvailable / ConvertFrom-ReleaseTag** —
+  pure decision functions. A future-dated cache counts as stale, an
+  unparseable version on either side makes no claim, and a non-numeric tag
+  is rejected rather than compared.
+- **Sidebar update indicator** — an `Update available: vX.Y.Z.W` hyperlink
+  opening the release page, plus an **Update now** button that runs
+  `install.ps1 -InstallPath <current folder>` from a detached child process
+  that waits on the PID (`Wait-Process -Timeout 120`), then relaunches
+  `start-apppackager.ps1`. Themed confirmation names the target folder and
+  states that preferences, window state, and logs survive.
+
+### About Panel
+
+- **New-AboutPanel** — sixth Options left-nav entry: name, version, MIT
+  license, clickable repository link, last-check timestamp, latest known
+  release, and the same `Invoke-SelfUpdate` action as the sidebar (single
+  code path, disabled until a check finds a newer release) alongside a
+  Release notes button.
+- **txtAppVersion** — dimmed `v<version>` under the sidebar theme toggles,
+  and the version appended to the window title, so the installed build is
+  readable without opening Options.
 
 ## [1.5.0.3] - 2026-09-02
 
