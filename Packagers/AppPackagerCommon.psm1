@@ -897,6 +897,50 @@ function Initialize-IconNativeType {
         -ErrorAction Stop
 }
 
+function ConvertTo-SingleLargestIconFrame {
+    <#
+    .SYNOPSIS
+        Rebuilds .ico bytes as a single-frame icon holding the largest frame.
+
+    .DESCRIPTION
+        .ico directory entries are 16 bytes; a zero width or height byte
+        encodes 256. Input that is not a parseable icon directory is returned
+        unchanged.
+    #>
+    param([Parameter(Mandatory)][byte[]]$Bytes)
+
+    if ($Bytes.Length -lt 22) { return $Bytes }
+    if ([BitConverter]::ToUInt16($Bytes, 0) -ne 0 -or [BitConverter]::ToUInt16($Bytes, 2) -ne 1) { return $Bytes }
+    $count = [BitConverter]::ToUInt16($Bytes, 4)
+    if ($count -le 1 -or $Bytes.Length -lt (6 + $count * 16)) { return $Bytes }
+
+    $bestIndex = -1; $bestDim = -1; $bestBits = -1
+    for ($i = 0; $i -lt $count; $i++) {
+        $off = 6 + ($i * 16)
+        $w = [int]$Bytes[$off]; if ($w -eq 0) { $w = 256 }
+        $h = [int]$Bytes[$off + 1]; if ($h -eq 0) { $h = 256 }
+        $dim = [Math]::Max($w, $h)
+        $bits = [BitConverter]::ToUInt16($Bytes, $off + 6)
+        if ($dim -gt $bestDim -or ($dim -eq $bestDim -and $bits -gt $bestBits)) {
+            $bestDim = $dim; $bestBits = $bits; $bestIndex = $i
+        }
+    }
+    if ($bestIndex -lt 0) { return $Bytes }
+
+    $entryOff = 6 + ($bestIndex * 16)
+    $imageSize = [BitConverter]::ToInt32($Bytes, $entryOff + 8)
+    $imageOff = [BitConverter]::ToInt32($Bytes, $entryOff + 12)
+    if ($imageSize -le 0 -or $imageOff -le 0 -or ($imageOff + $imageSize) -gt $Bytes.Length) { return $Bytes }
+
+    $out = New-Object byte[] (22 + $imageSize)
+    $out[2] = 1; $out[4] = 1
+    [Array]::Copy($Bytes, $entryOff, $out, 6, 8)
+    [Buffer]::BlockCopy([BitConverter]::GetBytes($imageSize), 0, $out, 14, 4)
+    [Buffer]::BlockCopy([BitConverter]::GetBytes(22), 0, $out, 18, 4)
+    [Array]::Copy($Bytes, $imageOff, $out, 22, $imageSize)
+    return $out
+}
+
 function Get-IconBytesDimension {
     <#
     .SYNOPSIS
@@ -1060,6 +1104,14 @@ function Get-InstallerIcon {
         if ($null -ne $bytes) {
             $pixelSize = Get-IconBytesDimension -Bytes $bytes
             $source = 'MsiIconTable'
+            if ($pixelSize -gt 0) {
+                # An Icon table stream is a multi-frame .ico file whose first
+                # directory entry is often the smallest frame; downstream
+                # conversion reads entry 0, so the largest frame is promoted
+                # to a single-frame icon here.
+                $bytes = ConvertTo-SingleLargestIconFrame -Bytes $bytes
+                $pixelSize = Get-IconBytesDimension -Bytes $bytes
+            }
             if ($pixelSize -eq 0) {
                 # An Icon table row may hold an EXE rather than an .ico; the
                 # PE reader handles that shape.

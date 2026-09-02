@@ -144,8 +144,16 @@ function Invoke-StageInkscape {
     $version = Get-LatestInkscapeVersion
     if (-not $version) { throw "Could not determine latest Inkscape version." }
 
+    # The MSI filename carries a build date, commit hash, and a random
+    # gallery suffix, so it must be read off the release page rather than
+    # composed from the version.
+    $releasePage = "https://inkscape.org/release/inkscape-${version}/windows/64-bit/msi/dl/"
+    $html = (curl.exe -L --fail --silent --show-error $releasePage) -join "`n"
+    if ($LASTEXITCODE -ne 0 -or $html -notmatch 'href="(/gallery/item/\d+/inkscape-[^"]+?\.msi)"') {
+        throw "Could not locate the MSI link on $releasePage"
+    }
+    $downloadUrl = "https://inkscape.org$($Matches[1])"
     $MsiFileName = "inkscape-${version}.msi"
-    $downloadUrl = "https://media.inkscape.org/dl/resources/file/${MsiFileName}"
 
     Write-Log "Version                      : $version"
     Write-Log "Download URL                 : $downloadUrl"

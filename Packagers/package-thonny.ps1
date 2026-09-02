@@ -6,7 +6,7 @@ VendorUrl: https://thonny.org/
 CPE: cpe:2.3:a:thonny:thonny:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/thonny/thonny/blob/master/CHANGELOG.rst
 DownloadPageUrl: https://github.com/thonny/thonny/releases/latest
-IconSource: Installer
+IconSource: External
 UpdateCadenceDays: 90
 
 .SYNOPSIS
