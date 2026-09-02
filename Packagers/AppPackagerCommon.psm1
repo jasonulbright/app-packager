@@ -33,7 +33,17 @@
 # this module (background runspace init) must not reset SuiteCommon's
 # attached logging state.
 if (-not (Get-Module -Name SuiteCommon)) {
-    Import-Module -Name (Join-Path $PSScriptRoot '..\Lib\SuiteCommon\SuiteCommon.psd1') -Global -DisableNameChecking
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot '..\Lib\SuiteCommon\SuiteCommon.psd1') -Global -DisableNameChecking -ErrorAction Stop
+    }
+    catch {
+        # A blocked file (Mark-of-the-Web from a zip download) fails this
+        # import while the caller keeps running, so every module function
+        # then surfaces as an unrelated unknown-command error mid-run.
+        throw ("AppPackagerCommon could not load its shared core (Lib\SuiteCommon). " +
+            "If these files came from a downloaded zip, clear the Mark-of-the-Web first: " +
+            "Get-ChildItem <app folder> -Recurse | Unblock-File. Underlying error: {0}" -f $_.Exception.Message)
+    }
 }
 # Packager scripts and operators set APP_PACKAGER_VERBOSE; SuiteCommon
 # gates DEBUG on SUITE_VERBOSE. Bridge once at import.

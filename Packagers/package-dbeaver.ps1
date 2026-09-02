@@ -95,7 +95,7 @@ param(
 # function's call, not this script's, so an omitted -DisableAI must be recorded here.
 $script:DisableAISpecified = $PSBoundParameters.ContainsKey('DisableAI')
 
-Import-Module "$PSScriptRoot\AppPackagerCommon.psd1" -Force
+Import-Module "$PSScriptRoot\AppPackagerCommon.psd1" -Force -ErrorAction Stop
 Initialize-Logging -LogPath $LogPath -VerboseLogging:$VerboseLog
 
 if ($StageOnly -and $PackageOnly) {

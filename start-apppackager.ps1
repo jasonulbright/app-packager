@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.5.0.1
+    Version    : 1.5.0.2
     Updated    : 2026-08-17
 #>
 
@@ -6161,6 +6161,26 @@ $window.Add_Loaded({
     Invoke-RefreshGrid
     Add-LogLine -Message ("{0} packager(s) loaded. Ready." -f $script:PackagerData.Count)
     Update-SidebarForDeploymentTarget
+
+    # A zip extracted through Explorer stamps every file with the
+    # Mark-of-the-Web; module imports in child processes then fail while
+    # the caller keeps running, surfacing as unknown-command errors
+    # mid-stage. Detect and offer to clear it before anything runs.
+    $blocked = @(Get-ChildItem -LiteralPath $PSScriptRoot -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { Get-Item -LiteralPath $_.FullName -Stream Zone.Identifier -ErrorAction SilentlyContinue })
+    if ($blocked.Count -gt 0) {
+        Add-LogLine -Message ("{0} file(s) carry the Mark-of-the-Web (downloaded-file block)." -f $blocked.Count)
+        $answer = Show-ThemedMessage -Owner $window -Title 'Blocked Files Detected' `
+            -Message ("{0} file(s) in this folder are blocked because they came from a downloaded zip. Packager runs will fail with unknown-command errors until the block is cleared.`n`nUnblock all files now?" -f $blocked.Count) `
+            -Buttons YesNo -Icon Warning
+        if ($answer -eq 'Yes') {
+            $blocked | Unblock-File -ErrorAction SilentlyContinue
+            Add-LogLine -Message ("Unblocked {0} file(s)." -f $blocked.Count)
+        }
+        else {
+            Add-LogLine -Message "Blocked files left in place. Clear them manually with: Get-ChildItem <app folder> -Recurse | Unblock-File"
+        }
+    }
 
     if (Test-FirstRunWizardNeeded -Prefs $script:Prefs) {
         Show-FirstRunWizard -Owner $window
