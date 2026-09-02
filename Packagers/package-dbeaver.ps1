@@ -20,7 +20,12 @@ DownloadPageUrl: https://dbeaver.io/download/
       -PackageOnly  Read manifest, copy to network, create MECM application
 
     The installer is an NSIS package. The /allusers flag is required for
-    machine-wide installation. DBeaver release tags have no v prefix.
+    machine-wide installation; /currentuser installs to %LOCALAPPDATA%\DBeaver
+    without elevation. DBeaver release tags have no v prefix.
+
+    Install scope and the AI-feature toggle default to Packagers\packager-preferences.json
+    under DBeaverInstallOptions, which is written by the Packager Preferences UI.
+    -InstallScope and -DisableAI override the stored values.
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -46,6 +51,15 @@ DownloadPageUrl: https://dbeaver.io/download/
 .PARAMETER PackageOnly
     Runs only the Package phase.
 
+.PARAMETER InstallScope
+    System installs machine-wide to C:\Program Files\DBeaver via /allusers.
+    User installs to %LOCALAPPDATA%\DBeaver via /currentuser. Blank uses the
+    stored preference.
+
+.PARAMETER DisableAI
+    Appends -Dai.disabled=true to the installed dbeaver.ini after install.
+    Omit to use the stored preference.
+
 .PARAMETER GetLatestVersionOnly
     Queries the GitHub releases API for the latest DBeaver version, outputs
     the version string, and exits.
@@ -67,12 +81,19 @@ param(
     [int]$EstimatedRuntimeMins = 15,
     [int]$MaximumRuntimeMins = 30,
     [string]$LogPath,
+    [ValidateSet('','System','User')]
+    [string]$InstallScope = '',
+    [switch]$DisableAI,
     [switch]$GetLatestVersionOnly,
     [switch]$StageOnly,
     [switch]$PackageOnly,
     [switch]$VerboseLog
 )
 
+
+# Captured at script scope: $PSBoundParameters inside a function describes that
+# function's call, not this script's, so an omitted -DisableAI must be recorded here.
+$script:DisableAISpecified = $PSBoundParameters.ContainsKey('DisableAI')
 
 Import-Module "$PSScriptRoot\AppPackagerCommon.psd1" -Force
 Initialize-Logging -LogPath $LogPath -VerboseLogging:$VerboseLog
@@ -92,6 +113,31 @@ $AppFolder    = "DBeaver Community"
 $BaseDownloadRoot = Join-Path $DownloadRoot "DBeaver"
 
 # --- Functions ---
+
+
+function Get-DBeaverInstallOptions {
+    $resolved = [ordered]@{
+        InstallScope = "System"
+        DisableAI    = $false
+    }
+
+    try {
+        $prefs = Get-PackagerPreferences
+        if ($prefs -and $prefs.DBeaverInstallOptions) {
+            $cfg = $prefs.DBeaverInstallOptions
+            if ($cfg.InstallScope -in @('System','User')) { $resolved.InstallScope = [string]$cfg.InstallScope }
+            if ($null -ne $cfg.DisableAI) { $resolved.DisableAI = [bool]$cfg.DisableAI }
+        }
+    }
+    catch {
+        Write-Log "Could not read DBeaverInstallOptions; using defaults: $($_.Exception.Message)" -Level WARN
+    }
+
+    if ($InstallScope -in @('System','User')) { $resolved.InstallScope = $InstallScope }
+    if ($script:DisableAISpecified) { $resolved.DisableAI = [bool]$DisableAI }
+
+    return [pscustomobject]$resolved
+}
 
 
 function Get-LatestDBeaverRelease {
@@ -136,6 +182,10 @@ function Invoke-StageDBeaver {
 
     Initialize-Folder -Path $BaseDownloadRoot
 
+    $options = Get-DBeaverInstallOptions
+    Write-Log "Install scope                : $($options.InstallScope)"
+    Write-Log "Disable AI features          : $($options.DisableAI)"
+
     $releaseInfo = Get-LatestDBeaverRelease
     if (-not $releaseInfo) { throw "Could not resolve DBeaver version." }
 
@@ -174,22 +224,70 @@ function Invoke-StageDBeaver {
     }
 
     # --- Generate content wrappers ---
-    # NSIS installer; /allusers required for machine-wide install
-    $installPs1 = (
+    # NSIS installer. /allusers installs machine-wide; /currentuser installs to
+    # %LOCALAPPDATA%\DBeaver and needs no elevation.
+    $isUserScope = ($options.InstallScope -eq 'User')
+
+    if ($isUserScope) {
+        $installArgs   = "/S /currentuser"
+        $installArgList = '@(''/S'', ''/currentuser'')'
+        $uninstallArgs = "/currentuser /S"
+        $uninstallArgList = '@(''/currentuser'', ''/S'')'
+        # Resolved in the deploying user's context, not at Stage time.
+        $installRootExpr  = 'Join-Path $env:LOCALAPPDATA ''DBeaver'''
+        $uninstallCommand = "%LOCALAPPDATA%\DBeaver\Uninstall.exe"
+        $detectionPath    = "%LOCALAPPDATA%\DBeaver"
+    }
+    else {
+        $installArgs   = "/allusers /S"
+        $installArgList = '@(''/allusers'', ''/S'')'
+        $uninstallArgs = "/S"
+        $uninstallArgList = '@(''/allusers'', ''/S'')'
+        $installRootExpr  = 'Join-Path $env:ProgramFiles ''DBeaver'''
+        $uninstallCommand = "C:\Program Files\DBeaver\Uninstall.exe"
+        $detectionPath    = "{0}\DBeaver" -f $env:ProgramFiles
+    }
+
+    $installLines = @(
         ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $installerFileName),
-        '$proc = Start-Process -FilePath $exePath -ArgumentList @(''/allusers'', ''/S'') -Wait -PassThru -NoNewWindow',
-        'exit $proc.ExitCode'
-    ) -join "`r`n"
+        ('$proc = Start-Process -FilePath $exePath -ArgumentList {0} -Wait -PassThru -NoNewWindow' -f $installArgList)
+    )
+
+    if ($options.DisableAI) {
+        $installLines += @(
+            'if ($proc.ExitCode -ne 0) { exit $proc.ExitCode }',
+            ('$iniPath = Join-Path ({0}) ''dbeaver.ini''' -f $installRootExpr),
+            '$aiOption = ''-Dai.disabled=true''',
+            'if (Test-Path -LiteralPath $iniPath) {',
+            '    $lines = @(Get-Content -LiteralPath $iniPath)',
+            '    if (-not ($lines | Where-Object { $_.Trim() -eq $aiOption })) {',
+            '        # Everything after the -vmargs marker is passed to the JVM; a',
+            '        # -D option placed before it is treated as a launcher argument.',
+            '        if (-not ($lines | Where-Object { $_.Trim() -eq ''-vmargs'' })) { $lines += ''-vmargs'' }',
+            '        $lines += $aiOption',
+            '        Set-Content -LiteralPath $iniPath -Value $lines -Encoding ASCII',
+            '    }',
+            '}',
+            'exit 0'
+        )
+    }
+    else {
+        $installLines += 'exit $proc.ExitCode'
+    }
+
+    $installPs1 = $installLines -join "`r`n"
 
     # NSIS uninstaller copies itself to temp and exits immediately.
     # Poll for dbeaver.exe removal to confirm uninstall completed.
     $uninstallPs1 = (
-        '$null = Start-Process -FilePath ''C:\Program Files\DBeaver\uninstall.exe'' -ArgumentList @(''/allusers'', ''/S'') -PassThru -NoNewWindow',
+        ('$installRoot = {0}' -f $installRootExpr),
+        '$exePath = Join-Path $installRoot ''dbeaver.exe''',
+        ('$null = Start-Process -FilePath (Join-Path $installRoot ''Uninstall.exe'') -ArgumentList {0} -PassThru -NoNewWindow' -f $uninstallArgList),
         '$timeout = 120; $elapsed = 0',
-        'while ((Test-Path ''C:\Program Files\DBeaver\dbeaver.exe'') -and $elapsed -lt $timeout) {',
+        'while ((Test-Path -LiteralPath $exePath) -and $elapsed -lt $timeout) {',
         '    Start-Sleep -Seconds 2; $elapsed += 2',
         '}',
-        'if (Test-Path ''C:\Program Files\DBeaver\dbeaver.exe'') { exit 1 }',
+        'if (Test-Path -LiteralPath $exePath) { exit 1 }',
         'exit 0'
     ) -join "`r`n"
 
@@ -200,8 +298,6 @@ function Invoke-StageDBeaver {
         -UninstallBatExitCode '3010'
 
     # --- Write stage manifest ---
-    $detectionPath = "{0}\DBeaver" -f $env:ProgramFiles
-
     $appName   = "DBeaver $version"
     $publisher = "DBeaver Corp"
 
@@ -216,9 +312,11 @@ function Invoke-StageDBeaver {
         SoftwareVersion  = $version
         InstallerFile    = $installerFileName
         InstallerType    = "EXE"
-        InstallArgs      = "/allusers /S"
-        UninstallCommand = "C:\Program Files\DBeaver\uninstall.exe"
-        UninstallArgs    = "/S"
+        InstallArgs      = $installArgs
+        UninstallCommand = $uninstallCommand
+        UninstallArgs    = $uninstallArgs
+        InstallScope     = $options.InstallScope
+        DisableAI        = [bool]$options.DisableAI
         RunningProcess   = @("dbeaver")
         Detection        = @{
             Type          = "File"

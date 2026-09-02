@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.5.0.0
+    Version    : 1.5.0.1
     Updated    : 2026-08-17
 #>
 
@@ -130,6 +130,10 @@ function Read-Preferences {
             RemoveOos          = $true
             ForceClose         = $false
             InstallPath        = ""
+        }
+        DBeaverInstallOptions = [pscustomobject]@{
+            InstallScope = "System"
+            DisableAI    = $false
         }
         HiddenApplications   = @()
         FirstRunCompleted    = $false
@@ -249,6 +253,14 @@ function Read-Preferences {
                 }
             }
             if ($null -ne $ssms.InstallPath) { $defaults.SSMSInstallOptions.InstallPath = [string]$ssms.InstallPath }
+        }
+
+        if ($null -ne $data.DBeaverInstallOptions) {
+            $dbv = $data.DBeaverInstallOptions
+            if ([string]$dbv.InstallScope -in @('System','User')) { $defaults.DBeaverInstallOptions.InstallScope = [string]$dbv.InstallScope }
+            if ($null -ne $dbv.DisableAI) {
+                try { $defaults.DBeaverInstallOptions.DisableAI = [bool]$dbv.DisableAI } catch { }
+            }
         }
 
         if ($null -ne $data.HiddenApplications)    { $defaults.HiddenApplications  = @($data.HiddenApplications) }
@@ -454,6 +466,7 @@ function Save-Preferences {
         $pkgPrefs["CompanyName"]     = $Prefs.CompanyName
         $pkgPrefs["M365ExcludeApps"] = @($Prefs.M365ExcludeApps)
         $pkgPrefs["SSMSInstallOptions"] = $Prefs.SSMSInstallOptions
+        $pkgPrefs["DBeaverInstallOptions"] = $Prefs.DBeaverInstallOptions
         $pkgPrefs | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $pkgPrefsPath -Encoding UTF8
     }
     catch {
@@ -3334,6 +3347,7 @@ function New-PackagerPreferencesPanel {
     $sw = Read-CwaSwitches
     $tv = Read-TvHostConfig
     $ssms = $script:Prefs.SSMSInstallOptions
+    $dbv  = $script:Prefs.DBeaverInstallOptions
 
     $xaml = @'
 <DockPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -3528,6 +3542,22 @@ function New-PackagerPreferencesPanel {
     $chkSsmsOptional           = & $addCheckBox "Include optional components (--includeOptional)" ([bool]$ssms.IncludeOptional) "Adds optional components for selected SSMS workloads. This can increase install size and duration."
     $chkSsmsRemoveOos          = & $addCheckBox "Remove out-of-support components (--removeOos true)" ([bool]$ssms.RemoveOos) "Tells the installer to remove components that have transitioned out of support during this install or update."
     $chkSsmsForceClose         = & $addCheckBox "Force close SSMS if in use (--force)" ([bool]$ssms.ForceClose) "Allows setup to close running SSMS processes. This can cause loss of unsaved query windows, so use deliberately."
+
+    # =============================================
+    # DBEAVER COMMUNITY
+    # =============================================
+    & $addDivider
+    & $addHeader "DBeaver Community"
+
+    $cmbDbvScope = New-Object System.Windows.Controls.ComboBox
+    $cmbDbvScope.FontSize = 13
+    $cmbDbvScope.Width = 120
+    $cmbDbvScope.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+    foreach ($val in @("System", "User")) { [void]$cmbDbvScope.Items.Add($val) }
+    $cmbDbvScope.SelectedItem = if ([string]$dbv.InstallScope -in @('System','User')) { [string]$dbv.InstallScope } else { 'System' }
+    & $addLabelRow "Install Scope:" $cmbDbvScope "System installs machine-wide to C:\Program Files\DBeaver with /allusers. User installs to %LOCALAPPDATA%\DBeaver with /currentuser and needs no elevation; deploy that one in user context so detection resolves the right profile."
+
+    $chkDbvDisableAI = & $addCheckBox "Disable AI features (-Dai.disabled=true)" ([bool]$dbv.DisableAI) "Appends -Dai.disabled=true to the installed dbeaver.ini after a successful install, which is DBeaver's documented way to turn off AI assistant features. The line is added once and re-applied after every reinstall."
 
     # =============================================
     # TEAMVIEWER HOST
@@ -3819,6 +3849,17 @@ function New-PackagerPreferencesPanel {
         $prefsRef.SSMSInstallOptions.RemoveOos           = ($chkSsmsRemoveOos.IsChecked -eq $true)
         $prefsRef.SSMSInstallOptions.ForceClose          = ($chkSsmsForceClose.IsChecked -eq $true)
         $prefsRef.SSMSInstallOptions.InstallPath         = [string]$txtSsmsInstallPath.Text.Trim()
+
+        if (-not $prefsRef.DBeaverInstallOptions) {
+            $prefsRef.DBeaverInstallOptions = [pscustomobject]@{
+                InstallScope = "System"
+                DisableAI    = $false
+            }
+        }
+        $selectedDbvScope = [string]$cmbDbvScope.SelectedItem
+        if ($selectedDbvScope -notin @('System','User')) { $selectedDbvScope = 'System' }
+        $prefsRef.DBeaverInstallOptions.InstallScope = $selectedDbvScope
+        $prefsRef.DBeaverInstallOptions.DisableAI    = ($chkDbvDisableAI.IsChecked -eq $true)
 
         $sw.Store.Name = $txtStoreName.Text.Trim()
         $sw.Store.Url  = $txtStoreUrl.Text.Trim()

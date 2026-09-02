@@ -1,5 +1,53 @@
 # Changelog
 
+## [1.5.0.1] - 2026-09-02
+
+### Packager Preferences
+
+- **DBeaver Community** — new Options group with an Install Scope dropdown
+  (System / User) and a Disable AI features checkbox, persisted to
+  `packager-preferences.json` under `DBeaverInstallOptions` and read by
+  `package-dbeaver.ps1` at Stage. Same `addLabelRow` / `addCheckBox` styling,
+  tooltips, and commit path as the SSMS and TeamViewer Host groups.
+  `Read-Preferences` validates `InstallScope` against `System`/`User` and
+  coerces `DisableAI`, so older preference files load unchanged.
+
+### Packagers
+
+- **package-dbeaver** — `-InstallScope` (`System`/`User`) and `-DisableAI`
+  parameters override the stored preferences; omitting them keeps the stored
+  values. User scope generates `/S /currentuser` install args, a
+  `%LOCALAPPDATA%\DBeaver\Uninstall.exe /currentuser /S` uninstall wrapper, and
+  a `%LOCALAPPDATA%\DBeaver` detection path in the stage manifest.
+  `InstallScope` and `DisableAI` are recorded on the manifest. System scope
+  emits the same `/allusers /S` command line as before.
+- **package-dbeaver** — `DisableAI` appends `-Dai.disabled=true` to the
+  installed `dbeaver.ini` after a zero exit code. The append is idempotent, is
+  placed after the `-vmargs` marker, and re-applies on reinstall because the
+  NSIS installer replaces `dbeaver.ini` and leaves a `dbeaver.ini.bak`.
+- **package-dbeaver** — uninstall wrappers now resolve the install root from
+  `$env:ProgramFiles` / `$env:LOCALAPPDATA` and target `Uninstall.exe`, matching
+  the casing the installer writes.
+
+### Verified
+
+- Per-user install/uninstall of 26.2.0 exercised end-to-end on a scratch
+  DownloadRoot: `/S /currentuser` completes silently with exit 0, installs to
+  `%LOCALAPPDATA%\DBeaver`, registers `DBeaver 26.2.0 (current user)` in
+  `HKCU` ARP, and reports `dbeaver.exe` file version `26.2.0.0`. The generated
+  uninstall wrapper exits 0 and removes `dbeaver.exe` and the ARP entry.
+
+### Remaining
+
+- The per-user uninstaller leaves `%LOCALAPPDATA%\DBeaver\dbeaver.ini.bak`
+  behind. Detection targets `dbeaver.exe`, so the leftover does not make an
+  uninstalled endpoint report as installed.
+- Machine-scope install and uninstall were not re-exercised live for this
+  change; the System command lines are byte-identical to the shipped ones apart
+  from the `Uninstall.exe` casing and the `$env:ProgramFiles` expansion.
+
+Full changelog: CHANGELOG.md
+
 ## [1.5.0.0] - 2026-09-01
 
 ### Added
