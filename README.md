@@ -9,6 +9,29 @@ Automated application packaging for MECM and Intune: 284 enterprise applications
 
 This is the class of work commercial third-party patching catalogs sell as a subscription. AppPackager covers a comparable application set — the coverage decision for each of 933 reviewed catalog entries is documented in [CATALOG-PARITY.csv](CATALOG-PARITY.csv) — runs entirely inside your environment, and is MIT-licensed.
 
+## Install
+
+```powershell
+irm https://raw.githubusercontent.com/jasonulbright/app-packager/main/install.ps1 | iex
+```
+
+Installs the latest release into `%LOCALAPPDATA%\AppPackager`. The bootstrapper resolves the release from the GitHub API, downloads `AppPackager-<version>.zip`, verifies its SHA-256 against the release's `checksums.txt`, and extracts it. Because the download and extract go through `Invoke-WebRequest` and `Expand-Archive`, no extracted file carries the Mark-of-the-Web — the block that otherwise makes packager child processes fail with unrelated unknown-command errors.
+
+To choose the folder or pin a version, download the script and run it directly:
+
+```powershell
+irm https://raw.githubusercontent.com/jasonulbright/app-packager/main/install.ps1 -OutFile install.ps1
+.\install.ps1 -InstallPath 'D:\Tools\AppPackager' -Version 1.5.0.4
+```
+
+`-Force` is required to replace a non-empty folder that holds no existing AppPackager install.
+
+## Updating
+
+Re-running `install.ps1` against an existing install performs an in-place update. Everything the application persists inside its own folder — `AppPackager.preferences.json`, `AppPackager.windowstate.json`, `Packagers\packager-preferences.json`, the per-packager config JSONs, and the `Logs` folder — is moved aside, the folder is replaced with the new release, and the state is restored. Files from the old version that no longer ship are removed rather than left behind.
+
+The GUI checks for updates itself: once per day, in the background, at launch. When a newer release exists it logs a line and shows an **Update available: vX.Y.Z.W** link at the bottom of the sidebar that opens the release page, alongside an **Update now** button that runs the same bootstrapper against the current folder and relaunches the application. A failed or unreachable check is logged and otherwise ignored — it never delays or blocks launch. The last check result is cached in `%LOCALAPPDATA%\AppPackager\update-check.json`.
+
 ## What It Does
 
 Each packager script operates in two phases:
@@ -56,7 +79,7 @@ Or with custom parameters:
 
 **First-run setup** — on a machine with no `AppPackager.preferences.json` yet, a themed Setup window opens over the main window once the grid has loaded. It asks for the environment first (MECM only, MECM + Intune, or Intune only) and then shows only the settings that choice needs: Site Code, Provider Machine, File Share Root, and Download Root for MECM targets, Tenant ID, Client ID, and Client Secret for Intune targets. Saving writes the same preference keys the Options window writes — the client secret DPAPI-protected for the current Windows user, an empty secret box keeping any saved one — and the main window picks the settings up without a restart. A "Don't show this again" checkbox lets you dismiss the wizard permanently without configuring anything; skipping or closing it without that box ticked brings it back on the next launch. Existing installs are unaffected: a preferences file from an earlier version counts as already set up.
 
-The sidebar has five workflow actions at the top, a single **Options** button below them, a sidebar comment field, and Debug Columns / theme toggles at the bottom:
+The sidebar has five workflow actions at the top, a single **Options** button below them, a sidebar comment field, and Debug Columns / theme toggles plus the installed version (`v1.5.0.4`) at the bottom:
 
 - **One Click** — iterates the apps you've marked as tracked in One Click Settings and runs Check Latest → Stage → Package per the action you've chosen. Cadence gating throttles Report-only runs; Stage and Stage-and-Package always run. Before staging, a MECM pre-flight query skips any tracked app whose version is already in MECM, avoiding wasted downloads. Multi-app loops (Check Latest, Stage, Package, One Click) run on a background STA runspace with an animated progress overlay so the window stays responsive instead of freezing during long downloads / extracts / MECM round-trips
 - **Check Latest** — queries vendor sources for the latest version of selected applications
@@ -117,6 +140,8 @@ A **Variant split** column offers multi-deployment-type staging where a packager
 A **Commands** column opens the per-app command override editor: edit the install and uninstall command lines the deployment type will carry, against watermarked shipped defaults, with one-click revert per field. The button label reads Default or Modified so overridden apps are visible at a glance. Overrides reach the packager as `APP_PACKAGER_COMMANDS` environment JSON, are recorded in the stage manifest, and an explicit override always beats the manifest's generated command.
 
 Global conditions are created on the site the first time a rule needs them and are matched by name, so changing a condition's name in the panel attaches to a condition the site already has instead of creating a duplicate. The panel's per-app grid persists to `AppPackager.preferences.json`; condition names and VPN adapter patterns persist to `Packagers/condition-templates.json` (built-in defaults apply until the panel writes it). Selections apply on Package and One Click Stage-and-Package runs, and requirement resolution fails the run before anything is created when a rule can't be built — a package never silently ships without the rules configured for it.
+
+**About** — application name, installed version (parsed from the script header, the single source of truth), MIT license, a clickable link to the GitHub repository, the timestamp of the last update check, and the latest known release. The same **Update now** action offered in the sidebar is repeated here, enabled only once a check has actually found a newer release; a **Release notes** button opens the releases page.
 
 ### Sidebar comment and toggles
 
@@ -521,6 +546,7 @@ UpdateCadenceDays: 90
 | `ReleaseNotesUrl` | Link shown in the HTML report's Links column |
 | `DownloadPageUrl` | Link shown in the HTML report's Links column |
 | `UpdateCadenceDays` | Default cadence for Full Run's Report action. Integer days between vendor re-queries. Falls back to 7 when absent. Override per-app in App Flow. |
+| `IconSource` | Where the application icon comes from. `Installer` extracts the largest icon resource from the staged installer (PE resource directory, or the MSI `Icon` table preferring `ARPPRODUCTICON`) into the version folder as `app-icon.ico`; `External` copies `Packagers\Icons\<packagername>.ico\|.png`; `None` or absent stages no icon. The extracted icon is recorded as `Icon` in the stage manifest, covered by the manifest file hashes, applied to the MECM application via `Set-CMApplication -IconLocationFile`, and sent as the Intune `win32LobApp` `largeIcon`. Icons whose largest image is under 32px are rejected — generic installer stubs ship 16/32px only. |
 | `RequiresTools` | Comma-separated list of detected tools the packager depends on (currently `7-Zip`). Read-only metadata today; surfaced via `Get-PackagerMetadata` and reserved for future preflight warnings when a declared dependency isn't present in DetectedTools. |
 
 ## Content Staging Layout

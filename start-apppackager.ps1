@@ -36,8 +36,8 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.5.0.3
-    Updated    : 2026-08-17
+    Version    : 1.5.0.4
+    Updated    : 2026-09-02
 #>
 
 param(
@@ -1526,7 +1526,14 @@ function Invoke-PackagerPackage {
                     $pubNote.Message = 'variant-split app; Intune publish skipped (single-payload apps only for now).'
                 }
                 else {
-                    $pubId = Publish-IntuneWin32App -TenantId $IntunePublishConfig.TenantId -ClientId $IntunePublishConfig.ClientId -ClientSecret $IntunePublishConfig.ClientSecret -IntuneWinPath $intuneNote.LocalPath -Manifest $manifest -Description $Comment
+                    # The staged icon lives in the content version folder next
+                    # to the manifest, not beside the .intunewin.
+                    $iconArg = @{}
+                    if ($manifest.PSObject.Properties['Icon'] -and $manifest.Icon) {
+                        $iconFile = Join-Path (Split-Path -Parent $intuneNote.ManifestPath) ([string]$manifest.Icon)
+                        if (Test-Path -LiteralPath $iconFile) { $iconArg.IconPath = $iconFile }
+                    }
+                    $pubId = Publish-IntuneWin32App -TenantId $IntunePublishConfig.TenantId -ClientId $IntunePublishConfig.ClientId -ClientSecret $IntunePublishConfig.ClientSecret -IntuneWinPath $intuneNote.LocalPath -Manifest $manifest -Description $Comment @iconArg
                     $pubNote.Ok = $true
                     $pubNote.Message = ('published (app id {0})' -f $pubId)
                 }
@@ -1787,6 +1794,269 @@ function Add-LogLine {
     $line = "{0}  {1}" -f $ts, $Message
 
     Add-LogEntry -Line $line
+}
+
+# =============================================================================
+# Version and update check
+# =============================================================================
+$script:UpdateRepo        = 'jasonulbright/app-packager'
+$script:UpdateCheckHours  = 24
+$script:UpdateUserAgent   = 'AppPackager-UpdateCheck'
+
+function Get-AppVersion {
+    # The header comment block is the single source of truth for the version;
+    # parsing it keeps the value from drifting between header and code.
+    param([string]$ScriptPath = $PSCommandPath)
+
+    if ([string]::IsNullOrWhiteSpace($ScriptPath) -or -not (Test-Path -LiteralPath $ScriptPath)) { return $null }
+
+    foreach ($line in (Get-Content -LiteralPath $ScriptPath -TotalCount 80 -ErrorAction SilentlyContinue)) {
+        $m = [regex]::Match($line, '^\s*Version\s*:\s*([0-9]+(?:\.[0-9]+)+)\s*$')
+        if ($m.Success) { return $m.Groups[1].Value }
+    }
+    return $null
+}
+
+function ConvertFrom-ReleaseTag {
+    param([AllowNull()][string]$Tag)
+
+    if ([string]::IsNullOrWhiteSpace($Tag)) { return $null }
+    $m = [regex]::Match($Tag.Trim(), '^v?([0-9]+(?:\.[0-9]+)+)$')
+    if (-not $m.Success) { return $null }
+    return $m.Groups[1].Value
+}
+
+function Test-UpdateAvailable {
+    param(
+        [AllowNull()][string]$CurrentVersion,
+        [AllowNull()][string]$LatestVersion
+    )
+
+    # An unparseable version on either side means no claim can be made; the
+    # indicator stays hidden rather than nagging on bad data.
+    $current = $null
+    $latest  = $null
+    if (-not [version]::TryParse(($CurrentVersion -as [string]), [ref]$current)) { return $false }
+    if (-not [version]::TryParse(($LatestVersion  -as [string]), [ref]$latest))  { return $false }
+    return ($latest -gt $current)
+}
+
+function Test-UpdateCheckDue {
+    param(
+        $LastCheckUtc,
+        [datetime]$NowUtc = (Get-Date).ToUniversalTime(),
+        [int]$IntervalHours = 24
+    )
+
+    if ($null -eq $LastCheckUtc -or ($LastCheckUtc -is [string] -and [string]::IsNullOrWhiteSpace($LastCheckUtc))) { return $true }
+
+    $last = [datetime]::MinValue
+    if ($LastCheckUtc -is [datetime]) {
+        $last = $LastCheckUtc
+    }
+    elseif (-not [datetime]::TryParse(
+        ($LastCheckUtc -as [string]), [cultureinfo]::InvariantCulture,
+        [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$last)) {
+        return $true
+    }
+
+    # A timestamp in the future means a clock change or a hand-edited cache;
+    # treat it as stale so the check is never suppressed indefinitely.
+    if ($last -gt $NowUtc) { return $true }
+    return (($NowUtc - $last).TotalHours -ge $IntervalHours)
+}
+
+function Get-UpdateCheckCachePath {
+    Join-Path (Join-Path $env:LOCALAPPDATA 'AppPackager') 'update-check.json'
+}
+
+function Read-UpdateCheckCache {
+    $path = Get-UpdateCheckCachePath
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
+    try {
+        return (Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop)
+    } catch {
+        return $null
+    }
+}
+
+function Save-UpdateCheckCache {
+    param(
+        [AllowNull()][string]$LatestVersion,
+        [AllowNull()][string]$ReleaseUrl
+    )
+
+    try {
+        $path = Get-UpdateCheckCachePath
+        $dir  = Split-Path -Parent $path
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        [pscustomobject]@{
+            LastCheckUtc  = (Get-Date).ToUniversalTime().ToString('o')
+            LatestVersion = $LatestVersion
+            ReleaseUrl    = $ReleaseUrl
+        } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $path -Encoding UTF8
+    } catch {
+        # A cache that cannot be written only costs an extra query next launch.
+    }
+}
+
+function Get-UpdateReleaseUrl {
+    param([AllowNull()][string]$Version)
+
+    if ([string]::IsNullOrWhiteSpace($Version)) {
+        return ("https://github.com/{0}/releases/latest" -f $script:UpdateRepo)
+    }
+    return ("https://github.com/{0}/releases/tag/v{1}" -f $script:UpdateRepo, $Version)
+}
+
+function Show-UpdateIndicator {
+    param(
+        [AllowNull()][string]$LatestVersion,
+        [AllowNull()][string]$ReleaseUrl
+    )
+
+    if (-not $pnlUpdate) { return }
+
+    if ([string]::IsNullOrWhiteSpace($LatestVersion)) {
+        $pnlUpdate.Visibility = 'Collapsed'
+        return
+    }
+
+    $script:UpdateLatestVersion = $LatestVersion
+    $script:UpdateReleaseUrl    = if ([string]::IsNullOrWhiteSpace($ReleaseUrl)) { Get-UpdateReleaseUrl -Version $LatestVersion } else { $ReleaseUrl }
+    $runUpdateText.Text         = ("Update available: v{0}" -f $LatestVersion)
+    $lnkUpdateAvailable.ToolTip = ("Open the v{0} release page on GitHub" -f $LatestVersion)
+    $pnlUpdate.Visibility       = 'Visible'
+}
+
+function Start-UpdateCheck {
+    # Never let a failed or slow check touch launch: everything below is
+    # best-effort and the caller keeps going regardless.
+    try {
+        $current = Get-AppVersion
+        if ([string]::IsNullOrWhiteSpace($current)) { return }
+
+        $cache = Read-UpdateCheckCache
+        $lastCheck = $null
+        if ($cache) { $lastCheck = $cache.LastCheckUtc }
+
+        if (-not (Test-UpdateCheckDue -LastCheckUtc $lastCheck -IntervalHours $script:UpdateCheckHours)) {
+            if ($cache -and (Test-UpdateAvailable -CurrentVersion $current -LatestVersion $cache.LatestVersion)) {
+                Add-LogLine -Message ("Update available: v{0} (cached check)." -f $cache.LatestVersion)
+                Show-UpdateIndicator -LatestVersion $cache.LatestVersion -ReleaseUrl $cache.ReleaseUrl
+            }
+            return
+        }
+
+        $script:UpdateCheckState = [hashtable]::Synchronized(@{
+            Done   = $false
+            Latest = $null
+            Url    = $null
+        })
+
+        $script:UpdateCheckRunspace = [runspacefactory]::CreateRunspace()
+        $script:UpdateCheckRunspace.ApartmentState = 'MTA'
+        $script:UpdateCheckRunspace.Open()
+
+        $script:UpdateCheckPS = [powershell]::Create()
+        $script:UpdateCheckPS.Runspace = $script:UpdateCheckRunspace
+        [void]$script:UpdateCheckPS.AddScript({
+            param($State, $Repo, $UserAgent)
+            try {
+                [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" `
+                    -Headers @{ 'User-Agent' = $UserAgent } -UseBasicParsing -TimeoutSec 20
+                $State.Latest = $release.tag_name
+                $State.Url    = $release.html_url
+            } catch {
+            } finally {
+                $State.Done = $true
+            }
+        }).AddArgument($script:UpdateCheckState).AddArgument($script:UpdateRepo).AddArgument($script:UpdateUserAgent)
+
+        $script:UpdateCheckHandle = $script:UpdateCheckPS.BeginInvoke()
+
+        $script:UpdateCheckTimer = New-Object System.Windows.Threading.DispatcherTimer
+        $script:UpdateCheckTimer.Interval = [TimeSpan]::FromMilliseconds(500)
+        $script:UpdateCheckTimer.Add_Tick({
+            if (-not $script:UpdateCheckState.Done) { return }
+            $script:UpdateCheckTimer.Stop()
+            try {
+                $latest = ConvertFrom-ReleaseTag -Tag $script:UpdateCheckState.Latest
+                if ($latest) {
+                    Save-UpdateCheckCache -LatestVersion $latest -ReleaseUrl $script:UpdateCheckState.Url
+                    if (Test-UpdateAvailable -CurrentVersion (Get-AppVersion) -LatestVersion $latest) {
+                        Add-LogLine -Message ("Update available: v{0}" -f $latest)
+                        Show-UpdateIndicator -LatestVersion $latest -ReleaseUrl $script:UpdateCheckState.Url
+                    }
+                }
+            } catch {
+                Add-LogLine -Message ("Update check failed: {0}" -f $_.Exception.Message)
+            } finally {
+                try { $script:UpdateCheckPS.EndInvoke($script:UpdateCheckHandle) } catch { }
+                try { $script:UpdateCheckPS.Dispose() } catch { }
+                try { $script:UpdateCheckRunspace.Close() } catch { }
+                $script:UpdateCheckPS = $null
+                $script:UpdateCheckRunspace = $null
+            }
+        })
+        $script:UpdateCheckTimer.Start()
+    } catch {
+        try { Add-LogLine -Message ("Update check skipped: {0}" -f $_.Exception.Message) } catch { }
+    }
+}
+
+function Invoke-SelfUpdate {
+    param([Parameter(Mandatory)]$Owner)
+
+    $latest = $script:UpdateLatestVersion
+    if ([string]::IsNullOrWhiteSpace($latest)) { return }
+
+    $answer = Show-ThemedMessage -Owner $Owner -Title 'Update AppPackager' `
+        -Message ("AppPackager v{0} will be downloaded and installed over {1}.`n`nThe application closes and relaunches itself when the update finishes. Preferences, window state, and logs are preserved.`n`nContinue?" -f $latest, $PSScriptRoot) `
+        -Buttons YesNo -Icon Question
+    if ($answer -ne 'Yes') { return }
+
+    try {
+        $installer = Join-Path $PSScriptRoot 'install.ps1'
+        if (-not (Test-Path -LiteralPath $installer)) {
+            $installer = Join-Path ([IO.Path]::GetTempPath()) ('apinstall-' + [Guid]::NewGuid().ToString('N') + '.ps1')
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            Invoke-WebRequest -Uri ("https://raw.githubusercontent.com/{0}/main/install.ps1" -f $script:UpdateRepo) `
+                -OutFile $installer -UseBasicParsing -Headers @{ 'User-Agent' = $script:UpdateUserAgent }
+        }
+
+        # The updater replaces the folder this process is running from, so it
+        # has to outlive the process: a detached child waits on the PID, then
+        # installs and relaunches. Wait-Process is bounded so a hung shutdown
+        # cannot leave the child waiting forever.
+        $relaunch = Join-Path $PSScriptRoot 'start-apppackager.ps1'
+        $script = @"
+Wait-Process -Id $PID -Timeout 120 -ErrorAction SilentlyContinue
+& '$($installer.Replace("'","''"))' -InstallPath '$($PSScriptRoot.Replace("'","''"))'
+Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','$($relaunch.Replace("'","''"))'
+"@
+        $bootstrap = Join-Path ([IO.Path]::GetTempPath()) ('apupdate-' + [Guid]::NewGuid().ToString('N') + '.ps1')
+        Set-Content -LiteralPath $bootstrap -Value $script -Encoding UTF8
+
+        Start-Process -FilePath 'powershell.exe' `
+            -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', $bootstrap
+
+        Add-LogLine -Message ("Updating to v{0}; closing." -f $latest)
+        $Owner.Close()
+    } catch {
+        [void](Show-ThemedMessage -Owner $Owner -Title 'Update Failed' -Message $_.Exception.Message -Buttons OK -Icon Error)
+    }
+}
+
+function Open-UpdateReleasePage {
+    try {
+        $url = $script:UpdateReleaseUrl
+        if ([string]::IsNullOrWhiteSpace($url)) { $url = Get-UpdateReleaseUrl -Version $script:UpdateLatestVersion }
+        Start-Process $url
+    } catch {
+        Add-LogLine -Message ("Could not open the release page: {0}" -f $_.Exception.Message)
+    }
 }
 
 # =============================================================================
@@ -2305,6 +2575,11 @@ Install-TitleBarDragFallback -Window $window
 # Find named controls
 # =============================================================================
 $txtAppTitle     = $window.FindName('txtAppTitle')
+$txtAppVersion   = $window.FindName('txtAppVersion')
+$pnlUpdate       = $window.FindName('pnlUpdate')
+$runUpdateText   = $window.FindName('runUpdateText')
+$lnkUpdateAvailable = $window.FindName('lnkUpdateAvailable')
+$btnUpdateNow    = $window.FindName('btnUpdateNow')
 $toggleTheme     = $window.FindName('toggleTheme')
 $txtThemeLabel   = $window.FindName('txtThemeLabel')
 $btnCheckLatest  = $window.FindName('btnCheckLatest')
@@ -4245,6 +4520,104 @@ function New-DeploymentConditionsPanel {
     }
 }
 
+function New-AboutPanel {
+    $xaml = @'
+<ScrollViewer xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      VerticalScrollBarVisibility="Auto">
+    <StackPanel>
+        <TextBlock Text="AppPackager" FontSize="20" FontWeight="Bold" Margin="0,0,0,2"/>
+        <TextBlock x:Name="txtAboutVersion" FontSize="13" Margin="0,0,0,14"
+                   Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
+        <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,14"
+                   Text="Automated application packaging for MECM and Intune, built entirely in in-box PowerShell 5.1."/>
+        <Grid Margin="0,0,0,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="130"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="License" FontSize="12" Margin="0,0,0,6"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="MIT" FontSize="12" Margin="0,0,0,6"/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Repository" FontSize="12" Margin="0,0,0,6"/>
+            <TextBlock Grid.Row="1" Grid.Column="1" FontSize="12" Margin="0,0,0,6">
+                <Hyperlink x:Name="lnkAboutRepo" ToolTip="Open the project on GitHub">
+                    <Run x:Name="runAboutRepo" Text="github.com"/>
+                </Hyperlink>
+            </TextBlock>
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Last update check" FontSize="12" Margin="0,0,0,6"/>
+            <TextBlock Grid.Row="2" Grid.Column="1" x:Name="txtAboutLastCheck" FontSize="12" Margin="0,0,0,6"/>
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Latest release" FontSize="12"/>
+            <TextBlock Grid.Row="3" Grid.Column="1" x:Name="txtAboutLatest" FontSize="12"/>
+        </Grid>
+        <StackPanel Orientation="Horizontal">
+            <Button x:Name="btnAboutUpdate" Content="Update now" MinWidth="110" Height="30" Margin="0,0,8,0"
+                    ToolTip="Download and install the latest release, then close and relaunch AppPackager"/>
+            <Button x:Name="btnAboutReleases" Content="Release notes" MinWidth="110" Height="30"
+                    ToolTip="Open the releases page on GitHub"/>
+        </StackPanel>
+    </StackPanel>
+</ScrollViewer>
+'@
+
+    [xml]$xml = $xaml
+    $reader  = New-Object System.Xml.XmlNodeReader $xml
+    $element = [System.Windows.Markup.XamlReader]::Load($reader)
+
+    $txtAboutVersion   = $element.FindName('txtAboutVersion')
+    $txtAboutLastCheck = $element.FindName('txtAboutLastCheck')
+    $txtAboutLatest    = $element.FindName('txtAboutLatest')
+    $lnkAboutRepo      = $element.FindName('lnkAboutRepo')
+    $runAboutRepo      = $element.FindName('runAboutRepo')
+    $btnAboutUpdate    = $element.FindName('btnAboutUpdate')
+    $btnAboutReleases  = $element.FindName('btnAboutReleases')
+
+    $version = $script:AppVersion
+    if ([string]::IsNullOrWhiteSpace($version)) { $version = Get-AppVersion }
+    $txtAboutVersion.Text = if ($version) { "Version $version" } else { 'Version unknown' }
+
+    $repoUrl = "https://github.com/$($script:UpdateRepo)"
+    $runAboutRepo.Text = $script:UpdateRepo
+    $lnkAboutRepo.Add_Click({ try { Start-Process $repoUrl } catch { } }.GetNewClosure())
+
+    $cache = Read-UpdateCheckCache
+    $lastCheckText = 'Never'
+    $latestText    = 'Unknown'
+    if ($cache) {
+        $parsed = [datetime]::MinValue
+        if ([datetime]::TryParse(
+                ([string]$cache.LastCheckUtc), [cultureinfo]::InvariantCulture,
+                [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$parsed)) {
+            $lastCheckText = $parsed.ToLocalTime().ToString('yyyy-MM-dd HH:mm')
+        }
+        if (-not [string]::IsNullOrWhiteSpace($cache.LatestVersion)) {
+            $latestText = "v$($cache.LatestVersion)"
+            if (-not (Test-UpdateAvailable -CurrentVersion $version -LatestVersion $cache.LatestVersion)) {
+                $latestText += ' (up to date)'
+            }
+        }
+    }
+    $txtAboutLastCheck.Text = $lastCheckText
+    $txtAboutLatest.Text    = $latestText
+
+    # Update now stays inert until a check has actually found a newer release,
+    # so the button can never install over a current folder for no reason.
+    $btnAboutUpdate.IsEnabled = [bool]$script:UpdateLatestVersion
+    $btnAboutUpdate.Add_Click({
+        Invoke-SelfUpdate -Owner ([System.Windows.Window]::GetWindow($btnAboutUpdate))
+    }.GetNewClosure())
+
+    $releasesUrl = "$repoUrl/releases"
+    $btnAboutReleases.Add_Click({ try { Start-Process $releasesUrl } catch { } }.GetNewClosure())
+
+    return @{ Name = 'About'; Element = $element; Commit = { } }
+}
+
 function Show-OptionsDialog {
     param(
         [Parameter(Mandatory)]$Owner,
@@ -4325,7 +4698,8 @@ function Show-OptionsDialog {
         (New-PackagerPreferencesPanel),
         (New-AppFlowPanel),
         (New-ProductFilterPanel),
-        (New-DeploymentConditionsPanel)
+        (New-DeploymentConditionsPanel),
+        (New-AboutPanel)
     )
 
     foreach ($p in $panels) { [void]$lstNav.Items.Add($p.Name) }
@@ -6156,6 +6530,21 @@ $btnFullRun.Add_Click({
 # =============================================================================
 # Window lifecycle
 # =============================================================================
+# =============================================================================
+# Version display and update affordances
+# =============================================================================
+$script:AppVersion          = Get-AppVersion
+$script:UpdateLatestVersion = $null
+$script:UpdateReleaseUrl    = $null
+
+if ($script:AppVersion) {
+    $txtAppVersion.Text = "v$($script:AppVersion)"
+    $window.Title = "{0}  v{1}" -f $window.Title, $script:AppVersion
+}
+
+$lnkUpdateAvailable.Add_Click({ Open-UpdateReleasePage })
+$btnUpdateNow.Add_Click({ Invoke-SelfUpdate -Owner $window })
+
 $window.Add_Loaded({
     Add-LogLine -Message ("Loading packagers from: {0}" -f $PackagersRoot)
     Invoke-RefreshGrid
@@ -6185,9 +6574,13 @@ $window.Add_Loaded({
     if (Test-FirstRunWizardNeeded -Prefs $script:Prefs) {
         Show-FirstRunWizard -Owner $window
     }
+
+    Start-UpdateCheck
 })
 
 $window.Add_Closing({
+    if ($script:UpdateCheckTimer) { $script:UpdateCheckTimer.Stop(); $script:UpdateCheckTimer = $null }
+
     Save-WindowState -Window $window -Path (Get-WindowStatePath) -ExtraState @{
         DarkTheme    = ($toggleTheme.IsOn -eq $true)
         DebugColumns = ($toggleDebugCols.IsOn -eq $true)

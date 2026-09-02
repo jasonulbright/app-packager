@@ -26,6 +26,15 @@
         'Get-MsiPropertyMap'
         'Find-UninstallEntry'
 
+        # Installer icons
+        'Get-InstallerIcon'
+        'Get-MsiIconBytes'
+        'Get-IconBytesDimension'
+        'Get-PackagerIconSource'
+        'Add-StageIcon'
+        'Set-CMApplicationIconFromManifest'
+        'Get-IconMimeContent'
+
         # Stage manifest
         'Get-StageFileHashes'
         'Compare-StageFileHashes'

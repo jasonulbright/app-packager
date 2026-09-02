@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Shared module for AppPackager packager scripts.
 
@@ -636,6 +636,618 @@ function Format-StageFileHashComparison {
     return ($parts.ToArray() -join '; ')
 }
 
+# ---------------------------------------------------------------------------
+# Installer icon extraction
+# ---------------------------------------------------------------------------
+
+# MECM's Set-CMApplication -IconLocationFile and Intune's win32LobApp
+# largeIcon both accept .ico and .png; MECM stores at most 512x512, so a
+# larger extraction is downscaled before it is handed over.
+$script:IconMaxDimension = 512
+
+# A 16- or 32-pixel-only icon resource is what generic installer stubs ship;
+# real application icons carry a 48px or larger image. Distinguishing an
+# NSIS/Inno default setup icon from a real one by content is not reliable,
+# so the size floor plus the per-packager IconSource opt-in is the control.
+$script:IconMinimumDimension = 32
+
+function Initialize-IconNativeType {
+    <#
+    .SYNOPSIS
+        Compiles the icon-resource P/Invoke helper once per process.
+
+    .DESCRIPTION
+        Add-Type registers the type in the AppDomain permanently; a second
+        call in the same process throws on the duplicate name, so the type
+        presence is the guard rather than a script-scope flag (a -Force
+        module reimport resets script scope but not the AppDomain).
+    #>
+    if ('AppPackager.IconNative' -as [type]) { return }
+
+    $memberDefinition = @'
+    private const int RT_GROUP_ICON = 14;
+    private const int RT_ICON = 3;
+    private const uint LOAD_LIBRARY_AS_DATAFILE = 0x00000002;
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr LoadLibraryExW(string lpFileName, IntPtr hFile, uint dwFlags);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool FreeLibrary(IntPtr hModule);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr FindResourceW(IntPtr hModule, IntPtr lpName, IntPtr lpType);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr LoadResource(IntPtr hModule, IntPtr hResInfo);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr LockResource(IntPtr hResData);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint SizeofResource(IntPtr hModule, IntPtr hResInfo);
+
+    public delegate bool EnumResNameProc(IntPtr hModule, IntPtr lpszType, IntPtr lpszName, IntPtr lParam);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool EnumResourceNamesW(IntPtr hModule, IntPtr lpszType, EnumResNameProc lpEnumFunc, IntPtr lParam);
+
+    private static byte[] ResourceBytes(IntPtr hModule, IntPtr type, IntPtr name)
+    {
+        IntPtr info = FindResourceW(hModule, name, type);
+        if (info == IntPtr.Zero) { return null; }
+        uint size = SizeofResource(hModule, info);
+        if (size == 0) { return null; }
+        IntPtr data = LoadResource(hModule, info);
+        if (data == IntPtr.Zero) { return null; }
+        IntPtr ptr = LockResource(data);
+        if (ptr == IntPtr.Zero) { return null; }
+        byte[] buffer = new byte[size];
+        Marshal.Copy(ptr, buffer, 0, (int)size);
+        return buffer;
+    }
+
+    // Returns a single-image .ico file built from the largest RT_ICON in the
+    // module's first icon group. Returns null when the file carries no icon
+    // group. The reported pixel size is the true resource size: the group
+    // directory is read directly rather than asking the shell for a scaled
+    // handle, which would report whatever size was requested.
+    public static byte[] ExtractLargestIcon(string path, out int pixelSize)
+    {
+        pixelSize = 0;
+        IntPtr hModule = LoadLibraryExW(path, IntPtr.Zero, LOAD_LIBRARY_AS_DATAFILE);
+        if (hModule == IntPtr.Zero) { return null; }
+        try
+        {
+            IntPtr firstGroup = IntPtr.Zero;
+            EnumResNameProc collect = delegate(IntPtr m, IntPtr t, IntPtr n, IntPtr l)
+            {
+                firstGroup = n;
+                return false;
+            };
+            EnumResourceNamesW(hModule, (IntPtr)RT_GROUP_ICON, collect, IntPtr.Zero);
+            if (firstGroup == IntPtr.Zero) { return null; }
+
+            byte[] group = ResourceBytes(hModule, (IntPtr)RT_GROUP_ICON, firstGroup);
+            if (group == null || group.Length < 6) { return null; }
+
+            int count = BitConverter.ToUInt16(group, 4);
+            if (count <= 0 || group.Length < 6 + (count * 14)) { return null; }
+
+            int bestIndex = -1;
+            int bestSize = -1;
+            int bestBits = -1;
+            for (int i = 0; i < count; i++)
+            {
+                int off = 6 + (i * 14);
+                int w = group[off];
+                int h = group[off + 1];
+                // A zero width/height byte encodes 256 in the icon directory.
+                if (w == 0) { w = 256; }
+                if (h == 0) { h = 256; }
+                int dim = Math.Max(w, h);
+                int bits = BitConverter.ToUInt16(group, off + 6);
+                if (dim > bestSize || (dim == bestSize && bits > bestBits))
+                {
+                    bestSize = dim;
+                    bestBits = bits;
+                    bestIndex = i;
+                }
+            }
+            if (bestIndex < 0) { return null; }
+
+            int bestOff = 6 + (bestIndex * 14);
+            int iconId = BitConverter.ToUInt16(group, bestOff + 12);
+            byte[] image = ResourceBytes(hModule, (IntPtr)RT_ICON, (IntPtr)iconId);
+            if (image == null || image.Length == 0) { return null; }
+
+            byte[] ico = new byte[22 + image.Length];
+            ico[2] = 1;
+            ico[4] = 1;
+            ico[6] = group[bestOff];
+            ico[7] = group[bestOff + 1];
+            ico[8] = group[bestOff + 2];
+            ico[10] = group[bestOff + 4];
+            ico[11] = group[bestOff + 5];
+            ico[12] = group[bestOff + 6];
+            ico[13] = group[bestOff + 7];
+            Buffer.BlockCopy(BitConverter.GetBytes(image.Length), 0, ico, 14, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(22), 0, ico, 18, 4);
+            Buffer.BlockCopy(image, 0, ico, 22, image.Length);
+
+            pixelSize = bestSize;
+            return ico;
+        }
+        finally
+        {
+            FreeLibrary(hModule);
+        }
+    }
+'@
+
+    Add-Type -MemberDefinition $memberDefinition `
+        -Name 'IconNative' `
+        -Namespace 'AppPackager' `
+        -ErrorAction Stop
+}
+
+function Get-IconBytesDimension {
+    <#
+    .SYNOPSIS
+        Reads the largest image dimension out of .ico file bytes.
+
+    .DESCRIPTION
+        Returns 0 when the buffer is not an icon directory. A zero width or
+        height byte in an ICONDIRENTRY encodes 256 pixels.
+    #>
+    param([Parameter(Mandatory)][AllowNull()][byte[]]$Bytes)
+
+    if ($null -eq $Bytes -or $Bytes.Length -lt 22) { return 0 }
+    if ([BitConverter]::ToUInt16($Bytes, 0) -ne 0 -or [BitConverter]::ToUInt16($Bytes, 2) -ne 1) { return 0 }
+
+    $count = [BitConverter]::ToUInt16($Bytes, 4)
+    if ($count -le 0 -or $Bytes.Length -lt (6 + ($count * 16))) { return 0 }
+
+    $best = 0
+    for ($i = 0; $i -lt $count; $i++) {
+        $off = 6 + ($i * 16)
+        $w = [int]$Bytes[$off]; if ($w -eq 0) { $w = 256 }
+        $h = [int]$Bytes[$off + 1]; if ($h -eq 0) { $h = 256 }
+        $dim = [Math]::Max($w, $h)
+        if ($dim -gt $best) { $best = $dim }
+    }
+    return $best
+}
+
+function Get-MsiIconBytes {
+    <#
+    .SYNOPSIS
+        Reads an icon stream out of an MSI Icon table.
+
+    .DESCRIPTION
+        Prefers the icon named by the ARP ProductIcon property, falling back
+        to the first row of the Icon table. Returns $null when the database
+        has no Icon table or no rows. The COM objects are released explicitly
+        because a live WindowsInstaller.Database handle keeps a write lock on
+        the file for the rest of the process lifetime.
+    #>
+    param([Parameter(Mandatory)][string]$Path)
+
+    $installer = $null
+    $database = $null
+    try {
+        $installer = New-Object -ComObject WindowsInstaller.Installer -ErrorAction Stop
+        $database = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $installer, @($Path, 0))
+
+        $wanted = ''
+        try {
+            $propView = $database.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $database,
+                @("SELECT Value FROM Property WHERE Property = 'ARPPRODUCTICON'"))
+            $null = $propView.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $propView, $null)
+            $propRec = $propView.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $propView, $null)
+            if ($propRec) {
+                $wanted = [string]$propRec.GetType().InvokeMember('StringData', 'GetProperty', $null, $propRec, @(1))
+            }
+            $null = $propView.GetType().InvokeMember('Close', 'InvokeMethod', $null, $propView, $null)
+        }
+        catch {
+            # An MSI without a Property table row for the ARP icon is normal;
+            # the Icon table fallback still applies.
+            $wanted = ''
+        }
+
+        $query = if ([string]::IsNullOrWhiteSpace($wanted)) {
+            'SELECT Name, Data FROM Icon'
+        }
+        else {
+            "SELECT Name, Data FROM Icon WHERE Name = '{0}'" -f ($wanted -replace "'", "''")
+        }
+
+        $view = $null
+        try {
+            $view = $database.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $database, @($query))
+            $null = $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null)
+            $record = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
+        }
+        catch {
+            return $null
+        }
+
+        if (-not $record -and -not [string]::IsNullOrWhiteSpace($wanted)) {
+            # A ProductIcon name that does not resolve (authoring drift) still
+            # leaves the table's own rows usable.
+            $null = $view.GetType().InvokeMember('Close', 'InvokeMethod', $null, $view, $null)
+            $view = $database.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $database, @('SELECT Name, Data FROM Icon'))
+            $null = $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null)
+            $record = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
+        }
+        if (-not $record) { return $null }
+
+        $size = [int]$record.GetType().InvokeMember('DataSize', 'GetProperty', $null, $record, @(2))
+        if ($size -le 0) { return $null }
+        $bytes = $record.GetType().InvokeMember('ReadStream', 'InvokeMethod', $null, $record, @(2, $size, 1))
+        $null = $view.GetType().InvokeMember('Close', 'InvokeMethod', $null, $view, $null)
+
+        if ($bytes -is [string]) {
+            # MsiReadStreamInteger (1) hands back a binary string; each char is
+            # one byte of the stream.
+            $buffer = New-Object byte[] $bytes.Length
+            for ($i = 0; $i -lt $bytes.Length; $i++) { $buffer[$i] = [byte][char]$bytes[$i] }
+            return $buffer
+        }
+        return [byte[]]$bytes
+    }
+    catch {
+        Write-Log ("MSI icon read failed         : {0}" -f $_.Exception.Message) -Level DEBUG
+        return $null
+    }
+    finally {
+        foreach ($comObject in @($database, $installer)) {
+            if ($comObject) {
+                try { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($comObject) } catch { }
+            }
+        }
+    }
+}
+
+function Get-InstallerIcon {
+    <#
+    .SYNOPSIS
+        Extracts an application icon from an installer into a MECM-compatible file.
+
+    .DESCRIPTION
+        PE inputs (.exe, .dll) yield the largest image of the first icon group,
+        read from the resource directory so the reported size is the real one.
+        ExtractAssociatedIcon is the fallback and caps at 32 pixels. MSI inputs
+        are read from the Icon table, preferring the ARPPRODUCTICON stream.
+
+        OutputPath's extension selects the written format: .png converts through
+        System.Drawing, anything else writes the icon bytes verbatim. Images
+        wider than 512 pixels are downscaled, the MECM ceiling.
+
+        Returns $null when no icon exists or the largest image is under
+        MinimumSize.
+
+    .OUTPUTS
+        [pscustomobject] with Path, PixelSize, Format, and Source, or $null.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$OutputPath,
+        [int]$MinimumSize = $script:IconMinimumDimension
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "Installer not found: $Path"
+    }
+
+    $full = (Get-Item -LiteralPath $Path -ErrorAction Stop).FullName
+    $extension = [System.IO.Path]::GetExtension($full).ToLowerInvariant()
+
+    $bytes = $null
+    $pixelSize = 0
+    $source = ''
+
+    if ($extension -eq '.msi') {
+        $bytes = Get-MsiIconBytes -Path $full
+        if ($null -ne $bytes) {
+            $pixelSize = Get-IconBytesDimension -Bytes $bytes
+            $source = 'MsiIconTable'
+            if ($pixelSize -eq 0) {
+                # An Icon table row may hold an EXE rather than an .ico; the
+                # PE reader handles that shape.
+                $temp = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), ([guid]::NewGuid().ToString('n') + '.exe'))
+                try {
+                    [System.IO.File]::WriteAllBytes($temp, $bytes)
+                    Initialize-IconNativeType
+                    $peSize = 0
+                    $peBytes = [AppPackager.IconNative]::ExtractLargestIcon($temp, [ref]$peSize)
+                    if ($peBytes) { $bytes = $peBytes; $pixelSize = $peSize; $source = 'MsiIconTablePe' }
+                }
+                finally { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
+            }
+        }
+    }
+    else {
+        Initialize-IconNativeType
+        $nativeSize = 0
+        $bytes = [AppPackager.IconNative]::ExtractLargestIcon($full, [ref]$nativeSize)
+        if ($bytes) {
+            $pixelSize = $nativeSize
+            $source = 'PeResource'
+        }
+        else {
+            try {
+                Add-Type -AssemblyName System.Drawing -ErrorAction Stop
+                $associated = [System.Drawing.Icon]::ExtractAssociatedIcon($full)
+                if ($associated) {
+                    $stream = New-Object System.IO.MemoryStream
+                    try {
+                        $associated.Save($stream)
+                        $bytes = $stream.ToArray()
+                    }
+                    finally { $stream.Dispose(); $associated.Dispose() }
+                    $pixelSize = Get-IconBytesDimension -Bytes $bytes
+                    $source = 'ExtractAssociatedIcon'
+                }
+            }
+            catch {
+                Write-Log ("Icon fallback failed         : {0}" -f $_.Exception.Message) -Level DEBUG
+            }
+        }
+    }
+
+    if ($null -eq $bytes -or $bytes.Length -eq 0) {
+        Write-Log ("No icon resource found       : {0}" -f (Split-Path -Leaf $full)) -Level DEBUG
+        return $null
+    }
+
+    if ($pixelSize -lt $MinimumSize) {
+        Write-Log ("Icon rejected (too small)    : {0}px from {1} (floor {2}px)" -f $pixelSize, (Split-Path -Leaf $full), $MinimumSize) -Level WARN
+        return $null
+    }
+
+    $outExtension = [System.IO.Path]::GetExtension($OutputPath).ToLowerInvariant()
+    $outDirectory = Split-Path -Path $OutputPath -Parent
+    if ($outDirectory -and -not (Test-Path -LiteralPath $outDirectory)) {
+        New-Item -Path $outDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
+    }
+
+    if ($outExtension -eq '.png' -or $pixelSize -gt $script:IconMaxDimension) {
+        Add-Type -AssemblyName System.Drawing -ErrorAction Stop
+        $target = [Math]::Min($pixelSize, $script:IconMaxDimension)
+        $pngPath = if ($outExtension -eq '.png') { $OutputPath } else { [System.IO.Path]::ChangeExtension($OutputPath, '.png') }
+
+        # A 256px icon frame is normally stored PNG-compressed rather than as a
+        # DIB, and System.Drawing.Icon cannot decode that shape; the frame is
+        # already the wanted file, so it is copied out byte for byte.
+        $imageOffset = if ($bytes.Length -ge 22) { [BitConverter]::ToInt32($bytes, 18) } else { 0 }
+        $isPngFrame = ($imageOffset -gt 0 -and $bytes.Length -gt ($imageOffset + 8) -and
+            $bytes[$imageOffset] -eq 0x89 -and $bytes[$imageOffset + 1] -eq 0x50 -and
+            $bytes[$imageOffset + 2] -eq 0x4E -and $bytes[$imageOffset + 3] -eq 0x47)
+
+        $sourceBitmap = $null
+        $bitmap = $null
+        $icon = $null
+        $stream = $null
+        try {
+            if ($isPngFrame) {
+                $frame = New-Object byte[] ($bytes.Length - $imageOffset)
+                [Array]::Copy($bytes, $imageOffset, $frame, 0, $frame.Length)
+                if ($pixelSize -le $script:IconMaxDimension) {
+                    [System.IO.File]::WriteAllBytes($pngPath, $frame)
+                    $OutputPath = $pngPath
+                    $pixelSize = $target
+                    $frame = $null
+                }
+                else {
+                    $stream = New-Object System.IO.MemoryStream (, $frame)
+                    $sourceBitmap = [System.Drawing.Image]::FromStream($stream)
+                }
+            }
+            else {
+                $stream = New-Object System.IO.MemoryStream (, $bytes)
+                $icon = New-Object System.Drawing.Icon ($stream, $target, $target)
+                $sourceBitmap = $icon.ToBitmap()
+            }
+
+            if ($sourceBitmap) {
+                $bitmap = New-Object System.Drawing.Bitmap ($sourceBitmap, $target, $target)
+                $bitmap.Save($pngPath, [System.Drawing.Imaging.ImageFormat]::Png)
+                $OutputPath = $pngPath
+                $pixelSize = $target
+            }
+        }
+        finally {
+            foreach ($disposable in @($bitmap, $sourceBitmap, $icon, $stream)) {
+                if ($disposable) { try { $disposable.Dispose() } catch { } }
+            }
+        }
+    }
+    else {
+        [System.IO.File]::WriteAllBytes($OutputPath, $bytes)
+    }
+
+    Write-Log ("Extracted installer icon     : {0} ({1}px, {2})" -f (Split-Path -Leaf $OutputPath), $pixelSize, $source)
+
+    return [pscustomobject]@{
+        Path      = $OutputPath
+        PixelSize = $pixelSize
+        Format    = [System.IO.Path]::GetExtension($OutputPath).TrimStart('.').ToLowerInvariant()
+        Source    = $source
+    }
+}
+
+function Get-PackagerIconSource {
+    <#
+    .SYNOPSIS
+        Reads the IconSource header tag out of a packager script.
+
+    .DESCRIPTION
+        Returns 'Installer', 'External', or 'None'. An absent, unreadable, or
+        unrecognized tag is 'None', which keeps every untagged packager on the
+        pre-icon path.
+    #>
+    param([AllowNull()][string]$ScriptPath)
+
+    if ([string]::IsNullOrWhiteSpace($ScriptPath) -or -not (Test-Path -LiteralPath $ScriptPath -PathType Leaf)) {
+        return 'None'
+    }
+
+    try {
+        $head = Get-Content -LiteralPath $ScriptPath -TotalCount 40 -ErrorAction Stop
+    }
+    catch {
+        return 'None'
+    }
+
+    foreach ($line in $head) {
+        if ($line -match '^\s*(?:#\s*)?IconSource\s*:\s*(.+?)\s*$') {
+            $value = $Matches[1]
+            foreach ($known in @('Installer', 'External', 'None')) {
+                if ($value -eq $known) { return $known }
+            }
+            return 'None'
+        }
+    }
+    return 'None'
+}
+
+function Add-StageIcon {
+    <#
+    .SYNOPSIS
+        Places app-icon.* in a stage folder per the packager's IconSource tag.
+
+    .DESCRIPTION
+        Installer extracts from the staged installer named by the manifest's
+        InstallerFile. External copies Packagers\Icons\<packagername>.* beside
+        the payload. None is a no-op.
+
+        Sets ManifestData['Icon'] to the icon's file name on success so the
+        Package phase can find it inside the content folder. Never throws: an
+        icon is decoration, and a failed extraction must not fail a stage.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$StageRoot,
+        [Parameter(Mandatory)][hashtable]$ManifestData,
+        [AllowNull()][string]$PackagerScriptPath
+    )
+
+    $iconSource = Get-PackagerIconSource -ScriptPath $PackagerScriptPath
+    if ($iconSource -eq 'None') { return }
+
+    try {
+        if ($iconSource -eq 'External') {
+            $baseName = [System.IO.Path]::GetFileNameWithoutExtension($PackagerScriptPath) -replace '^package-', ''
+            $iconsDirectory = Join-Path $PSScriptRoot 'Icons'
+            $candidate = @(Get-ChildItem -LiteralPath $iconsDirectory -Filter "$baseName.*" -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Extension -match '^\.(ico|png)$' } | Sort-Object Extension | Select-Object -First 1)
+            if ($candidate.Count -eq 0) {
+                Write-Log ("IconSource External but no Packagers\Icons\{0}.ico|png found; continuing without an icon." -f $baseName) -Level WARN
+                return
+            }
+            $destination = Join-Path $StageRoot ('app-icon' + $candidate[0].Extension.ToLowerInvariant())
+            Copy-Item -LiteralPath $candidate[0].FullName -Destination $destination -Force -ErrorAction Stop
+            $ManifestData['Icon'] = Split-Path -Leaf $destination
+            Write-Log ("Staged external icon         : {0}" -f $ManifestData['Icon'])
+            return
+        }
+
+        $installerFile = [string]$ManifestData['InstallerFile']
+        if ([string]::IsNullOrWhiteSpace($installerFile)) {
+            Write-Log 'IconSource Installer but the manifest declares no InstallerFile; continuing without an icon.' -Level WARN
+            return
+        }
+
+        $installerPath = Join-Path $StageRoot $installerFile
+        if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
+            Write-Log ("IconSource Installer but {0} is not in the stage folder; continuing without an icon." -f $installerFile) -Level WARN
+            return
+        }
+
+        $result = Get-InstallerIcon -Path $installerPath -OutputPath (Join-Path $StageRoot 'app-icon.ico')
+        if ($null -eq $result) { return }
+
+        $ManifestData['Icon'] = Split-Path -Leaf $result.Path
+    }
+    catch {
+        Write-Log ("Icon staging failed          : {0}" -f $_.Exception.Message) -Level WARN
+    }
+}
+
+function Set-CMApplicationIconFromManifest {
+    <#
+    .SYNOPSIS
+        Applies a manifest's icon to an existing CM application.
+
+    .DESCRIPTION
+        Warns and returns on any failure. A missing or rejected icon is not a
+        packaging error, and Set-CMApplication reports success without the
+        provider having accepted the write, so the failure surface here is
+        advisory either way.
+    #>
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Manifest,
+        [Parameter(Mandatory)][string]$AppName,
+        [Parameter(Mandatory)][string]$NetworkContentPath
+    )
+
+    $iconName = if ($Manifest.PSObject.Properties.Name -contains 'Icon') { [string]$Manifest.Icon } else { '' }
+    if ([string]::IsNullOrWhiteSpace($iconName)) { return }
+
+    $iconPath = Join-Path $NetworkContentPath $iconName
+    if (-not (Test-Path -LiteralPath $iconPath -PathType Leaf)) {
+        Write-Log ("Application icon not found   : {0}" -f $iconPath) -Level WARN
+        return
+    }
+
+    try {
+        Set-CMApplication -Name $AppName -IconLocationFile $iconPath -ErrorAction Stop
+        Write-Log ("Application icon set         : {0}" -f $iconName)
+    }
+    catch {
+        Write-Log ("Application icon not applied : {0}" -f $_.Exception.Message) -Level WARN
+    }
+}
+
+function Get-IconMimeContent {
+    <#
+    .SYNOPSIS
+        Builds a Graph mimeContent object for an icon file.
+
+    .DESCRIPTION
+        win32LobApp.largeIcon is a mimeContent: a content mime type plus the
+        raw bytes, which Graph JSON carries base64-encoded. Returns $null when
+        the file is missing or unreadable.
+    #>
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+
+    try {
+        $bytes = [System.IO.File]::ReadAllBytes($Path)
+    }
+    catch {
+        Write-Log ("Icon read failed             : {0}" -f $_.Exception.Message) -Level WARN
+        return $null
+    }
+    if ($bytes.Length -eq 0) { return $null }
+
+    $type = switch ([System.IO.Path]::GetExtension($Path).ToLowerInvariant()) {
+        '.png'  { 'image/png' }
+        '.jpg'  { 'image/jpeg' }
+        '.jpeg' { 'image/jpeg' }
+        default { 'image/x-icon' }
+    }
+
+    return @{
+        '@odata.type' = '#microsoft.graph.mimeContent'
+        type          = $type
+        value         = [Convert]::ToBase64String($bytes)
+    }
+}
+
 function Write-StageManifest {
     <#
     .SYNOPSIS
@@ -655,14 +1267,30 @@ function Write-StageManifest {
         Schema v3 adds FileHashes, an ordered list of every staged payload and
         wrapper file with RelativePath, SHA256, and Size. stage-manifest.json is
         excluded from its own hash list.
+
+        Icon names the extracted or copied app-icon.<ext> in the same folder
+        when the packager declares an IconSource header tag; it is absent
+        otherwise and is covered by FileHashes when present.
     #>
     param(
         [Parameter(Mandatory)][string]$Path,
-        [Parameter(Mandatory)][hashtable]$ManifestData
+        [Parameter(Mandatory)][hashtable]$ManifestData,
+        [AllowNull()][string]$PackagerScriptPath
     )
 
     $stageRoot = Split-Path -Path $Path -Parent
     $manifestName = Split-Path -Path $Path -Leaf
+
+    # The icon lands before the hashes are computed so it is covered by stage
+    # integrity like any other payload file. The packager script is located
+    # from the call stack rather than a parameter, which keeps all 284
+    # packagers' Write-StageManifest calls unchanged.
+    if (-not $PSBoundParameters.ContainsKey('PackagerScriptPath') -or [string]::IsNullOrWhiteSpace($PackagerScriptPath)) {
+        $callerFrame = @(Get-PSCallStack | Where-Object { $_.ScriptName -and $_.ScriptName -ne $PSCommandPath }) | Select-Object -First 1
+        if ($callerFrame) { $PackagerScriptPath = [string]$callerFrame.ScriptName }
+    }
+    Add-StageIcon -StageRoot $stageRoot -ManifestData $ManifestData -PackagerScriptPath $PackagerScriptPath
+
     $fileHashes = Get-StageFileHashes -Root $stageRoot -Exclude @($manifestName)
 
     $ManifestData['SchemaVersion'] = 3
@@ -2052,6 +2680,9 @@ function New-MECMApplicationFromManifest {
             Write-Log "Updated application version  : $($Manifest.SoftwareVersion)"
         }
 
+        $step = "Set-CMApplication icon ('$appName')"
+        Set-CMApplicationIconFromManifest -Manifest $Manifest -AppName $appName -NetworkContentPath $NetworkContentPath
+
         $step = "Remove-CMApplicationRevisionHistory (CI_ID=$($cmApp.CI_ID))"
         Remove-CMApplicationRevisionHistoryByCIId -CI_ID ([UInt32]$cmApp.CI_ID) -KeepLatest 1
 
@@ -3420,6 +4051,10 @@ function Publish-IntuneWin32App {
         Requires an Entra app registration with application permission
         DeviceManagementApps.ReadWrite.All (admin-consented).
 
+        IconPath sets largeIcon on the app entity as a mimeContent. Left empty
+        it falls back to the manifest's Icon name resolved beside the
+        .intunewin; an unresolvable icon leaves the property unset.
+
     .OUTPUTS
         [string] The created mobile app id.
     #>
@@ -3433,7 +4068,8 @@ function Publish-IntuneWin32App {
         [string]$MinimumSupportedWindowsRelease = 'Windows10_21H2',
         [ValidateSet('x86', 'x64')][string]$Architecture = 'x64',
         [string]$GraphBase = 'https://graph.microsoft.com/v1.0',
-        [int]$PollTimeoutSec = 600
+        [int]$PollTimeoutSec = 600,
+        [AllowEmptyString()][string]$IconPath = ''
     )
 
     $meta = Get-IntuneWinEncryptionInfo -Path $IntuneWinPath
@@ -3474,6 +4110,26 @@ function Publish-IntuneWin32App {
             @{ returnCode = 1618; type = 'retry' }
         )
     }
+    # largeIcon is a mimeContent (type + base64 bytes) on the app entity, not a
+    # separate upload. An unresolvable icon leaves the property unset rather
+    # than failing the publish.
+    $resolvedIconPath = $IconPath
+    if ([string]::IsNullOrWhiteSpace($resolvedIconPath) -and
+        ($Manifest.PSObject.Properties.Name -contains 'Icon') -and
+        -not [string]::IsNullOrWhiteSpace([string]$Manifest.Icon)) {
+        $resolvedIconPath = Join-Path (Split-Path -Path $IntuneWinPath -Parent) ([string]$Manifest.Icon)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($resolvedIconPath)) {
+        $largeIcon = Get-IconMimeContent -Path $resolvedIconPath
+        if ($largeIcon) {
+            $appBody['largeIcon'] = $largeIcon
+            Write-Log ("Intune app icon              : {0} ({1})" -f (Split-Path -Leaf $resolvedIconPath), $largeIcon.type)
+        }
+        else {
+            Write-Log ("Intune app icon not applied  : {0}" -f $resolvedIconPath) -Level WARN
+        }
+    }
+
     if ($existingApp) {
         $appId = [string]$existingApp.id
         Write-Log ("Updating Intune Win32 app    : {0} (app id {1})" -f $Manifest.AppName, $appId)
