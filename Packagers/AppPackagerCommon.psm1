@@ -1069,6 +1069,60 @@ function Get-InstallerIcon {
         [System.IO.File]::WriteAllBytes($OutputPath, $bytes)
     }
 
+    # Configuration Manager caps icon images at 256 KB. An .ico carrying every
+    # frame can exceed that even when its largest frame is small, so an
+    # oversized file is re-encoded as a single PNG, downscaling until it fits.
+    $maxIconBytes = 256KB
+    if ((Get-Item -LiteralPath $OutputPath).Length -gt $maxIconBytes) {
+        Add-Type -AssemblyName System.Drawing -ErrorAction Stop
+        $pngPath = [System.IO.Path]::ChangeExtension($OutputPath, '.png')
+        $fileBytes = [System.IO.File]::ReadAllBytes($OutputPath)
+        # Same PNG-compressed-frame trap as above: System.Drawing.Icon throws
+        # on such frames, so they decode through Image.FromStream instead.
+        $frameOffset = if ($fileBytes.Length -ge 22 -and $fileBytes[0] -eq 0 -and $fileBytes[2] -eq 1) { [BitConverter]::ToInt32($fileBytes, 18) } else { 0 }
+        $hasPngFrame = ($frameOffset -gt 0 -and $fileBytes.Length -gt ($frameOffset + 8) -and
+            $fileBytes[$frameOffset] -eq 0x89 -and $fileBytes[$frameOffset + 1] -eq 0x50)
+        foreach ($target in @($pixelSize, 256, 128, 64) | Where-Object { $_ -le $pixelSize } | Sort-Object -Descending -Unique) {
+            $stream = $null; $icon = $null; $sourceBitmap = $null; $bitmap = $null
+            try {
+                if ($hasPngFrame) {
+                    $frame = New-Object byte[] ($fileBytes.Length - $frameOffset)
+                    [Array]::Copy($fileBytes, $frameOffset, $frame, 0, $frame.Length)
+                    $stream = New-Object System.IO.MemoryStream (, $frame)
+                    $sourceBitmap = [System.Drawing.Image]::FromStream($stream)
+                }
+                elseif ($fileBytes[0] -eq 0x89 -and $fileBytes[1] -eq 0x50) {
+                    $stream = New-Object System.IO.MemoryStream (, $fileBytes)
+                    $sourceBitmap = [System.Drawing.Image]::FromStream($stream)
+                }
+                else {
+                    $stream = New-Object System.IO.MemoryStream (, $fileBytes)
+                    $icon = New-Object System.Drawing.Icon ($stream, $target, $target)
+                    $sourceBitmap = $icon.ToBitmap()
+                }
+                $bitmap = New-Object System.Drawing.Bitmap ($sourceBitmap, $target, $target)
+                $bitmap.Save($pngPath, [System.Drawing.Imaging.ImageFormat]::Png)
+            }
+            catch { continue }
+            finally {
+                foreach ($disposable in @($bitmap, $sourceBitmap, $icon, $stream)) {
+                    if ($disposable) { try { $disposable.Dispose() } catch { } }
+                }
+            }
+            if ((Get-Item -LiteralPath $pngPath).Length -le $maxIconBytes) {
+                if ($pngPath -ne $OutputPath) { Remove-Item -LiteralPath $OutputPath -Force -ErrorAction SilentlyContinue }
+                $OutputPath = $pngPath
+                $pixelSize = $target
+                break
+            }
+        }
+        if ((Get-Item -LiteralPath $OutputPath).Length -gt $maxIconBytes) {
+            Write-Log ("Icon rejected (too large)    : {0} exceeds the 256 KB image limit after re-encoding" -f (Split-Path -Leaf $OutputPath)) -Level WARN
+            Remove-Item -LiteralPath $OutputPath -Force -ErrorAction SilentlyContinue
+            return $null
+        }
+    }
+
     Write-Log ("Extracted installer icon     : {0} ({1}px, {2})" -f (Split-Path -Leaf $OutputPath), $pixelSize, $source)
 
     return [pscustomobject]@{
