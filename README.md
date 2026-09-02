@@ -12,21 +12,21 @@ This is the class of work commercial third-party patching catalogs sell as a sub
 ## Install
 
 ```powershell
-irm https://github.com/jasonulbright/app-packager/releases/latest/download/install.ps1 | iex
+curl.exe -Lso "$env:TEMP\install.ps1" https://github.com/jasonulbright/app-packager/releases/latest/download/install.ps1; & "$env:TEMP\install.ps1"
 ```
 
-Installs the latest release into `%LOCALAPPDATA%\AppPackager`. The bootstrapper resolves the release from the GitHub API, downloads `AppPackager-<version>.zip`, verifies its SHA-256 against the release's `checksums.txt`, and extracts it. Because the download and extract go through `Invoke-WebRequest` and `Expand-Archive`, no extracted file carries the Mark-of-the-Web — the block that otherwise makes packager child processes fail with unrelated unknown-command errors.
+Installs the latest release into `%LOCALAPPDATA%\AppPackager`. The bootstrapper resolves the release from the GitHub API, downloads `AppPackager-<version>.zip`, verifies its SHA-256 against the release's `checksums.txt`, and extracts it. Every download — the bootstrap fetch above included — goes through `curl.exe`, which passes proxy/SSL-inspection setups that break PowerShell's own web cmdlets, and curl downloads carry no Mark-of-the-Web — the block that otherwise makes packager child processes fail with unrelated unknown-command errors.
 
 To choose the folder or pin a version, download the script and run it directly:
 
 ```powershell
-irm https://github.com/jasonulbright/app-packager/releases/latest/download/install.ps1 -OutFile install.ps1
+curl.exe -Lso install.ps1 https://github.com/jasonulbright/app-packager/releases/latest/download/install.ps1
 .\install.ps1 -InstallPath 'D:\Tools\AppPackager' -Version 1.5.0.6
 ```
 
 `-Force` is required to replace a non-empty folder that holds no existing AppPackager install.
 
-The script and the release assets are served from GitHub's release-download host, and the script downloads through `curl.exe` first with `Invoke-WebRequest` as the fallback — the combination that survives most proxy/SSL-inspection setups. If even that is blocked, download `install.ps1` and the release zip in a browser and run `.\install.ps1 -Version <version>` from the same folder.
+If even the curl download is blocked, fetch `install.ps1` and the release zip in a browser and run `.\install.ps1 -Version <version>` from the same folder.
 
 Application icons are not part of the install. `Packagers\Icons\` is created on demand from the Options window — see [Application Icons](#application-icons).
 
