@@ -254,20 +254,15 @@ function Invoke-StageDBeaver {
     )
 
     if ($options.DisableAI) {
+        # DBEAVER_AI_DISABLED is DBeaver's environment-variable form of the
+        # ini's -Dai.disabled=true. The variable survives upgrades (the
+        # installer replaces dbeaver.ini every run) and setting it is
+        # naturally idempotent. Scope follows the install scope: Machine for
+        # a system deployment, User for a user-context deployment.
+        $envScope = if ($isUserScope) { 'User' } else { 'Machine' }
         $installLines += @(
             'if ($proc.ExitCode -ne 0) { exit $proc.ExitCode }',
-            ('$iniPath = Join-Path ({0}) ''dbeaver.ini''' -f $installRootExpr),
-            '$aiOption = ''-Dai.disabled=true''',
-            'if (Test-Path -LiteralPath $iniPath) {',
-            '    $lines = @(Get-Content -LiteralPath $iniPath)',
-            '    if (-not ($lines | Where-Object { $_.Trim() -eq $aiOption })) {',
-            '        # Everything after the -vmargs marker is passed to the JVM; a',
-            '        # -D option placed before it is treated as a launcher argument.',
-            '        if (-not ($lines | Where-Object { $_.Trim() -eq ''-vmargs'' })) { $lines += ''-vmargs'' }',
-            '        $lines += $aiOption',
-            '        Set-Content -LiteralPath $iniPath -Value $lines -Encoding ASCII',
-            '    }',
-            '}',
+            ('[Environment]::SetEnvironmentVariable(''DBEAVER_AI_DISABLED'', ''true'', ''{0}'')' -f $envScope),
             'exit 0'
         )
     }
