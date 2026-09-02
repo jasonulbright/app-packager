@@ -1425,7 +1425,9 @@ function Set-CMApplicationIconFromManifest {
     if ([string]::IsNullOrWhiteSpace($iconName)) { return }
 
     $iconPath = Join-Path $NetworkContentPath $iconName
-    if (-not (Test-Path -LiteralPath $iconPath -PathType Leaf)) {
+    # This runs while the session sits on the CMSite provider drive, where a
+    # bare UNC Test-Path resolves through the CM provider and fails.
+    if (-not (Test-Path -LiteralPath ("FileSystem::{0}" -f $iconPath) -PathType Leaf)) {
         Write-Log ("Application icon not found   : {0}" -f $iconPath) -Level WARN
         return
     }
@@ -2682,6 +2684,10 @@ function New-MECMApplicationFromManifest {
                 if ($missingDts.Count -eq 0) {
                     Write-Log "Application already exists    : $appName (v$existingVersion, unchanged)" -Level WARN
                     Write-Log ("Deployment type(s) validated : {0}" -f (($dtSpecs | ForEach-Object { $_.DtName }) -join ', '))
+                    # An idempotent rerun still applies the icon, so a package
+                    # created before icon support (or before a pack install)
+                    # gains one without a version change.
+                    Set-CMApplicationIconFromManifest -Manifest $Manifest -AppName $appName -NetworkContentPath $NetworkContentPath
                     return [UInt32]$cmApp.CI_ID
                 }
                 throw ("Existing MECM application '$appName' is missing deployment type(s): {0}. This looks like a partial prior package run; fix or remove the partial app before packaging again." -f (($missingDts | ForEach-Object { $_.DtName }) -join ', '))
