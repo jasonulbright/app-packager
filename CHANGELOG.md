@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.0.15] - 2026-09-02
+
+### Added
+
+- **Add Installer... sidebar button** - the drop-to-package intake behind
+  a visible control: an .msi/.exe picker (multi-select) feeding the same
+  Invoke-DropIntake analyzed-manifest flow as a window drop. The drop
+  target had no visible affordance, and a drag from Explorer is silently
+  blocked by the OS when the two processes run at different elevation
+  levels, so the button is both the discoverable path and the one that
+  works under elevation mismatch.
+
 ## [1.5.0.14] - 2026-09-02
 
 ### Fixed
