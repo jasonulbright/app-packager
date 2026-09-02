@@ -453,29 +453,7 @@ function Invoke-PackageM365Apps {
     Write-Log ""
 
     # --- Copy staged content to network (recursive for Office data) ---
-    $items = Get-ChildItem -Path $localContentPath -ErrorAction Stop
-    foreach ($item in $items) {
-        if ($item.Name -eq "stage-manifest.json") { continue }
-        $dest = Join-Path $networkContentPath $item.Name
-        if ($item.PSIsContainer) {
-            if (-not (Test-Path -LiteralPath $dest)) {
-                Copy-Item -Path $item.FullName -Destination $dest -Recurse -Force -ErrorAction Stop
-                Write-Log "Copied directory to network  : $($item.Name)"
-            }
-            else {
-                Write-Log "Directory exists on network  : $($item.Name)"
-            }
-        }
-        else {
-            if (-not (Test-Path -LiteralPath $dest)) {
-                Copy-Item -LiteralPath $item.FullName -Destination $dest -Force -ErrorAction Stop
-                Write-Log "Copied to network            : $($item.Name)"
-            }
-            else {
-                Write-Log "Already on network           : $($item.Name)"
-            }
-        }
-    }
+    Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
     # --- MECM application ---
     New-MECMApplicationFromManifest `

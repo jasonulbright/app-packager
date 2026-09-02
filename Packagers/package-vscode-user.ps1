@@ -203,18 +203,7 @@ function Invoke-PackageVSCodeUser {
 
     $networkContentPath = Get-NetworkContentPath -FileServerPath $FileServerPath -VendorFolder $VendorFolder -AppFolder $AppFolder -Version $manifest.SoftwareVersion -Layout $ContentLayout
 
-    $localFiles = Get-ChildItem -Path $localContentPath -File -ErrorAction Stop
-    foreach ($f in $localFiles) {
-        if ($f.Name -eq "stage-manifest.json") { continue }
-        $dest = Join-Path $networkContentPath $f.Name
-        if (-not (Test-Path -LiteralPath $dest)) {
-            Copy-Item -LiteralPath $f.FullName -Destination $dest -Force -ErrorAction Stop
-            Write-Log "Copied to network            : $($f.Name)"
-        }
-        else {
-            Write-Log "Already on network           : $($f.Name)"
-        }
-    }
+    Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
