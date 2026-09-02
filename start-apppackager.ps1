@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.5.0.14
+    Version    : 1.5.0.15
     Updated    : 2026-09-02
 #>
 
@@ -3005,6 +3005,7 @@ $btnCheckLatest  = $window.FindName('btnCheckLatest')
 $btnCheckMECM    = $window.FindName('btnCheckMECM')
 $btnStage        = $window.FindName('btnStage')
 $btnPackage      = $window.FindName('btnPackage')
+$btnAddInstaller = $window.FindName('btnAddInstaller')
 $btnFullRun      = $window.FindName('btnFullRun')
 $btnOptions      = $window.FindName('btnOptions')
 $toggleDebugCols = $window.FindName('toggleDebugCols')
@@ -6753,6 +6754,16 @@ function Invoke-DropIntake {
 }
 
 $script:PendingDropQueue = New-Object System.Collections.Queue
+# Browse fallback for the drop target: a drag from Explorer is silently
+# blocked when the processes run at different elevation levels.
+$btnAddInstaller.Add_Click({
+    $dlg = New-Object Microsoft.Win32.OpenFileDialog
+    $dlg.Title  = 'Select installer(s) to package'
+    $dlg.Filter = 'Installers (*.msi;*.exe)|*.msi;*.exe'
+    $dlg.Multiselect = $true
+    if ($dlg.ShowDialog()) { Invoke-DropIntake -Paths ([string[]]$dlg.FileNames) }
+})
+
 $window.AllowDrop = $true
 $window.Add_PreviewDragOver({
     param($senderObj, $e)
