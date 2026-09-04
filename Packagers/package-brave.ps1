@@ -111,7 +111,7 @@ function Get-LatestBraveVersion {
 
     try {
         # The GitHub API rejects requests without a User-Agent header.
-        $jsonText = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" $ReleaseApiUrl) -join ''
+        $jsonText = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" @(Get-GitHubApiCurlArgs) $ReleaseApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query Brave release API: $ReleaseApiUrl" }
 
         $json = ConvertFrom-Json $jsonText

@@ -1,5 +1,55 @@
 # Changelog
 
+## [1.5.1.2] - 2026-09-04
+
+### Fixed
+
+- **package-slack** - Slack no longer publishes the machine-wide MSI: the
+  release API's `msi` variant still answers with a CDN path that returns
+  404 for the current and recent versions, and the vendor's deployment
+  article now documents the MSIX. The packager stages `Slack.msix`
+  (identity `com.tinyspeck.slackdesktop`, Authenticode signature
+  verified and its thumbprint pinned into the install wrapper), installs
+  it for every user with `Add-AppxProvisionedPackage -SkipLicense
+  -Regions all`, removes it with `Remove-AppxProvisionedPackage` plus
+  `Remove-AppxPackage -AllUsers`, and detects on `app\Slack.exe` under the
+  provisioned package folder, whose publisher id the packager derives
+  from the manifest publisher (`8yrtsj140pw4g`).
+- **package-defraggler** - the vendor removed the Defraggler version-history
+  page, so the version probe failed with 404. The packager now reads the
+  current build from the vendor builds page (`dfsetup<build>.exe`) and the
+  full version from the installer's file version resource
+  (`2.22.33.995` -> `2.22.995`, the form the vendor used for releases);
+  the installer is downloaded into the download root once and reused.
+- **package-sharex** - ShareX 21.0 splits the setup by architecture
+  (`ShareX-<ver>-setup-x64.exe`); the asset match accepts the new name
+  and prefers the x64 setup, and still takes the single setup of earlier
+  releases.
+- **package-androidstudio** - a cached installer that fails the feed's
+  SHA-256 is deleted and downloaded once more before the run gives up;
+  the CDN has answered 200 with a short body, and the torn file then
+  failed every later run because the packager skipped the download.
+- **package-windowsadk, package-windowspeaddon** - the layout step waits
+  and retries (60 seconds, up to six times) when the bootstrapper exits
+  1618 because another Windows Installer operation holds the mutex.
+
+### Changed
+
+- **package-wireshark** - the stage phase reads DisplayName, Publisher and
+  the uninstall key from the installer's compiled NSIS script
+  (`Get-InstallerAnalysis`) instead of installing Wireshark temporarily
+  on the packaging machine and polling the registry; staging no longer
+  needs elevation or leaves Npcap behind. Detection is unchanged
+  (`Wireshark.exe` file version).
+- **GitHub API calls authenticate when a token is present.** 90 packagers
+  resolve their version through the GitHub REST API, which allows 60
+  unauthenticated requests per hour per source address; a monitor run or a
+  catalog-wide version sweep exceeded that and the remainder failed with
+  `403 rate limit exceeded`. `Get-GitHubApiCurlArgs` returns bearer-token
+  arguments when `GITHUB_TOKEN` or `GH_TOKEN` is set (5000 requests per
+  hour) and nothing otherwise; every GitHub-backed packager and the
+  Corretto helper splat it into their curl call.
+
 ## [1.5.1.1] - 2026-09-04
 
 ### Added

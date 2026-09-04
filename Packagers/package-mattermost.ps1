@@ -128,7 +128,7 @@ function Get-LatestMattermostRelease {
     Write-Log "Releases API URL             : $ReleasesApiUrl" -Quiet:$Quiet
 
     try {
-        $json = (& curl.exe -L --fail --silent --show-error -H "Accept: application/vnd.github+json" $ReleasesApiUrl) -join ''
+        $json = (& curl.exe -L --fail --silent --show-error -H "Accept: application/vnd.github+json" @(Get-GitHubApiCurlArgs) $ReleasesApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query the mattermost/desktop releases API." }
 
         $release = ConvertFrom-Json $json

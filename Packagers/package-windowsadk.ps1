@@ -213,8 +213,18 @@ function New-AdkOfflineLayout {
     }
 
     Write-Log "Building offline layout (this downloads the full kit)..."
-    $proc = Start-Process -FilePath $BootstrapperPath `
-        -ArgumentList @('/quiet', '/layout', $LayoutPath) -Wait -PassThru -NoNewWindow
+    # The bootstrapper takes the Windows Installer mutex even for a layout and
+    # answers 1618 (ERROR_INSTALL_ALREADY_RUNNING) while another setup holds it.
+    $attempt = 0
+    do {
+        $attempt++
+        $proc = Start-Process -FilePath $BootstrapperPath `
+            -ArgumentList @('/quiet', '/layout', $LayoutPath) -Wait -PassThru -NoNewWindow
+        if ($proc.ExitCode -eq 1618 -and $attempt -lt 6) {
+            Write-Log "Windows Installer is busy (exit 1618); retrying the layout in 60 seconds (attempt $attempt of 6)." -Level WARN
+            Start-Sleep -Seconds 60
+        }
+    } while ($proc.ExitCode -eq 1618 -and $attempt -lt 6)
     if ($proc.ExitCode -ne 0) {
         throw "adksetup /layout failed with exit code $($proc.ExitCode)."
     }

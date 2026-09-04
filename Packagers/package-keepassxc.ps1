@@ -137,7 +137,7 @@ function Get-LatestKeePassXCRelease {
 
     try {
         # The API rejects requests without a user agent.
-        $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" $GitHubApiUrl) -join ''
+        $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
         $release = ConvertFrom-Json $json

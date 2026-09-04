@@ -131,7 +131,7 @@ function Get-LatestIntuneDebugToolkitRelease {
 
     try {
         # The API rejects requests without a user agent.
-        $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" $GitHubContentsUrl) -join "`n"
+        $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" @(Get-GitHubApiCurlArgs) $GitHubContentsUrl) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub contents API." }
 
         $rx = [regex]'"download_url":\s*"(?<url>[^"]*?/(?<file>IntuneDebugTools[ _-]?v(?<ver>\d+(?:\.\d+)+)\.msi))"'

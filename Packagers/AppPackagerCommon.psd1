@@ -11,6 +11,7 @@
 
         # Download
         'Invoke-DownloadWithRetry'
+        'Get-GitHubApiCurlArgs'
 
         # Environment / pre-flight
         'Test-IsAdmin'
