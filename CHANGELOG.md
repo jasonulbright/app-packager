@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1.6] - 2026-09-04
+
+### Fixed
+
+- Detect Gpg4win in the 64-bit registry view.
+- Detect KDiff3 in the 32-bit registry view.
+
 ## [1.5.1.5] - 2026-09-04
 
 ### Changed
@@ -14,1765 +21,553 @@
 
 ### Added
 
-- **Install mode toggle in the drop preview.** An installer whose script
-  accepts a mode switch (NSIS `/allusers` in electron-builder and
-  MultiUser scripts, Inno Setup `/ALLUSERS` when
-  `PrivilegesRequiredOverridesAllowed` includes the command line) shows
-  an **Install for** row with Current user and All users (system). The
-  default is what the installer does without the switch; choosing the
-  other mode replaces install arguments, uninstall command, install
-  folder, detection key with hive and view, and deployment context from
-  that mode's branch in one step, so the stage never pairs a per-machine
-  install with a per-user uninstall or detection. Installers without a
-  switch show no toggle.
-- **Set-InstallerAnalysisMode** returns a copy of an analysis with every
-  mode-dependent field taken from one branch; the dialog, the stage and
-  the generated starter packager all consume that copy. Get-InstallerAnalysis
-  carries `InstallMode`, `InstallModes` and `ModeVariants` from the
-  vendored installer-analysis module (1.3.2.0).
+- Offer an Install for toggle in the drop preview for installers with a mode switch.
+- Swap install arguments, uninstall command, folder, detection key and context together when the mode changes.
 
 ## [1.5.1.3] - 2026-09-04
 
 ### Added
 
-- **Options window shows GitHub API authentication.** A GitHub API row
-  beside the Console, 7-Zip CLI, Content Prep and Icon Pack rows reports
-  how the 90 GitHub-backed packagers will authenticate: Authenticated with
-  the token source (`GITHUB_TOKEN`, `GH_TOKEN`, or the GitHub CLI login
-  with its account name) and the hourly quota with requests remaining, or
-  Anonymous at 60 requests per hour with the two ways to fix it. The
-  status is resolved when the window opens.
+- Show GitHub API authentication status and quota in Options.
 
 ### Changed
 
-- **GitHub API calls use a signed-in GitHub CLI.** `Get-GitHubApiCurlArgs`
-  resolves the token in order: `GITHUB_TOKEN`, then `GH_TOKEN`, then
-  `gh auth token` when `gh.exe` is on the PATH and signed in (looked up
-  once per process). 1.5.1.2 read only the environment variables, so a
-  machine with a signed-in GitHub CLI still made anonymous calls.
+- Use a signed-in GitHub CLI token for GitHub API calls.
 
 ## [1.5.1.2] - 2026-09-04
 
-### Fixed
-
-- **package-slack** - Slack no longer publishes the machine-wide MSI: the
-  release API's `msi` variant still answers with a CDN path that returns
-  404 for the current and recent versions, and the vendor's deployment
-  article now documents the MSIX. The packager stages `Slack.msix`
-  (identity `com.tinyspeck.slackdesktop`, Authenticode signature
-  verified and its thumbprint pinned into the install wrapper), installs
-  it for every user with `Add-AppxProvisionedPackage -SkipLicense
-  -Regions all`, removes it with `Remove-AppxProvisionedPackage` plus
-  `Remove-AppxPackage -AllUsers`, and detects on `app\Slack.exe` under the
-  provisioned package folder, whose publisher id the packager derives
-  from the manifest publisher (`8yrtsj140pw4g`).
-- **package-defraggler** - the vendor removed the Defraggler version-history
-  page, so the version probe failed with 404. The packager now reads the
-  current build from the vendor builds page (`dfsetup<build>.exe`) and the
-  full version from the installer's file version resource
-  (`2.22.33.995` -> `2.22.995`, the form the vendor used for releases);
-  the installer is downloaded into the download root once and reused.
-- **package-sharex** - ShareX 21.0 splits the setup by architecture
-  (`ShareX-<ver>-setup-x64.exe`); the asset match accepts the new name
-  and prefers the x64 setup, and still takes the single setup of earlier
-  releases.
-- **package-androidstudio** - a cached installer that fails the feed's
-  SHA-256 is deleted and downloaded once more before the run gives up;
-  the CDN has answered 200 with a short body, and the torn file then
-  failed every later run because the packager skipped the download.
-- **package-windowsadk, package-windowspeaddon** - the layout step waits
-  and retries (60 seconds, up to six times) when the bootstrapper exits
-  1618 because another Windows Installer operation holds the mutex.
-
 ### Changed
 
-- **package-wireshark** - the stage phase reads DisplayName, Publisher and
-  the uninstall key from the installer's compiled NSIS script
-  (`Get-InstallerAnalysis`) instead of installing Wireshark temporarily
-  on the packaging machine and polling the registry; staging no longer
-  needs elevation or leaves Npcap behind. Detection is unchanged
-  (`Wireshark.exe` file version).
-- **GitHub API calls authenticate when a token is present.** 90 packagers
-  resolve their version through the GitHub REST API, which allows 60
-  unauthenticated requests per hour per source address; a monitor run or a
-  catalog-wide version sweep exceeded that and the remainder failed with
-  `403 rate limit exceeded`. `Get-GitHubApiCurlArgs` returns bearer-token
-  arguments when `GITHUB_TOKEN` or `GH_TOKEN` is set (5000 requests per
-  hour) and nothing otherwise; every GitHub-backed packager and the
-  Corretto helper splat it into their curl call.
+- Read Wireshark's uninstall key from the installer script instead of installing it during staging.
+- Authenticate GitHub API calls with GITHUB_TOKEN or GH_TOKEN when set.
+
+### Fixed
+
+- Stage Slack as an MSIX provisioned for all users.
+- Read the Defraggler version from the builds page and the installer resource.
+- Accept ShareX's per-architecture setup asset.
+- Re-download a cached Android Studio installer whose checksum fails.
+- Retry the Windows ADK and WinPE add-on layout when another installer holds the mutex.
 
 ## [1.5.1.1] - 2026-09-04
 
 ### Added
 
-- **package-netbeans** - Apache NetBeans from the codelerity/netbeans-packages
-  GitHub releases (`Apache-NetBeans-<ver>.exe`): an Inno Setup build made
-  with Apache's NBPackage that bundles an Eclipse Temurin JDK, so the
-  deployed IDE needs no separate Java. Silent install with
-  `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-`, uninstall through the
-  ARP `UninstallString`, detection on `DisplayVersion` under
-  `Uninstall\Apache NetBeans_is1` (64-bit view). The catalog stands at 285.
+- Add Apache NetBeans (catalog at 285).
 
 ### Changed
 
-- **Inno Setup drops are read from the compiled `[Setup]` header.** The
-  vendored installer-analysis module (1.3.1.0) decodes the setup-0 block
-  of an Inno Setup installer (data versions 5.x through 7.0.0.3):
-  Get-InstallerAnalysis now takes the ARP key from the real `AppId`
-  (`{GUID}_is1` or `<name>_is1`) instead of the `DisplayName_is1`
-  convention, `SoftwareVersion` from the compiled `AppVersion` (stubs with
-  no file version included), `InstallDir` from `DefaultDirName` and the
-  64-bit install mode, `UninstallCommand` as the `unins000.exe` path in
-  `UninstallFilesDir`, and `InstallContext` from `PrivilegesRequired`.
-  A setup that never enters 64-bit mode routes its key under
-  `WOW6432Node`; `PrivilegesRequired=lowest` routes it under HKCU and
-  stages an InstallForUser deployment type.
-- **Vendored `SuiteCommon` 0.4.3.** The shared module repairs the process
-  PSModulePath at import (PowerShell 7 module roots inherited from the
-  launching shell), which replaces the inline block 1.5.1.0 carried at
-  the top of the entry script; a background runspace whose module import
-  fails is disposed and the original error thrown.
+- Read Inno Setup drops from the compiled header: AppId key, version, folder and context.
+- Vendor SuiteCommon 0.4.3 so PowerShell 7 module paths no longer break child runspaces.
 
 ### Fixed
 
-- **Inno Setup 6 installers were classified per-user.** 1.5.1.0 treated an
-  `asInvoker` manifest as evidence of a per-user install and rewrote the
-  predicted HKLM key to HKCU. An Inno Setup 6 stub is always `asInvoker`
-  and elevates itself for `PrivilegesRequired=admin`, so every Inno
-  Setup drop came out per-user with a wrong hive. The manifest now
-  decides the context only for an EXE whose format carries no context of
-  its own; Inno Setup, NSIS and MSI contexts come from the file.
+- Stop classifying Inno Setup 6 installers as per-user.
 
 ## [1.5.1.0] - 2026-09-04
 
 ### Added
 
-- **NSIS installers analyzed from their compiled script.** The vendored
-  installer-analysis module (1.3.0.1) decodes the header block appended
-  to an NSIS installer: InstallDir, the WriteUninstaller path, every
-  Add/Remove Programs value the script writes, the hive and 32/64-bit
-  registry view in effect at that write, SetShellVarContext, and the
-  manifest requestedExecutionLevel. Get-InstallerAnalysis now emits
-  UninstallCommand as an executable path
-  (`"%LOCALAPPDATA%\App\Uninstall.exe" /S`), plus InstallContext,
-  UninstallRegistryHive, RegistryView, InstallDir and
-  RequestedExecutionLevel. A bare `uninstall.exe` was the previous
-  result for every NSIS drop.
-- **Per-user installers stage as per-user deployments.** New-AdHocStage
-  writes InstallationBehaviorType InstallForUser and LogonRequirementType
-  OnlyWhenUserLoggedOn when the analysis resolves a per-user install
-  (HKCU registration or a profile-relative folder), and the detection
-  block carries Hive CurrentUser. New-SingleDetectionClause honours the
-  hive, ConvertTo-IntuneWin32Rules prefixes the keyPath with
-  HKEY_CURRENT_USER, and the Intune publish runs such an app as the user.
-  A convention-predicted HKLM key for an unelevated non-NSIS installer
-  (Inno Setup PrivilegesRequired=lowest) is rewritten to HKCU.
-- **Uninstall wrappers expand %VAR% paths at run time.**
-  New-ExeWrapperContent writes the uninstall path through
-  `[Environment]::ExpandEnvironmentVariables`, so a profile-relative
-  uninstaller resolves in the context the deployment type runs under.
-- **Drop preview** shows the install context and whether the detection
-  key came from the installer script or a convention; the generated
-  starter packager fills the uninstall path, arguments, detection folder
-  and per-user deployment settings.
+- Read NSIS drops from the compiled script: folder, uninstaller, detection key, hive and view.
+- Stage per-user installers as user-context deployments with HKCU detection.
+- Expand environment variables in uninstall wrappers at run time.
+- Show the install context and detection source in the drop preview.
 
-### Packagers
+### Changed
 
-- **package-audacity** - Audacity 4.0 ships as an MSI
-  (`audacity-win-<ver>-x86_64.msi`) instead of the Inno Setup EXE; the
-  packager takes that asset, wraps it with msiexec, and detects on the
-  ProductCode ARP key with the MSI ProductVersion. The EXE asset match
-  found nothing on the 4.0.0 release.
+- Switch Audacity 4.0 to its MSI installer.
 
 ### Fixed
 
-- **Icon Pack "Install from file..." button was clipped out of view.** The
-  Icon Pack and Content Prep rows laid their status text and buttons out
-  in a horizontal StackPanel, so the long not-installed message pushed
-  the buttons past the pane edge; the button only appeared once a
-  download shortened the text, on the very hosts that needed the file
-  install. Both rows are Grids now: the status wraps in a star column
-  and the buttons keep their width.
-- **Sidebar comment box clipped at the default window height.** The Add
-  Installer button pushed the sidebar past 720 px, cutting the comment
-  box's last line against the separator. The box is 84 px, the default
-  window height is 800 (minimum 640), and the Options window opens at
-  1000 x 760 (minimum 900 x 600) so the MECM Preferences panel shows
-  every row without scrolling.
-- **Deployment Conditions grid squeezed the Application column to a
-  sliver** at the Options window width; column widths are sized to their
-  headers and the Application column keeps a minimum width.
-- **install.ps1 -ZipPath never verified the checksum.** The working copy
-  was assigned to `$zipPath`, which is the `$ZipPath` parameter under
-  PowerShell's case-insensitive variable names, so the checksums.txt
-  lookup ran against the scratch folder and reported "no checksums.txt
-  beside the zip" on every local install. The working copy has its own
-  name; a checksums.txt beside the zip is verified and a mismatch
-  installs nothing. The completion line names the installed version for
-  local-zip installs, read from the extracted script header.
-- **PowerShell 7 module paths no longer leak into child runspaces.** A
-  Windows PowerShell process launched from PowerShell 7 inherits the 7.x
-  module directories at the front of PSModulePath; runspaces opened later
-  in that process and child powershell.exe instances autoloaded the 7.x
-  Microsoft.PowerShell.Utility manifest, which carries no Get-FileHash or
-  ConvertFrom-Json under 5.1. The GUI strips those roots from the process
-  environment before any runspace or child starts.
+- Show the Icon Pack and Content Prep buttons at every window width.
+- Stop the sidebar comment box clipping at the default window height.
+- Keep the Application column readable in Deployment Conditions.
+- Verify the checksum when installing from a local zip.
+- Keep PowerShell 7 module paths out of child runspaces.
 
 ## [1.5.0.15] - 2026-09-02
 
 ### Added
 
-- **Add Installer... sidebar button** - the drop-to-package intake behind
-  a visible control: an .msi/.exe picker (multi-select) feeding the same
-  Invoke-DropIntake analyzed-manifest flow as a window drop. The drop
-  target had no visible affordance, and a drag from Explorer is silently
-  blocked by the OS when the two processes run at different elevation
-  levels, so the button is both the discoverable path and the one that
-  works under elevation mismatch.
+- Add an Add Installer sidebar button for the drop-to-package intake.
 
 ## [1.5.0.14] - 2026-09-02
 
-### Fixed
+### Added
 
-- **Bootstrap survives script-download blocking.** Content filters that
-  block .ps1 file downloads outright (observed live: curl fetched the
-  filter's block page as install.ps1) defeat any script-based one-liner
-  regardless of transport. Releases now carry an unversioned
-  AppPackager.zip alias asset, the README one-liner downloads only that
-  zip and runs install.ps1 from inside it, and install.ps1 gains
-  -ZipPath to install from an already-downloaded zip - verified against
-  a checksums.txt beside it when present, unverified with a notice when
-  not. No script or text file crosses the wire on the default path.
+- Install from an already downloaded release zip with -ZipPath.
+
+### Changed
+
+- Install from the release zip alone, without downloading a script first.
 
 ## [1.5.0.13] - 2026-09-02
 
 ### Fixed
 
-- **All shipped PowerShell files are pure ASCII.** Windows PowerShell 5.1
-  reads a BOM-less file as ANSI, so any non-ASCII character risks mojibake
-  or string damage depending on which tool last saved the file. Six
-  typographic characters (em dashes) were replaced with ASCII, and nine
-  already-corrupted replacement-character sequences in the six M365
-  packagers and package-webview2 - remnants of an earlier bad re-encode
-  where dashes used to be - were repaired. The install one-liner in the
-  README also bootstraps through curl.exe now instead of irm, because
-  SSL-inspecting proxies that block PowerShell's web cmdlets pass curl.
+- Ship every PowerShell file as pure ASCII.
+- Bootstrap through curl.exe in the README one-liner.
 
 ## [1.5.0.12] - 2026-09-02
 
 ### Fixed
 
-- **Installer works behind SSL-inspecting proxies.** The install one-liner
-  fetched `install.ps1` from raw.githubusercontent.com, which content
-  filters commonly block while allowing the release-asset host the
-  packagers already download from (observed live behind such a proxy: the
-  fetch returned the filter's interstitial page). `install.ps1` is now
-  published as a release asset and the README one-liner uses
-  `releases/latest/download/install.ps1`; the script's own API and asset
-  downloads, the GUI update check, and the self-update installer fetch all
-  go through `curl.exe` first with `Invoke-WebRequest` as the fallback —
-  the same order `Invoke-DownloadWithRetry` uses in the packagers.
+- Publish the bootstrap script as a release asset and download through curl.exe first.
 
 ## [1.5.0.11] - 2026-09-02
 
 ### Added
 
-- **Install-IconPackFromFile** — installs the icon pack from a local or
-  UNC `icon-pack.zip` for hosts whose proxy or SSL inspection blocks the
-  release download. A `checksums.txt` beside the zip is verified when
-  present; without one the install proceeds and the status message says
-  the pack was unverified. A checksum mismatch extracts nothing. The zip
-  is copied to a scratch folder and unblocked before extraction so
-  nothing carries a zone identifier from the original location. The
-  Options Icon Pack row gains an **Install from file...** button beside
-  the download button; the download path now shares one
-  `Complete-IconPackInstall` extraction with the file path.
+- Install the icon pack from a local or UNC zip in Options.
 
 ## [1.5.0.10] - 2026-09-02
 
-## Same-Version Applications Can Be Overwritten Without Losing the App Object
+### Added
 
-### Engine
+- Choose Skip, Overwrite or Fail when a same-version application already exists.
+- Prompt during Package and One Click conflicts, with apply to all remaining.
 
-- **New-MECMApplicationFromManifest** — gains an OnExisting behavior
-  resolved from the `-OnExisting` parameter, then the
-  `APP_PACKAGER_ON_EXISTING` environment variable, then `Skip`.
-  `Skip` is the previous behavior exactly. `Overwrite` runs the existing
-  deployment-type replacement machinery on a same-version match.
-  `Fail` throws naming the application and its version. An unrecognized
-  value throws rather than defaulting.
-- **Resolve-OnExistingBehavior** — new exported resolver returning
-  Behavior and Source; the source is logged as
-  `On-existing behavior         : Overwrite (source: APP_PACKAGER_ON_EXISTING)`.
-- **Deployment-type replacement is one path** — the same-version
-  Overwrite branch and the version-change branch both set
-  `$replaceExisting` and share a single `Get-CMDeploymentType`
-  inventory, staging-name create, remove-old, rename sequence. Multi-DT
-  manifests take the identical path, one staging name per spec.
-- **Set-CMApplication on an existing application** — now also re-applies
-  Publisher alongside SoftwareVersion and Description; the icon apply
-  already ran on this path.
-- **Remove-CMApplicationRevisionHistoryByCIId** — tolerates
-  ItemNotFound per revision. Removing one revision can retire others in
-  the same chain, which failed a completed application during cleanup.
-- **Conflict marker** — a skipped same-version application emits
-  `[APP_PACKAGER_CONFLICT] existing-same-version app='<name>' version='<v>'`
-  for the GUI to parse.
+### Changed
 
-### GUI
+- Re-apply Publisher when updating an existing application.
 
-- **Invoke-PackagerPackageWithConflictPrompt** — wraps the Package and
-  One Click package phases. The first attempt runs under Skip; on a
-  marker hit the background loop parks a request on the synchronized
-  pipeline state and the DispatcherTimer opens a themed Skip /
-  Overwrite / Cancel run dialog with a "Do this for all remaining
-  conflicts" checkbox, then the app's package phase is re-invoked with
-  `APP_PACKAGER_ON_EXISTING=Overwrite`. Runs without a conflict never
-  touch the UI thread. The apply-to-all answer lives for the run only
-  and is not persisted.
-- **Invoke-PackagerPackage / Set-PackagerEnvironment** — carry
-  `-OnExisting` onto the child process environment block.
+### Fixed
 
-### Packagers
-
-- **No packager edits** — all 284 `package-*.ps1` reach the behavior
-  through the environment variable the engine reads directly.
-
-### Verified
-
-- Live on the lab site against `Audacity 3.7.9`, provider read-back per
-  run. Skip: deployment type `DeploymentType_b7d4bf9c` unchanged,
-  DateCreated unchanged, marker emitted. Fail: threw naming the
-  application, nothing written. Overwrite: deployment type replaced
-  (`b7d4bf9c` -> `371d77d9`, DateCreated 13:54:46 -> 13:56:50), count
-  still 1, and the application object survived — ModelName
-  `Application_f65ed79c-64e6-4c0c-9c05-790e8cb7529c` unchanged across
-  all three runs.
-- `Tests\Invoke-OnExistingSmoke.ps1` 14/14; `Invoke-PackagerSmoke.ps1`
-  1136/1136.
+- Tolerate already-removed revisions during revision-history cleanup.
 
 ## [1.5.0.9] - 2026-09-02
 
 ### Fixed
 
-- **Set-CMApplicationIconFromManifest** — the existence check ran while
-  the session sat on the CMSite provider drive, where a bare UNC
-  Test-Path resolves through the CM provider and fails, so the first
-  package run reported the just-copied icon as not found. The check is
-  now FileSystem-qualified. Found and fixed during a live end-to-end run
-  on the lab site.
-- **Idempotent package runs apply the icon** — the unchanged-version
-  early return skipped icon application entirely, so a package created
-  before icon support could never gain one without a version change.
-  The icon now applies on that path too.
-
-### Verified
-
-- Full chain exercised live from the GUI: stage extracted the Audacity
-  icon, Package copied it with the content, Set-CMApplication applied
-  it, the provider read-back shows the icon payload on the application
-  object, and the console's Software Center tab displays the product
-  icon.
+- Apply the application icon on first and on unchanged-version package runs.
 
 ## [1.5.0.8] - 2026-09-02
 
-### Application Icons
+### Added
 
-- **Full icon pack published** — icon-pack.zip v1.1.0 on the icons
-  repository carries a PNG for every one of the 284 packagers (32-512px
-  true sizes, each under 256 KB), harvested from installer payloads
-  (PeResource 99, MsiIconTable 106, MsiIconTablePe 4), archive-dives to
-  the inner application executable (InnerExe 21), genuine small icons
-  kept at true size (TrueSmall 9), and vendor-published assets for the
-  rest. The GUI's Download packager icon pack button was exercised
-  end-to-end against the live release: checksum verified, 284 icons
-  extracted into Packagers\Icons. The folder is gitignored — the pack
-  is distributed only as the single release zip.
+- Publish the full icon pack with an icon for every packager.
 
 ### Fixed
 
-- **ConvertTo-SingleLargestIconFrame** — an MSI Icon-table stream is a
-  multi-frame .ico whose first directory entry is often the smallest
-  frame; the PNG conversion read entry 0, so a stream reported at 256px
-  could write a 16px image. The largest frame is now promoted to a
-  single-frame icon before conversion; verified live against a
-  multi-frame stream (reported and decoded sizes now agree).
-- **package-inkscape** — the composed media.inkscape.org download URL
-  404s (filenames carry a build date, commit hash, and gallery suffix);
-  the MSI link is now read off the release page. Stage re-verified live
-  at 1.4.4.
-- **package-thonny / package-turbovnc** — both installers embed the
-  default Inno Setup icon, which IconSource: Installer would stage as
-  the product icon; flipped to External so the pack's real product
-  icons apply.
+- Convert the largest frame of multi-frame MSI icons.
+- Read the Inkscape MSI link from the release page.
+- Use external icons for Thonny and TurboVNC.
 
 ## [1.5.0.7] - 2026-09-02
 
-### Application Icons
-
-- **IconSource marked across all 284 packagers** — every packager's icon
-  extraction was tested against its real installer payload under Windows
-  PowerShell 5.1. Final verdicts: 216 `Installer` (a true >=48px icon reads
-  from the payload's PE resources or MSI Icon table), 34 `External`
-  (operator-supplied icon via the pack), 27 `None` (CLI tools, runtimes,
-  drivers), 7 untagged (payloads over the 700 MB probe ceiling, and Slack's
-  vendor-side download outage).
-- **Get-InstallerIcon transient-load retry** — `LoadLibraryExW` on a freshly
-  written file can fail while an on-access scan still holds it, and the
-  helper returned null with no error, silently degrading the very first
-  probe of a just-downloaded payload to the 32px fallback. Both native
-  extraction paths now retry with backoff (0/400/1200 ms) before falling
-  back. Five fresh-process probes now return the true 256px resource every
-  time; during wave QA the same flaw had mis-marked 21 applications, all
-  re-verified and corrected.
 ### Added
 
-- **Packager icon pack** — `IconSource: External` packagers read
-  `Packagers\Icons\<packagername>.ico|.png` at stage time; those files now come
-  from a separate public repository, `jasonulbright/app-packager-icons`,
-  published as an `icon-pack.zip` release asset with a `checksums.txt`. The
-  pack carries a `manifest.json` of `PackVersion`, `MinAppVersion`, and an
-  `Icons` array of `{ File, Packager }`. Release v1.0.0 is structure-only: no
-  vendor artwork is committed by the project.
-- **Options: Icon Pack row** — MECM Preferences gains an Icon Pack row beside
-  the ConfigMgr Console, 7-Zip CLI, and Content Prep detection rows. The status
-  line reads the installed `Packagers\Icons\manifest.json` for pack version and
-  icon count; the Download packager icon pack button resolves the icons
-  repository's latest release through the GitHub API, downloads the zip and
-  checksum file to a scratch folder, verifies SHA-256, and extracts into
-  `Packagers\Icons` via `Invoke-WebRequest` + `Expand-Archive` so no extracted
-  file carries the Mark-of-the-Web.
-- **Install-IconPack** — the download path, factored over pure helpers:
-  `Read-IconPackManifest`, `Test-IconPackAppVersion`, `Get-IconPackChecksum`,
-  `Test-IconPackChecksum`, `Select-IconPackAsset`, `Get-IconPackStatusText`. A
-  missing release, a release with no pack assets, and an HTTP 403/429 rate
-  limit each produce a plain status message and a log line rather than an
-  exception. A `MinAppVersion` newer than the running application warns and
-  still installs; a checksum mismatch extracts nothing.
-- **Tests\Invoke-IconPackSmoke.ps1** — 33 headless cases over manifest read,
-  version compare, checksum parse and verify, asset selection, and status text.
-  AST-extracted from `start-apppackager.ps1`; loads no WPF assemblies and makes
-  no network call.
+- Load external icons from a downloadable icon pack, with an Options row to install it.
+- Mark an icon source on every packager.
 
-### Changed
+### Fixed
 
-- **README** — new Application Icons section documenting the three `IconSource`
-  values, the installer extraction rules, the external pack and its manifest
-  schema, and the Options download button. The Version Monitor header-tag table
-  now points at it instead of carrying the full description.
+- Retry icon extraction when a freshly written file is still locked.
 
 ## [1.5.0.6] - 2026-09-02
 
 ### Fixed
 
-- **Sync-StagedContentToNetwork** — new exported helper replacing every
-  packager's Package-phase copy loop. Enumerates the stage recursively,
-  recreates intermediate directories, and skips `stage-manifest.json`. A
-  destination file that already exists is compared by SHA-256 — against the
-  manifest `FileHashes` record when `-Manifest` is supplied, otherwise
-  against the local file — and overwritten on mismatch. Logs
-  `Refreshed on network` / `Already on network` / `Copied to network` in the
-  column-aligned style; `-PassThru` returns Copied/Refreshed/Unchanged.
-- **Stale share content** — the old loops keyed on `Test-Path` alone, so
-  re-staging the same `SoftwareVersion` with changed wrapper content left the
-  share on the previous generation and
-  `New-MECMApplicationFromManifest`'s `Compare-StageFileHashes` check failed
-  package integrity. Reproduced on DBeaver 26.2.0, whose wrappers changed
-  across 1.5.0.1-1.5.0.3.
-- **Packager copy loops** — 285 call sites converted across 283 packagers and
-  the two `Samples` templates: 243 flat loops, 36 recursive
-  `$localRoot`-relative loops (multi-DT architecture and language splits stage
-  into subfolders), and 6 ODT loops that copied Office data directories whole
-  and never revisited their contents.
-- **New-MECMApplicationFromStagedContent** — the drop-to-package path copied
-  flat and unconditionally; it now uses the same helper and so covers nested
-  drop layouts.
-
-Full changelog: CHANGELOG.md
+- Refresh changed files on the network share instead of skipping existing names.
+- Copy nested stage folders on the drop-to-package path.
 
 ## [1.5.0.5] - 2026-09-02
 
 ### Fixed
 
-- **Get-InstallerIcon** — enforces Configuration Manager's documented 256 KB
-  icon image limit (Learn: create-applications, packages-and-programs). An
-  oversized file is re-encoded as a single PNG, downscaling through
-  256/128/64px until it fits, with the PNG-compressed-frame decode path
-  System.Drawing.Icon cannot handle; a file that still exceeds the limit is
-  rejected with a WARN instead of staged. The DBeaver pilot icon (270 KB
-  .ico) now stages as a 7.6 KB 256px PNG. The Intune publish path picks up
-  the staged icon from the content folder next to the manifest.
+- Keep application icons under the 256 KB Configuration Manager limit.
 
 ## [1.5.0.4] - 2026-09-02
 
-### Application Icons
+### Added
 
-- **Get-InstallerIcon** — extracts an application icon from an installer into
-  a MECM-compatible `.ico` or `.png`. PE inputs are read through a new
-  `AppPackager.IconNative` P/Invoke helper (`LoadLibraryExW` with
-  `LOAD_LIBRARY_AS_DATAFILE`, `EnumResourceNamesW`, `FindResourceW`) that
-  parses the first `RT_GROUP_ICON` directory and rebuilds a single-image
-  icon file from the largest `RT_ICON`, so the reported pixel size is the
-  true resource size rather than a shell-scaled handle;
-  `ExtractAssociatedIcon` is the 32px fallback. MSI inputs read the `Icon`
-  table, preferring the stream named by `ARPPRODUCTICON`, and fall back to
-  the PE reader when the stream holds an executable. Returns `$null` when no
-  icon exists. PNG-compressed 256px frames are copied out verbatim because
-  `System.Drawing.Icon` cannot decode them. `Add-Type` is guarded on the
-  AppDomain type, not script scope, since a `-Force` reimport resets one and
-  not the other.
-- **Icon quality gate** — icons whose largest image is under 32px are
-  rejected. Generic NSIS/Inno setup stubs carry 16/32px only and cannot be
-  told apart from real icons by content, so the size floor plus the
-  per-packager `IconSource` opt-in is the control.
-- **IconSource header tag** — `Installer` extracts from the staged payload
-  into the version folder as `app-icon.ico`, `External` copies
-  `Packagers\Icons\<packagername>.ico|.png`, `None` or absent is a no-op.
-  Declared on `package-dbeaver.ps1` only.
-- **Add-StageIcon** — called from `Write-StageManifest` before the file
-  hashes are computed, so the icon is covered by stage integrity like any
-  other payload file. The packager script is resolved from the call stack,
-  leaving all 284 packagers' `Write-StageManifest` calls unchanged. Records
-  `Icon` in the stage manifest and never throws.
-- **Set-CMApplicationIconFromManifest** — applies the manifest's icon via
-  `Set-CMApplication -IconLocationFile` after application creation in
-  `New-MECMApplicationFromManifest`, covering the single- and
-  multi-deployment-type paths. Warns on failure, never fails the run.
-- **Get-IconMimeContent** — builds the Graph `mimeContent` (`type` plus
-  base64 `value`) for `Publish-IntuneWin32App` to set `largeIcon` on the
-  `win32LobApp` body. New optional `-IconPath` parameter; without it the
-  icon is resolved from the manifest's `Icon` name beside the `.intunewin`.
-
-Full changelog: CHANGELOG.md
-
-### Bootstrap Installer
-
-- **install.ps1** — new repo-root bootstrapper. Resolves a release from the
-  GitHub releases API (latest, or a pinned `-Version`), downloads the
-  `AppPackager-<version>.zip` asset, verifies its SHA-256 against the
-  release's `checksums.txt`, and extracts to `-InstallPath`
-  (`%LOCALAPPDATA%\AppPackager` by default). `Invoke-WebRequest` +
-  `Expand-Archive` throughout, so no extracted file carries the
-  Mark-of-the-Web; a defensive `Unblock-File` sweep covers proxy-rewritten
-  downloads. Parameterless defaults make it safe under `irm <url> | iex`,
-  and dot-sourcing loads the helpers without installing.
-- **Get-PreservedStateFile** — update path enumerates the user state kept
-  inside the application folder using the same rule `.gitignore` applies to
-  the release zip (every `*.json`, plus `Logs`), backs it up, replaces the
-  folder, and restores it. Covers `AppPackager.preferences.json`,
-  `AppPackager.windowstate.json`, `Packagers/packager-preferences.json`,
-  `citrix-workspace-switches.json`, `teamviewer-host-config.json`, and
-  `condition-templates.json`. Files dropped by a release no longer linger.
-- **Test-AppPackagerFolder** — a non-empty target with no
-  `start-apppackager.ps1` in it is refused unless `-Force` is passed.
-
-### Update Detection
-
-- **Get-AppVersion** — parses `Version :` out of the script header comment,
-  making the header the single source of truth for the running version.
-- **Start-UpdateCheck** — launch-time check on its own MTA runspace with a
-  `DispatcherTimer` drain, throttled to once per 24 hours through
-  `%LOCALAPPDATA%\AppPackager\update-check.json`. Every failure path is
-  swallowed to a log line; launch is never delayed or blocked. Within the
-  throttle window the cached result still drives the indicator.
-- **Test-UpdateCheckDue / Test-UpdateAvailable / ConvertFrom-ReleaseTag** —
-  pure decision functions. A future-dated cache counts as stale, an
-  unparseable version on either side makes no claim, and a non-numeric tag
-  is rejected rather than compared.
-- **Sidebar update indicator** — an `Update available: vX.Y.Z.W` hyperlink
-  opening the release page, plus an **Update now** button that runs
-  `install.ps1 -InstallPath <current folder>` from a detached child process
-  that waits on the PID (`Wait-Process -Timeout 120`), then relaunches
-  `start-apppackager.ps1`. Themed confirmation names the target folder and
-  states that preferences, window state, and logs survive.
-
-### About Panel
-
-- **New-AboutPanel** — sixth Options left-nav entry: name, version, MIT
-  license, clickable repository link, last-check timestamp, latest known
-  release, and the same `Invoke-SelfUpdate` action as the sidebar (single
-  code path, disabled until a check finds a newer release) alongside a
-  Release notes button.
-- **txtAppVersion** — dimmed `v<version>` under the sidebar theme toggles,
-  and the version appended to the window title, so the installed build is
-  readable without opening Options.
+- Extract application icons from installers and apply them in MECM and Intune.
+- Add a bootstrap installer that downloads, verifies and extracts a release.
+- Preserve preferences, window state and logs across updates.
+- Check for updates at launch and offer Update now in the sidebar.
+- Add an About panel with version, license and release links.
 
 ## [1.5.0.3] - 2026-09-02
 
 ### Changed
 
-- **package-dbeaver** — Disable AI now sets DBeaver's documented
-  `DBEAVER_AI_DISABLED=true` environment variable (Machine scope for a
-  system install, User scope for a user install) instead of appending
-  `-Dai.disabled=true` to `dbeaver.ini`. The variable survives upgrades —
-  the installer replaces `dbeaver.ini` on every run — and setting it is
-  naturally idempotent, removing the append/dedupe logic entirely. Per
-  vendor documentation the permanent disable cannot be re-enabled from
-  Preferences; clearing it means removing the variable.
+- Disable DBeaver AI through its environment variable instead of editing its configuration file.
 
 ## [1.5.0.2] - 2026-09-02
 
 ### Fixed
 
-- **Mark-of-the-Web no longer fails runs with misleading errors.** Files
-  extracted from a downloaded zip carry the downloaded-file block; module
-  imports in packager child processes then failed non-terminating while the
-  script kept running, so the failure surfaced as an unrelated
-  unknown-command error mid-stage (observed live: a clean extract at a
-  work site reported a stage-manifest command as not recognized). Three
-  layers now catch it at the source: the GUI scans the application folder
-  for blocked files at launch and offers a one-click Unblock All (with the
-  manual `Unblock-File` command logged when declined); `AppPackagerCommon`
-  makes its SuiteCommon core import terminating and rethrows with a plain
-  message naming the Mark-of-the-Web and the unblock command; and all 284
-  packagers import the common module with `-ErrorAction Stop`, so a failed
-  import stops the run at the import line with the real cause instead of
-  dying later on a missing function.
+- Report blocked files after a zip extract and offer to unblock them.
+- Stop a failed module import from surfacing as an unrelated error.
 
 ## [1.5.0.1] - 2026-09-02
 
-### Packager Preferences
+### Added
 
-- **DBeaver Community** — new Options group with an Install Scope dropdown
-  (System / User) and a Disable AI features checkbox, persisted to
-  `packager-preferences.json` under `DBeaverInstallOptions` and read by
-  `package-dbeaver.ps1` at Stage. Same `addLabelRow` / `addCheckBox` styling,
-  tooltips, and commit path as the SSMS and TeamViewer Host groups.
-  `Read-Preferences` validates `InstallScope` against `System`/`User` and
-  coerces `DisableAI`, so older preference files load unchanged.
-
-### Packagers
-
-- **package-dbeaver** — `-InstallScope` (`System`/`User`) and `-DisableAI`
-  parameters override the stored preferences; omitting them keeps the stored
-  values. User scope generates `/S /currentuser` install args, a
-  `%LOCALAPPDATA%\DBeaver\Uninstall.exe /currentuser /S` uninstall wrapper, and
-  a `%LOCALAPPDATA%\DBeaver` detection path in the stage manifest.
-  `InstallScope` and `DisableAI` are recorded on the manifest. System scope
-  emits the same `/allusers /S` command line as before.
-- **package-dbeaver** — `DisableAI` appends `-Dai.disabled=true` to the
-  installed `dbeaver.ini` after a zero exit code. The append is idempotent, is
-  placed after the `-vmargs` marker, and re-applies on reinstall because the
-  NSIS installer replaces `dbeaver.ini` and leaves a `dbeaver.ini.bak`.
-- **package-dbeaver** — uninstall wrappers now resolve the install root from
-  `$env:ProgramFiles` / `$env:LOCALAPPDATA` and target `Uninstall.exe`, matching
-  the casing the installer writes.
-
-### Verified
-
-- Per-user install/uninstall of 26.2.0 exercised end-to-end on a scratch
-  DownloadRoot: `/S /currentuser` completes silently with exit 0, installs to
-  `%LOCALAPPDATA%\DBeaver`, registers `DBeaver 26.2.0 (current user)` in
-  `HKCU` ARP, and reports `dbeaver.exe` file version `26.2.0.0`. The generated
-  uninstall wrapper exits 0 and removes `dbeaver.exe` and the ARP entry.
-
-Full changelog: CHANGELOG.md
+- Add DBeaver install scope and Disable AI options.
+- Install DBeaver per user with matching uninstall and detection.
 
 ## [1.5.0.0] - 2026-09-01
 
 ### Added
 
-- **First-run setup wizard**: a themed modal Setup window opens after the
-  main window loads when no preferences file exists. Step one picks the
-  environment (MECM only / MECM + Intune / Intune only), mapping to the
-  existing `DeploymentTarget` values; step two shows only the fields that
-  target needs — Site Code, Provider Machine, File Share Root, and Download
-  Root for MECM, Tenant ID, Client ID, and Client Secret for Intune, with
-  the secret DPAPI-protected and an empty box keeping the saved one. Save
-  writes through `Save-Preferences` and sets `PublishToIntune` from the
-  target exactly as the Options window does, then refreshes the grid — no
-  restart. A "Don't show this again" checkbox suppresses the wizard without
-  configuring anything; Skip or closing without it leaves the wizard due
-  next launch. Preference files written before the flag existed are stamped
-  `FirstRunCompleted` on load, so upgrading users never see it.
-- **Deployment-target-aware sidebar**: `Update-SidebarForDeploymentTarget`
-  applies the target to the sidebar from one place — at launch, after the
-  Options window OK, and after the wizard saves — and the decision itself
-  sits in the WPF-free `Get-SidebarTargetState`. With target `IntuneOnly`,
-  Check MECM is disabled (not hidden) with a tooltip naming the missing
-  ConfigMgr site, Package Apps reads Publish Apps with a matching tooltip,
-  and the One Click MECM pre-flight version query is skipped before it can
-  open a provider connection, logging the skip per app. `MECM` and
-  `MECMAndIntune` are unchanged.
+- Open a first-run setup wizard for the deployment target and its settings.
+- Adapt the sidebar to the deployment target.
 
 ### Fixed
 
-- Intune-only runs no longer trip the MECM gates: the Package/Publish and
-  One Click click handlers required the ConfigMgr Console, SiteCode, and
-  File Share Root regardless of Deployment Target, so target `IntuneOnly`
-  could never start a run on a console-less workstation. Those gates now
-  apply only to MECM targets; an Intune-only Publish instead requires the
-  Intune credentials to be configured and says so.
+- Start Intune-only runs without a ConfigMgr console, site code or share.
 
 ## [1.4.0.24] - 2026-09-01
 
 ### Added
 
-- **Eleven new packagers (273 → 284), Enterprise App Catalog parity
-  wave 8 — final wave**: Yubico PIV Tool, YubiKey Manager CLI, Zeal,
-  Zotero, Zulip Desktop, and the Azul Zulu family (JDK 8/11/17 and
-  JRE 8/11/17 via the Azul metadata API). All stage-verified with
-  installer magic checks.
-- **Enterprise App Catalog parity effort complete.** All 933 catalog
-  entries are dispositioned in CATALOG-PARITY.csv: 176 ported across
-  releases 1.4.0.16–1.4.0.24, 60 already supported, and 697 skipped with
-  reasons (niche, splinter packages, licensed suites, managed agents,
-  EOL, components, or download walls — each with evidence).
-
-### Changed
-
-- CATALOG-PARITY.csv wave 8 verdicts: final 11 rows to Added-1.4.0.24;
-  no Add rows remain.
+- Add Yubico PIV Tool, YubiKey Manager CLI, Zeal, Zotero and Zulip Desktop.
+- Add Azul Zulu JDK and JRE 8, 11 and 17 (catalog at 284).
 
 ## [1.4.0.23] - 2026-09-01
 
 ### Added
 
-- **Twenty-four new packagers (249 → 273), Enterprise App Catalog parity
-  wave 7**: Synology Drive Client, SmarTTY, Tabular Editor 2, Tailscale,
-  TeamSpeak 3 client (TS6 is beta-only), TeraCopy, Bulk Rename Utility,
-  Thonny, TightVNC, TortoiseHg, TurboVNC, Typora, UltiMaker Cura,
-  UltraVNC, Unity Hub, UrBackup Client, Vagrant, VeraCrypt, Omnissa
-  Horizon Client (anonymous download confirmed; version resolved via the
-  Customer Connect API with SHA256 verification), VSCodium, WebStorm,
-  WireGuard, XnView MP, Yubico Authenticator. All stage-verified with
-  installer magic checks. Both VNC servers install without password
-  configuration by design — MECM command lines are readable from content;
-  configure authentication in a separate step before exposing them.
-
-### Changed
-
-- CATALOG-PARITY.csv wave 7 verdicts: 24 rows to Added-1.4.0.23; VariCAD
-  Viewer to Skip-Wall (unversioned network-installer stub only).
+- Add Synology Drive Client, SmarTTY, Tabular Editor 2, Tailscale, TeamSpeak 3 and TeraCopy.
+- Add Bulk Rename Utility, Thonny, TightVNC, TortoiseHg, TurboVNC, Typora and UltiMaker Cura.
+- Add UltraVNC, Unity Hub, UrBackup Client, Vagrant, VeraCrypt and Omnissa Horizon Client.
+- Add VSCodium, WebStorm, WireGuard, XnView MP and Yubico Authenticator (catalog at 273).
 
 ## [1.4.0.22] - 2026-08-31
 
 ### Added
 
-- **Twenty-three new packagers (226 → 249), Enterprise App Catalog parity
-  wave 6**: PeaZip, PicPick (free edition is personal-use only — noted in
-  the script), Pidgin, Proton VPN, PSPad, QGIS and QGIS LTR (separate
-  coexisting applications), Rainmeter, Rancher Desktop, Raspberry Pi
-  Imager, RenderDoc, Rocket.Chat, RustDesk (remote-access deployment
-  considerations noted in the header), RVTools, Salesforce CLI,
-  ScreenToGif, SharePoint Online Management Shell, Shotcut, Simplenote,
-  SMath Studio, Softerra LDAP Browser, Stellarium, SyncBackFree. All
-  stage-verified with installer magic checks.
-
-### Changed
-
-- CATALOG-PARITY.csv wave 6 verdicts: 23 rows to Added-1.4.0.22; Power BI
-  ALM Toolkit and doPDF to Skip-Wall with evidence.
+- Add PeaZip, PicPick, Pidgin, Proton VPN, PSPad, QGIS, QGIS LTR and Rainmeter.
+- Add Rancher Desktop, Raspberry Pi Imager, RenderDoc, Rocket.Chat, RustDesk and RVTools.
+- Add Salesforce CLI, ScreenToGif, SharePoint Online Management Shell, Shotcut and Simplenote.
+- Add SMath Studio, Softerra LDAP Browser, Stellarium and SyncBackFree (catalog at 249).
 
 ## [1.4.0.21] - 2026-08-31
 
 ### Added
 
-- **Twenty-three new packagers (203 → 226), Enterprise App Catalog parity
-  wave 5**: NetLogo, NETworkManager, Nextcloud desktop, NoMachine, NVDA,
-  Obsidian, ocenaudio, Oh My Posh (first MSIX packager — device-wide
-  provisioned package), OpenShot, OpenVPN, OpenWebStart, MySQL
-  Connector/NET, OrcaSlicer, ownCloud desktop, Pandoc, Parallels Client,
-  Password Safe, Path Copy Copy, PDF Studio Viewer, PDF24 Creator,
-  PDFCreator (installed with /COMPONENTS=none to exclude the bundled
-  PDF Architect offer), PDFgear, PDFsam Basic. All stage-verified with
-  installer magic checks.
+- Add NetLogo, NETworkManager, Nextcloud, NoMachine, NVDA, Obsidian, ocenaudio and Oh My Posh.
+- Add OpenShot, OpenVPN, OpenWebStart, MySQL Connector/NET, OrcaSlicer, ownCloud and Pandoc.
+- Add Parallels Client, Password Safe, Path Copy Copy, PDF Studio Viewer and PDF24 Creator.
+- Add PDFCreator, PDFgear and PDFsam Basic (catalog at 226).
 
 ### Fixed
 
-- MSIX wrapper uninstall scripts from `New-MsixWrapperContent` referenced
-  `[System.IO.Compression.ZipFile]` without loading the assembly and
-  failed when the staged MSIX was missing; both uninstall bodies now load
-  the compression assemblies and exit 0 when the package file is absent.
-
-### Changed
-
-- CATALOG-PARITY.csv wave 5 verdicts: 23 rows to Added-1.4.0.21; OpenLens
-  to Skip-EOL (dead since 2023); PaperCut Mobility Print to
-  Skip-Component (client is generated per-site by the customer's server).
+- Load the compression assembly in MSIX uninstall wrappers.
 
 ## [1.4.0.20] - 2026-08-31
 
 ### Added
 
-- **Twenty new packagers (183 → 203), Enterprise App Catalog parity
-  wave 4**: Calibre, Kreya, Krita, Liberica JDK 21, MariaDB Server (12.3
-  LTS), Mattermost Desktop, Azure CLI, Azure PowerShell, Azure Storage
-  Explorer, SQL Server 2022 Express (self-contained Express Core media,
-  extract-and-setup wrappers), Windows Admin Center v2, Windows ADK for
-  Windows 11 and the Windows PE add-on (full offline /layout staging),
-  MongoDB Compass, Firefox ESR, Intune Debug Toolkit, MuseScore Studio 4,
-  Nagstamon, NAPS2, NetBird. All stage-verified with installer magic
-  checks. WinPE add-on must be deployed as a dependency of the ADK
-  application; Firefox ESR and rapid channel share an install path — do
-  not target one collection with both.
-
-### Changed
-
-- CATALOG-PARITY.csv wave 4 verdicts: 20 rows to Added-1.4.0.20; KNIME
-  (7-Zip SFX, no silent per-machine install), Lens Desktop (per-user
-  rolling channel), Mendeley (per-user only) to Skip-Wall; legacy
-  Microsoft LAPS and Azure Data CLI (both deprecated) to Skip-EOL.
+- Add Calibre, Kreya, Krita, Liberica JDK 21, MariaDB Server and Mattermost Desktop.
+- Add Azure CLI, Azure PowerShell, Azure Storage Explorer and SQL Server 2022 Express.
+- Add Windows Admin Center, Windows ADK, Windows PE add-on, MongoDB Compass and Firefox ESR.
+- Add Intune Debug Toolkit, MuseScore Studio 4, Nagstamon, NAPS2 and NetBird (catalog at 203).
 
 ## [1.4.0.19] - 2026-08-31
 
 ### Added
 
-- **Twenty-five new packagers (158 → 183), Enterprise App Catalog parity
-  wave 3**: Chrome Remote Desktop Host, Google Credential Provider for
-  Windows, Google Drive for desktop, Go, Graphviz, grepWin, gsudo,
-  HandBrake, HashTools, HeidiSQL, HWMonitor, IAP Desktop, IBM Aspera
-  Connect, IBM Semeru JDK 8/11/17 and JRE 8/11/17, ImageGlass, IrfanView,
-  Joplin, KDiff3, KeePassXC, KeyStore Explorer. All stage-verified with
-  installer magic checks before staging. HandBrake requires the .NET
-  Desktop Runtime as a dependency; GCPW requires the domains-allowed
-  policy delivered separately.
-
-### Changed
-
-- CATALOG-PARITY.csv updated with wave 3 verdicts (25 rows to
-  Added-1.4.0.19); README table and count updated to 183.
+- Add Chrome Remote Desktop Host, Google Credential Provider, Google Drive, Go, Graphviz and grepWin.
+- Add gsudo, HandBrake, HashTools, HeidiSQL, HWMonitor, IAP Desktop and IBM Aspera Connect.
+- Add IBM Semeru JDK and JRE 8, 11 and 17, ImageGlass and IrfanView.
+- Add Joplin, KDiff3, KeePassXC and KeyStore Explorer (catalog at 183).
 
 ## [1.4.0.18] - 2026-08-31
 
 ### Added
 
-- **Twenty-five new packagers (133 → 158), Enterprise App Catalog parity
-  wave 2**: Clockify, CloudCompare, Cloudflare WARP, CMake, CodeMeter
-  Runtime Kit, Colour Contrast Analyser, Cryptomator, Cyberduck,
-  DataGrip, DAX Studio, DB Browser for SQLite, DbVisualizer, Defraggler,
-  Dell Command Update (resolved from the Dell client catalog cab),
-  Devolutions Remote Desktop Manager, DisplayLink Graphics, dnGREP,
-  Draftable Desktop, Duo Desktop, FreeCAD, GeoGebra Classic, Gephi,
-  GitHub CLI, GoLand, and Gpg4win (substituted for GnuPG VS-Desktop,
-  which is contract-only with no public download). All stage-verified
-  with installer magic checks before staging.
+- Add Clockify, CloudCompare, Cloudflare WARP, CMake, CodeMeter Runtime Kit and Colour Contrast Analyser.
+- Add Cryptomator, Cyberduck, DataGrip, DAX Studio, DB Browser for SQLite, DbVisualizer and Defraggler.
+- Add Dell Command Update, Devolutions Remote Desktop Manager, DisplayLink Graphics, dnGREP and Draftable Desktop.
+- Add Duo Desktop, FreeCAD, GeoGebra Classic, Gephi, GitHub CLI, GoLand and Gpg4win (catalog at 158).
 
 ### Changed
 
-- README supported-applications table regenerated from packager headers;
-  it now lists all 158 packagers (61 rows had gone stale across prior
-  waves).
-- CATALOG-PARITY.csv updated with wave 2 verdicts (24 rows plus Gpg4win
-  to Added-1.4.0.18; GnuPG VS-Desktop to Skip-Wall with evidence).
+- Regenerate the README application table from the packager headers.
 
 ## [1.4.0.17] - 2026-08-31
 
 ### Fixed
 
-- **Spectra PDF packager pointed at the wrong repository**: acquisition
-  now targets `jasonulbright/spectra-pdf` (current releases, 1.1.20)
-  instead of the archived legacy `spectrapdf` repository (stale 0.9.0).
-  Stage phase re-verified against 1.1.20.
+- Point the Spectra PDF packager at the current repository.
 
 ## [1.4.0.16] - 2026-08-31
 
 ### Added
 
-- **Twenty-five new packagers (108 → 133), Enterprise App Catalog parity
-  wave 1**: Agent Ransack, AIMP, AWS CLI v2, AWS Tools for Windows, AWS
-  VPN Client, Amazon DCV Client, Amazon Redshift ODBC driver, Amazon
-  WorkSpaces, Android Studio, AnyBurn, Arduino IDE, AWS SAM CLI, AWS
-  Session Manager Plugin, AxCrypt, Azure Functions Core Tools, Bambu
-  Studio, BleachBit, Blender, Box Drive, Bulk Crap Uninstaller, BurnAware
-  Free, Calibrite Profiler, Certify The Web, Chef Workstation — and
-  Spectra PDF, the first-party PDF application (released via GitHub;
-  acquisition through the authenticated gh CLI). All stage-verified with
-  populated detection; payload magic checks (MZ/OLE) throughout so an
-  HTML-answering endpoint can never stage as an installer.
-- **CATALOG-PARITY.csv**: all 933 Enterprise App Catalog entries plus
-  Spectra PDF dispositioned with reasons (supported / added / splinter /
-  EOL / wall / licensed / tenant-agent / niche / component). Burp Suite
-  Community moved to walled during this wave — PortSwigger gated
-  anonymous downloads as of 2026.4 (verified).
+- Add Agent Ransack, AIMP, AWS CLI v2, AWS Tools for Windows and AWS VPN Client.
+- Add Amazon DCV Client, Amazon Redshift ODBC driver, Amazon WorkSpaces, Android Studio and AnyBurn.
+- Add Arduino IDE, AWS SAM CLI, AWS Session Manager Plugin, AxCrypt, Azure Functions Core Tools.
+- Add Bambu Studio, BleachBit, Blender, Box Drive, Bulk Crap Uninstaller and BurnAware Free.
+- Add Calibrite Profiler, Certify The Web, Chef Workstation and Spectra PDF (catalog at 133).
+- Verify downloaded installers carry an installer signature before staging.
 
 ## [1.4.0.15] - 2026-08-31
 
 ### Added
 
-- **Sixteen new packagers** (91 → 108, from the validated packr
-  definition set): Anaconda, AnyDesk, Brave, CCleaner, Citrix Workspace
-  Current Release, CPU-Z, CutePDF Writer, Greenshot, Opera, pgAdmin 4,
-  PyCharm, Slack, TreeSize Free, XenCenter, XenServer VM Tools, and
-  Zoom Workplace. All parse clean, resolve versions, and stage with
-  populated detection; Greenshot and Zoom Workplace are additionally
-  end-to-end validated against MECM. The Citrix Workspace CR packager
-  honors the switches configured in `citrix-workspace-switches.json`.
-  Notes: Slack currently resolves its version but Slack has stopped
-  publishing the advertised MSI (their API's own download link 404s) —
-  the packager prefers the API's URL and self-corrects when the MSI
-  returns; several EXE packagers verify the downloaded payload starts
-  with an MZ header so a vendor page returned with HTTP 200 can never
-  stage as an installer (found live with CPU-Z's interstitial).
-  Not ported by design: Tableau and VMware Tools (vendor login/EULA
-  walls), WizTree (direct link now walled), Obsidian (release asset
-  drift), FileZilla and Foxit Reader (installer behavior).
+- Add Anaconda, AnyDesk, Brave, CCleaner, Citrix Workspace Current Release, CPU-Z and CutePDF Writer.
+- Add Greenshot, Opera, pgAdmin 4, PyCharm, Slack, TreeSize Free and XenCenter.
+- Add XenServer VM Tools and Zoom Workplace (catalog at 108).
 
 ## [1.4.0.14] - 2026-08-31
 
 ### Added
 
-- **Intune-only deployment target.** The publish toggle becomes a
-  three-way Deployment Target: `MECM only`, `MECM + Intune`, and
-  `Intune only`. In Intune-only mode, Package runs the packager's Stage
-  phase (no site connection, no file share, no MECM application),
-  builds the `.intunewin` from the staged content, and publishes to
-  Intune via Graph — a ConfigMgr console is not required. The network
-  copy and its integrity verification are skipped (stage integrity is
-  still verified when the manifest is written), and missing Intune
-  credentials surface as a clear log note instead of a half-finished
-  run. Pre-1.4.0.14 preferences with the publish toggle on migrate to
-  `MECM + Intune`. MECM-specific features (deployment conditions,
-  variant splits, auto-distribute, test deployment) do not apply in
-  Intune-only mode.
+- Add an Intune-only deployment target that stages, builds and publishes without MECM.
 
 ## [1.4.0.13] - 2026-08-28
 
 ### Added
 
-- **Intune publishing wired into the app.** MECM Preferences gains
-  Intune Tenant ID, Client ID, Client Secret (stored DPAPI-protected
-  for the current Windows user; an empty field keeps the saved secret),
-  and a "Publish to Intune after Package" toggle. With .intunewin
-  creation and publishing both enabled, a successful Package publishes
-  the app to Intune via Graph; repeat runs update the existing app
-  (new content version on the same app identity) instead of creating
-  duplicates. Variant-split apps skip publishing with a note — Intune
-  carries one payload per app. The publish outcome surfaces in the run
-  log next to the Intunewin note. The MECM Preferences panel now
-  scrolls. `AppPackagerCommon` 0.0.21. Everything is built and
-  unit-tested; first live tenant validation stamps the 1.5.0 line.
+- Publish to Intune after Package with tenant credentials stored in Options.
 
 ## [1.4.0.12] - 2026-08-28
 
 ### Added
 
-- **Intune Win32 publishing (common layer).** `AppPackagerCommon` 0.0.20
-  adds `Publish-IntuneWin32App`: the complete Graph v1.0 flow that turns
-  a packaged `.intunewin` into an Intune Win32 app — app creation with
-  commands and detection rules mapped from the stage manifest, content
-  version and file registration, chunked block-blob upload of the
-  encrypted payload, commit with the package's file encryption info, and
-  the committed-version patch. Supporting functions:
-  `Get-IntuneWinEncryptionInfo` (reads Detection.xml from the package),
-  `Export-IntuneWinPayload`, `Get-MsGraphToken` (client credentials),
-  `Invoke-GraphJson`, `Invoke-AzureBlobUpload`, and
-  `ConvertTo-IntuneWin32Rules` (registry/file/script detection mapping;
-  OR-connected compound detections are refused rather than silently
-  narrowed — use Script detection for those apps). Requires an Entra app
-  registration with `DeviceManagementApps.ReadWrite.All`. Assignment
-  stays with the operator in the Intune console. All request and
-  resource shapes follow the documented Graph v1.0 contracts; live
-  tenant validation and GUI integration follow in the 1.5.0 line.
+- Publish .intunewin packages to Intune through Microsoft Graph.
 
 ## [1.4.0.11] - 2026-08-28
 
 ### Added
 
-- **Override record in the stage manifest.** A build staged while
-  command overrides are active records them in a `CommandOverrides`
-  manifest field, so a package built with custom switches is
-  distinguishable from a stock build. Stock builds write no field.
-  `AppPackagerCommon` 0.0.19.
+- Record active command overrides in the stage manifest.
 
 ## [1.4.0.10] - 2026-08-28
 
 ### Added
 
-- **Command override editor.** The Deployment Conditions grid gains a
-  Commands column: the button reads Default or Modified per app and
-  opens a themed editor with the install and uninstall command fields
-  (watermarked with the shipped defaults), Save, Cancel, and a
-  one-click Revert to default. Edits persist through the panel's OK to
-  `CommandOverrides.Apps` in `AppPackager.preferences.json` and apply
-  on the next Package run via the 1.4.0.9 plumbing.
+- Edit install and uninstall command overrides per app in Deployment Conditions.
 
 ## [1.4.0.9] - 2026-08-28
 
 ### Added
 
-- **Per-app command overrides (plumbing).** Preferences gain a
-  `CommandOverrides.Apps.<packager>` section with `Install` and
-  `Uninstall` command replacements. Overrides reach the packager child
-  as `APP_PACKAGER_COMMANDS` JSON on every Package path and the common
-  layer swaps them onto the deployment type at creation, logging both
-  the override and the values. A multi-deployment-type manifest refuses
-  the flat override with a warning (variants carry their own commands).
-  Empty or absent entries change nothing. `AppPackagerCommon` 0.0.18
-  adds `Get-RequestedCommandOverrides`. The editor UI arrives in the
-  next increment; until then the section is hand-editable in
-  `AppPackager.preferences.json`.
+- Apply per-app install and uninstall command overrides at package time.
 
 ## [1.4.0.8] - 2026-08-27
 
 ### Added
 
-- **Network split for the remaining M365 SKUs.** The x86 Apps, Project
-  (x64/x86), and Visio (x64/x86) packagers gain the same Network split
-  shipped for Apps x64 in 1.4.0.7: Online deployment type gated to VPN
-  with existence detection, Managed precached fallback, per-SKU
-  detection executables and 32/64-bit registry views.
+- Extend the Network split to the remaining M365 Apps, Project and Visio packagers.
 
 ## [1.4.0.7] - 2026-08-27
 
 ### Added
 
-- **M365 Apps (x64) network split.** With the Network split selected,
-  one application carries both deploy modes: an Online (CDN-direct)
-  deployment type gated to VPN-connected machines with existence-only
-  detection, and the Managed (version-pinned, precached) deployment
-  type as the unconditional on-site fallback. The Managed payload
-  stages at the content root, the Online payload under `online\`. The
-  M365DeployMode choice is ignored with a logged warning when the
-  split is active — the split stages both. The split app is named
-  `M365 Apps for Enterprise (x64) (<channel>)`. The other five M365
-  SKU packagers keep single-mode behavior for now.
+- Split M365 Apps x64 into Online and Managed deployment types by network.
 
 ## [1.4.0.6] - 2026-08-27
 
 ### Added
 
-- **Firefox language split.** With the Language split selected and
-  culture codes entered in OS languages, Firefox stages one MSI per
-  language (Mozilla locale resolved from the culture code, falling back
-  to the primary subtag: de-DE finds de) plus the en-US payload as the
-  unconditional fallback. Each language's deployment type is gated to
-  its OS language; the split app is named `Mozilla Firefox (x64)`.
-  A language with no Mozilla installer fails the run instead of
-  packaging without it.
+- Split Firefox into one deployment type per OS language.
 
 ## [1.4.0.5] - 2026-08-27
 
 ### Changed
 
-- **Split apps drop the bitness from their names.** An application whose
-  deployment types cover both architectures no longer carries an
-  architecture marker: the 7-Zip split creates `7-Zip` (instead of the
-  MSI ProductName `7-Zip <version> (x64 edition)`) and the Firefox split
-  creates `Mozilla Firefox (en-US)` (the payload is still en-US only,
-  so the language stays). Chrome's name had no bitness to drop.
-  Single-deployment-type runs keep their existing names, so apps
-  packaged without the split keep upgrading in place. A site that
-  packaged before enabling the split gets the new name as a new
-  application; retire the old-named one after the first split run.
+- Drop the architecture marker from split application names.
 
 ## [1.4.0.4] - 2026-08-27
 
 ### Added
 
-- **Chrome and Firefox ARM64 variant splits.** With the Architecture
-  split selected, Chrome also stages Google's ARM64 enterprise MSI
-  (version-matched against x64, detected on its own ProductCode ARP
-  key) and Firefox stages Mozilla's win64-aarch64 exe installer (same
-  install path, so the existing file detection and helper.exe uninstall
-  carry over). Both network copies are now recursive. Without the
-  split, both packagers behave as before.
+- Stage ARM64 variants of Chrome and Firefox with the Architecture split.
 
 ## [1.4.0.3] - 2026-08-27
 
 ### Added
 
-- **7-Zip: first variant-split consumer.** With the Architecture split
-  selected, the Stage phase also downloads the ARM64 exe installer
-  (version-matched against the staged x64 MSI, or the run fails),
-  stages it under `arm64\` with its own wrappers, and writes a
-  two-entry `DeploymentTypes` manifest: ARM64 gated to ARM64 CPUs
-  (priority 1), x64 gated to x64 (priority 2). The exe variant detects
-  on the exe installer's fixed `Uninstall\7-Zip` ARP key. The Package
-  phase network copy is now recursive so variant subfolders ship.
-  Without the split selected, nothing changes.
+- Stage a 7-Zip ARM64 deployment type with the Architecture split.
 
 ## [1.4.0.2] - 2026-08-27
 
 ### Added
 
-- **Variant split selection (GUI).** Packagers declare stageable
-  variants with a `SupportsVariants:` header tag (comma-separated:
-  `Architecture`, `Language`, `Network`, parsed like the other header
-  tags). The Deployment Conditions grid gains a Variant split column,
-  enabled only for declaring packagers; the selection persists per app
-  under `DeploymentConditions.Apps.<packager>.Split` and reaches the
-  packager child as `APP_PACKAGER_VARIANTS` JSON on every Package path
-  (GUI, One Click, `-BatchMode`). `AppPackagerCommon` 0.0.17 adds
-  `Get-RequestedPackagerVariants` for packagers to consume the request;
-  no packager implements a split yet — those land with the first
-  consumers.
+- Select variant splits per app in the Deployment Conditions grid.
 
 ## [1.4.0.1] - 2026-08-27
 
 ### Added
 
-- **Multi-deployment-type manifests (common layer).** A stage manifest
-  may carry an optional `DeploymentTypes` array; each entry names a
-  variant (`NameSuffix` — the deployment type becomes
-  `<AppName> - <NameSuffix>`), an optional `ContentSubpath` under the
-  network content root, and its own commands, detection, behavior
-  overrides, and `Requirements`. Entries are created in manifest order —
-  CM assigns priority by creation order and installs the first
-  deployment type whose requirements pass — so the most specific variant
-  is listed first and the unconditional fallback (an entry with no
-  `Requirements`) last. On a version replace the whole set is staged,
-  the old set removed, and the staged names promoted. Manifests without
-  the array behave exactly as before. On a multi-DT manifest the
-  `APP_PACKAGER_REQUIREMENTS` environment JSON is ignored with a logged
-  warning: per-entry `Requirements` are authoritative, so an
-  unconditional fallback cannot be gated by accident.
-  `AppPackagerCommon` 0.0.16 adds `Get-ManifestDeploymentTypeSpecs`.
-  No packager or GUI changes; GUI variant selection arrives with a
-  later increment.
+- Support multiple deployment types per application from the stage manifest.
 
 ## [1.4.0.0] - 2026-08-17
 
 ### Added
 
-- **Deployment Conditions.** A fifth Options panel attaches CM
-  requirement rules to the deployment type each Package run creates,
-  per app: architecture (x64 / ARM64 via a WQL global condition on
-  `Win32_Processor.Architecture` — numeric, so culture-invariant and
-  immune to new-OS-release list churn), OS language (culture codes
-  against the site's built-in Operating System Language condition), and
-  network context (VPN only / on-site only via a Boolean script global
-  condition matching configurable VPN adapter description patterns).
-  Requirement rules evaluate on the client at deployment evaluation
-  time — no collections, no collection-evaluation load. Global
-  conditions are created on first use and matched by name, so renaming
-  one in the panel attaches to a condition the site already has.
-  Per-app selections persist to `AppPackager.preferences.json`;
-  condition names and adapter patterns persist to
-  `Packagers/condition-templates.json` with built-in defaults until the
-  panel writes it. Applies to Package, One Click Stage-and-Package, and
-  `-BatchMode` runs.
-- `AppPackagerCommon` 0.0.15: `Get-ConditionTemplates`,
-  `Save-ConditionTemplates`, `New-VpnConditionScriptText`,
-  `Get-OrCreateGlobalConditionFromTemplate`,
-  `Get-DeploymentTypeRequirementSpecs`, and
-  `New-DeploymentTypeRequirementRules`.
-  `New-MECMApplicationFromManifest` consumes requirement specs from a
-  manifest `Requirements` array or the `APP_PACKAGER_REQUIREMENTS`
-  environment JSON the GUI sets per app. Requirement resolution runs
-  before any application or deployment type is created, so a spec that
-  cannot be built fails the run instead of packaging without the
-  operator's rules.
+- Attach architecture, OS language and network requirement rules per app through Deployment Conditions.
 
 ## [1.3.0.0] - 2026-08-17
 
 ### Added
 
-- **Drop-to-package intake.** Drag an `.msi` or `.exe` installer onto the
-  window: the vendored `InstallerAnalysisCommon` module (at
-  `Lib\InstallerAnalysisCommon\`) identifies the installer engine, reads
-  MSI property tables, and predicts silent switches and the ARP uninstall
-  key; an editable preview dialog shows the resulting manifest before
-  anything runs. MSI identity is authoritative and detection uses the
-  ProductCode ARP key. For every other engine the values are predictions
-  and Stage + Package stays disabled until the operator confirms them —
-  Stage alone is always available. Multiple dropped installers queue
-  through one background pipeline run with the usual progress overlay,
-  cancel, and per-item log lines.
-- **Save as Packager.** A drop can graduate into the catalog: the app
-  writes `Packagers/package-<app>.ps1` from the matching template with
-  identity, folder segments, and installer filename filled in. The
-  download-source resolution remains the template's TODO — a dropped
-  file carries no origin URL — and the generated script satisfies grid
-  discovery immediately. Existing packagers are never overwritten.
-- `AppPackagerCommon` 0.0.14: `Get-InstallerAnalysis`, `New-AdHocStage`,
-  `Invoke-AdHocPackage`, `New-PackagerFromDrop`. Ad-hoc staging emits the
-  same schema-v3 `stage-manifest.json` (hashes included) as the packager
-  templates, so `New-MECMApplicationFromManifest` consumes it unchanged.
+- Drop an installer onto the window to analyze, preview and package it.
+- Save a dropped installer as a new packager script.
 
 ## [1.2.0.1] - 2026-08-16
 
 ### Changed
 
-- **Vendored `SuiteCommon` 0.3.2.** Window restore applies the saved
-  geometry before maximizing, so un-maximizing returns to the saved size
-  instead of the XAML defaults.
+- Restore the saved window size before maximizing on launch.
 
 ## [1.2.0.0] - 2026-08-16
 
 ### Changed
 
-- **Shared plumbing now comes from the vendored `SuiteCommon` module**
-  (0.3.0, at `Lib\SuiteCommon\`), joining the rest of the tool suite.
-  `AppPackagerCommon` drops its own logging trio and CM drive mechanics:
-  `Connect-CMSite` stays as a thin wrapper that keeps the app-side
-  provider resolution chain (preferences, the AdminUI connect script,
-  `APP_PACKAGER_CM_PROVIDER`) and its fail-fast guard, then delegates
-  the drive and session work to the shared core with site verification
-  off. `APP_PACKAGER_VERBOSE` bridges to `SUITE_VERBOSE` at import, so
-  existing packager-script habits keep working. The GUI shell drops its
-  title-bar drag block, window-state persistence, button theming, and
-  message dialog for the shared implementations; preferences (nested
-  schema) and the owner-chrome dialog helper stay app-side by design.
-- Behavior gains from the shared layer: title-bar hook state no longer
-  leaks when a window closes, a maximized close persists the
-  pre-maximize geometry instead of full-screen extents, an off-screen
-  saved position is clamped into the nearest monitor instead of
-  discarding the saved size, message-dialog icons render as glyphs, and
-  Escape closes OK-only dialogs.
-- **Pipeline teardown no longer blocks the UI thread.** Canceling an
-  in-flight run and closing the window both used a synchronous
-  `PowerShell.Stop()` / `Runspace.Close()`, which froze for as long as a
-  packager was stuck inside a CM/CIM call; teardown now stops
-  asynchronously into a reaped graveyard and closes the runspace async.
+- Share logging, site connection and window plumbing with the tool suite.
+- Stop pipeline teardown from freezing the window.
 
 ## [1.1.0.7] - 2026-08-14
 
 ### Added
 
-- **Content Layout toggle: nested or flat share folders.** MECM
-  Preferences gains a Content Layout selector: Nested
-  (`Applications\Vendor\App\Version`, the default and unchanged
-  behavior) or Flat (`Applications\Vendor-App-Version`, one folder per
-  package, for org conventions that mandate it). New exported
-  `Get-NetworkContentPath` is the single construction point for both
-  shapes; all 92 packagers plus the PSADT template now call it (their
-  new `-ContentLayout` parameter defaults to Nested, so CLI behavior is
-  identical unless asked). The GUI passes the preference through
-  Package, One Click, and -BatchMode runs, and the two path-
-  reconstructing fallbacks (package-integrity verification and the
-  .intunewin post-step) are layout-aware. Existing content is never
-  moved; the choice applies to future Package runs. Deliberately a
-  binary toggle rather than a free-form pattern: two enumerable layouts
-  keep every path-touching feature testable against both. Idea credit:
-  stephannn (PR #2), reshaped.
+- Choose nested or flat share folder layout in MECM Preferences.
 
 ## [1.1.0.6] - 2026-08-14
 
 ### Added
 
-- **PSADT support finished.** The `package-psadt.ps1.template` skeleton
-  (previously TODO-throws in every phase) is now a functional packager for
-  the wrap-a-wrap case: point it at an existing per-app PSADT folder, fill
-  the identity and detection markers, and it stages the full toolkit tree
-  as versioned content with SHA256 hashes over every file — subfolders
-  included, so package integrity verification covers the toolkit with no
-  `-AllowExtra` weakening. New exported `Test-PsadtLayout` detects v3
-  (`Deploy-Application.exe`) vs v4 (`Invoke-AppDeployToolkit.exe`, with a
-  `powershell.exe -File` fallback when the launcher exe is absent) and
-  builds the deployment type command lines, validated against the
-  PSAppDeployToolkit documentation. The stage manifest gains optional
-  `InstallCommandLine` / `UninstallCommandLine` fields that
-  `New-MECMApplicationFromManifest` honors over the generated .bat
-  wrappers — a general mechanism, PSADT is just its first consumer.
-  `DeployMode` stays with the toolkit by default (interactive
-  close-app/defer when a user session exists); `-DeployMode Silent`
-  forces quiet. Toolkit versions are pinned per app in the source folder.
-  Prompted by stephannn's PR #2; implemented per-app instead of global
-  injection so integrity verification and version pinning survive.
+- Package existing PSADT folders as versioned content with verified hashes.
 
 ## [1.1.0.5] - 2026-08-14
 
 ### Changed
 
-- **Non-admin packaging: local-administrator gates removed from every
-  packager.** The `Test-IsAdmin` exit-gate dated from the temp-install
-  ARP-derivation era; no shipped packager installs anything during Stage
-  anymore (`Find-UninstallEntry` has zero callers, and every msiexec
-  reference lives in generated endpoint wrapper content). Stage reads
-  installer metadata via COM and writes only user-writable paths; Package
-  needs network-share ACLs and CM RBAC, neither of which is local
-  elevation. Removed 186 gate blocks and the "Local administrator"
-  requirement line across 94 packagers/templates, so packaging runs from
-  a standard user account — no admin accounts needed in CM RBAC roles or
-  content-share ACLs. `Test-IsAdmin` stays exported for future packagers
-  whose Stage provably needs elevation; `Samples/AUTHORING.md` documents
-  the new house rule. Idea credit: stephannn (PR #2).
+- Package from a standard user account; local administrator gates removed.
 
 ## [1.1.0.4] - 2026-08-14
 
 ### Added
 
-- **Invoke-WebRequest fallback for downloads.** `Invoke-DownloadWithRetry`
-  keeps in-box curl.exe primary — the Schannel build trusts the Windows
-  certificate store and negotiates modern TLS independent of per-machine
-  .NET registry state — and falls back to `Invoke-WebRequest` when curl
-  fails, covering networks that force a WinINET-configured proxy curl
-  cannot see. The fallback sends default credentials to the system proxy
-  (Kerberos/NTLM auth), uses `-UseBasicParsing`, suppresses the 5.1
-  progress bar that throttles large downloads, and deletes partial files
-  between methods and attempts so torn content can never pass integrity
-  verification. Scraping/URL-resolution calls are unchanged. Idea credit:
-  stephannn (PR #2).
+- Fall back to Invoke-WebRequest when curl.exe cannot download.
 
 ## [1.1.0.3] - 2026-08-14
 
 ### Changed
 
-- **dotnet8 / dotnet10both detection accepts the successor patch.** In-place
-  runtime upgrades replace `dotnet\host\fxr\<version>`, flipping the prior
-  month's app to not-installed and making its still-active deployment
-  reinstall over the new runtime — previously managed with supersedence.
-  Detection is now `(x86-N AND x64-N) OR (x86-N+1 AND x64-N+1)`, where N+1
-  is the packaged version with its patch component incremented
-  (`Get-NextPatchVersion`, new exported helper; falls back to
-  single-version detection with a warning for non-numeric components such
-  as previews). The manifest schema gains `Detection.GroupSizes` — exactly
-  two contiguous clause runs; `New-MECMApplicationFromManifest` passes the
-  second run to `-GroupDetectionClauses` with an `OR` connector on its
-  first clause, and the cmdlet's left-associative expression build
-  parenthesizes the first run, yielding the grouped OR without
-  supersedence management between consecutive monthly packages.
+- Detect .NET 8 and 10 runtimes by the current or successor patch version.
 
 ### Removed
 
-- **`package-dotnet10x64.ps1`.** Obsolete; the dual-bitness
-  `package-dotnet10both.ps1` is the only .NET 10 packager.
+- Remove the single-architecture .NET 10 packager.
 
 ## [1.1.0.2] - 2026-08-14
 
 ### Fixed
 
-- **Version-less applications never picked up new versions.** For packagers
-  whose CMName omits the version (by design), the Package phase found the
-  existing application + deployment type and returned success without
-  touching either — the new version's content was staged and copied but
-  never reached MECM. `New-MECMApplicationFromManifest` now compares the
-  manifest `SoftwareVersion` against the existing application's: unchanged
-  versions remain an idempotent no-op; a changed version replaces the
-  deployment type and updates the application's SoftwareVersion (and
-  Description when a comment is passed). The new deployment type is created
-  under a staging name, the old one is removed, then the new one is renamed
-  to the canonical name — ordered that way because a deployed application
-  refuses to remove its last deployment type. Renaming uses
-  `Set-CMDeploymentType -NewDeploymentTypeName` (validated against vendor
-  docs; the parameter is not `-NewName`).
-
-- **specexec packager verifies deployment types server-side.** The run
-  reported success as long as no cmdlet threw; a silently incomplete
-  application (created by a pre-1.0.0.11 partial run) passed unnoticed.
-  The Package phase now logs how many deployment types the existing
-  application has when resuming, and after the create loop queries the
-  site and prints OK/MISSING per expected deployment type, throwing if
-  any of the 6 are absent.
+- Replace the deployment type when a version-less application gains a new version.
+- Verify every deployment type of the speculative-execution mitigations application.
 
 ## [1.1.0.1] - 2026-08-14
 
-### Fixed
-
-- **Grid columns no longer collapse when Debug Columns is toggled.** The
-  star-sized Application column had no minimum width, so showing the four
-  fixed-width debug columns crushed it to a sliver — and the crushed
-  width did not recover when they were hidden again. The column now keeps
-  at least 160 px, extra width scrolls horizontally, and hiding the debug
-  columns restores the layout.
-
 ### Added
 
-- **Grid filter box.** A filter above the application grid narrows rows
-  by application, vendor, status, or CM name as you type. Bulk selection
-  (the checkbox-column header cycle and its updates-only step) acts on
-  the visible rows and always clears hidden rows first, so a filtered
-  "select all" can never queue hidden apps into a Stage or Package run.
+- Filter the application grid by application, vendor, status or name.
+
+### Fixed
+
+- Keep grid columns readable when Debug Columns is toggled.
 
 ## [1.1.0.0] - 2026-08-13
 
-### Additions
+### Added
 
-- **Intune Win32 content prep during Package.** MECM Preferences gains a
-  "Create .intunewin during Package" option plus a Content Prep
-  detected-tool row. When enabled, a successful Package run also produces
-  `<app>-<version>.intunewin` from the staged content (setup reference:
-  `install.bat`) and stores it beside the network content version folder,
-  with a copy beside the local staged version folder. The artifact never
-  lands inside a version folder — stage hash verification treats added
-  files as integrity failures. Prep failures are surfaced in the log and
-  never fail the package run; the MECM application is already created
-  when the post-step executes. Settings persist under `Intune` and
-  `DetectedTools.IntuneWinAppUtil` in `AppPackager.preferences.json`;
-  prefs files without the new keys load with the feature off. Zero
-  per-packager changes — the post-step hangs off the shared Package path,
-  so every packager gains the capability at once.
-- **IntuneWinAppUtil.exe detected tool with download-on-first-use.**
-  Detection checks the stored preferences path, the tool cache under
-  `%LOCALAPPDATA%\AppPackager\Tools`, and PATH, once per launch. The
-  Download button in MECM Preferences fetches the Microsoft Win32 Content
-  Prep Tool from Microsoft's repository and keeps the file only after its
-  Authenticode signature verifies as Valid and Microsoft-signed; a failed
-  verification deletes the download and reports the reason. The
-  "Create .intunewin during Package" option stays locked until the tool
-  is present. The tool is never redistributed with AppPackager.
-- **`AppPackagerCommon` 0.0.12 exports `Install-IntuneWinAppUtil` and
-  `New-IntuneWinPackage`** so packager scripts and ad-hoc callers can
-  produce `.intunewin` files directly. `New-IntuneWinPackage` refuses an
-  output folder equal to the content folder, enforces a bounded runtime
-  on the prep tool, and returns the artifact path, size, and SHA-256.
+- Create .intunewin packages during Package with a downloadable Content Prep tool.
 
 ## [1.0.0.12] - 2026-08-13
 
-### Additions
+### Added
 
-- **Test-collection deployment after content distribution.** MECM
-  Preferences gains three controls under the Auto-distribute group:
-  "Deploy to test collection after distribution", "Test collection"
-  name, and "Create collection if it does not exist". The controls
-  unlock only when Auto-distribute is enabled and a DP Group is set —
-  the gating lives in the GUI, not the runtime. When enabled, the
-  Package phase follows `Start-CMContentDistribution` with
-  `New-CMApplicationDeployment` (Install / Available /
-  available immediately / default options) to the named collection.
-  A missing collection is created as an empty direct-membership device
-  collection limited to All Systems when the create option is checked,
-  otherwise the deployment is skipped with a warning. Existing
-  deployments are treated as success so re-packaging stays idempotent.
-  Settings persist under `ContentDistribution` in
-  `AppPackager.preferences.json`; prefs files without the new keys load
-  with the feature off.
+- Deploy to a test collection after content distribution.
 
 ## [1.0.0.11] - 2026-08-12
 
-### Fixes
+### Fixed
 
-- **`specexec-mitigations` failed at the deployment-type existence check.**
-  The packager called `Test-MECMApplicationHasDeploymentType`, which is
-  internal to `AppPackagerCommon` (absent from `FunctionsToExport`), so the
-  call failed with "not recognized" on every run. Other packagers were
-  unaffected because that helper only runs inside
-  `New-MECMApplicationFromManifest`, in module scope. The check now uses
-  `Get-CMDeploymentType -ApplicationName -DeploymentTypeName` directly.
+- Fix the speculative-execution mitigations packager's deployment-type check.
 
 ## [1.0.0.10] - 2026-08-12
 
-### Additions
+### Added
 
-- **`package-specexec-mitigations.ps1` — first multi-deployment-type
-  packager.** One application, six Script deployment types covering the
-  speculative-execution CVE registry mitigations: {Intel HT-on, Intel
-  HT-off, AMD} x {standard, Hyper-V host}. Deployment types exist per
-  distinct registry payload only — OS class never changes the values, so
-  there is no workstation/server split, and the AMD override is
-  HT-independent. Requirement rules route each device to exactly one
-  deployment type via three global conditions (reused by name when they
-  already exist, created otherwise): CPU vendor (WQL,
-  `Win32_Processor.Manufacturer`), Hyper-Threading state (Boolean script;
-  WQL cannot compare two properties of one instance), and Hyper-V role
-  (`Services\vmms` key existence). Detection is per-deployment-type
-  `FeatureSettingsOverride` / `FeatureSettingsOverrideMask` DWORD
-  comparison, plus `MinVmVersionForCpuBasedMitigations` on the Hyper-V
-  variants. Content is self-generated (no vendor download);
-  `-GetLatestVersionOnly` reports the pinned `-ContentVersion`. Install
-  exits 3010 with `RebootBehavior BasedOnExitCode`. Every CM cmdlet
-  parameter was validated against Microsoft Learn documentation — notably
-  `New-CMDetectionClauseRegistryKeyValue` accepts `Integer` (not `Int64`)
-  and its `-Is64Bit` switch means the *32-bit* registry view, the inverse
-  of the global-condition cmdlets' `-Is64Bit` boolean.
+- Add the speculative-execution mitigations packager with six deployment types.
 
 ## [1.0.0.9] - 2026-08-01
 
-### Fixes
+### Fixed
 
-- **Multi-installer wrappers aborted on success codes.** The generated
-  `install.ps1` for `msvcruntimes`, `dotnet8`, and `dotnet10both` guarded
-  the first installer with `if ($proc1.ExitCode -ne 0) { exit ... }`.
-  Windows installers return **3010** for "succeeded, reboot required" and
-  **1641** for "succeeded, reboot initiated", so a successful first
-  install exited the script before the second architecture was installed,
-  and MECM recorded the deployment as failed. Compound detection requires
-  both architectures, so the application could never report installed.
-  The wrappers now treat `0`, `3010`, and `1641` as success, run both
-  installers, and surface a pending-reboot code from either one.
-
-  Impact was uneven. `msvcruntimes` installs x86 first, and x86
-  redistributables rarely request a reboot, which is why this stayed
-  hidden. `dotnet8` and `dotnet10both` install **x64 first**, so a reboot
-  code there skipped the x86 runtime — the one that x86 consumers of
-  .NET 8 such as Citrix Workspace, SailPoint, and VMware Tools depend on.
-
-- **`winrar` skipped its license key on a reboot code.** Same guard, same
-  cause: a 3010 from the installer bypassed the `rarreg.key` copy. The
-  wrapper now continues on reboot codes and returns the installer's real
-  exit code instead of a hardcoded `0`.
+- Treat reboot-required exit codes as success in multi-installer and WinRAR wrappers.
 
 ## [1.0.0.8] - 2026-06-13
 
-### Additions
+### Added
 
-- **`-VerboseLog` on every packager.** The switch (and the
-  `APP_PACKAGER_VERBOSE=1` environment variable equivalent) previously
-  existed only on `package-adobereader.ps1`; all packagers, sample
-  packagers, and templates now accept it and pass it through to
-  `Initialize-Logging`. Every packager's top-level catch now records
-  full failure detail via `Write-LogErrorRecord` — exception chain,
-  `FullyQualifiedErrorId`, failing `file:line`, failing statement, and
-  script stack trace — before the `SCRIPT FAILED` summary line, so any
-  packager failure identifies its exact call site in the log.
+- Accept -VerboseLog on every packager and log full failure detail.
 
 ## [1.0.0.7] - 2026-06-12
 
-### Changes
+### Changed
 
-- **Optimization: removed the per-entry `Get-CMSite` connection probe
-  added in v1.0.0.6.** The probe cost a provider round trip on every
-  site-drive entry — twice per package run and once per application
-  during a batch Check MECM (~90 round trips across the full packager
-  set). A successful `Set-Location` onto the site drive is trusted
-  again; if entering an existing drive fails, the drive is still torn
-  down and rebuilt from the configured provider machine at no
-  happy-path cost.
-- **Clarification on v1.0.0.6:** the stated rationale for the probe was
-  not accurate. The behavior it targeted traces to broken RBAC role
-  assignments, not to site-drive connection lifetime — broken RBAC can
-  make CM cmdlets fail or return null while the console works normally.
-  With correct RBAC, site-drive connections behave as they always did.
-  If cmdlets half-work while the console is fine, review RBAC role
-  assignments before suspecting the connection.
+- Remove the per-entry site connection probe.
 
 ## [1.0.0.6] - 2026-06-12
 
-### Fixes
+### Fixed
 
-- **CMSite drive connections survive ConfigMgr 2509's stale-drive
-  behavior.** As of 2509 the site drive's provider connection does not
-  survive the session leaving the drive (`Set-Location C:`), and a drive
-  auto-mounted by the module's `OnImport` hook may never have had a live
-  connection at all: re-entering the drive either fails or succeeds with a
-  dead connection where every CM cmdlet throws
-  `Key cannot be null. Parameter name: key`. `Connect-CMSite` and the
-  GUI's inline Check MECM connect now probe the drive with a cheap
-  `Get-CMSite` call after every entry; if the probe fails they leave the
-  drive, `Remove-PSDrive` it, recreate it from the configured provider
-  machine (falling back to the stale drive's own Root when no provider is
-  configured), re-enter, and re-probe — the same sequence as rerunning the
-  AdminUI connect script. CM cmdlets continue to run only from the site
-  drive and filesystem work only from `C:`; every `C:` detour now goes
-  through the reconnect logic on the way back.
-  `Get-MecmCurrentVersionByCMName` also restores the caller's original
-  location instead of leaving the shell parked on the site drive, where the
-  next `C:` operation would silently kill the connection.
+- Rebuild a stale ConfigMgr site drive connection automatically.
 
 ## [1.0.0.5] - 2026-06-12
 
-### Additions
+### Added
 
-- **Verbose failure diagnostics for packager scripts.** `Write-Log` gains a
-  `DEBUG` level (always written to the structured log file; echoed to the
-  console only when verbose logging is on) and the module exports
-  `Write-LogErrorRecord`, which logs the full exception chain,
-  `FullyQualifiedErrorId`, the failing `file:line`, the failing statement,
-  and the script stack trace from any catch block. Enable verbose mode with
-  `Initialize-Logging -VerboseLogging`, the new `-VerboseLog` switch on
-  `package-adobereader.ps1`, or `APP_PACKAGER_VERBOSE=1` (inherited by GUI
-  child processes). `New-MECMApplicationFromManifest` now tracks which step
-  is in flight (`Connect-CMSite`, duplicate check, `New-CMApplication`,
-  detection clause creation, `Add-CMScriptDeploymentType`, revision-history
-  cleanup) and names it on failure, so opaque ConfigMgr cmdlet errors such
-  as `Key cannot be null. Parameter name: key` finally identify their call
-  site in the log for every packager.
-- **Provider site-code validation in `Connect-CMSite` (verbose mode).**
-  After connecting, the module queries `root\sms:SMS_ProviderLocation` on
-  the drive's provider machine and warns when the drive name does not match
-  a site code the provider actually serves — the canonical cause of CM
-  cmdlets failing with `Key cannot be null. Parameter name: key` after an
-  apparently successful connect.
+- Add verbose failure diagnostics and provider site-code validation.
 
-### Fixes
+### Fixed
 
-- **`Get-MecmCurrentVersionByCMName` honors the Provider Machine
-  preference.** The function accepted `-ProviderMachineName` but never used
-  it: when the `${SiteCode}:` drive was not mounted (console MRU empty
-  because the AdminUI never connected on that workstation), Check MECM
-  failed with `Failed to connect to CM site PSDrive`. It now falls back to
-  `New-PSDrive -Root <ProviderMachineName>` inline at script scope before
-  giving up, and the giving-up message says exactly which preference to
-  set. Manifest AppName is also validated as non-empty before
-  `Get-CMApplication`/`New-CMApplication` run.
+- Honor the Provider Machine preference in Check MECM.
 
 ## [1.0.0.4] - 2026-05-27
 
-### Additions
+### Added
 
-- **Two NVIDIA Graphics Driver packagers (FR #1).** Adds
-  `package-nvidia-geforce.ps1` (GeForce Game Ready DCH x64, covers
-  current Maxwell+ consumer GTX/RTX cards) and
-  `package-nvidia-rtx-enterprise.ps1` (Quadro Certified DCH x64, covers
-  current NVIDIA RTX PRO / RTX A-series workstation cards). Both query
-  NVIDIA's `AjaxDriverService.php` JSON endpoint with pinned `psid`/`pfid`
-  per packager. Pinning answers the lookup-form combo-box ambiguity by
-  treating the flagship pfid as a stable "latest driver for current
-  family" key, since the DCH installer is unified across the whole
-  family. Detection is a single ARP `RegistryKeyValue` on the constant
-  NVIDIA Display.Driver uninstall GUID
-  (`{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}_Display.Driver` →
-  `DisplayVersion`), so both MECM apps coexist without colliding. Silent
-  install: `setup.exe -s -noreboot -clean`. Silent uninstall:
-  `setup.exe -uninstall -s -noreboot`.
-- **README packager count: 89 → 91.** Table extended with the two new
-  NVIDIA entries.
+- Add NVIDIA GeForce and RTX Enterprise driver packagers (91 packagers).
 
 ## [1.0.0.3] - 2026-05-13
 
-### Fixes
+### Fixed
 
-- **MECM site connection restored for `Get-MecmCurrentVersionByCMName`
-  (Check MECM button).** v1.0.0.2 routed the in-script Check MECM call
-  through the module-scope `Connect-CMSite`. Module functions run in
-  their own isolated session state, so the caller's `${SiteCode}:`
-  PSDrive (mounted by an AdminUI connect script in the launching shell)
-  was not visible and the function fell through to the explicit-provider
-  branch, throwing `'<SiteCode>' Configuration Manager PSDrive is not available
-  and no provider machine name is configured` even though the drive was
-  usable in the same shell. Restored the inline `Import-Module
-  ConfigurationManager` + `Set-Location ${SiteCode}:` pattern at script
-  scope. Workstations that pre-mount the drive go straight to
-  `Set-Location`; workstations that have not pre-mounted import the
-  module so its `OnImport` hook mounts the drive from `HKCU` MRU, then
-  `Set-Location` succeeds.
+- Restore the Check MECM site connection when the drive is pre-mounted.
 
 ## [1.0.0.2] - 2026-05-08
 
-### Fixes
+### Fixed
 
-- **ConfigMgr site connections now match the AdminUI connect prompt.**
-  `Connect-CMSite` no longer fails immediately when the `${SiteCode}:`
-  drive is absent; it creates the missing `CMSite` PSDrive with
-  `New-PSDrive -Root <ProviderMachineName>` and then enters the drive.
-  MECM Preferences now stores the provider machine (paste the
-  `$ProviderMachineName` value from the AdminUI connect script into
-  Options → MECM Preferences → Provider Machine), and package child
-  processes receive it via `APP_PACKAGER_CM_PROVIDER`. The deliberate
-  `MCM:`/`C:` choreography inside `New-MECMApplicationFromManifest` is
-  preserved; child packager launches use the packager folder as their
-  working directory and `Get-MecmCurrentVersionByCMName` restores the
-  caller's location in `finally`.
-- **`Resolve-ConfigurationManagerModulePath` adds preferences-detected
-  and known install paths as fallbacks when `SMS_ADMIN_UI_PATH` is
-  absent.**
-- **Packager history timestamps stay ISO formatted after JSON round-trip.**
-  `Read-PackagerHistory` normalizes `ConvertFrom-Json` datetime values
-  back to `yyyy-MM-ddTHH:mm:ssZ`, avoiding culture-formatted strings in
-  callers.
+- Create the ConfigMgr site drive from the Provider Machine preference when absent.
+- Various bug fixes.
 
 ## [1.0.0.1] - 2026-05-06
 
-### Fixes
+### Added
 
-- **Package step now binds with empty `-Comment`.** PS 5.1's
-  `[Parameter(Mandatory)][string[]]` rejects arrays containing empty-string
-  elements with `Cannot bind argument to parameter 'Arguments' because it
-  is an empty string.` The Package argsBase always carried `-Comment $Comment`;
-  when the GUI user left Comment blank, `$Comment=''` broke the bind. Stage's
-  argsBase had no empty literals so it was never affected. `[AllowEmptyString()]`
-  on `Set-ProcessStartInfoArgumentList` permits the element through.
-- **`Connect-CMSite` survives a missing `SMS_ADMIN_UI_PATH`.** `Join-Path`
-  threw on a null env var before the `Import-Module ConfigurationManager`
-  fallback could run. Guarded; falls back cleanly when the env var is absent.
-- **Streaming child processes time out on idle.** `Invoke-ProcessWithStreaming`
-  only enforced `WaitForExit(15s)` after the stdout read loop exited, so a
-  child that hung without printing wedged the GUI forever. Added a
-  configurable idle timeout (default 30 minutes) that kills a silent child
-  and surfaces the kill in stdout.
-- **`Save-Preferences` no longer silently drops failures.** The empty `catch`
-  around the `packager-preferences.json` write hid every failure; the GUI
-  reported success while packagers kept reading stale Company / M365 / SSMS
-  values. Now surfaces via `Write-Warning`.
-- **`Get-PackagerFolderInfo` reads enough of the file.** `-TotalCount 120`
-  cut off packagers where `$AppFolder` / `$BaseDownloadRoot` live past line
-  120 (e.g. `package-teamviewerhost.ps1`). Streams until all three vars are
-  found, then breaks early.
+- Add the dual-architecture .NET 10 Desktop Runtime packager.
 
-### Additions
+### Fixed
 
-- **`package-dotnet10both.ps1`** — dual-arch .NET 10 Desktop Runtime packager.
-  Mirrors `package-dotnet8.ps1` with channel-version 10.0; ships x86 + x64 in
-  a single MECM application with compound File detection on `hostfxr.dll`.
+- Package with an empty comment.
+- Time out idle packager processes instead of waiting forever.
+- Various bug fixes.
 
 ## [1.0.0] - 2026-05-02
 
-AppPackager is a MahApps.Metro WPF GUI for the SRL packaging engine.
-It discovers per-application packager scripts, queries vendor sources
-for the current version, queries MECM for the deployed version,
-stages installers + wrappers + detection methods locally, and copies
-content to the MECM share + creates the MECM Application + Deployment
-Type in one workflow. Extract the zip and run `start-apppackager.ps1`.
+### Added
 
-### Features
-
-- **Sidebar workflow** — One Click, Check Latest, Check MECM, Stage
-  Packages, Package Apps, plus an Options modal. Theme toggle
-  bottom-docked on the sidebar.
-- **One Click** — iterates the apps you've marked as tracked in One
-  Click Settings and runs Check Latest → Stage → Package per the
-  chosen action. Cadence-gated so Report-only runs throttle; Stage
-  and Stage-and-Package always run. Pre-Stage MECM pre-flight skips
-  any tracked app whose version is already in MECM.
-- **Background pipeline runspace** — multi-app loops run on a
-  background STA runspace with an animated progress overlay so the
-  window stays responsive instead of freezing during long downloads
-  / extracts / MECM round-trips. Pause / Cancel after current app
-  available mid-run.
-- **Application grid** — every discovered packager rendered as a
-  row: vendor, current MECM version, latest vendor version, status,
-  comment field. Persistent history (Last Checked, Latest Version)
-  stored in `%LOCALAPPDATA%\AppPackager\app-history.json` so values
-  survive across sessions.
-- **Options modal** — Discord/VS Code-style left-nav + right pane:
-  - **MECM Preferences** — site code, file share root, download
-    root, estimated/maximum runtime, Auto-distribute-to-DP toggle +
-    DP Group Name, plus read-only detected-tools status (ConfigMgr
-    Console + 7-Zip CLI).
-  - **Packager Preferences** — M365 ODT settings (channel, deploy
-    mode, ExcludeApps), SSMS silent install options, TeamViewer Host
-    config, Citrix Workspace App switches. Inline preview buttons
-    show the assembled CWA command line and the generated ODT
-    `install.xml`.
-  - **One Click Settings** — pick which packagers the tracked set
-    includes, choose action (Report-only / Stage / Stage and
-    Package), toggle Force on launch, set per-app cadence overrides.
-  - **Product Filter** — show / hide individual packager scripts in
-    the main grid by vendor (checkbox TreeView).
-- **Search dialog** — themed search/picker modal for application,
-  package, task sequence, software-update group, and collection
-  names; replaces interactive `Read-Host` prompts inside the
-  packagers.
-- **Themed Message dialog** — every confirm / message routes through
-  a brand-themed `Show-ThemedMessage` helper; no raw system
-  MessageBoxes.
-- **Preview dialog** — read-only inspector for generated install.xml
-  / CWA command lines / packaged-content manifests.
-- **Title-bar drag fallback** — native `WM_NCHITTEST` hook + managed
-  `DragMove` for the main window and every modal dialog so the
-  title bar drags reliably under any host.
-- **MahApps Dark.Steel / Light.Blue themes** with live swap.
-- **Window state persistence** — size, position, theme, debug-column
-  state all restored across launches.
-
-### Stage / Package safety
-
-- **Schema-v3 stage manifests** — every staged payload + generated
-  wrapper has `RelativePath`, `SHA256`, and `Size` recorded.
-- **Post-Stage verification** — Stage fails closed if the on-disk
-  stage folder does not match the manifest hash list.
-- **Post-Package verification** — Package fails closed if the copied
-  network content does not match the staged manifest before any
-  MECM application creation.
-- **Pre-1.0.3 soft landing** — older schema v2 manifests without
-  `FileHashes` still read with a WARN and skip byte-level
-  verification.
-- **MECM existing-app validation** — Packaging fails closed when an
-  existing MECM application is missing the expected deployment type,
-  rather than treating a partial prior run as success.
-- **Operation summaries** — Check Latest, Stage, Package, and One
-  Click maintain operation counts and emit operation-specific
-  summary labels.
-
-### Vendor source coverage
-
-Built-in packagers cover (alphabetical, abridged): 7-Zip, Adobe
-Acrobat Reader, Audacity, Bitwarden Desktop, DBeaver Community,
-Draw.io, Everything, Firefox, GIMP, Git for Windows, Google Chrome,
-Inkscape, Microsoft Edge, Microsoft Teams (new client), Mozilla
-Firefox, Notepad++, Office 365 (Apps / Project / Visio, x64+x86, all
-six SKUs), PostgreSQL, Postman (User), Power BI Desktop, PuTTY,
-SQL Server Management Studio 22, TeamViewer Host, Visual Studio Code
-(User + System), VLC, WinSCP, Wireshark.
-
-### Stack
-
-- PowerShell 5.1 + .NET Framework 4.7.2+
-- WPF + MahApps.Metro (vendored DLLs in `Lib\`)
-- ConfigurationManager PowerShell module (provided by the MECM
-  Console install) — required for Check MECM, Package Apps, and
-  One Click with Stage-and-Package
-- 7-Zip CLI — optional, required only by packagers that extract
-  archived installers (auto-detected at launch via the ARP
-  registry)
+- Discover packager scripts, check vendor and MECM versions, stage and package from one window.
+- Run One Click on tracked apps with cadence gating and MECM pre-flight.
+- Verify staged and copied content against manifest hashes before creating applications.
+- Configure MECM, packager, One Click and product filter settings in Options.
+- Ship packagers for 7-Zip, Adobe Acrobat Reader, Firefox, Chrome, Edge, Office 365, Teams and more.
