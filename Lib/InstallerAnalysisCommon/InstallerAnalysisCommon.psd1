@@ -1,6 +1,6 @@
 @{
     RootModule        = 'InstallerAnalysisCommon.psm1'
-    ModuleVersion     = '1.3.2.0'
+    ModuleVersion     = '1.3.3.0'
     GUID              = 'c3d4e5f6-a7b8-9012-cdef-456789012345'
     Author            = 'Jason Ulbright'
     Description       = 'Installer analysis tool - version intelligence, installer type detection, silent switches, payload extraction.'
@@ -59,6 +59,11 @@
         'Get-EmbeddedInstallers'
         'Expand-PayloadEntry'
         'Expand-InstallerPayload'
+        'Expand-InstallerEntries'
+        'Get-InstallerRegistrySettings'
+        'Get-MsiRegistrySettings'
+        'Get-NsisRegistrySettings'
+        'Get-InnoRegistrySettings'
 
         # String Analysis
         'Get-BinaryStrings'

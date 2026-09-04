@@ -18,7 +18,9 @@ IconSource: Installer
     Application.
 
     RStudio's ARP key is the fixed name "RStudio", so detection uses
-    DisplayVersion with IsEquals.
+    DisplayVersion with IsEquals. The installer defaults to a per-user
+    install; /allusers selects Program Files and registers the key in the
+    64-bit view of HKLM, which is where detection looks.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
@@ -214,9 +216,9 @@ function Invoke-StageRStudio {
 
     $wrapperContent = New-ExeWrapperContent `
         -InstallerFileName $installerFileName `
-        -InstallArgs "'/S'" `
+        -InstallArgs "'/S /allusers'" `
         -UninstallCommand $uninstallCmd `
-        -UninstallArgs "'/S'"
+        -UninstallArgs "'/S /allusers'"
 
     Write-ContentWrappers -OutputPath $localContentPath `
         -InstallPs1Content $wrapperContent.Install `
@@ -240,8 +242,8 @@ function Invoke-StageRStudio {
         SoftwareVersion = $version
         InstallerFile   = $installerFileName
         InstallerType   = "EXE"
-        InstallArgs     = "/S"
-        UninstallArgs   = "/S"
+        InstallArgs     = "/S /allusers"
+        UninstallArgs   = "/S /allusers"
         RunningProcess  = @("rstudio")
         Detection       = @{
             Type                = "RegistryKeyValue"
@@ -249,7 +251,7 @@ function Invoke-StageRStudio {
             ValueName           = "DisplayVersion"
             ExpectedValue       = $version
             Operator            = "IsEquals"
-            Is64Bit             = $false
+            Is64Bit             = $true
         }
     }
 

@@ -2162,6 +2162,121 @@ function Get-PeRequestedExecutionLevel {
     catch { return '' }
 }
 
+function script:Read-NsisHeaderTable {
+    <#
+    .SYNOPSIS
+        Loads an NSIS installer's decompressed header block together with
+        its decoded string table.
+    .DESCRIPTION
+        Returns Header (byte[]), Table (the strings block as one string so a
+        char index equals a TCHAR pointer), Unicode, LangStrings (index to
+        text for the first language), Name (the installer name from that
+        language table), the entry and section block positions, Compression,
+        Solid and Note. Header is $null when the firstheader is missing or
+        the block does not decode; Note says why.
+    #>
+    param([Parameter(Mandatory)][string]$Path)
+
+    $result = [pscustomobject]@{
+        Header = $null; Table = ''; Unicode = $false; LangStrings = @{}; Name = ''
+        EntriesOffset = 0; EntriesCount = 0; SectionsOffset = 0; SectionsCount = 0; SectionSize = 0
+        Compression = ''; Solid = $false; FirstHeaderFound = $false; Note = ''
+    }
+
+    # The header sits at the front of the appended data, so a window from
+    # the file start normally covers it; the whole file is read only when
+    # the window misses the firstheader or truncates the compressed header.
+    $readWindow = {
+        param($length)
+        $fs = [System.IO.File]::OpenRead($Path)
+        try {
+            $take = [int][Math]::Min($fs.Length, $length)
+            $buffer = New-Object byte[] $take
+            $read = 0
+            while ($read -lt $take) {
+                $n = $fs.Read($buffer, $read, $take - $read)
+                if ($n -le 0) { break }
+                $read += $n
+            }
+            return ,$buffer
+        }
+        finally { $fs.Dispose() }
+    }
+    $fileLength = (Get-Item -LiteralPath $Path).Length
+    $bytes = & $readWindow (16MB)
+    $fh = Find-NsisFirstHeader -Bytes $bytes -FileLength $fileLength
+    $expanded = $null
+    if ($fh -ge 0) { $expanded = Expand-NsisHeader -Bytes $bytes -FirstHeader $fh }
+    if (($fh -lt 0 -or -not $expanded.Header) -and $fileLength -gt $bytes.Length) {
+        $bytes = & $readWindow $fileLength
+        $fh = Find-NsisFirstHeader -Bytes $bytes -FileLength $fileLength
+        if ($fh -ge 0) { $expanded = Expand-NsisHeader -Bytes $bytes -FirstHeader $fh }
+    }
+    if ($fh -lt 0) { $result.Note = 'NSIS firstheader not found.'; return $result }
+    $result.FirstHeaderFound = $true
+    $result.Compression = $expanded.Compression
+    $result.Solid = $expanded.Solid
+    if (-not $expanded.Header) { $result.Note = $expanded.Note; return $result }
+    $h = [byte[]]$expanded.Header
+    if ($h.Length -lt 300) { $result.Note = 'Header block shorter than the fixed layout.'; return $result }
+
+    $blockOffset = { param($i) [int][BitConverter]::ToInt32($h, 4 + ($i * 8)) }
+    $blockCount  = { param($i) [int][BitConverter]::ToInt32($h, 8 + ($i * 8)) }
+    $sectionsOffset = & $blockOffset 1
+    $sectionsCount  = & $blockCount 1
+    $entriesOffset = & $blockOffset 2
+    $entriesCount  = & $blockCount 2
+    $stringsOffset = & $blockOffset 3
+    $langOffset    = & $blockOffset 4
+    $langCount     = & $blockCount 4
+    $stringsEnd    = $langOffset
+    if ($stringsOffset -le 0 -or $stringsEnd -le $stringsOffset -or $stringsEnd -gt $h.Length -or
+        $entriesOffset -lt 0 -or ($entriesOffset + ($entriesCount * 28)) -gt $h.Length) {
+        $result.Note = 'Header block table is inconsistent.'
+        return $result
+    }
+    $unicode = ([BitConverter]::ToUInt16($h, $stringsOffset) -eq 0)
+    $result.Header = $h
+    $result.Unicode = $unicode
+    $result.EntriesOffset = $entriesOffset
+    $result.EntriesCount = $entriesCount
+    if ($sectionsCount -gt 0 -and $sectionsOffset -gt 0 -and $entriesOffset -gt $sectionsOffset) {
+        # Section records are fixed size: six ints and a name buffer of
+        # NSIS_MAX_STRLEN TCHARs, so the span up to the entries block gives it.
+        $result.SectionsOffset = $sectionsOffset
+        $result.SectionsCount = $sectionsCount
+        $result.SectionSize = [int](($entriesOffset - $sectionsOffset) / $sectionsCount)
+    }
+
+    $table = if ($unicode) { [System.Text.Encoding]::Unicode.GetString($h, $stringsOffset, $stringsEnd - $stringsOffset) }
+             else { [System.Text.Encoding]::GetEncoding(28591).GetString($h, $stringsOffset, $stringsEnd - $stringsOffset) }
+    $result.Table = $table
+
+    # Language table: LANGID(2) + dlg_offset(4) + rtl(4) in NSIS 3, LANGID(2)
+    # + dlg_offset(4) in NSIS 2; the first layout whose Name slot (index 2)
+    # points inside the strings block and decodes to text wins.
+    $langStrings = @{}
+    $langTableSize = [int][BitConverter]::ToInt32($h, 100)
+    if ($langCount -gt 0 -and $langOffset -gt 0 -and $langTableSize -gt 10 -and ($langOffset + $langTableSize) -le $h.Length) {
+        foreach ($prefix in @(10, 6, 8)) {
+            $count = [int](($langTableSize - $prefix) / 4)
+            if ($count -lt 3) { continue }
+            $namePtr = [BitConverter]::ToInt32($h, $langOffset + $prefix + (2 * 4))
+            if ($namePtr -le 0 -or $namePtr -ge $table.Length) { continue }
+            $candidate = Read-NsisString -Table $table -Ptr $namePtr -Unicode $unicode
+            if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+            for ($i = 0; $i -lt $count; $i++) {
+                $ptr = [BitConverter]::ToInt32($h, $langOffset + $prefix + ($i * 4))
+                if ($ptr -gt 0 -and $ptr -lt $table.Length) { $langStrings[$i] = (Read-NsisString -Table $table -Ptr $ptr -Unicode $unicode) }
+            }
+            $result.Name = $candidate
+            break
+        }
+    }
+    $result.LangStrings = $langStrings
+    return $result
+}
+
 function Get-NsisMetadata {
     <#
     .SYNOPSIS
@@ -2215,89 +2330,20 @@ function Get-NsisMetadata {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { $meta.Note = 'Installer not found: ' + $Path; return $meta }
     $meta.RequestedExecutionLevel = Get-PeRequestedExecutionLevel -Path $Path
 
-    # The header sits at the front of the appended data, so a window from
-    # the file start normally covers it; the whole file is read only when
-    # the window misses the firstheader or truncates the compressed header.
-    $readWindow = {
-        param($length)
-        $fs = [System.IO.File]::OpenRead($Path)
-        try {
-            $take = [int][Math]::Min($fs.Length, $length)
-            $buffer = New-Object byte[] $take
-            $read = 0
-            while ($read -lt $take) {
-                $n = $fs.Read($buffer, $read, $take - $read)
-                if ($n -le 0) { break }
-                $read += $n
-            }
-            return $buffer
-        }
-        finally { $fs.Dispose() }
-    }
-    $fileLength = (Get-Item -LiteralPath $Path).Length
-    $bytes = & $readWindow (16MB)
-    $fh = Find-NsisFirstHeader -Bytes $bytes -FileLength $fileLength
-    $expanded = $null
-    if ($fh -ge 0) { $expanded = Expand-NsisHeader -Bytes $bytes -FirstHeader $fh }
-    if (($fh -lt 0 -or -not $expanded.Header) -and $fileLength -gt $bytes.Length) {
-        $bytes = & $readWindow $fileLength
-        $fh = Find-NsisFirstHeader -Bytes $bytes -FileLength $fileLength
-        if ($fh -ge 0) { $expanded = Expand-NsisHeader -Bytes $bytes -FirstHeader $fh }
-    }
-    if ($fh -lt 0) { $meta.Note = 'NSIS firstheader not found.'; return $meta }
-
-    $meta.Compression = $expanded.Compression
-    $meta.Solid = $expanded.Solid
-    if (-not $expanded.Header) {
-        $meta.Note = $expanded.Note
-        return $meta
-    }
-    $h = [byte[]]$expanded.Header
-    if ($h.Length -lt 300) { $meta.Note = 'Header block shorter than the fixed layout.'; return $meta }
-
-    $blockOffset = { param($i) [int][BitConverter]::ToInt32($h, 4 + ($i * 8)) }
-    $blockCount  = { param($i) [int][BitConverter]::ToInt32($h, 8 + ($i * 8)) }
-    $entriesOffset = & $blockOffset 2
-    $entriesCount  = & $blockCount 2
-    $stringsOffset = & $blockOffset 3
-    $langOffset    = & $blockOffset 4
-    $langCount     = & $blockCount 4
-    $stringsEnd    = $langOffset
-    if ($stringsOffset -le 0 -or $stringsEnd -le $stringsOffset -or $stringsEnd -gt $h.Length -or
-        $entriesOffset -lt 0 -or ($entriesOffset + ($entriesCount * 28)) -gt $h.Length) {
-        $meta.Note = 'Header block table is inconsistent.'
-        return $meta
-    }
+    $ctx = Read-NsisHeaderTable -Path $Path
+    $meta.Compression = $ctx.Compression
+    $meta.Solid = $ctx.Solid
+    if (-not $ctx.Header) { $meta.Note = $ctx.Note; return $meta }
+    $h = $ctx.Header
     $meta.HeaderAvailable = $true
-    $unicode = ([BitConverter]::ToUInt16($h, $stringsOffset) -eq 0)
+    $unicode = $ctx.Unicode
     $meta.Unicode = $unicode
-
-    # The strings block decoded once; a char index equals a TCHAR pointer.
-    $table = if ($unicode) { [System.Text.Encoding]::Unicode.GetString($h, $stringsOffset, $stringsEnd - $stringsOffset) }
-             else { [System.Text.Encoding]::GetEncoding(28591).GetString($h, $stringsOffset, $stringsEnd - $stringsOffset) }
-    $langStrings = @{}
+    $meta.Name = $ctx.Name
+    $table = $ctx.Table
+    $langStrings = $ctx.LangStrings
+    $entriesOffset = $ctx.EntriesOffset
+    $entriesCount = $ctx.EntriesCount
     $str = { param($ptr) Read-NsisString -Table $table -Ptr $ptr -Unicode $unicode -LangStrings $langStrings }
-
-    # Language table: LANGID(2) + dlg_offset(4) + rtl(4) in NSIS 3, LANGID(2)
-    # + dlg_offset(4) in NSIS 2; the first layout whose Name slot (index 2)
-    # points inside the strings block and decodes to text wins.
-    $langTableSize = [int][BitConverter]::ToInt32($h, 100)
-    if ($langCount -gt 0 -and $langOffset -gt 0 -and $langTableSize -gt 10 -and ($langOffset + $langTableSize) -le $h.Length) {
-        foreach ($prefix in @(10, 6, 8)) {
-            $count = [int](($langTableSize - $prefix) / 4)
-            if ($count -lt 3) { continue }
-            $namePtr = [BitConverter]::ToInt32($h, $langOffset + $prefix + (2 * 4))
-            if ($namePtr -le 0 -or $namePtr -ge $table.Length) { continue }
-            $candidate = Read-NsisString -Table $table -Ptr $namePtr -Unicode $unicode
-            if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
-            for ($i = 0; $i -lt $count; $i++) {
-                $ptr = [BitConverter]::ToInt32($h, $langOffset + $prefix + ($i * 4))
-                if ($ptr -gt 0 -and $ptr -lt $table.Length) { $langStrings[$i] = (Read-NsisString -Table $table -Ptr $ptr -Unicode $unicode) }
-            }
-            $meta.Name = $candidate
-            break
-        }
-    }
 
     $installDirPtr = [BitConverter]::ToInt32($h, 280)
     if ($installDirPtr -gt 0) { $meta.InstallDir = (& $str $installDirPtr) }
@@ -2318,10 +2364,9 @@ function Get-NsisMetadata {
     $allUsersSeen = $false
     $regView64 = $false
     $regViewPrevious = $false
-    $arpRoot = ''
-    $arpSubkey = ''
-    $arpView64 = $false
-    $arpValues = @{}
+    $lastRegViewValue = -1
+    $regView32Seen = $false
+    $arpCandidates = [ordered]@{}
     $uninstallerPath = ''
     $instDirAssignments = New-Object System.Collections.Generic.List[string]
     $userVars = @{}
@@ -2384,7 +2429,13 @@ function Get-NsisMetadata {
                 $value = 0
                 [void][int]::TryParse($valueText, [ref]$value)
                 if ($p0 -eq 1)  { $allUsers = ($value -ne 0); if ($allUsers) { $allUsersSeen = $true } }
-                if ($p0 -eq 12) { $regViewPrevious = $regView64; $regView64 = ($value -ne 0) }
+                if ($p0 -eq 12) {
+                    # SetRegView 64 stores KEY_WOW64_64KEY (256), SetRegView 32 KEY_WOW64_32KEY (512), default 0.
+                    $regViewPrevious = $regView64
+                    $regView64 = ($value -eq 256)
+                    $lastRegViewValue = $value
+                    if ($value -eq 512) { $regView32Seen = $true }
+                }
             }
             25 {
                 if ($p0 -lt 20) {
@@ -2406,30 +2457,48 @@ function Get-NsisMetadata {
                 }
             }
             51 {
-                $subkey = (& $str $p1)
+                # A key held in a user variable ($0) takes the last literal assigned to it.
+                $subkey = & $resolveUserVar (& $str $p1)
                 if ($subkey -notmatch '(?i)^Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\') { break }
-                if (-not $arpSubkey) {
-                    $arpSubkey = $subkey
-                    $arpRoot = Get-NsisRootKeyName -Root ([BitConverter]::ToUInt32($h, $base + 4))
-                    if ($arpRoot -notin 'HKCU', 'HKLM', 'SHCTX') { $arpRoot = '' }
-                    $arpView64 = $regView64
+                if (-not $arpCandidates.Contains($subkey)) {
+                    $rootInfo = Resolve-NsisRegistryRoot -Root $p0
+                    $rootName = if ($rootInfo.Name -in 'HKCU', 'HKLM', 'SHCTX') { $rootInfo.Name } else { '' }
+                    # HKLM64 / HKLM32 style roots force the view; plain roots follow SetRegView.
+                    $arpCandidates[$subkey] = @{ Root = $rootName; ForcedView = $rootInfo.View; SeqView64 = $regView64; Values = @{} }
                 }
-                elseif ($subkey -ne $arpSubkey) { break }
                 $valueName = (& $str $p2)
                 if ([string]::IsNullOrEmpty($valueName)) { break }
-                if (-not $arpValues.ContainsKey($valueName)) { $arpValues[$valueName] = (& $str $p3) }
+                $candidateValues = $arpCandidates[$subkey].Values
+                if (-not $candidateValues.ContainsKey($valueName)) { $candidateValues[$valueName] = (& $str $p3) }
             }
         }
+    }
+    $arpSubkey = ''; $arpRoot = ''; $arpView64 = $false; $arpValues = @{}
+    $regViewFromInit = $false
+    if ($arpCandidates.Count -gt 0) {
+        $pick = $null
+        foreach ($k in $arpCandidates.Keys) { if ($k -notmatch '\$' -and $arpCandidates[$k].Values.ContainsKey('DisplayName')) { $pick = $k; break } }
+        if (-not $pick) { foreach ($k in $arpCandidates.Keys) { if ($k -notmatch '\$') { $pick = $k; break } } }
+        if (-not $pick) { $pick = @($arpCandidates.Keys)[0] }
+        $arpSubkey = $pick
+        $arpRoot = $arpCandidates[$pick].Root
+        $arpValues = $arpCandidates[$pick].Values
+        # View: a forced root (HKLM64) decides; otherwise the SetRegView state
+        # at the write in code order, except that a script whose last
+        # SetRegView is 64 and that never selects 32 runs that statement in
+        # .onInit before any section, so the key lands in the 64-bit view.
+        $c = $arpCandidates[$pick]
+        if ($c.ForcedView -eq '64') { $arpView64 = $true }
+        elseif ($c.ForcedView -eq '32') { $arpView64 = $false }
+        elseif ($c.SeqView64) { $arpView64 = $true }
+        elseif ($lastRegViewValue -eq 256 -and -not $regView32Seen) { $arpView64 = $true; $regViewFromInit = $true }
+        else { $arpView64 = $false }
     }
     $meta.ArpValues = $arpValues
     $meta.InstallDirCandidates = @($instDirAssignments)
 
-    # SHCTX resolves through the shell context in force when the section
-    # runs: an installer that ever switches to all users while requesting
-    # elevation registers under HKLM.
     $elevates = ($meta.RequestedExecutionLevel -in 'requireAdministrator', 'highestAvailable')
     $arpRootRaw = $arpRoot
-    if ($arpRoot -eq 'SHCTX') { $arpRoot = if ($allUsersSeen -and $elevates) { 'HKLM' } else { 'HKCU' } }
 
     # A compile-time InstallDir that is neither a folder constant nor an
     # absolute path is a placeholder the script overwrites at run time; the
@@ -2444,6 +2513,15 @@ function Get-NsisMetadata {
         if (-not $pick) { $pick = $instDirAssignments[0] }
         $meta.InstallDir = $pick
         $resolvedFromCandidate = $true
+    }
+
+    # SHCTX resolves through the shell context in force when the section
+    # runs: a script that switches to all users and either elevates or
+    # targets a machine folder registers under HKLM, since an asInvoker
+    # stub run by an administrator takes that branch too.
+    if ($arpRoot -eq 'SHCTX') {
+        $machineTarget = ($meta.InstallDir -match '^\$(PROGRAMFILES|COMMONFILES)' -or $meta.InstallDir -match '^[A-Za-z]:\\')
+        $arpRoot = if ($allUsersSeen -and ($elevates -or $machineTarget)) { 'HKLM' } else { 'HKCU' }
     }
 
     if (-not $uninstallerPath -and $arpValues.ContainsKey('UninstallString')) {
@@ -2510,6 +2588,9 @@ function Get-NsisMetadata {
                 if ($root -eq 'HKLM' -and -not $arpView64) {
                     $keyName = $keyName -replace '(?i)^Software\\', 'Software\WOW6432Node\'
                     $b.UninstallRegistryKeyNote = '32-bit installer without SetRegView 64: the key lands under WOW6432Node on x64 Windows.'
+                }
+                elseif ($root -eq 'HKLM' -and $regViewFromInit) {
+                    $b.UninstallRegistryKeyNote = 'SetRegView 64 runs in .onInit before the key is written; the key is in the 64-bit view.'
                 }
                 elseif ($root -eq 'HKCU') {
                     $b.UninstallRegistryKeyNote = 'Per-user registration under HKCU; detection and uninstall must run in the user context.'
@@ -2584,6 +2665,139 @@ function Get-NsisMetadata {
 # record layout changes between data versions, so the fixed part is read
 # by version and cross-checked against enum ranges before it is trusted.
 
+# Registry value types as WriteReg stores them in the rtype parameter.
+$script:NsisRegistryTypeNames = @{ 0 = 'REG_NONE'; 1 = 'REG_SZ'; 2 = 'REG_EXPAND_SZ'; 3 = 'REG_BINARY'; 4 = 'REG_DWORD'; 7 = 'REG_MULTI_SZ' }
+
+function script:Resolve-NsisRegistryRoot {
+    <#
+    .SYNOPSIS
+        Splits a root-key parameter into the hive name and the forced
+        registry view (HKLM32 / HKLM64 / SHCTX32 style roots).
+    #>
+    param([Parameter(Mandatory)][int]$Root)
+    $u = [uint32][BitConverter]::ToUInt32([BitConverter]::GetBytes($Root), 0)
+    $viewBits = [int64]($u -band 0x60000000)
+    $view = switch ($viewBits) { 0x40000000 { '32' } 0x20000000 { '64' } 0x60000000 { 'any' } default { '' } }
+    $base = [uint32]($u -band 0x9FFFFFFF)
+    return @{ Name = (Get-NsisRootKeyName -Root $base); View = $view }
+}
+
+function Get-NsisRegistrySettings {
+    <#
+    .SYNOPSIS
+        Lists every registry write and delete in an NSIS installer's compiled
+        script.
+    .DESCRIPTION
+        Walks the entry list for WriteReg (opcode 51) and DeleteRegValue /
+        DeleteRegKey (opcode 50) and returns one row per instruction with
+        Root, Key, Name, Type, Value, Action, View, Section and Source.
+        Values are the compiled strings in NSIS notation, so run-time
+        variables stay as $INSTDIR, $0 and the like. REG_BINARY and
+        REG_MULTI_SZ data lives in the data block and is reported as such.
+        View is the forced view from the root (HKLM64, SHCTX32) or, when the
+        root carries none, the SetRegView state at that point in code order.
+        Source labels the rows; pass the extracted uninstaller with -Source
+        Uninstaller to list what the uninstaller does.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Returns the list of settings from one installer.')]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [string]$Source = 'Installer'
+    )
+
+    $result = [pscustomobject]@{ Format = 'NSIS'; Entries = @(); Note = '' }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { $result.Note = 'Installer not found: ' + $Path; return $result }
+    $ctx = Read-NsisHeaderTable -Path $Path
+    if (-not $ctx.Header) { $result.Note = $ctx.Note; return $result }
+    $h = $ctx.Header
+    $table = $ctx.Table
+    $unicode = $ctx.Unicode
+    $langStrings = $ctx.LangStrings
+    $str = { param($ptr) Read-NsisString -Table $table -Ptr $ptr -Unicode $unicode -LangStrings $langStrings }
+
+    # Section records: name pointer, install types, flags, first entry
+    # index, entry count, size; code outside every section is function code.
+    $sections = @()
+    if ($ctx.SectionsCount -gt 0 -and $ctx.SectionSize -ge 24) {
+        for ($s = 0; $s -lt $ctx.SectionsCount; $s++) {
+            $base = $ctx.SectionsOffset + ($s * $ctx.SectionSize)
+            if ($base + 24 -gt $h.Length) { break }
+            $namePtr = [BitConverter]::ToInt32($h, $base)
+            $code = [BitConverter]::ToInt32($h, $base + 12)
+            $codeSize = [BitConverter]::ToInt32($h, $base + 16)
+            $name = if ($namePtr -gt 0) { (& $str $namePtr) } else { '' }
+            if (-not $name) { $name = '(unnamed section ' + $s + ')' }
+            $sections += [pscustomobject]@{ Name = $name; Start = $code; End = $code + $codeSize }
+        }
+    }
+    $sectionOf = {
+        param($index)
+        foreach ($sec in $sections) { if ($index -ge $sec.Start -and $index -lt $sec.End) { return $sec.Name } }
+        return '(function)'
+    }
+
+    $rows = New-Object System.Collections.Generic.List[object]
+    $regView64 = $false
+    $regView32 = $false
+    $regViewPrevious = $false
+    for ($e = 0; $e -lt $ctx.EntriesCount; $e++) {
+        $base = $ctx.EntriesOffset + ($e * 28)
+        $op = [BitConverter]::ToInt32($h, $base)
+        if ($op -ne 13 -and $op -ne 50 -and $op -ne 51) { continue }
+        $p0 = [BitConverter]::ToInt32($h, $base + 4)
+        $p1 = [BitConverter]::ToInt32($h, $base + 8)
+        $p2 = [BitConverter]::ToInt32($h, $base + 12)
+        $p3 = [BitConverter]::ToInt32($h, $base + 16)
+        $p4 = [BitConverter]::ToInt32($h, $base + 20)
+        $p5 = [BitConverter]::ToInt32($h, $base + 24)
+        if ($op -eq 13) {
+            if ($p0 -ne 12) { continue }
+            if ($p2 -ne 0) { $swap = $regView64; $regView64 = $regViewPrevious; $regViewPrevious = $swap; continue }
+            $value = 0
+            [void][int]::TryParse((& $str $p1), [ref]$value)
+            $regViewPrevious = $regView64
+            $regView64 = ($value -eq 256)
+            $regView32 = ($value -eq 512)
+            continue
+        }
+        $rootParam = if ($op -eq 51) { $p0 } else { $p1 }
+        $root = Resolve-NsisRegistryRoot -Root $rootParam
+        $view = if ($root.View) { $root.View + ' (root)' } elseif ($regView64) { '64 (SetRegView)' } elseif ($regView32) { '32 (SetRegView)' } else { '' }
+        $row = [pscustomobject]@{
+            Root = $root.Name; Key = ''; Name = ''; Type = ''; Value = ''; Action = ''; Flags = ''
+            View = $view; Section = (& $sectionOf $e); Source = $Source; Format = 'NSIS'; Order = $e
+        }
+        if ($op -eq 51) {
+            $row.Key = (& $str $p1)
+            $row.Name = (& $str $p2)
+            $row.Type = if ($script:NsisRegistryTypeNames.ContainsKey($p5)) { $script:NsisRegistryTypeNames[$p5] } else { 'type ' + $p5 }
+            $row.Action = 'write'
+            switch ($p4) {
+                1 { $row.Value = (& $str $p3) }
+                4 { $row.Value = (& $str $p3) }
+                default { $row.Value = '(data block)' }
+            }
+        }
+        else {
+            $row.Key = (& $str $p2)
+            if ($p4 -eq 0) {
+                $row.Name = (& $str $p3)
+                $row.Action = 'delete value'
+            }
+            else {
+                $row.Action = 'delete key'
+                $flags = @()
+                if (($p4 -shr 1) -band 1) { $flags += '/ifempty' }
+                if (($p4 -shr 1) -band 2) { $flags += '/ifnovalues' }
+                $row.Flags = ($flags -join ' ')
+            }
+        }
+        $rows.Add($row)
+    }
+    $result.Entries = $rows.ToArray()
+    return $result
+}
+
 function script:Initialize-InnoBlockType {
     if (([System.Management.Automation.PSTypeName]'InstallerAnalysis.InnoBlock').Type) { return }
     Add-Type -TypeDefinition @'
@@ -2618,6 +2832,28 @@ namespace InstallerAnalysis
         // A block is a run of chunks, each a CRC32 followed by up to 4096
         // payload bytes; only the last chunk may be shorter. Returns the
         // concatenated payloads; crcOk reports whether every chunk matched.
+        // Advances over count records, each strings + ansiStrings length-prefixed
+        // strings followed by fixedSize bytes. Returns the new position, -1 when
+        // the data ends inside a record, -2 when a string length is implausible.
+        public static int SkipEntries(byte[] data, int pos, int count, int strings, int ansiStrings, int fixedSize)
+        {
+            int total = strings + ansiStrings;
+            for (int i = 0; i < count; i++)
+            {
+                for (int s = 0; s < total; s++)
+                {
+                    if (pos + 4 > data.Length) return -1;
+                    uint len = BitConverter.ToUInt32(data, pos);
+                    pos += 4;
+                    if (len > 64u * 1024u * 1024u) return -2;
+                    if (pos + (long)len > data.Length) return -1;
+                    pos += (int)len;
+                }
+                if (pos + (long)fixedSize > data.Length) return -1;
+                pos += fixedSize;
+            }
+            return pos;
+        }
         public static byte[] Unchunk(byte[] data, int offset, int storedSize, out bool crcOk)
         {
             crcOk = true;
@@ -3076,6 +3312,7 @@ function script:Read-InnoSetupHeader {
     if ($dataVersion -ge (& $mk 5 2 1) -and $dataVersion -lt (& $mk 5 3 10)) { & $skip 8 }
     $disableDir = 0; $disableGroup = 0
     if ($dataVersion -ge (& $mk 5 3 3)) { $disableDir = & $u8; $disableGroup = & $u8 }
+    $h.FixedEnd = $state.Pos
 
     $sane = ($privileges -le 3) -and ($overrides -le 3) -and ($logMode -le 2) -and ($dirExists -le 2) -and
             ($showLang -le 2) -and ($langDetect -le 2) -and ($compress -le 4) -and ($wizardStyle -le 1) -and
@@ -3327,6 +3564,7 @@ function Get-InnoSetupMetadata {
     $keyName = ''
     $keyNote = ''
     if ($appIdLiteral -match '\{') { $keyNote = 'AppId is computed at run time: ' + $meta.AppId }
+    elseif (-not $uninstallable) { $keyNote = 'Uninstallable=no: the setup writes no uninstaller and no Add/Remove Programs entry.' }
     elseif ($meta.CreateUninstallRegKey -match '^(?i)no$') { $keyNote = 'CreateUninstallRegKey=no: the setup writes no Add/Remove Programs entry.' }
     elseif ($appIdLiteral) { $keyName = $appIdLiteral.Replace($braceMark, '{') + '_is1' }
     $overrides = if ($header.FixedDecoded) { @($meta.PrivilegesRequiredOverridesAllowed) } else { @() }
@@ -3431,6 +3669,182 @@ function Get-InnoSetupMetadata {
         $meta.Note = ('Install directory is not resolvable before install: ' + $meta.DefaultDirName + $(if ($meta.Note) { ' ' + $meta.Note } else { '' })).Trim()
     }
     return $meta
+}
+
+$script:InnoRootKeyNames = @{
+    [int64]1          = 'HKA'
+    [int64]2147483648 = 'HKCR'
+    [int64]2147483649 = 'HKCU'
+    [int64]2147483650 = 'HKLM'
+    [int64]2147483651 = 'HKU'
+    [int64]2147483652 = 'HKPD'
+    [int64]2147483653 = 'HKCC'
+    [int64]2147483654 = 'HKDD'
+}
+$script:InnoRegistryTypeNames = @('', 'REG_SZ', 'REG_EXPAND_SZ', 'REG_DWORD', 'REG_BINARY', 'REG_MULTI_SZ', 'REG_QWORD')
+$script:InnoRegistryFlagNames = @('createvalueifdoesntexist', 'uninsdeletevalue', 'uninsclearvalue', 'uninsdeletekey', 'uninsdeletekeyifempty', 'preservestringtype', 'deletekey', 'deletevalue', 'noerror', 'dontcreatekey', '32bit', '64bit')
+$script:InnoBitnessNames = @('', '32', '64', 'native', 'process')
+
+function script:Read-InnoEntryLists {
+    <#
+    .SYNOPSIS
+        Walks the entry lists that follow TSetupHeader in a decoded setup-0
+        block and returns the [Registry] entries.
+    .DESCRIPTION
+        Every list is NumXxxEntries records of strings, ANSI strings and a
+        fixed part whose size depends on the data version; only 6.0.0 and
+        later layouts are known here. Registry entries are decoded; the
+        lists before them (languages through ini) are skipped by size.
+        Throws EndOfStreamException when the decoded block ends early so the
+        caller can retry with a larger decode budget.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Walks every entry list in the block.')]
+    param(
+        [Parameter(Mandatory)]$Data,
+        [Parameter(Mandatory)]$Version,
+        [Parameter(Mandatory)]$Header
+    )
+
+    $out = [ordered]@{ RegistryEntries = @(); Note = '' }
+    $dataVersion = [int64]$Version.Value
+    $mk = { param($a, $b, $c, $d = 0) [int64]$a * 1000000000 + [int64]$b * 1000000 + [int64]$c * 1000 + $d }
+    if ($dataVersion -lt (& $mk 6 0 0)) { $out.Note = 'Entry lists are read for setup data 6.0.0 and later; this installer is ' + $Version.Text + '.'; return $out }
+    if (-not $Header.FixedDecoded -or -not $Header.Contains('FixedEnd')) { $out.Note = 'Entry lists follow header fields that did not decode.'; return $out }
+
+    $state = @{ Pos = [int]$Header.FixedEnd }
+    $len = $Data.Length
+    $need = {
+        param($n)
+        if ($state.Pos + $n -gt $len) { throw (New-Object System.IO.EndOfStreamException('Setup entry lists extend past the decoded block.')) }
+    }
+    $u8  = { & $need 1; $b = $Data[$state.Pos]; $state.Pos += 1; [int]$b }
+    $u16 = { & $need 2; $x = [BitConverter]::ToUInt16($Data, $state.Pos); $state.Pos += 2; [int]$x }
+    $u32 = { & $need 4; $x = [BitConverter]::ToUInt32($Data, $state.Pos); $state.Pos += 4; [int64]$x }
+    $skip = { param($n) & $need $n; $state.Pos += $n }
+    $encoding = if ($Version.Unicode) { [System.Text.Encoding]::Unicode } else { [System.Text.Encoding]::Default }
+    $str = {
+        param([switch]$Ansi)
+        $n = & $u32
+        if ($n -gt 64MB) { throw (New-Object System.IO.InvalidDataException('Setup entry string length is implausible.')) }
+        & $need $n
+        $text = if ($Ansi) { [System.Text.Encoding]::Default.GetString($Data, $state.Pos, [int]$n) } else { $encoding.GetString($Data, $state.Pos, [int]$n) }
+        $state.Pos += $n
+        $text
+    }
+
+    # Header tail: UninstallDisplaySize then the Options set, whose byte
+    # count follows the TSetupHeaderOption member count per version (the
+    # ANSI-only member does not exist in Unicode builds).
+    $headerOptionBytes = if ($dataVersion -ge (& $mk 6 7 0)) { 8 } elseif ($dataVersion -ge (& $mk 6 4 0 1)) { 6 } elseif ($dataVersion -ge (& $mk 6 3 0)) { 7 } else { 6 }
+    & $skip (8 + $headerOptionBytes)
+
+    $skipList = {
+        param([int64]$count, [int]$strings, [int]$ansiStrings, [int]$fixed)
+        if ($count -lt 0 -or $count -gt 10000000) { throw (New-Object System.IO.InvalidDataException('Setup entry count is implausible.')) }
+        $next = [InstallerAnalysis.InnoBlock]::SkipEntries($Data, $state.Pos, [int]$count, $strings, $ansiStrings, $fixed)
+        if ($next -eq -1) { throw (New-Object System.IO.EndOfStreamException('Setup entry lists extend past the decoded block.')) }
+        if ($next -lt 0) { throw (New-Object System.IO.InvalidDataException('Setup entry string length is implausible.')) }
+        $state.Pos = $next
+    }
+    $v650 = ($dataVersion -ge (& $mk 6 5 0))
+    $v660 = ($dataVersion -ge (& $mk 6 6 0))
+    $v670 = ($dataVersion -ge (& $mk 6 7 0))
+    $v700 = ($dataVersion -ge (& $mk 7 0 0))
+    & $skipList $Header.NumLanguageEntries      $(if ($v660) { 4 } else { 6 }) 4 $(if ($v660) { 19 } else { 21 })
+    & $skipList $Header.NumCustomMessageEntries 2 0 4
+    & $skipList $Header.NumPermissionEntries    0 1 0
+    & $skipList $Header.NumTypeEntries          4 0 30
+    & $skipList $Header.NumComponentEntries     5 0 $(if ($v670) { 39 } else { 42 })
+    & $skipList $Header.NumTaskEntries          6 0 $(if ($v670) { 23 } else { 26 })
+    & $skipList $Header.NumDirEntries           7 0 27
+    if ($v650) { & $skipList $Header.NumISSigKeyEntries 3 0 0 }
+    $fileFixed = if ($v700) { 81 } elseif ($v670) { 80 } elseif ($v650) { 77 } else { 43 }
+    & $skipList $Header.NumFileEntries $(if ($v650) { 15 } else { 10 }) $(if ($v650) { 1 } else { 0 }) $fileFixed
+    & $skipList $Header.NumIconEntries 13 0 $(if ($dataVersion -ge (& $mk 6 1 0)) { 48 } else { 32 })
+    & $skipList $Header.NumIniEntries  10 0 21
+
+    $count = [int64]$Header.NumRegistryEntries
+    if ($count -lt 0 -or $count -gt 1000000) { throw (New-Object System.IO.InvalidDataException('Registry entry count is implausible.')) }
+    $rows = New-Object System.Collections.Generic.List[object]
+    for ($i = 0; $i -lt $count; $i++) {
+        $subkey = & $str; $valueName = & $str; $valueData = & $str
+        $components = & $str; $tasks = & $str; $languages = & $str; $check = & $str
+        $null = & $str; $null = & $str
+        & $skip 20
+        $rootKey = & $u32
+        & $skip 2
+        $typ = & $u8
+        $bitness = 0
+        if ($v700) { $bitness = & $u8 }
+        $options = & $u16
+
+        if (-not $script:InnoRootKeyNames.ContainsKey([int64]$rootKey) -or $typ -gt 6 -or $bitness -gt 4) {
+            throw (New-Object System.IO.InvalidDataException(('Registry entry {0} did not validate (root 0x{1:X8}, type {2}).' -f $i, $rootKey, $typ)))
+        }
+        $flagNames = @()
+        for ($b = 0; $b -lt $script:InnoRegistryFlagNames.Count; $b++) { if ($options -band (1 -shl $b)) { $flagNames += $script:InnoRegistryFlagNames[$b] } }
+        $view = if ($v700) { $script:InnoBitnessNames[$bitness] } elseif ($flagNames -contains '64bit') { '64' } elseif ($flagNames -contains '32bit') { '32' } else { '' }
+        $action = if ($flagNames -contains 'deletekey') { 'delete key' }
+                  elseif ($flagNames -contains 'deletevalue') { if ($typ -ne 0) { 'delete value, then write' } else { 'delete value' } }
+                  elseif ($typ -eq 0) { 'create key' }
+                  else { 'write' }
+        $conditions = @()
+        if ($components) { $conditions += 'Components: ' + $components }
+        if ($tasks)      { $conditions += 'Tasks: ' + $tasks }
+        if ($languages)  { $conditions += 'Languages: ' + $languages }
+        if ($check)      { $conditions += 'Check: ' + $check }
+        $rows.Add([pscustomobject]@{
+            Root = $script:InnoRootKeyNames[[int64]$rootKey]; Key = $subkey; Name = $valueName
+            Type = $script:InnoRegistryTypeNames[$typ]; Value = $valueData; Action = $action
+            Flags = (@($flagNames | Where-Object { $_ -notin '32bit', '64bit' }) -join ' ')
+            View = $view; Section = ($conditions -join '; '); Source = 'Installer'; Format = 'InnoSetup'; Order = $i
+        })
+    }
+    $out.RegistryEntries = $rows.ToArray()
+    return $out
+}
+
+function Get-InnoRegistrySettings {
+    <#
+    .SYNOPSIS
+        Lists the [Registry] section entries compiled into an Inno Setup
+        installer.
+    .DESCRIPTION
+        Returns one row per entry with Root (HKA is HKLM for an
+        administrative install and HKCU for a per-user one), Key, Name,
+        Type, Value (constants such as {app} unexpanded), Action, Flags
+        (the uninstall behaviour flags), View and Section (the Components,
+        Tasks, Languages and Check conditions). Setup data before 6.0.0
+        and encrypted headers are reported in Note with no entries.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Returns the list of settings from one installer.')]
+    param([Parameter(Mandatory)][string]$Path)
+
+    $result = [pscustomobject]@{ Format = 'InnoSetup'; Entries = @(); Note = '' }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { $result.Note = 'Installer not found: ' + $Path; return $result }
+    $offsets = Get-InnoLoaderOffsets -Path $Path
+    if (-not $offsets) { $result.Note = 'SetupLdr offset table not found.'; return $result }
+
+    foreach ($budget in @(4MB, 32MB, 160MB)) {
+        $block = Expand-InnoHeaderBlock -Path $Path -HeaderOffset $offsets.HeaderOffset -MaxOutput $budget
+        if (-not $block -or -not $block.Bytes) { $result.Note = if ($block -and $block.Note) { $block.Note } else { 'Setup header block could not be decoded.' }; return $result }
+        try {
+            $header = Read-InnoSetupHeader -Data $block.Bytes -Version $block.Version
+            $lists = Read-InnoEntryLists -Data $block.Bytes -Version $block.Version -Header $header
+            $result.Entries = @($lists.RegistryEntries)
+            $result.Note = $lists.Note
+            return $result
+        }
+        catch [System.IO.EndOfStreamException] {
+            if ($block.Bytes.Length -lt $budget) { $result.Note = 'Setup entry lists end inside the decoded block.'; return $result }
+        }
+        catch {
+            $result.Note = 'Setup entry lists could not be decoded: ' + $_.Exception.Message
+            return $result
+        }
+    }
+    $result.Note = 'Setup entry lists exceed the decode budget.'
+    return $result
 }
 
 function Get-PackageMetadataFor {
@@ -3839,6 +4253,141 @@ function Get-MsiSummaryInfo {
         }
         [GC]::Collect(); [GC]::WaitForPendingFinalizers()
     }
+}
+
+$script:MsiRegistryRootNames = @{ -1 = 'HKMU'; 0 = 'HKCR'; 1 = 'HKCU'; 2 = 'HKLM'; 3 = 'HKU' }
+
+function script:ConvertFrom-MsiRegistryValue {
+    <#
+    .SYNOPSIS
+        Splits a Registry table Value column into its type and display text.
+    .DESCRIPTION
+        Formatted-string prefixes select the type: #x hex bytes (REG_BINARY),
+        #% expandable string, # followed by digits a DWORD, ## a literal #,
+        [~] separators a multi-string; anything else is REG_SZ. A null
+        Value with Name +, - or * only creates or removes the key.
+    #>
+    param([AllowNull()][object]$Value, [AllowNull()][string]$Name)
+    if ($null -eq $Value) {
+        $action = switch ([string]$Name) {
+            '+' { 'create key' }
+            '-' { 'delete key on uninstall' }
+            '*' { 'create key; delete on uninstall' }
+            default { 'write' }
+        }
+        $type = if ($action -eq 'write') { 'REG_SZ' } else { '' }
+        return @{ Type = $type; Text = ''; Action = $action }
+    }
+    $Value = [string]$Value
+    if ($Value.StartsWith('#x'))  { return @{ Type = 'REG_BINARY';    Text = $Value.Substring(2); Action = 'write' } }
+    if ($Value.StartsWith('#%'))  { return @{ Type = 'REG_EXPAND_SZ'; Text = $Value.Substring(2); Action = 'write' } }
+    if ($Value.StartsWith('##'))  { return @{ Type = 'REG_SZ';        Text = $Value.Substring(1); Action = 'write' } }
+    if ($Value -match '^#(-?\d+)$') { return @{ Type = 'REG_DWORD';   Text = $Matches[1];         Action = 'write' } }
+    if ($Value.Contains('[~]'))   { return @{ Type = 'REG_MULTI_SZ';  Text = $Value;              Action = 'write' } }
+    return @{ Type = 'REG_SZ'; Text = $Value; Action = 'write' }
+}
+
+function Get-MsiRegistrySettings {
+    <#
+    .SYNOPSIS
+        Lists the Registry and RemoveRegistry table rows of an MSI.
+    .DESCRIPTION
+        Returns one row per table row with Root (HKMU is HKCU for a
+        per-user install and HKLM for a per-machine one), Key, Name, Type,
+        Value, Action, View (64 when the owning component has the 64-bit
+        attribute, otherwise 32) and Section (the component name). Values
+        keep their [PROPERTY] references unexpanded. Uses Windows Installer
+        COM; tables that do not exist contribute no rows.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Returns the list of settings from one package.')]
+    param([Parameter(Mandatory)][string]$MsiPath)
+
+    $result = [pscustomobject]@{ Format = 'MSI'; Entries = @(); Note = '' }
+    if (-not (Test-Path -LiteralPath $MsiPath -PathType Leaf)) { $result.Note = 'Package not found: ' + $MsiPath; return $result }
+
+    $installer = $null; $db = $null
+    $rows = New-Object System.Collections.Generic.List[object]
+    $query = {
+        param([string]$sql, [scriptblock]$onRecord)
+        $view = $null; $record = $null
+        try {
+            $view = $db.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $db, @($sql))
+            $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null) | Out-Null
+            while ($true) {
+                $record = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
+                if ($null -eq $record) { break }
+                $fields = @{}
+                $fieldCount = [int]$record.GetType().InvokeMember('FieldCount', 'GetProperty', $null, $record, $null)
+                for ($f = 1; $f -le $fieldCount; $f++) {
+                    $isNull = [bool]$record.GetType().InvokeMember('IsNull', 'GetProperty', $null, $record, $f)
+                    $fields[$f] = if ($isNull) { $null } else { [string]$record.GetType().InvokeMember('StringData', 'GetProperty', $null, $record, $f) }
+                }
+                & $onRecord $fields
+                [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($record) | Out-Null
+                $record = $null
+            }
+        }
+        finally {
+            foreach ($o in @($record, $view)) {
+                if ($null -ne $o -and [System.Runtime.InteropServices.Marshal]::IsComObject($o)) { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($o) | Out-Null }
+            }
+        }
+    }
+    try {
+        $installer = New-Object -ComObject WindowsInstaller.Installer
+        $db = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $installer, @($MsiPath, 0))
+        $tables = @{}
+        & $query 'SELECT `Name` FROM `_Tables`' { param($f) $tables[[string]$f[1]] = $true }
+
+        # The owning component's 64-bit attribute (256) decides the view; the
+        # join keeps the read proportional to the registry rows, not to the
+        # component count.
+        $hasComponent = $tables.ContainsKey('Component')
+        $viewOf = { param($attributes) if ($null -eq $attributes) { '' } elseif (([int]$attributes) -band 256) { '64' } else { '32' } }
+        $rootOf = { param($root) $r = 0; [void][int]::TryParse([string]$root, [ref]$r); if ($script:MsiRegistryRootNames.ContainsKey($r)) { $script:MsiRegistryRootNames[$r] } else { 'root ' + $root } }
+
+        if ($tables.ContainsKey('Registry')) {
+            $sql = if ($hasComponent) { 'SELECT `Registry`.`Registry`, `Registry`.`Root`, `Registry`.`Key`, `Registry`.`Name`, `Registry`.`Value`, `Registry`.`Component_`, `Component`.`Attributes` FROM `Registry`, `Component` WHERE `Registry`.`Component_` = `Component`.`Component`' }
+                   else { 'SELECT `Registry`, `Root`, `Key`, `Name`, `Value`, `Component_` FROM `Registry`' }
+            & $query $sql {
+                param($f)
+                $decoded = ConvertFrom-MsiRegistryValue -Value $f[5] -Name $f[4]
+                $name = [string]$f[4]
+                if ($decoded.Action -ne 'write' -and $name -in '+', '-', '*') { $name = '' }
+                $rows.Add([pscustomobject]@{
+                    Root = (& $rootOf $f[2]); Key = [string]$f[3]; Name = $name; Type = $decoded.Type; Value = $decoded.Text
+                    Action = $decoded.Action; Flags = ''; View = (& $viewOf $f[7]); Section = [string]$f[6]
+                    Source = 'Registry table'; Format = 'MSI'; Order = $rows.Count
+                })
+            }
+        }
+        if ($tables.ContainsKey('RemoveRegistry')) {
+            $sql = if ($hasComponent) { 'SELECT `RemoveRegistry`.`RemoveRegistry`, `RemoveRegistry`.`Root`, `RemoveRegistry`.`Key`, `RemoveRegistry`.`Name`, `RemoveRegistry`.`Component_`, `Component`.`Attributes` FROM `RemoveRegistry`, `Component` WHERE `RemoveRegistry`.`Component_` = `Component`.`Component`' }
+                   else { 'SELECT `RemoveRegistry`, `Root`, `Key`, `Name`, `Component_` FROM `RemoveRegistry`' }
+            & $query $sql {
+                param($f)
+                $name = [string]$f[4]
+                $action = if ($name -eq '-') { 'delete key' } else { 'delete value' }
+                if ($name -eq '-') { $name = '' }
+                $rows.Add([pscustomobject]@{
+                    Root = (& $rootOf $f[2]); Key = [string]$f[3]; Name = $name; Type = ''; Value = ''
+                    Action = $action; Flags = ''; View = (& $viewOf $f[6]); Section = [string]$f[5]
+                    Source = 'RemoveRegistry table'; Format = 'MSI'; Order = $rows.Count
+                })
+            }
+        }
+        $result.Entries = $rows.ToArray()
+    }
+    catch {
+        $result.Note = 'Registry tables could not be read: ' + $_.Exception.Message
+    }
+    finally {
+        foreach ($o in @($db, $installer)) {
+            if ($null -ne $o -and [System.Runtime.InteropServices.Marshal]::IsComObject($o)) { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($o) | Out-Null }
+        }
+        [GC]::Collect(); [GC]::WaitForPendingFinalizers()
+    }
+    return $result
 }
 
 function Get-MspMetadata {
@@ -4623,6 +5172,101 @@ function Expand-InstallerPayload {
     return $OutputPath
 }
 
+function Get-InstallerRegistrySettings {
+    <#
+    .SYNOPSIS
+        Lists the registry settings an installer applies, for the formats
+        whose compiled script or database can be read before install.
+    .DESCRIPTION
+        MSI packages come from the Registry and RemoveRegistry tables, NSIS
+        installers from the compiled entry list (the uninstaller's entries
+        are added when 7-Zip and the file listing locate it), Inno Setup
+        installers from the compiled [Registry] section. Other formats
+        return no entries and a Note saying so.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Returns the list of settings from one installer.')]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$InstallerType,
+        [PSCustomObject]$PackageMetadata,
+        [object[]]$Payload,
+        [string]$SevenZipPath,
+        [string]$TempDir
+    )
+
+    switch ($InstallerType) {
+        'MSI'       { return Get-MsiRegistrySettings -MsiPath $Path }
+        'InnoSetup' { return Get-InnoRegistrySettings -Path $Path }
+        'NSIS' {
+            $result = Get-NsisRegistrySettings -Path $Path
+            $uninstallerLeaf = ''
+            if ($PackageMetadata -and $PackageMetadata.PSObject.Properties['UninstallerPath'] -and $PackageMetadata.UninstallerPath) {
+                $uninstallerLeaf = [System.IO.Path]::GetFileName(([string]$PackageMetadata.UninstallerPath).Trim('"'))
+            }
+            $largeSolid = $false
+            if ($PackageMetadata -and $PackageMetadata.PSObject.Properties['Solid'] -and $PackageMetadata.Solid) {
+                # One entry of a solid stream costs a decode of everything before it.
+                $largeSolid = ((Get-Item -LiteralPath $Path).Length -gt 200MB)
+            }
+            if ($largeSolid) { $result.Note = 'Uninstaller entries are not read from a solid stream larger than 200 MB.' }
+            elseif ($uninstallerLeaf -and $Payload -and $SevenZipPath -and $TempDir) {
+                $entry = @($Payload | Where-Object { -not $_.IsDirectory -and [System.IO.Path]::GetFileName([string]$_.Name) -ieq $uninstallerLeaf } | Select-Object -First 1)
+                if ($entry.Count -gt 0) {
+                    $extracted = Expand-PayloadEntry -SevenZipPath $SevenZipPath -ArchivePath $Path -EntryName ([string]$entry[0].Name) -OutputDir $TempDir
+                    if ($extracted -and (Test-Path -LiteralPath $extracted)) {
+                        $inner = Get-NsisRegistrySettings -Path $extracted -Source 'Uninstaller'
+                        if ($inner.Entries.Count -gt 0) { $result.Entries = @($result.Entries) + @($inner.Entries) }
+                        elseif ($inner.Note -and -not $result.Note) { $result.Note = 'Uninstaller: ' + $inner.Note }
+                    }
+                }
+            }
+            return $result
+        }
+        default {
+            return [pscustomobject]@{ Format = $InstallerType; Entries = @(); Note = 'Registry settings are read from MSI, NSIS and Inno Setup installers.' }
+        }
+    }
+}
+
+function Expand-InstallerEntries {
+    <#
+    .SYNOPSIS
+        Extracts named entries from an installer with 7-Zip, keeping their
+        folder structure under OutputPath.
+    .DESCRIPTION
+        Entry names go through a UTF-8 list file so any count and any
+        characters 7-Zip accepts on a command line work. Returns the 7-Zip
+        exit code (0 success, 1 warnings such as skipped entries).
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Wraps 7z.exe; OutputPath is caller-chosen.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Extracts a set of entries in one 7-Zip run.')]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string[]]$EntryName,
+        [Parameter(Mandatory)][string]$OutputPath,
+        [string]$SevenZipPath
+    )
+
+    if (-not $SevenZipPath) { $SevenZipPath = Find-7ZipPath }
+    if (-not $SevenZipPath -or -not (Test-Path -LiteralPath $SevenZipPath)) { throw '7-Zip (7z.exe) was not found.' }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw ('Installer not found: ' + $Path) }
+    if (-not (Test-Path -LiteralPath $OutputPath)) { New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null }
+
+    $listFile = Join-Path ([System.IO.Path]::GetTempPath()) ('ia-entries-' + [guid]::NewGuid().ToString('N') + '.txt')
+    try {
+        $names = @($EntryName | Where-Object { $_ } | ForEach-Object { ([string]$_).Trim('<', '>') } | Select-Object -Unique)
+        [System.IO.File]::WriteAllLines($listFile, [string[]]$names, (New-Object System.Text.UTF8Encoding($false)))
+        $arglist = @('x', "`"$Path`"", "-o`"$OutputPath`"", "`"-i@$listFile`"", '-scsUTF-8', '-y')
+        $proc = Start-Process -FilePath $SevenZipPath -ArgumentList $arglist -Wait -NoNewWindow -PassThru
+        $code = if ($proc) { $proc.ExitCode } else { -1 }
+        Write-Log ("7z exit code {0} extracting {1} entries from '{2}' to '{3}'" -f $code, $names.Count, $Path, $OutputPath)
+        return $code
+    }
+    finally {
+        Remove-Item -LiteralPath $listFile -ErrorAction SilentlyContinue
+    }
+}
+
 # ---------------------------------------------------------------------------
 # String Analysis
 # ---------------------------------------------------------------------------
@@ -4906,6 +5550,29 @@ function script:Expand-InstallerPlaceholders {
     return $Text
 }
 
+function script:Format-InstallModeBranchLines {
+    <#
+    .SYNOPSIS
+        One indented line per non-default install mode: switch, folder,
+        silent uninstall command and detection key of that branch.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Returns the lines for every non-default mode.')]
+    param([Parameter(Mandatory)]$PackageMetadata)
+    $out = @()
+    if (-not $PackageMetadata.PSObject.Properties['ModeVariants'] -or -not $PackageMetadata.ModeVariants) { return $out }
+    foreach ($mode in @($PackageMetadata.InstallModes)) {
+        if ($mode -eq $PackageMetadata.InstallMode) { continue }
+        $branch = $PackageMetadata.ModeVariants[$mode]
+        if (-not $branch) { continue }
+        $parts = @()
+        if ($branch.InstallArgs)           { $parts += ('args ' + $branch.InstallArgs) }
+        if ($branch.InstallDirWindows)     { $parts += ('folder ' + $branch.InstallDirWindows) }
+        if ($branch.SilentUninstallCommand) { $parts += ('uninstall ' + $branch.SilentUninstallCommand) }
+        if ($branch.UninstallRegistryKey)  { $parts += ('key ' + $branch.UninstallRegistryKey + $(if ($branch.RegistryView) { ' (' + $branch.RegistryView + '-bit view)' } else { '' })) }
+        if ($parts.Count -gt 0) { $out += ('    ' + $mode + ': ' + ($parts -join '  |  ')) }
+    }
+    return $out
+}
 function New-AnalysisSummaryText {
     <#
     .SYNOPSIS
@@ -5236,6 +5903,7 @@ function New-AnalysisSummaryText {
                     if ($pkg.PSObject.Properties['InstallModes'] -and @($pkg.InstallModes).Count -gt 1) {
                         $modeText = @($pkg.InstallModes | ForEach-Object { if ($_ -eq $pkg.InstallMode) { $_ + ' (default)' } elseif ($_ -eq 'AllUsers') { $_ + ' via ' + $pkg.AllUsersSwitch } else { $_ + ' via ' + $pkg.CurrentUserSwitch } }) -join ', '
                         $lines += "  Install modes: $modeText"
+                        $lines += Format-InstallModeBranchLines -PackageMetadata $pkg
                     }
                     if ($pkg.ArpValues -and $pkg.ArpValues.Count -gt 0) {
                         $arpNames = @($pkg.ArpValues.Keys | Sort-Object)
@@ -5268,6 +5936,7 @@ function New-AnalysisSummaryText {
                     if ($pkg.PSObject.Properties['InstallModes'] -and @($pkg.InstallModes).Count -gt 1) {
                         $modeText = @($pkg.InstallModes | ForEach-Object { if ($_ -eq $pkg.InstallMode) { $_ + ' (default)' } elseif ($_ -eq 'AllUsers') { $_ + ' via ' + $pkg.AllUsersSwitch } else { $_ + ' via ' + $pkg.CurrentUserSwitch } }) -join ', '
                         $lines += "  Install modes: $modeText"
+                        $lines += Format-InstallModeBranchLines -PackageMetadata $pkg
                     }
                     if ($pkg.CreateUninstallRegKey -and $pkg.CreateUninstallRegKey -notmatch '^(?i)yes$') { $lines += "  CreateUninstallRegKey: $($pkg.CreateUninstallRegKey)" }
                     if ($pkg.Uninstallable -and $pkg.Uninstallable -notmatch '^(?i)yes$') { $lines += "  Uninstallable: $($pkg.Uninstallable)" }
