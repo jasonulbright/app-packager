@@ -61,16 +61,33 @@ function Get-GitHubApiCurlArgs {
         Returns the curl.exe arguments that authenticate a GitHub REST API call.
     .DESCRIPTION
         The unauthenticated GitHub API allows 60 requests per hour per source
-        address; a version sweep over the catalog issues more than that. When
-        GITHUB_TOKEN (or GH_TOKEN) is set in the environment the call carries
-        it as a bearer token and the limit is 5000 per hour. Returns an empty
-        array otherwise, so callers can splat the result unconditionally.
+        address; a version sweep over the catalog issues more than that. The
+        token comes from GITHUB_TOKEN, then GH_TOKEN, then the GitHub CLI's
+        stored login (gh auth token) when gh.exe is on the PATH and signed
+        in; with a token the call carries it as a bearer token and the limit
+        is 5000 per hour. Returns an empty array when no token is available,
+        so callers can splat the result unconditionally. The CLI lookup runs
+        once per process.
     #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Returns the argument list for one call.')]
     param()
 
     $token = $env:GITHUB_TOKEN
     if ([string]::IsNullOrWhiteSpace($token)) { $token = $env:GH_TOKEN }
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        if ($null -eq $script:GitHubCliToken) {
+            $script:GitHubCliToken = ''
+            $gh = Get-Command -Name 'gh.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($gh) {
+                try {
+                    $cliToken = (& $gh.Source auth token 2>$null | Select-Object -First 1)
+                    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($cliToken)) { $script:GitHubCliToken = [string]$cliToken }
+                }
+                catch { $script:GitHubCliToken = '' }
+            }
+        }
+        $token = $script:GitHubCliToken
+    }
     if ([string]::IsNullOrWhiteSpace($token)) { return @() }
     return @('-H', ('Authorization: Bearer ' + $token.Trim()), '-H', 'X-GitHub-Api-Version: 2022-11-28')
 }

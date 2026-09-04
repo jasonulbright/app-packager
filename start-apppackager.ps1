@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.5.1.2
+    Version    : 1.5.1.3
     Updated    : 2026-09-04
 #>
 
@@ -615,6 +615,52 @@ function Invoke-DetectSevenZipCli {
     }
 
     return $result
+}
+
+function Get-GitHubApiAuthStatus {
+    # Reports how the 90 GitHub-backed packagers will authenticate against
+    # api.github.com, in the same order Get-GitHubApiCurlArgs resolves the
+    # token: GITHUB_TOKEN, GH_TOKEN, then the GitHub CLI's stored login.
+    # Anonymous calls are limited to 60 per hour per address, which a version
+    # sweep over the catalog exceeds. The rate-limit probe is one request with
+    # a short timeout; when it cannot complete the source is still reported.
+    $source = ''
+    if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) { $source = 'GITHUB_TOKEN environment variable' }
+    elseif (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { $source = 'GH_TOKEN environment variable' }
+    else {
+        $gh = Get-Command -Name 'gh.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($gh) {
+            $args = @()
+            try { $args = @(Get-GitHubApiCurlArgs) } catch { $args = @() }
+            if ($args.Count -gt 0) {
+                $source = 'GitHub CLI login (gh.exe)'
+                try {
+                    $status = (& $gh.Source auth status 2>&1 | Out-String)
+                    if ($status -match 'account\s+(\S+)') { $source = 'GitHub CLI login (gh.exe), account ' + $Matches[1] }
+                }
+                catch { }
+            }
+        }
+    }
+
+    $limit = ''
+    $remaining = ''
+    try {
+        $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+        if ($curl) {
+            $headers = (& $curl.Source -sI --max-time 6 -A 'app-packager' @(Get-GitHubApiCurlArgs) 'https://api.github.com/rate_limit' 2>$null) -join "`n"
+            if ($headers -match '(?im)^x-ratelimit-limit:\s*(\d+)')     { $limit = $Matches[1] }
+            if ($headers -match '(?im)^x-ratelimit-remaining:\s*(\d+)') { $remaining = $Matches[1] }
+        }
+    }
+    catch { }
+
+    return [pscustomobject]@{
+        Authenticated = -not [string]::IsNullOrWhiteSpace($source)
+        Source        = $source
+        Limit         = $limit
+        Remaining     = $remaining
+    }
 }
 
 function Get-IntuneWinToolCachePath {
@@ -3520,6 +3566,7 @@ function New-MecmPreferencesPanel {
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
     <Grid.ColumnDefinitions>
         <ColumnDefinition Width="140"/>
@@ -3576,11 +3623,13 @@ function New-MecmPreferencesPanel {
 
     <TextBlock Grid.Row="13" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="7-Zip command-line (7z.exe) detection status. Required by Adobe Reader + TeamViewer Host packagers."/>
     <TextBlock Grid.Row="13" Grid.Column="1" x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="14" Grid.Column="0" Text="GitHub API:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="How the 90 packagers that read GitHub releases authenticate. Anonymous calls are limited to 60 per hour per address; a token raises that to 5000. Resolved from GITHUB_TOKEN, then GH_TOKEN, then the GitHub CLI login (gh auth login)."/>
+    <TextBlock Grid.Row="14" Grid.Column="1" x:Name="txtGitHubStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
 
-    <TextBlock Grid.Row="14" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe) detection status. Downloaded on first use, or place the exe on PATH."/>
+    <TextBlock Grid.Row="15" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe) detection status. Downloaded on first use, or place the exe on PATH."/>
     <!-- Status text in a star column so a long message wraps instead of
          pushing the buttons past the panel edge, where they clip out of view. -->
-    <Grid Grid.Row="14" Grid.Column="1" Margin="0,6,0,0">
+    <Grid Grid.Row="15" Grid.Column="1" Margin="0,6,0,0">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="Auto"/>
@@ -3589,8 +3638,8 @@ function New-MecmPreferencesPanel {
         <Button Grid.Column="1" x:Name="btnIntuneWinDownload" Content="Download" FontSize="11" Margin="10,0,0,0" Padding="10,2" VerticalAlignment="Center" Visibility="Collapsed"/>
     </Grid>
 
-    <TextBlock Grid.Row="15" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Packager icon pack for IconSource External packagers. Installs into Packagers\Icons and is read at stage time."/>
-    <Grid Grid.Row="15" Grid.Column="1" Margin="0,6,0,0">
+    <TextBlock Grid.Row="16" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Packager icon pack for IconSource External packagers. Installs into Packagers\Icons and is read at stage time."/>
+    <Grid Grid.Row="16" Grid.Column="1" Margin="0,6,0,0">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="Auto"/>
@@ -3601,16 +3650,16 @@ function New-MecmPreferencesPanel {
         <Button Grid.Column="2" x:Name="btnIconPackFromFile" Content="Install from file..." FontSize="11" Margin="6,0,0,0" Padding="10,2" VerticalAlignment="Center" ToolTip="Installs an icon pack from a local or UNC icon-pack.zip when the release download is blocked (proxy/SSL inspection). A checksums.txt beside the zip is verified when present."/>
     </Grid>
 
-    <TextBlock Grid.Row="16" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="When enabled, a successful Package also produces an .intunewin from the staged content and stores it beside the network content version folder."/>
-    <CheckBox  Grid.Row="16" Grid.Column="1" x:Name="chkIntuneWin" Content="Create .intunewin during Package" FontSize="13" VerticalAlignment="Center" Margin="0,6,0,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-    <TextBlock Grid.Row="17" Grid.Column="0" Text="Intune Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
-    <TextBox   Grid.Row="17" Grid.Column="1" x:Name="txtIntuneTenant" FontSize="13" Margin="0,6,0,0"/>
-    <TextBlock Grid.Row="18" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
-    <TextBox   Grid.Row="18" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,6,0,0"/>
-    <TextBlock Grid.Row="19" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
-    <PasswordBox Grid.Row="19" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,6,0,0"/>
-    <TextBlock Grid.Row="20" Grid.Column="0" Text="Deployment Target:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Where Package creates applications. MECM only: today's flow. MECM + Intune: MECM app plus a Graph publish of the .intunewin. Intune only: stage, build the .intunewin, and publish via Graph - no ConfigMgr console, site, or file share needed. Repeat publishes update the existing Intune app."/>
-    <ComboBox  Grid.Row="20" Grid.Column="1" x:Name="cboDeployTarget" FontSize="13" Margin="0,6,0,0" Width="260" HorizontalAlignment="Left">
+    <TextBlock Grid.Row="17" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="When enabled, a successful Package also produces an .intunewin from the staged content and stores it beside the network content version folder."/>
+    <CheckBox  Grid.Row="17" Grid.Column="1" x:Name="chkIntuneWin" Content="Create .intunewin during Package" FontSize="13" VerticalAlignment="Center" Margin="0,6,0,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+    <TextBlock Grid.Row="18" Grid.Column="0" Text="Intune Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
+    <TextBox   Grid.Row="18" Grid.Column="1" x:Name="txtIntuneTenant" FontSize="13" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="19" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
+    <TextBox   Grid.Row="19" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="20" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
+    <PasswordBox Grid.Row="20" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="21" Grid.Column="0" Text="Deployment Target:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Where Package creates applications. MECM only: today's flow. MECM + Intune: MECM app plus a Graph publish of the .intunewin. Intune only: stage, build the .intunewin, and publish via Graph - no ConfigMgr console, site, or file share needed. Repeat publishes update the existing Intune app."/>
+    <ComboBox  Grid.Row="21" Grid.Column="1" x:Name="cboDeployTarget" FontSize="13" Margin="0,6,0,0" Width="260" HorizontalAlignment="Left">
         <ComboBoxItem Content="MECM only" Tag="MECM"/>
         <ComboBoxItem Content="MECM + Intune" Tag="MECMAndIntune"/>
         <ComboBoxItem Content="Intune only" Tag="IntuneOnly"/>
@@ -3637,6 +3686,7 @@ function New-MecmPreferencesPanel {
     $chkCreateTestColl = $element.FindName('chkCreateTestColl')
     $txtConsoleStatus  = $element.FindName('txtConsoleStatus')
     $txtSevenZipStatus = $element.FindName('txtSevenZipStatus')
+    $txtGitHubStatus   = $element.FindName('txtGitHubStatus')
     $txtIntuneWinStatus   = $element.FindName('txtIntuneWinStatus')
     $btnIntuneWinDownload = $element.FindName('btnIntuneWinDownload')
     $txtIconPackStatus    = $element.FindName('txtIconPackStatus')
@@ -3693,6 +3743,21 @@ function New-MecmPreferencesPanel {
         $txtSevenZipStatus.ToolTip = "Detected once per launch via registry ARP + Program Files\7-Zip"
     }
 
+    $gh = Get-GitHubApiAuthStatus
+    $ghQuota = ''
+    if ($gh.Limit) {
+        $ghQuota = ' (' + $gh.Limit + ' requests/hour'
+        if ($gh.Remaining) { $ghQuota += ', ' + $gh.Remaining + ' remaining' }
+        $ghQuota += ')'
+    }
+    if ($gh.Authenticated) {
+        $txtGitHubStatus.Text = ([char]0x2713 + ' Authenticated  -  ' + $gh.Source + $ghQuota)
+        $txtGitHubStatus.ToolTip = 'The token is sent as a bearer token by every GitHub-backed packager and by the version monitor. Resolved when this window opened.'
+    } else {
+        $anonRemaining = if ($gh.Remaining) { ', ' + $gh.Remaining + ' remaining' } else { '' }
+        $txtGitHubStatus.Text = ([char]0x2717 + ' Anonymous  -  60 requests/hour per address' + $anonRemaining + '; set GITHUB_TOKEN or run gh auth login')
+        $txtGitHubStatus.ToolTip = 'A version check across the 90 GitHub-backed packagers exceeds the anonymous limit. A personal access token with no scopes is enough.'
+    }
     $chkIntuneWin.IsChecked = [bool]$script:Prefs.Intune.CreateIntuneWin
     $txtIntuneTenant.Text = [string]$script:Prefs.Intune.TenantId
     $txtIntuneClient.Text = [string]$script:Prefs.Intune.ClientId
