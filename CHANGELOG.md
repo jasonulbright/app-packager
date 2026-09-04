@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.5.1.5] - 2026-09-04
+
+### Changed
+
+- Vendor installer-analysis 1.3.3.0 so drops resolve more NSIS detection keys and registry views.
+
+### Fixed
+
+- Install RStudio for all users and detect it in the 64-bit registry view.
+
 ## [1.5.1.4] - 2026-09-04
 
 ### Added
