@@ -12,16 +12,16 @@ IconSource: Installer
     Packages Audacity (x64) for MECM.
 
 .DESCRIPTION
-    Downloads the latest Audacity x64 EXE from GitHub releases, stages content
-    to a versioned local folder with file-based version detection metadata, and
-    creates an MECM Application with file-based detection.
+    Downloads the latest Audacity x64 MSI from GitHub releases, stages content
+    to a versioned local folder with ARP ProductCode detection metadata read
+    from the MSI Property table, and creates an MECM Application.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
       -PackageOnly  Read manifest, copy to network, create MECM application
 
-    The installer is an InnoSetup package supporting /VERYSILENT flags.
-    GitHub release tags use the Audacity- prefix (e.g. Audacity-3.7.7).
+    Audacity 4.0 moved from an Inno Setup EXE to an MSI (audacity-win-<ver>-x86_64.msi).
+    GitHub release tags use the Audacity- prefix (e.g. Audacity-4.0.0).
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -110,8 +110,8 @@ function Get-LatestAudacityRelease {
             throw "Could not parse version from GitHub release tag."
         }
 
-        $asset = $release.assets | Where-Object { $_.name -match 'audacity-win-[\d.]+-64bit\.exe$' } | Select-Object -First 1
-        if (-not $asset) { throw "No x64 setup EXE asset found in release." }
+        $asset = $release.assets | Where-Object { $_.name -match 'audacity-win-[\d.]+-x86_64\.msi$' } | Select-Object -First 1
+        if (-not $asset) { throw "No x86_64 MSI asset found in release." }
 
         Write-Log "Latest Audacity version      : $version" -Quiet:$Quiet
         return @{ Version = $version; FileName = $asset.name; DownloadUrl = $asset.browser_download_url }
@@ -149,49 +149,58 @@ function Invoke-StageAudacity {
     Write-Log ""
 
     # --- Download ---
-    $localExe = Join-Path $BaseDownloadRoot $installerFileName
-    Write-Log "Local installer path         : $localExe"
+    $localMsi = Join-Path $BaseDownloadRoot $installerFileName
+    Write-Log "Local installer path         : $localMsi"
 
-    if (-not (Test-Path -LiteralPath $localExe)) {
+    if (-not (Test-Path -LiteralPath $localMsi)) {
         Write-Log "Downloading Audacity..."
-        Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localExe
+        Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localMsi
     }
     else {
         Write-Log "Local installer exists. Skipping download."
     }
 
+    # --- MSI properties: the ARP key is the ProductCode, DisplayVersion is the
+    # raw ProductVersion the installer writes ---
+    $props = Get-MsiPropertyMap -MsiPath $localMsi
+    $productName       = $props["ProductName"]
+    $productVersionRaw = $props["ProductVersion"]
+    $productCode       = $props["ProductCode"]
+    if ([string]::IsNullOrWhiteSpace($productVersionRaw)) { throw "MSI ProductVersion missing." }
+    if ([string]::IsNullOrWhiteSpace($productCode))       { throw "MSI ProductCode missing." }
+
+    Write-Log "MSI ProductName              : $productName"
+    Write-Log "MSI ProductVersion (raw)     : $productVersionRaw"
+    Write-Log "MSI ProductCode              : $productCode"
+    Write-Log ""
+
     # --- Versioned local content folder ---
     $localContentPath = Join-Path $BaseDownloadRoot $version
     Initialize-Folder -Path $localContentPath
 
-    $stagedExe = Join-Path $localContentPath $installerFileName
-    if (-not (Test-Path -LiteralPath $stagedExe)) {
-        Copy-Item -LiteralPath $localExe -Destination $stagedExe -Force -ErrorAction Stop
-        Write-Log "Copied EXE to staged folder  : $stagedExe"
+    $stagedMsi = Join-Path $localContentPath $installerFileName
+    if (-not (Test-Path -LiteralPath $stagedMsi)) {
+        Copy-Item -LiteralPath $localMsi -Destination $stagedMsi -Force -ErrorAction Stop
+        Write-Log "Copied MSI to staged folder  : $stagedMsi"
     }
     else {
-        Write-Log "Staged EXE exists. Skipping copy."
+        Write-Log "Staged MSI exists. Skipping copy."
     }
 
     # --- Generate content wrappers ---
-    $wrapperContent = New-ExeWrapperContent `
-        -InstallerFileName $installerFileName `
-        -InstallArgs "'/VERYSILENT', '/NORESTART'" `
-        -UninstallCommand 'C:\Program Files\Audacity\unins000.exe' `
-        -UninstallArgs "'/VERYSILENT', '/NORESTART'"
-
+    $wrapperContent = New-MsiWrapperContent -MsiFileName $installerFileName
     Write-ContentWrappers -OutputPath $localContentPath `
         -InstallPs1Content $wrapperContent.Install `
         -UninstallPs1Content $wrapperContent.Uninstall
 
     # --- Write stage manifest ---
-    $detectionPath = "{0}\Audacity" -f $env:ProgramFiles
+    $arpRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\" + $productCode
 
     $appName   = "Audacity $version"
     $publisher = "Audacity Team"
 
-    Write-Log "Detection path               : $detectionPath"
-    Write-Log "Detection file               : Audacity.exe"
+    Write-Log "ARP RegistryKey              : $arpRegistryKey"
+    Write-Log "ARP DisplayVersion           : $productVersionRaw"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -200,21 +209,20 @@ function Invoke-StageAudacity {
         Publisher       = $publisher
         SoftwareVersion = $version
         InstallerFile   = $installerFileName
-        InstallerType   = "EXE"
-        InstallArgs     = "/VERYSILENT /NORESTART"
-        UninstallArgs   = "/VERYSILENT /NORESTART"
+        InstallerType   = "MSI"
+        InstallArgs     = "/qn /norestart"
+        UninstallArgs   = "/qn /norestart"
+        ProductCode     = $productCode
         RunningProcess  = @("Audacity")
         Detection       = @{
-            Type          = "File"
-            FilePath      = $detectionPath
-            FileName      = "Audacity.exe"
-            PropertyType  = "Version"
-            Operator      = "GreaterEquals"
-            ExpectedValue = $version
-            Is64Bit       = $true
+            Type                = "RegistryKeyValue"
+            RegistryKeyRelative = $arpRegistryKey
+            ValueName           = "DisplayVersion"
+            DisplayName         = $(if ($productName) { $productName } else { "Audacity" })
+            DisplayVersion      = $productVersionRaw
+            Is64Bit             = $true
         }
     }
-
     Set-Content -LiteralPath (Join-Path $BaseDownloadRoot "staged-version.txt") -Value $version -Encoding ASCII -ErrorAction Stop
 
     Write-Log ""
@@ -251,8 +259,8 @@ function Invoke-PackageAudacity {
     Write-Log "AppName                      : $($manifest.AppName)"
     Write-Log "Publisher                    : $($manifest.Publisher)"
     Write-Log "SoftwareVersion              : $($manifest.SoftwareVersion)"
-    Write-Log "Detection Path               : $($manifest.Detection.FilePath)"
-    Write-Log "Detection File               : $($manifest.Detection.FileName)"
+    Write-Log "Detection key                : $($manifest.Detection.RegistryKeyRelative)"
+    Write-Log "Detection version            : $($manifest.Detection.DisplayVersion)"
     Write-Log ""
 
     if (-not (Test-NetworkShareAccess -Path $FileServerPath)) {

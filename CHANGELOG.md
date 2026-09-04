@@ -1,5 +1,72 @@
 # Changelog
 
+## [1.5.1.0] - 2026-09-04
+
+### Added
+
+- **NSIS installers analyzed from their compiled script.** The vendored
+  installer-analysis module (1.3.0.1) decodes the header block appended
+  to an NSIS installer: InstallDir, the WriteUninstaller path, every
+  Add/Remove Programs value the script writes, the hive and 32/64-bit
+  registry view in effect at that write, SetShellVarContext, and the
+  manifest requestedExecutionLevel. Get-InstallerAnalysis now emits
+  UninstallCommand as an executable path
+  (`"%LOCALAPPDATA%\App\Uninstall.exe" /S`), plus InstallContext,
+  UninstallRegistryHive, RegistryView, InstallDir and
+  RequestedExecutionLevel. A bare `uninstall.exe` was the previous
+  result for every NSIS drop.
+- **Per-user installers stage as per-user deployments.** New-AdHocStage
+  writes InstallationBehaviorType InstallForUser and LogonRequirementType
+  OnlyWhenUserLoggedOn when the analysis resolves a per-user install
+  (HKCU registration or a profile-relative folder), and the detection
+  block carries Hive CurrentUser. New-SingleDetectionClause honours the
+  hive, ConvertTo-IntuneWin32Rules prefixes the keyPath with
+  HKEY_CURRENT_USER, and the Intune publish runs such an app as the user.
+  A convention-predicted HKLM key for an unelevated non-NSIS installer
+  (Inno Setup PrivilegesRequired=lowest) is rewritten to HKCU.
+- **Uninstall wrappers expand %VAR% paths at run time.**
+  New-ExeWrapperContent writes the uninstall path through
+  `[Environment]::ExpandEnvironmentVariables`, so a profile-relative
+  uninstaller resolves in the context the deployment type runs under.
+- **Drop preview** shows the install context and whether the detection
+  key came from the installer script or a convention; the generated
+  starter packager fills the uninstall path, arguments, detection folder
+  and per-user deployment settings.
+
+### Packagers
+
+- **package-audacity** - Audacity 4.0 ships as an MSI
+  (`audacity-win-<ver>-x86_64.msi`) instead of the Inno Setup EXE; the
+  packager takes that asset, wraps it with msiexec, and detects on the
+  ProductCode ARP key with the MSI ProductVersion. The EXE asset match
+  found nothing on the 4.0.0 release.
+
+### Fixed
+
+- **Icon Pack "Install from file..." button was clipped out of view.** The
+  Icon Pack and Content Prep rows laid their status text and buttons out
+  in a horizontal StackPanel, so the long not-installed message pushed
+  the buttons past the pane edge; the button only appeared once a
+  download shortened the text, on the very hosts that needed the file
+  install. Both rows are Grids now: the status wraps in a star column
+  and the buttons keep their width.
+- **Sidebar comment box clipped at the default window height.** The Add
+  Installer button pushed the sidebar past 720 px, cutting the comment
+  box's last line against the separator. The box is 84 px, the default
+  window height is 800 (minimum 640), and the Options window opens at
+  1000 x 760 (minimum 900 x 600) so the MECM Preferences panel shows
+  every row without scrolling.
+- **Deployment Conditions grid squeezed the Application column to a
+  sliver** at the Options window width; column widths are sized to their
+  headers and the Application column keeps a minimum width.
+- **PowerShell 7 module paths no longer leak into child runspaces.** A
+  Windows PowerShell process launched from PowerShell 7 inherits the 7.x
+  module directories at the front of PSModulePath; runspaces opened later
+  in that process and child powershell.exe instances autoloaded the 7.x
+  Microsoft.PowerShell.Utility manifest, which carries no Get-FileHash or
+  ConvertFrom-Json under 5.1. The GUI strips those roots from the process
+  environment before any runspace or child starts.
+
 ## [1.5.0.15] - 2026-09-02
 
 ### Added

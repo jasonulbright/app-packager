@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Shared module for AppPackager packager scripts.
 
@@ -1922,15 +1922,22 @@ function New-ExeWrapperContent {
         'exit $proc.ExitCode'
     ) -join "`r`n"
 
+    # The uninstall path may carry %VAR% segments (a per-user uninstaller
+    # under %LOCALAPPDATA%); a single-quoted literal would hand them to
+    # Start-Process verbatim, so the wrapper expands them at run time in the
+    # context the deployment type runs under.
+    $uninstallPathLine = ('$uninstallPath = [Environment]::ExpandEnvironmentVariables(''{0}'')' -f $UninstallCommand)
     if ($UninstallArgs -ne '') {
         $uninstall = (
-            ('$proc = Start-Process -FilePath ''{0}'' -ArgumentList @({1}) -Wait -PassThru -NoNewWindow' -f $UninstallCommand, $UninstallArgs),
+            $uninstallPathLine,
+            ('$proc = Start-Process -FilePath $uninstallPath -ArgumentList @({0}) -Wait -PassThru -NoNewWindow' -f $UninstallArgs),
             'exit $proc.ExitCode'
         ) -join "`r`n"
     }
     else {
         $uninstall = (
-            ('$proc = Start-Process -FilePath ''{0}'' -Wait -PassThru -NoNewWindow' -f $UninstallCommand),
+            $uninstallPathLine,
+            '$proc = Start-Process -FilePath $uninstallPath -Wait -PassThru -NoNewWindow',
             'exit $proc.ExitCode'
         ) -join "`r`n"
     }
@@ -1958,6 +1965,9 @@ function New-SingleDetectionClause {
     param([Parameter(Mandatory)][pscustomobject]$Det)
 
     $type = if ($Det.Type) { $Det.Type } else { 'RegistryKeyValue' }
+    # Hive defaults to HKLM; a per-user manifest names CurrentUser, which
+    # only evaluates for an InstallForUser deployment type.
+    $hive = if ($Det.PSObject.Properties['Hive'] -and [string]$Det.Hive -match '^(CurrentUser|HKCU)$') { 'CurrentUser' } else { 'LocalMachine' }
 
     switch ($type) {
         'RegistryKeyValue' {
@@ -1967,7 +1977,7 @@ function New-SingleDetectionClause {
             $propType = if ($Det.PropertyType) { $Det.PropertyType } else { 'String' }
 
             $p = @{
-                Hive               = 'LocalMachine'
+                Hive               = $hive
                 KeyName            = $Det.RegistryKeyRelative
                 ValueName          = $valName
                 PropertyType       = $propType
@@ -3634,7 +3644,7 @@ function Get-InstallerAnalysis {
         $msiSummary = Get-MsiSummaryInfo -MsiPath $Path
     }
     $pkgMeta  = Get-PackageMetadataFor -Path $Path -InstallerType $type
-    $switches = Get-SilentSwitches -InstallerType $type -FilePath $Path -MsiProperties $msiProps
+    $switches = Get-SilentSwitches -InstallerType $type -FilePath $Path -MsiProperties $msiProps -PackageMetadata $pkgMeta
     $fields   = Get-DeploymentFields -FileInfo $fileInfo -MsiProperties $msiProps -Switches $switches `
         -PackageMetadata $pkgMeta -InstallerType $type -MsiSummary $msiSummary
 
@@ -3644,7 +3654,7 @@ function Get-InstallerAnalysis {
     # Get-SilentSwitches returns full command lines; the wrapper generators
     # want bare arguments, so strip the leading installer filename.
     $installCommand   = if ($switches) { [string]$switches.Install }   else { '' }
-    $uninstallCommand = if ($switches) { [string]$switches.Uninstall } else { '' }
+    $uninstallCommand = if ($fields -and $fields.SilentUninstallString) { [string]$fields.SilentUninstallString } elseif ($switches) { [string]$switches.Uninstall } else { '' }
     $installArgs = ''
     $uninstallArgs = ''
     if ($type -eq 'MSI') {
@@ -3656,6 +3666,38 @@ function Get-InstallerAnalysis {
         if ($installCommand -match ('^"?' + $fileNameEscaped + '"?\s+(?<args>\S.*)$')) {
             $installArgs = $Matches['args'].Trim()
         }
+    }
+
+    # Install context and registry placement: an NSIS header names the ARP
+    # hive and the 32/64-bit view the script wrote under; other formats
+    # fall back to the predicted key's hive prefix.
+    $installContext = ''
+    $registryHive   = ''
+    $registryView   = ''
+    $installDir     = ''
+    $metaProp = { param($name) if ($pkgMeta -and $pkgMeta.PSObject.Properties[$name]) { [string]$pkgMeta.$name } else { '' } }
+    if ($pkgMeta) {
+        $installContext = & $metaProp 'InstallContext'
+        $registryHive   = & $metaProp 'RegistryHive'
+        $registryView   = & $metaProp 'RegistryView'
+        $installDir     = & $metaProp 'InstallDirWindows'
+    }
+    $predictedKey = [string]$fields.UninstallRegistryKey
+    if (-not $registryHive -and $predictedKey -match '^(HKLM|HKCU):') { $registryHive = $Matches[1] }
+    if (-not $registryView -and $predictedKey -match '(?i)\\WOW6432Node\\') { $registryView = '32' }
+    $scriptDerived = ($pkgMeta -and $pkgMeta.PSObject.Properties['HeaderAvailable'] -and $pkgMeta.HeaderAvailable)
+    if (-not $installContext) {
+        if ($registryHive -eq 'HKCU') { $installContext = 'PerUser' }
+        elseif ($fileInfo.PSObject.Properties['RequestedExecutionLevel'] -and $fileInfo.RequestedExecutionLevel -eq 'asInvoker' -and $type -ne 'MSI') { $installContext = 'PerUser' }
+        elseif ($registryHive -eq 'HKLM' -or $type -eq 'MSI') { $installContext = 'PerMachine' }
+    }
+    # A convention-predicted HKLM key for an installer that runs without
+    # elevation (Inno Setup PrivilegesRequired=lowest and similar) lands
+    # under HKCU, where no WOW6432Node redirection applies.
+    if ($installContext -eq 'PerUser' -and -not $scriptDerived -and $type -ne 'MSI' -and $predictedKey -match '^HKLM:') {
+        $predictedKey = ($predictedKey -replace '^HKLM:', 'HKCU:') -replace '(?i)\\WOW6432Node\\', '\'
+        $registryHive = 'HKCU'
+        $registryView = ''
     }
 
     [pscustomobject]@{
@@ -3670,11 +3712,17 @@ function Get-InstallerAnalysis {
         UninstallArgs        = $uninstallArgs
         InstallCommand       = $installCommand
         UninstallCommand     = $uninstallCommand
-        UninstallRegistryKey = [string]$fields.UninstallRegistryKey
+        UninstallRegistryKey = $predictedKey
+        UninstallRegistryHive = $registryHive
+        RegistryView         = $registryView
+        InstallDir           = $installDir
+        InstallContext       = $installContext
+        RequestedExecutionLevel = if ($fileInfo.PSObject.Properties['RequestedExecutionLevel']) { [string]$fileInfo.RequestedExecutionLevel } else { '' }
         Architecture         = if ($msiSummary -and $msiSummary.Architecture) { [string]$msiSummary.Architecture } else { [string]$fileInfo.Architecture }
         Confidence           = if ($type -eq 'MSI') { 'Authoritative' } else { 'Predicted' }
         Switches             = $switches
         Fields               = $fields
+        PackageMetadata      = $pkgMeta
     }
 }
 
@@ -3781,15 +3829,21 @@ function New-AdHocStage {
         -UninstallPs1Content $wrapperContent.Uninstall
 
     $is64 = ([string]$Analysis.Architecture) -notmatch '^(x86|Intel)$'
+    $hive = 'LocalMachine'
     if ($isMsi -and $Analysis.ProductCode) {
         $arpRelative = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\' + $Analysis.ProductCode
     }
     else {
         # Analysis predicts a full hive path; the manifest wants the
-        # HKLM-relative form. A WOW6432Node prediction means a 32-bit view.
-        $arpRelative = ([string]$Analysis.UninstallRegistryKey) -replace '^HK(LM|CU):\\', ''
+        # hive-relative form. A WOW6432Node prediction means a 32-bit view.
+        $predictedKey = [string]$Analysis.UninstallRegistryKey
+        if ($predictedKey -match '^HKCU:') { $hive = 'CurrentUser' }
+        $arpRelative = $predictedKey -replace '^HK(LM|CU):\\', ''
         if ($arpRelative -match '(?i)\\?WOW6432Node\\') {
             $arpRelative = $arpRelative -replace '(?i)WOW6432Node\\', ''
+            $is64 = $false
+        }
+        elseif ($Analysis.PSObject.Properties['RegistryView'] -and [string]$Analysis.RegistryView -eq '32') {
             $is64 = $false
         }
         if ([string]::IsNullOrWhiteSpace($arpRelative)) {
@@ -3797,8 +3851,16 @@ function New-AdHocStage {
         }
     }
 
-    $manifestPath = Join-Path $stagedPath 'stage-manifest.json'
-    Write-StageManifest -Path $manifestPath -ManifestData @{
+    # A per-user installer writes under the invoking user's profile and
+    # HKCU, so the deployment type must install and detect in the user
+    # context; a system-context run would land in the SYSTEM profile and
+    # never satisfy an HKCU detection.
+    $perUser = ($Analysis.PSObject.Properties['InstallContext'] -and [string]$Analysis.InstallContext -eq 'PerUser') -or ($hive -eq 'CurrentUser')
+    if ($perUser -and $hive -ne 'CurrentUser' -and -not $isMsi -and $arpRelative -match '(?i)^SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\') {
+        $hive = 'CurrentUser'
+    }
+
+    $manifest = @{
         AppName         = $AppName
         Publisher       = $Publisher
         SoftwareVersion = $SoftwareVersion
@@ -3811,8 +3873,10 @@ function New-AdHocStage {
         ProductCode     = [string]$Analysis.ProductCode
         RunningProcess  = @()
         AdHocSource     = [string]$Analysis.Path
+        InstallContext  = if ($perUser) { 'PerUser' } else { 'PerMachine' }
         Detection       = @{
             Type                = 'RegistryKeyValue'
+            Hive                = $hive
             RegistryKeyRelative = $arpRelative
             ValueName           = 'DisplayVersion'
             DisplayName         = $AppName
@@ -3820,6 +3884,14 @@ function New-AdHocStage {
             Is64Bit             = $is64
         }
     }
+    if ($perUser) {
+        $manifest['InstallationBehaviorType'] = 'InstallForUser'
+        $manifest['LogonRequirementType']     = 'OnlyWhenUserLoggedOn'
+    }
+
+    $manifestPath = Join-Path $stagedPath 'stage-manifest.json'
+    Write-StageManifest -Path $manifestPath -ManifestData $manifest
+    Write-Log ("Install context              : {0}" -f $manifest['InstallContext'])
     Write-Log "Ad-hoc stage complete        : $stagedPath"
 
     [pscustomobject]@{
@@ -3949,6 +4021,21 @@ function New-PackagerFromDrop {
         $c = $c.Replace('Publisher        = "TODO"', ('Publisher        = "{0}"' -f $publisherDq))
         if (-not [string]::IsNullOrWhiteSpace([string]$Analysis.InstallArgs)) {
             $c = $c.Replace('$installArgs   = "/S"', ('$installArgs   = "{0}"' -f (& $escapeDq $Analysis.InstallArgs)))
+        }
+        # An uninstall command the analysis resolved to a real path ("<path>"
+        # /S) fills the uninstall pair; a bare placeholder stays a TODO.
+        $uninstallCommand = [string]$Analysis.UninstallCommand
+        if ($uninstallCommand -match '^\s*"(?<path>[^"]+)"\s*(?<args>.*)$' -and $Matches['path'] -match '[\\%]') {
+            $c = $c.Replace('$uninstallCmd  = "C:\Program Files\TODO\uninstall.exe /S"      # TODO: confirm uninstall path',
+                            ('$uninstallCmd  = "{0}"' -f (& $escapeDq $Matches['path'])))
+            $c = $c.Replace('$uninstallArgs = ""', ('$uninstallArgs = "{0}"' -f (& $escapeDq $Matches['args'].Trim())))
+        }
+        if ($Analysis.PSObject.Properties['InstallDir'] -and [string]$Analysis.InstallDir -match '^(%[^%]+%|[A-Za-z]:\\)') {
+            $c = $c.Replace('$detectionPath = "C:\Program Files\TODO"', ('$detectionPath = "{0}"' -f (& $escapeDq $Analysis.InstallDir)))
+        }
+        if ($Analysis.PSObject.Properties['InstallContext'] -and [string]$Analysis.InstallContext -eq 'PerUser') {
+            $c = $c.Replace('InstallationBehaviorType = "InstallForSystem"', 'InstallationBehaviorType = "InstallForUser"')
+            $c = $c.Replace('LogonRequirementType     = "WhetherOrNotUserLoggedOn"', 'LogonRequirementType     = "OnlyWhenUserLoggedOn"')
         }
     }
 
@@ -4274,6 +4361,7 @@ function ConvertTo-IntuneWin32Rules {
     $det = $Manifest.Detection
     $type = if ($det.Type) { [string]$det.Type } else { 'RegistryKeyValue' }
 
+    $hiveRoot = { param($d) if ($d.PSObject.Properties['Hive'] -and [string]$d.Hive -match '^(CurrentUser|HKCU)$') { 'HKEY_CURRENT_USER\' } else { 'HKEY_LOCAL_MACHINE\' } }
     $mapOne = {
         param($d, $dType)
         switch ($dType) {
@@ -4287,7 +4375,7 @@ function ConvertTo-IntuneWin32Rules {
                     '@odata.type'        = '#microsoft.graph.win32LobAppRegistryRule'
                     ruleType             = 'detection'
                     check32BitOn64System = (-not [bool]$d.Is64Bit)
-                    keyPath              = ('HKEY_LOCAL_MACHINE\' + ([string]$d.RegistryKeyRelative))
+                    keyPath              = ((& $hiveRoot $d) + ([string]$d.RegistryKeyRelative))
                     valueName            = $valName
                     operationType        = $opType
                     operator             = $op
@@ -4299,7 +4387,7 @@ function ConvertTo-IntuneWin32Rules {
                     '@odata.type'        = '#microsoft.graph.win32LobAppRegistryRule'
                     ruleType             = 'detection'
                     check32BitOn64System = (-not [bool]$d.Is64Bit)
-                    keyPath              = ('HKEY_LOCAL_MACHINE\' + ([string]$d.RegistryKeyRelative))
+                    keyPath              = ((& $hiveRoot $d) + ([string]$d.RegistryKeyRelative))
                     valueName            = $null
                     operationType        = 'exists'
                     operator             = 'notConfigured'
@@ -4421,7 +4509,9 @@ function Publish-IntuneWin32App {
         applicableArchitectures        = $Architecture
         minimumSupportedWindowsRelease = $MinimumSupportedWindowsRelease
         installExperience              = @{
-            runAsAccount          = 'system'
+            # A manifest that installs for the user (per-user installer, HKCU
+            # registration) runs in the user context in Intune as well.
+            runAsAccount          = $(if ([string]$Manifest.InstallationBehaviorType -eq 'InstallForUser') { 'user' } else { 'system' })
             deviceRestartBehavior = 'basedOnReturnCode'
         }
         rules                          = $rules
