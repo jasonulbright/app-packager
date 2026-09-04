@@ -55,6 +55,26 @@ if (-not [string]::IsNullOrWhiteSpace($env:APP_PACKAGER_VERBOSE) -and [string]::
 # Download with retry
 # ---------------------------------------------------------------------------
 
+function Get-GitHubApiCurlArgs {
+    <#
+    .SYNOPSIS
+        Returns the curl.exe arguments that authenticate a GitHub REST API call.
+    .DESCRIPTION
+        The unauthenticated GitHub API allows 60 requests per hour per source
+        address; a version sweep over the catalog issues more than that. When
+        GITHUB_TOKEN (or GH_TOKEN) is set in the environment the call carries
+        it as a bearer token and the limit is 5000 per hour. Returns an empty
+        array otherwise, so callers can splat the result unconditionally.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Returns the argument list for one call.')]
+    param()
+
+    $token = $env:GITHUB_TOKEN
+    if ([string]::IsNullOrWhiteSpace($token)) { $token = $env:GH_TOKEN }
+    if ([string]::IsNullOrWhiteSpace($token)) { return @() }
+    return @('-H', ('Authorization: Bearer ' + $token.Trim()), '-H', 'X-GitHub-Api-Version: 2022-11-28')
+}
+
 function Invoke-DownloadWithRetry {
     <#
     .SYNOPSIS
@@ -3409,7 +3429,7 @@ function Get-LatestCorrettoRelease {
     Write-Log "Corretto GitHub API URL      : $apiUrl" -Quiet:$Quiet
 
     try {
-        $json = (& curl.exe -L --fail --silent --show-error -A "PowerShell" $apiUrl) -join ''
+        $json = (& curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $apiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query Corretto GitHub API." }
 
         $release = ConvertFrom-Json $json

@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Posit Software, PBC
 App: RStudio Desktop
 CMName: RStudio Desktop
@@ -114,7 +114,7 @@ function Get-LatestRStudioRelease {
     Write-Log "GitHub tags URL              : $GitHubTagsUrl" -Quiet:$Quiet
 
     try {
-        $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" $GitHubTagsUrl) -join ''
+        $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubTagsUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch RStudio tags: $GitHubTagsUrl" }
 
         $tags = ConvertFrom-Json $json

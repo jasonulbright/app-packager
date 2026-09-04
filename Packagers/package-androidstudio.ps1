@@ -206,10 +206,22 @@ function Invoke-StageAndroidStudio {
     Assert-ExecutablePayload -Path $localExe
 
     # --- Verify the vendor-published checksum ---
+    # The CDN has answered 200 with a short body; a cached file that fails the
+    # checksum is replaced by one fresh download before the run gives up, so a
+    # torn transfer cannot pin every later run to the same bad file.
     if ($release.Checksum) {
+        $expected = $release.Checksum.ToUpperInvariant()
         $actual = (Get-FileHash -LiteralPath $localExe -Algorithm SHA256 -ErrorAction Stop).Hash
-        if ($actual -ne $release.Checksum.ToUpperInvariant()) {
-            throw "Installer SHA256 ($actual) does not match the feed checksum ($($release.Checksum))."
+        if ($actual -ne $expected) {
+            Write-Log "Installer SHA256 ($actual) does not match the feed checksum ($expected); downloading again." -Level WARN
+            Remove-Item -LiteralPath $localExe -Force -ErrorAction Stop
+            Invoke-DownloadWithRetry -Url $release.Url -OutFile $localExe
+            Assert-ExecutablePayload -Path $localExe
+            $actual = (Get-FileHash -LiteralPath $localExe -Algorithm SHA256 -ErrorAction Stop).Hash
+            if ($actual -ne $expected) {
+                Remove-Item -LiteralPath $localExe -Force -ErrorAction SilentlyContinue
+                throw "Installer SHA256 ($actual) does not match the feed checksum ($expected)."
+            }
         }
         Write-Log "SHA256 matches the release feed."
     }

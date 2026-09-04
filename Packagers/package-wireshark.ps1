@@ -13,15 +13,13 @@ IconSource: Installer
 
 .DESCRIPTION
     Downloads the latest Wireshark x64 installer from the official download
-    server, stages content to a versioned local folder, temporarily installs
-    the product to extract registry metadata (with polling), and creates a
-    stage manifest with registry-based version detection.
-    Detection uses DisplayVersion string equals on the discovered uninstall
-    registry key.
+    server, stages content to a versioned local folder, reads the Add/Remove
+    Programs values from the installer's compiled NSIS script, and creates a
+    stage manifest with file-version detection on Wireshark.exe.
 
     Supports two-phase operation:
-      -StageOnly    Download, temp install for metadata extraction (with polling),
-                    generate content wrappers and stage manifest, then uninstall
+      -StageOnly    Download, read installer metadata, generate content wrappers
+                    and stage manifest
       -PackageOnly  Read manifest, copy to network, create MECM application
 
 .PARAMETER SiteCode
@@ -49,12 +47,12 @@ IconSource: Installer
     Default: 30
 
 .PARAMETER StageOnly
-    Runs only the Stage phase: download, temp install for metadata extraction,
-    generate content wrappers and stage manifest, then uninstall.
+    Runs only the Stage phase: download, read installer metadata,
+    generate content wrappers and stage manifest.
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create MECM application with file-version detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available Wireshark version string and exits.
@@ -98,12 +96,8 @@ $WiresharkWin64Root    = "https://www.wireshark.org/download/win64"
 $VendorFolder = "Wireshark Foundation"
 $AppFolder    = "Wireshark"
 
-$DisplayNamePrefix      = "Wireshark"
 $DesktopIconSetting     = "no"
 $QuickLaunchIconSetting = "no"
-
-$PollSleepSeconds            = 5
-$MaxRegistryPollRetries      = 12
 
 $BaseDownloadRoot = Join-Path $DownloadRoot "Wireshark"
 
@@ -133,131 +127,33 @@ function Get-LatestWiresharkVersion {
     }
 }
 
-function Split-CommandLine {
-    param([string]$CommandLine)
+function Get-WiresharkInstallerMetadata {
+    <#
+    .SYNOPSIS
+        Reads the Add/Remove Programs values the installer writes from its
+        compiled NSIS script.
+    .DESCRIPTION
+        The header decode names the uninstall key, DisplayName, DisplayVersion
+        and Publisher without running the installer, so staging needs neither
+        elevation nor a temporary install on the packaging machine.
+    #>
+    param([Parameter(Mandatory)][string]$InstallerPath)
 
-    if (-not $CommandLine) { return $null }
-
-    $cmd = $CommandLine.Trim()
-
-    if ($cmd.StartsWith('"')) {
-        $secondQuote = $cmd.IndexOf('"', 1)
-        if ($secondQuote -gt 1) {
-            $exe       = $cmd.Substring(1, $secondQuote - 1)
-            $arguments = $cmd.Substring($secondQuote + 1).Trim()
-            return @{ FilePath = $exe; Arguments = $arguments }
-        }
+    $analysis = Get-InstallerAnalysis -Path $InstallerPath
+    $arp = @{}
+    if ($analysis.PackageMetadata -and $analysis.PackageMetadata.PSObject.Properties['ArpValues'] -and $analysis.PackageMetadata.ArpValues) {
+        $arp = $analysis.PackageMetadata.ArpValues
     }
+    $literal = { param($v) if ($null -ne $v -and ([string]$v) -notmatch '\$') { [string]$v } else { '' } }
 
-    $parts = $cmd.Split(@(' '), 2, [System.StringSplitOptions]::RemoveEmptyEntries)
-    if ($parts.Count -eq 1) { return @{ FilePath = $parts[0]; Arguments = "" } }
-    return @{ FilePath = $parts[0]; Arguments = $parts[1] }
+    return [ordered]@{
+        DisplayName          = (& $literal $arp['DisplayName'])
+        DisplayVersion       = (& $literal $arp['DisplayVersion'])
+        Publisher            = (& $literal $arp['Publisher'])
+        UninstallRegistryKey = [string]$analysis.UninstallRegistryKey
+        UninstallCommand     = [string]$analysis.UninstallCommand
+    }
 }
-
-function Convert-RegRootToCMKeyName {
-    param(
-        [Parameter(Mandatory)][string]$UninstallRootPSPath,
-        [Parameter(Mandatory)][string]$PSChildName
-    )
-
-    $cmBase = $UninstallRootPSPath -replace '^HKLM:\\', ''
-    return "$cmBase\$PSChildName"
-}
-
-function Invoke-WiresharkMetadataExtraction {
-    param(
-        [Parameter(Mandatory)][string]$InstallerPath,
-        [Parameter(Mandatory)][string]$Prefix
-    )
-
-    Write-Log "Installing temporarily for metadata extraction..."
-    $installArgs = "/S /desktopicon=$DesktopIconSetting /quicklaunchicon=$QuickLaunchIconSetting"
-    Start-Process -FilePath $InstallerPath -ArgumentList $installArgs -Wait -NoNewWindow
-
-    $uninstallRoots = @(
-        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
-        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
-    )
-
-    $data    = $null
-    $retry   = 0
-    $pattern = "$Prefix*"
-
-    do {
-        $retry++
-        Write-Log "Registry poll attempt $retry/$MaxRegistryPollRetries (pattern: '$pattern')"
-
-        foreach ($root in $uninstallRoots) {
-            $keys = Get-ChildItem -Path $root -ErrorAction SilentlyContinue
-            if (-not $keys) { continue }
-
-            foreach ($k in $keys) {
-                $dn = (Get-ItemProperty -Path $k.PSPath -Name "DisplayName" -ErrorAction SilentlyContinue).DisplayName
-                if ($dn -and ($dn -like $pattern)) {
-                    $props = Get-ItemProperty -Path $k.PSPath -ErrorAction SilentlyContinue
-                    $data = [ordered]@{
-                        UninstallRoot        = $root
-                        PSChildName          = $k.PSChildName
-                        DisplayName          = $props.DisplayName
-                        DisplayVersion       = $props.DisplayVersion
-                        Publisher            = $props.Publisher
-                        InstallLocation      = $props.InstallLocation
-                        QuietUninstallString = $props.QuietUninstallString
-                        UninstallString      = $props.UninstallString
-                    }
-                    Write-Log "Found registry entry: $($data.DisplayName) ($($data.DisplayVersion))"
-                    break
-                }
-            }
-
-            if ($data) { break }
-        }
-
-        if (-not $data -and $retry -lt $MaxRegistryPollRetries) {
-            Write-Log "No match yet. Sleeping $PollSleepSeconds seconds..."
-            Start-Sleep -Seconds $PollSleepSeconds
-        }
-
-    } while (-not $data -and $retry -lt $MaxRegistryPollRetries)
-
-    if (-not $data) {
-        throw "No uninstall registry entry found for '$Prefix' after $MaxRegistryPollRetries polls."
-    }
-
-    # Uninstall to return packaging machine to clean state
-    Write-Log "Uninstalling after metadata extraction..."
-
-    $uninstallCmd = $null
-    if ($data.QuietUninstallString) {
-        $uninstallCmd = $data.QuietUninstallString
-    }
-    elseif ($data.UninstallString) {
-        $uninstallCmd = $data.UninstallString
-    }
-    else {
-        $fallback = Join-Path $env:ProgramFiles "Wireshark\uninstall.exe"
-        if (Test-Path -LiteralPath $fallback) {
-            $uninstallCmd = "`"$fallback`" /S"
-        }
-    }
-
-    if ($uninstallCmd) {
-        $parsed = Split-CommandLine -CommandLine $uninstallCmd
-        if ($parsed -and $parsed.FilePath) {
-            Start-Process -FilePath $parsed.FilePath -ArgumentList $parsed.Arguments -Wait -NoNewWindow
-            Start-Sleep -Seconds 30
-        }
-        else {
-            Write-Log "Could not parse uninstall command: $uninstallCmd" -Level WARN
-        }
-    }
-    else {
-        Write-Log "No uninstall command found. Machine may not be clean." -Level WARN
-    }
-
-    return $data
-}
-
 
 # ---------------------------------------------------------------------------
 # Stage phase
@@ -351,29 +247,27 @@ function Invoke-StageWireshark {
         -InstallPs1Content $installContent `
         -UninstallPs1Content $uninstallContent
 
-    # --- Temporary install for metadata extraction ---
+    # --- Add/Remove Programs values from the compiled installer script ---
     Write-Log ""
-    $registryData = Invoke-WiresharkMetadataExtraction `
-        -InstallerPath $localExe `
-        -Prefix $DisplayNamePrefix
+    Write-Log "Reading ARP values from the installer's NSIS header..."
+    $registryData = Get-WiresharkInstallerMetadata -InstallerPath $localExe
 
     $appName   = $registryData.DisplayName
     $publisher = $registryData.Publisher
 
-    if (-not $appName)   { $appName   = "Wireshark $version (x64)" }
+    if (-not $appName)   { $appName   = "Wireshark $version x64" }
     if (-not $publisher) { $publisher = "Wireshark Foundation" }
 
     if ($registryData.DisplayVersion -and ($registryData.DisplayVersion -ne $version)) {
-        Write-Log "Registry DisplayVersion '$($registryData.DisplayVersion)' differs from download version '$version'. Detection uses download version." -Level WARN
+        Write-Log "Script DisplayVersion '$($registryData.DisplayVersion)' differs from download version '$version'. Detection uses download version." -Level WARN
     }
-
-    $registryKeyName = Convert-RegRootToCMKeyName `
-        -UninstallRootPSPath $registryData.UninstallRoot `
-        -PSChildName $registryData.PSChildName
 
     # --- Write stage manifest ---
     Write-Log ""
-    Write-Log "Detection registry key       : $registryKeyName"
+    Write-Log "ARP DisplayName              : $appName"
+    Write-Log "ARP Publisher                : $publisher"
+    if ($registryData.UninstallRegistryKey) { Write-Log "ARP registry key             : $($registryData.UninstallRegistryKey)" }
+    Write-Log "Detection                    : Wireshark.exe file version >= $version"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"

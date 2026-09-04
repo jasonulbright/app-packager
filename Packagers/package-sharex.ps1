@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: ShareX Team
 App: ShareX
 CMName: ShareX
@@ -99,7 +99,7 @@ function Get-LatestShareXRelease {
     Write-Log "GitHub releases API          : $GitHubApiUrl" -Quiet:$Quiet
 
     try {
-        $json = (curl.exe -L --fail --silent --show-error $GitHubApiUrl) -join ''
+        $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
         $release = ConvertFrom-Json $json
@@ -108,7 +108,11 @@ function Get-LatestShareXRelease {
             throw "Could not parse version from GitHub release tag."
         }
 
-        $asset = $release.assets | Where-Object { $_.name -match 'ShareX-[\d.]+-setup\.exe$' } | Select-Object -First 1
+        # 21.0 split the setup by architecture (ShareX-<ver>-setup-x64.exe);
+        # earlier releases shipped one ShareX-<ver>-setup.exe.
+        $asset = @($release.assets | Where-Object { $_.name -match '^ShareX-[\d.]+-setup(-x64)?\.exe$' }) |
+            Sort-Object { if ($_.name -match '-x64\.exe$') { 0 } else { 1 } } |
+            Select-Object -First 1
         if (-not $asset) { throw "No setup EXE asset found in release." }
 
         Write-Log "Latest ShareX version        : $version" -Quiet:$Quiet

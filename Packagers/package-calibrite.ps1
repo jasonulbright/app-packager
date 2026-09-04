@@ -138,7 +138,7 @@ function Resolve-CalibriteRelease {
     Write-Log "Release API URL              : $ReleaseApiUrl" -Quiet:$Quiet
 
     try {
-        $json = (curl.exe -L --fail --silent --show-error -H "Accept: application/vnd.github+json" $ReleaseApiUrl) -join "`n"
+        $json = (curl.exe -L --fail --silent --show-error -H "Accept: application/vnd.github+json" @(Get-GitHubApiCurlArgs) $ReleaseApiUrl) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch Calibrite PROFILER release metadata." }
 
         $release = $json | ConvertFrom-Json

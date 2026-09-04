@@ -127,7 +127,7 @@ function Get-LatestNaps2Release {
 
     try {
         # The API rejects requests without a user agent.
-        $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" $GitHubApiUrl) -join "`n"
+        $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
         $m = [regex]::Match($json, '"browser_download_url":\s*"(?<url>[^"]*?/(?<file>naps2-(?<ver>\d+(?:\.\d+)+)-win-x64\.msi))"')

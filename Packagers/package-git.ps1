@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: The Git Development Community
 App: Git for Windows (x64)
 CMName: Git for Windows
@@ -108,7 +108,7 @@ function Get-LatestGitRelease {
     Write-Log "GitHub API URL               : $GitHubApiUrl" -Quiet:$Quiet
 
     try {
-        $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" $GitHubApiUrl) -join ''
+        $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch Git release info: $GitHubApiUrl" }
 
         $release = ConvertFrom-Json $json

@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Posit Software, PBC
 App: Positron
 CMName: Positron
@@ -113,7 +113,7 @@ function Get-LatestPositronRelease {
     Write-Log "GitHub releases URL          : $GitHubReleasesUrl" -Quiet:$Quiet
 
     try {
-        $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" $GitHubReleasesUrl) -join ''
+        $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubReleasesUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch Positron release info: $GitHubReleasesUrl" }
 
         $release = ConvertFrom-Json $json

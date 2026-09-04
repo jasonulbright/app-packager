@@ -4,7 +4,7 @@ App: Defraggler
 CMName: Defraggler
 VendorUrl: https://www.ccleaner.com/defraggler
 CPE: cpe:2.3:a:piriform:defraggler:*:*:*:*:*:*:*:*
-ReleaseNotesUrl: https://www.ccleaner.com/defraggler/version-history
+ReleaseNotesUrl: https://www.ccleaner.com/defraggler/builds
 DownloadPageUrl: https://www.ccleaner.com/defraggler
 IconSource: Installer
 UpdateCadenceDays: 365
@@ -13,8 +13,8 @@ UpdateCadenceDays: 365
     Packages Defraggler (x64-capable installer) for MECM.
 
 .DESCRIPTION
-    Reads the current version from the vendor version-history page, derives the
-    matching dfsetup download URL, stages content to a versioned local folder,
+    Reads the current build from the vendor builds page and the version from the
+    installer file version resource, stages content to a versioned local folder,
     and creates an MECM Application with file-version detection.
 
     Supports two-phase operation:
@@ -84,7 +84,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$VersionHistoryUrl = "https://www.ccleaner.com/defraggler/version-history"
+$BuildsPageUrl     = "https://www.ccleaner.com/defraggler/builds"
 $DownloadUrlFormat = "https://download.ccleaner.com/dfsetup{0}.exe"
 
 $VendorFolder = "Piriform"
@@ -115,48 +115,62 @@ function Assert-ExePayload {
 function Get-LatestDefragglerRelease {
     <#
     .SYNOPSIS
-        Returns the highest version listed on the vendor version-history page and
-        its download URL.
+        Returns the current Defraggler version and its download URL.
     .DESCRIPTION
-        The page lists every historical release, so the highest [version] wins
-        rather than the first match in document order. The CDN filename encodes
-        the major and two-digit minor only (2.22 -> dfsetup222.exe); the third
-        component is the vendor build number and never appears in the filename.
+        The vendor builds page names the current build (dfsetup222.exe); the
+        filename encodes the major and two-digit minor only, and the vendor
+        publishes no version list any more. The full version comes from the
+        installer's file version resource (2.22.33.995 -> 2.22.995, the form
+        the vendor used for releases), so the installer is downloaded into the
+        download root when it is not already there.
     #>
     param([switch]$Quiet)
 
-    Write-Log "Version history URL          : $VersionHistoryUrl" -Quiet:$Quiet
+    Write-Log "Builds page URL              : $BuildsPageUrl" -Quiet:$Quiet
 
     try {
-        # The vendor CDN intermittently answers 404 to back-to-back requests and
-        # to requests without a browser user agent; both are transient.
+        # The vendor site intermittently answers 404 to back-to-back requests
+        # and to requests without a browser user agent; both are transient.
         $ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
         $html = $null
         for ($attempt = 1; $attempt -le 3; $attempt++) {
-            $html = (curl.exe -L --fail --silent --show-error -A $ua $VersionHistoryUrl) -join "`n"
+            $html = (curl.exe -L --fail --silent --show-error -A $ua $BuildsPageUrl) -join "`n"
             if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($html)) { break }
             $html = $null
             Start-Sleep -Seconds (2 * $attempt)
         }
-        if (-not $html) { throw "Failed to fetch Defraggler version history: $VersionHistoryUrl" }
+        if (-not $html) { throw "Failed to fetch the Defraggler builds page: $BuildsPageUrl" }
 
-        $rx = [regex]'v(?<ver>\d+\.\d{1,2}\.\d{1,4})'
-        $found = $rx.Matches($html) | ForEach-Object { $_.Groups['ver'].Value } | Sort-Object -Unique
-
-        if (-not $found -or @($found).Count -lt 1) {
-            throw "Could not locate any version strings on the version history page."
+        $rx = [regex]'dfsetup(?<slug>\d{3,4})\.exe'
+        $slugs = @($rx.Matches($html) | ForEach-Object { $_.Groups['slug'].Value } | Sort-Object -Unique)
+        if ($slugs.Count -lt 1) {
+            throw "Could not locate a dfsetup<build>.exe link on the builds page."
         }
+        $slug = $slugs | Sort-Object { [int]$_ } | Select-Object -Last 1
+        $fileName = "dfsetup$slug.exe"
+        $downloadUrl = ($DownloadUrlFormat -f $slug)
 
-        $best = @($found) | Sort-Object { [version]$_ } | Select-Object -Last 1
-        $v = [version]$best
-        $slug = "{0}{1:D2}" -f $v.Major, $v.Minor
+        Initialize-Folder -Path $BaseDownloadRoot
+        $localExe = Join-Path $BaseDownloadRoot $fileName
+        if (-not (Test-Path -LiteralPath $localExe)) {
+            Write-Log "Downloading installer to read its version: $downloadUrl" -Quiet:$Quiet
+            Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localExe -ExtraCurlArgs @('-A', $ua)
+        }
+        Assert-ExePayload -Path $localExe
+
+        $fileVersion = (Get-Item -LiteralPath $localExe -ErrorAction Stop).VersionInfo.FileVersion
+        if ([string]::IsNullOrWhiteSpace($fileVersion) -or $fileVersion.Trim() -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+            throw "Installer carries no four-part file version resource: '$fileVersion'"
+        }
+        $v = [version]$fileVersion.Trim()
+        $best = "{0}.{1}.{2}" -f $v.Major, $v.Minor, $v.Revision
 
         Write-Log "Latest Defraggler version    : $best" -Quiet:$Quiet
 
         return [pscustomobject]@{
             Version     = $best
-            FileName    = "dfsetup$slug.exe"
-            DownloadUrl = ($DownloadUrlFormat -f $slug)
+            FileName    = $fileName
+            DownloadUrl = $downloadUrl
         }
     }
     catch {
@@ -375,7 +389,7 @@ try {
     Write-Log "SiteCode                     : $SiteCode"
     Write-Log "FileServerPath               : $FileServerPath"
     Write-Log "BaseDownloadRoot             : $BaseDownloadRoot"
-    Write-Log "VersionHistoryUrl            : $VersionHistoryUrl"
+    Write-Log "BuildsPageUrl                : $BuildsPageUrl"
     Write-Log ""
 
     if ($StageOnly) {

@@ -28,7 +28,7 @@ Installs the latest release into `%LOCALAPPDATA%\AppPackager`. Only a zip crosse
 On an unrestricted network, the installer can do the whole flow itself — resolve the release from the GitHub API, download, verify SHA-256, extract:
 
 ```powershell
-curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 1.5.1.1
+curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 1.5.1.2
 ```
 
 Omitting `-ZipPath` makes it download and checksum-verify the requested release; `-InstallPath` picks the folder and `-Version` pins a release. `-Force` is required to replace a non-empty folder that holds no existing AppPackager install. If even the curl download is blocked, fetch the zip in a browser and run the same `-ZipPath` command against it.
@@ -431,7 +431,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-sharex.ps1 | ShareX Team | ShareX | File version |
 | package-shotcut.ps1 | Meltytech | Shotcut | RegistryKeyValue |
 | package-simplenote.ps1 | Automattic | Simplenote | File version |
-| package-slack.ps1 | Slack Technologies | Slack | RegistryKeyValue |
+| package-slack.ps1 | Slack Technologies | Slack | File existence |
 | package-smartty.ps1 | Sysprogs | SmarTTY | RegistryKeyValue |
 | package-smathstudio.ps1 | SMath | SMath Studio | RegistryKey existence |
 | package-soapui.ps1 | SmartBear Software | SoapUI | File existence |
@@ -495,7 +495,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-winrar.ps1 | win.rar GmbH | WinRAR (x64) | RegistryKeyValue |
 | package-winscp.ps1 | WinSCP | WinSCP | RegistryKeyValue |
 | package-wireguard.ps1 | WireGuard | WireGuard | RegistryKeyValue |
-| package-wireshark.ps1 | Wireshark Foundation | Wireshark (x64) | RegistryKeyValue |
+| package-wireshark.ps1 | Wireshark Foundation | Wireshark (x64) | File version |
 | package-xencenter.ps1 | Cloud Software Group | XenCenter | RegistryKeyValue |
 | package-xenserver-vmtools.ps1 | Cloud Software Group | XenServer VM Tools | RegistryKeyValue |
 | package-xnviewmp.ps1 | XnSoft | XnView MP | RegistryKeyValue |
@@ -544,6 +544,8 @@ The monitor discovers all `package-*.ps1` scripts in the sibling `Packagers/` fo
 | **Log/report cleanup** | Configurable retention for old logs and reports |
 
 Configuration is in `VersionMonitor/monitor-config.json`. Log and report folders default to `VersionMonitor/Logs/` and `VersionMonitor/Reports/` when not specified in config.
+
+90 packagers resolve their version through the GitHub REST API, which allows 60 unauthenticated requests per hour per source address. A monitor run or a catalog-wide version sweep over more than that returns `403 rate limit exceeded` for the remainder. Set `GITHUB_TOKEN` (or `GH_TOKEN`) in the environment to a personal access token with no scopes and every GitHub-backed packager sends it as a bearer token (5000 requests per hour); the packagers pick it up through `Get-GitHubApiCurlArgs` and behave as before when it is absent.
 
 ### Packager header tags for Version Monitor
 
