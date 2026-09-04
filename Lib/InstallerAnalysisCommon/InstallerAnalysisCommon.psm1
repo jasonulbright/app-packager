@@ -96,6 +96,7 @@ function Get-InstallerFileInfo {
     $arch = if ($item.Extension -eq '.msi') { 'N/A (see MSI Summary)' } else { Get-PeArchitecture -Path $Path }
     $sig = Get-AuthenticodeSignature -FilePath $Path -ErrorAction SilentlyContinue
     $hash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction SilentlyContinue).Hash
+    $execLevel = if ($item.Extension -eq '.exe') { Get-PeRequestedExecutionLevel -Path $Path } else { '' }
 
     return [PSCustomObject]@{
         FileName         = $item.Name
@@ -112,6 +113,7 @@ function Get-InstallerFileInfo {
         OriginalFilename = $versionInfo.OriginalFilename
         LegalCopyright   = $versionInfo.LegalCopyright
         Architecture     = $arch
+        RequestedExecutionLevel = $execLevel
         SignatureStatus  = if ($sig) { [string]$sig.Status } else { 'Unknown' }
         SignerSubject    = if ($sig -and $sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { '' }
         SignerIssuer     = if ($sig -and $sig.SignerCertificate) { $sig.SignerCertificate.Issuer } else { '' }
@@ -1385,6 +1387,1204 @@ function Get-WixBurnMetadata {
 # Package metadata dispatcher
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# NSIS header analysis
+# ---------------------------------------------------------------------------
+# An NSIS installer carries its compiled script (the "header" block) in the
+# data appended to the exehead stub: firstheader (28 bytes) followed by the
+# compressed header and file blocks. The header holds the block table,
+# the string table, the entry (opcode) list and the language tables, which
+# is where InstallDir, WriteUninstaller and the WriteRegStr calls that
+# register the application in Add/Remove Programs live. Reading it needs the
+# NSIS LZMA stream decoded, so a self-contained LZMA + BCJ x86 decoder is
+# compiled once per process below.
+
+$script:NsisFirstHeaderSize = 28
+
+function script:Initialize-NsisDecoderType {
+    if (([System.Management.Automation.PSTypeName]'InstallerAnalysis.NsisLzmaDecoder').Type) { return }
+    Add-Type -TypeDefinition @'
+using System;
+
+namespace InstallerAnalysis
+{
+    // LZMA1 decoder over a byte array. The whole output buffer doubles as the
+    // dictionary because decoding always starts at the stream beginning and
+    // stops after the requested number of bytes.
+    public sealed class NsisLzmaDecoder
+    {
+        private byte[] _in;
+        private int _pos;
+        private int _end;
+        private uint _range;
+        private uint _code;
+        private bool _corrupted;
+
+        private byte[] _out;
+        private int _outPos;
+
+        private const int NumBitModelTotalBits = 11;
+        private const uint BitModelTotal = 1u << NumBitModelTotalBits;
+        private const int NumMoveBits = 5;
+        private const uint TopValue = 1u << 24;
+        private const int NumStates = 12;
+        private const int NumPosBitsMax = 4;
+        private const int EndPosModelIndex = 14;
+        private const int NumFullDistances = 1 << (EndPosModelIndex >> 1);
+        private const int NumAlignBits = 4;
+        private const int MatchMinLen = 2;
+
+        private sealed class LenDecoder
+        {
+            public ushort[] Choice = InitProbs(2);
+            public ushort[] Low = InitProbs(1 << (NumPosBitsMax + 3));
+            public ushort[] Mid = InitProbs(1 << (NumPosBitsMax + 3));
+            public ushort[] High = InitProbs(1 << 8);
+        }
+
+        private static ushort[] InitProbs(int count)
+        {
+            ushort[] p = new ushort[count];
+            for (int i = 0; i < count; i++) p[i] = (ushort)(BitModelTotal >> 1);
+            return p;
+        }
+
+        private byte ReadByte()
+        {
+            if (_pos < _end) return _in[_pos++];
+            _corrupted = true;
+            return 0;
+        }
+
+        private void RangeInit()
+        {
+            _code = 0;
+            _range = 0xFFFFFFFF;
+            if (ReadByte() != 0) _corrupted = true;
+            for (int i = 0; i < 4; i++) _code = (_code << 8) | ReadByte();
+            if (_code == _range) _corrupted = true;
+        }
+
+        private void Normalize()
+        {
+            if (_range < TopValue)
+            {
+                _range <<= 8;
+                _code = (_code << 8) | ReadByte();
+            }
+        }
+
+        private uint DecodeDirectBits(int numBits)
+        {
+            uint res = 0;
+            do
+            {
+                _range >>= 1;
+                _code -= _range;
+                uint t = 0u - (_code >> 31);
+                _code += _range & t;
+                if (_code == _range) _corrupted = true;
+                Normalize();
+                res <<= 1;
+                res += t + 1;
+            }
+            while (--numBits != 0);
+            return res;
+        }
+
+        private uint DecodeBit(ushort[] probs, int index)
+        {
+            uint v = probs[index];
+            uint bound = (_range >> NumBitModelTotalBits) * v;
+            uint symbol;
+            if (_code < bound)
+            {
+                v += (BitModelTotal - v) >> NumMoveBits;
+                _range = bound;
+                symbol = 0;
+            }
+            else
+            {
+                v -= v >> NumMoveBits;
+                _code -= bound;
+                _range -= bound;
+                symbol = 1;
+            }
+            probs[index] = (ushort)v;
+            Normalize();
+            return symbol;
+        }
+
+        private uint BitTreeDecode(ushort[] probs, int offset, int numBits)
+        {
+            uint m = 1;
+            for (int i = 0; i < numBits; i++) m = (m << 1) + DecodeBit(probs, offset + (int)m);
+            return m - (1u << numBits);
+        }
+
+        private uint BitTreeReverseDecode(ushort[] probs, int offset, int numBits)
+        {
+            uint m = 1;
+            uint symbol = 0;
+            for (int i = 0; i < numBits; i++)
+            {
+                uint bit = DecodeBit(probs, offset + (int)m);
+                m = (m << 1) + bit;
+                symbol |= bit << i;
+            }
+            return symbol;
+        }
+
+        private uint DecodeLen(LenDecoder ld, int posState)
+        {
+            if (DecodeBit(ld.Choice, 0) == 0) return BitTreeDecode(ld.Low, posState << 3, 3);
+            if (DecodeBit(ld.Choice, 1) == 0) return 8 + BitTreeDecode(ld.Mid, posState << 3, 3);
+            return 16 + BitTreeDecode(ld.High, 0, 8);
+        }
+
+        private void PutByte(byte b)
+        {
+            _out[_outPos++] = b;
+        }
+
+        private byte GetByte(uint dist)
+        {
+            return _out[_outPos - (int)dist];
+        }
+
+        // Decodes outSize bytes from the raw LZMA data (no props header) at
+        // input[offset..]. Returns the bytes actually produced; a truncated or
+        // corrupt stream yields fewer bytes and Corrupted = true.
+        public static byte[] Decode(byte[] input, int offset, int length, byte propsByte, uint dictSize, int outSize, out bool corrupted)
+        {
+            NsisLzmaDecoder d = new NsisLzmaDecoder();
+            d._in = input;
+            d._pos = offset;
+            d._end = offset + length;
+            d._out = new byte[outSize];
+            d._outPos = 0;
+
+            if (propsByte >= 9 * 5 * 5) throw new ArgumentException("Bad LZMA properties byte.");
+            int lc = propsByte % 9;
+            int rem = propsByte / 9;
+            int lp = rem % 5;
+            int pb = rem / 5;
+
+            ushort[] literalProbs = InitProbs(0x300 << (lc + lp));
+            ushort[] posSlotDecoder = InitProbs(4 << 6);
+            ushort[] alignDecoder = InitProbs(1 << NumAlignBits);
+            ushort[] posDecoders = InitProbs(1 + NumFullDistances - EndPosModelIndex);
+            ushort[] isMatch = InitProbs(NumStates << NumPosBitsMax);
+            ushort[] isRep = InitProbs(NumStates);
+            ushort[] isRepG0 = InitProbs(NumStates);
+            ushort[] isRepG1 = InitProbs(NumStates);
+            ushort[] isRepG2 = InitProbs(NumStates);
+            ushort[] isRep0Long = InitProbs(NumStates << NumPosBitsMax);
+            LenDecoder lenDecoder = new LenDecoder();
+            LenDecoder repLenDecoder = new LenDecoder();
+
+            uint rep0 = 0, rep1 = 0, rep2 = 0, rep3 = 0;
+            uint state = 0;
+            uint pbMask = (1u << pb) - 1;
+            uint lpMask = (1u << lp) - 1;
+
+            d.RangeInit();
+
+            while (d._outPos < outSize && !d._corrupted)
+            {
+                uint posState = (uint)d._outPos & pbMask;
+
+                if (d.DecodeBit(isMatch, (int)((state << NumPosBitsMax) + posState)) == 0)
+                {
+                    uint prevByte = d._outPos > 0 ? d._out[d._outPos - 1] : 0u;
+                    uint symbol = 1;
+                    uint litState = (((uint)d._outPos & lpMask) << lc) + (prevByte >> (8 - lc));
+                    int probsOffset = (int)(0x300 * litState);
+                    if (state >= 7)
+                    {
+                        uint matchByte = d._out[d._outPos - (int)rep0 - 1];
+                        do
+                        {
+                            uint matchBit = (matchByte >> 7) & 1;
+                            matchByte <<= 1;
+                            uint bit = d.DecodeBit(literalProbs, probsOffset + (int)(((1 + matchBit) << 8) + symbol));
+                            symbol = (symbol << 1) | bit;
+                            if (matchBit != bit) break;
+                        }
+                        while (symbol < 0x100);
+                    }
+                    while (symbol < 0x100) symbol = (symbol << 1) | d.DecodeBit(literalProbs, probsOffset + (int)symbol);
+                    d.PutByte((byte)(symbol - 0x100));
+                    state = state < 4 ? 0 : (state < 10 ? state - 3 : state - 6);
+                    continue;
+                }
+
+                uint len;
+                if (d.DecodeBit(isRep, (int)state) != 0)
+                {
+                    if (d._outPos == 0) { d._corrupted = true; break; }
+                    if (d.DecodeBit(isRepG0, (int)state) == 0)
+                    {
+                        if (d.DecodeBit(isRep0Long, (int)((state << NumPosBitsMax) + posState)) == 0)
+                        {
+                            state = state < 7 ? 9u : 11u;
+                            d.PutByte(d.GetByte(rep0 + 1));
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        uint dist;
+                        if (d.DecodeBit(isRepG1, (int)state) == 0)
+                        {
+                            dist = rep1;
+                        }
+                        else
+                        {
+                            if (d.DecodeBit(isRepG2, (int)state) == 0)
+                            {
+                                dist = rep2;
+                            }
+                            else
+                            {
+                                dist = rep3;
+                                rep3 = rep2;
+                            }
+                            rep2 = rep1;
+                        }
+                        rep1 = rep0;
+                        rep0 = dist;
+                    }
+                    len = d.DecodeLen(repLenDecoder, (int)posState);
+                    state = state < 7 ? 8u : 11u;
+                }
+                else
+                {
+                    rep3 = rep2;
+                    rep2 = rep1;
+                    rep1 = rep0;
+                    len = d.DecodeLen(lenDecoder, (int)posState);
+                    state = state < 7 ? 7u : 10u;
+
+                    uint lenState = len;
+                    if (lenState > 3) lenState = 3;
+                    uint posSlot = d.BitTreeDecode(posSlotDecoder, (int)lenState << 6, 6);
+                    uint dist;
+                    if (posSlot < 4)
+                    {
+                        dist = posSlot;
+                    }
+                    else
+                    {
+                        int numDirectBits = (int)((posSlot >> 1) - 1);
+                        dist = (2 | (posSlot & 1)) << numDirectBits;
+                        if (posSlot < EndPosModelIndex)
+                        {
+                            dist += d.BitTreeReverseDecode(posDecoders, (int)(dist - posSlot), numDirectBits);
+                        }
+                        else
+                        {
+                            dist += d.DecodeDirectBits(numDirectBits - NumAlignBits) << NumAlignBits;
+                            dist += d.BitTreeReverseDecode(alignDecoder, 0, NumAlignBits);
+                        }
+                    }
+                    rep0 = dist;
+                    if (rep0 == 0xFFFFFFFF) break; // end marker
+                    if (rep0 >= dictSize || rep0 >= (uint)d._outPos) { d._corrupted = true; break; }
+                }
+
+                len += MatchMinLen;
+                while (len > 0 && d._outPos < outSize)
+                {
+                    d.PutByte(d.GetByte(rep0 + 1));
+                    len--;
+                }
+            }
+
+            corrupted = d._corrupted || d._outPos < outSize;
+            if (d._outPos == outSize) return d._out;
+            byte[] partial = new byte[d._outPos];
+            Array.Copy(d._out, partial, d._outPos);
+            return partial;
+        }
+
+        // x86 BCJ filter decode (branch-call-jump address conversion), applied
+        // in place to data that was LZMA-decoded from a filtered NSIS stream.
+        public static void DecodeBcjX86(byte[] data, int size)
+        {
+            byte[] maskToAllowed = new byte[] { 1, 1, 1, 0, 1, 0, 0, 0 };
+            byte[] maskToBitNumber = new byte[] { 0, 1, 2, 2, 3, 3, 3, 3 };
+            if (size < 5) return;
+            uint ip = 5;
+            int bufferPos = 0;
+            int prevPosT = -1;
+            uint prevMask = 0;
+            for (;;)
+            {
+                int p = bufferPos;
+                int limit = size - 4;
+                while (p < limit && (data[p] & 0xFE) != 0xE8) p++;
+                bufferPos = p;
+                if (p >= limit) break;
+                int gap = bufferPos - prevPosT;
+                if (gap > 3)
+                {
+                    prevMask = 0;
+                }
+                else
+                {
+                    prevMask = (prevMask << (gap - 1)) & 0x7;
+                    if (prevMask != 0)
+                    {
+                        byte b = data[p + 4 - maskToBitNumber[prevMask]];
+                        if (maskToAllowed[prevMask] == 0 || b == 0 || b == 0xFF)
+                        {
+                            prevPosT = bufferPos;
+                            prevMask = ((prevMask << 1) & 0x7) | 1;
+                            bufferPos++;
+                            continue;
+                        }
+                    }
+                }
+                prevPosT = bufferPos;
+                byte b4 = data[p + 4];
+                if (b4 == 0 || b4 == 0xFF)
+                {
+                    uint src = ((uint)data[p + 4] << 24) | ((uint)data[p + 3] << 16) | ((uint)data[p + 2] << 8) | data[p + 1];
+                    uint dest;
+                    for (;;)
+                    {
+                        dest = src - (ip + (uint)bufferPos);
+                        if (prevMask == 0) break;
+                        int index = maskToBitNumber[prevMask] * 8;
+                        byte b = (byte)(dest >> (24 - index));
+                        if (!(b == 0 || b == 0xFF)) break;
+                        src = dest ^ ((1u << (32 - index)) - 1);
+                    }
+                    data[p + 4] = (byte)(~(((dest >> 24) & 1) - 1));
+                    data[p + 3] = (byte)(dest >> 16);
+                    data[p + 2] = (byte)(dest >> 8);
+                    data[p + 1] = (byte)dest;
+                    bufferPos += 5;
+                }
+                else
+                {
+                    prevMask = ((prevMask << 1) & 0x7) | 1;
+                    bufferPos++;
+                }
+            }
+        }
+    }
+}
+'@
+}
+
+function script:Find-NsisFirstHeader {
+    <#
+    .SYNOPSIS
+        Returns the file offset of the NSIS firstheader, or -1.
+    .DESCRIPTION
+        The firstheader is flags (4) + 0xDEADBEEF (4) + "NullsoftInst" (12)
+        + length_of_header (4) + length_of_all_following_data (4) and sits at
+        a 512-byte boundary after the PE image. The exehead itself contains
+        the marker text, so only an aligned hit whose length fields fit the
+        file counts.
+    #>
+    param([Parameter(Mandatory)][byte[]]$Bytes, [long]$FileLength = 0)
+
+    if ($Bytes.Length -lt $script:NsisFirstHeaderSize + 4) { return -1 }
+    # Latin-1 maps every byte to one char, so a native IndexOf over the text
+    # finds the marker without a per-byte PowerShell loop.
+    $text = [System.Text.Encoding]::GetEncoding(28591).GetString($Bytes)
+    $marker = [char]0xEF + [char]0xBE + [char]0xAD + [char]0xDE + 'NullsoftInst'
+    $available = if ($FileLength -gt 0) { $FileLength } else { [long]$Bytes.Length }
+    $from = 0
+    while ($from -le $Bytes.Length - 16) {
+        $i = $text.IndexOf($marker, $from, [System.StringComparison]::Ordinal)
+        if ($i -lt 0) { break }
+        $from = $i + 1
+        if ($i -lt 4) { continue }
+        $start = $i - 4
+        if (($start % 512) -ne 0) { continue }
+        if ($start + $script:NsisFirstHeaderSize -gt $Bytes.Length) { continue }
+        $headerLength = [BitConverter]::ToUInt32($Bytes, $start + 20)
+        $totalLength  = [BitConverter]::ToUInt32($Bytes, $start + 24)
+        if ($headerLength -lt 300 -or $totalLength -lt $script:NsisFirstHeaderSize) { continue }
+        if ($totalLength -gt ($available - $start) + 4) { continue }
+        return $start
+    }
+    return -1
+}
+
+function script:Expand-NsisHeader {
+    <#
+    .SYNOPSIS
+        Decompresses the NSIS header block that follows the firstheader.
+    .DESCRIPTION
+        Returns Header (byte[]), Compression (lzma / zlib / bzip2 / none),
+        Solid, Filtered and Note. Layout after the firstheader:
+          solid     - one compressed stream; the header is its first
+                      length_of_header bytes, file blocks follow inside it.
+          non-solid - 4-byte block length with the high bit set when the
+                      block is compressed, then the block; the header block
+                      comes first.
+        LZMA streams start with the properties byte (0x5D for lc3 lp0 pb2)
+        and a 4-byte dictionary size; an optional leading 0/1 byte carries
+        the BCJ x86 filter flag. NSIS bzip2 is a stripped stream without the
+        BZh signature and is not decoded here.
+    #>
+    param(
+        [Parameter(Mandatory)][byte[]]$Bytes,
+        [Parameter(Mandatory)][int]$FirstHeader
+    )
+
+    $headerLength = [int][BitConverter]::ToUInt32($Bytes, $FirstHeader + 20)
+    $dataStart = $FirstHeader + $script:NsisFirstHeaderSize
+    $result = [pscustomobject]@{ Header = $null; Compression = ''; Solid = $false; Filtered = $false; Note = '' }
+    if ($dataStart + 8 -gt $Bytes.Length) { $result.Note = 'Installer data block is truncated.'; return $result }
+
+    $isLzmaAt = {
+        param($p)
+        if ($p + 6 -ge $Bytes.Length) { return $false }
+        # props byte 0x5D covers every stock makensis build; a dictionary of
+        # at least 64 KB with a zero low half-word, then the range coder's
+        # mandatory leading zero byte.
+        return ($Bytes[$p] -eq 0x5D -and $Bytes[$p + 1] -eq 0 -and $Bytes[$p + 2] -eq 0 -and $Bytes[$p + 5] -eq 0)
+    }
+    $isBzip2At = {
+        param($p)
+        if ($p + 4 -ge $Bytes.Length) { return $false }
+        return ($Bytes[$p] -eq 0x31 -and $Bytes[$p + 1] -lt 14)
+    }
+    # A solid stream decompresses to the same block layout the file has in
+    # non-solid form, so the header arrives behind its own 4-byte length.
+    $prefixLength = { param($solid) if ($solid) { 4 } else { 0 } }
+    $takeHeader = {
+        param($out, $solid)
+        if ($null -eq $out) { return $null }
+        $skip = & $prefixLength $solid
+        if ($out.Length -ne ($headerLength + $skip)) { return $null }
+        if ($solid) {
+            $declared = [BitConverter]::ToUInt32($out, 0) -band 0x7FFFFFFF
+            if ($declared -ne $headerLength) { return $null }
+            return [byte[]]$out[4..($out.Length - 1)]
+        }
+        return $out
+    }
+    $lzmaBlock = {
+        param($p, $end, $filtered, $solid)
+        $propsByte = $Bytes[$p]
+        $dict = [BitConverter]::ToUInt32($Bytes, $p + 1)
+        $corrupt = $false
+        $want = $headerLength + (& $prefixLength $solid)
+        $out = [InstallerAnalysis.NsisLzmaDecoder]::Decode($Bytes, $p + 5, ($end - ($p + 5)), $propsByte, $dict, $want, [ref]$corrupt)
+        if ($filtered -and $out.Length -gt 0) { [InstallerAnalysis.NsisLzmaDecoder]::DecodeBcjX86($out, $out.Length) }
+        return (& $takeHeader $out $solid)
+    }
+    $deflateBlock = {
+        param($p, $end, $solid)
+        $ms = New-Object System.IO.MemoryStream (,[byte[]]$Bytes[$p..($end - 1)])
+        $ds = New-Object System.IO.Compression.DeflateStream ($ms, [System.IO.Compression.CompressionMode]::Decompress)
+        try {
+            $want = $headerLength + (& $prefixLength $solid)
+            $out = New-Object byte[] $want
+            $read = 0
+            while ($read -lt $want) {
+                $n = $ds.Read($out, $read, $want - $read)
+                if ($n -le 0) { break }
+                $read += $n
+            }
+            if ($read -ne $want) { return $null }
+            return (& $takeHeader $out $solid)
+        }
+        catch { return $null }
+        finally { $ds.Dispose(); $ms.Dispose() }
+    }
+    $bzip2Result = {
+        param($solid)
+        $result.Compression = 'bzip2'; $result.Solid = $solid
+        $result.Note = 'NSIS bzip2 streams are not decoded; header fields are unavailable.'
+        return $result
+    }
+
+    Initialize-NsisDecoderType
+
+    $end = $Bytes.Length
+    $first = [BitConverter]::ToUInt32($Bytes, $dataStart)
+
+    # Solid LZMA, with or without the filter flag byte.
+    if (& $isLzmaAt $dataStart) {
+        $result.Compression = 'lzma'; $result.Solid = $true
+        $result.Header = & $lzmaBlock $dataStart $end $false $true
+        if (-not $result.Header) { $result.Note = 'LZMA header stream did not decode.' }
+        return $result
+    }
+    if (($Bytes[$dataStart] -eq 0 -or $Bytes[$dataStart] -eq 1) -and (& $isLzmaAt ($dataStart + 1))) {
+        $result.Compression = 'lzma'; $result.Solid = $true; $result.Filtered = ($Bytes[$dataStart] -eq 1)
+        $result.Header = & $lzmaBlock ($dataStart + 1) $end $result.Filtered $true
+        if (-not $result.Header) { $result.Note = 'LZMA header stream did not decode.' }
+        return $result
+    }
+    # Solid bzip2 starts with the block-size byte 0x31; a non-solid length
+    # prefix under 16 MB always carries 0x80 in its top byte instead.
+    if ((& $isBzip2At $dataStart) -and $Bytes[$dataStart + 3] -ne 0x80) {
+        return (& $bzip2Result $true)
+    }
+
+    # Non-solid: block length prefix.
+    if (($first -band 0x80000000) -ne 0) {
+        $blockLength = [int]($first -band 0x7FFFFFFF)
+        $blockStart = $dataStart + 4
+        $blockEnd = [Math]::Min($blockStart + $blockLength, $end)
+        if (& $isLzmaAt $blockStart) {
+            $result.Compression = 'lzma'
+            $result.Header = & $lzmaBlock $blockStart $blockEnd $false $false
+            if (-not $result.Header) { $result.Note = 'LZMA header block did not decode.' }
+            return $result
+        }
+        if (($Bytes[$blockStart] -eq 0 -or $Bytes[$blockStart] -eq 1) -and (& $isLzmaAt ($blockStart + 1))) {
+            $result.Compression = 'lzma'; $result.Filtered = ($Bytes[$blockStart] -eq 1)
+            $result.Header = & $lzmaBlock ($blockStart + 1) $blockEnd $result.Filtered $false
+            if (-not $result.Header) { $result.Note = 'LZMA header block did not decode.' }
+            return $result
+        }
+        if (& $isBzip2At $blockStart) { return (& $bzip2Result $false) }
+        $result.Compression = 'zlib'
+        $result.Header = & $deflateBlock $blockStart $blockEnd $false
+        if (-not $result.Header) { $result.Note = 'Deflate header block did not decode.' }
+        return $result
+    }
+    if ($first -eq $headerLength -and ($dataStart + 4 + $headerLength) -le $end) {
+        $result.Compression = 'none'
+        $result.Header = [byte[]]$Bytes[($dataStart + 4)..($dataStart + 3 + $headerLength)]
+        return $result
+    }
+
+    # Solid zlib: no length prefix in the file, the stream starts immediately.
+    $result.Compression = 'zlib'; $result.Solid = $true
+    $result.Header = & $deflateBlock $dataStart $end $true
+    if (-not $result.Header) { $result.Note = 'Deflate header stream did not decode.' }
+    return $result
+}
+
+# CSIDL pairs (current user, all users) as makensis encodes the built-in
+# shell constants; the ProgramFiles family uses a registry lookup instead.
+$script:NsisShellNames = @{
+    '1A,23' = 'APPDATA';     '1C,23' = 'LOCALAPPDATA'; '28,28' = 'PROFILE';
+    '05,2E' = 'DOCUMENTS';   '10,19' = 'DESKTOP';      '02,17' = 'SMPROGRAMS';
+    '0B,16' = 'STARTMENU';   '07,18' = 'SMSTARTUP';    '24,24' = 'WINDIR';
+    '25,25' = 'SYSDIR';      '15,2D' = 'TEMPLATES';    '06,1F' = 'FAVORITES';
+    '0D,35' = 'MUSIC';       '27,36' = 'PICTURES';     '0E,37' = 'VIDEOS';
+    '14,14' = 'FONTS';       '1B,1B' = 'PRINTHOOD';    '13,13' = 'NETHOOD';
+    '08,08' = 'RECENT';      '09,09' = 'SENDTO';       '1A,1A' = 'QUICKLAUNCH';
+    '38,38' = 'RESOURCES';   '39,39' = 'RESOURCES_LOCALIZED'; '3B,3B' = 'CDBURN_AREA';
+    '30,2F' = 'ADMINTOOLS';  '22,22' = 'HISTORY';      '21,21' = 'COOKIES';
+    '20,20' = 'INTERNET_CACHE'
+}
+$script:NsisVarNames = @('CMDLINE', 'INSTDIR', 'OUTDIR', 'EXEDIR', 'LANGUAGE', 'TEMP', 'PLUGINSDIR', 'EXEPATH', 'EXEFILE', 'HWNDPARENT', '_CLICK', '_OUTDIR')
+
+function script:Read-NsisString {
+    <#
+    .SYNOPSIS
+        Decodes one NSIS string-table entry into script notation.
+    .DESCRIPTION
+        Table is the whole strings block decoded once: UTF-16 for Unicode
+        builds and Latin-1 for ANSI builds, so a char index equals the TCHAR
+        pointer the header stores. Escape codes 1 (LangString), 2 (shell
+        folder), 3 (variable) and 4 (literal next unit) precede one code
+        unit in Unicode builds and two bytes in ANSI builds. Shell folders
+        decode to $NAME form; variables to $0-$9, $R0-$R9 and the built-in
+        names; language strings to $(LangString#n) unless the caller
+        resolves them.
+    #>
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Table,
+        [Parameter(Mandatory)][int]$Ptr,
+        [Parameter(Mandatory)][bool]$Unicode,
+        [hashtable]$LangStrings,
+        [int]$Depth = 0
+    )
+    if ($Ptr -lt 0 -or $Ptr -ge $Table.Length) { return '' }
+    $end = $Table.IndexOf([char]0, $Ptr)
+    if ($end -lt 0) { $end = $Table.Length }
+    if ($end -eq $Ptr) { return '' }
+    $sb = New-Object System.Text.StringBuilder
+    $pos = $Ptr
+    while ($pos -lt $end) {
+        $u = [int]$Table[$pos]
+        $pos++
+        $code = 0
+        if ($u -ge 1 -and $u -le 4) { $code = $u }
+        elseif ($Unicode -and $u -ge 0xE000 -and $u -le 0xE003) { $code = $u - 0xE000 + 1 }
+        if ($code -eq 0) {
+            [void]$sb.Append([char]$u)
+            continue
+        }
+        if ($Unicode) {
+            if ($pos -ge $end) { break }
+            $arg = [int]$Table[$pos]
+            $pos++
+            $lo = $arg -band 0xFF
+            $hi = ($arg -shr 8) -band 0xFF
+        }
+        else {
+            if (($pos + 1) -ge $end) { break }
+            $lo = [int]$Table[$pos]
+            $hi = [int]$Table[$pos + 1]
+            $arg = $lo
+            $pos += 2
+        }
+        switch ($code) {
+            4 {
+                [void]$sb.Append([char]$arg)
+            }
+            3 {
+                $index = ($lo -band 0x7F) -bor (($hi -band 0x7F) -shl 7)
+                if ($index -lt 10) { [void]$sb.Append('$' + $index) }
+                elseif ($index -lt 20) { [void]$sb.Append('$R' + ($index - 10)) }
+                elseif (($index - 20) -lt $script:NsisVarNames.Count) { [void]$sb.Append('$' + $script:NsisVarNames[$index - 20]) }
+                else { [void]$sb.Append('$__VAR' + $index) }
+            }
+            2 {
+                # Registry-resolved folder. NSIS 3 sets bit 7 of the low
+                # byte, bit 6 selects the 64-bit view and the low bits point
+                # at the value name (ProgramFilesDir / CommonFilesDir); the
+                # 2.x line sets bit 7 of the high byte instead and only ever
+                # resolved Program Files this way.
+                if (($lo -band 0x80) -ne 0) {
+                    $valueName = if ($Depth -lt 1) { Read-NsisString -Table $Table -Ptr ($lo -band 0x3F) -Unicode $Unicode -Depth ($Depth + 1) } else { '' }
+                    $is64 = (($lo -band 0x40) -ne 0)
+                    $name = switch -Regex ($valueName) {
+                        '^ProgramFilesDir' { if ($is64) { 'PROGRAMFILES64' } else { 'PROGRAMFILES' } }
+                        '^CommonFilesDir'  { if ($is64) { 'COMMONFILES64' } else { 'COMMONFILES' } }
+                        default            { 'SHELL[' + $valueName + ']' }
+                    }
+                    [void]$sb.Append('$' + $name)
+                }
+                elseif (($hi -band 0x80) -ne 0) {
+                    [void]$sb.Append($(if (($lo -band 0x40) -ne 0) { '$PROGRAMFILES64' } else { '$PROGRAMFILES' }))
+                }
+                else {
+                    $key = ('{0:X2},{1:X2}' -f $lo, $hi)
+                    if ($script:NsisShellNames.ContainsKey($key)) { [void]$sb.Append('$' + $script:NsisShellNames[$key]) }
+                    else { [void]$sb.Append('$SHELL[' + $key + ']') }
+                }
+            }
+            1 {
+                $index = ($lo -band 0x7F) -bor (($hi -band 0x7F) -shl 7)
+                $resolved = $null
+                if ($LangStrings -and $LangStrings.ContainsKey($index)) { $resolved = [string]$LangStrings[$index] }
+                if ($null -ne $resolved) { [void]$sb.Append($resolved) }
+                else { [void]$sb.Append('$(LangString#' + $index + ')') }
+            }
+        }
+    }
+    return $sb.ToString()
+}
+
+# HKEY handles as the compiler stores them in entry parameters. Hex literals
+# above 0x7FFFFFFF parse as negative int32 in PowerShell, hence decimal.
+$script:NsisRootKeyNames = @{
+    [int64]2147483648 = 'HKCR'
+    [int64]2147483649 = 'HKCU'
+    [int64]2147483650 = 'HKLM'
+    [int64]2147483651 = 'HKU'
+    [int64]0          = 'SHCTX'
+}
+
+function script:Get-NsisRootKeyName {
+    param([Parameter(Mandatory)][uint32]$Root)
+    $key = [int64]$Root
+    if ($script:NsisRootKeyNames.ContainsKey($key)) { return [string]$script:NsisRootKeyNames[$key] }
+    return ('HKEY(0x{0:X8})' -f $Root)
+}
+
+function ConvertTo-NsisWindowsPath {
+    <#
+    .SYNOPSIS
+        Rewrites NSIS folder constants in a path to Windows environment form.
+    .DESCRIPTION
+        $INSTDIR is replaced with the supplied install directory first, then
+        each built-in folder constant becomes the environment variable a
+        deployment command line can use. Unresolvable variables ($0, $EXEDIR,
+        LangStrings) are left in place so the caller can see the gap.
+    #>
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Path,
+        [string]$InstallDir = '',
+        [bool]$AllUsersContext = $false
+    )
+    if ([string]::IsNullOrEmpty($Path)) { return '' }
+    $p = $Path
+    if ($InstallDir) { $p = $p.Replace('$INSTDIR', $InstallDir) }
+    $map = [ordered]@{
+        '$PROGRAMFILES64' = '%ProgramW6432%'
+        '$PROGRAMFILES32' = '%ProgramFiles(x86)%'
+        '$PROGRAMFILES'   = '%ProgramFiles(x86)%'
+        '$COMMONFILES64'  = '%CommonProgramW6432%'
+        '$COMMONFILES32'  = '%CommonProgramFiles(x86)%'
+        '$COMMONFILES'    = '%CommonProgramFiles(x86)%'
+        '$LOCALAPPDATA'   = $(if ($AllUsersContext) { '%ProgramData%' } else { '%LOCALAPPDATA%' })
+        '$APPDATA'        = $(if ($AllUsersContext) { '%ProgramData%' } else { '%APPDATA%' })
+        '$PROFILE'        = '%USERPROFILE%'
+        '$DOCUMENTS'      = $(if ($AllUsersContext) { '%PUBLIC%\Documents' } else { '%USERPROFILE%\Documents' })
+        '$DESKTOP'        = $(if ($AllUsersContext) { '%PUBLIC%\Desktop' } else { '%USERPROFILE%\Desktop' })
+        '$SMPROGRAMS'     = $(if ($AllUsersContext) { '%ProgramData%\Microsoft\Windows\Start Menu\Programs' } else { '%APPDATA%\Microsoft\Windows\Start Menu\Programs' })
+        '$STARTMENU'      = $(if ($AllUsersContext) { '%ProgramData%\Microsoft\Windows\Start Menu' } else { '%APPDATA%\Microsoft\Windows\Start Menu' })
+        '$WINDIR'         = '%SystemRoot%'
+        '$SYSDIR'         = '%SystemRoot%\System32'
+        '$TEMP'           = '%TEMP%'
+    }
+    foreach ($k in $map.Keys) {
+        $p = $p.Replace($k, [string]$map[$k])
+    }
+    return $p
+}
+
+function Get-PeRequestedExecutionLevel {
+    <#
+    .SYNOPSIS
+        Reads requestedExecutionLevel from a PE file's embedded manifest.
+    .DESCRIPTION
+        Walks the resource directory for RT_MANIFEST without loading the
+        image. Returns asInvoker / highestAvailable / requireAdministrator,
+        or '' when the file carries no manifest or no execution level.
+    #>
+    param([Parameter(Mandatory)][string]$Path)
+
+    try {
+        $fs = [System.IO.File]::OpenRead($Path)
+        try {
+            $br = New-Object System.IO.BinaryReader($fs)
+            if ($fs.Length -lt 0x40) { return '' }
+            $fs.Position = 0
+            if ($br.ReadUInt16() -ne 0x5A4D) { return '' }
+            $fs.Position = 0x3C
+            $peOffset = $br.ReadUInt32()
+            if ($peOffset + 24 -gt $fs.Length) { return '' }
+            $fs.Position = $peOffset
+            if ($br.ReadUInt32() -ne 0x00004550) { return '' }
+            $fs.Position = $peOffset + 6
+            $numSections = $br.ReadUInt16()
+            $fs.Position = $peOffset + 20
+            $optSize = $br.ReadUInt16()
+            $optStart = $peOffset + 24
+            $fs.Position = $optStart
+            $magic = $br.ReadUInt16()
+            $dirOffset = if ($magic -eq 0x20B) { 112 } else { 96 }
+            $fs.Position = $optStart + $dirOffset + (2 * 8)
+            $resRva  = $br.ReadUInt32()
+            $resSize = $br.ReadUInt32()
+            if ($resRva -eq 0 -or $resSize -eq 0) { return '' }
+
+            $sections = @()
+            $secTable = $optStart + $optSize
+            for ($i = 0; $i -lt $numSections; $i++) {
+                $fs.Position = $secTable + ($i * 40) + 8
+                $virtualSize = $br.ReadUInt32()
+                $virtualAddr = $br.ReadUInt32()
+                $rawSize     = $br.ReadUInt32()
+                $rawPtr      = $br.ReadUInt32()
+                $sections += [pscustomobject]@{ Va = $virtualAddr; Vs = [Math]::Max($virtualSize, $rawSize); Raw = $rawPtr }
+            }
+            $toFile = {
+                param($rva)
+                foreach ($s in $sections) {
+                    if ($rva -ge $s.Va -and $rva -lt ($s.Va + $s.Vs)) { return [long]($s.Raw + ($rva - $s.Va)) }
+                }
+                return -1
+            }
+            $resBase = & $toFile $resRva
+            if ($resBase -lt 0) { return '' }
+
+            $readDir = {
+                param($dirFileOffset)
+                $fs.Position = $dirFileOffset + 12
+                $named = $br.ReadUInt16()
+                $ids   = $br.ReadUInt16()
+                $entries = @()
+                for ($i = 0; $i -lt ($named + $ids); $i++) {
+                    $fs.Position = $dirFileOffset + 16 + ($i * 8)
+                    $id  = $br.ReadUInt32()
+                    $off = $br.ReadUInt32()
+                    $entries += [pscustomobject]@{ Id = $id; Offset = $off }
+                }
+                return $entries
+            }
+
+            $manifestEntry = (& $readDir $resBase) | Where-Object { ($_.Id -band 0x80000000) -eq 0 -and $_.Id -eq 24 } | Select-Object -First 1
+            if (-not $manifestEntry) { return '' }
+            $nameDir = $resBase + ($manifestEntry.Offset -band 0x7FFFFFFF)
+            $nameEntry = (& $readDir $nameDir) | Select-Object -First 1
+            if (-not $nameEntry) { return '' }
+            $langDir = $resBase + ($nameEntry.Offset -band 0x7FFFFFFF)
+            $langEntry = (& $readDir $langDir) | Select-Object -First 1
+            if (-not $langEntry) { return '' }
+            if (($langEntry.Offset -band 0x80000000) -ne 0) { return '' }
+            $dataEntry = $resBase + $langEntry.Offset
+            $fs.Position = $dataEntry
+            $dataRva  = $br.ReadUInt32()
+            $dataSize = $br.ReadUInt32()
+            $dataFile = & $toFile $dataRva
+            if ($dataFile -lt 0 -or $dataSize -le 0 -or $dataSize -gt 1MB) { return '' }
+            $fs.Position = $dataFile
+            $bytes = $br.ReadBytes([int]$dataSize)
+            $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+            if ($text -match 'requestedExecutionLevel[^>]*\blevel\s*=\s*["'']([A-Za-z]+)["'']') { return $Matches[1] }
+            return ''
+        }
+        finally { $fs.Dispose() }
+    }
+    catch { return '' }
+}
+
+function Get-NsisMetadata {
+    <#
+    .SYNOPSIS
+        Extracts install directory, uninstaller path and Add/Remove Programs
+        registration from an NSIS installer's compiled header.
+    .DESCRIPTION
+        Decompresses the header block, decodes the string table and walks the
+        entry list for WriteUninstaller, WriteRegStr and the SetShellVarContext
+        / SetRegView flags in script order. Returns a PackageMetadata-shaped
+        object; DisplayName / DisplayVersion / Publisher come from the ARP
+        WriteRegStr calls when they are literal, and SilentUninstallCommand
+        is the uninstaller path in Windows environment form with /S.
+        Fields that the script computes at run time stay in NSIS notation.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Returns one metadata object for one installer.')]
+    param([Parameter(Mandatory)][string]$Path)
+
+    $meta = [pscustomobject]@{
+        Format                  = 'NSIS'
+        HeaderAvailable         = $false
+        Compression             = ''
+        Solid                   = $false
+        Unicode                 = $false
+        Name                    = ''
+        DisplayName             = ''
+        DisplayVersion          = ''
+        Publisher               = ''
+        InstallDir              = ''
+        InstallDirWindows       = ''
+        InstallDirRegKey        = ''
+        UninstallerPath         = ''
+        UninstallerPathWindows  = ''
+        SilentUninstallCommand  = ''
+        UninstallRegistryKey    = ''
+        UninstallRegistryKeyNote = ''
+        RegistryHive            = ''
+        RegistryView            = ''
+        ArpValues               = @{}
+        InstallDirCandidates    = @()
+        RequestedExecutionLevel = ''
+        ShellVarContext         = 'current'
+        InstallContext          = ''
+        Note                    = ''
+    }
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { $meta.Note = 'Installer not found: ' + $Path; return $meta }
+    $meta.RequestedExecutionLevel = Get-PeRequestedExecutionLevel -Path $Path
+
+    # The header sits at the front of the appended data, so a window from
+    # the file start normally covers it; the whole file is read only when
+    # the window misses the firstheader or truncates the compressed header.
+    $readWindow = {
+        param($length)
+        $fs = [System.IO.File]::OpenRead($Path)
+        try {
+            $take = [int][Math]::Min($fs.Length, $length)
+            $buffer = New-Object byte[] $take
+            $read = 0
+            while ($read -lt $take) {
+                $n = $fs.Read($buffer, $read, $take - $read)
+                if ($n -le 0) { break }
+                $read += $n
+            }
+            return $buffer
+        }
+        finally { $fs.Dispose() }
+    }
+    $fileLength = (Get-Item -LiteralPath $Path).Length
+    $bytes = & $readWindow (16MB)
+    $fh = Find-NsisFirstHeader -Bytes $bytes -FileLength $fileLength
+    $expanded = $null
+    if ($fh -ge 0) { $expanded = Expand-NsisHeader -Bytes $bytes -FirstHeader $fh }
+    if (($fh -lt 0 -or -not $expanded.Header) -and $fileLength -gt $bytes.Length) {
+        $bytes = & $readWindow $fileLength
+        $fh = Find-NsisFirstHeader -Bytes $bytes -FileLength $fileLength
+        if ($fh -ge 0) { $expanded = Expand-NsisHeader -Bytes $bytes -FirstHeader $fh }
+    }
+    if ($fh -lt 0) { $meta.Note = 'NSIS firstheader not found.'; return $meta }
+
+    $meta.Compression = $expanded.Compression
+    $meta.Solid = $expanded.Solid
+    if (-not $expanded.Header) {
+        $meta.Note = $expanded.Note
+        return $meta
+    }
+    $h = [byte[]]$expanded.Header
+    if ($h.Length -lt 300) { $meta.Note = 'Header block shorter than the fixed layout.'; return $meta }
+
+    $blockOffset = { param($i) [int][BitConverter]::ToInt32($h, 4 + ($i * 8)) }
+    $blockCount  = { param($i) [int][BitConverter]::ToInt32($h, 8 + ($i * 8)) }
+    $entriesOffset = & $blockOffset 2
+    $entriesCount  = & $blockCount 2
+    $stringsOffset = & $blockOffset 3
+    $langOffset    = & $blockOffset 4
+    $langCount     = & $blockCount 4
+    $stringsEnd    = $langOffset
+    if ($stringsOffset -le 0 -or $stringsEnd -le $stringsOffset -or $stringsEnd -gt $h.Length -or
+        $entriesOffset -lt 0 -or ($entriesOffset + ($entriesCount * 28)) -gt $h.Length) {
+        $meta.Note = 'Header block table is inconsistent.'
+        return $meta
+    }
+    $meta.HeaderAvailable = $true
+    $unicode = ([BitConverter]::ToUInt16($h, $stringsOffset) -eq 0)
+    $meta.Unicode = $unicode
+
+    # The strings block decoded once; a char index equals a TCHAR pointer.
+    $table = if ($unicode) { [System.Text.Encoding]::Unicode.GetString($h, $stringsOffset, $stringsEnd - $stringsOffset) }
+             else { [System.Text.Encoding]::GetEncoding(28591).GetString($h, $stringsOffset, $stringsEnd - $stringsOffset) }
+    $langStrings = @{}
+    $str = { param($ptr) Read-NsisString -Table $table -Ptr $ptr -Unicode $unicode -LangStrings $langStrings }
+
+    # Language table: LANGID(2) + dlg_offset(4) + rtl(4) in NSIS 3, LANGID(2)
+    # + dlg_offset(4) in NSIS 2; the first layout whose Name slot (index 2)
+    # points inside the strings block and decodes to text wins.
+    $langTableSize = [int][BitConverter]::ToInt32($h, 100)
+    if ($langCount -gt 0 -and $langOffset -gt 0 -and $langTableSize -gt 10 -and ($langOffset + $langTableSize) -le $h.Length) {
+        foreach ($prefix in @(10, 6, 8)) {
+            $count = [int](($langTableSize - $prefix) / 4)
+            if ($count -lt 3) { continue }
+            $namePtr = [BitConverter]::ToInt32($h, $langOffset + $prefix + (2 * 4))
+            if ($namePtr -le 0 -or $namePtr -ge $table.Length) { continue }
+            $candidate = Read-NsisString -Table $table -Ptr $namePtr -Unicode $unicode
+            if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+            for ($i = 0; $i -lt $count; $i++) {
+                $ptr = [BitConverter]::ToInt32($h, $langOffset + $prefix + ($i * 4))
+                if ($ptr -gt 0 -and $ptr -lt $table.Length) { $langStrings[$i] = (Read-NsisString -Table $table -Ptr $ptr -Unicode $unicode) }
+            }
+            $meta.Name = $candidate
+            break
+        }
+    }
+
+    $installDirPtr = [BitConverter]::ToInt32($h, 280)
+    if ($installDirPtr -gt 0) { $meta.InstallDir = (& $str $installDirPtr) }
+    $regRoot = [BitConverter]::ToUInt32($h, 68)
+    $regKeyPtr = [BitConverter]::ToInt32($h, 72)
+    $regValPtr = [BitConverter]::ToInt32($h, 76)
+    if ($regKeyPtr -gt 0) {
+        $rootName = Get-NsisRootKeyName -Root $regRoot
+        $meta.InstallDirRegKey = ('{0}\{1}\{2}' -f $rootName, (& $str $regKeyPtr), (& $str $regValPtr))
+    }
+
+    # Entry walk in script order. Opcodes: 13 SetFlag (1 = SetShellVarContext,
+    # 12 = SetRegView), 25 StrCpy, 51 WriteReg, 62 WriteUninstaller. Code
+    # order is not execution order (.onInit sits wherever the script put
+    # it), so flags are read as "seen anywhere" plus "last value before the
+    # ARP write" and resolved against the chosen folder afterwards.
+    $allUsers = $false
+    $allUsersSeen = $false
+    $regView64 = $false
+    $regViewPrevious = $false
+    $arpRoot = ''
+    $arpSubkey = ''
+    $arpView64 = $false
+    $arpValues = @{}
+    $uninstallerPath = ''
+    $instDirAssignments = New-Object System.Collections.Generic.List[string]
+    $userVars = @{}
+    $unresolvable = '\$(\d|R\d|__VAR|\(LangString|OUTDIR|EXEDIR|PLUGINSDIR|TEMP|CMDLINE|EXEPATH|EXEFILE|LANGUAGE)'
+    $walkState = @{ LastInstDirResolvable = $false }
+    # $N / $RN at the start of a value is replaced with the last literal
+    # assigned to that user variable during the walk.
+    $resolveUserVar = {
+        param([string]$value)
+        if ($value -match '^(")?(\$(?:R?\d))(.*)$' -and $userVars.ContainsKey($Matches[2])) {
+            return ([string]$Matches[1] + [string]$userVars[$Matches[2]] + [string]$Matches[3])
+        }
+        return $value
+    }
+    $addCandidate = {
+        param([string]$value)
+        if (-not $value) { $walkState.LastInstDirResolvable = $false; return }
+        # One level of indirection: $0..$9 / $R0..$R9 hold the last literal
+        # assigned earlier in the walk (electron-builder builds $INSTDIR
+        # from $0); a conditional non-literal reassignment in between does
+        # not clear it.
+        if ($value -match '^(\$(?:R?\d))(\\.*)?$' -and $userVars.ContainsKey($Matches[1])) {
+            $value = [string]$userVars[$Matches[1]] + [string]$Matches[2]
+        }
+        # StrCpy $INSTDIR "$INSTDIR\<suffix>" extends the assignment right
+        # before it (MultiUser-style scripts assemble the path in two
+        # steps). An unresolvable base, or a base that already ends in the
+        # suffix's first segment, belongs to a branch this walk cannot see.
+        if ($value -match '^\$INSTDIR(\\.*)$') {
+            $suffix = $Matches[1]
+            if ($instDirAssignments.Count -gt 0 -and $walkState.LastInstDirResolvable) {
+                $k = $instDirAssignments.Count - 1
+                $firstSegment = ($suffix.TrimStart('\') -split '\\')[0]
+                $lastSegment = ($instDirAssignments[$k] -split '\\')[-1]
+                if ($firstSegment -and $lastSegment -ne $firstSegment) { $instDirAssignments[$k] = $instDirAssignments[$k] + $suffix }
+            }
+            return
+        }
+        if ($value -match $unresolvable -or $value -match '\$INSTDIR') { $walkState.LastInstDirResolvable = $false; return }
+        $walkState.LastInstDirResolvable = $true
+        if (-not $instDirAssignments.Contains($value)) { $instDirAssignments.Add($value) }
+        else { $instDirAssignments.Remove($value) | Out-Null; $instDirAssignments.Add($value) }
+    }
+    for ($e = 0; $e -lt $entriesCount; $e++) {
+        $base = $entriesOffset + ($e * 28)
+        $op = [BitConverter]::ToInt32($h, $base)
+        if ($op -ne 13 -and $op -ne 25 -and $op -ne 51 -and $op -ne 62) { continue }
+        $p0 = [BitConverter]::ToInt32($h, $base + 4)
+        $p1 = [BitConverter]::ToInt32($h, $base + 8)
+        $p2 = [BitConverter]::ToInt32($h, $base + 12)
+        $p3 = [BitConverter]::ToInt32($h, $base + 16)
+        switch ($op) {
+            13 {
+                if ($p2 -ne 0) {
+                    # SetRegView lastused swaps the current and previous views.
+                    if ($p0 -eq 12) { $swap = $regView64; $regView64 = $regViewPrevious; $regViewPrevious = $swap }
+                    break
+                }
+                $valueText = (& $str $p1)
+                $value = 0
+                [void][int]::TryParse($valueText, [ref]$value)
+                if ($p0 -eq 1)  { $allUsers = ($value -ne 0); if ($allUsers) { $allUsersSeen = $true } }
+                if ($p0 -eq 12) { $regViewPrevious = $regView64; $regView64 = ($value -ne 0) }
+            }
+            25 {
+                if ($p0 -lt 20) {
+                    # Literal assignment to a user variable, kept for the
+                    # $INSTDIR indirection above; a later assignment wins.
+                    $assigned = (& $str $p1)
+                    $name = if ($p0 -lt 10) { '$' + $p0 } else { '$R' + ($p0 - 10) }
+                    if ($assigned -and $assigned -notmatch $unresolvable -and $p2 -eq 0 -and $p3 -eq 0) { $userVars[$name] = $assigned }
+                    # A non-literal reassignment (registry read, plugin result) is conditional in practice; the literal stays.
+                    break
+                }
+                if ($p0 -ne 21 -or $p2 -ne 0 -or $p3 -ne 0) { break }
+                & $addCandidate (& $str $p1)
+            }
+            62 {
+                if (-not $uninstallerPath) {
+                    $candidate = & $resolveUserVar (& $str $p0)
+                    if ($candidate -match '(?i)\.exe$') { $uninstallerPath = $candidate }
+                }
+            }
+            51 {
+                $subkey = (& $str $p1)
+                if ($subkey -notmatch '(?i)^Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\') { break }
+                if (-not $arpSubkey) {
+                    $arpSubkey = $subkey
+                    $arpRoot = Get-NsisRootKeyName -Root ([BitConverter]::ToUInt32($h, $base + 4))
+                    if ($arpRoot -notin 'HKCU', 'HKLM', 'SHCTX') { $arpRoot = '' }
+                    $arpView64 = $regView64
+                }
+                elseif ($subkey -ne $arpSubkey) { break }
+                $valueName = (& $str $p2)
+                if ([string]::IsNullOrEmpty($valueName)) { break }
+                if (-not $arpValues.ContainsKey($valueName)) { $arpValues[$valueName] = (& $str $p3) }
+            }
+        }
+    }
+    $meta.ArpValues = $arpValues
+    $meta.InstallDirCandidates = @($instDirAssignments)
+
+    # SHCTX resolves through the shell context in force when the section
+    # runs: an installer that ever switches to all users while requesting
+    # elevation registers under HKLM.
+    $elevates = ($meta.RequestedExecutionLevel -in 'requireAdministrator', 'highestAvailable')
+    if ($arpRoot -eq 'SHCTX') { $arpRoot = if ($allUsersSeen -and $elevates) { 'HKLM' } else { 'HKCU' } }
+
+    # A compile-time InstallDir that is neither a folder constant nor an
+    # absolute path is a placeholder the script overwrites at run time; the
+    # StrCpy candidate that matches the elevation model stands in for it.
+    $resolvedFromCandidate = $false
+    if ($meta.InstallDir -notmatch '^(\$[A-Z]|[A-Za-z]:\\)' -and $instDirAssignments.Count -gt 0) {
+        $machineFolders = '^\$(PROGRAMFILES|COMMONFILES)'
+        $userFolders = '^\$(LOCALAPPDATA|APPDATA|PROFILE)'
+        $pick = $null
+        if ($elevates -or $arpRoot -eq 'HKLM') { $pick = $instDirAssignments | Where-Object { $_ -match $machineFolders } | Select-Object -First 1 }
+        if (-not $pick) { $pick = $instDirAssignments | Where-Object { $_ -match $userFolders } | Select-Object -First 1 }
+        if (-not $pick) { $pick = $instDirAssignments[0] }
+        $meta.InstallDir = $pick
+        $resolvedFromCandidate = $true
+    }
+
+    if (-not $uninstallerPath -and $arpValues.ContainsKey('UninstallString')) {
+        $u = & $resolveUserVar ([string]$arpValues['UninstallString'])
+        if ($u -match '^\s*"([^"]+\.exe)"' -or $u -match '^\s*(\S+\.exe)') { $uninstallerPath = $Matches[1] }
+    }
+    # A relative uninstaller path is written into the current output
+    # folder, which the sections set to $INSTDIR.
+    if ($uninstallerPath -and $uninstallerPath -notmatch '^(\$|[A-Za-z]:\\|\\\\)') { $uninstallerPath = '$INSTDIR\' + $uninstallerPath }
+    $meta.UninstallerPath = $uninstallerPath
+
+    # SetShellVarContext all turns a compile-time user folder into its
+    # all-users counterpart at run time; a user folder picked among the
+    # script's run-time candidates belongs to the per-user branch and
+    # keeps its meaning.
+    $userFolderChosen = ($meta.InstallDir -match '^\$(LOCALAPPDATA|APPDATA|PROFILE|DOCUMENTS|DESKTOP)')
+    $mapAllUsers = $allUsersSeen -and -not ($userFolderChosen -and $resolvedFromCandidate)
+    $meta.ShellVarContext = if ($mapAllUsers) { 'all' } else { 'current' }
+
+    $installDirWindows = ConvertTo-NsisWindowsPath -Path $meta.InstallDir -AllUsersContext $mapAllUsers
+    $meta.InstallDirWindows = $installDirWindows
+    $installDirResolved = ($installDirWindows -match '^(%[^%]+%|[A-Za-z]:\\)') -and ($installDirWindows -notmatch '\$')
+    if ($uninstallerPath) {
+        $meta.UninstallerPathWindows = ConvertTo-NsisWindowsPath -Path $uninstallerPath -InstallDir $installDirWindows -AllUsersContext $mapAllUsers
+        if ($installDirResolved -and $meta.UninstallerPathWindows -notmatch '\$') {
+            $meta.SilentUninstallCommand = '"' + $meta.UninstallerPathWindows + '" /S'
+        }
+    }
+    if ($resolvedFromCandidate) {
+        $meta.Note = 'Install directory is assigned at run time; using ' + $meta.InstallDir + ' of ' + (@($instDirAssignments) -join ' | ') + '.'
+    }
+    elseif (-not $installDirResolved -and $meta.InstallDir) {
+        $meta.Note = 'Install directory is not resolvable before install: ' + $meta.InstallDir
+    }
+
+    $literal = { param($v) if ($null -ne $v -and ([string]$v) -notmatch '\$') { [string]$v } else { '' } }
+    if ($arpValues.ContainsKey('DisplayName'))    { $meta.DisplayName    = (& $literal $arpValues['DisplayName']) }
+    if ($arpValues.ContainsKey('DisplayVersion')) { $meta.DisplayVersion = (& $literal $arpValues['DisplayVersion']) }
+    if ($arpValues.ContainsKey('Publisher'))      { $meta.Publisher      = (& $literal $arpValues['Publisher']) }
+    if (-not $meta.DisplayName -and $meta.Name -and $meta.Name -notmatch '\$') { $meta.DisplayName = $meta.Name }
+
+    if ($arpSubkey) {
+        $meta.RegistryHive = $arpRoot
+        $meta.RegistryView = if ($arpRoot -ne 'HKLM') { '' } elseif ($arpView64) { '64' } else { '32' }
+        $keyName = $arpSubkey
+        if ($keyName -match '\$') {
+            $meta.UninstallRegistryKeyNote = 'ARP key name is computed at run time: ' + $keyName
+        }
+        else {
+            if ($arpRoot -eq 'HKLM' -and -not $arpView64) {
+                $keyName = $keyName -replace '(?i)^Software\\', 'Software\WOW6432Node\'
+                $meta.UninstallRegistryKeyNote = '32-bit installer without SetRegView 64: the key lands under WOW6432Node on x64 Windows.'
+            }
+            elseif ($arpRoot -eq 'HKCU') {
+                $meta.UninstallRegistryKeyNote = 'Per-user registration under HKCU; detection and uninstall must run in the user context.'
+            }
+            $meta.UninstallRegistryKey = $arpRoot + ':\' + $keyName
+        }
+    }
+
+    # Where the files land decides the context: a Program Files target needs
+    # the machine context even when the script registers under HKCU.
+    if ($meta.InstallDir -match '^\$(PROGRAMFILES|COMMONFILES)' -or $meta.InstallDir -match '^[A-Za-z]:\\') { $meta.InstallContext = 'PerMachine' }
+    elseif ($userFolderChosen) { $meta.InstallContext = 'PerUser' }
+    elseif ($arpRoot -eq 'HKCU') { $meta.InstallContext = 'PerUser' }
+    elseif ($arpRoot -eq 'HKLM' -or $elevates) { $meta.InstallContext = 'PerMachine' }
+    elseif ($meta.RequestedExecutionLevel -eq 'asInvoker') { $meta.InstallContext = 'PerUser' }
+
+    return $meta
+}
+
 function Get-PackageMetadataFor {
     <#
     .SYNOPSIS
@@ -1411,6 +2611,7 @@ function Get-PackageMetadataFor {
         'Squirrel'   { return Get-SquirrelMetadata   -Path $Path }
         'WixBurn'    { return Get-WixBurnMetadata    -Path $Path }
         'MSP'        { return Get-MspMetadata        -Path $Path }
+        'NSIS'       { return Get-NsisMetadata       -Path $Path }
         default      { return $null }
     }
 }
@@ -1539,16 +2740,30 @@ function Get-UninstallRegistryKey {
         }
 
         'NSIS' {
+            # The compiled script names the key outright when the header
+            # decoded (Get-NsisMetadata); the hive and the WOW6432Node routing
+            # come from the same walk.
+            if ($PackageMetadata -and $PackageMetadata.PSObject.Properties['UninstallRegistryKey'] -and $PackageMetadata.UninstallRegistryKey) {
+                $hive = if ($PackageMetadata.PSObject.Properties['RegistryHive'] -and $PackageMetadata.RegistryHive) { [string]$PackageMetadata.RegistryHive } else { 'HKLM' }
+                $note = if ($PackageMetadata.PSObject.Properties['UninstallRegistryKeyNote']) { [string]$PackageMetadata.UninstallRegistryKeyNote } else { '' }
+                if (-not $note) { $note = 'Key taken from the WriteRegStr call in the compiled NSIS script.' }
+                return [PSCustomObject]@{ Path = [string]$PackageMetadata.UninstallRegistryKey; Hive = $hive; Note = $note }
+            }
             # TeamViewer Host strips ALL FileVersionInfo from its NSIS bootstrapper,
             # so DisplayName resolves to '' and there's no way to predict the key
             # name. Returning $null is more honest than rendering "<DisplayName>"
             # as a literal -- the user can see the field is genuinely missing.
             $name = if ($DeploymentFields -and $DeploymentFields.DisplayName) { [string]$DeploymentFields.DisplayName } else { '' }
             if (-not $name) { return $null }
+            $keyNote = if ($PackageMetadata -and $PackageMetadata.PSObject.Properties['UninstallRegistryKeyNote'] -and $PackageMetadata.UninstallRegistryKeyNote) {
+                [string]$PackageMetadata.UninstallRegistryKeyNote
+            } else {
+                'NSIS uninstall key name is script-defined (WriteUninstaller / WriteRegStr). Convention is DisplayName under HKLM; per-user installs go under HKCU.'
+            }
             return [PSCustomObject]@{
                 Path = "$arpRoot64\$name"
                 Hive = 'HKLM'
-                Note = 'NSIS uninstall key name is script-defined (WriteUninstaller / WriteRegStr). Convention is DisplayName under HKLM; per-user installs go under HKCU.'
+                Note = $keyNote
             }
         }
 
@@ -2146,7 +3361,11 @@ function Get-SilentSwitches {
     param(
         [Parameter(Mandatory)][string]$InstallerType,
         [Parameter(Mandatory)][string]$FilePath,
-        [hashtable]$MsiProperties
+        [hashtable]$MsiProperties,
+        # Optional format metadata (Get-PackageMetadataFor). When it names the
+        # uninstaller the script writes, that path replaces the bare
+        # uninstall.exe placeholder.
+        [PSCustomObject]$PackageMetadata
     )
 
     $db = Get-SilentSwitchDatabase
@@ -2155,8 +3374,17 @@ function Get-SilentSwitches {
     if (-not $db.Contains($InstallerType)) { $InstallerType = 'Unknown' }
     $entry = $db[$InstallerType]
 
+    $uninstallExe = 'uninstall.exe'
+    if ($PackageMetadata -and $PackageMetadata.PSObject.Properties['UninstallerPathWindows'] -and $PackageMetadata.UninstallerPathWindows -and
+        ([string]$PackageMetadata.UninstallerPathWindows) -notmatch '\$') {
+        $uninstallExe = [string]$PackageMetadata.UninstallerPathWindows
+    }
+    elseif ($PackageMetadata -and $PackageMetadata.PSObject.Properties['UninstallerPath'] -and $PackageMetadata.UninstallerPath) {
+        $uninstallExe = [string]$PackageMetadata.UninstallerPath
+    }
+
     $install   = $entry.Install -replace '<EXE>', $fileName -replace '<MSI>', $fileName
-    $uninstall = $entry.Uninstall -replace '<EXE>', $fileName -replace '<UninstallEXE>', 'uninstall.exe'
+    $uninstall = $entry.Uninstall -replace '<EXE>', $fileName -replace '<UninstallEXE>', $uninstallExe.Replace('$', '$$')
 
     if ($MsiProperties -and $MsiProperties.Contains('ProductCode')) {
         $install   = $install -replace '<ProductCode>', $MsiProperties['ProductCode']
@@ -2847,6 +4075,9 @@ function New-AnalysisSummaryText {
         "SHA-256:      $($FileInfo.SHA256)",
         "Signed:       $($FileInfo.SignatureStatus)$(if ($FileInfo.SignerSubject) { " ($($FileInfo.SignerSubject))" })"
     )
+    if ($FileInfo.PSObject.Properties['RequestedExecutionLevel'] -and $FileInfo.RequestedExecutionLevel) {
+        $lines += "Elevation:    $($FileInfo.RequestedExecutionLevel) (manifest requestedExecutionLevel)"
+    }
 
     # SilentInstall is computed the same way ConvertTo-DeploymentJson does it:
     # PackageMetadata.SilentInstallCommand > Switches.Install. Same for uninstall.
@@ -3115,6 +4346,31 @@ function New-AnalysisSummaryText {
                 }
                 $hasAnyPkg = $true
             }
+            'NSIS' {
+                $lines += ""; $lines += "Package Metadata (NSIS compiled script):"
+                if (-not $pkg.HeaderAvailable) {
+                    $lines += "  Header:        not decoded$(if ($pkg.Note) { " ($($pkg.Note))" })"
+                }
+                else {
+                    $stream = $pkg.Compression + $(if ($pkg.Solid) { ' solid' } else { '' }) + $(if ($pkg.Unicode) { ', Unicode' } else { ', ANSI' })
+                    $lines += "  Stream:        $stream"
+                    if ($pkg.InstallDir)        { $lines += "  InstallDir:    $($pkg.InstallDir)$(if ($pkg.InstallDirWindows -and $pkg.InstallDirWindows -ne $pkg.InstallDir) { "  ->  $($pkg.InstallDirWindows)" })" }
+                    if ($pkg.InstallDirCandidates -and @($pkg.InstallDirCandidates).Count -gt 1) {
+                        $lines += "  StrCpy INSTDIR: $(@($pkg.InstallDirCandidates) -join ' | ')"
+                    }
+                    if ($pkg.InstallDirRegKey)  { $lines += "  InstallDirRegKey: $($pkg.InstallDirRegKey)" }
+                    if ($pkg.UninstallerPath)   { $lines += "  Uninstaller:   $($pkg.UninstallerPath)$(if ($pkg.UninstallerPathWindows -and $pkg.UninstallerPathWindows -ne $pkg.UninstallerPath) { "  ->  $($pkg.UninstallerPathWindows)" })" }
+                    if ($pkg.RegistryHive)      { $lines += "  ARP hive:      $($pkg.RegistryHive)$(if ($pkg.RegistryView) { " ($($pkg.RegistryView)-bit view)" })" }
+                    $lines += "  ShellVarContext: $($pkg.ShellVarContext)"
+                    if ($pkg.InstallContext)    { $lines += "  Install context: $($pkg.InstallContext)" }
+                    if ($pkg.ArpValues -and $pkg.ArpValues.Count -gt 0) {
+                        $arpNames = @($pkg.ArpValues.Keys | Sort-Object)
+                        $lines += "  ARP values:    $($arpNames -join ', ')"
+                    }
+                    if ($pkg.Note) { $lines += "  Note:          $($pkg.Note)" }
+                }
+                $hasAnyPkg = $true
+            }
             default { }
         }
 
@@ -3256,7 +4512,12 @@ function ConvertTo-DeploymentJson {
 
     $detectionHint = switch ($InstallerType) {
         'MSI'        { if ($productCode) { "MSI ProductCode detection: $productCode" } else { 'MSI detection: use ProductCode from the MSI Property table' } }
-        'NSIS'       { 'Registry uninstall key detection (HKLM\...\Uninstall\<DisplayName>) or file-version on the primary EXE' }
+        'NSIS'       {
+            if ($PackageMetadata -and $PackageMetadata.PSObject.Properties['UninstallRegistryKey'] -and $PackageMetadata.UninstallRegistryKey) {
+                $ctx = if ($PackageMetadata.RegistryHive -eq 'HKCU') { ' (per-user: evaluate in the user context)' } elseif ($PackageMetadata.RegistryView -eq '32') { ' (32-bit registry view)' } else { '' }
+                "Registry uninstall key detection: $($PackageMetadata.UninstallRegistryKey) DisplayVersion$ctx"
+            } else { 'Registry uninstall key detection (HKLM\...\Uninstall\<DisplayName>) or file-version on the primary EXE' }
+        }
         'InnoSetup'  { 'Registry uninstall key detection (HKLM\...\Uninstall\<AppId>_is1) or file-version on the primary EXE' }
         'InstallShield' { 'Registry uninstall key detection or file-version on the primary EXE' }
         'WixBurn'    { 'BundleUpgradeCode or related MSI ProductCode under HKLM\...\Uninstall' }

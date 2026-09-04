@@ -28,7 +28,7 @@ Installs the latest release into `%LOCALAPPDATA%\AppPackager`. Only a zip crosse
 On an unrestricted network, the installer can do the whole flow itself — resolve the release from the GitHub API, download, verify SHA-256, extract:
 
 ```powershell
-curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 1.5.0.6
+curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 1.5.1.0
 ```
 
 Omitting `-ZipPath` makes it download and checksum-verify the requested release; `-InstallPath` picks the folder and `-Version` pins a release. `-Force` is required to replace a non-empty folder that holds no existing AppPackager install. If even the curl download is blocked, fetch the zip in a browser and run the same `-ZipPath` command against it.
@@ -53,7 +53,11 @@ The GUI (`start-apppackager.ps1`) provides a visual front-end that discovers pac
 
 **Drop to package** — Drag an `.msi` or `.exe` installer onto the window (or use the sidebar **Add Installer...** button — a drag from Explorer is silently blocked when the two processes run at different elevation levels) and the app analyzes it (engine detection, MSI property tables, silent-switch prediction), opens an editable manifest preview, and stages or packages it through the same manifest pipeline the packager scripts use. MSI identity is authoritative; for other installers the predicted values must be explicitly confirmed before Stage + Package enables. A dropped installer that turns out to be a recurring need can be saved as a starter packager script generated from the matching template, with identity, folders, and filename pre-filled and the download source left as the one remaining TODO.
 
+For an NSIS installer the analysis reads the compiled script inside the file rather than guessing: the install directory, the uninstaller the script writes, the Add/Remove Programs key with its hive and 32/64-bit registry view, and the manifest's requested execution level. The uninstall command comes out as a real path (`"%LOCALAPPDATA%\App\Uninstall.exe" /S`), the detection rule targets the key the script actually writes (under `WOW6432Node` when a 32-bit installer never calls `SetRegView 64`), and a per-user installer — HKCU registration, a profile-relative install folder — is staged as an **Install for user** deployment type with HKCU detection, because a system-context run would install into the SYSTEM profile and never satisfy the detection. Inno Setup and other installers that run without elevation get the same per-user treatment from their manifest.
+
 ![AppPackager](screenshots/main-dark.png)
+
+![Installer drop preview](screenshots/drop-preview.png)
 
 ## Prerequisites
 
@@ -88,7 +92,7 @@ Or with custom parameters:
 
 **First-run setup** — on a machine with no `AppPackager.preferences.json` yet, a themed Setup window opens over the main window once the grid has loaded. It asks for the environment first (MECM only, MECM + Intune, or Intune only) and then shows only the settings that choice needs: Site Code, Provider Machine, File Share Root, and Download Root for MECM targets, Tenant ID, Client ID, and Client Secret for Intune targets. Saving writes the same preference keys the Options window writes — the client secret DPAPI-protected for the current Windows user, an empty secret box keeping any saved one — and the main window picks the settings up without a restart. A "Don't show this again" checkbox lets you dismiss the wizard permanently without configuring anything; skipping or closing it without that box ticked brings it back on the next launch. Existing installs are unaffected: a preferences file from an earlier version counts as already set up.
 
-The sidebar has five workflow actions at the top, a single **Options** button below them, a sidebar comment field, and Debug Columns / theme toggles plus the installed version (`v1.5.0.4`) at the bottom:
+The sidebar has five workflow actions at the top, an **Add Installer...** button that feeds the drop-to-package intake, a single **Options** button below them, a sidebar comment field, and Debug Columns / theme toggles plus the installed version at the bottom:
 
 - **One Click** — iterates the apps you've marked as tracked in One Click Settings and runs Check Latest → Stage → Package per the action you've chosen. Cadence gating throttles Report-only runs; Stage and Stage-and-Package always run. Before staging, a MECM pre-flight query skips any tracked app whose version is already in MECM, avoiding wasted downloads. Multi-app loops (Check Latest, Stage, Package, One Click) run on a background STA runspace with an animated progress overlay so the window stays responsive instead of freezing during long downloads / extracts / MECM round-trips
 - **Check Latest** — queries vendor sources for the latest version of selected applications
@@ -103,6 +107,8 @@ All five actions share the same persistent history file at `%LOCALAPPDATA%\AppPa
 ### Options window
 
 Clicking **Options** opens a unified settings window with a left-nav list and a right content pane (Discord / VS Code style). A single OK commits every panel's changes in one action, and Cancel discards them all.
+
+![Options window](screenshots/options-mecm.png)
 
 **MECM Preferences** — Site Code, Provider Machine, File Share Root, Content Layout, Download Root, estimated/maximum deployment runtime, an Auto-distribute-to-DP checkbox + DP Group Name, a test-deployment group (Deploy to test collection, Test collection name, Create collection if it does not exist), and a "Create .intunewin during Package" option. Content Layout selects the share folder shape for packaged content: **Nested** (`Applications\Vendor\App\Version`, the default — an app's versions sit adjacent, so retention pruning is deleting old version folders in place) or **Flat** (`Applications\Vendor-App-Version`, one folder per package, for org conventions that mandate it). It applies to future Package runs; existing content stays where it is, so pick one and stay with it — mixing layouts splits content across two trees. Provider Machine is the `$ProviderMachineName` value from the ConfigMgr AdminUI-generated connect script. The bottom of the panel shows detected-tools status: ConfigMgr Console (name, version, install path in tooltip), 7-Zip CLI (display name, version, exe path), Content Prep (IntuneWinAppUtil.exe version and path, with a Download button when missing), and Icon Pack (installed pack version and icon count, with a Download packager icon pack button — see [Application Icons](#application-icons)). Each row shows a checkmark + version when found or an `X` + guidance when missing.
 
@@ -143,6 +149,8 @@ CWA switches persist to `Packagers/citrix-workspace-switches.json`; TeamViewer H
 - **Architecture** — `Any` / `x64 only` / `ARM64 only`, backed by a WQL global condition on `Win32_Processor.Architecture` (9 = x64, 12 = ARM64). The numeric property compares identically on every OS language, and unlike the OS-platform requirement list it needs no update when a new Windows version releases.
 - **OS languages** — comma-separated culture codes (e.g. `de-DE, en-US`) mapped onto the site's built-in Operating System Language condition with a OneOf rule. Useful when a packaged build is single-language and MUI or English builds are deployed separately.
 - **Network** — `Any` / `VPN only` / `On-site only`, backed by a Boolean script global condition that reports whether an IP-enabled adapter description matches a configurable VPN client pattern list (or an interface alias contains `vpn`). `VPN only` suits a small CDN-sourced deployment that should avoid pulling large content over the tunnel; `On-site only` suits its full-content counterpart.
+
+![Deployment Conditions](screenshots/deployment-conditions.png)
 
 A **Variant split** column offers multi-deployment-type staging where a packager declares it with a `SupportsVariants:` header tag (`Architecture`, `Language`, `Network`): one application, one deployment type per variant, each gated by its own requirement rules with an unconditional fallback last. The selection reaches the packager as `APP_PACKAGER_VARIANTS` environment JSON; packagers without the tag keep the single-deployment-type flow and the column stays disabled.
 
@@ -232,7 +240,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-arduinoide.ps1 | Arduino | Arduino IDE | RegistryKeyValue |
 | package-asperaconnect.ps1 | IBM | IBM Aspera Connect | RegistryKeyValue |
 | package-aspnethostingbundle8.ps1 | Microsoft | ASP.NET Core Hosting Bundle 8 | RegistryKey existence |
-| package-audacity.ps1 | Audacity Team | Audacity (x64) | File version |
+| package-audacity.ps1 | Audacity Team | Audacity (x64) | RegistryKeyValue |
 | package-awscli.ps1 | Amazon | AWS Command Line Interface | RegistryKeyValue |
 | package-awssamcli.ps1 | Amazon Web Services | AWS SAM CLI | RegistryKeyValue |
 | package-awsssmplugin.ps1 | Amazon Web Services | AWS Session Manager Plugin | File existence |
@@ -592,7 +600,7 @@ The pack carries a `manifest.json`:
 
 Options → MECM Preferences carries an **Icon Pack** row beside the other detected-tool rows: a status line reading the installed `Packagers\Icons\manifest.json` for the pack version and icon count, a **Download packager icon pack** button, and an **Install from file...** button for hosts whose proxy or SSL inspection blocks the release download — browse to a local or UNC `icon-pack.zip`; a `checksums.txt` beside it is verified when present, and without one the install proceeds with an unverified note in the status line.
 
-The button resolves the icons repository's latest release through the GitHub API, downloads `icon-pack.zip` and `checksums.txt` to a scratch folder, verifies the zip's SHA-256 against the checksum file, and extracts it into `Packagers\Icons\`. Nothing is extracted when the hash does not match. As with `install.ps1`, the download and extract go through `Invoke-WebRequest` and `Expand-Archive`, so no extracted file carries the Mark-of-the-Web.
+The button resolves the icons repository's latest release through the GitHub API, downloads `icon-pack.zip` and `checksums.txt` to a scratch folder, verifies the zip's SHA-256 against the checksum file, and extracts it into `Packagers\Icons\`. Nothing is extracted when the hash does not match. The download and extract go through `Invoke-WebRequest` and `Expand-Archive` into a scratch folder, so no extracted file carries the Mark-of-the-Web; hosts whose proxy blocks that download use the **Install from file...** button.
 
 Failures are reported on the status line and logged, never thrown:
 
@@ -683,7 +691,7 @@ Optional fields for deployment tool integration (PSADT, Intune, custom wrappers)
 ## Project Structure
 
 ```
-application-packager/
+app-packager/
   start-apppackager.ps1           # MahApps WPF GUI
   MainWindow.xaml                    # WPF window layout
   AppPackager.preferences.json       # Persisted GUI preferences (auto-created)

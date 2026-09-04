@@ -1,6 +1,6 @@
 @{
     RootModule        = 'InstallerAnalysisCommon.psm1'
-    ModuleVersion     = '1.2.0.1'
+    ModuleVersion     = '1.3.0.1'
     GUID              = 'c3d4e5f6-a7b8-9012-cdef-456789012345'
     Author            = 'Jason Ulbright'
     Description       = 'Installer analysis tool - version intelligence, installer type detection, silent switches, payload extraction.'
@@ -38,6 +38,9 @@
         'Get-ZipEntryPathByPattern'
         'Get-SquirrelMetadata'
         'Get-WixBurnMetadata'
+        'Get-NsisMetadata'
+        'Get-PeRequestedExecutionLevel'
+        'ConvertTo-NsisWindowsPath'
         'Get-PackageMetadataFor'
 
         # Deployment Fields

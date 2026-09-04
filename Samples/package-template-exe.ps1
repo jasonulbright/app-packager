@@ -200,6 +200,8 @@ exit `$proc.ExitCode
         UninstallCommand = $uninstallCmd
         UninstallArgs    = $uninstallArgs
         RunningProcess   = @()                        # TODO: exe names so MECM can close them before upgrade
+        InstallationBehaviorType = "InstallForSystem" # InstallForUser when the installer writes under %LOCALAPPDATA% / HKCU
+        LogonRequirementType     = "WhetherOrNotUserLoggedOn" # OnlyWhenUserLoggedOn for a per-user installer
         Detection        = @{
             Type     = $detectionType
             Path     = $detectionPath

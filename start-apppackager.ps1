@@ -36,8 +36,8 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.5.0.15
-    Updated    : 2026-09-02
+    Version    : 1.5.1.0
+    Updated    : 2026-09-04
 #>
 
 param(
@@ -55,6 +55,17 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# A Windows PowerShell process launched from PowerShell 7 inherits the 7.x
+# module directories at the front of PSModulePath. The launching runspace
+# copes, but every runspace opened later in this process and every child
+# powershell.exe autoloads Microsoft.PowerShell.Utility from the 7.x manifest,
+# which carries no Get-FileHash / ConvertFrom-Json in 5.1. Strip those roots
+# from the process environment once, before any runspace or child starts.
+$__winPsModules = Join-Path $PSHOME 'Modules'
+$__moduleRoots = @($env:PSModulePath -split ';' | Where-Object { $_ -and $_ -notmatch '(?i)[\\/]PowerShell[\\/](7[\\/]|Modules)|microsoft\.powershell_' })
+if ($__moduleRoots -notcontains $__winPsModules) { $__moduleRoots = @($__winPsModules) + $__moduleRoots }
+$env:PSModulePath = ($__moduleRoots -join ';')
 
 # =============================================================================
 # Assembly loading (must happen before XAML parse)
@@ -2293,7 +2304,7 @@ function Get-IconPackStatusText {
     param([AllowNull()]$Manifest)
 
     if ($null -eq $Manifest) {
-        return ([char]0x2717 + ' Not installed  -  download the pack to use IconSource External packagers')
+        return ([char]0x2717 + ' Not installed  -  download, or install from a file')
     }
     $version = if ([string]::IsNullOrWhiteSpace($Manifest.PackVersion)) { 'unknown' } else { $Manifest.PackVersion }
     if ($Manifest.IconCount -eq 0) {
@@ -3575,17 +3586,28 @@ function New-MecmPreferencesPanel {
     <TextBlock Grid.Row="13" Grid.Column="1" x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
 
     <TextBlock Grid.Row="14" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe) detection status. Downloaded on first use, or place the exe on PATH."/>
-    <StackPanel Grid.Row="14" Grid.Column="1" Orientation="Horizontal" Margin="0,6,0,0">
-        <TextBlock x:Name="txtIntuneWinStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
-        <Button x:Name="btnIntuneWinDownload" Content="Download" FontSize="11" Margin="10,0,0,0" Padding="10,2" Visibility="Collapsed"/>
-    </StackPanel>
+    <!-- Status text in a star column so a long message wraps instead of
+         pushing the buttons past the panel edge, where they clip out of view. -->
+    <Grid Grid.Row="14" Grid.Column="1" Margin="0,6,0,0">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <TextBlock Grid.Column="0" x:Name="txtIntuneWinStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
+        <Button Grid.Column="1" x:Name="btnIntuneWinDownload" Content="Download" FontSize="11" Margin="10,0,0,0" Padding="10,2" VerticalAlignment="Center" Visibility="Collapsed"/>
+    </Grid>
 
     <TextBlock Grid.Row="15" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Packager icon pack for IconSource External packagers. Installs into Packagers\Icons and is read at stage time."/>
-    <StackPanel Grid.Row="15" Grid.Column="1" Orientation="Horizontal" Margin="0,6,0,0">
-        <TextBlock x:Name="txtIconPackStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
-        <Button x:Name="btnIconPackDownload" Content="Download packager icon pack" FontSize="11" Margin="10,0,0,0" Padding="10,2" ToolTip="Fetches the latest pack release, verifies its sha256 against checksums.txt, and extracts it into Packagers\Icons. Existing icons with the same name are replaced."/>
-        <Button x:Name="btnIconPackFromFile" Content="Install from file..." FontSize="11" Margin="6,0,0,0" Padding="10,2" ToolTip="Installs an icon pack from a local or UNC icon-pack.zip when the release download is blocked (proxy/SSL inspection). A checksums.txt beside the zip is verified when present."/>
-    </StackPanel>
+    <Grid Grid.Row="15" Grid.Column="1" Margin="0,6,0,0">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <TextBlock Grid.Column="0" x:Name="txtIconPackStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
+        <Button Grid.Column="1" x:Name="btnIconPackDownload" Content="Download packager icon pack" FontSize="11" Margin="10,0,0,0" Padding="10,2" VerticalAlignment="Center" ToolTip="Fetches the latest pack release, verifies its sha256 against checksums.txt, and extracts it into Packagers\Icons. Existing icons with the same name are replaced."/>
+        <Button Grid.Column="2" x:Name="btnIconPackFromFile" Content="Install from file..." FontSize="11" Margin="6,0,0,0" Padding="10,2" VerticalAlignment="Center" ToolTip="Installs an icon pack from a local or UNC icon-pack.zip when the release download is blocked (proxy/SSL inspection). A checksums.txt beside the zip is verified when present."/>
+    </Grid>
 
     <TextBlock Grid.Row="16" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="When enabled, a successful Package also produces an .intunewin from the staged content and stores it beside the network content version folder."/>
     <CheckBox  Grid.Row="16" Grid.Column="1" x:Name="chkIntuneWin" Content="Create .intunewin during Package" FontSize="13" VerticalAlignment="Center" Margin="0,6,0,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
@@ -4859,12 +4881,12 @@ function New-DeploymentConditionsPanel {
               GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0" BorderThickness="0"
               IsTextSearchEnabled="True" TextSearch.TextPath="Application">
         <DataGrid.Columns>
-            <DataGridTextColumn Header="Application" Width="*" Binding="{Binding Application}" IsReadOnly="True"/>
-            <DataGridTextColumn Header="Vendor" Width="140" Binding="{Binding Vendor}" IsReadOnly="True"/>
-            <DataGridComboBoxColumn Header="Architecture" Width="110" SelectedItemBinding="{Binding ArchitectureDisplay, UpdateSourceTrigger=PropertyChanged}"/>
-            <DataGridTextColumn Header="OS languages" Width="150" Binding="{Binding LanguagesDisplay, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"/>
-            <DataGridComboBoxColumn Header="Network" Width="110" SelectedItemBinding="{Binding NetworkDisplay, UpdateSourceTrigger=PropertyChanged}"/>
-            <DataGridTemplateColumn Header="Commands" Width="100">
+            <DataGridTextColumn Header="Application" Width="*" MinWidth="130" Binding="{Binding Application}" IsReadOnly="True"/>
+            <DataGridTextColumn Header="Vendor" Width="110" Binding="{Binding Vendor}" IsReadOnly="True"/>
+            <DataGridComboBoxColumn Header="Arch" Width="80" SelectedItemBinding="{Binding ArchitectureDisplay, UpdateSourceTrigger=PropertyChanged}"/>
+            <DataGridTextColumn Header="OS languages" Width="120" Binding="{Binding LanguagesDisplay, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"/>
+            <DataGridComboBoxColumn Header="Network" Width="90" SelectedItemBinding="{Binding NetworkDisplay, UpdateSourceTrigger=PropertyChanged}"/>
+            <DataGridTemplateColumn Header="Commands" Width="95">
                 <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
                         <Button Content="{Binding CommandLabel}" FontSize="11" Padding="6,1,6,1" Margin="2"
@@ -4873,7 +4895,7 @@ function New-DeploymentConditionsPanel {
                     </DataTemplate>
                 </DataGridTemplateColumn.CellTemplate>
             </DataGridTemplateColumn>
-            <DataGridTemplateColumn Header="Variant split" Width="120">
+            <DataGridTemplateColumn Header="Variant split" Width="112">
                 <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
                         <ComboBox ItemsSource="{Binding VariantOptions}" SelectedItem="{Binding SplitDisplay, UpdateSourceTrigger=PropertyChanged}"
@@ -5175,8 +5197,8 @@ function Show-OptionsDialog {
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
     Title="Options"
-    Width="940" Height="640"
-    MinWidth="820" MinHeight="520"
+    Width="1000" Height="760"
+    MinWidth="900" MinHeight="600"
     WindowStartupLocation="CenterOwner"
     TitleCharacterCasing="Normal"
     ShowIconOnTitleBar="False"
@@ -6401,8 +6423,12 @@ function Show-DropIntakeDialog {
     $isMsi = ([string]$Analysis.InstallerType -eq 'MSI')
 
     $txtFile.Text     = [string]$Analysis.FileName
-    $txtDetected.Text = ('Detected: {0}   Confidence: {1}   Architecture: {2}' -f `
-        $Analysis.InstallerType, $Analysis.Confidence, $Analysis.Architecture)
+    $contextText = ''
+    if ($Analysis.PSObject.Properties['InstallContext'] -and [string]$Analysis.InstallContext) {
+        $contextText = if ([string]$Analysis.InstallContext -eq 'PerUser') { '   Context: per-user' } else { '   Context: per-machine' }
+    }
+    $txtDetected.Text = ('Detected: {0}   Confidence: {1}   Architecture: {2}{3}' -f `
+        $Analysis.InstallerType, $Analysis.Confidence, $Analysis.Architecture, $contextText)
     $txtAppName.Text   = [string]$Analysis.AppName
     $txtPublisher.Text = [string]$Analysis.Publisher
     $txtVersion.Text   = [string]$Analysis.SoftwareVersion
@@ -6420,8 +6446,16 @@ function Show-DropIntakeDialog {
     }
     else {
         $predicted = [string]$Analysis.UninstallRegistryKey
+        $source = 'predicted'
+        if ($Analysis.PSObject.Properties['PackageMetadata'] -and $Analysis.PackageMetadata -and
+            $Analysis.PackageMetadata.PSObject.Properties['HeaderAvailable'] -and $Analysis.PackageMetadata.HeaderAvailable -and
+            $Analysis.PackageMetadata.PSObject.Properties['UninstallRegistryKey'] -and $Analysis.PackageMetadata.UninstallRegistryKey) {
+            $source = 'from the installer script'
+        }
         if ([string]::IsNullOrWhiteSpace($predicted)) { $predicted = 'ARP key derived from the application name (verify after first install)' }
-        $txtDetect.Text = 'Registry (predicted): ' + $predicted + ' (DisplayVersion match)'
+        $viewNote = if ($Analysis.PSObject.Properties['RegistryView'] -and [string]$Analysis.RegistryView -eq '32') { ', 32-bit view' } else { '' }
+        $ctxNote = if ([string]$Analysis.InstallContext -eq 'PerUser') { '. Per-user: the deployment type installs and detects in the user context' } else { '' }
+        $txtDetect.Text = ('Registry ({0}): {1} (DisplayVersion match{2}){3}' -f $source, $predicted, $viewNote, $ctxNote)
     }
 
     $updateGate = {
