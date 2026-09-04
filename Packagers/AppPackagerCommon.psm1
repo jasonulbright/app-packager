@@ -3741,6 +3741,19 @@ function Get-InstallerAnalysis {
         $registryView = ''
     }
 
+    # Install modes: a switchable installer (NSIS with /allusers, Inno Setup
+    # with the command-line override) carries one resolved branch per mode;
+    # the top-level fields describe the default branch.
+    $installModes = @()
+    $installMode = ''
+    $modeVariants = @{}
+    if ($pkgMeta -and $pkgMeta.PSObject.Properties['InstallModes'] -and $pkgMeta.InstallModes) {
+        $installModes = @($pkgMeta.InstallModes)
+        $installMode = & $metaProp 'InstallMode'
+        if ($pkgMeta.PSObject.Properties['ModeVariants'] -and $pkgMeta.ModeVariants) { $modeVariants = $pkgMeta.ModeVariants }
+    }
+    if (-not $installMode) { $installMode = if ($installContext -eq 'PerMachine') { 'AllUsers' } elseif ($installContext -eq 'PerUser') { 'CurrentUser' } else { '' } }
+
     [pscustomobject]@{
         Path                 = (Resolve-Path -LiteralPath $Path).Path
         FileName             = Split-Path -Leaf $Path
@@ -3758,6 +3771,9 @@ function Get-InstallerAnalysis {
         RegistryView         = $registryView
         InstallDir           = $installDir
         InstallContext       = $installContext
+        InstallMode          = $installMode
+        InstallModes         = $installModes
+        ModeVariants         = $modeVariants
         RequestedExecutionLevel = if ($fileInfo.PSObject.Properties['RequestedExecutionLevel']) { [string]$fileInfo.RequestedExecutionLevel } else { '' }
         Architecture         = if ($msiSummary -and $msiSummary.Architecture) { [string]$msiSummary.Architecture } else { [string]$fileInfo.Architecture }
         Confidence           = if ($type -eq 'MSI') { 'Authoritative' } else { 'Predicted' }
@@ -3765,6 +3781,43 @@ function Get-InstallerAnalysis {
         Fields               = $fields
         PackageMetadata      = $pkgMeta
     }
+}
+
+function Set-InstallerAnalysisMode {
+    <#
+    .SYNOPSIS
+        Returns a copy of an installer analysis with every mode-dependent
+        field taken from one install mode's branch.
+    .DESCRIPTION
+        Install arguments and command, uninstall command, install folder,
+        ARP key with hive and view, and install context all come from the
+        branch the installer script resolves for that mode, so a stage built
+        from the copy never pairs a per-machine install with a per-user
+        uninstall or detection. Throws when the analysis does not offer the
+        requested mode.
+    #>
+    param(
+        [Parameter(Mandatory)][PSCustomObject]$Analysis,
+        [Parameter(Mandatory)][ValidateSet('CurrentUser', 'AllUsers')][string]$Mode
+    )
+
+    $variants = if ($Analysis.PSObject.Properties['ModeVariants'] -and $Analysis.ModeVariants) { $Analysis.ModeVariants } else { @{} }
+    if (-not $variants.ContainsKey($Mode)) {
+        throw ("Installer '{0}' offers install mode(s) {1}, not {2}." -f $Analysis.FileName, (@($Analysis.InstallModes) -join ', '), $Mode)
+    }
+    $branch = $variants[$Mode]
+
+    $copy = $Analysis.PSObject.Copy()
+    $copy.InstallMode          = $Mode
+    $copy.InstallArgs          = [string]$branch.InstallArgs
+    $copy.InstallCommand       = ('"' + $Analysis.FileName + '" ' + [string]$branch.InstallArgs).Trim()
+    $copy.UninstallCommand     = [string]$branch.SilentUninstallCommand
+    $copy.UninstallRegistryKey = [string]$branch.UninstallRegistryKey
+    $copy.UninstallRegistryHive = [string]$branch.RegistryHive
+    $copy.RegistryView         = [string]$branch.RegistryView
+    $copy.InstallDir           = [string]$branch.InstallDirWindows
+    $copy.InstallContext       = [string]$branch.InstallContext
+    return $copy
 }
 
 function New-AdHocStage {

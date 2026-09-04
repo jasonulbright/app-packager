@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.5.1.3
+    Version    : 1.5.1.4
     Updated    : 2026-09-04
 #>
 
@@ -6422,6 +6422,7 @@ function Show-DropIntakeDialog {
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <TextBlock Grid.Row="0" Grid.Column="0" Text="Application" VerticalAlignment="Center" Margin="0,0,12,8"/>
@@ -6433,14 +6434,23 @@ function Show-DropIntakeDialog {
             <TextBlock Grid.Row="2" Grid.Column="0" Text="Version" VerticalAlignment="Center" Margin="0,0,12,8"/>
             <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtDropVersion" Height="28" Margin="0,0,0,8"/>
 
-            <TextBlock Grid.Row="3" Grid.Column="0" Text="Install args" VerticalAlignment="Center" Margin="0,0,12,8"/>
-            <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtDropInstallArgs" Height="28" Margin="0,0,0,8"/>
+            <!-- Shown only when the installer script accepts a mode switch; the
+                 two radios swap every mode-dependent field together. -->
+            <TextBlock Grid.Row="3" Grid.Column="0" x:Name="lblDropMode" Text="Install for" VerticalAlignment="Center" Margin="0,0,12,8" Visibility="Collapsed"/>
+            <StackPanel Grid.Row="3" Grid.Column="1" x:Name="pnlDropMode" Orientation="Horizontal" Margin="0,0,0,8" Visibility="Collapsed">
+                <RadioButton x:Name="radDropCurrentUser" Content="Current user" GroupName="DropMode" VerticalAlignment="Center" Margin="0,0,18,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <RadioButton x:Name="radDropAllUsers" Content="All users (system)" GroupName="DropMode" VerticalAlignment="Center" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <TextBlock x:Name="txtDropModeSwitch" VerticalAlignment="Center" Margin="14,0,0,0" Opacity="0.75"/>
+            </StackPanel>
 
-            <TextBlock Grid.Row="4" Grid.Column="0" x:Name="lblDropUninstall" Text="Uninstall command" VerticalAlignment="Center" Margin="0,0,12,8"/>
-            <TextBox   Grid.Row="4" Grid.Column="1" x:Name="txtDropUninstallCmd" Height="28" Margin="0,0,0,8"/>
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="Install args" VerticalAlignment="Center" Margin="0,0,12,8"/>
+            <TextBox   Grid.Row="4" Grid.Column="1" x:Name="txtDropInstallArgs" Height="28" Margin="0,0,0,8"/>
 
-            <TextBlock Grid.Row="5" Grid.Column="0" Text="Detection" VerticalAlignment="Top" Margin="0,4,12,0"/>
-            <TextBlock Grid.Row="5" Grid.Column="1" x:Name="txtDropDetection" TextWrapping="Wrap" Opacity="0.75" Margin="0,4,0,0"/>
+            <TextBlock Grid.Row="5" Grid.Column="0" x:Name="lblDropUninstall" Text="Uninstall command" VerticalAlignment="Center" Margin="0,0,12,8"/>
+            <TextBox   Grid.Row="5" Grid.Column="1" x:Name="txtDropUninstallCmd" Height="28" Margin="0,0,0,8"/>
+
+            <TextBlock Grid.Row="6" Grid.Column="0" Text="Detection" VerticalAlignment="Top" Margin="0,4,12,0"/>
+            <TextBlock Grid.Row="6" Grid.Column="1" x:Name="txtDropDetection" TextWrapping="Wrap" Opacity="0.75" Margin="0,4,0,0"/>
         </Grid>
 
         <CheckBox Grid.Row="3" x:Name="chkDropConfirm" Margin="0,12,0,0"
@@ -6477,42 +6487,89 @@ function Show-DropIntakeDialog {
     $btnStagePkg  = $dlg.FindName('btnDropStagePackage')
     $btnCancelDlg = $dlg.FindName('btnDropCancel')
 
-    $isMsi = ([string]$Analysis.InstallerType -eq 'MSI')
+    $lblMode      = $dlg.FindName('lblDropMode')
+    $pnlMode      = $dlg.FindName('pnlDropMode')
+    $radCurrent   = $dlg.FindName('radDropCurrentUser')
+    $radAllUsers  = $dlg.FindName('radDropAllUsers')
+    $txtModeSw    = $dlg.FindName('txtDropModeSwitch')
 
-    $txtFile.Text     = [string]$Analysis.FileName
-    $contextText = ''
-    if ($Analysis.PSObject.Properties['InstallContext'] -and [string]$Analysis.InstallContext) {
-        $contextText = if ([string]$Analysis.InstallContext -eq 'PerUser') { '   Context: per-user' } else { '   Context: per-machine' }
-    }
-    $txtDetected.Text = ('Detected: {0}   Confidence: {1}   Architecture: {2}{3}' -f `
-        $Analysis.InstallerType, $Analysis.Confidence, $Analysis.Architecture, $contextText)
+    $isMsi = ([string]$Analysis.InstallerType -eq 'MSI')
+    $script:DropActiveAnalysis = $Analysis
+
+    $txtFile.Text      = [string]$Analysis.FileName
     $txtAppName.Text   = [string]$Analysis.AppName
     $txtPublisher.Text = [string]$Analysis.Publisher
     $txtVersion.Text   = [string]$Analysis.SoftwareVersion
-    $txtArgs.Text      = [string]$Analysis.InstallArgs
-    $txtUninst.Text    = [string]$Analysis.UninstallCommand
 
-    if ($isMsi) {
-        # MSI wrappers always run msiexec /qn /norestart against the file;
-        # detection is the ProductCode ARP key. Nothing to edit or confirm.
-        $txtArgs.IsReadOnly = $true
-        $txtUninst.Visibility = [System.Windows.Visibility]::Collapsed
-        $lblUninst.Visibility = [System.Windows.Visibility]::Collapsed
-        $chkConfirm.Visibility = [System.Windows.Visibility]::Collapsed
-        $txtDetect.Text = 'Registry: ARP key for ProductCode ' + $Analysis.ProductCode + ' (DisplayVersion match)'
-    }
-    else {
-        $predicted = [string]$Analysis.UninstallRegistryKey
-        $source = 'predicted'
-        if ($Analysis.PSObject.Properties['PackageMetadata'] -and $Analysis.PackageMetadata -and
-            $Analysis.PackageMetadata.PSObject.Properties['HeaderAvailable'] -and $Analysis.PackageMetadata.HeaderAvailable -and
-            $Analysis.PackageMetadata.PSObject.Properties['UninstallRegistryKey'] -and $Analysis.PackageMetadata.UninstallRegistryKey) {
-            $source = 'from the installer script'
+    # Every mode-dependent field is written from one analysis object, so a
+    # switch of install mode replaces install arguments, uninstall command,
+    # context and detection together and never leaves a mixed pair behind.
+    $applyAnalysis = {
+        param($a)
+        $script:DropActiveAnalysis = $a
+        $contextText = ''
+        if ($a.PSObject.Properties['InstallContext'] -and [string]$a.InstallContext) {
+            $contextText = if ([string]$a.InstallContext -eq 'PerUser') { '   Context: per-user' } else { '   Context: per-machine' }
         }
-        if ([string]::IsNullOrWhiteSpace($predicted)) { $predicted = 'ARP key derived from the application name (verify after first install)' }
-        $viewNote = if ($Analysis.PSObject.Properties['RegistryView'] -and [string]$Analysis.RegistryView -eq '32') { ', 32-bit view' } else { '' }
-        $ctxNote = if ([string]$Analysis.InstallContext -eq 'PerUser') { '. Per-user: the deployment type installs and detects in the user context' } else { '' }
-        $txtDetect.Text = ('Registry ({0}): {1} (DisplayVersion match{2}){3}' -f $source, $predicted, $viewNote, $ctxNote)
+        $txtDetected.Text = ('Detected: {0}   Confidence: {1}   Architecture: {2}{3}' -f `
+            $a.InstallerType, $a.Confidence, $a.Architecture, $contextText)
+        $txtArgs.Text   = [string]$a.InstallArgs
+        $txtUninst.Text = [string]$a.UninstallCommand
+
+        if ($isMsi) {
+            # MSI wrappers always run msiexec /qn /norestart against the file;
+            # detection is the ProductCode ARP key. Nothing to edit or confirm.
+            $txtArgs.IsReadOnly = $true
+            $txtUninst.Visibility = [System.Windows.Visibility]::Collapsed
+            $lblUninst.Visibility = [System.Windows.Visibility]::Collapsed
+            $chkConfirm.Visibility = [System.Windows.Visibility]::Collapsed
+            $txtDetect.Text = 'Registry: ARP key for ProductCode ' + $a.ProductCode + ' (DisplayVersion match)'
+        }
+        else {
+            $predicted = [string]$a.UninstallRegistryKey
+            $source = 'predicted'
+            if ($a.PSObject.Properties['PackageMetadata'] -and $a.PackageMetadata -and
+                $a.PackageMetadata.PSObject.Properties['HeaderAvailable'] -and $a.PackageMetadata.HeaderAvailable -and
+                $a.PackageMetadata.PSObject.Properties['UninstallRegistryKey'] -and $a.PackageMetadata.UninstallRegistryKey) {
+                $source = 'from the installer script'
+            }
+            if ([string]::IsNullOrWhiteSpace($predicted)) { $predicted = 'ARP key derived from the application name (verify after first install)' }
+            $viewNote = if ($a.PSObject.Properties['RegistryView'] -and [string]$a.RegistryView -eq '32') { ', 32-bit view' } else { '' }
+            $ctxNote = if ([string]$a.InstallContext -eq 'PerUser') { '. Per-user: the deployment type installs and detects in the user context' } else { '' }
+            $txtDetect.Text = ('Registry ({0}): {1} (DisplayVersion match{2}){3}' -f $source, $predicted, $viewNote, $ctxNote)
+        }
+    }
+    & $applyAnalysis $Analysis
+
+    # The mode toggle appears only for an installer whose script accepts a
+    # mode switch (NSIS /allusers, Inno Setup /ALLUSERS); the default branch
+    # is what the installer does without the switch.
+    $modes = @()
+    if ($Analysis.PSObject.Properties['InstallModes'] -and $Analysis.InstallModes) { $modes = @($Analysis.InstallModes) }
+    if ($modes.Count -gt 1) {
+        $lblMode.Visibility = [System.Windows.Visibility]::Visible
+        $pnlMode.Visibility = [System.Windows.Visibility]::Visible
+        $describeSwitch = {
+            param($mode)
+            $v = $Analysis.ModeVariants[$mode]
+            $defaultMode = [string]$Analysis.InstallMode
+            if ($mode -eq $defaultMode) { 'installer default' } else { 'adds ' + ((([string]$v.InstallArgs) -split '\s+') | Where-Object { $_ -match '^/(allusers|currentuser)$' } | Select-Object -First 1) }
+        }
+        if ([string]$Analysis.InstallMode -eq 'AllUsers') { $radAllUsers.IsChecked = $true } else { $radCurrent.IsChecked = $true }
+        $txtModeSw.Text = (& $describeSwitch ([string]$Analysis.InstallMode))
+        $switchMode = {
+            param($mode)
+            try {
+                $applied = Set-InstallerAnalysisMode -Analysis $Analysis -Mode $mode
+                & $applyAnalysis $applied
+                $txtModeSw.Text = (& $describeSwitch $mode)
+            }
+            catch {
+                [void](Show-ThemedMessage -Owner $dlg -Title 'Install Mode' -Message $_.Exception.Message -Buttons OK -Icon Warning)
+            }
+        }
+        $radCurrent.Add_Checked({ & $switchMode 'CurrentUser' })
+        $radAllUsers.Add_Checked({ & $switchMode 'AllUsers' })
     }
 
     $updateGate = {
@@ -6556,7 +6613,7 @@ function Show-DropIntakeDialog {
             [void](Show-ThemedMessage -Owner $dlg -Title 'Missing Value' -Message $problem -Buttons OK -Icon Warning)
             return
         }
-        $script:DropIntakeResult = @{ Action = $action; Values = (& $readValues) }
+        $script:DropIntakeResult = @{ Action = $action; Values = (& $readValues); Analysis = $script:DropActiveAnalysis }
         $dlg.Close()
     }
 
@@ -6810,6 +6867,8 @@ function Invoke-DropIntake {
             Add-LogLine -Message ('Skipped: ' + $analysis.FileName)
             continue
         }
+        # The dialog hands back the analysis for the install mode it shows.
+        if ($choice.Analysis) { $analysis = $choice.Analysis }
 
         if ($choice.Action -eq 'SavePackager') {
             try {
