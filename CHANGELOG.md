@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.5.1.1] - 2026-09-04
+
+### Added
+
+- **package-netbeans** - Apache NetBeans from the codelerity/netbeans-packages
+  GitHub releases (`Apache-NetBeans-<ver>.exe`): an Inno Setup build made
+  with Apache's NBPackage that bundles an Eclipse Temurin JDK, so the
+  deployed IDE needs no separate Java. Silent install with
+  `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-`, uninstall through the
+  ARP `UninstallString`, detection on `DisplayVersion` under
+  `Uninstall\Apache NetBeans_is1` (64-bit view). The catalog stands at 285.
+
+### Changed
+
+- **Inno Setup drops are read from the compiled `[Setup]` header.** The
+  vendored installer-analysis module (1.3.1.0) decodes the setup-0 block
+  of an Inno Setup installer (data versions 5.x through 7.0.0.3):
+  Get-InstallerAnalysis now takes the ARP key from the real `AppId`
+  (`{GUID}_is1` or `<name>_is1`) instead of the `DisplayName_is1`
+  convention, `SoftwareVersion` from the compiled `AppVersion` (stubs with
+  no file version included), `InstallDir` from `DefaultDirName` and the
+  64-bit install mode, `UninstallCommand` as the `unins000.exe` path in
+  `UninstallFilesDir`, and `InstallContext` from `PrivilegesRequired`.
+  A setup that never enters 64-bit mode routes its key under
+  `WOW6432Node`; `PrivilegesRequired=lowest` routes it under HKCU and
+  stages an InstallForUser deployment type.
+- **Vendored `SuiteCommon` 0.4.3.** The shared module repairs the process
+  PSModulePath at import (PowerShell 7 module roots inherited from the
+  launching shell), which replaces the inline block 1.5.1.0 carried at
+  the top of the entry script; a background runspace whose module import
+  fails is disposed and the original error thrown.
+
+### Fixed
+
+- **Inno Setup 6 installers were classified per-user.** 1.5.1.0 treated an
+  `asInvoker` manifest as evidence of a per-user install and rewrote the
+  predicted HKLM key to HKCU. An Inno Setup 6 stub is always `asInvoker`
+  and elevates itself for `PrivilegesRequired=admin`, so every Inno
+  Setup drop came out per-user with a wrong hive. The manifest now
+  decides the context only for an EXE whose format carries no context of
+  its own; Inno Setup, NSIS and MSI contexts come from the file.
+
 ## [1.5.1.0] - 2026-09-04
 
 ### Added

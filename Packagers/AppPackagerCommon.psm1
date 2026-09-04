@@ -3686,14 +3686,18 @@ function Get-InstallerAnalysis {
     if (-not $registryHive -and $predictedKey -match '^(HKLM|HKCU):') { $registryHive = $Matches[1] }
     if (-not $registryView -and $predictedKey -match '(?i)\\WOW6432Node\\') { $registryView = '32' }
     $scriptDerived = ($pkgMeta -and $pkgMeta.PSObject.Properties['HeaderAvailable'] -and $pkgMeta.HeaderAvailable)
+    # The manifest decides the context only for an installer whose format
+    # says nothing about it: Inno Setup, WiX Burn and BitRock stubs are
+    # asInvoker and elevate themselves at run time, and NSIS and Inno
+    # headers carry the context outright.
+    $manifestDecides = ($type -eq 'Unknown')
     if (-not $installContext) {
         if ($registryHive -eq 'HKCU') { $installContext = 'PerUser' }
-        elseif ($fileInfo.PSObject.Properties['RequestedExecutionLevel'] -and $fileInfo.RequestedExecutionLevel -eq 'asInvoker' -and $type -ne 'MSI') { $installContext = 'PerUser' }
+        elseif ($manifestDecides -and $fileInfo.PSObject.Properties['RequestedExecutionLevel'] -and $fileInfo.RequestedExecutionLevel -eq 'asInvoker') { $installContext = 'PerUser' }
         elseif ($registryHive -eq 'HKLM' -or $type -eq 'MSI') { $installContext = 'PerMachine' }
     }
     # A convention-predicted HKLM key for an installer that runs without
-    # elevation (Inno Setup PrivilegesRequired=lowest and similar) lands
-    # under HKCU, where no WOW6432Node redirection applies.
+    # elevation lands under HKCU, where no WOW6432Node redirection applies.
     if ($installContext -eq 'PerUser' -and -not $scriptDerived -and $type -ne 'MSI' -and $predictedKey -match '^HKLM:') {
         $predictedKey = ($predictedKey -replace '^HKLM:', 'HKCU:') -replace '(?i)\\WOW6432Node\\', '\'
         $registryHive = 'HKCU'
