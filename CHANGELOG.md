@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.5.1.3] - 2026-09-04
+
+### Added
+
+- **Options window shows GitHub API authentication.** A GitHub API row
+  beside the Console, 7-Zip CLI, Content Prep and Icon Pack rows reports
+  how the 90 GitHub-backed packagers will authenticate: Authenticated with
+  the token source (`GITHUB_TOKEN`, `GH_TOKEN`, or the GitHub CLI login
+  with its account name) and the hourly quota with requests remaining, or
+  Anonymous at 60 requests per hour with the two ways to fix it. The
+  status is resolved when the window opens.
+
+### Changed
+
+- **GitHub API calls use a signed-in GitHub CLI.** `Get-GitHubApiCurlArgs`
+  resolves the token in order: `GITHUB_TOKEN`, then `GH_TOKEN`, then
+  `gh auth token` when `gh.exe` is on the PATH and signed in (looked up
+  once per process). 1.5.1.2 read only the environment variables, so a
+  machine with a signed-in GitHub CLI still made anonymous calls.
+
 ## [1.5.1.2] - 2026-09-04
 
 ### Fixed
