@@ -9,16 +9,16 @@
     the AppPackager-<version>.zip asset, verifies its SHA-256 against the release's
     checksums.txt, and extracts it into the install folder.
 
-    Downloading with Invoke-WebRequest and extracting with Expand-Archive leaves no
-    Mark-of-the-Web on any extracted file: module imports in packager child processes
-    fail non-terminating when the block is present, surfacing later as unrelated
+    Downloads go through curl.exe first with Invoke-WebRequest as the fallback, and extraction through
+    Expand-Archive, so no extracted file carries a Mark-of-the-Web: module imports in packager child
+    processes fail non-terminating when the block is present, surfacing later as unrelated
     unknown-command errors.
 
     On an update, user state kept inside the application folder (every *.json plus
     the Logs folder - the same set .gitignore excludes from the release zip) is moved
     aside, the folder is replaced, and the state is restored.
 
-    Safe to run as: irm https://raw.githubusercontent.com/jasonulbright/app-packager/main/install.ps1 | iex
+    Bootstrap path: download AppPackager.zip from the latest release with curl.exe and run this script from inside it with -ZipPath (see README).
 
 .PARAMETER InstallPath
     Target folder. Defaults to %LOCALAPPDATA%\AppPackager.
@@ -39,7 +39,7 @@
     ScriptName : install.ps1
     Purpose    : Bootstrap install / update for AppPackager
     Owner      : CM Engineering
-    Version    : 1.5.0.4
+    Version    : 1.5.1.0
 #>
 
 [CmdletBinding()]
@@ -185,12 +185,12 @@ function Invoke-Install {
             $localZip = Join-Path $work $zipName
             Copy-Item -LiteralPath $ZipPath -Destination $localZip -Force
             Unblock-File -LiteralPath $localZip -ErrorAction SilentlyContinue
-            $zipPath = $localZip
+            $archivePath = $localZip
 
             $sumsBeside = Join-Path (Split-Path -Parent $ZipPath) 'checksums.txt'
             if (Test-Path -LiteralPath $sumsBeside -PathType Leaf) {
                 $expected = Get-ChecksumForFile -ChecksumText (Get-Content -LiteralPath $sumsBeside -Raw) -FileName $zipName
-                $actual = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+                $actual = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
                 if ($expected -and $actual -ne $expected) {
                     throw ("Checksum mismatch for {0}. Expected {1}, got {2}." -f $zipName, $expected, $actual)
                 }
@@ -211,9 +211,9 @@ function Invoke-Install {
             $zipUrl = Get-ReleaseAssetUrl -Release $release -Name $zipName
             $sumUrl = Get-ReleaseAssetUrl -Release $release -Name 'checksums.txt'
 
-            $zipPath = Join-Path $work $zipName
+            $archivePath = Join-Path $work $zipName
             Write-Step 'Downloading package...'
-            Invoke-InstallerDownloadFile -Url $zipUrl -OutFile $zipPath
+            Invoke-InstallerDownloadFile -Url $zipUrl -OutFile $archivePath
 
             Write-Step 'Verifying checksum...'
             $sumPath = Join-Path $work 'checksums.txt'
@@ -221,7 +221,7 @@ function Invoke-Install {
             $expected = Get-ChecksumForFile -ChecksumText (Get-Content -LiteralPath $sumPath -Raw) -FileName $zipName
             if (-not $expected) { throw ("checksums.txt lists no SHA-256 for {0}." -f $zipName) }
 
-            $actual = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $actual = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($actual -ne $expected) {
                 throw ("Checksum mismatch for {0}. Expected {1}, got {2}." -f $zipName, $expected, $actual)
             }
@@ -229,7 +229,19 @@ function Invoke-Install {
         }
 
         $stage = Join-Path $work 'stage'
-        Expand-Archive -LiteralPath $zipPath -DestinationPath $stage -Force
+        Expand-Archive -LiteralPath $archivePath -DestinationPath $stage -Force
+
+        # A local zip carries no release tag; the extracted script header
+        # names the version being installed.
+        if ([string]::IsNullOrWhiteSpace($realVersion)) {
+            $realVersion = ''
+            $entry = Join-Path $stage 'start-apppackager.ps1'
+            if (Test-Path -LiteralPath $entry) {
+                foreach ($headerLine in (Get-Content -LiteralPath $entry -TotalCount 80)) {
+                    if ($headerLine -match '^\s*Version\s*:\s*([0-9][0-9\.]*[0-9])\s*$') { $realVersion = $Matches[1]; break }
+                }
+            }
+        }
 
         $existing = Test-Path -LiteralPath $InstallPath
         $backup   = Join-Path $work 'state'
