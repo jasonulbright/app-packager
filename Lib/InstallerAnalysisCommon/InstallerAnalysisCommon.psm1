@@ -2146,94 +2146,18 @@ function Get-PeRequestedExecutionLevel {
     .SYNOPSIS
         Reads requestedExecutionLevel from a PE file's embedded manifest.
     .DESCRIPTION
-        Walks the resource directory for RT_MANIFEST without loading the
-        image. Returns asInvoker / highestAvailable / requireAdministrator,
-        or '' when the file carries no manifest or no execution level.
+        Reads the RT_MANIFEST resource without loading the image. Returns
+        asInvoker / highestAvailable / requireAdministrator, or '' when the
+        file carries no manifest or no execution level.
     #>
     param([Parameter(Mandatory)][string]$Path)
 
     try {
-        $fs = [System.IO.File]::OpenRead($Path)
-        try {
-            $br = New-Object System.IO.BinaryReader($fs)
-            if ($fs.Length -lt 0x40) { return '' }
-            $fs.Position = 0
-            if ($br.ReadUInt16() -ne 0x5A4D) { return '' }
-            $fs.Position = 0x3C
-            $peOffset = $br.ReadUInt32()
-            if ($peOffset + 24 -gt $fs.Length) { return '' }
-            $fs.Position = $peOffset
-            if ($br.ReadUInt32() -ne 0x00004550) { return '' }
-            $fs.Position = $peOffset + 6
-            $numSections = $br.ReadUInt16()
-            $fs.Position = $peOffset + 20
-            $optSize = $br.ReadUInt16()
-            $optStart = $peOffset + 24
-            $fs.Position = $optStart
-            $magic = $br.ReadUInt16()
-            $dirOffset = if ($magic -eq 0x20B) { 112 } else { 96 }
-            $fs.Position = $optStart + $dirOffset + (2 * 8)
-            $resRva  = $br.ReadUInt32()
-            $resSize = $br.ReadUInt32()
-            if ($resRva -eq 0 -or $resSize -eq 0) { return '' }
-
-            $sections = @()
-            $secTable = $optStart + $optSize
-            for ($i = 0; $i -lt $numSections; $i++) {
-                $fs.Position = $secTable + ($i * 40) + 8
-                $virtualSize = $br.ReadUInt32()
-                $virtualAddr = $br.ReadUInt32()
-                $rawSize     = $br.ReadUInt32()
-                $rawPtr      = $br.ReadUInt32()
-                $sections += [pscustomobject]@{ Va = $virtualAddr; Vs = [Math]::Max($virtualSize, $rawSize); Raw = $rawPtr }
-            }
-            $toFile = {
-                param($rva)
-                foreach ($s in $sections) {
-                    if ($rva -ge $s.Va -and $rva -lt ($s.Va + $s.Vs)) { return [long]($s.Raw + ($rva - $s.Va)) }
-                }
-                return -1
-            }
-            $resBase = & $toFile $resRva
-            if ($resBase -lt 0) { return '' }
-
-            $readDir = {
-                param($dirFileOffset)
-                $fs.Position = $dirFileOffset + 12
-                $named = $br.ReadUInt16()
-                $ids   = $br.ReadUInt16()
-                $entries = @()
-                for ($i = 0; $i -lt ($named + $ids); $i++) {
-                    $fs.Position = $dirFileOffset + 16 + ($i * 8)
-                    $id  = $br.ReadUInt32()
-                    $off = $br.ReadUInt32()
-                    $entries += [pscustomobject]@{ Id = $id; Offset = $off }
-                }
-                return $entries
-            }
-
-            $manifestEntry = (& $readDir $resBase) | Where-Object { ($_.Id -band 0x80000000) -eq 0 -and $_.Id -eq 24 } | Select-Object -First 1
-            if (-not $manifestEntry) { return '' }
-            $nameDir = $resBase + ($manifestEntry.Offset -band 0x7FFFFFFF)
-            $nameEntry = (& $readDir $nameDir) | Select-Object -First 1
-            if (-not $nameEntry) { return '' }
-            $langDir = $resBase + ($nameEntry.Offset -band 0x7FFFFFFF)
-            $langEntry = (& $readDir $langDir) | Select-Object -First 1
-            if (-not $langEntry) { return '' }
-            if (($langEntry.Offset -band 0x80000000) -ne 0) { return '' }
-            $dataEntry = $resBase + $langEntry.Offset
-            $fs.Position = $dataEntry
-            $dataRva  = $br.ReadUInt32()
-            $dataSize = $br.ReadUInt32()
-            $dataFile = & $toFile $dataRva
-            if ($dataFile -lt 0 -or $dataSize -le 0 -or $dataSize -gt 1MB) { return '' }
-            $fs.Position = $dataFile
-            $bytes = $br.ReadBytes([int]$dataSize)
-            $text = [System.Text.Encoding]::UTF8.GetString($bytes)
-            if ($text -match 'requestedExecutionLevel[^>]*\blevel\s*=\s*["'']([A-Za-z]+)["'']') { return $Matches[1] }
-            return ''
-        }
-        finally { $fs.Dispose() }
+        $bytes = Get-PeResourceData -Path $Path -Type 24 -MaxSize 1MB
+        if (-not $bytes) { return '' }
+        $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+        if ($text -match 'requestedExecutionLevel[^>]*\blevel\s*=\s*["'']([A-Za-z]+)["'']') { return $Matches[1] }
+        return ''
     }
     catch { return '' }
 }
@@ -2585,6 +2509,823 @@ function Get-NsisMetadata {
     return $meta
 }
 
+
+# ---------------------------------------------------------------------------
+# Inno Setup header analysis
+# ---------------------------------------------------------------------------
+# An Inno Setup installer is a SetupLdr stub with the compiled [Setup]
+# section appended: the loader offset table (an RCDATA resource in the
+# stub) points at a 64-byte data-version string followed by a CRC-chunked,
+# LZMA1-compressed block whose first record is TSetupHeader. That record
+# starts with the [Setup] strings (AppName, AppId, AppVersion,
+# DefaultDirName, UninstallFilesDir, ...) and continues with fixed-size
+# fields that include PrivilegesRequired and the 64-bit install mode. The
+# record layout changes between data versions, so the fixed part is read
+# by version and cross-checked against enum ranges before it is trusted.
+
+function script:Initialize-InnoBlockType {
+    if (([System.Management.Automation.PSTypeName]'InstallerAnalysis.InnoBlock').Type) { return }
+    Add-Type -TypeDefinition @'
+using System;
+
+namespace InstallerAnalysis
+{
+    public static class InnoBlock
+    {
+        private static readonly uint[] Table = BuildTable();
+
+        private static uint[] BuildTable()
+        {
+            uint[] t = new uint[256];
+            for (uint i = 0; i < 256; i++)
+            {
+                uint c = i;
+                for (int k = 0; k < 8; k++) c = (c & 1) != 0 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+                t[i] = c;
+            }
+            return t;
+        }
+
+        public static uint Crc32(byte[] data, int offset, int length)
+        {
+            uint c = 0xFFFFFFFFu;
+            int end = offset + length;
+            for (int i = offset; i < end; i++) c = Table[(c ^ data[i]) & 0xFF] ^ (c >> 8);
+            return c ^ 0xFFFFFFFFu;
+        }
+
+        // A block is a run of chunks, each a CRC32 followed by up to 4096
+        // payload bytes; only the last chunk may be shorter. Returns the
+        // concatenated payloads; crcOk reports whether every chunk matched.
+        public static byte[] Unchunk(byte[] data, int offset, int storedSize, out bool crcOk)
+        {
+            crcOk = true;
+            int end = Math.Min(data.Length, offset + Math.Max(0, storedSize));
+            byte[] result = new byte[Math.Max(0, end - offset)];
+            int outPos = 0;
+            int pos = offset;
+            while (pos + 4 < end)
+            {
+                uint expected = (uint)(data[pos] | (data[pos + 1] << 8) | (data[pos + 2] << 16) | (data[pos + 3] << 24));
+                pos += 4;
+                int len = Math.Min(4096, end - pos);
+                if (Crc32(data, pos, len) != expected) crcOk = false;
+                Buffer.BlockCopy(data, pos, result, outPos, len);
+                outPos += len;
+                pos += len;
+            }
+            if (outPos != result.Length)
+            {
+                byte[] trimmed = new byte[outPos];
+                Buffer.BlockCopy(result, 0, trimmed, 0, outPos);
+                return trimmed;
+            }
+            return result;
+        }
+    }
+}
+'@
+}
+
+function script:Get-PeResourceData {
+    <#
+    .SYNOPSIS
+        Returns the bytes of one resource (first language entry) from a PE
+        file without loading the image.
+    .DESCRIPTION
+        Type and Name are numeric resource identifiers; Name -1 takes the
+        first name entry under the type. Returns $null when the file is not
+        a PE image, has no resource directory, or the entry is absent or
+        larger than MaxSize.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][int]$Type,
+        [int]$Name = -1,
+        [long]$MaxSize = 1MB
+    )
+
+    try {
+        $fs = [System.IO.File]::OpenRead($Path)
+        try {
+            $br = New-Object System.IO.BinaryReader($fs)
+            if ($fs.Length -lt 0x40) { return $null }
+            $fs.Position = 0
+            if ($br.ReadUInt16() -ne 0x5A4D) { return $null }
+            $fs.Position = 0x3C
+            $peOffset = $br.ReadUInt32()
+            if ($peOffset + 24 -gt $fs.Length) { return $null }
+            $fs.Position = $peOffset
+            if ($br.ReadUInt32() -ne 0x00004550) { return $null }
+            $fs.Position = $peOffset + 6
+            $numSections = $br.ReadUInt16()
+            $fs.Position = $peOffset + 20
+            $optSize = $br.ReadUInt16()
+            $optStart = $peOffset + 24
+            $fs.Position = $optStart
+            $magic = $br.ReadUInt16()
+            $dirOffset = if ($magic -eq 0x20B) { 112 } else { 96 }
+            $fs.Position = $optStart + $dirOffset + (2 * 8)
+            $resRva  = $br.ReadUInt32()
+            $resSize = $br.ReadUInt32()
+            if ($resRva -eq 0 -or $resSize -eq 0) { return $null }
+
+            $sections = @()
+            $secTable = $optStart + $optSize
+            for ($i = 0; $i -lt $numSections; $i++) {
+                $fs.Position = $secTable + ($i * 40) + 8
+                $virtualSize = $br.ReadUInt32()
+                $virtualAddr = $br.ReadUInt32()
+                $rawSize     = $br.ReadUInt32()
+                $rawPtr      = $br.ReadUInt32()
+                $sections += [pscustomobject]@{ Va = $virtualAddr; Vs = [Math]::Max($virtualSize, $rawSize); Raw = $rawPtr }
+            }
+            $toFile = {
+                param($rva)
+                foreach ($s in $sections) {
+                    if ($rva -ge $s.Va -and $rva -lt ($s.Va + $s.Vs)) { return [long]($s.Raw + ($rva - $s.Va)) }
+                }
+                return -1
+            }
+            $resBase = & $toFile $resRva
+            if ($resBase -lt 0) { return $null }
+
+            $readDir = {
+                param($dirFileOffset)
+                $fs.Position = $dirFileOffset + 12
+                $named = $br.ReadUInt16()
+                $ids   = $br.ReadUInt16()
+                $entries = @()
+                for ($i = 0; $i -lt ($named + $ids); $i++) {
+                    $fs.Position = $dirFileOffset + 16 + ($i * 8)
+                    $id  = $br.ReadUInt32()
+                    $off = $br.ReadUInt32()
+                    $entries += [pscustomobject]@{ Id = $id; Offset = $off }
+                }
+                return $entries
+            }
+
+            $typeEntry = (& $readDir $resBase) | Where-Object { ($_.Id -band 0x80000000) -eq 0 -and $_.Id -eq $Type } | Select-Object -First 1
+            if (-not $typeEntry) { return $null }
+            $nameDir = $resBase + ($typeEntry.Offset -band 0x7FFFFFFF)
+            $nameEntries = @(& $readDir $nameDir)
+            $nameEntry = if ($Name -lt 0) { $nameEntries | Select-Object -First 1 }
+                         else { $nameEntries | Where-Object { ($_.Id -band 0x80000000) -eq 0 -and $_.Id -eq $Name } | Select-Object -First 1 }
+            if (-not $nameEntry) { return $null }
+            $langDir = $resBase + ($nameEntry.Offset -band 0x7FFFFFFF)
+            $langEntry = (& $readDir $langDir) | Select-Object -First 1
+            if (-not $langEntry) { return $null }
+            if (($langEntry.Offset -band 0x80000000) -ne 0) { return $null }
+            $dataEntry = $resBase + $langEntry.Offset
+            $fs.Position = $dataEntry
+            $dataRva  = $br.ReadUInt32()
+            $dataSize = $br.ReadUInt32()
+            $dataFile = & $toFile $dataRva
+            if ($dataFile -lt 0 -or $dataSize -le 0 -or $dataSize -gt $MaxSize) { return $null }
+            if ($dataFile + $dataSize -gt $fs.Length) { return $null }
+            $fs.Position = $dataFile
+            return ,($br.ReadBytes([int]$dataSize))
+        }
+        finally { $fs.Dispose() }
+    }
+    catch { return $null }
+}
+
+# Loader offset table magics (SetupLdr 5.1.5 and later); the table is the
+# RCDATA resource 11111 of the stub.
+$script:InnoLoaderMagics = @(
+    ,[byte[]](0x72,0x44,0x6C,0x50,0x74,0x53,0xCD,0xE6,0xD7,0x7B,0x0B,0x2A)
+    ,[byte[]](0x6E,0x53,0x35,0x57,0x37,0x64,0x54,0x83,0xAA,0x1B,0x0F,0x6A)
+)
+
+function script:ConvertFrom-InnoLoaderTable {
+    param($Bytes, [int]$Offset)
+    if ($null -eq $Bytes -or $Bytes.Length -lt $Offset + 44) { return $null }
+    $matched = $false
+    foreach ($magic in $script:InnoLoaderMagics) {
+        $ok = $true
+        for ($i = 0; $i -lt 12; $i++) { if ($Bytes[$Offset + $i] -ne $magic[$i]) { $ok = $false; break } }
+        if ($ok) { $matched = $true; break }
+    }
+    if (-not $matched) { return $null }
+    $u32 = { param($at) [BitConverter]::ToUInt32($Bytes, $Offset + $at) }
+    $i64 = { param($at) [BitConverter]::ToInt64($Bytes, $Offset + $at) }
+    $revision = & $u32 12
+    # Revision 1 (SetupLdr 5.1.5 to 6.4) stores 32-bit offsets in 44 bytes;
+    # revision 2 (6.5 and later) widens the offsets to 64-bit in 64 bytes.
+    if ($revision -eq 1) {
+        $expected = & $u32 40
+        $actual = [InstallerAnalysis.InnoBlock]::Crc32($Bytes, $Offset, 40)
+        return [pscustomobject]@{
+            Revision             = 1
+            ExeOffset            = [long](& $u32 20)
+            ExeUncompressedSize  = [long](& $u32 24)
+            HeaderOffset         = [long](& $u32 32)
+            DataOffset           = [long](& $u32 36)
+            TableCrcOk           = ($actual -eq $expected)
+        }
+    }
+    if ($revision -eq 2) {
+        if ($Bytes.Length -lt $Offset + 64) { return $null }
+        $expected = & $u32 60
+        $actual = [InstallerAnalysis.InnoBlock]::Crc32($Bytes, $Offset, 60)
+        return [pscustomobject]@{
+            Revision             = 2
+            ExeOffset            = (& $i64 24)
+            ExeUncompressedSize  = [long](& $u32 32)
+            HeaderOffset         = (& $i64 40)
+            DataOffset           = (& $i64 48)
+            TableCrcOk           = ($actual -eq $expected)
+        }
+    }
+    return $null
+}
+
+function script:Get-InnoLoaderOffsets {
+    <#
+    .SYNOPSIS
+        Locates the compiled header (setup-0) and data (setup-1) offsets of
+        an Inno Setup installer from the SetupLdr offset table.
+    #>
+    param([Parameter(Mandatory)][string]$Path)
+    Initialize-InnoBlockType
+
+    $resource = Get-PeResourceData -Path $Path -Type 10 -Name 11111 -MaxSize 4096
+    if ($resource) {
+        $table = ConvertFrom-InnoLoaderTable -Bytes $resource -Offset 0
+        if ($table) { return $table }
+    }
+
+    # Stubs older than SetupLdr 5.1.5 carry the table outside the resource
+    # tree; a bounded scan of the stub finds the magic instead.
+    $fs = [System.IO.File]::OpenRead($Path)
+    try {
+        $take = [int][Math]::Min($fs.Length, 8MB)
+        $buffer = New-Object byte[] $take
+        $read = 0
+        while ($read -lt $take) {
+            $n = $fs.Read($buffer, $read, $take - $read)
+            if ($n -le 0) { break }
+            $read += $n
+        }
+    }
+    finally { $fs.Dispose() }
+    $latin1 = [System.Text.Encoding]::GetEncoding(28591)
+    $text = $latin1.GetString($buffer, 0, $read)
+    foreach ($magic in $script:InnoLoaderMagics) {
+        $needle = $latin1.GetString($magic)
+        $at = $text.IndexOf($needle, [System.StringComparison]::Ordinal)
+        while ($at -ge 0) {
+            $table = ConvertFrom-InnoLoaderTable -Bytes $buffer -Offset $at
+            if ($table -and $table.TableCrcOk) { return $table }
+            $at = $text.IndexOf($needle, $at + 1, [System.StringComparison]::Ordinal)
+        }
+    }
+    return $null
+}
+
+function script:ConvertTo-InnoDataVersion {
+    <#
+    .SYNOPSIS
+        Parses the 64-byte "Inno Setup Setup Data (x.y.z[.r])[ (u)]" signature.
+    .DESCRIPTION
+        Value is a single comparable integer (major*1e9 + minor*1e6 +
+        build*1e3 + revision). Data versions 6.3.0 and later are Unicode
+        without carrying the "(u)" marker.
+    #>
+    param([string]$Text)
+    if ($Text -notmatch '^Inno Setup Setup Data \((\d+)\.(\d+)\.(\d+)(?:\.(\d+))?\)(?<u>\s*\((u|U)\))?') { return $null }
+    $major = [int]$Matches[1]; $minor = [int]$Matches[2]; $build = [int]$Matches[3]
+    $rev = if ($Matches[4]) { [int]$Matches[4] } else { 0 }
+    $value = [int64]$major * 1000000000 + [int64]$minor * 1000000 + [int64]$build * 1000 + $rev
+    $unicode = ($value -ge 6003000000) -or [bool]$Matches['u']
+    $label = "$major.$minor.$build" + $(if ($rev) { ".$rev" } else { '' })
+    return [pscustomobject]@{ Major = $major; Minor = $minor; Build = $build; Revision = $rev; Value = $value; Unicode = $unicode; Text = $label }
+}
+
+function script:Expand-InnoHeaderBlock {
+    <#
+    .SYNOPSIS
+        Reads the setup-0 block at HeaderOffset and returns the decoded
+        leading bytes of the TSetupHeader record.
+    .DESCRIPTION
+        The block header is CRC32 + stored size + compressed flag; the body
+        is CRC-chunked. A compressed body is LZMA1 with a 5-byte properties
+        prefix and no size field, so decoding stops after MaxOutput bytes;
+        callers retry with a larger budget when the record is longer.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][long]$HeaderOffset,
+        [int]$MaxOutput = 1MB
+    )
+    Initialize-InnoBlockType
+    Initialize-NsisDecoderType
+
+    $fs = [System.IO.File]::OpenRead($Path)
+    try {
+        if ($HeaderOffset -lt 0 -or $HeaderOffset + 64 + 9 -gt $fs.Length) { return $null }
+        $fs.Position = $HeaderOffset
+        $br = New-Object System.IO.BinaryReader($fs)
+        $idBytes = $br.ReadBytes(64)
+        $idText = [System.Text.Encoding]::ASCII.GetString($idBytes).TrimEnd([char]0)
+        $version = ConvertTo-InnoDataVersion -Text $idText
+        if (-not $version) { return [pscustomobject]@{ Version = $null; VersionText = $idText; Bytes = $null; Compression = ''; CrcOk = $false; Note = 'Unrecognised setup data signature: ' + $idText } }
+        if ($version.Value -lt 4000009000) { return [pscustomobject]@{ Version = $version; VersionText = $idText; Bytes = $null; Compression = ''; CrcOk = $false; Note = 'Setup data version ' + $version.Text + ' predates the block format this reader supports.' } }
+
+        # 6.5.0 moved the password material out of TSetupHeader into a
+        # CRC-prefixed TSetupEncryptionHeader (49 bytes) that precedes the
+        # block; EncryptionUse=euFull means the block itself is encrypted.
+        if ($version.Value -ge 6005000000) {
+            if ($fs.Position + 53 -gt $fs.Length) { return [pscustomobject]@{ Version = $version; VersionText = $idText; Bytes = $null; Compression = ''; CrcOk = $false; Note = 'Header block is truncated.' } }
+            $encHeader = $br.ReadBytes(53)
+            $encExpected = [BitConverter]::ToUInt32($encHeader, 0)
+            $encActual = [InstallerAnalysis.InnoBlock]::Crc32($encHeader, 4, 49)
+            if ($encActual -ne $encExpected) { return [pscustomobject]@{ Version = $version; VersionText = $idText; Bytes = $null; Compression = ''; CrcOk = $false; Note = 'Encryption header checksum mismatch.' } }
+            if ($encHeader[4] -eq 2) { return [pscustomobject]@{ Version = $version; VersionText = $idText; Bytes = $null; Compression = ''; CrcOk = $true; Note = 'Setup header is encrypted (EncryptionUse=full); a password is required to read it.' } }
+        }
+
+        # Block header: CRC32 over StoredSize + Compressed; StoredSize is a
+        # LongWord before 6.7.0 and an Int64 from 6.7.0.
+        $sizeWidth = if ($version.Value -ge 6007000000) { 8 } else { 4 }
+        $blockHeader = $br.ReadBytes(4 + $sizeWidth + 1)
+        if ($blockHeader.Length -lt 4 + $sizeWidth + 1) { return [pscustomobject]@{ Version = $version; VersionText = $idText; Bytes = $null; Compression = ''; CrcOk = $false; Note = 'Header block is truncated.' } }
+        $expectedCrc = [BitConverter]::ToUInt32($blockHeader, 0)
+        $actualCrc = [InstallerAnalysis.InnoBlock]::Crc32($blockHeader, 4, $sizeWidth + 1)
+        $storedSize = if ($sizeWidth -eq 8) { [BitConverter]::ToInt64($blockHeader, 4) } else { [int64][BitConverter]::ToUInt32($blockHeader, 4) }
+        $compressed = ($blockHeader[4 + $sizeWidth] -ne 0)
+        if ($actualCrc -ne $expectedCrc) { return [pscustomobject]@{ Version = $version; VersionText = $idText; Bytes = $null; Compression = ''; CrcOk = $false; Note = 'Header block checksum mismatch.' } }
+        $available = $fs.Length - $fs.Position
+        $take = [int][Math]::Min([long]$storedSize, [Math]::Min($available, [long]256MB))
+        $raw = $br.ReadBytes($take)
+    }
+    finally { $fs.Dispose() }
+
+    $chunkCrcOk = $false
+    $payload = [InstallerAnalysis.InnoBlock]::Unchunk($raw, 0, $raw.Length, [ref]$chunkCrcOk)
+    $compression = 'stored'
+    $bytes = $payload
+    if ($compressed) {
+        if ($version.Value -lt 4001006000) {
+            return [pscustomobject]@{ Version = $version; VersionText = $idText; Bytes = $null; Compression = 'zlib'; CrcOk = $chunkCrcOk; Note = 'zlib header blocks are not decoded.' }
+        }
+        $compression = 'lzma1'
+        if ($payload.Length -lt 6) { return [pscustomobject]@{ Version = $version; VersionText = $idText; Bytes = $null; Compression = $compression; CrcOk = $chunkCrcOk; Note = 'Header block is truncated.' } }
+        $props = $payload[0]
+        $dict = [BitConverter]::ToUInt32($payload, 1)
+        if ($dict -lt 4096) { $dict = 4096 }
+        $corrupted = $false
+        $bytes = [InstallerAnalysis.NsisLzmaDecoder]::Decode($payload, 5, $payload.Length - 5, $props, $dict, $MaxOutput, [ref]$corrupted)
+    }
+    return [pscustomobject]@{ Version = $version; VersionText = $idText; Bytes = $bytes; Compression = $compression; CrcOk = $chunkCrcOk; Note = '' }
+}
+
+$script:InnoPrivilegesNames  = @('none', 'poweruser', 'admin', 'lowest')
+$script:InnoCompressionNames = @('none', 'zip', 'bzip', 'lzma', 'lzma2')
+
+function script:Read-InnoSetupHeader {
+    <#
+    .SYNOPSIS
+        Parses the leading TSetupHeader record from a decoded setup-0 block.
+    .DESCRIPTION
+        Strings are read for every data version from 5.0.0; the fixed part
+        (PrivilegesRequired, 64-bit mode flags, compression) is read by
+        version and accepted only when every enum lands in range, otherwise
+        FixedDecoded is $false. Throws EndOfStreamException when the buffer
+        ends inside the record.
+    #>
+    param(
+        [Parameter(Mandatory)]$Data,
+        [Parameter(Mandatory)]$Version
+    )
+
+    $dataVersion = [int64]$Version.Value
+    $mk = { param($a, $b, $c, $d = 0) [int64]$a * 1000000000 + [int64]$b * 1000000 + [int64]$c * 1000 + $d }
+    $state = @{ Pos = 0 }
+    $len = $Data.Length
+    $need = {
+        param($n)
+        if ($state.Pos + $n -gt $len) { throw (New-Object System.IO.EndOfStreamException('Setup header record extends past the decoded block.')) }
+    }
+    $u8  = { & $need 1; $b = $Data[$state.Pos]; $state.Pos += 1; [int]$b }
+    $u32 = { & $need 4; $x = [BitConverter]::ToUInt32($Data, $state.Pos); $state.Pos += 4; [int64]$x }
+    $i32 = { & $need 4; $x = [BitConverter]::ToInt32($Data, $state.Pos); $state.Pos += 4; [int64]$x }
+    $skip = { param($n) & $need $n; $state.Pos += $n }
+    $encoding = if ($Version.Unicode) { [System.Text.Encoding]::Unicode } else { [System.Text.Encoding]::Default }
+    $str = {
+        param([switch]$Ansi, [switch]$Binary)
+        $n = & $u32
+        if ($n -gt 64MB) { throw (New-Object System.IO.InvalidDataException('Setup header string length is implausible.')) }
+        & $need $n
+        $text = ''
+        if ($Binary) { $text = '' }
+        elseif ($Ansi) { $text = [System.Text.Encoding]::Default.GetString($Data, $state.Pos, [int]$n) }
+        else { $text = $encoding.GetString($Data, $state.Pos, [int]$n) }
+        $state.Pos += $n
+        $text
+    }
+
+    $h = [ordered]@{}
+    $h.AppName          = & $str
+    $h.AppVerName       = & $str
+    $h.AppId            = & $str
+    $h.AppCopyright     = & $str
+    $h.AppPublisher     = & $str
+    $h.AppPublisherURL  = & $str
+    if ($dataVersion -ge (& $mk 5 1 13)) { $h.AppSupportPhone = & $str }
+    $h.AppSupportURL    = & $str
+    $h.AppUpdatesURL    = & $str
+    $h.AppVersion       = & $str
+    $h.DefaultDirName   = & $str
+    $h.DefaultGroupName = & $str
+    $h.BaseFilename     = & $str
+    if ($dataVersion -lt (& $mk 5 2 5)) { $null = & $str -Ansi; $null = & $str -Ansi; $null = & $str -Ansi }
+    $h.UninstallFilesDir     = & $str
+    $h.UninstallDisplayName  = & $str
+    $h.UninstallDisplayIcon  = & $str
+    $h.AppMutex              = & $str
+    $h.DefaultUserInfoName   = & $str
+    $h.DefaultUserInfoOrg    = & $str
+    $h.DefaultUserInfoSerial = & $str
+    if ($dataVersion -lt (& $mk 5 2 5)) { $null = & $str -Binary }
+    $h.AppReadmeFile  = & $str
+    $h.AppContact     = & $str
+    $h.AppComments    = & $str
+    $h.AppModifyPath  = & $str
+    if ($dataVersion -ge (& $mk 5 3 8))  { $h.CreateUninstallRegKey = & $str }
+    if ($dataVersion -ge (& $mk 5 3 10)) { $h.Uninstallable = & $str }
+    if ($dataVersion -ge (& $mk 5 5 0))  { $h.CloseApplicationsFilter = & $str }
+    if ($dataVersion -ge (& $mk 5 5 6))  { $h.SetupMutex = & $str }
+    if ($dataVersion -ge (& $mk 5 6 1))  { $h.ChangesEnvironment = & $str; $h.ChangesAssociations = & $str }
+    if ($dataVersion -ge (& $mk 6 3 0))  { $h.ArchitecturesAllowed = & $str; $h.ArchitecturesInstallIn64BitMode = & $str }
+    if ($dataVersion -ge (& $mk 6 4 2))  { $h.CloseApplicationsFilterExcludes = & $str }
+    if ($dataVersion -ge (& $mk 6 5 0))  { $h.SevenZipLibraryName = & $str }
+    if ($dataVersion -ge (& $mk 6 7 0))  { $h.UsePreviousAppDir = & $str; $null = & $str; $null = & $str; $null = & $str; $null = & $str }
+    if ($dataVersion -ge (& $mk 5 2 5))  { $null = & $str -Ansi; $null = & $str -Ansi; $null = & $str -Ansi }
+    if ($dataVersion -ge (& $mk 5 2 1) -and $dataVersion -lt (& $mk 5 3 10)) { $null = & $str -Binary }
+    if ($dataVersion -ge (& $mk 5 2 5))  { $null = & $str -Binary }
+    $h.StringsEnd = $state.Pos
+
+    $h.FixedDecoded = $false
+    $h.FixedNote = ''
+    if ($dataVersion -lt (& $mk 5 0 0)) { $h.FixedNote = 'Fixed header fields are not read for data version ' + $Version.Text + '.'; return $h }
+
+    if (-not $Version.Unicode) { & $skip 32 }
+    $countNames = @('NumLanguageEntries', 'NumCustomMessageEntries', 'NumPermissionEntries', 'NumTypeEntries', 'NumComponentEntries', 'NumTaskEntries', 'NumDirEntries')
+    if ($dataVersion -ge (& $mk 6 5 0)) { $countNames += 'NumISSigKeyEntries' }
+    $countNames += @('NumFileEntries', 'NumFileLocationEntries', 'NumIconEntries', 'NumIniEntries', 'NumRegistryEntries', 'NumInstallDeleteEntries', 'NumUninstallDeleteEntries', 'NumRunEntries', 'NumUninstallRunEntries')
+    foreach ($name in $countNames) { $h[$name] = & $i32 }
+    if ($dataVersion -ge (& $mk 7 0 0)) { $null = & $u32 }
+
+    # MinVersion / OnlyBelowVersion: WinVersion (build u16, minor u8, major u8), NTVersion (same), NTServicePack (minor u8, major u8).
+    & $need 20
+    $h.MinWindowsVersion = '{0}.{1}.{2}' -f $Data[$state.Pos + 7], $Data[$state.Pos + 6], [BitConverter]::ToUInt16($Data, $state.Pos + 4)
+    & $skip 20
+
+    if ($dataVersion -lt (& $mk 6 4 0 1)) { & $skip 8 }
+    if ($dataVersion -lt (& $mk 5 5 7)) { & $skip 4 }
+    if ($dataVersion -ge (& $mk 2 0 0) -and $dataVersion -lt (& $mk 5 0 4)) { & $skip 4 }
+    $wizardStyle = 0; $darkStyle = 0; $lightStyling = 0
+    if ($dataVersion -ge (& $mk 6 0 0) -and $dataVersion -lt (& $mk 6 6 0)) { $wizardStyle = & $u8 }
+    if ($dataVersion -ge (& $mk 6 0 0)) { & $skip 8 }
+    if ($dataVersion -ge (& $mk 6 6 0)) { $darkStyle = & $u8 }
+    $alpha = 0
+    if ($dataVersion -ge (& $mk 5 5 7)) { $alpha = & $u8 }
+    if ($dataVersion -ge (& $mk 6 5 2) -and $dataVersion -lt (& $mk 6 6 0)) { & $skip 8 }
+    if ($dataVersion -ge (& $mk 6 6 0) -and $dataVersion -lt (& $mk 6 7 0)) { & $skip 16 }
+    if ($dataVersion -ge (& $mk 6 6 1) -and $dataVersion -lt (& $mk 6 7 0)) { & $skip 1 }
+    if ($dataVersion -ge (& $mk 6 7 0)) { & $skip 26; $lightStyling = & $u8 }
+    if ($dataVersion -ge (& $mk 6 5 0)) { }
+    elseif ($dataVersion -ge (& $mk 6 4 0)) { & $skip 48 }
+    elseif ($dataVersion -ge (& $mk 5 3 9)) { & $skip 28 }
+    elseif ($dataVersion -ge (& $mk 4 2 2)) { & $skip 24 }
+    else { & $skip 16 }
+    & $skip 8
+    $slices = & $i32
+    $logMode = & $u8
+    $dirExists = & $u8
+    $privileges = & $u8
+    $overrides = 0
+    if ($dataVersion -ge (& $mk 5 7 0)) { $overrides = & $u8 }
+    $showLang = & $u8
+    $langDetect = & $u8
+    $compress = & $u8
+    $archAllowedFlags = 0; $arch64Flags = 0
+    if ($dataVersion -ge (& $mk 5 1 0) -and $dataVersion -lt (& $mk 6 3 0)) { $archAllowedFlags = & $u8; $arch64Flags = & $u8 }
+    if ($dataVersion -ge (& $mk 5 2 1) -and $dataVersion -lt (& $mk 5 3 10)) { & $skip 8 }
+    $disableDir = 0; $disableGroup = 0
+    if ($dataVersion -ge (& $mk 5 3 3)) { $disableDir = & $u8; $disableGroup = & $u8 }
+
+    $sane = ($privileges -le 3) -and ($overrides -le 3) -and ($logMode -le 2) -and ($dirExists -le 2) -and
+            ($showLang -le 2) -and ($langDetect -le 2) -and ($compress -le 4) -and ($wizardStyle -le 1) -and
+            ($darkStyle -le 2) -and ($alpha -le 2) -and ($lightStyling -le 2) -and ($disableDir -le 2) -and ($disableGroup -le 2) -and
+            ($slices -ge 1 -and $slices -le 100000) -and ($h.NumLanguageEntries -ge 1 -and $h.NumLanguageEntries -le 1000) -and
+            ($h.NumFileEntries -ge 0 -and $h.NumFileEntries -le 10000000)
+    if (-not $sane) {
+        $h.FixedNote = 'Fixed header fields of data version ' + $Version.Text + ' did not validate; PrivilegesRequired and install mode are not reported.'
+        return $h
+    }
+
+    $h.FixedDecoded = $true
+    $h.PrivilegesRequired = $script:InnoPrivilegesNames[$privileges]
+    $overrideNames = @()
+    if ($overrides -band 1) { $overrideNames += 'commandline' }
+    if ($overrides -band 2) { $overrideNames += 'dialog' }
+    $h.PrivilegesRequiredOverridesAllowed = $overrideNames
+    $h.CompressMethod = $script:InnoCompressionNames[$compress]
+    $h.SlicesPerDisk = $slices
+    if ($dataVersion -lt (& $mk 6 3 0)) {
+        # Flag bits follow TSetupProcessorArchitecture: unknown, x86, x64, ia64 (arm32 in 6.x), arm64.
+        $archNames = @('unknown', 'x86', 'x64', 'ia64', 'arm64')
+        $toNames = { param($flags) $out = @(); for ($i = 0; $i -lt 5; $i++) { if ($flags -band (1 -shl $i)) { $out += $archNames[$i] } }; ($out -join ' ') }
+        $h.ArchitecturesAllowed = & $toNames $archAllowedFlags
+        $h.ArchitecturesInstallIn64BitMode = & $toNames $arch64Flags
+    }
+    return $h
+}
+
+function ConvertTo-InnoWindowsPath {
+    <#
+    .SYNOPSIS
+        Rewrites Inno Setup directory constants into Windows environment
+        form for the context a deployment runs in.
+    .DESCRIPTION
+        {autopf} and the other auto* constants follow the install mode
+        (PerUser -> the user's Programs folder, otherwise the common one),
+        and Program Files resolves to the 64-bit or 32-bit folder from
+        Is64BitMode. {app} expands to AppDir when given. A path that keeps
+        a run-time constant ({code:...}, {param:...}, {reg:...}) is returned
+        with the constant intact so callers can tell it is unresolved.
+    #>
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Path,
+        [bool]$Is64BitMode = $true,
+        [bool]$PerUser = $false,
+        [string]$AppDir = ''
+    )
+    if ([string]::IsNullOrEmpty($Path)) { return '' }
+
+    $pf   = if ($Is64BitMode) { '%ProgramFiles%' } else { '%ProgramFiles(x86)%' }
+    $cf   = if ($Is64BitMode) { '%CommonProgramFiles%' } else { '%CommonProgramFiles(x86)%' }
+    $userPf = '%LOCALAPPDATA%\Programs'
+    $userCf = '%LOCALAPPDATA%\Programs\Common'
+    $map = @{
+        'autopf'        = $(if ($PerUser) { $userPf } else { $pf })
+        'autopf32'      = $(if ($PerUser) { $userPf } else { '%ProgramFiles(x86)%' })
+        'autopf64'      = $(if ($PerUser) { $userPf } else { '%ProgramFiles%' })
+        'autocf'        = $(if ($PerUser) { $userCf } else { $cf })
+        'autocf32'      = $(if ($PerUser) { $userCf } else { '%CommonProgramFiles(x86)%' })
+        'autocf64'      = $(if ($PerUser) { $userCf } else { '%CommonProgramFiles%' })
+        'pf'            = $pf
+        'commonpf'      = $pf
+        'pf32'          = '%ProgramFiles(x86)%'
+        'commonpf32'    = '%ProgramFiles(x86)%'
+        'pf64'          = '%ProgramFiles%'
+        'commonpf64'    = '%ProgramFiles%'
+        'cf'            = $cf
+        'commoncf'      = $cf
+        'cf32'          = '%CommonProgramFiles(x86)%'
+        'commoncf32'    = '%CommonProgramFiles(x86)%'
+        'cf64'          = '%CommonProgramFiles%'
+        'commoncf64'    = '%CommonProgramFiles%'
+        'userpf'        = $userPf
+        'usercf'        = $userCf
+        'localappdata'  = '%LOCALAPPDATA%'
+        'userappdata'   = '%APPDATA%'
+        'commonappdata' = '%ProgramData%'
+        'autoappdata'   = $(if ($PerUser) { '%APPDATA%' } else { '%ProgramData%' })
+        'userdocs'      = '%USERPROFILE%\Documents'
+        'commondocs'    = '%PUBLIC%\Documents'
+        'autodocs'      = $(if ($PerUser) { '%USERPROFILE%\Documents' } else { '%PUBLIC%\Documents' })
+        'userdesktop'   = '%USERPROFILE%\Desktop'
+        'commondesktop' = '%PUBLIC%\Desktop'
+        'autodesktop'   = $(if ($PerUser) { '%USERPROFILE%\Desktop' } else { '%PUBLIC%\Desktop' })
+        'userprograms'  = '%APPDATA%\Microsoft\Windows\Start Menu\Programs'
+        'commonprograms' = '%ProgramData%\Microsoft\Windows\Start Menu\Programs'
+        'autoprograms'  = $(if ($PerUser) { '%APPDATA%\Microsoft\Windows\Start Menu\Programs' } else { '%ProgramData%\Microsoft\Windows\Start Menu\Programs' })
+        'sd'            = '%SystemDrive%'
+        'win'           = '%SystemRoot%'
+        'sys'           = '%SystemRoot%\System32'
+        'sysnative'     = '%SystemRoot%\System32'
+        'syswow64'      = '%SystemRoot%\SysWOW64'
+        'tmp'           = '%TEMP%'
+        'fonts'         = '%SystemRoot%\Fonts'
+        'usercf64'      = $userCf
+    }
+
+    # "{{" is the escape for a literal brace and must survive expansion.
+    $braceMark = [string][char]1
+    $text = $Path.Replace('{{', $braceMark)
+    if ($AppDir) { $text = [regex]::Replace($text, '(?i)\{app\}', { param($m) $AppDir }.GetNewClosure()) }
+    $text = [regex]::Replace($text, '\{%([^}|]+)(?:\|[^}]*)?\}', { param($m) '%' + $m.Groups[1].Value + '%' })
+    $text = [regex]::Replace($text, '\{([A-Za-z0-9]+)\}', {
+        param($m)
+        $key = $m.Groups[1].Value.ToLowerInvariant()
+        if ($map.ContainsKey($key)) { $map[$key] } else { $m.Value }
+    }.GetNewClosure())
+    return $text.Replace($braceMark, '{')
+}
+
+function Get-InnoSetupMetadata {
+    <#
+    .SYNOPSIS
+        Extracts AppId, version, install directory, install mode and the
+        Add/Remove Programs registration from an Inno Setup installer's
+        compiled [Setup] header.
+    .DESCRIPTION
+        Returns a PackageMetadata-shaped object. UninstallRegistryKey is
+        <AppId>_is1 under HKLM (WOW6432Node when the setup does not install
+        in 64-bit mode) or under HKCU for PrivilegesRequired=lowest.
+        InstallDirWindows is DefaultDirName in environment-variable form;
+        SilentUninstallCommand names unins000.exe in the uninstall files
+        directory, the name Inno Setup gives the first uninstaller written
+        there. Fields that stay in Inno constant notation were not
+        resolvable before install.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Returns one metadata object for one installer.')]
+    param([Parameter(Mandatory)][string]$Path)
+
+    $meta = [pscustomobject]@{
+        Format                  = 'InnoSetup'
+        HeaderAvailable         = $false
+        DataVersion             = ''
+        Compression             = ''
+        AppId                   = ''
+        AppName                 = ''
+        AppVersion              = ''
+        DisplayName             = ''
+        DisplayVersion          = ''
+        Publisher               = ''
+        ArpDisplayName          = ''
+        DefaultDirName          = ''
+        InstallDir              = ''
+        InstallDirWindows       = ''
+        UninstallFilesDir       = ''
+        UninstallerPath         = ''
+        UninstallerPathWindows  = ''
+        SilentUninstallCommand  = ''
+        UninstallRegistryKey    = ''
+        UninstallRegistryKeyNote = ''
+        RegistryHive            = ''
+        RegistryView            = ''
+        ArpValues               = @{}
+        PrivilegesRequired      = ''
+        PrivilegesRequiredOverridesAllowed = @()
+        ArchitecturesAllowed    = ''
+        ArchitecturesInstallIn64BitMode = ''
+        Is64BitInstallMode      = $false
+        CreateUninstallRegKey   = ''
+        Uninstallable           = ''
+        MinWindowsVersion       = ''
+        RequestedExecutionLevel = ''
+        InstallContext          = ''
+        Note                    = ''
+    }
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { $meta.Note = 'Installer not found: ' + $Path; return $meta }
+    $meta.RequestedExecutionLevel = Get-PeRequestedExecutionLevel -Path $Path
+
+    $offsets = Get-InnoLoaderOffsets -Path $Path
+    if (-not $offsets) { $meta.Note = 'SetupLdr offset table not found.'; return $meta }
+
+    $header = $null
+    $block = $null
+    $decodeNote = ''
+    foreach ($budget in @(1MB, 8MB, 48MB)) {
+        $block = Expand-InnoHeaderBlock -Path $Path -HeaderOffset $offsets.HeaderOffset -MaxOutput $budget
+        if (-not $block -or -not $block.Bytes) { break }
+        try {
+            $header = Read-InnoSetupHeader -Data $block.Bytes -Version $block.Version
+            break
+        }
+        catch [System.IO.EndOfStreamException] {
+            if ($block.Bytes.Length -lt $budget) { $decodeNote = 'Setup header record ends inside the decoded block.'; break }
+        }
+        catch {
+            $decodeNote = 'Setup header record could not be decoded: ' + $_.Exception.Message
+            break
+        }
+    }
+    if ($block) {
+        if ($block.Version) { $meta.DataVersion = $block.Version.Text + $(if ($block.Version.Unicode) { ' (Unicode)' } else { ' (ANSI)' }) }
+        $meta.Compression = $block.Compression
+    }
+    if (-not $header) {
+        $meta.Note = if ($block -and $block.Note) { $block.Note } elseif ($decodeNote) { $decodeNote } else { 'Setup header record could not be decoded.' }
+        return $meta
+    }
+
+    $meta.HeaderAvailable = $true
+    $meta.AppId          = [string]$header.AppId
+    $meta.AppName        = [string]$header.AppName
+    $meta.AppVersion     = [string]$header.AppVersion
+    $meta.DisplayName    = ([string]$header.AppName).Trim()
+    $meta.DisplayVersion = ([string]$header.AppVersion).Trim()
+    $meta.Publisher      = ([string]$header.AppPublisher).Trim()
+    $meta.DefaultDirName = [string]$header.DefaultDirName
+    $meta.UninstallFilesDir = [string]$header.UninstallFilesDir
+    $meta.CreateUninstallRegKey = [string]$header.CreateUninstallRegKey
+    $meta.Uninstallable  = [string]$header.Uninstallable
+    $meta.MinWindowsVersion = [string]$header.MinWindowsVersion
+    if ($header.Contains('ArchitecturesAllowed')) { $meta.ArchitecturesAllowed = [string]$header.ArchitecturesAllowed }
+    if ($header.Contains('ArchitecturesInstallIn64BitMode')) { $meta.ArchitecturesInstallIn64BitMode = [string]$header.ArchitecturesInstallIn64BitMode }
+    if ($header.FixedDecoded) {
+        $meta.PrivilegesRequired = [string]$header.PrivilegesRequired
+        $meta.PrivilegesRequiredOverridesAllowed = @($header.PrivilegesRequiredOverridesAllowed)
+        if ($header.CompressMethod) { $meta.Compression = $block.Compression + ' (files: ' + $header.CompressMethod + ')' }
+    }
+    elseif ($header.FixedNote) { $meta.Note = [string]$header.FixedNote }
+
+    # 64-bit install mode on an x64 host: an expression naming x64 (6.3+)
+    # or the x64 flag (older). The ARP key and Program Files folder follow it.
+    $arch64 = $meta.ArchitecturesInstallIn64BitMode
+    $meta.Is64BitInstallMode = [bool]($arch64 -match '(?i)(?<!not\s+)\b(x64compatible|x64os|x64|win64)\b')
+
+    $perUser = ($meta.PrivilegesRequired -eq 'lowest')
+    $meta.InstallContext = if ($header.FixedDecoded) { if ($perUser) { 'PerUser' } else { 'PerMachine' } } else { '' }
+    if (-not $header.FixedDecoded -and $meta.DefaultDirName -match '(?i)^\{(localappdata|userappdata|userpf|usercf|userdocs|userdesktop|userprograms)\}') {
+        $perUser = $true
+        $meta.InstallContext = 'PerUser'
+    }
+
+    $meta.InstallDir = $meta.DefaultDirName
+    $installDirWindows = ConvertTo-InnoWindowsPath -Path $meta.DefaultDirName -Is64BitMode $meta.Is64BitInstallMode -PerUser $perUser
+    $installDirResolved = ($installDirWindows -notmatch '\{') -and ($installDirWindows -match '^(%[^%]+%|[A-Za-z]:\\)')
+    $meta.InstallDirWindows = $installDirWindows
+
+    $uninstallDir = if ($meta.UninstallFilesDir) { $meta.UninstallFilesDir } else { '{app}' }
+    $meta.UninstallerPath = $uninstallDir.TrimEnd('\') + '\unins000.exe'
+    if ($installDirResolved) {
+        $uninstallerWindows = ConvertTo-InnoWindowsPath -Path $meta.UninstallerPath -Is64BitMode $meta.Is64BitInstallMode -PerUser $perUser -AppDir $installDirWindows
+        if ($uninstallerWindows -notmatch '\{') {
+            $meta.UninstallerPathWindows = $uninstallerWindows
+            $meta.SilentUninstallCommand = '"' + $uninstallerWindows + '" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART'
+        }
+    }
+    if ($meta.Uninstallable -match '^(?i)no$') {
+        $meta.SilentUninstallCommand = ''
+        $meta.UninstallerPath = ''
+        $meta.UninstallerPathWindows = ''
+    }
+
+    # AppId written as "{{GUID}" in the script is stored with the brace
+    # escape; the key name carries the literal brace.
+    $braceMark = [string][char]1
+    $appIdLiteral = $meta.AppId.Replace('{{', $braceMark)
+    if ($appIdLiteral -match '\{') {
+        $meta.UninstallRegistryKeyNote = 'AppId is computed at run time: ' + $meta.AppId
+    }
+    elseif ($meta.CreateUninstallRegKey -match '^(?i)no$') {
+        $meta.UninstallRegistryKeyNote = 'CreateUninstallRegKey=no: the setup writes no Add/Remove Programs entry.'
+    }
+    elseif ($appIdLiteral) {
+        $keyName = $appIdLiteral.Replace($braceMark, '{') + '_is1'
+        if ($perUser) {
+            $meta.RegistryHive = 'HKCU'
+            $meta.RegistryView = ''
+            $meta.UninstallRegistryKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\' + $keyName
+            $meta.UninstallRegistryKeyNote = 'PrivilegesRequired=lowest: per-user registration under HKCU; detection and uninstall must run in the user context.'
+        }
+        else {
+            $meta.RegistryHive = 'HKLM'
+            $meta.RegistryView = if ($meta.Is64BitInstallMode) { '64' } else { '32' }
+            if ($meta.Is64BitInstallMode) {
+                $meta.UninstallRegistryKey = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\' + $keyName
+            }
+            else {
+                $meta.UninstallRegistryKey = 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\' + $keyName
+                $meta.UninstallRegistryKeyNote = 'Setup does not install in 64-bit mode: the key lands under WOW6432Node on x64 Windows.'
+            }
+        }
+        if ($header.FixedDecoded -and @($meta.PrivilegesRequiredOverridesAllowed).Count -gt 0) {
+            $meta.UninstallRegistryKeyNote = ($meta.UninstallRegistryKeyNote + ' PrivilegesRequiredOverridesAllowed=' + ($meta.PrivilegesRequiredOverridesAllowed -join ',') + ': /ALLUSERS and /CURRENTUSER switch the install mode and the hive.').Trim()
+        }
+    }
+
+    # Programs and Features shows UninstallDisplayName when set, otherwise
+    # AppVerName; both are ExpandConst'd at install time.
+    $arpName = if ($header.UninstallDisplayName) { [string]$header.UninstallDisplayName } elseif ($header.AppVerName) { [string]$header.AppVerName } else { ([string]$header.AppName + ' version ' + [string]$header.AppVersion).Trim() }
+    $meta.ArpDisplayName = $arpName
+    $arp = @{}
+    $arp['DisplayName']    = $arpName
+    if ($meta.DisplayVersion) { $arp['DisplayVersion'] = $meta.DisplayVersion }
+    if ($meta.Publisher)      { $arp['Publisher'] = $meta.Publisher }
+    if ($header.AppPublisherURL) { $arp['URLInfoAbout'] = [string]$header.AppPublisherURL }
+    if ($header.AppUpdatesURL)   { $arp['URLUpdateInfo'] = [string]$header.AppUpdatesURL }
+    if ($header.AppSupportURL)   { $arp['HelpLink'] = [string]$header.AppSupportURL }
+    if ($installDirResolved)     { $arp['InstallLocation'] = $installDirWindows.TrimEnd('\') + '\' }
+    if ($meta.UninstallerPathWindows) {
+        $arp['UninstallString'] = '"' + $meta.UninstallerPathWindows + '"'
+        $arp['QuietUninstallString'] = '"' + $meta.UninstallerPathWindows + '" /SILENT'
+    }
+    $meta.ArpValues = $arp
+
+    if (-not $installDirResolved -and $meta.DefaultDirName) {
+        $meta.Note = ('Install directory is not resolvable before install: ' + $meta.DefaultDirName + $(if ($meta.Note) { ' ' + $meta.Note } else { '' })).Trim()
+    }
+    return $meta
+}
+
 function Get-PackageMetadataFor {
     <#
     .SYNOPSIS
@@ -2612,6 +3353,7 @@ function Get-PackageMetadataFor {
         'WixBurn'    { return Get-WixBurnMetadata    -Path $Path }
         'MSP'        { return Get-MspMetadata        -Path $Path }
         'NSIS'       { return Get-NsisMetadata       -Path $Path }
+        'InnoSetup'  { return Get-InnoSetupMetadata  -Path $Path }
         default      { return $null }
     }
 }
@@ -2730,6 +3472,19 @@ function Get-UninstallRegistryKey {
         }
 
         'InnoSetup' {
+            # The compiled [Setup] header names AppId, PrivilegesRequired and
+            # the 64-bit install mode outright (Get-InnoSetupMetadata).
+            if ($PackageMetadata -and $PackageMetadata.PSObject.Properties['HeaderAvailable'] -and $PackageMetadata.HeaderAvailable -and
+                $PackageMetadata.PSObject.Properties['UninstallRegistryKey'] -and $PackageMetadata.UninstallRegistryKey) {
+                $hive = if ($PackageMetadata.PSObject.Properties['RegistryHive'] -and $PackageMetadata.RegistryHive) { [string]$PackageMetadata.RegistryHive } else { 'HKLM' }
+                $note = if ($PackageMetadata.PSObject.Properties['UninstallRegistryKeyNote']) { [string]$PackageMetadata.UninstallRegistryKeyNote } else { '' }
+                if (-not $note) { $note = 'Key is AppId + "_is1" from the compiled [Setup] header.' }
+                return [PSCustomObject]@{ Path = [string]$PackageMetadata.UninstallRegistryKey; Hive = $hive; Note = $note }
+            }
+            if ($PackageMetadata -and $PackageMetadata.PSObject.Properties['HeaderAvailable'] -and $PackageMetadata.HeaderAvailable -and
+                $PackageMetadata.PSObject.Properties['UninstallRegistryKeyNote'] -and $PackageMetadata.UninstallRegistryKeyNote) {
+                return [PSCustomObject]@{ Path = ''; Hive = ''; Note = [string]$PackageMetadata.UninstallRegistryKeyNote }
+            }
             $appId = if ($DeploymentFields -and $DeploymentFields.DisplayName) { [string]$DeploymentFields.DisplayName } else { '' }
             if (-not $appId) { return $null }
             return [PSCustomObject]@{
@@ -4076,7 +4831,15 @@ function New-AnalysisSummaryText {
         "Signed:       $($FileInfo.SignatureStatus)$(if ($FileInfo.SignerSubject) { " ($($FileInfo.SignerSubject))" })"
     )
     if ($FileInfo.PSObject.Properties['RequestedExecutionLevel'] -and $FileInfo.RequestedExecutionLevel) {
-        $lines += "Elevation:    $($FileInfo.RequestedExecutionLevel) (manifest requestedExecutionLevel)"
+        $elevation = "Elevation:    $($FileInfo.RequestedExecutionLevel) (manifest requestedExecutionLevel)"
+        # An Inno Setup stub is asInvoker and elevates itself at run time
+        # according to PrivilegesRequired, so the manifest alone says nothing
+        # about the install context.
+        if ($PackageMetadata -and $PackageMetadata.PSObject.Properties['Format'] -and $PackageMetadata.Format -eq 'InnoSetup' -and
+            $PackageMetadata.PSObject.Properties['PrivilegesRequired'] -and $PackageMetadata.PrivilegesRequired) {
+            $elevation += "; setup elevates itself for PrivilegesRequired=$($PackageMetadata.PrivilegesRequired)"
+        }
+        $lines += $elevation
     }
 
     # SilentInstall is computed the same way ConvertTo-DeploymentJson does it:
@@ -4367,6 +5130,32 @@ function New-AnalysisSummaryText {
                         $arpNames = @($pkg.ArpValues.Keys | Sort-Object)
                         $lines += "  ARP values:    $($arpNames -join ', ')"
                     }
+                    if ($pkg.Note) { $lines += "  Note:          $($pkg.Note)" }
+                }
+                $hasAnyPkg = $true
+            }
+            'InnoSetup' {
+                $lines += ""; $lines += "Package Metadata (Inno Setup compiled [Setup] header):"
+                if (-not $pkg.HeaderAvailable) {
+                    $lines += "  Header:        not decoded$(if ($pkg.Note) { " ($($pkg.Note))" })"
+                }
+                else {
+                    $lines += "  Setup data:    $($pkg.DataVersion)$(if ($pkg.Compression) { ", $($pkg.Compression)" })"
+                    if ($pkg.AppId)             { $lines += "  AppId:         $($pkg.AppId)" }
+                    if ($pkg.AppName)           { $lines += "  AppName:       $($pkg.AppName)$(if ($pkg.AppVersion) { "  (AppVersion $($pkg.AppVersion))" })" }
+                    if ($pkg.ArpDisplayName -and $pkg.ArpDisplayName -ne $pkg.AppName) { $lines += "  ARP name:      $($pkg.ArpDisplayName)" }
+                    if ($pkg.DefaultDirName)    { $lines += "  DefaultDirName: $($pkg.DefaultDirName)$(if ($pkg.InstallDirWindows -and $pkg.InstallDirWindows -ne $pkg.DefaultDirName) { "  ->  $($pkg.InstallDirWindows)" })" }
+                    if ($pkg.UninstallerPath)   { $lines += "  Uninstaller:   $($pkg.UninstallerPath)$(if ($pkg.UninstallerPathWindows -and $pkg.UninstallerPathWindows -ne $pkg.UninstallerPath) { "  ->  $($pkg.UninstallerPathWindows)" })" }
+                    if ($pkg.PrivilegesRequired) {
+                        $overrides = @($pkg.PrivilegesRequiredOverridesAllowed)
+                        $lines += "  Privileges:    $($pkg.PrivilegesRequired)$(if ($overrides.Count -gt 0) { " (overrides allowed: $($overrides -join ', '))" })"
+                    }
+                    $lines += "  64-bit mode:   $(if ($pkg.ArchitecturesInstallIn64BitMode) { $pkg.ArchitecturesInstallIn64BitMode } else { 'no' })$(if ($pkg.Is64BitInstallMode) { ' (x64 host installs 64-bit)' })"
+                    if ($pkg.MinWindowsVersion) { $lines += "  MinVersion:    $($pkg.MinWindowsVersion)" }
+                    if ($pkg.RegistryHive)      { $lines += "  ARP hive:      $($pkg.RegistryHive)$(if ($pkg.RegistryView) { " ($($pkg.RegistryView)-bit view)" })" }
+                    if ($pkg.InstallContext)    { $lines += "  Install context: $($pkg.InstallContext)" }
+                    if ($pkg.CreateUninstallRegKey -and $pkg.CreateUninstallRegKey -notmatch '^(?i)yes$') { $lines += "  CreateUninstallRegKey: $($pkg.CreateUninstallRegKey)" }
+                    if ($pkg.Uninstallable -and $pkg.Uninstallable -notmatch '^(?i)yes$') { $lines += "  Uninstallable: $($pkg.Uninstallable)" }
                     if ($pkg.Note) { $lines += "  Note:          $($pkg.Note)" }
                 }
                 $hasAnyPkg = $true

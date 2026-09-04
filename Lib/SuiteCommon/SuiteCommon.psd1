@@ -1,6 +1,6 @@
 @{
     RootModule        = 'SuiteCommon.psm1'
-    ModuleVersion     = '0.3.2'
+    ModuleVersion = '0.4.3'
     GUID              = '7c1f2a9e-4b3d-4f8a-9c6e-2d5b8e1a7f40'
     Author            = 'Jason Ulbright'
     Description       = 'Shared core for the MECM tool suite: logging, CM site connection, settings persistence, window chrome, theming, dialogs.'
@@ -26,6 +26,7 @@
 
         # Identity
         'Get-SuiteCommonVersion'
+        'Repair-WindowsPowerShellModulePath'
 
         # Window chrome
         'Get-TitleBarDragHeight'

@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.5.1.0
+    Version    : 1.5.1.1
     Updated    : 2026-09-04
 #>
 
@@ -56,21 +56,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# A Windows PowerShell process launched from PowerShell 7 inherits the 7.x
-# module directories at the front of PSModulePath. The launching runspace
-# copes, but every runspace opened later in this process and every child
-# powershell.exe autoloads Microsoft.PowerShell.Utility from the 7.x manifest,
-# which carries no Get-FileHash / ConvertFrom-Json in 5.1. Strip those roots
-# from the process environment once, before any runspace or child starts.
-$__winPsModules = Join-Path $PSHOME 'Modules'
-$__moduleRoots = @($env:PSModulePath -split ';' | Where-Object { $_ -and $_ -notmatch '(?i)[\\/]PowerShell[\\/](7[\\/]|Modules)|microsoft\.powershell_' })
-if ($__moduleRoots -notcontains $__winPsModules) { $__moduleRoots = @($__winPsModules) + $__moduleRoots }
-$env:PSModulePath = ($__moduleRoots -join ';')
-
 # =============================================================================
 # Assembly loading (must happen before XAML parse)
 # =============================================================================
 # AppPackagerCommon is imported unconditionally -- both modes need its helpers.
+# Its SuiteCommon import repairs the process PSModulePath (PowerShell 7 module
+# roots inherited from the launching shell) before any runspace or child
+# powershell.exe starts.
 Import-Module (Join-Path $PSScriptRoot 'Packagers\AppPackagerCommon.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
 if (-not $BatchMode) {

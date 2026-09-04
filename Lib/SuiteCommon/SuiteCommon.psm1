@@ -32,6 +32,45 @@ $script:ConnectedSMSProvider   = $null
 $script:ConnectedAt            = $null
 
 # ---------------------------------------------------------------------------
+# Host environment
+# ---------------------------------------------------------------------------
+
+function Repair-WindowsPowerShellModulePath {
+    <#
+    .SYNOPSIS
+        Removes PowerShell 7 module directories from the process PSModulePath.
+
+    .DESCRIPTION
+        A Windows PowerShell process launched from PowerShell 7 inherits the
+        7.x module directories ahead of the 5.1 ones. The launching runspace
+        copes, but every runspace opened later in the process and every child
+        powershell.exe autoloads Microsoft.PowerShell.Utility from the 7.x
+        manifest, which carries no Get-FileHash or ConvertFrom-Json under
+        5.1. The process environment is rewritten once, so anything created
+        afterwards inherits the 5.1 roots. Runs at module load; safe to call
+        again.
+
+    .OUTPUTS
+        [bool] True when the path changed.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Process-environment hygiene at startup; no user-visible state to confirm.')]
+    param()
+
+    $current = [string]$env:PSModulePath
+    $winPsModules = Join-Path $PSHOME 'Modules'
+    $roots = @($current -split ';' | Where-Object { $_ -and $_ -notmatch '(?i)[\\/]PowerShell[\\/](7[\\/]|Modules)|microsoft\.powershell_' })
+    if ($roots -notcontains $winPsModules) { $roots = @($winPsModules) + $roots }
+    $repaired = ($roots -join ';')
+    if ($repaired -eq $current) { return $false }
+    $env:PSModulePath = $repaired
+    return $true
+}
+
+# Import-time repair: consumers import this module before opening any
+# background runspace or child process.
+[void](Repair-WindowsPowerShellModulePath)
+
+# ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 
@@ -1207,6 +1246,8 @@ function New-SuiteBgRunspace {
         [Parameter(Mandatory)][string]$ModulePath,
         [string]$LogPath
     )
+    # The new runspace reads PSModulePath from the process environment.
+    [void](Repair-WindowsPowerShellModulePath)
     $rs = [runspacefactory]::CreateRunspace()
     $rs.ApartmentState = 'STA'
     $rs.ThreadOptions  = 'ReuseThread'
@@ -1221,12 +1262,16 @@ function New-SuiteBgRunspace {
     [void]$initPS.Invoke()
     # A failed bootstrap (bad module path, import error) otherwise surfaces
     # much later as an unrelated "term not recognized" from the first
-    # background operation; name the real cause here.
+    # background operation; name the real cause here and hand back nothing
+    # rather than a runspace whose every operation would fail.
     if ($initPS.HadErrors) {
-        foreach ($e in $initPS.Streams.Error) {
-            Write-Log ("Background runspace initialization error: {0}" -f $e.ToString()) -Level ERROR
-        }
-        Write-Log ("Background runspace initialized with errors (module: {0}); background operations may fail." -f $ModulePath) -Level WARN
+        $messages = @($initPS.Streams.Error | ForEach-Object { $_.ToString() } | Select-Object -Unique)
+        $detail = if ($messages.Count -gt 0) { $messages -join '; ' } else { 'Unknown initialization error' }
+        Write-Log ("Background runspace initialization failed (module: {0}): {1}" -f $ModulePath, $detail) -Level ERROR
+        $initPS.Dispose()
+        try { $rs.Close() } catch { $null = $_ }
+        try { $rs.Dispose() } catch { $null = $_ }
+        throw "Background runspace initialization failed for '$ModulePath': $detail"
     }
     $initPS.Dispose()
     return $rs
