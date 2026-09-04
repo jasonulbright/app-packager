@@ -59,6 +59,14 @@
 - **Deployment Conditions grid squeezed the Application column to a
   sliver** at the Options window width; column widths are sized to their
   headers and the Application column keeps a minimum width.
+- **install.ps1 -ZipPath never verified the checksum.** The working copy
+  was assigned to `$zipPath`, which is the `$ZipPath` parameter under
+  PowerShell's case-insensitive variable names, so the checksums.txt
+  lookup ran against the scratch folder and reported "no checksums.txt
+  beside the zip" on every local install. The working copy has its own
+  name; a checksums.txt beside the zip is verified and a mismatch
+  installs nothing. The completion line names the installed version for
+  local-zip installs, read from the extracted script header.
 - **PowerShell 7 module paths no longer leak into child runspaces.** A
   Windows PowerShell process launched from PowerShell 7 inherits the 7.x
   module directories at the front of PSModulePath; runspaces opened later
