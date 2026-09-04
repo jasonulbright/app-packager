@@ -22,9 +22,9 @@ UpdateCadenceDays: 90
     contractual agreement and therefore has no unauthenticated download URL to
     automate against.
 
-    The installer is an NSIS package installed silently with /S. Its stub is a
-    32-bit executable, so the ARP uninstall key it writes lands in the 32-bit
-    registry view.
+    The installer is an NSIS package installed silently with /S. Its script
+    selects the 64-bit registry view before it writes the ARP uninstall key,
+    so detection reads the 64-bit view.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
@@ -97,8 +97,8 @@ $AppFolder    = "Gpg4win"
 
 $BaseDownloadRoot = Join-Path $DownloadRoot "Gpg4win"
 
-# The ARP key the NSIS installer writes. Its stub is 32-bit and the script does
-# not switch the registry view, so the key lands under WOW6432Node.
+# The ARP key the NSIS installer writes; the script runs SetRegView 64 first,
+# so the key sits in the 64-bit view, not under WOW6432Node.
 $ArpKeyRelative = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Gpg4win"
 
 # --- Functions ---
@@ -224,12 +224,13 @@ function Invoke-StageGpg4win {
         -UninstallCommand 'unused'
 
     # The install directory moved between major versions, so the uninstaller
-    # path is read from the ARP UninstallString rather than assumed. The 32-bit
-    # view is checked first because that is where the 32-bit NSIS stub writes.
+    # path is read from the ARP UninstallString rather than assumed. The 64-bit
+    # view is checked first because that is where the current installer writes;
+    # the WOW6432Node key covers older releases.
     $customUninstall = @'
 $keys = @(
-    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Gpg4win',
-    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Gpg4win'
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Gpg4win',
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Gpg4win'
 )
 $cmd = $null
 foreach ($k in $keys) {
@@ -250,7 +251,7 @@ exit $proc.ExitCode
 
     # --- Write stage manifest ---
     Write-Log ""
-    Write-Log "Detection key                : $ArpKeyRelative (32-bit view)"
+    Write-Log "Detection key                : $ArpKeyRelative (64-bit view)"
     Write-Log "Detection DisplayVersion     : $version"
     Write-Log ""
 
@@ -269,7 +270,7 @@ exit $proc.ExitCode
             RegistryKeyRelative = $ArpKeyRelative
             ValueName           = "DisplayVersion"
             ExpectedValue       = $version
-            Is64Bit             = $false
+            Is64Bit             = $true
         }
     }
 

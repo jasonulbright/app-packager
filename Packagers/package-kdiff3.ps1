@@ -96,6 +96,8 @@ $AppFolder    = "KDiff3"
 
 $BaseDownloadRoot = Join-Path $DownloadRoot "KDiff3"
 $InstallPath      = "{0}\KDiff3" -f $env:ProgramFiles
+# The x86_64 build ships a 32-bit NSIS stub whose .onInit returns to the default
+# registry view before the sections run, so this key lands under WOW6432Node.
 $ArpRegistryKey   = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\KDiff3"
 
 # --- Functions ---
@@ -253,7 +255,7 @@ function Invoke-StageKDiff3 {
             PropertyType        = "Version"
             Operator            = "GreaterEquals"
             ExpectedValue       = $version
-            Is64Bit             = $true
+            Is64Bit             = $false
         }
     }
 
