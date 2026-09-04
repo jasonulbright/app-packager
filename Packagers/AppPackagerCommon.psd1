@@ -100,6 +100,7 @@
 
         # Ad-hoc drop intake
         'Get-InstallerAnalysis'
+        'Set-InstallerAnalysisMode'
         'New-AdHocStage'
         'Invoke-AdHocPackage'
         'New-PackagerFromDrop'

@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.5.1.4] - 2026-09-04
+
+### Added
+
+- **Install mode toggle in the drop preview.** An installer whose script
+  accepts a mode switch (NSIS `/allusers` in electron-builder and
+  MultiUser scripts, Inno Setup `/ALLUSERS` when
+  `PrivilegesRequiredOverridesAllowed` includes the command line) shows
+  an **Install for** row with Current user and All users (system). The
+  default is what the installer does without the switch; choosing the
+  other mode replaces install arguments, uninstall command, install
+  folder, detection key with hive and view, and deployment context from
+  that mode's branch in one step, so the stage never pairs a per-machine
+  install with a per-user uninstall or detection. Installers without a
+  switch show no toggle.
+- **Set-InstallerAnalysisMode** returns a copy of an analysis with every
+  mode-dependent field taken from one branch; the dialog, the stage and
+  the generated starter packager all consume that copy. Get-InstallerAnalysis
+  carries `InstallMode`, `InstallModes` and `ModeVariants` from the
+  vendored installer-analysis module (1.3.2.0).
+
 ## [1.5.1.3] - 2026-09-04
 
 ### Added

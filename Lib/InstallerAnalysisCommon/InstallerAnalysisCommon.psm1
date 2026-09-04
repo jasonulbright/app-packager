@@ -2204,6 +2204,11 @@ function Get-NsisMetadata {
         RequestedExecutionLevel = ''
         ShellVarContext         = 'current'
         InstallContext          = ''
+        InstallMode             = ''
+        InstallModes            = @()
+        AllUsersSwitch          = ''
+        CurrentUserSwitch       = ''
+        ModeVariants            = @{}
         Note                    = ''
     }
 
@@ -2423,6 +2428,7 @@ function Get-NsisMetadata {
     # runs: an installer that ever switches to all users while requesting
     # elevation registers under HKLM.
     $elevates = ($meta.RequestedExecutionLevel -in 'requireAdministrator', 'highestAvailable')
+    $arpRootRaw = $arpRoot
     if ($arpRoot -eq 'SHCTX') { $arpRoot = if ($allUsersSeen -and $elevates) { 'HKLM' } else { 'HKCU' } }
 
     # A compile-time InstallDir that is neither a folder constant nor an
@@ -2457,54 +2463,109 @@ function Get-NsisMetadata {
     $mapAllUsers = $allUsersSeen -and -not ($userFolderChosen -and $resolvedFromCandidate)
     $meta.ShellVarContext = if ($mapAllUsers) { 'all' } else { 'current' }
 
-    $installDirWindows = ConvertTo-NsisWindowsPath -Path $meta.InstallDir -AllUsersContext $mapAllUsers
-    $meta.InstallDirWindows = $installDirWindows
-    $installDirResolved = ($installDirWindows -match '^(%[^%]+%|[A-Za-z]:\\)') -and ($installDirWindows -notmatch '\$')
-    if ($uninstallerPath) {
-        $meta.UninstallerPathWindows = ConvertTo-NsisWindowsPath -Path $uninstallerPath -InstallDir $installDirWindows -AllUsersContext $mapAllUsers
-        if ($installDirResolved -and $meta.UninstallerPathWindows -notmatch '\$') {
-            $meta.SilentUninstallCommand = '"' + $meta.UninstallerPathWindows + '" /S'
-        }
-    }
-    if ($resolvedFromCandidate) {
-        $meta.Note = 'Install directory is assigned at run time; using ' + $meta.InstallDir + ' of ' + (@($instDirAssignments) -join ' | ') + '.'
-    }
-    elseif (-not $installDirResolved -and $meta.InstallDir) {
-        $meta.Note = 'Install directory is not resolvable before install: ' + $meta.InstallDir
-    }
-
     $literal = { param($v) if ($null -ne $v -and ([string]$v) -notmatch '\$') { [string]$v } else { '' } }
     if ($arpValues.ContainsKey('DisplayName'))    { $meta.DisplayName    = (& $literal $arpValues['DisplayName']) }
     if ($arpValues.ContainsKey('DisplayVersion')) { $meta.DisplayVersion = (& $literal $arpValues['DisplayVersion']) }
     if ($arpValues.ContainsKey('Publisher'))      { $meta.Publisher      = (& $literal $arpValues['Publisher']) }
     if (-not $meta.DisplayName -and $meta.Name -and $meta.Name -notmatch '\$') { $meta.DisplayName = $meta.Name }
 
-    if ($arpSubkey) {
-        $meta.RegistryHive = $arpRoot
-        $meta.RegistryView = if ($arpRoot -ne 'HKLM') { '' } elseif ($arpView64) { '64' } else { '32' }
-        $keyName = $arpSubkey
-        if ($keyName -match '\$') {
-            $meta.UninstallRegistryKeyNote = 'ARP key name is computed at run time: ' + $keyName
+    # One install branch resolved end to end: folder, uninstaller, ARP key
+    # and hive, context and the switches that select it. The default branch
+    # follows the elevation model; a switchable installer gets one more
+    # branch per mode switch its script accepts.
+    $resolveBranch = {
+        param([string]$installDir, [bool]$allUsersFolders, [string]$root, [string]$modeSwitch)
+        $b = [ordered]@{
+            InstallDir               = $installDir
+            InstallDirWindows        = ''
+            UninstallerPath          = $uninstallerPath
+            UninstallerPathWindows   = ''
+            InstallArgs              = (('/S ' + $modeSwitch).Trim())
+            SilentUninstallCommand   = ''
+            UninstallRegistryKey     = ''
+            UninstallRegistryKeyNote = ''
+            RegistryHive             = ''
+            RegistryView             = ''
+            InstallContext           = ''
+            Resolved                 = $false
         }
-        else {
-            if ($arpRoot -eq 'HKLM' -and -not $arpView64) {
-                $keyName = $keyName -replace '(?i)^Software\\', 'Software\WOW6432Node\'
-                $meta.UninstallRegistryKeyNote = '32-bit installer without SetRegView 64: the key lands under WOW6432Node on x64 Windows.'
+        $dirWindows = ConvertTo-NsisWindowsPath -Path $installDir -AllUsersContext $allUsersFolders
+        $b.InstallDirWindows = $dirWindows
+        $dirResolved = ($dirWindows -match '^(%[^%]+%|[A-Za-z]:\\)') -and ($dirWindows -notmatch '\$')
+        $b.Resolved = $dirResolved
+        if ($uninstallerPath) {
+            $b.UninstallerPathWindows = ConvertTo-NsisWindowsPath -Path $uninstallerPath -InstallDir $dirWindows -AllUsersContext $allUsersFolders
+            if ($dirResolved -and $b.UninstallerPathWindows -notmatch '\$') {
+                $b.SilentUninstallCommand = '"' + $b.UninstallerPathWindows + '" ' + $b.InstallArgs
             }
-            elseif ($arpRoot -eq 'HKCU') {
-                $meta.UninstallRegistryKeyNote = 'Per-user registration under HKCU; detection and uninstall must run in the user context.'
-            }
-            $meta.UninstallRegistryKey = $arpRoot + ':\' + $keyName
         }
+        if ($arpSubkey) {
+            $b.RegistryHive = $root
+            $b.RegistryView = if ($root -ne 'HKLM') { '' } elseif ($arpView64) { '64' } else { '32' }
+            $keyName = $arpSubkey
+            if ($keyName -match '\$') {
+                $b.UninstallRegistryKeyNote = 'ARP key name is computed at run time: ' + $keyName
+            }
+            else {
+                if ($root -eq 'HKLM' -and -not $arpView64) {
+                    $keyName = $keyName -replace '(?i)^Software\\', 'Software\WOW6432Node\'
+                    $b.UninstallRegistryKeyNote = '32-bit installer without SetRegView 64: the key lands under WOW6432Node on x64 Windows.'
+                }
+                elseif ($root -eq 'HKCU') {
+                    $b.UninstallRegistryKeyNote = 'Per-user registration under HKCU; detection and uninstall must run in the user context.'
+                }
+                if ($root) { $b.UninstallRegistryKey = $root + ':\' + $keyName }
+            }
+        }
+        # Where the files land decides the context: a Program Files target
+        # needs the machine context even when the script registers under HKCU.
+        $userFolder = ($installDir -match '^\$(LOCALAPPDATA|APPDATA|PROFILE|DOCUMENTS|DESKTOP)')
+        if ($installDir -match '^\$(PROGRAMFILES|COMMONFILES)' -or $installDir -match '^[A-Za-z]:\\') { $b.InstallContext = 'PerMachine' }
+        elseif ($userFolder) { $b.InstallContext = 'PerUser' }
+        elseif ($root -eq 'HKCU') { $b.InstallContext = 'PerUser' }
+        elseif ($root -eq 'HKLM' -or $elevates) { $b.InstallContext = 'PerMachine' }
+        elseif ($meta.RequestedExecutionLevel -eq 'asInvoker') { $b.InstallContext = 'PerUser' }
+        return [pscustomobject]$b
     }
 
-    # Where the files land decides the context: a Program Files target needs
-    # the machine context even when the script registers under HKCU.
-    if ($meta.InstallDir -match '^\$(PROGRAMFILES|COMMONFILES)' -or $meta.InstallDir -match '^[A-Za-z]:\\') { $meta.InstallContext = 'PerMachine' }
-    elseif ($userFolderChosen) { $meta.InstallContext = 'PerUser' }
-    elseif ($arpRoot -eq 'HKCU') { $meta.InstallContext = 'PerUser' }
-    elseif ($arpRoot -eq 'HKLM' -or $elevates) { $meta.InstallContext = 'PerMachine' }
-    elseif ($meta.RequestedExecutionLevel -eq 'asInvoker') { $meta.InstallContext = 'PerUser' }
+    $default = & $resolveBranch $meta.InstallDir $mapAllUsers $arpRoot ''
+    foreach ($name in 'InstallDirWindows', 'UninstallerPathWindows', 'SilentUninstallCommand', 'UninstallRegistryKey', 'UninstallRegistryKeyNote', 'RegistryHive', 'RegistryView', 'InstallContext') {
+        $meta.$name = $default.$name
+    }
+    if ($resolvedFromCandidate) {
+        $meta.Note = 'Install directory is assigned at run time; using ' + $meta.InstallDir + ' of ' + (@($instDirAssignments) -join ' | ') + '.'
+    }
+    elseif (-not $default.Resolved -and $meta.InstallDir) {
+        $meta.Note = 'Install directory is not resolvable before install: ' + $meta.InstallDir
+    }
+
+    # Mode switches: electron-builder and MultiUser scripts accept /allusers
+    # and /currentuser (case-insensitive) and keep one StrCpy candidate per
+    # branch. The literal as the script spells it is what gets passed.
+    $allUsersMatch = [regex]::Match($table, '(?i)/allusers')
+    if ($allUsersMatch.Success) { $meta.AllUsersSwitch = $allUsersMatch.Value }
+    $currentUserMatch = [regex]::Match($table, '(?i)/currentuser')
+    if ($currentUserMatch.Success) { $meta.CurrentUserSwitch = $currentUserMatch.Value }
+
+    $defaultMode = if ($meta.InstallContext -eq 'PerMachine') { 'AllUsers' } else { 'CurrentUser' }
+    $meta.InstallMode = $defaultMode
+    $machineDir = @($instDirAssignments | Where-Object { $_ -match '^\$(PROGRAMFILES|COMMONFILES)' }) | Select-Object -First 1
+    if (-not $machineDir -and $meta.InstallDir -match '^\$(PROGRAMFILES|COMMONFILES)') { $machineDir = $meta.InstallDir }
+    $userDir = @($instDirAssignments | Where-Object { $_ -match '^\$(LOCALAPPDATA|APPDATA|PROFILE)' }) | Select-Object -First 1
+    if (-not $userDir -and $userFolderChosen) { $userDir = $meta.InstallDir }
+
+    $variants = @{}
+    $variants[$defaultMode] = $default
+    if ($defaultMode -eq 'CurrentUser' -and $machineDir -and $meta.AllUsersSwitch) {
+        $root = if ($arpRootRaw -eq 'SHCTX') { 'HKLM' } else { $arpRoot }
+        $variants['AllUsers'] = & $resolveBranch $machineDir $true $root $meta.AllUsersSwitch
+    }
+    elseif ($defaultMode -eq 'AllUsers' -and $userDir -and $meta.CurrentUserSwitch) {
+        $root = if ($arpRootRaw -eq 'SHCTX') { 'HKCU' } else { $arpRoot }
+        $variants['CurrentUser'] = & $resolveBranch $userDir $false $root $meta.CurrentUserSwitch
+    }
+    $meta.ModeVariants = $variants
+    $meta.InstallModes = @(@('CurrentUser', 'AllUsers') | Where-Object { $variants.ContainsKey($_) })
 
     return $meta
 }
@@ -3179,6 +3240,11 @@ function Get-InnoSetupMetadata {
         MinWindowsVersion       = ''
         RequestedExecutionLevel = ''
         InstallContext          = ''
+        InstallMode             = ''
+        InstallModes            = @()
+        AllUsersSwitch          = ''
+        CurrentUserSwitch       = ''
+        ModeVariants            = @{}
         Note                    = ''
     }
 
@@ -3249,58 +3315,99 @@ function Get-InnoSetupMetadata {
     }
 
     $meta.InstallDir = $meta.DefaultDirName
-    $installDirWindows = ConvertTo-InnoWindowsPath -Path $meta.DefaultDirName -Is64BitMode $meta.Is64BitInstallMode -PerUser $perUser
-    $installDirResolved = ($installDirWindows -notmatch '\{') -and ($installDirWindows -match '^(%[^%]+%|[A-Za-z]:\\)')
-    $meta.InstallDirWindows = $installDirWindows
-
     $uninstallDir = if ($meta.UninstallFilesDir) { $meta.UninstallFilesDir } else { '{app}' }
     $meta.UninstallerPath = $uninstallDir.TrimEnd('\') + '\unins000.exe'
-    if ($installDirResolved) {
-        $uninstallerWindows = ConvertTo-InnoWindowsPath -Path $meta.UninstallerPath -Is64BitMode $meta.Is64BitInstallMode -PerUser $perUser -AppDir $installDirWindows
-        if ($uninstallerWindows -notmatch '\{') {
-            $meta.UninstallerPathWindows = $uninstallerWindows
-            $meta.SilentUninstallCommand = '"' + $uninstallerWindows + '" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART'
-        }
-    }
-    if ($meta.Uninstallable -match '^(?i)no$') {
-        $meta.SilentUninstallCommand = ''
-        $meta.UninstallerPath = ''
-        $meta.UninstallerPathWindows = ''
-    }
+    $uninstallable = ($meta.Uninstallable -notmatch '^(?i)no$')
+    if (-not $uninstallable) { $meta.UninstallerPath = '' }
 
     # AppId written as "{{GUID}" in the script is stored with the brace
     # escape; the key name carries the literal brace.
     $braceMark = [string][char]1
     $appIdLiteral = $meta.AppId.Replace('{{', $braceMark)
-    if ($appIdLiteral -match '\{') {
-        $meta.UninstallRegistryKeyNote = 'AppId is computed at run time: ' + $meta.AppId
-    }
-    elseif ($meta.CreateUninstallRegKey -match '^(?i)no$') {
-        $meta.UninstallRegistryKeyNote = 'CreateUninstallRegKey=no: the setup writes no Add/Remove Programs entry.'
-    }
-    elseif ($appIdLiteral) {
-        $keyName = $appIdLiteral.Replace($braceMark, '{') + '_is1'
-        if ($perUser) {
-            $meta.RegistryHive = 'HKCU'
-            $meta.RegistryView = ''
-            $meta.UninstallRegistryKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\' + $keyName
-            $meta.UninstallRegistryKeyNote = 'PrivilegesRequired=lowest: per-user registration under HKCU; detection and uninstall must run in the user context.'
+    $keyName = ''
+    $keyNote = ''
+    if ($appIdLiteral -match '\{') { $keyNote = 'AppId is computed at run time: ' + $meta.AppId }
+    elseif ($meta.CreateUninstallRegKey -match '^(?i)no$') { $keyNote = 'CreateUninstallRegKey=no: the setup writes no Add/Remove Programs entry.' }
+    elseif ($appIdLiteral) { $keyName = $appIdLiteral.Replace($braceMark, '{') + '_is1' }
+    $overrides = if ($header.FixedDecoded) { @($meta.PrivilegesRequiredOverridesAllowed) } else { @() }
+    $overrideNote = if ($overrides.Count -gt 0) { 'PrivilegesRequiredOverridesAllowed=' + ($overrides -join ',') + ': /ALLUSERS and /CURRENTUSER switch the install mode and the hive.' } else { '' }
+
+    # One install branch resolved end to end for a per-user or a per-machine
+    # install: {autopf} and the ARP hive follow the mode, the 64-bit view
+    # follows ArchitecturesInstallIn64BitMode.
+    $silentArgs = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART'
+    $resolveBranch = {
+        param([bool]$branchPerUser, [string]$modeSwitch)
+        $b = [ordered]@{
+            InstallDir               = $meta.DefaultDirName
+            InstallDirWindows        = ''
+            UninstallerPath          = $meta.UninstallerPath
+            UninstallerPathWindows   = ''
+            InstallArgs              = (($silentArgs + ' /SP- ' + $modeSwitch).Trim())
+            SilentUninstallCommand   = ''
+            UninstallRegistryKey     = ''
+            UninstallRegistryKeyNote = $keyNote
+            RegistryHive             = ''
+            RegistryView             = ''
+            InstallContext           = $(if ($branchPerUser) { 'PerUser' } else { 'PerMachine' })
+            Resolved                 = $false
         }
-        else {
-            $meta.RegistryHive = 'HKLM'
-            $meta.RegistryView = if ($meta.Is64BitInstallMode) { '64' } else { '32' }
-            if ($meta.Is64BitInstallMode) {
-                $meta.UninstallRegistryKey = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\' + $keyName
+        $dirWindows = ConvertTo-InnoWindowsPath -Path $meta.DefaultDirName -Is64BitMode $meta.Is64BitInstallMode -PerUser $branchPerUser
+        $b.InstallDirWindows = $dirWindows
+        $dirResolved = ($dirWindows -notmatch '\{') -and ($dirWindows -match '^(%[^%]+%|[A-Za-z]:\\)')
+        $b.Resolved = $dirResolved
+        if ($dirResolved -and $uninstallable) {
+            $uninstallerWindows = ConvertTo-InnoWindowsPath -Path $meta.UninstallerPath -Is64BitMode $meta.Is64BitInstallMode -PerUser $branchPerUser -AppDir $dirWindows
+            if ($uninstallerWindows -notmatch '\{') {
+                $b.UninstallerPathWindows = $uninstallerWindows
+                $b.SilentUninstallCommand = '"' + $uninstallerWindows + '" ' + $silentArgs
+            }
+        }
+        if ($keyName) {
+            if ($branchPerUser) {
+                $b.RegistryHive = 'HKCU'
+                $b.UninstallRegistryKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\' + $keyName
+                $b.UninstallRegistryKeyNote = 'Per-user registration under HKCU; detection and uninstall must run in the user context.'
             }
             else {
-                $meta.UninstallRegistryKey = 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\' + $keyName
-                $meta.UninstallRegistryKeyNote = 'Setup does not install in 64-bit mode: the key lands under WOW6432Node on x64 Windows.'
+                $b.RegistryHive = 'HKLM'
+                $b.RegistryView = if ($meta.Is64BitInstallMode) { '64' } else { '32' }
+                if ($meta.Is64BitInstallMode) {
+                    $b.UninstallRegistryKey = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\' + $keyName
+                }
+                else {
+                    $b.UninstallRegistryKey = 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\' + $keyName
+                    $b.UninstallRegistryKeyNote = 'Setup does not install in 64-bit mode: the key lands under WOW6432Node on x64 Windows.'
+                }
             }
+            if ($overrideNote) { $b.UninstallRegistryKeyNote = ($b.UninstallRegistryKeyNote + ' ' + $overrideNote).Trim() }
         }
-        if ($header.FixedDecoded -and @($meta.PrivilegesRequiredOverridesAllowed).Count -gt 0) {
-            $meta.UninstallRegistryKeyNote = ($meta.UninstallRegistryKeyNote + ' PrivilegesRequiredOverridesAllowed=' + ($meta.PrivilegesRequiredOverridesAllowed -join ',') + ': /ALLUSERS and /CURRENTUSER switch the install mode and the hive.').Trim()
-        }
+        return [pscustomobject]$b
     }
+
+    $default = & $resolveBranch $perUser ''
+    foreach ($name in 'InstallDirWindows', 'UninstallerPathWindows', 'SilentUninstallCommand', 'UninstallRegistryKey', 'UninstallRegistryKeyNote', 'RegistryHive', 'RegistryView') {
+        $meta.$name = $default.$name
+    }
+    if ($keyName -and $perUser -and $meta.UninstallRegistryKeyNote) {
+        $meta.UninstallRegistryKeyNote = ($meta.UninstallRegistryKeyNote -replace '^Per-user registration', 'PrivilegesRequired=lowest: per-user registration')
+    }
+    $installDirResolved = $default.Resolved
+
+    # /ALLUSERS and /CURRENTUSER are accepted only when the script allows
+    # the command-line override; the other branch is then a real option.
+    $defaultMode = if ($perUser) { 'CurrentUser' } else { 'AllUsers' }
+    $meta.InstallMode = $defaultMode
+    $variants = @{}
+    $variants[$defaultMode] = $default
+    if ($overrides -contains 'commandline') {
+        $meta.AllUsersSwitch = '/ALLUSERS'
+        $meta.CurrentUserSwitch = '/CURRENTUSER'
+        if ($perUser) { $variants['AllUsers'] = & $resolveBranch $false '/ALLUSERS' }
+        else { $variants['CurrentUser'] = & $resolveBranch $true '/CURRENTUSER' }
+    }
+    $meta.ModeVariants = $variants
+    $meta.InstallModes = @(@('CurrentUser', 'AllUsers') | Where-Object { $variants.ContainsKey($_) })
 
     # Programs and Features shows UninstallDisplayName when set, otherwise
     # AppVerName; both are ExpandConst'd at install time.
@@ -3313,7 +3420,7 @@ function Get-InnoSetupMetadata {
     if ($header.AppPublisherURL) { $arp['URLInfoAbout'] = [string]$header.AppPublisherURL }
     if ($header.AppUpdatesURL)   { $arp['URLUpdateInfo'] = [string]$header.AppUpdatesURL }
     if ($header.AppSupportURL)   { $arp['HelpLink'] = [string]$header.AppSupportURL }
-    if ($installDirResolved)     { $arp['InstallLocation'] = $installDirWindows.TrimEnd('\') + '\' }
+    if ($installDirResolved)     { $arp['InstallLocation'] = $meta.InstallDirWindows.TrimEnd('\') + '\' }
     if ($meta.UninstallerPathWindows) {
         $arp['UninstallString'] = '"' + $meta.UninstallerPathWindows + '"'
         $arp['QuietUninstallString'] = '"' + $meta.UninstallerPathWindows + '" /SILENT'
@@ -5126,6 +5233,10 @@ function New-AnalysisSummaryText {
                     if ($pkg.RegistryHive)      { $lines += "  ARP hive:      $($pkg.RegistryHive)$(if ($pkg.RegistryView) { " ($($pkg.RegistryView)-bit view)" })" }
                     $lines += "  ShellVarContext: $($pkg.ShellVarContext)"
                     if ($pkg.InstallContext)    { $lines += "  Install context: $($pkg.InstallContext)" }
+                    if ($pkg.PSObject.Properties['InstallModes'] -and @($pkg.InstallModes).Count -gt 1) {
+                        $modeText = @($pkg.InstallModes | ForEach-Object { if ($_ -eq $pkg.InstallMode) { $_ + ' (default)' } elseif ($_ -eq 'AllUsers') { $_ + ' via ' + $pkg.AllUsersSwitch } else { $_ + ' via ' + $pkg.CurrentUserSwitch } }) -join ', '
+                        $lines += "  Install modes: $modeText"
+                    }
                     if ($pkg.ArpValues -and $pkg.ArpValues.Count -gt 0) {
                         $arpNames = @($pkg.ArpValues.Keys | Sort-Object)
                         $lines += "  ARP values:    $($arpNames -join ', ')"
@@ -5154,6 +5265,10 @@ function New-AnalysisSummaryText {
                     if ($pkg.MinWindowsVersion) { $lines += "  MinVersion:    $($pkg.MinWindowsVersion)" }
                     if ($pkg.RegistryHive)      { $lines += "  ARP hive:      $($pkg.RegistryHive)$(if ($pkg.RegistryView) { " ($($pkg.RegistryView)-bit view)" })" }
                     if ($pkg.InstallContext)    { $lines += "  Install context: $($pkg.InstallContext)" }
+                    if ($pkg.PSObject.Properties['InstallModes'] -and @($pkg.InstallModes).Count -gt 1) {
+                        $modeText = @($pkg.InstallModes | ForEach-Object { if ($_ -eq $pkg.InstallMode) { $_ + ' (default)' } elseif ($_ -eq 'AllUsers') { $_ + ' via ' + $pkg.AllUsersSwitch } else { $_ + ' via ' + $pkg.CurrentUserSwitch } }) -join ', '
+                        $lines += "  Install modes: $modeText"
+                    }
                     if ($pkg.CreateUninstallRegKey -and $pkg.CreateUninstallRegKey -notmatch '^(?i)yes$') { $lines += "  CreateUninstallRegKey: $($pkg.CreateUninstallRegKey)" }
                     if ($pkg.Uninstallable -and $pkg.Uninstallable -notmatch '^(?i)yes$') { $lines += "  Uninstallable: $($pkg.Uninstallable)" }
                     if ($pkg.Note) { $lines += "  Note:          $($pkg.Note)" }
