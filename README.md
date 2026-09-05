@@ -28,7 +28,7 @@ Installs the latest release into `%LOCALAPPDATA%\AppPackager`. Only a zip crosse
 On an unrestricted network, the installer can do the whole flow itself — resolve the release from the GitHub API, download, verify SHA-256, extract:
 
 ```powershell
-curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 1.5.1.6
+curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 1.5.1.7
 ```
 
 Omitting `-ZipPath` makes it download and checksum-verify the requested release; `-InstallPath` picks the folder and `-Version` pins a release. `-Force` is required to replace a non-empty folder that holds no existing AppPackager install. If even the curl download is blocked, fetch the zip in a browser and run the same `-ZipPath` command against it.
@@ -154,6 +154,8 @@ CWA switches persist to `Packagers/citrix-workspace-switches.json`; TeamViewer H
 
 A **Variant split** column offers multi-deployment-type staging where a packager declares it with a `SupportsVariants:` header tag (`Architecture`, `Language`, `Network`): one application, one deployment type per variant, each gated by its own requirement rules with an unconditional fallback last. The selection reaches the packager as `APP_PACKAGER_VARIANTS` environment JSON; packagers without the tag keep the single-deployment-type flow and the column stays disabled.
 
+An **Install for** column (`Default`, `System`, `User`) appears for packagers that declare `SupportsInstallModes:` in their header, which means the installer takes a mode switch (NSIS `/allusers` and `/currentuser`, Inno Setup `/ALLUSERS` and `/CURRENTUSER`). `Default` keeps the packager's own mode. Choosing the other mode rewrites the staged package from that mode's branch of the installer: the switch in the install and uninstall arguments, the uninstaller path, the detection hive, view and folder, and the deployment type's install behavior (`InstallForUser` with a logged-on-user requirement for `User`). The choice reaches the Stage phase as `APP_PACKAGER_INSTALL_MODE`; a Stage that cannot honor it fails instead of staging the wrong mode.
+
 A **Commands** column opens the per-app command override editor: edit the install and uninstall command lines the deployment type will carry, against watermarked shipped defaults, with one-click revert per field. The button label reads Default or Modified so overridden apps are visible at a glance. Overrides reach the packager as `APP_PACKAGER_COMMANDS` environment JSON, are recorded in the stage manifest, and an explicit override always beats the manifest's generated command.
 
 When a Package or One Click Stage-and-Package run reaches an application the site already holds at the same version, the run leaves it alone and asks: **Skip**, **Overwrite**, or **Cancel run**, with a **Do this for all remaining conflicts** checkbox. Overwrite replaces that application's deployment types from the content just staged and keeps the application object and its deployments — the way to re-cut an app whose wrappers or deployment type settings came from an older generator. The answer applies to the current run only and is never saved; apps that raise no conflict are never interrupted.
@@ -204,6 +206,7 @@ All packager scripts accept the same core parameters:
 | `APP_PACKAGER_CM_PROVIDER` | Optional environment override for the SMS Provider machine used to create a missing `CMSite` PSDrive |
 | `APP_PACKAGER_REQUIREMENTS` | Optional environment JSON (`{"SchemaVersion":1,"Rules":[...]}`) of requirement rule specs applied to the deployment type; the GUI sets it per app from the Deployment Conditions panel |
 | `APP_PACKAGER_VARIANTS` | Optional environment JSON selecting a multi-deployment-type variant split for packagers that declare `SupportsVariants:`; the GUI sets it from the Variant split column |
+| `APP_PACKAGER_INSTALL_MODE` | Optional `CurrentUser` or `AllUsers` for packagers that declare `SupportsInstallModes:`; the Stage phase rewrites arguments, uninstaller, detection and install behavior from that branch of the installer. The GUI sets it from the Install for column |
 | `APP_PACKAGER_COMMANDS` | Optional environment JSON of per-app install/uninstall command overrides; the GUI sets it from the Commands editor. Ignored with a warning when a DeploymentTypes manifest carries per-deployment-type commands |
 | `APP_PACKAGER_ON_EXISTING` | Optional `Skip` (default), `Overwrite`, or `Fail`, deciding what a Package run does when the site already holds this application at this version. `Overwrite` replaces the deployment types in place, keeping the application object and its deployments. An unrecognized value fails the run |
 | `-Comment` | Optional administrative comment stored on the CM Application Description |
@@ -571,6 +574,8 @@ UpdateCadenceDays: 90
 | `DownloadPageUrl` | Link shown in the HTML report's Links column |
 | `UpdateCadenceDays` | Default cadence for Full Run's Report action. Integer days between vendor re-queries. Falls back to 7 when absent. Override per-app in App Flow. |
 | `IconSource` | Where the application icon comes from: `Installer`, `External`, or `None`. See [Application Icons](#application-icons). |
+| `SupportsVariants` | Comma-separated variant splits the packager can stage (`Architecture`, `Language`, `Network`). Enables the Variant split column. |
+| `SupportsInstallModes` | `CurrentUser, AllUsers` when the installer takes a mode switch and the packager uses the standard wrappers. Enables the Install for column. |
 | `RequiresTools` | Comma-separated list of detected tools the packager depends on (currently `7-Zip`). Read-only metadata today; surfaced via `Get-PackagerMetadata` and reserved for future preflight warnings when a declared dependency isn't present in DetectedTools. |
 
 ## Application Icons

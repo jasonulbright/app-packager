@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:stellarium:stellarium:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/Stellarium/stellarium/releases
 DownloadPageUrl: https://stellarium.org/
 IconSource: Installer
+SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 90
 
 .SYNOPSIS

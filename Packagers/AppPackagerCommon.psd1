@@ -68,6 +68,8 @@
         'Get-ManifestDeploymentTypeSpecs'
         'Get-RequestedPackagerVariants'
         'Get-RequestedCommandOverrides'
+        'Get-RequestedInstallMode'
+        'Set-StageManifestInstallMode'
 
         # Intune Win32 publishing
         'Get-IntuneWinEncryptionInfo'

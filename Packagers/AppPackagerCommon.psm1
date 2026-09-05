@@ -1556,6 +1556,13 @@ function Write-StageManifest {
         $callerFrame = @(Get-PSCallStack | Where-Object { $_.ScriptName -and $_.ScriptName -ne $PSCommandPath }) | Select-Object -First 1
         if ($callerFrame) { $PackagerScriptPath = [string]$callerFrame.ScriptName }
     }
+    # A requested install mode rewrites arguments, uninstaller, detection and
+    # wrappers before the icon lands and the hashes are computed.
+    $requestedMode = Get-RequestedInstallMode
+    if ($requestedMode) {
+        [void](Set-StageManifestInstallMode -StageRoot $stageRoot -ManifestData $ManifestData -Mode $requestedMode)
+    }
+
     Add-StageIcon -StageRoot $stageRoot -ManifestData $ManifestData -PackagerScriptPath $PackagerScriptPath
 
     $fileHashes = Get-StageFileHashes -Root $stageRoot -Exclude @($manifestName)
@@ -2247,7 +2254,7 @@ function Get-DefaultConditionTemplates {
                 Kind                = 'Script'
                 RuleType            = 'Boolean'
                 DataType            = 'Boolean'
-                AdapterPatterns     = @('Zscaler', 'Juniper', 'PANGP', 'Cisco AnyConnect', 'Fortinet')
+                AdapterPatterns     = @('Cisco AnyConnect', 'Fortinet', 'Juniper', 'PANGP', 'Zscaler')
                 AliasPattern        = 'vpn'
                 Description         = 'True when an IP-enabled network adapter description matches a configured VPN client pattern or an interface alias contains the alias pattern.'
             }
@@ -4222,6 +4229,212 @@ function Get-RequestedCommandOverrides {
 }
 
 Export-ModuleMember -Function Get-RequestedCommandOverrides
+
+function Get-RequestedInstallMode {
+    <#
+    .SYNOPSIS
+        Reads the APP_PACKAGER_INSTALL_MODE environment value the GUI sets for
+        a SupportsInstallModes packager.
+
+    .DESCRIPTION
+        Returns 'CurrentUser' or 'AllUsers', or $null when no mode is
+        requested. Any other value throws instead of staging the packager's
+        default mode against the operator's choice.
+    #>
+    $value = [string]$env:APP_PACKAGER_INSTALL_MODE
+    if ([string]::IsNullOrWhiteSpace($value)) { return $null }
+    $value = $value.Trim()
+    if ($value -notin @('CurrentUser', 'AllUsers')) {
+        throw "APP_PACKAGER_INSTALL_MODE must be CurrentUser or AllUsers (got '$value')."
+    }
+    return $value
+}
+
+Export-ModuleMember -Function Get-RequestedInstallMode
+
+function Set-StageManifestInstallMode {
+    <#
+    .SYNOPSIS
+        Rewrites a stage manifest and its wrappers for the requested install
+        mode of an installer that accepts a mode switch.
+
+    .DESCRIPTION
+        Reads the staged installer with Get-InstallerAnalysis and takes the
+        requested mode's branch: install arguments gain that mode's switch
+        (the other mode's switch is removed), the uninstall command moves to
+        that branch's uninstaller path, registry detection follows the
+        branch's hive and view, file detection under the other branch's
+        folder moves to this branch's folder, and a per-user branch sets
+        InstallationBehaviorType InstallForUser. Wrappers in the standard
+        New-ExeWrapperContent shape are regenerated; other wrappers only
+        have the switch token replaced. Throws when the installer does not
+        offer the requested mode, so a package never ships in a mode the
+        operator did not choose.
+
+    .OUTPUTS
+        $true when the manifest was rewritten.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$StageRoot,
+        [Parameter(Mandatory)][hashtable]$ManifestData,
+        [Parameter(Mandatory)][ValidateSet('CurrentUser', 'AllUsers')][string]$Mode
+    )
+
+    if ([string]$ManifestData['InstallerType'] -ne 'EXE') {
+        Write-Log "Install mode $Mode requested; only EXE installers carry a mode switch, manifest left unchanged." -Level WARN
+        return $false
+    }
+    $installerName = [string]$ManifestData['InstallerFile']
+    $installerPath = Join-Path $StageRoot $installerName
+    if ([string]::IsNullOrWhiteSpace($installerName) -or -not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
+        throw "Install mode $Mode requested but the staged installer '$installerName' was not found under $StageRoot."
+    }
+
+    $analysis = Get-InstallerAnalysis -Path $installerPath
+    $modes = @($analysis.InstallModes)
+    if ($modes -notcontains $Mode) {
+        $offered = if ($modes.Count -gt 0) { $modes -join ', ' } else { 'no mode switch' }
+        throw "Install mode $Mode requested but $installerName offers $offered."
+    }
+    $branch = Set-InstallerAnalysisMode -Analysis $analysis -Mode $Mode
+    $meta = $analysis.PackageMetadata
+    $switchFor = @{ AllUsers = [string]$meta.AllUsersSwitch; CurrentUser = [string]$meta.CurrentUserSwitch }
+    $wanted = $switchFor[$Mode]
+    $knownSwitches = @($switchFor.Values | Where-Object { $_ })
+    $isNsis = ([string]$analysis.InstallerType -eq 'NSIS')
+
+    # Token-level swap keeps every other argument the packager authored.
+    $swapSwitch = {
+        param([string]$arguments, [bool]$append)
+        $tokens = @(($arguments -split '\s+') | Where-Object { $_ -and ($knownSwitches -notcontains $_) })
+        if ($append -and $wanted) { $tokens += $wanted }
+        return ($tokens -join ' ')
+    }
+    $originalInstallArgs = [string]$ManifestData['InstallArgs']
+    $originalUninstallArgs = [string]$ManifestData['UninstallArgs']
+    $ManifestData['InstallArgs'] = & $swapSwitch $originalInstallArgs $true
+    # NSIS uninstallers take the same switch; an Inno Setup uninstaller reads its mode from the install.
+    $ManifestData['UninstallArgs'] = & $swapSwitch $originalUninstallArgs $isNsis
+
+    $originalUninstallCommand = [string]$ManifestData['UninstallCommand']
+    $branchUninstall = [string]$branch.UninstallCommand
+    $newUninstallCommand = $originalUninstallCommand
+    if ($branchUninstall -match '^\s*"([^"]+)"' -or $branchUninstall -match '^\s*(\S+\.exe)') {
+        $newUninstallCommand = $Matches[1]
+        $ManifestData['UninstallCommand'] = $newUninstallCommand
+    }
+
+    $folderFor = @{}
+    foreach ($m in @('AllUsers', 'CurrentUser')) {
+        if ($analysis.ModeVariants -and $analysis.ModeVariants[$m] -and $analysis.ModeVariants[$m].InstallDirWindows) {
+            $folderFor[$m] = [string]$analysis.ModeVariants[$m].InstallDirWindows
+        }
+    }
+    $otherMode = if ($Mode -eq 'AllUsers') { 'CurrentUser' } else { 'AllUsers' }
+
+    $det = $ManifestData['Detection']
+    if ($det -is [hashtable]) {
+        $detType = [string]$det['Type']
+        switch -Regex ($detType) {
+            '^RegistryKey(Value)?$' {
+                $hive = [string]$branch.UninstallRegistryHive
+                if ($hive -eq 'HKCU') {
+                    $det['Hive'] = 'CurrentUser'
+                }
+                else {
+                    $det['Hive'] = 'LocalMachine'
+                    $det['Is64Bit'] = ([string]$branch.RegistryView -ne '32')
+                }
+                $branchKey = [string]$branch.UninstallRegistryKey
+                if ($branchKey -and $branchKey -notmatch '[\$\{]') {
+                    $relative = ($branchKey -replace '^HK(LM|CU):\\', '') -replace '(?i)^Software\\WOW6432Node\\', 'SOFTWARE\'
+                    $current = [string]$det['RegistryKeyRelative']
+                    if ($current -and ($current -replace '(?i)^Software\\WOW6432Node\\', 'SOFTWARE\') -ine $relative) {
+                        $det['RegistryKeyRelative'] = $relative
+                    }
+                }
+            }
+            '^File$' {
+                $filePath = [string]$det['FilePath']
+                $mapped = $false
+                if ($filePath -and $folderFor[$Mode] -and $folderFor[$otherMode]) {
+                    $otherExpanded = [Environment]::ExpandEnvironmentVariables($folderFor[$otherMode]).TrimEnd('\')
+                    $otherRaw = $folderFor[$otherMode].TrimEnd('\')
+                    foreach ($prefix in @($otherExpanded, $otherRaw)) {
+                        if ($filePath.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+                            $det['FilePath'] = $folderFor[$Mode].TrimEnd('\') + $filePath.Substring($prefix.Length)
+                            $mapped = $true
+                            break
+                        }
+                    }
+                    if (-not $mapped) {
+                        $thisExpanded = [Environment]::ExpandEnvironmentVariables($folderFor[$Mode]).TrimEnd('\')
+                        if ($filePath.StartsWith($thisExpanded, [System.StringComparison]::OrdinalIgnoreCase) -or $filePath.StartsWith($folderFor[$Mode].TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase)) { $mapped = $true }
+                    }
+                }
+                if (-not $mapped) {
+                    Write-Log ("File detection path '{0}' is not under either install folder; left unchanged for mode {1}." -f $filePath, $Mode) -Level WARN
+                }
+            }
+            default {
+                Write-Log "Detection type '$detType' is not adjusted for install mode $Mode; review it before deploying." -Level WARN
+            }
+        }
+    }
+
+    $perUser = ([string]$branch.InstallContext -eq 'PerUser')
+    if ($perUser) {
+        $ManifestData['InstallationBehaviorType'] = 'InstallForUser'
+        $ManifestData['LogonRequirementType']     = 'OnlyWhenUserLoggedOn'
+    }
+    else {
+        $ManifestData['InstallationBehaviorType'] = 'InstallForSystem'
+        if ($ManifestData.ContainsKey('LogonRequirementType')) { $ManifestData.Remove('LogonRequirementType') }
+    }
+    $ManifestData['InstallMode']    = $Mode
+    $ManifestData['InstallContext'] = [string]$branch.InstallContext
+
+    # Wrappers: regenerate the standard shape; otherwise swap the switch token in place.
+    $installPs1   = Join-Path $StageRoot 'install.ps1'
+    $uninstallPs1 = Join-Path $StageRoot 'uninstall.ps1'
+    $standardInstall   = '^\$exePath = Join-Path \$PSScriptRoot ''.*''\r?\n\$proc = Start-Process -FilePath \$exePath -ArgumentList @\(.*\) -Wait -PassThru -NoNewWindow\r?\nexit \$proc\.ExitCode\s*$'
+    $standardUninstall = '^\$uninstallPath = \[Environment\]::ExpandEnvironmentVariables\(''.*''\)\r?\n\$proc = Start-Process -FilePath \$uninstallPath( -ArgumentList @\(.*\))? -Wait -PassThru -NoNewWindow\r?\nexit \$proc\.ExitCode\s*$'
+    $installText   = if (Test-Path -LiteralPath $installPs1)   { [IO.File]::ReadAllText($installPs1) }   else { '' }
+    $uninstallText = if (Test-Path -LiteralPath $uninstallPs1) { [IO.File]::ReadAllText($uninstallPs1) } else { '' }
+    $quote = { param([string]$s) "'" + ($s -replace "'", "''") + "'" }
+    if ($installText -match $standardInstall -and $uninstallText -match $standardUninstall) {
+        $wrappers = New-ExeWrapperContent -InstallerFileName $installerName `
+            -InstallArgs (& $quote ([string]$ManifestData['InstallArgs'])) `
+            -UninstallCommand $newUninstallCommand `
+            -UninstallArgs $(if ([string]$ManifestData['UninstallArgs']) { & $quote ([string]$ManifestData['UninstallArgs']) } else { '' })
+        $installBat = Join-Path $StageRoot 'install.bat'
+        $uninstallBat = Join-Path $StageRoot 'uninstall.bat'
+        $batCode = { param([string]$path) if (Test-Path -LiteralPath $path) { $m = [regex]::Match([IO.File]::ReadAllText($path), 'EQU 0 exit /b (\S+)'); if ($m.Success) { return $m.Groups[1].Value } }; return '%ERRORLEVEL%' }
+        Write-ContentWrappers -OutputPath $StageRoot -InstallPs1Content $wrappers.Install -UninstallPs1Content $wrappers.Uninstall `
+            -InstallBatExitCode (& $batCode $installBat) -UninstallBatExitCode (& $batCode $uninstallBat)
+    }
+    else {
+        foreach ($entry in @(@{ Path = $installPs1; Text = $installText }, @{ Path = $uninstallPs1; Text = $uninstallText })) {
+            if (-not $entry.Text) { continue }
+            $updated = $entry.Text
+            foreach ($known in $knownSwitches) {
+                if ($known -ine $wanted) { $updated = [regex]::Replace($updated, '(?i)' + [regex]::Escape($known), $wanted) }
+            }
+            if ($updated -ne $entry.Text) { [IO.File]::WriteAllText($entry.Path, $updated, [System.Text.Encoding]::ASCII) }
+        }
+        if ($newUninstallCommand -ne $originalUninstallCommand) {
+            Write-Log ("Uninstall wrapper is packager-authored; it still targets '{0}' while mode {1} uninstalls through '{2}'." -f $originalUninstallCommand, $Mode, $newUninstallCommand) -Level WARN
+        }
+    }
+
+    Write-Log ("Install mode applied         : {0} ({1})" -f $Mode, $(if ($wanted) { $wanted } else { 'installer default' }))
+    Write-Log ("Install args (mode)          : {0}" -f $ManifestData['InstallArgs'])
+    if ($newUninstallCommand) { Write-Log ("Uninstall command (mode)     : {0} {1}" -f $newUninstallCommand, $ManifestData['UninstallArgs']) }
+    Write-Log ("Install context (mode)       : {0}" -f $ManifestData['InstallContext'])
+    return $true
+}
+
+Export-ModuleMember -Function Set-StageManifestInstallMode
 
 # Prefix of the machine-readable line emitted when a same-version existing
 # application is skipped. The GUI matches on this to offer an overwrite re-run.

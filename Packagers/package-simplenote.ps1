@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:automattic:simplenote:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/Automattic/simplenote-electron/releases
 DownloadPageUrl: https://github.com/Automattic/simplenote-electron/releases/latest
 IconSource: Installer
+SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 90
 
 .SYNOPSIS

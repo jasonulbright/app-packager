@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:bitwarden:desktop:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/bitwarden/clients/releases
 DownloadPageUrl: https://bitwarden.com/download/
 IconSource: Installer
+SupportsInstallModes: CurrentUser, AllUsers
 
 .SYNOPSIS
     Packages Bitwarden Desktop (x64) for MECM.

@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.5.1.7] - 2026-09-04
+
+### Added
+
+- Choose Install for System or User per app for installers with a mode switch.
+
+### Changed
+
+- Show the architecture, language and network cells as visible controls in Deployment Conditions.
+- Align the detected-tool rows with the input rows in MECM Preferences.
+- List the default VPN adapter patterns alphabetically.
+
+### Fixed
+
+- Pass the variant split selection to the Stage phase.
+- Enable the Variant split cell only for packagers that declare variants.
+
 ## [1.5.1.6] - 2026-09-04
 
 ### Fixed

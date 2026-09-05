@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:bleachbit:bleachbit:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.bleachbit.org/news
 DownloadPageUrl: https://www.bleachbit.org/download/windows
 IconSource: Installer
+SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 90
 
 .SYNOPSIS
