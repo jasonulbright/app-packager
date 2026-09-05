@@ -16,7 +16,7 @@ UpdateCadenceDays: 90
     First-party Tauri/NSIS application released through GitHub releases on
     a private repository, so acquisition goes through the authenticated
     GitHub CLI (gh) instead of anonymous HTTP - the one packager in this
-    set with that requirement. Install is perMachine NSIS /S; uninstall is
+    set with that requirement. Install is perMachine NSIS /S /acceptEULA; uninstall is
     the fixed "C:\Program Files\Spectra PDF\uninstall.exe" /S (user data
     kept for redeployment; pass /removeuserdata manually for full removal).
 
@@ -112,9 +112,10 @@ function Invoke-StageSpectraPdf {
     Copy-Item -LiteralPath $localExe -Destination (Join-Path $localContentPath $release.AssetName) -Force -ErrorAction Stop
     Write-Log "Copied installer to staged   : $localContentPath"
 
-    # Tauri NSIS, perMachine (tauri.conf.json): install /S; the uninstaller
+    # Tauri NSIS, perMachine (tauri.conf.json): install /S with /acceptEULA,
+    # which an unattended install requires from 1.2.0 (exit 2 without it); the uninstaller
     # sits at a fixed path and keeps user data unless /removeuserdata.
-    $wrappers = New-ExeWrapperContent -InstallerFileName $release.AssetName -InstallArgs "'/S'" `
+    $wrappers = New-ExeWrapperContent -InstallerFileName $release.AssetName -InstallArgs "'/S', '/acceptEULA'" `
         -UninstallCommand 'C:\Program Files\Spectra PDF\uninstall.exe' -UninstallArgs "'/S'"
     $customUninstall = (
         '$u = ''C:\Program Files\Spectra PDF\uninstall.exe''',
@@ -133,10 +134,10 @@ function Invoke-StageSpectraPdf {
         SoftwareVersion = $version
         InstallerFile   = $release.AssetName
         InstallerType   = 'EXE'
-        InstallArgs     = '/S'
+        InstallArgs     = '/S /acceptEULA'
         UninstallArgs   = '/S'
         UninstallCommand = '"C:\Program Files\Spectra PDF\uninstall.exe" /S'
-        RunningProcess  = @('Spectra PDF')
+        RunningProcess  = @('spectrapdf')
         Detection       = @{
             # Tauri NSIS writes the ARP key named after productName.
             Type                = 'RegistryKeyValue'
