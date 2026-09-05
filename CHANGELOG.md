@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.5.1.8] - 2026-09-04
+
+### Fixed
+
+- Uninstall KDiff3 with its silent switch alone; the in-place switch removed nothing.
+
 ## [1.5.1.7] - 2026-09-04
 
 ### Added

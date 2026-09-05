@@ -221,17 +221,26 @@ function Invoke-StageKDiff3 {
     }
 
     # --- Generate content wrappers ---
-    # The uninstaller relaunches itself from a temp copy unless _? pins its
-    # directory, which makes the wrapper return before removal finishes.
     $wrapperContent = New-ExeWrapperContent `
         -InstallerFileName $installerFileName `
         -InstallArgs "'/S'" `
-        -UninstallCommand "$InstallPath\uninstall.exe" `
-        -UninstallArgs ("'/S', '_?={0}'" -f $InstallPath)
+        -UninstallCommand 'unused'
+
+    # This uninstaller exits -1 and removes nothing when _?= pins its directory.
+    # Run plainly it works from a temp copy (Au_.exe) that can outlive the
+    # launcher, so the wrapper waits for that copy before reporting.
+    $uninstallContent = @'
+$uninstaller = '__INSTALLPATH__\uninstall.exe'
+if (-not (Test-Path -LiteralPath $uninstaller)) { exit 0 }
+$proc = Start-Process -FilePath $uninstaller -ArgumentList @('/S') -Wait -PassThru -NoNewWindow
+while (Get-Process -Name 'Au_' -ErrorAction SilentlyContinue) { Start-Sleep -Seconds 1 }
+exit $proc.ExitCode
+'@
+    $uninstallContent = $uninstallContent.Replace('__INSTALLPATH__', $InstallPath)
 
     Write-ContentWrappers -OutputPath $localContentPath `
         -InstallPs1Content $wrapperContent.Install `
-        -UninstallPs1Content $wrapperContent.Uninstall
+        -UninstallPs1Content $uninstallContent
 
     # --- Write stage manifest ---
     Write-Log ""
