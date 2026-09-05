@@ -4,13 +4,13 @@
 
 ### Fixed
 
-- Install Spectra PDF unattended with its required acceptance switch.
+- Fixed SpectraPDF install params.
 
 ## [1.5.1.8] - 2026-09-04
 
 ### Fixed
 
-- Uninstall KDiff3 with its silent switch alone; the in-place switch removed nothing.
+- Fixed KDiff3 uninstall params.
 
 ## [1.5.1.7] - 2026-09-04
 
