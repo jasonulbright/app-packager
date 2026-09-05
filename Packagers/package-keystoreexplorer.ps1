@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:keystore-explorer:keystore_explorer:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/kaikramer/keystore-explorer/releases
 DownloadPageUrl: https://keystore-explorer.org/downloads.html
 IconSource: Installer
+SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 180
 
 .SYNOPSIS

@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.5.1.6
+    Version    : 1.5.1.7
     Updated    : 2026-09-04
 #>
 
@@ -748,6 +748,7 @@ function Get-PackagerMetadata {
         Description       = $null
         UpdateCadenceDays = $null
         SupportsVariants  = @()
+        SupportsInstallModes = @()
     }
 
     $lines = Get-Content -LiteralPath $Path -TotalCount 200 -ErrorAction Stop
@@ -765,6 +766,10 @@ function Get-PackagerMetadata {
         if (-not $meta.DownloadPageUrl -and $l -match '^\s*(?:#\s*)?DownloadPageUrl\s*:\s*(.+?)\s*$') { $meta.DownloadPageUrl = $Matches[1].Trim(); continue }
         if ($meta.SupportsVariants.Count -eq 0 -and $l -match '^\s*(?:#\s*)?SupportsVariants\s*:\s*(.+?)\s*$') {
             $meta.SupportsVariants = @($Matches[1] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -in @('Architecture', 'Language', 'Network') })
+            continue
+        }
+        if ($meta.SupportsInstallModes.Count -eq 0 -and $l -match '^\s*(?:#\s*)?SupportsInstallModes\s*:\s*(.+?)\s*$') {
+            $meta.SupportsInstallModes = @($Matches[1] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -in @('CurrentUser', 'AllUsers') })
             continue
         }
         if ($null -eq $meta.UpdateCadenceDays -and $l -match '^\s*(?:#\s*)?UpdateCadenceDays\s*:\s*(\d+)\s*$') {
@@ -795,6 +800,7 @@ function Get-PackagerMetadata {
         Description       = $meta.Description
         UpdateCadenceDays = $meta.UpdateCadenceDays
         SupportsVariants  = @($meta.SupportsVariants)
+        SupportsInstallModes = @($meta.SupportsInstallModes)
         Script            = (Split-Path -Leaf $Path)
         FullPath          = $Path
     }
@@ -828,6 +834,8 @@ function Get-Packagers {
                 Script            = $m.Script
                 FullPath          = $m.FullPath
                 UpdateCadenceDays = $m.UpdateCadenceDays
+                SupportsVariants  = @($m.SupportsVariants)
+                SupportsInstallModes = @($m.SupportsInstallModes)
                 CurrentVersion    = ""
                 LatestVersion     = ""
                 Status            = $status
@@ -844,6 +852,8 @@ function Get-Packagers {
                 Script            = $f.Name
                 FullPath          = $f.FullName
                 UpdateCadenceDays = $null
+                SupportsVariants  = @()
+                SupportsInstallModes = @()
                 CurrentVersion    = ""
                 LatestVersion     = ""
                 Status            = ("Read error: " + $_.Exception.Message)
@@ -1536,6 +1546,8 @@ function Invoke-PackagerStage {
         [string]$M365Channel = $null,
         [string]$M365DeployMode = $null,
         [string]$SevenZipPath = '',
+        [string]$VariantsJson = '',
+        [string]$InstallMode = '',
         [System.Windows.Controls.TextBox]$LogTextBox = $null
     )
 
@@ -1564,7 +1576,9 @@ function Invoke-PackagerStage {
     # Pass detected-tool paths to the packager via env vars so it can use
     # non-default install locations. Packagers that need these tools check
     # the env var first and fall back to Program Files\<tool> defaults.
-    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath
+    # Variant splits and the install mode shape the staged content, so
+    # they travel with the Stage child too.
+    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -VariantsJson $VariantsJson -InstallMode $InstallMode
 
     $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -StructuredLog $structuredLog -LogTextBox $LogTextBox
     Assert-PackagerStageIntegrity -Result $result -PackagerPath $PackagerPath -DownloadRoot $DownloadRoot
@@ -1594,6 +1608,7 @@ function Invoke-PackagerPackage {
         [string]$VariantsJson = '',
         [string]$CommandsJson = '',
         [ValidateSet('', 'Skip', 'Overwrite', 'Fail')][string]$OnExisting = '',
+        [string]$InstallMode = '',
         [System.Windows.Controls.TextBox]$LogTextBox = $null
     )
 
@@ -1629,7 +1644,7 @@ function Invoke-PackagerPackage {
     $psi.RedirectStandardError  = $true
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow  = $true
-    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName -RequirementsJson $RequirementsJson -VariantsJson $VariantsJson -CommandsJson $CommandsJson -OnExisting $OnExisting
+    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName -RequirementsJson $RequirementsJson -VariantsJson $VariantsJson -CommandsJson $CommandsJson -OnExisting $OnExisting -InstallMode $InstallMode
 
     $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -StructuredLog $structuredLog -LogTextBox $LogTextBox
     if ($DeploymentTarget -ne 'IntuneOnly') {
@@ -1695,10 +1710,14 @@ function Set-PackagerEnvironment {
         [string]$RequirementsJson,
         [string]$VariantsJson,
         [string]$CommandsJson,
-        [string]$OnExisting
+        [string]$OnExisting,
+        [string]$InstallMode
     )
     if (-not [string]::IsNullOrWhiteSpace($OnExisting)) {
         $StartInfo.EnvironmentVariables['APP_PACKAGER_ON_EXISTING'] = [string]$OnExisting
+    }
+    if (-not [string]::IsNullOrWhiteSpace($InstallMode)) {
+        $StartInfo.EnvironmentVariables['APP_PACKAGER_INSTALL_MODE'] = [string]$InstallMode
     }
     if (-not [string]::IsNullOrWhiteSpace($SevenZipPath)) {
         $StartInfo.EnvironmentVariables['APP_PACKAGER_SEVENZIP'] = [string]$SevenZipPath
@@ -1758,6 +1777,33 @@ function ConvertTo-VariantsJson {
         $doc['Languages'] = @($Entry.Languages | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ })
     }
     return ($doc | ConvertTo-Json -Depth 4 -Compress)
+}
+
+function ConvertTo-InstallModeValue {
+    # Maps one Deployment Conditions prefs entry onto the
+    # APP_PACKAGER_INSTALL_MODE value a SupportsInstallModes packager
+    # consumes via Get-RequestedInstallMode. Returns '' for the default.
+    param($Entry)
+
+    if (-not $Entry -or -not $Entry.PSObject.Properties['InstallMode']) { return '' }
+    $mode = [string]$Entry.InstallMode
+    if ($mode -notin @('CurrentUser', 'AllUsers')) { return '' }
+    return $mode
+}
+
+function Get-InstallModesMapForContext {
+    # Prebuilt on the UI thread, same reason as Get-RequirementsMapForContext.
+    $map = @{}
+    try {
+        $apps = $script:Prefs.DeploymentConditions.Apps
+        if ($apps) {
+            foreach ($prop in $apps.PSObject.Properties) {
+                $mode = ConvertTo-InstallModeValue -Entry $prop.Value
+                if ($mode) { $map[$prop.Name] = $mode }
+            }
+        }
+    } catch { }
+    return $map
 }
 
 function ConvertTo-CommandsJson {
@@ -2826,12 +2872,14 @@ function Invoke-BatchUpdate {
 
         $requirementsJson = ''
         $variantsJson = ''
+        $installMode = ''
         $commandsJson = ''
         if ($ConditionApps) {
             $condProp = $ConditionApps.PSObject.Properties[$baseName]
             if ($condProp) {
                 $requirementsJson = ConvertTo-RequirementsJson -Entry $condProp.Value
                 $variantsJson = ConvertTo-VariantsJson -Entry $condProp.Value
+                $installMode = ConvertTo-InstallModeValue -Entry $condProp.Value
             }
         }
         if ($CommandApps) {
@@ -2850,6 +2898,8 @@ function Invoke-BatchUpdate {
             $previousVariantsEnv = $null
             $restoreCommandsEnv = $false
             $previousCommandsEnv = $null
+            $restoreModeEnv = $false
+            $previousModeEnv = $null
             $packagerWorkingDirectory = Split-Path -Parent $scriptPath
             $pushedPackagerLocation = $false
             try {
@@ -2877,6 +2927,11 @@ function Invoke-BatchUpdate {
                     $restoreCommandsEnv = $true
                     $previousCommandsEnv = $env:APP_PACKAGER_COMMANDS
                     $env:APP_PACKAGER_COMMANDS = $commandsJson
+                }
+                if (-not [string]::IsNullOrWhiteSpace($installMode)) {
+                    $restoreModeEnv = $true
+                    $previousModeEnv = $env:APP_PACKAGER_INSTALL_MODE
+                    $env:APP_PACKAGER_INSTALL_MODE = $installMode
                 }
 
                 Push-Location -LiteralPath $packagerWorkingDirectory
@@ -2912,6 +2967,14 @@ function Invoke-BatchUpdate {
                     }
                     else {
                         Remove-Item Env:\APP_PACKAGER_COMMANDS -ErrorAction SilentlyContinue
+                    }
+                }
+                if ($restoreModeEnv) {
+                    if ($null -ne $previousModeEnv) {
+                        $env:APP_PACKAGER_INSTALL_MODE = $previousModeEnv
+                    }
+                    else {
+                        Remove-Item Env:\APP_PACKAGER_INSTALL_MODE -ErrorAction SilentlyContinue
                     }
                 }
                 if ($restoreVariantsEnv) {
@@ -3618,18 +3681,18 @@ function New-MecmPreferencesPanel {
     <TextBlock Grid.Row="11" Grid.Column="0" Text="" Margin="0,0,0,8"/>
     <CheckBox  Grid.Row="11" Grid.Column="1" x:Name="chkCreateTestColl" Content="Create collection if it does not exist" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Creates an empty direct-membership device collection limited to All Systems when the named collection is missing."/>
 
-    <TextBlock Grid.Row="12" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
-    <TextBlock Grid.Row="12" Grid.Column="1" x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="12" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
+    <Grid Grid.Row="12" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
 
-    <TextBlock Grid.Row="13" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="7-Zip command-line (7z.exe) detection status. Required by Adobe Reader + TeamViewer Host packagers."/>
-    <TextBlock Grid.Row="13" Grid.Column="1" x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
-    <TextBlock Grid.Row="14" Grid.Column="0" Text="GitHub API:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="How the 90 packagers that read GitHub releases authenticate. Anonymous calls are limited to 60 per hour per address; a token raises that to 5000. Resolved from GITHUB_TOKEN, then GH_TOKEN, then the GitHub CLI login (gh auth login)."/>
-    <TextBlock Grid.Row="14" Grid.Column="1" x:Name="txtGitHubStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,6,0,0"/>
+    <TextBlock Grid.Row="13" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="7-Zip command-line (7z.exe) detection status. Required by Adobe Reader + TeamViewer Host packagers."/>
+    <Grid Grid.Row="13" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
+    <TextBlock Grid.Row="14" Grid.Column="0" Text="GitHub API:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="How the 90 packagers that read GitHub releases authenticate. Anonymous calls are limited to 60 per hour per address; a token raises that to 5000. Resolved from GITHUB_TOKEN, then GH_TOKEN, then the GitHub CLI login (gh auth login)."/>
+    <Grid Grid.Row="14" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtGitHubStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
 
-    <TextBlock Grid.Row="15" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe) detection status. Downloaded on first use, or place the exe on PATH."/>
+    <TextBlock Grid.Row="15" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe) detection status. Downloaded on first use, or place the exe on PATH."/>
     <!-- Status text in a star column so a long message wraps instead of
          pushing the buttons past the panel edge, where they clip out of view. -->
-    <Grid Grid.Row="15" Grid.Column="1" Margin="0,6,0,0">
+    <Grid Grid.Row="15" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="Auto"/>
@@ -3638,8 +3701,8 @@ function New-MecmPreferencesPanel {
         <Button Grid.Column="1" x:Name="btnIntuneWinDownload" Content="Download" FontSize="11" Margin="10,0,0,0" Padding="10,2" VerticalAlignment="Center" Visibility="Collapsed"/>
     </Grid>
 
-    <TextBlock Grid.Row="16" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Packager icon pack for IconSource External packagers. Installs into Packagers\Icons and is read at stage time."/>
-    <Grid Grid.Row="16" Grid.Column="1" Margin="0,6,0,0">
+    <TextBlock Grid.Row="16" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Packager icon pack for IconSource External packagers. Installs into Packagers\Icons and is read at stage time."/>
+    <Grid Grid.Row="16" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="Auto"/>
@@ -3650,16 +3713,16 @@ function New-MecmPreferencesPanel {
         <Button Grid.Column="2" x:Name="btnIconPackFromFile" Content="Install from file..." FontSize="11" Margin="6,0,0,0" Padding="10,2" VerticalAlignment="Center" ToolTip="Installs an icon pack from a local or UNC icon-pack.zip when the release download is blocked (proxy/SSL inspection). A checksums.txt beside the zip is verified when present."/>
     </Grid>
 
-    <TextBlock Grid.Row="17" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="When enabled, a successful Package also produces an .intunewin from the staged content and stores it beside the network content version folder."/>
-    <CheckBox  Grid.Row="17" Grid.Column="1" x:Name="chkIntuneWin" Content="Create .intunewin during Package" FontSize="13" VerticalAlignment="Center" Margin="0,6,0,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-    <TextBlock Grid.Row="18" Grid.Column="0" Text="Intune Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
-    <TextBox   Grid.Row="18" Grid.Column="1" x:Name="txtIntuneTenant" FontSize="13" Margin="0,6,0,0"/>
-    <TextBlock Grid.Row="19" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
-    <TextBox   Grid.Row="19" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,6,0,0"/>
-    <TextBlock Grid.Row="20" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
-    <PasswordBox Grid.Row="20" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,6,0,0"/>
-    <TextBlock Grid.Row="21" Grid.Column="0" Text="Deployment Target:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip="Where Package creates applications. MECM only: today's flow. MECM + Intune: MECM app plus a Graph publish of the .intunewin. Intune only: stage, build the .intunewin, and publish via Graph - no ConfigMgr console, site, or file share needed. Repeat publishes update the existing Intune app."/>
-    <ComboBox  Grid.Row="21" Grid.Column="1" x:Name="cboDeployTarget" FontSize="13" Margin="0,6,0,0" Width="260" HorizontalAlignment="Left">
+    <TextBlock Grid.Row="17" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, a successful Package also produces an .intunewin from the staged content and stores it beside the network content version folder."/>
+    <CheckBox  Grid.Row="17" Grid.Column="1" x:Name="chkIntuneWin" Content="Create .intunewin during Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+    <TextBlock Grid.Row="18" Grid.Column="0" Text="Intune Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
+    <TextBox   Grid.Row="18" Grid.Column="1" x:Name="txtIntuneTenant" FontSize="13" Margin="0,0,0,8"/>
+    <TextBlock Grid.Row="19" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
+    <TextBox   Grid.Row="19" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,0,0,8"/>
+    <TextBlock Grid.Row="20" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
+    <PasswordBox Grid.Row="20" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,0,0,8"/>
+    <TextBlock Grid.Row="21" Grid.Column="0" Text="Deployment Target:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Where Package creates applications. MECM only: today's flow. MECM + Intune: MECM app plus a Graph publish of the .intunewin. Intune only: stage, build the .intunewin, and publish via Graph - no ConfigMgr console, site, or file share needed. Repeat publishes update the existing Intune app."/>
+    <ComboBox  Grid.Row="21" Grid.Column="1" x:Name="cboDeployTarget" FontSize="13" Margin="0,0,0,8" Width="260" HorizontalAlignment="Left">
         <ComboBoxItem Content="MECM only" Tag="MECM"/>
         <ComboBoxItem Content="MECM + Intune" Tag="MECMAndIntune"/>
         <ComboBoxItem Content="Intune only" Tag="IntuneOnly"/>
@@ -4940,10 +5003,35 @@ function New-DeploymentConditionsPanel {
         <DataGrid.Columns>
             <DataGridTextColumn Header="Application" Width="*" MinWidth="130" Binding="{Binding Application}" IsReadOnly="True"/>
             <DataGridTextColumn Header="Vendor" Width="110" Binding="{Binding Vendor}" IsReadOnly="True"/>
-            <DataGridComboBoxColumn Header="Arch" Width="80" SelectedItemBinding="{Binding ArchitectureDisplay, UpdateSourceTrigger=PropertyChanged}"/>
-            <DataGridTextColumn Header="OS languages" Width="120" Binding="{Binding LanguagesDisplay, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"/>
-            <DataGridComboBoxColumn Header="Network" Width="90" SelectedItemBinding="{Binding NetworkDisplay, UpdateSourceTrigger=PropertyChanged}"/>
-            <DataGridTemplateColumn Header="Commands" Width="95">
+            <DataGridTemplateColumn Header="Arch" Width="92">
+                <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                        <ComboBox ItemsSource="{Binding ArchOptions}" SelectedItem="{Binding ArchitectureDisplay, UpdateSourceTrigger=PropertyChanged}"
+                                  FontSize="12" BorderThickness="0" Background="Transparent"
+                                  ToolTip="Requirement rule on the CPU architecture. Any attaches no rule."/>
+                    </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTemplateColumn Header="OS languages" Width="126">
+                <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                        <TextBox Text="{Binding LanguagesDisplay, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"
+                                 FontSize="12" BorderThickness="0" Background="Transparent" Margin="2,0,2,0"
+                                 Controls:TextBoxHelper.Watermark="any"
+                                 ToolTip="Comma-separated culture codes (de-DE, en-US). Empty attaches no language rule."/>
+                    </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTemplateColumn Header="Network" Width="104">
+                <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                        <ComboBox ItemsSource="{Binding NetworkOptions}" SelectedItem="{Binding NetworkDisplay, UpdateSourceTrigger=PropertyChanged}"
+                                  FontSize="12" BorderThickness="0" Background="Transparent"
+                                  ToolTip="VPN only installs when a VPN adapter is active; On-site only when it is not. Any attaches no rule."/>
+                    </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTemplateColumn Header="Commands" Width="100">
                 <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
                         <Button Content="{Binding CommandLabel}" FontSize="11" Padding="6,1,6,1" Margin="2"
@@ -4952,12 +5040,21 @@ function New-DeploymentConditionsPanel {
                     </DataTemplate>
                 </DataGridTemplateColumn.CellTemplate>
             </DataGridTemplateColumn>
-            <DataGridTemplateColumn Header="Variant split" Width="112">
+            <DataGridTemplateColumn Header="Variant split" Width="108">
                 <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
                         <ComboBox ItemsSource="{Binding VariantOptions}" SelectedItem="{Binding SplitDisplay, UpdateSourceTrigger=PropertyChanged}"
                                   IsEnabled="{Binding VariantCapable}" FontSize="12" BorderThickness="0" Background="Transparent"
                                   ToolTip="Stage one application with multiple deployment types. Only offered where the packager declares SupportsVariants."/>
+                    </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTemplateColumn Header="Install for" Width="96">
+                <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                        <ComboBox ItemsSource="{Binding InstallModeOptions}" SelectedItem="{Binding InstallModeDisplay, UpdateSourceTrigger=PropertyChanged}"
+                                  IsEnabled="{Binding InstallModeCapable}" FontSize="12" BorderThickness="0" Background="Transparent"
+                                  ToolTip="Install for all users (System) or the signed-in user (User); install arguments, uninstall command, detection and deployment behavior follow. Default keeps the packager's own mode. Only offered where the packager declares SupportsInstallModes."/>
                     </DataTemplate>
                 </DataGridTemplateColumn.CellTemplate>
             </DataGridTemplateColumn>
@@ -4976,8 +5073,9 @@ function New-DeploymentConditionsPanel {
     $txtVpnPatterns = $element.FindName('txtVpnPatterns')
     $dgCondApps     = $element.FindName('dgCondApps')
 
-    $dgCondApps.Columns[2].ItemsSource = [string[]]@('Any', 'x64 only', 'ARM64 only')
-    $dgCondApps.Columns[4].ItemsSource = [string[]]@('Any', 'VPN only', 'On-site only')
+    $archOptions = [string[]]@('Any', 'x64 only', 'ARM64 only')
+    $networkOptions = [string[]]@('Any', 'VPN only', 'On-site only')
+    $modeToDisplay = @{ 'AllUsers' = 'System'; 'CurrentUser' = 'User' }
 
     $condDoc = Get-ConditionTemplates
     $archTemplate = @($condDoc.Conditions | Where-Object { [string]$_.Id -eq 'cpu-arch' })
@@ -5013,13 +5111,18 @@ function New-DeploymentConditionsPanel {
         $entryProp = $null
         if ($currentApps) { $entryProp = $currentApps.PSObject.Properties[$base] }
         $split = 'None'
+        $installMode = ''
         if ($entryProp) {
             $entry = $entryProp.Value
             if ([string]$entry.Architecture -in @('x64', 'ARM64')) { $arch = [string]$entry.Architecture }
             if ([string]$entry.Network -in @('VpnOnly', 'OnSiteOnly')) { $network = [string]$entry.Network }
             if ($entry.Languages) { $langsText = (@($entry.Languages) -join ', ') }
             if ($entry.PSObject.Properties['Split'] -and [string]$entry.Split -in @($p.SupportsVariants)) { $split = [string]$entry.Split }
+            if ($entry.PSObject.Properties['InstallMode'] -and [string]$entry.InstallMode -in @($p.SupportsInstallModes)) { $installMode = [string]$entry.InstallMode }
         }
+        $modeOptions = @('Default')
+        if (@($p.SupportsInstallModes) -contains 'AllUsers')    { $modeOptions += 'System' }
+        if (@($p.SupportsInstallModes) -contains 'CurrentUser') { $modeOptions += 'User' }
         $cmdInstall = ''
         $cmdUninstall = ''
         if ($currentCommands) {
@@ -5034,12 +5137,17 @@ function New-DeploymentConditionsPanel {
             Packager            = $base
             Application         = $p.Application
             Vendor              = $p.Vendor
+            ArchOptions         = $archOptions
             ArchitectureDisplay = $archToDisplay[$arch]
             LanguagesDisplay    = $langsText
+            NetworkOptions      = $networkOptions
             NetworkDisplay      = $networkToDisplay[$network]
             VariantOptions      = [string[]]$variantOptions
             VariantCapable      = (@($p.SupportsVariants).Count -gt 0)
             SplitDisplay        = $split
+            InstallModeOptions  = [string[]]$modeOptions
+            InstallModeCapable  = (@($p.SupportsInstallModes).Count -gt 0)
+            InstallModeDisplay  = $(if ($installMode) { $modeToDisplay[$installMode] } else { 'Default' })
             CmdInstall          = $cmdInstall
             CmdUninstall        = $cmdUninstall
             CommandLabel        = $(if ($cmdInstall -or $cmdUninstall) { 'Modified' } else { 'Default' })
@@ -5093,12 +5201,20 @@ function New-DeploymentConditionsPanel {
                 Where-Object { $_ -match '^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,2}$' })
             $split = 'None'
             if ([string]$row.SplitDisplay -in @('Architecture', 'Language', 'Network') -and $row.VariantCapable) { $split = [string]$row.SplitDisplay }
-            if ($arch -eq 'Any' -and $network -eq 'Any' -and $langs.Count -eq 0 -and $split -eq 'None') { continue }
+            $installMode = ''
+            if ($row.InstallModeCapable) {
+                switch ([string]$row.InstallModeDisplay) {
+                    'System' { $installMode = 'AllUsers' }
+                    'User'   { $installMode = 'CurrentUser' }
+                }
+            }
+            if ($arch -eq 'Any' -and $network -eq 'Any' -and $langs.Count -eq 0 -and $split -eq 'None' -and -not $installMode) { continue }
             $condProps[$row.Packager] = [pscustomobject]@{
                 Architecture = $arch
                 Languages    = $langs
                 Network      = $network
                 Split        = $split
+                InstallMode  = $installMode
             }
         }
         $prefsRef.DeploymentConditions.Apps = [pscustomobject]$condProps
@@ -5254,8 +5370,8 @@ function Show-OptionsDialog {
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
     Title="Options"
-    Width="1000" Height="760"
-    MinWidth="900" MinHeight="600"
+    Width="1160" Height="760"
+    MinWidth="1000" MinHeight="600"
     WindowStartupLocation="CenterOwner"
     TitleCharacterCasing="Normal"
     ShowIconOnTitleBar="False"
@@ -5875,7 +5991,9 @@ function Invoke-MultiAppPipeline {
                                 -DownloadRoot $Ctx.DownloadRoot `
                                 -M365Channel $Ctx.M365Channel `
                                 -M365DeployMode $Ctx.M365DeployMode `
-                                -SevenZipPath $Ctx.SevenZipPath
+                                -SevenZipPath $Ctx.SevenZipPath `
+                                -VariantsJson $(if ($Ctx.VariantsByApp) { [string]$Ctx.VariantsByApp[$baseName] } else { '' }) `
+                                -InstallMode $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' })
 
                             if ($res.ExitCode -eq 0) {
                                 $row.Status = 'Staged'
@@ -5939,6 +6057,7 @@ function Invoke-MultiAppPipeline {
                                 RequirementsJson     = $reqJson
                                 VariantsJson         = $varJson
                                 CommandsJson         = $cmdJson
+                                InstallMode          = $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' })
                             }
                             $res = Invoke-PackagerPackageWithConflictPrompt -State $State -AppLabel $app -PackageArgs $packageArgs
 
@@ -6125,7 +6244,9 @@ function Invoke-MultiAppPipeline {
                                 -DownloadRoot $Ctx.DownloadRoot `
                                 -M365Channel $Ctx.M365Channel `
                                 -M365DeployMode $Ctx.M365DeployMode `
-                                -SevenZipPath $Ctx.SevenZipPath
+                                -SevenZipPath $Ctx.SevenZipPath `
+                                -VariantsJson $(if ($Ctx.VariantsByApp) { [string]$Ctx.VariantsByApp[$baseName] } else { '' }) `
+                                -InstallMode $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' })
 
                             if ($stg.ExitCode -eq 0) {
                                 $stageOk = $true
@@ -6196,6 +6317,7 @@ function Invoke-MultiAppPipeline {
                                 RequirementsJson     = $reqJson
                                 VariantsJson         = $varJson
                                 CommandsJson         = $cmdJson
+                                InstallMode          = $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' })
                             }
                             $pkg = Invoke-PackagerPackageWithConflictPrompt -State $State -AppLabel $app -PackageArgs $packageArgs
 
@@ -7163,6 +7285,7 @@ $btnPackage.Add_Click({
         RequirementsByApp    = Get-RequirementsMapForContext
         VariantsByApp        = Get-VariantsMapForContext
         CommandsByApp        = Get-CommandsMapForContext
+        InstallModesByApp    = Get-InstallModesMapForContext
         IntunePublishConfig  = Get-IntunePublishConfigForContext
         DeploymentTarget     = [string]$script:Prefs.Intune.DeploymentTarget
     }
@@ -7260,6 +7383,7 @@ $btnFullRun.Add_Click({
         RequirementsByApp    = Get-RequirementsMapForContext
         VariantsByApp        = Get-VariantsMapForContext
         CommandsByApp        = Get-CommandsMapForContext
+        InstallModesByApp    = Get-InstallModesMapForContext
         IntunePublishConfig  = Get-IntunePublishConfigForContext
         DeploymentTarget     = [string]$script:Prefs.Intune.DeploymentTarget
     }
