@@ -224,7 +224,7 @@ function Invoke-StagePdfStudioViewer {
     # install4j: -q is unattended with installer defaults, -dir pins the target
     # so the uninstaller path stays predictable across upgrades.
     $wrappers = New-ExeWrapperContent -InstallerFileName $InstallerFileName `
-        -InstallArgs ("'-q', '-dir', '{0}'" -f $layout.InstallDir) `
+        -InstallArgs ("'-q', '-dir', '`"{0}`"'" -f $layout.InstallDir) `
         -UninstallCommand ("{0}\uninstall.exe" -f $layout.InstallDir) `
         -UninstallArgs "'-q'"
 

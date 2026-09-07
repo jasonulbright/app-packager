@@ -166,14 +166,8 @@ function Get-SqlExpressMedia {
 
     $localMedia = Join-Path $BaseDownloadRoot $MediaFileName
 
-    if (-not (Test-Path -LiteralPath $localMedia)) {
-        Write-Log "Media URL                    : $MediaUrl" -Quiet:$Quiet
-        Write-Log "Downloading Express media..." -Quiet:$Quiet
-        Invoke-DownloadWithRetry -Url $MediaUrl -OutFile $localMedia -Quiet:$Quiet
-    }
-    else {
-        Write-Log "Local media exists. Skipping download." -Quiet:$Quiet
-    }
+    Write-Log "Media URL                    : $MediaUrl" -Quiet:$Quiet
+    Invoke-CachedDownload -Url $MediaUrl -OutFile $localMedia -Quiet:$Quiet
 
     Assert-PayloadIsExecutable -Path $localMedia
 

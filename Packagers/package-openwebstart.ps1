@@ -248,7 +248,7 @@ function Invoke-StageOpenWebStart {
     # stays predictable across upgrades, and the response file forces the
     # all-users mode that a silent run would otherwise decide on its own.
     $uninstallExe = Join-Path $InstallDir "uninstall.exe"
-    $installArgs = "'-q', '-varfile', (Join-Path `$PSScriptRoot '$ResponseFileName'), '-dir', '$InstallDir'"
+    $installArgs = "'-q', '-varfile', ('`"' + (Join-Path `$PSScriptRoot '$ResponseFileName') + '`"'), '-dir', '`"$InstallDir`"'"
     $wrappers = New-ExeWrapperContent -InstallerFileName $installerFileName `
         -InstallArgs $installArgs `
         -UninstallCommand $uninstallExe -UninstallArgs "'-q'"

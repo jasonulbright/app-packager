@@ -188,6 +188,54 @@ function Invoke-DownloadWithRetry {
     throw $msg
 }
 
+function Invoke-CachedDownload {
+    <#
+    .SYNOPSIS
+        Downloads a fixed-name file once, then refreshes it only when the
+        server reports a newer copy.
+
+    .DESCRIPTION
+        For vendor URLs that always serve the current release under one file
+        name. The first call downloads; later calls send the cached file's
+        timestamp as If-Modified-Since, so an unchanged release costs one
+        round trip and a new release replaces the cache. The saved file keeps
+        the server's Last-Modified time so the condition stays exact. A
+        failed refresh keeps the cached file and logs a warning.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Url,
+        [Parameter(Mandatory)][string]$OutFile,
+        [switch]$Quiet
+    )
+
+    if (-not (Test-Path -LiteralPath $OutFile)) {
+        Write-Log "Downloading                  : $Url" -Quiet:$Quiet
+        Invoke-DownloadWithRetry -Url $Url -OutFile $OutFile -Quiet:$Quiet -ExtraCurlArgs @('-R')
+        return
+    }
+
+    # The refresh lands in a side file: a 304 writes nothing, a failure removes
+    # only the side file, and the cache is replaced only by a complete download.
+    $refresh = $OutFile + '.refresh'
+    if (Test-Path -LiteralPath $refresh) { Remove-Item -LiteralPath $refresh -Force -ErrorAction SilentlyContinue }
+    Write-Log "Cached download present; refreshing only if newer." -Quiet:$Quiet
+    try {
+        Invoke-DownloadWithRetry -Url $Url -OutFile $refresh -Quiet:$Quiet -ExtraCurlArgs @('-R', '-z', $OutFile)
+    }
+    catch {
+        Write-Log ("Cached download kept; refresh failed: {0}" -f $_.Exception.Message) -Level WARN -Quiet:$Quiet
+        return
+    }
+
+    if (Test-Path -LiteralPath $refresh) {
+        Move-Item -LiteralPath $refresh -Destination $OutFile -Force -ErrorAction Stop
+        Write-Log "Cached download replaced by a newer release." -Quiet:$Quiet
+    }
+    else {
+        Write-Log "Cached download is current." -Quiet:$Quiet
+    }
+}
+
 # ---------------------------------------------------------------------------
 # TLS 1.2 enforcement
 # ---------------------------------------------------------------------------
@@ -4638,7 +4686,10 @@ function Invoke-AzureBlobUpload {
         while (($read = $stream.Read($buffer, 0, $chunkSize)) -gt 0) {
             $blockId = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(('block-{0:D6}' -f $index)))
             $blockIds.Add($blockId)
-            $chunk = if ($read -eq $chunkSize) { $buffer } else { $buffer[0..($read - 1)] }
+            # Only a [byte[]] body goes out raw; an if-expression or a range index
+            # yields an Object[] that Invoke-RestMethod serializes as decimal text.
+            [byte[]]$chunk = New-Object byte[] $read
+            [Array]::Copy($buffer, $chunk, $read)
             $blockUri = '{0}&comp=block&blockid={1}' -f $Uri, [uri]::EscapeDataString($blockId)
             Invoke-RestMethod -Method Put -Uri $blockUri -Body $chunk -Headers @{ 'x-ms-blob-type' = 'BlockBlob' } -ContentType 'application/octet-stream' -ErrorAction Stop | Out-Null
             $index++
@@ -4650,6 +4701,58 @@ function Invoke-AzureBlobUpload {
     finally { $stream.Dispose() }
 }
 
+function New-IntuneRegistryValueScriptRule {
+    <#
+    .SYNOPSIS
+        Builds a Graph PowerShell-script detection rule that applies a prefix,
+        suffix, or substring comparison to a registry value.
+
+    .DESCRIPTION
+        Graph registry rules offer equality and ordering operators only, so a
+        BeginsWith/EndsWith/Contains detection keeps its meaning through a
+        script that reads the value from the requested registry view and
+        exits 0 with output when the comparison holds.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$HiveRoot,
+        [Parameter(Mandatory)][string]$KeyPath,
+        [Parameter(Mandatory)][string]$ValueName,
+        [Parameter(Mandatory)][string]$Expected,
+        [Parameter(Mandatory)][ValidateSet('BeginsWith', 'EndsWith', 'Contains')][string]$Operator,
+        [bool]$Is64Bit = $true
+    )
+
+    $hive = if ($HiveRoot -like 'HKEY_CURRENT_USER*') { 'CurrentUser' } else { 'LocalMachine' }
+    $view = if ($Is64Bit) { 'Registry64' } else { 'Registry32' }
+    $quote = { param($s) "'" + ([string]$s -replace "'", "''") + "'" }
+    # String.Contains(string, StringComparison) is absent from .NET Framework,
+    # which the client-side Windows PowerShell runs the script under.
+    $test = switch ($Operator) {
+        'BeginsWith' { '$value.StartsWith({0}, [System.StringComparison]::OrdinalIgnoreCase)' -f (& $quote $Expected) }
+        'EndsWith'   { '$value.EndsWith({0}, [System.StringComparison]::OrdinalIgnoreCase)' -f (& $quote $Expected) }
+        'Contains'   { '$value.IndexOf({0}, [System.StringComparison]::OrdinalIgnoreCase) -ge 0' -f (& $quote $Expected) }
+    }
+    $lines = @(
+        ('$base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::{0}, [Microsoft.Win32.RegistryView]::{1})' -f $hive, $view),
+        ('$key = $base.OpenSubKey({0})' -f (& $quote $KeyPath)),
+        'if ($key) {',
+        ('    $value = [string]$key.GetValue({0})' -f (& $quote $ValueName)),
+        ('    if ({0}) {{ Write-Output ''Detected''; exit 0 }}' -f $test),
+        '}',
+        'exit 1'
+    )
+
+    return @{
+        '@odata.type'         = '#microsoft.graph.win32LobAppPowerShellScriptRule'
+        ruleType              = 'detection'
+        enforceSignatureCheck = $false
+        runAs32Bit            = $false
+        scriptContent         = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($lines -join "`r`n")))
+        operationType         = 'notConfigured'
+        operator              = 'notConfigured'
+    }
+}
+
 function ConvertTo-IntuneWin32Rules {
     <#
     .SYNOPSIS
@@ -4659,9 +4762,11 @@ function ConvertTo-IntuneWin32Rules {
         Field names per the v1.0 win32LobApp*Rule resources. RegistryKeyValue
         compares DisplayVersion-style strings with a version operation when
         the expected value parses as a version, string equality otherwise.
-        Compound detections map clause-per-rule (Graph ANDs all detection
-        rules; OR-connected compounds are refused rather than silently
-        narrowed).
+        Operators map one to one where Graph has an equivalent; a prefix,
+        suffix, or substring operator becomes a script rule and any other
+        operator is refused. Compound detections map clause-per-rule (Graph
+        ANDs all detection rules; OR-connected compounds are refused rather
+        than silently narrowed).
     #>
     param([Parameter(Mandatory)][pscustomobject]$Manifest)
 
@@ -4669,15 +4774,35 @@ function ConvertTo-IntuneWin32Rules {
     $type = if ($det.Type) { [string]$det.Type } else { 'RegistryKeyValue' }
 
     $hiveRoot = { param($d) if ($d.PSObject.Properties['Hive'] -and [string]$d.Hive -match '^(CurrentUser|HKCU)$') { 'HKEY_CURRENT_USER\' } else { 'HKEY_LOCAL_MACHINE\' } }
+    $operatorMap = @{
+        IsEquals      = 'equal'
+        NotEquals     = 'notEqual'
+        GreaterThan   = 'greaterThan'
+        GreaterEquals = 'greaterThanOrEqual'
+        LessThan      = 'lessThan'
+        LessEquals    = 'lessThanOrEqual'
+    }
+    $scriptOperators = @('BeginsWith', 'EndsWith', 'Contains')
+    $mapOperator = {
+        param($name, $context)
+        if ($operatorMap.ContainsKey($name)) { return $operatorMap[$name] }
+        throw "Detection operator '$name' ($context) has no Intune rule mapping."
+    }
     $mapOne = {
         param($d, $dType)
         switch ($dType) {
             'RegistryKeyValue' {
                 $expected = if ($d.ExpectedValue) { [string]$d.ExpectedValue } else { [string]$d.DisplayVersion }
                 $valName = if ($d.ValueName) { [string]$d.ValueName } else { 'DisplayVersion' }
+                # Missing operators default the way the MECM clause builder does.
+                $opName = if ($d.Operator) { [string]$d.Operator } else { 'IsEquals' }
+                if ($scriptOperators -contains $opName) {
+                    return (New-IntuneRegistryValueScriptRule -HiveRoot (& $hiveRoot $d) -KeyPath ([string]$d.RegistryKeyRelative) `
+                        -ValueName $valName -Expected $expected -Operator $opName -Is64Bit ([bool]$d.Is64Bit))
+                }
                 $ver = $null
                 $opType = if ([version]::TryParse($expected, [ref]$ver)) { 'version' } else { 'string' }
-                $op = if ($d.Operator -eq 'GreaterEquals') { 'greaterThanOrEqual' } else { 'equal' }
+                $op = & $mapOperator $opName 'registry value'
                 @{
                     '@odata.type'        = '#microsoft.graph.win32LobAppRegistryRule'
                     ruleType             = 'detection'
@@ -4704,7 +4829,8 @@ function ConvertTo-IntuneWin32Rules {
             'File' {
                 $propType = [string]$d.PropertyType
                 if ($propType -eq 'Version') {
-                    $op = if ($d.Operator -eq 'GreaterEquals') { 'greaterThanOrEqual' } else { 'equal' }
+                    $opName = if ($d.Operator) { [string]$d.Operator } else { 'GreaterEquals' }
+                    $op = & $mapOperator $opName 'file version'
                     @{
                         '@odata.type'        = '#microsoft.graph.win32LobAppFileSystemRule'
                         ruleType             = 'detection'
@@ -4748,7 +4874,11 @@ function ConvertTo-IntuneWin32Rules {
         if ([string]$det.Connector -eq 'Or' -or ($det.PSObject.Properties['GroupSizes'] -and $det.GroupSizes)) {
             throw 'OR-connected compound detections cannot map to Intune rules (Graph ANDs all detection rules); use a Script detection for this app.'
         }
-        return @($det.Clauses | ForEach-Object { & $mapOne $_ ([string]$_.Type) })
+        $rules = @($det.Clauses | ForEach-Object { & $mapOne $_ ([string]$_.Type) })
+        if ($rules.Count -gt 1 -and ($rules | Where-Object { $_['@odata.type'] -eq '#microsoft.graph.win32LobAppPowerShellScriptRule' })) {
+            throw 'A prefix, suffix, or substring clause maps to a script rule, which this mapping does not combine with other clauses; use a Script detection for this app.'
+        }
+        return $rules
     }
     return @(& $mapOne $det $type)
 }

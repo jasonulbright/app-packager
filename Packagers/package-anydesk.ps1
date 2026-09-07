@@ -174,7 +174,7 @@ function Invoke-StageAnyDesk {
     }
 
     # --- Generate content wrappers ---
-    $installArgs = "'--install', '{0}', '--start-with-win', '--create-shortcuts', '--create-desktop-icon', '--silent'" -f $InstallDir
+    $installArgs = "'--install', '`"{0}`"', '--start-with-win', '--create-shortcuts', '--create-desktop-icon', '--silent'" -f $InstallDir
 
     $wrappers = New-ExeWrapperContent -InstallerFileName $InstallerFileName `
         -InstallArgs $installArgs `

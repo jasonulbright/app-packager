@@ -209,7 +209,7 @@ function Invoke-StagePSPad {
     # installer's default directory.
     $wrapperContent = New-ExeWrapperContent `
         -InstallerFileName $installerFileName `
-        -InstallArgs ("'/VERYSILENT', '/NORESTART', '/SUPPRESSMSGBOXES', '/SP-', '/DIR={0}'" -f $InstallPath) `
+        -InstallArgs ("'/VERYSILENT', '/NORESTART', '/SUPPRESSMSGBOXES', '/SP-', '/DIR=`"{0}`"'" -f $InstallPath) `
         -UninstallCommand "$InstallPath\unins000.exe" `
         -UninstallArgs "'/SP-', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'"
 
@@ -242,7 +242,7 @@ function Invoke-StagePSPad {
         SoftwareVersion = $version
         InstallerFile   = $installerFileName
         InstallerType   = "EXE"
-        InstallArgs     = "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES /SP- /DIR=$InstallPath"
+        InstallArgs     = "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES /SP- /DIR=`"$InstallPath`""
         UninstallArgs   = "/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
         RunningProcess  = @("PSPad")
         Detection       = @{

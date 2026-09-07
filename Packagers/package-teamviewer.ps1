@@ -120,13 +120,7 @@ function Get-TeamViewerMsi {
     $extractDir = Join-Path $BaseDownloadRoot "_extracted"
 
     # Download ZIP
-    if (-not (Test-Path -LiteralPath $localZip)) {
-        Write-Log "Downloading TeamViewer ZIP..." -Quiet:$Quiet
-        Invoke-DownloadWithRetry -Url $ZipDownloadUrl -OutFile $localZip
-    }
-    else {
-        Write-Log "Local ZIP exists. Skipping download." -Quiet:$Quiet
-    }
+    Invoke-CachedDownload -Url $ZipDownloadUrl -OutFile $localZip -Quiet:$Quiet
 
     # Extract
     if (Test-Path -LiteralPath $extractDir) {

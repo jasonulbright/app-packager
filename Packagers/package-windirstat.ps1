@@ -159,33 +159,27 @@ function Invoke-StageWinDirStat {
     Write-Log "Version                      : $version"
     Write-Log ""
 
-    # --- Download ---
-    $localMsi = Join-Path $BaseDownloadRoot $MsiFileName
-    Write-Log "Local MSI path               : $localMsi"
-
-    if (-not (Test-Path -LiteralPath $localMsi)) {
-        Write-Log "Downloading WinDirStat..."
-        Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localMsi
-    }
-    else {
-        Write-Log "Local MSI exists. Skipping download."
-    }
-
     # --- Versioned local content folder ---
     $localContentPath = Join-Path $BaseDownloadRoot $version
     Initialize-Folder -Path $localContentPath
 
+    # --- Download ---
+    # The release asset is stored under one fixed name, so the download lands
+    # in the versioned folder; a shared cache would stage an older release
+    # under the new version.
     $stagedMsi = Join-Path $localContentPath $MsiFileName
+    Write-Log "Staged MSI path              : $stagedMsi"
+
     if (-not (Test-Path -LiteralPath $stagedMsi)) {
-        Copy-Item -LiteralPath $localMsi -Destination $stagedMsi -Force -ErrorAction Stop
-        Write-Log "Copied MSI to staged folder  : $stagedMsi"
+        Write-Log "Downloading WinDirStat..."
+        Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $stagedMsi
     }
     else {
-        Write-Log "Staged MSI exists. Skipping copy."
+        Write-Log "Staged MSI exists. Skipping download."
     }
 
     # --- Extract MSI properties ---
-    $props = Get-MsiPropertyMap -MsiPath $localMsi
+    $props = Get-MsiPropertyMap -MsiPath $stagedMsi
 
     $productName = $props["ProductName"]
 

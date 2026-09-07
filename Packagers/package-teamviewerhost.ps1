@@ -7,7 +7,6 @@ CPE: cpe:2.3:a:teamviewer:teamviewer:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.teamviewer.com/en-us/whats-new/
 DownloadPageUrl: https://www.teamviewer.com/en-us/download/windows/
 IconSource: Installer
-RequiresTools: 7-Zip
 
 .SYNOPSIS
     Packages TeamViewer Host (x64) EXE for MECM.
@@ -132,20 +131,19 @@ $ConfigFile       = Join-Path $PSScriptRoot "teamviewer-host-config.json"
 function Get-TeamViewerHostExeVersion {
     <#
     .SYNOPSIS
-        Reads ProductVersion from a TeamViewer Host EXE and returns it as a
-        dotted version string.
+        Reads the product version from a TeamViewer Host EXE and returns it as
+        a dotted version string.
 
     .DESCRIPTION
-        TeamViewer Host 15.x NSIS installers leave the standard Win32
-        version-info resource empty (FileVersionInfo returns blank fields),
-        but the PE header's "Product Version" field is populated. 7-Zip's
-        "l" command can read the PE header metadata directly.
+        The NSIS installer leaves the version resource string table empty, so
+        FileVersionInfo.ProductVersion and FileVersion come back blank. The
+        fixed block of the same resource is populated, and its four Product
+        parts match the vendor MSI ProductVersion.
 
         Strategy:
-          1. Try [System.Diagnostics.FileVersionInfo] first (in case a
-             future vendor build populates the resource).
-          2. Fall back to `7z.exe l <exe>` and parse `ProductVersion: x.y.z.w`.
-          3. Throw if neither path yields a version.
+          1. Try the string table first, in case a vendor build populates it.
+          2. Fall back to the fixed block.
+          3. Throw when both are empty.
     #>
     param([Parameter(Mandatory)][string]$ExePath)
 
@@ -154,22 +152,10 @@ function Get-TeamViewerHostExeVersion {
     if ([string]::IsNullOrWhiteSpace($v)) { $v = $vi.FileVersion }
     if (-not [string]::IsNullOrWhiteSpace($v)) { return $v.Trim() }
 
-    # APP_PACKAGER_SEVENZIP is set by start-apppackager.ps1 when a non-default
-    # 7-Zip install was detected via the pre-flight scan. Fall back to the
-    # Program Files default for CLI / un-hosted invocations.
-    $sevenZip = $env:APP_PACKAGER_SEVENZIP
-    if ([string]::IsNullOrWhiteSpace($sevenZip) -or -not (Test-Path -LiteralPath $sevenZip)) {
-        $sevenZip = Join-Path $env:ProgramFiles "7-Zip\7z.exe"
-    }
-    if (-not (Test-Path -LiteralPath $sevenZip)) {
-        throw "FileVersionInfo is empty on $ExePath and 7-Zip is not installed at $sevenZip. Install 7-Zip so this packager can read the PE header metadata."
-    }
+    $fixed = "{0}.{1}.{2}.{3}" -f $vi.ProductMajorPart, $vi.ProductMinorPart, $vi.ProductBuildPart, $vi.ProductPrivatePart
+    if ($fixed -ne '0.0.0.0') { return $fixed }
 
-    $lines = & $sevenZip l $ExePath 2>&1
-    $hit = $lines | Where-Object { $_ -match '^\s*ProductVersion:\s*(\S+)' } | Select-Object -First 1
-    if ($hit -and $Matches[1]) { return $Matches[1].Trim() }
-
-    throw "Could not read ProductVersion from $ExePath via FileVersionInfo or 7-Zip."
+    throw "Could not read a product version from $ExePath - the version resource string table and its fixed block are both empty."
 }
 
 
@@ -215,10 +201,7 @@ function Get-LatestTeamViewerHostVersion {
         Initialize-Folder -Path $BaseDownloadRoot
 
         $localExe = Join-Path $BaseDownloadRoot $InstallerFileName
-        if (-not (Test-Path -LiteralPath $localExe)) {
-            Write-Log "Downloading TeamViewer Host EXE..." -Quiet:$Quiet
-            Invoke-DownloadWithRetry -Url $ExeDownloadUrl -OutFile $localExe
-        }
+        Invoke-CachedDownload -Url $ExeDownloadUrl -OutFile $localExe -Quiet:$Quiet
 
         $version = Get-TeamViewerHostExeVersion -ExePath $localExe
         Write-Log "Latest TeamViewer Host ver   : $version" -Quiet:$Quiet
@@ -247,14 +230,7 @@ function Invoke-StageTeamViewerHost {
     # --- Download EXE ---
     $localExe = Join-Path $BaseDownloadRoot $InstallerFileName
     Write-Log "Local EXE path               : $localExe"
-
-    if (-not (Test-Path -LiteralPath $localExe)) {
-        Write-Log "Downloading TeamViewer Host EXE..."
-        Invoke-DownloadWithRetry -Url $ExeDownloadUrl -OutFile $localExe
-    }
-    else {
-        Write-Log "Local EXE exists. Skipping download."
-    }
+    Invoke-CachedDownload -Url $ExeDownloadUrl -OutFile $localExe
 
     # --- Read version from EXE file properties ---
     $version = Get-TeamViewerHostExeVersion -ExePath $localExe

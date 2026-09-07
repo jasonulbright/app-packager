@@ -30,13 +30,13 @@
       - PowerShell 5.1
       - .NET Framework 4.8.2
       - MahApps.Metro 2.4.10 DLLs in .\Lib\
-      - 7-Zip (required by Tableau packagers)
+      - 7-Zip (required by Adobe Reader)
       - Local administrator (required by some packagers)
 
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.5.1.9
+    Version    : 1.5.2.0
     Updated    : 2026-09-04
 #>
 
@@ -551,8 +551,7 @@ function Invoke-DetectConfigMgrConsole {
 
 function Invoke-DetectSevenZipCli {
     # Detects 7-Zip CLI (7z.exe). Used by package-adobereader.ps1 to extract
-    # the Adobe enterprise installer and by package-teamviewerhost.ps1 to
-    # read ProductVersion from an unsigned EXE's PE header. Supporting
+    # the Adobe enterprise installer. Supporting
     # non-default install paths (not just Program Files\7-Zip) makes the
     # tool work on workstations where an admin relocated it.
     # Detection signals, in order:
@@ -3684,7 +3683,7 @@ function New-MecmPreferencesPanel {
     <TextBlock Grid.Row="12" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
     <Grid Grid.Row="12" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
 
-    <TextBlock Grid.Row="13" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="7-Zip command-line (7z.exe) detection status. Required by Adobe Reader + TeamViewer Host packagers."/>
+    <TextBlock Grid.Row="13" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="7-Zip command-line (7z.exe) detection status. Required by the Adobe Reader packager."/>
     <Grid Grid.Row="13" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
     <TextBlock Grid.Row="14" Grid.Column="0" Text="GitHub API:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="How the 90 packagers that read GitHub releases authenticate. Anonymous calls are limited to 60 per hour per address; a token raises that to 5000. Resolved from GITHUB_TOKEN, then GH_TOKEN, then the GitHub CLI login (gh auth login)."/>
     <Grid Grid.Row="14" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtGitHubStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
@@ -3802,7 +3801,7 @@ function New-MecmPreferencesPanel {
         $txtSevenZipStatus.Text = ([char]0x2713 + " Detected  -  {0} v{1}" -f $sz.DisplayName, $sz.DisplayVersion)
         $txtSevenZipStatus.ToolTip = ("7z.exe: {0}" -f $sz.ExePath)
     } else {
-        $txtSevenZipStatus.Text = ([char]0x2717 + " Not detected  -  Adobe Reader + TeamViewer Host packagers need 7-Zip CLI")
+        $txtSevenZipStatus.Text = ([char]0x2717 + " Not detected  -  Adobe Reader requires 7-Zip CLI")
         $txtSevenZipStatus.ToolTip = "Detected once per launch via registry ARP + Program Files\7-Zip"
     }
 
@@ -4952,10 +4951,13 @@ function Show-ExistingConflictDialog {
     Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
     $dlg.FindName('txtIntro').Text = "$AppName is already in the site at version $Version and was left unchanged. Overwrite replaces its deployment types from the content just staged; the application object and any deployments are kept."
     $chkAll = $dlg.FindName('chkAll')
+    # ShowDialog keeps this function on the stack while the handlers run, so
+    # they keep its scope; a GetNewClosure handler writes the choice into its
+    # own module and the value returned below stays at Skip.
     $script:ConflictDialogChoice = 'Skip'
-    $dlg.FindName('btnSkip').Add_Click({ $script:ConflictDialogChoice = 'Skip'; $dlg.Close() }.GetNewClosure())
-    $dlg.FindName('btnOverwrite').Add_Click({ $script:ConflictDialogChoice = 'Overwrite'; $dlg.Close() }.GetNewClosure())
-    $dlg.FindName('btnCancel').Add_Click({ $script:ConflictDialogChoice = 'Cancel'; $dlg.Close() }.GetNewClosure())
+    $dlg.FindName('btnSkip').Add_Click({ $script:ConflictDialogChoice = 'Skip'; $dlg.Close() })
+    $dlg.FindName('btnOverwrite').Add_Click({ $script:ConflictDialogChoice = 'Overwrite'; $dlg.Close() })
+    $dlg.FindName('btnCancel').Add_Click({ $script:ConflictDialogChoice = 'Cancel'; $dlg.Close() })
     [void]$dlg.ShowDialog()
     return @{ Choice = [string]$script:ConflictDialogChoice; ApplyToAll = [bool]$chkAll.IsChecked }
 }
@@ -5656,6 +5658,9 @@ function Show-FirstRunWizard {
 
     $script:FirstRunDlgSaved = $false
     $prefsRef = $script:Prefs
+    # ShowDialog keeps this function on the stack while these handlers run.
+    # Keep its scope: GetNewClosure would hide the script-local save/refresh
+    # helpers and give each handler a separate $script:FirstRunDlgSaved flag.
     $btnWizSave.Add_Click({
         try {
             $target = [string]$cboTarget.SelectedItem.Tag
@@ -5685,7 +5690,7 @@ function Show-FirstRunWizard {
         } catch {
             [void](Show-ThemedMessage -Owner $dlg -Title 'Save Failed' -Message $_.Exception.Message -Buttons OK -Icon Error)
         }
-    }.GetNewClosure())
+    })
 
     # Skip and window close share one path: the flag persists only when the
     # suppression box is checked, otherwise the wizard returns next launch.
@@ -5695,7 +5700,7 @@ function Show-FirstRunWizard {
             $prefsRef.FirstRunCompleted = $true
             try { Save-Preferences -Prefs $prefsRef } catch { }
         }
-    }.GetNewClosure())
+    })
 
     $btnWizSkip.Add_Click({ $dlg.Close() })
 
@@ -7392,6 +7397,21 @@ $btnFullRun.Add_Click({
 # =============================================================================
 # Window lifecycle
 # =============================================================================
+# Handlers built with GetNewClosure run in a dynamic module whose scope chain
+# ends at the global scope. A launch that runs this file in a child scope (a
+# call from a prompt or the Explorer context menu) leaves every function above
+# invisible to them; publishing the functions to the global scope gives all
+# launch styles the visibility a -File launch has. Script variables stay out
+# of reach either way, so handlers capture the references they need before
+# the closure is created.
+$script:ScopeProbe = $true
+if (-not (Test-Path -LiteralPath 'variable:global:ScopeProbe')) {
+    Get-ChildItem -Path 'function:' |
+        Where-Object { -not $_.Module -and $_.ScriptBlock.File -eq $PSCommandPath } |
+        ForEach-Object { Set-Item -Path ('function:global:' + $_.Name) -Value $_.ScriptBlock }
+}
+Remove-Variable -Name ScopeProbe -Scope Script -ErrorAction SilentlyContinue
+
 # =============================================================================
 # Version display and update affordances
 # =============================================================================

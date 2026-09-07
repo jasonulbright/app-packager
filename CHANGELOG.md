@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.5.2.0] - 2026-09-07
+
+### Changed
+
+- Removed the 7-Zip requirement from TeamViewer Host
+
+### Fixed
+
+- Various bug fixes
+
 ## [1.5.1.9] - 2026-09-05
 
 ### Fixed
