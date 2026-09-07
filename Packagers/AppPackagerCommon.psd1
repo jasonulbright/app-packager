@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AppPackagerCommon.psm1'
-    ModuleVersion     = '0.0.22'
+    ModuleVersion     = '0.0.23'
     GUID              = 'f5cdd2d6-eb09-47bd-8493-16dfd5666455'
     Author            = 'AppPackager'
     Description       = 'Shared helpers for AppPackager packager scripts.'
@@ -11,6 +11,7 @@
 
         # Download
         'Invoke-DownloadWithRetry'
+        'Invoke-CachedDownload'
         'Get-GitHubApiCurlArgs'
 
         # Environment / pre-flight

@@ -154,31 +154,25 @@ function Invoke-StageEdge {
     Write-Log "Installer filename           : $MsiFileName"
     Write-Log ""
 
-    # --- Download ---
-    $localMsi = Join-Path $BaseDownloadRoot $MsiFileName
-    Write-Log "Local MSI path               : $localMsi"
-
-    if (-not (Test-Path -LiteralPath $localMsi)) {
-        Write-Log "Download URL                 : $EdgeStableMSIUrl"
-        Write-Log ""
-        Write-Log "Downloading MSI..."
-        Invoke-DownloadWithRetry -Url $EdgeStableMSIUrl -OutFile $localMsi
-    }
-    else {
-        Write-Log "Local MSI exists. Skipping download."
-    }
-
     # --- Versioned local content folder ---
     $localContentPath = Join-Path $BaseDownloadRoot $version
     Initialize-Folder -Path $localContentPath
 
+    # --- Download ---
+    # The evergreen URL always serves the current release under one file
+    # name, so the download lands in the versioned folder; a shared cache
+    # would stage an older release under the new version.
     $stagedMsi = Join-Path $localContentPath $MsiFileName
+    Write-Log "Staged MSI path              : $stagedMsi"
+
     if (-not (Test-Path -LiteralPath $stagedMsi)) {
-        Copy-Item -LiteralPath $localMsi -Destination $stagedMsi -Force -ErrorAction Stop
-        Write-Log "Copied MSI to staged folder  : $stagedMsi"
+        Write-Log "Download URL                 : $EdgeStableMSIUrl"
+        Write-Log ""
+        Write-Log "Downloading MSI..."
+        Invoke-DownloadWithRetry -Url $EdgeStableMSIUrl -OutFile $stagedMsi
     }
     else {
-        Write-Log "Staged MSI exists. Skipping copy."
+        Write-Log "Staged MSI exists. Skipping download."
     }
 
     # --- Generate content wrappers ---

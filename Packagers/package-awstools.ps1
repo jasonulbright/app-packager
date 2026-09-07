@@ -153,13 +153,8 @@ function Get-AwsToolsInstaller {
         Remove-Item -LiteralPath $localMsi -Force -ErrorAction Stop
     }
 
-    if (-not (Test-Path -LiteralPath $localMsi)) {
-        Write-Log "Download URL                 : $MsiDownloadUrl" -Quiet:$Quiet
-        Invoke-DownloadWithRetry -Url $MsiDownloadUrl -OutFile $localMsi -Quiet:$Quiet
-    }
-    else {
-        Write-Log "Local MSI exists. Skipping download." -Quiet:$Quiet
-    }
+    Write-Log "Download URL                 : $MsiDownloadUrl" -Quiet:$Quiet
+    Invoke-CachedDownload -Url $MsiDownloadUrl -OutFile $localMsi -Quiet:$Quiet
 
     Assert-PayloadIsMsi -Path $localMsi
     return $localMsi

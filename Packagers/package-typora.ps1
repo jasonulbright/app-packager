@@ -222,7 +222,7 @@ function Invoke-StageTypora {
     # install; without them it can land in the invoking user's profile.
     $uninstallExe = Join-Path $InstallDir "unins000.exe"
     $wrappers = New-ExeWrapperContent -InstallerFileName $ExeFileName `
-        -InstallArgs ("'/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/ALLUSERS', '/DIR={0}'" -f $InstallDir) `
+        -InstallArgs ("'/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/ALLUSERS', '/DIR=`"{0}`"'" -f $InstallDir) `
         -UninstallCommand $uninstallExe -UninstallArgs "'/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'"
 
     Write-ContentWrappers -OutputPath $localContentPath `
@@ -243,7 +243,7 @@ function Invoke-StageTypora {
         SoftwareVersion  = $version
         InstallerFile    = $ExeFileName
         InstallerType    = "EXE"
-        InstallArgs      = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /ALLUSERS /DIR=$InstallDir"
+        InstallArgs      = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /ALLUSERS /DIR=`"$InstallDir`""
         UninstallArgs    = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
         UninstallCommand = $uninstallExe
         RunningProcess   = @("Typora")

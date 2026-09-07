@@ -214,9 +214,9 @@ function Invoke-StageGephi {
     $installDir = "{0}\Gephi-{1}" -f $env:ProgramFiles, $version
 
     # --- Generate content wrappers ---
-    # The path is not pre-quoted: Start-Process quotes the whole element, and a
-    # nested pair of quotes would reach Inno as part of the directory name.
-    $installArgs = "'/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/DIR=$installDir'"
+    # Start-Process joins the elements with spaces and adds no quoting, so the
+    # directory carries its own quotes or Inno receives it split at the space.
+    $installArgs = "'/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/DIR=`"$installDir`"'"
 
     $uninstallExe = Join-Path $installDir "unins000.exe"
 

@@ -154,31 +154,25 @@ function Invoke-StageWebView2 {
     Write-Log "Installer filename           : $ExeFileName"
     Write-Log ""
 
-    # --- Download ---
-    $localExe = Join-Path $BaseDownloadRoot $ExeFileName
-    Write-Log "Local installer path         : $localExe"
-
-    if (-not (Test-Path -LiteralPath $localExe)) {
-        Write-Log "Download URL                 : $WebView2ExeUrl"
-        Write-Log ""
-        Write-Log "Downloading installer..."
-        Invoke-DownloadWithRetry -Url $WebView2ExeUrl -OutFile $localExe
-    }
-    else {
-        Write-Log "Local installer exists. Skipping download."
-    }
-
     # --- Versioned local content folder ---
     $localContentPath = Join-Path $BaseDownloadRoot $version
     Initialize-Folder -Path $localContentPath
 
+    # --- Download ---
+    # The evergreen URL always serves the current release under one file
+    # name, so the download lands in the versioned folder; a shared cache
+    # would stage an older release under the new version.
     $stagedExe = Join-Path $localContentPath $ExeFileName
+    Write-Log "Staged installer path        : $stagedExe"
+
     if (-not (Test-Path -LiteralPath $stagedExe)) {
-        Copy-Item -LiteralPath $localExe -Destination $stagedExe -Force -ErrorAction Stop
-        Write-Log "Copied EXE to staged folder  : $stagedExe"
+        Write-Log "Download URL                 : $WebView2ExeUrl"
+        Write-Log ""
+        Write-Log "Downloading installer..."
+        Invoke-DownloadWithRetry -Url $WebView2ExeUrl -OutFile $stagedExe
     }
     else {
-        Write-Log "Staged EXE exists. Skipping copy."
+        Write-Log "Staged installer exists. Skipping download."
     }
 
     # --- Generate content wrappers ---

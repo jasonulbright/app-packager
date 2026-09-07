@@ -187,7 +187,11 @@ function Invoke-StageChefWorkstation {
     Write-Log ""
 
     # --- Download ---
-    $localMsi = Join-Path $BaseDownloadRoot $MsiFileName
+    # A cache named per metadata build keeps an older download from being
+    # reused after a new release; the versioned folder still receives the
+    # fixed file name the wrappers reference.
+    $cacheName = if ([string]::IsNullOrWhiteSpace([string]$build.Version)) { $MsiFileName } else { "chef-workstation-{0}-x64.msi" -f $build.Version }
+    $localMsi = Join-Path $BaseDownloadRoot $cacheName
     Write-Log "Local MSI path               : $localMsi"
 
     if (-not (Test-Path -LiteralPath $localMsi)) {

@@ -224,42 +224,39 @@ function Invoke-StageHorizonClient {
     Write-Log "Vendor file name             : $($releaseInfo.FileName)"
     Write-Log ""
 
-    # --- Download ---
-    $localExe = Join-Path $BaseDownloadRoot $InstallerFileName
-    Write-Log "Local installer path         : $localExe"
-
-    if (-not (Test-Path -LiteralPath $localExe)) {
-        Write-Log "Download URL                 : $($releaseInfo.DownloadUrl)"
-        Write-Log ""
-        Write-Log "Downloading installer..."
-        Invoke-DownloadWithRetry -Url $releaseInfo.DownloadUrl -OutFile $localExe
-    }
-    else {
-        Write-Log "Local installer exists. Skipping download."
-    }
-
-    Assert-ExePayload -Path $localExe
-
-    # --- Verify the vendor checksum ---
-    if (-not [string]::IsNullOrWhiteSpace($releaseInfo.Sha256)) {
-        $actual = (Get-FileHash -LiteralPath $localExe -Algorithm SHA256 -ErrorAction Stop).Hash
-        if ($actual -ne $releaseInfo.Sha256.ToUpperInvariant()) {
-            throw "Downloaded installer SHA256 ($actual) does not match the vendor value ($($releaseInfo.Sha256))."
-        }
-        Write-Log "SHA256 matches vendor value  : $actual"
-    }
-
     # --- Versioned local content folder ---
     $localContentPath = Join-Path $BaseDownloadRoot $version
     Initialize-Folder -Path $localContentPath
 
+    # --- Download ---
+    # The vendor file is stored under one fixed name, so the download lands
+    # in the versioned folder; a shared cache would stage an older release
+    # under the new version and fail its checksum.
     $stagedExe = Join-Path $localContentPath $InstallerFileName
+    Write-Log "Staged installer path        : $stagedExe"
+
     if (-not (Test-Path -LiteralPath $stagedExe)) {
-        Copy-Item -LiteralPath $localExe -Destination $stagedExe -Force -ErrorAction Stop
-        Write-Log "Copied installer to staged   : $stagedExe"
+        Write-Log "Download URL                 : $($releaseInfo.DownloadUrl)"
+        Write-Log ""
+        Write-Log "Downloading installer..."
+        Invoke-DownloadWithRetry -Url $releaseInfo.DownloadUrl -OutFile $stagedExe
     }
     else {
-        Write-Log "Staged installer exists. Skipping copy."
+        Write-Log "Staged installer exists. Skipping download."
+    }
+
+    Assert-ExePayload -Path $stagedExe
+
+    # --- Verify the vendor checksum ---
+    # A mismatched file is removed so the next run downloads again instead of
+    # failing on the same payload.
+    if (-not [string]::IsNullOrWhiteSpace($releaseInfo.Sha256)) {
+        $actual = (Get-FileHash -LiteralPath $stagedExe -Algorithm SHA256 -ErrorAction Stop).Hash
+        if ($actual -ne $releaseInfo.Sha256.ToUpperInvariant()) {
+            Remove-Item -LiteralPath $stagedExe -Force -ErrorAction SilentlyContinue
+            throw "Downloaded installer SHA256 ($actual) does not match the vendor value ($($releaseInfo.Sha256))."
+        }
+        Write-Log "SHA256 matches vendor value  : $actual"
     }
 
     # --- Generate content wrappers ---

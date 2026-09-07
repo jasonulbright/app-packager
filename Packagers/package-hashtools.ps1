@@ -212,7 +212,7 @@ function Invoke-StageHashTools {
     # --- Generate content wrappers ---
     $wrapperContent = New-ExeWrapperContent `
         -InstallerFileName $installerFileName `
-        -InstallArgs ("'/VERYSILENT', '/NORESTART', '/SUPPRESSMSGBOXES', '/SP-', '/DIR={0}'" -f $InstallPath) `
+        -InstallArgs ("'/VERYSILENT', '/NORESTART', '/SUPPRESSMSGBOXES', '/SP-', '/DIR=`"{0}`"'" -f $InstallPath) `
         -UninstallCommand ("{0}\unins000.exe" -f $InstallPath) `
         -UninstallArgs "'/VERYSILENT', '/NORESTART', '/SUPPRESSMSGBOXES'"
 
@@ -235,7 +235,7 @@ function Invoke-StageHashTools {
         SoftwareVersion = $version
         InstallerFile   = $installerFileName
         InstallerType   = "EXE"
-        InstallArgs     = "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES /SP- /DIR=$InstallPath"
+        InstallArgs     = "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES /SP- /DIR=`"$InstallPath`""
         UninstallArgs   = "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES"
         RunningProcess  = @("HashTools")
         Detection       = @{

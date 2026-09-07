@@ -125,7 +125,7 @@ No other code change is needed. The ListBox auto-populates from `$panels[i].Name
 
 **1. StaticResource + BasedOn fails at load time.** Panels load standalone, without the parent window's merged resource dictionaries. `<Style TargetType="..." BasedOn="{StaticResource MahApps.Styles.DataGridCell}">` throws at `XamlReader.Load`. Workarounds: use `DynamicResource` (for brushes), drop the `BasedOn` (accept plain WPF defaults, or inline the setters you need), or import a dictionary inside `<Panel.Resources>`. `DynamicResource` is the usual right answer.
 
-**2. `.GetNewClosure()` strips script scope and function lookup.** Variables in the closure are captured as panel-local snapshots. Script-scope `$script:Foo` and script-scope functions like `Save-Preferences` become unreachable from inside the closure. Mutate captured references only; let the master OK handler do the cross-module calls.
+**2. `.GetNewClosure()` strips script scope.** Variables in the closure are captured as panel-local snapshots, and `$script:Foo` inside the closure reads the closure module's own empty script scope, not the application's. Script functions such as `Save-Preferences` stay callable: the launcher publishes them to the global scope, which every closure module can see. Mutate captured references only; let the master OK handler do the cross-module calls.
 
 **3. Inner functions do not inherit outer scope via GetNewClosure.** If you define a helper function inside the factory, its captured variables come from the helper's scope, not the factory's. Pass any outer-scope dependency in as an explicit parameter. Mistake version (broken):
 

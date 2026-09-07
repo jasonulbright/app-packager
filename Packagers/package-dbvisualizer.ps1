@@ -217,7 +217,7 @@ function Invoke-StageDbVisualizer {
     # install4j: -q is unattended with installer defaults, -dir pins the target
     # so the uninstaller path stays predictable across upgrades.
     $wrappers = New-ExeWrapperContent -InstallerFileName $installerFileName `
-        -InstallArgs ("'-q', '-dir', '{0}'" -f $InstallDir) `
+        -InstallArgs ("'-q', '-dir', '`"{0}`"'" -f $InstallDir) `
         -UninstallCommand "$InstallDir\uninstall.exe" `
         -UninstallArgs "'-q'"
 

@@ -163,13 +163,8 @@ function Get-StagedInstaller {
     Initialize-Folder -Path $BaseDownloadRoot
 
     $localExe = Join-Path $BaseDownloadRoot $InstallerFileName
-    if (-not (Test-Path -LiteralPath $localExe)) {
-        Write-Log "Download URL                 : $DownloadUrl" -Quiet:$Quiet
-        Invoke-DownloadWithRetry -Url $DownloadUrl -OutFile $localExe -Quiet:$Quiet
-    }
-    else {
-        Write-Log "Local installer exists. Skipping download." -Quiet:$Quiet
-    }
+    Write-Log "Download URL                 : $DownloadUrl" -Quiet:$Quiet
+    Invoke-CachedDownload -Url $DownloadUrl -OutFile $localExe -Quiet:$Quiet
 
     Assert-PayloadIsExecutable -Path $localExe
 

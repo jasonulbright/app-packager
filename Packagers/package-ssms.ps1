@@ -183,13 +183,24 @@ function ConvertTo-CommandLinePreview {
     }) -join ' '
 }
 
+function ConvertTo-SsmsArgumentLiteral {
+    # Start-Process joins the list with spaces and adds no quoting, so a path
+    # element carries its own quotes or the bootstrapper receives it split.
+    param([Parameter(Mandatory)][string[]]$Arguments)
+
+    return ($Arguments | ForEach-Object {
+        $element = if ($_ -match '\s') { '"' + $_ + '"' } else { $_ }
+        "'" + ($element -replace "'", "''") + "'"
+    }) -join ', '
+}
+
 function New-SsmsInstallWrapper {
     param(
         [Parameter(Mandatory)][string]$InstallerFile,
         [Parameter(Mandatory)][string[]]$Arguments
     )
 
-    $argLiteral = ($Arguments | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ', '
+    $argLiteral = ConvertTo-SsmsArgumentLiteral -Arguments $Arguments
     return (
         ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $InstallerFile),
         'if (-not (Test-Path -LiteralPath $exePath)) { Write-Error "Missing SSMS bootstrapper"; exit 2 }',
@@ -205,7 +216,7 @@ function New-SsmsUninstallWrapper {
         [Parameter(Mandatory)][string[]]$Arguments
     )
 
-    $argLiteral = ($Arguments | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ', '
+    $argLiteral = ConvertTo-SsmsArgumentLiteral -Arguments $Arguments
     return (
         '$setupExe = Join-Path ${env:ProgramFiles(x86)} ''Microsoft Visual Studio\Installer\setup.exe''',
         ('$fallbackBootstrapper = Join-Path $PSScriptRoot ''{0}''' -f $InstallerFile),

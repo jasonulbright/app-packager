@@ -294,7 +294,7 @@ function Invoke-StageWindowsAdk {
     Write-Log ""
 
     # --- Generate content wrappers ---
-    $installArgList = @("'/quiet'", ("'/installpath'"), ("'{0}'" -f ($InstallPath -replace "'", "''")), "'/features'")
+    $installArgList = @("'/quiet'", ("'/installpath'"), ("'`"{0}`"'" -f ($InstallPath -replace "'", "''")), "'/features'")
     foreach ($feature in $Features) {
         $installArgList += ("'{0}'" -f ($feature -replace "'", "''"))
     }
