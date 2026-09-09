@@ -28,7 +28,7 @@ Installs the latest release into `%LOCALAPPDATA%\AppPackager`. Only a zip crosse
 On an unrestricted network, the installer can do the whole flow itself — resolve the release from the GitHub API, download, verify SHA-256, extract:
 
 ```powershell
-curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 1.5.2.0
+curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 1.5.2.1
 ```
 
 Omitting `-ZipPath` makes it download and checksum-verify the requested release; `-InstallPath` picks the folder and `-Version` pins a release. `-Force` is required to replace a non-empty folder that holds no existing AppPackager install. If even the curl download is blocked, fetch the zip in a browser and run the same `-ZipPath` command against it.
@@ -158,7 +158,9 @@ An **Install for** column (`Default`, `System`, `User`) appears for packagers th
 
 A **Commands** column opens the per-app command override editor: edit the install and uninstall command lines the deployment type will carry, against watermarked shipped defaults, with one-click revert per field. The button label reads Default or Modified so overridden apps are visible at a glance. Overrides reach the packager as `APP_PACKAGER_COMMANDS` environment JSON, are recorded in the stage manifest, and an explicit override always beats the manifest's generated command.
 
-When a Package or One Click Stage-and-Package run reaches an application the site already holds at the same version, the run leaves it alone and asks: **Skip**, **Overwrite**, or **Cancel run**, with a **Do this for all remaining conflicts** checkbox. Overwrite replaces that application's deployment types from the content just staged and keeps the application object and its deployments — the way to re-cut an app whose wrappers or deployment type settings came from an older generator. The answer applies to the current run only and is never saved; apps that raise no conflict are never interrupted.
+Before copying content or changing MECM, Package and One Click Stage-and-Package check the exact application title and ask **Overwrite**, **Skip**, or **Cancel run** if it already exists, even at a different version. Overwrite replaces deployment types while keeping the application and its deployments. Skip leaves it unchanged; Cancel stops the remaining run. **Do this for all remaining conflicts** applies only to the current run.
+
+Under **Options > Deployment Conditions > Application title**, choose per app: **Packager default**, **Include version** (separate applications per release), or **No version** (one perpetual application, useful for browsers). Versionless updates still ask before overwriting. Content folders and detection remain versioned. Changing the setting does not rename or migrate existing applications or deployments; choose the desired naming before establishing a perpetual deployment. Software Center display-name overrides are unchanged.
 
 Global conditions are created on the site the first time a rule needs them and are matched by name, so changing a condition's name in the panel attaches to a condition the site already has instead of creating a duplicate. The panel's per-app grid persists to `AppPackager.preferences.json`; condition names and VPN adapter patterns persist to `Packagers/condition-templates.json` (built-in defaults apply until the panel writes it). Selections apply on Package and One Click Stage-and-Package runs, and requirement resolution fails the run before anything is created when a rule can't be built — a package never silently ships without the rules configured for it.
 
@@ -843,7 +845,7 @@ All packager scripts import the shared module which provides:
 | `New-ExeWrapperContent` | Returns EXE install/uninstall .ps1 content strings |
 | `Get-NetworkAppRoot` | Constructs and initializes the network share path |
 | `Write-StageManifest` / `Read-StageManifest` | JSON manifest serialization |
-| `New-MECMApplicationFromManifest` | Creates MECM Application + deployment type from manifest, attaching requirement rules from the manifest `Requirements` array or `APP_PACKAGER_REQUIREMENTS`. `-OnExisting` decides the same-name, same-version case |
+| `New-MECMApplicationFromManifest` | Creates MECM Application + deployment type from manifest, attaching requirement rules from the manifest `Requirements` array or `APP_PACKAGER_REQUIREMENTS`. `-OnExisting` decides every same-name collision, regardless of version |
 | `Resolve-OnExistingBehavior` | Resolves `Skip` / `Overwrite` / `Fail` from the parameter, then `APP_PACKAGER_ON_EXISTING`, then the default |
 | `Get-ConditionTemplates` / `Save-ConditionTemplates` | Condition template document: built-in defaults (CPU architecture WQL, built-in OS language, VPN adapter script) with an optional `condition-templates.json` override |
 | `New-DeploymentTypeRequirementRules` | Resolves requirement specs to CM requirement rule objects, creating missing global conditions by name (get-or-create, so existing site conditions are reused) |

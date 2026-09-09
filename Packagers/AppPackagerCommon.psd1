@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AppPackagerCommon.psm1'
-    ModuleVersion     = '0.0.23'
+    ModuleVersion     = '0.0.24'
     GUID              = 'f5cdd2d6-eb09-47bd-8493-16dfd5666455'
     Author            = 'AppPackager'
     Description       = 'Shared helpers for AppPackager packager scripts.'
@@ -44,6 +44,8 @@
         'Sync-StagedContentToNetwork'
         'Write-StageManifest'
         'Read-StageManifest'
+        'Get-PackagedApplicationName'
+        'Write-PackagePreflight'
 
         # Content wrappers
         'Write-ContentWrappers'

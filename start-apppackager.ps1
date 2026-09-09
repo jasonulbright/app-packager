@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.5.2.0
+    Version    : 1.5.2.1
     Updated    : 2026-09-04
 #>
 
@@ -362,12 +362,18 @@ function Read-Preferences {
                 }
                 $split = 'None'
                 if ([string]$entry.Split -in @('Architecture', 'Language', 'Network')) { $split = [string]$entry.Split }
-                if ($arch -eq 'Any' -and $network -eq 'Any' -and $langs.Count -eq 0 -and $split -eq 'None') { continue }
+                $titleMode = ''
+                if ([string]$entry.TitleMode -in @('IncludeVersion', 'NoVersion')) { $titleMode = [string]$entry.TitleMode }
+                $installMode = ''
+                if ([string]$entry.InstallMode -in @('CurrentUser', 'AllUsers')) { $installMode = [string]$entry.InstallMode }
+                if ($arch -eq 'Any' -and $network -eq 'Any' -and $langs.Count -eq 0 -and $split -eq 'None' -and -not $titleMode -and -not $installMode) { continue }
                 $condProps[$prop.Name] = [pscustomobject]@{
                     Architecture = $arch
                     Languages    = $langs
                     Network      = $network
                     Split        = $split
+                    TitleMode    = $titleMode
+                    InstallMode  = $installMode
                 }
             }
             $defaults.DeploymentConditions.Apps = [pscustomobject]$condProps
@@ -1101,9 +1107,8 @@ function Get-ExistingConflictFromOutput {
 }
 
 function Invoke-PackagerPackageWithConflictPrompt {
-    # Runs the package phase under the engine default (Skip), then acts on the
-    # operator's answer when the engine reports an application already at this
-    # version. Runs that report no conflict never touch the UI thread.
+    # Probe the exact manifest selected by the packager before share/site
+    # writes, then ask about any exact-name collision, regardless of version.
     #
     # The prompt itself belongs to the UI thread: this runs in the background
     # runspace, so it parks a request on the synchronized state and polls for
@@ -1114,11 +1119,29 @@ function Invoke-PackagerPackageWithConflictPrompt {
         [Parameter(Mandatory)][hashtable]$PackageArgs
     )
 
-    $res = Invoke-PackagerPackage @PackageArgs
+    if ([string]$PackageArgs.DeploymentTarget -eq 'IntuneOnly') {
+        return (Invoke-PackagerPackage @PackageArgs)
+    }
+    $probeArgs = @{} + $PackageArgs
+    $probeArgs['Preflight'] = $true
+    $res = Invoke-PackagerPackage @probeArgs
     if ($res.ExitCode -ne 0) { return $res }
-
-    $conflict = Get-ExistingConflictFromOutput -Output ([string]$res.StdOut)
-    if (-not $conflict) { return $res }
+    $identityMatch = [regex]::Match([string]$res.StdOut, '(?m)^\[APP_PACKAGER_PREFLIGHT\] (.+)$')
+    if (-not $identityMatch.Success) { throw 'Package preflight did not return an application identity; refusing to package without a conflict check.' }
+    $identity = $identityMatch.Groups[1].Value | ConvertFrom-Json -ErrorAction Stop
+    $existing = Get-MecmCurrentVersionByCMName -SiteCode $PackageArgs.SiteCode -ProviderMachineName $PackageArgs.ProviderMachineName -CMName $identity.AppName -ExactMatch
+    if ([bool]$State.CancelRequested) {
+        $State.Canceled = $true
+        $res | Add-Member -NotePropertyName PackageOutcome -NotePropertyValue 'Canceled' -Force
+        return $res
+    }
+    if (-not $existing.Found) {
+        $createArgs = @{} + $PackageArgs
+        $createArgs['OnExisting'] = 'Fail'
+        return (Invoke-PackagerPackage @createArgs)
+    }
+    $conflict = [pscustomobject]@{ AppName = $identity.AppName; Version = $existing.SoftwareVersion; IncomingVersion = $identity.Version }
+    $res | Add-Member -NotePropertyName PackageOutcome -NotePropertyValue 'Skipped' -Force
 
     # An apply-to-all answer lives for this run only and is never persisted.
     $decision = [string]$State.ConflictDecisionForAll
@@ -1128,6 +1151,7 @@ function Invoke-PackagerPackageWithConflictPrompt {
             AppLabel = $AppLabel
             AppName  = $conflict.AppName
             Version  = $conflict.Version
+            IncomingVersion = $conflict.IncomingVersion
         }
         while ($null -eq $State.ConflictResponse -and -not [bool]$State.CancelRequested) {
             $State.Step = ('Waiting for overwrite decision: {0}' -f $AppLabel)
@@ -1136,7 +1160,7 @@ function Invoke-PackagerPackageWithConflictPrompt {
         $answer = $State.ConflictResponse
         $State.ConflictRequest = $null
         $State.ConflictResponse = $null
-        if ($null -eq $answer) { return $res }
+        if ($null -eq $answer) { $res.PackageOutcome = 'Canceled'; $State.Canceled = $true; return $res }
         $decision = [string]$answer.Choice
         if ([bool]$answer.ApplyToAll -and $decision -ne 'Cancel') {
             $State.ConflictDecisionForAll = $decision
@@ -1152,6 +1176,8 @@ function Invoke-PackagerPackageWithConflictPrompt {
         }
         'Cancel' {
             $State.CancelRequested = $true
+            $State.Canceled = $true
+            $res.PackageOutcome = 'Canceled'
             [void]$State.LogQueue.Enqueue(('Existing {0} v{1}: run canceled at the operator''s request.' -f $conflict.AppName, $conflict.Version))
             return $res
         }
@@ -1348,7 +1374,8 @@ function Get-MecmCurrentVersionByCMName {
     param(
         [Parameter(Mandatory)][string]$SiteCode,
         [string]$ProviderMachineName = $null,
-        [Parameter(Mandatory)][string]$CMName
+        [Parameter(Mandatory)][string]$CMName,
+        [switch]$ExactMatch
     )
 
     if (-not (Get-Command -Name Get-CMApplication -ErrorAction SilentlyContinue)) {
@@ -1410,6 +1437,13 @@ function Get-MecmCurrentVersionByCMName {
     }
 
     try {
+        if ($ExactMatch) {
+            $apps = @(Get-CMApplication -Name $CMName -DisableWildcardHandling -ErrorAction Stop |
+                Where-Object { $_.LocalizedDisplayName -eq $CMName -or $_.Name -eq $CMName })
+            if ($apps.Count -gt 1) { throw "Multiple applications have the exact title '$CMName'; resolve duplicates before packaging." }
+            if ($apps.Count -eq 0) { return [pscustomobject]@{ Found = $false; SoftwareVersion = ''; MatchCount = 0 } }
+            return [pscustomobject]@{ Found = $true; DisplayName = $CMName; SoftwareVersion = [string]$apps[0].SoftwareVersion; MatchCount = 1 }
+        }
         $apps = @(Get-CMApplication -Name $CMName -ErrorAction SilentlyContinue)
         if (-not $apps -or $apps.Count -eq 0) {
             $apps = @(Get-CMApplication -Name ("{0}*" -f $CMName) -ErrorAction SilentlyContinue)
@@ -1607,6 +1641,8 @@ function Invoke-PackagerPackage {
         [string]$VariantsJson = '',
         [string]$CommandsJson = '',
         [ValidateSet('', 'Skip', 'Overwrite', 'Fail')][string]$OnExisting = '',
+        [ValidateSet('', 'Default', 'IncludeVersion', 'NoVersion')][string]$TitleMode = '',
+        [switch]$Preflight,
         [string]$InstallMode = '',
         [System.Windows.Controls.TextBox]$LogTextBox = $null
     )
@@ -1644,8 +1680,11 @@ function Invoke-PackagerPackage {
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow  = $true
     Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName -RequirementsJson $RequirementsJson -VariantsJson $VariantsJson -CommandsJson $CommandsJson -OnExisting $OnExisting -InstallMode $InstallMode
+    $psi.EnvironmentVariables['APP_PACKAGER_TITLE_MODE'] = $TitleMode
+    $psi.EnvironmentVariables['APP_PACKAGER_PACKAGE_PREFLIGHT'] = $(if ($Preflight) { '1' } else { '0' })
 
     $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -StructuredLog $structuredLog -LogTextBox $LogTextBox
+    if ($Preflight) { return $result }
     if ($DeploymentTarget -ne 'IntuneOnly') {
         # Network-copy verification; an Intune-only run never copies to the
         # share (stage integrity is verified when the manifest is written).
@@ -1802,6 +1841,18 @@ function Get-InstallModesMapForContext {
             }
         }
     } catch { }
+    return $map
+}
+
+function Get-TitleModesMapForContext {
+    $map = @{}
+    $apps = $script:Prefs.DeploymentConditions.Apps
+    if ($apps) {
+        foreach ($prop in $apps.PSObject.Properties) {
+            $mode = [string]$prop.Value.TitleMode
+            if ($mode -in @('IncludeVersion', 'NoVersion')) { $map[$prop.Name] = $mode }
+        }
+    }
     return $map
 }
 
@@ -2873,12 +2924,14 @@ function Invoke-BatchUpdate {
         $variantsJson = ''
         $installMode = ''
         $commandsJson = ''
+        $titleMode = ''
         if ($ConditionApps) {
             $condProp = $ConditionApps.PSObject.Properties[$baseName]
             if ($condProp) {
                 $requirementsJson = ConvertTo-RequirementsJson -Entry $condProp.Value
                 $variantsJson = ConvertTo-VariantsJson -Entry $condProp.Value
                 $installMode = ConvertTo-InstallModeValue -Entry $condProp.Value
+                if ([string]$condProp.Value.TitleMode -in @('IncludeVersion', 'NoVersion')) { $titleMode = [string]$condProp.Value.TitleMode }
             }
         }
         if ($CommandApps) {
@@ -2899,9 +2952,11 @@ function Invoke-BatchUpdate {
             $previousCommandsEnv = $null
             $restoreModeEnv = $false
             $previousModeEnv = $null
+            $previousTitleModeEnv = $env:APP_PACKAGER_TITLE_MODE
             $packagerWorkingDirectory = Split-Path -Parent $scriptPath
             $pushedPackagerLocation = $false
             try {
+                $env:APP_PACKAGER_TITLE_MODE = $titleMode
                 if (-not [string]::IsNullOrWhiteSpace($SevenZipPath)) {
                     $restoreSevenZipEnv = $true
                     $previousSevenZipEnv = $env:APP_PACKAGER_SEVENZIP
@@ -2941,6 +2996,7 @@ function Invoke-BatchUpdate {
                 }
             }
             finally {
+                $env:APP_PACKAGER_TITLE_MODE = $previousTitleModeEnv
                 if ($pushedPackagerLocation) {
                     try { Pop-Location } catch { }
                 }
@@ -4890,11 +4946,12 @@ function Show-CommandOverrideDialog {
 }
 
 function Show-ExistingConflictDialog {
-    # Modal choice for one same-version existing application. Returns
+    # Modal choice for one existing application, at any version. Returns
     # @{ Choice = 'Skip'|'Overwrite'|'Cancel'; ApplyToAll = [bool] }.
     param(
         [Parameter(Mandatory)][string]$AppName,
-        [Parameter(Mandatory)][string]$Version,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Version,
+        [string]$IncomingVersion = '',
         [Parameter(Mandatory)]$Owner
     )
     $dlgXaml = @'
@@ -4949,7 +5006,7 @@ function Show-ExistingConflictDialog {
     $dlg.Title = 'Application already exists'
     Install-TitleBarDragFallback -Window $dlg
     Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
-    $dlg.FindName('txtIntro').Text = "$AppName is already in the site at version $Version and was left unchanged. Overwrite replaces its deployment types from the content just staged; the application object and any deployments are kept."
+    $dlg.FindName('txtIntro').Text = "$AppName already exists at version $Version. The staged version is $IncomingVersion. Overwrite updates its content and deployment types while keeping the application and its deployments. Skip leaves it unchanged; Cancel stops the remaining run."
     $chkAll = $dlg.FindName('chkAll')
     # ShowDialog keeps this function on the stack while the handlers run, so
     # they keep its scope; a GetNewClosure handler writes the choice into its
@@ -5051,6 +5108,15 @@ function New-DeploymentConditionsPanel {
                     </DataTemplate>
                 </DataGridTemplateColumn.CellTemplate>
             </DataGridTemplateColumn>
+            <DataGridTemplateColumn Header="Application title" Width="138">
+                <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                        <ComboBox ItemsSource="{Binding TitleOptions}" SelectedItem="{Binding TitleModeDisplay, UpdateSourceTrigger=PropertyChanged}"
+                                  FontSize="12" BorderThickness="0" Background="Transparent"
+                                  ToolTip="MECM application title: include the release version for separate apps, or omit it to update a perpetual deployment. Changing this option does not rename existing site applications. Software Center display names are unchanged."/>
+                    </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
             <DataGridTemplateColumn Header="Install for" Width="96">
                 <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
@@ -5114,6 +5180,7 @@ function New-DeploymentConditionsPanel {
         if ($currentApps) { $entryProp = $currentApps.PSObject.Properties[$base] }
         $split = 'None'
         $installMode = ''
+        $titleMode = 'Packager default'
         if ($entryProp) {
             $entry = $entryProp.Value
             if ([string]$entry.Architecture -in @('x64', 'ARM64')) { $arch = [string]$entry.Architecture }
@@ -5121,6 +5188,8 @@ function New-DeploymentConditionsPanel {
             if ($entry.Languages) { $langsText = (@($entry.Languages) -join ', ') }
             if ($entry.PSObject.Properties['Split'] -and [string]$entry.Split -in @($p.SupportsVariants)) { $split = [string]$entry.Split }
             if ($entry.PSObject.Properties['InstallMode'] -and [string]$entry.InstallMode -in @($p.SupportsInstallModes)) { $installMode = [string]$entry.InstallMode }
+            if ([string]$entry.TitleMode -eq 'IncludeVersion') { $titleMode = 'Include version' }
+            elseif ([string]$entry.TitleMode -eq 'NoVersion') { $titleMode = 'No version' }
         }
         $modeOptions = @('Default')
         if (@($p.SupportsInstallModes) -contains 'AllUsers')    { $modeOptions += 'System' }
@@ -5150,6 +5219,8 @@ function New-DeploymentConditionsPanel {
             InstallModeOptions  = [string[]]$modeOptions
             InstallModeCapable  = (@($p.SupportsInstallModes).Count -gt 0)
             InstallModeDisplay  = $(if ($installMode) { $modeToDisplay[$installMode] } else { 'Default' })
+            TitleOptions        = [string[]]@('Packager default', 'Include version', 'No version')
+            TitleModeDisplay    = $titleMode
             CmdInstall          = $cmdInstall
             CmdUninstall        = $cmdUninstall
             CommandLabel        = $(if ($cmdInstall -or $cmdUninstall) { 'Modified' } else { 'Default' })
@@ -5210,13 +5281,15 @@ function New-DeploymentConditionsPanel {
                     'User'   { $installMode = 'CurrentUser' }
                 }
             }
-            if ($arch -eq 'Any' -and $network -eq 'Any' -and $langs.Count -eq 0 -and $split -eq 'None' -and -not $installMode) { continue }
+            $titleMode = switch ([string]$row.TitleModeDisplay) { 'Include version' { 'IncludeVersion' }; 'No version' { 'NoVersion' }; default { '' } }
+            if ($arch -eq 'Any' -and $network -eq 'Any' -and $langs.Count -eq 0 -and $split -eq 'None' -and -not $installMode -and -not $titleMode) { continue }
             $condProps[$row.Packager] = [pscustomobject]@{
                 Architecture = $arch
                 Languages    = $langs
                 Network      = $network
                 Split        = $split
                 InstallMode  = $installMode
+                TitleMode    = $titleMode
             }
         }
         $prefsRef.DeploymentConditions.Apps = [pscustomobject]$condProps
@@ -6064,9 +6137,13 @@ function Invoke-MultiAppPipeline {
                                 CommandsJson         = $cmdJson
                                 InstallMode          = $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' })
                             }
+                            $packageArgs['TitleMode'] = $(if ($Ctx.TitleModesByApp) { [string]$Ctx.TitleModesByApp[$baseName] } else { '' })
                             $res = Invoke-PackagerPackageWithConflictPrompt -State $State -AppLabel $app -PackageArgs $packageArgs
 
-                            if ($res.ExitCode -eq 0) {
+                            if ($res.PSObject.Properties['PackageOutcome'] -and $res.PackageOutcome -in @('Skipped', 'Canceled')) {
+                                $row.Status = [string]$res.PackageOutcome
+                                $counts['Skipped']++
+                            } elseif ($res.ExitCode -eq 0) {
                                 $row.Status = 'Packaged'
                                 [void]$State.LogQueue.Enqueue(('Packaged. Logs: ' + (Split-Path -Leaf $res.OutLog)))
                                 if ($res.PSObject.Properties['IntunePublish'] -and $res.IntunePublish) {
@@ -6324,9 +6401,13 @@ function Invoke-MultiAppPipeline {
                                 CommandsJson         = $cmdJson
                                 InstallMode          = $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' })
                             }
+                            $packageArgs['TitleMode'] = $(if ($Ctx.TitleModesByApp) { [string]$Ctx.TitleModesByApp[$baseName] } else { '' })
                             $pkg = Invoke-PackagerPackageWithConflictPrompt -State $State -AppLabel $app -PackageArgs $packageArgs
 
-                            if ($pkg.ExitCode -eq 0) {
+                            if ($pkg.PSObject.Properties['PackageOutcome'] -and $pkg.PackageOutcome -in @('Skipped', 'Canceled')) {
+                                $row.Status = [string]$pkg.PackageOutcome
+                                $counts['Skipped']++
+                            } elseif ($pkg.ExitCode -eq 0) {
                                 $row.Status = 'Packaged'
                                 [void]$State.LogQueue.Enqueue(('Packaged. Logs: ' + (Split-Path -Leaf $pkg.OutLog)))
                                 if ($pkg.PSObject.Properties['IntunePublish'] -and $pkg.IntunePublish) {
@@ -6412,7 +6493,7 @@ function Invoke-MultiAppPipeline {
             $script:ConflictPromptOpen = $true
             try {
                 $req = $script:BgState.ConflictRequest
-                $answer = Show-ExistingConflictDialog -AppName ([string]$req.AppName) -Version ([string]$req.Version) -Owner $window
+                $answer = Show-ExistingConflictDialog -AppName ([string]$req.AppName) -Version ([string]$req.Version) -IncomingVersion ([string]$req.IncomingVersion) -Owner $window
                 $script:BgState.ConflictResponse = [pscustomobject]@{
                     Choice     = [string]$answer.Choice
                     ApplyToAll = [bool]$answer.ApplyToAll
@@ -7291,6 +7372,7 @@ $btnPackage.Add_Click({
         VariantsByApp        = Get-VariantsMapForContext
         CommandsByApp        = Get-CommandsMapForContext
         InstallModesByApp    = Get-InstallModesMapForContext
+        TitleModesByApp      = Get-TitleModesMapForContext
         IntunePublishConfig  = Get-IntunePublishConfigForContext
         DeploymentTarget     = [string]$script:Prefs.Intune.DeploymentTarget
     }
@@ -7389,6 +7471,7 @@ $btnFullRun.Add_Click({
         VariantsByApp        = Get-VariantsMapForContext
         CommandsByApp        = Get-CommandsMapForContext
         InstallModesByApp    = Get-InstallModesMapForContext
+        TitleModesByApp      = Get-TitleModesMapForContext
         IntunePublishConfig  = Get-IntunePublishConfigForContext
         DeploymentTarget     = [string]$script:Prefs.Intune.DeploymentTarget
     }
