@@ -2120,7 +2120,7 @@ function New-SingleDetectionClause {
         }
         'RegistryKey' {
             $p = @{
-                Hive      = 'LocalMachine'
+                Hive      = $hive
                 KeyName   = $Det.RegistryKeyRelative
                 Existence = $true
             }
@@ -3823,6 +3823,10 @@ function Get-InstallerAnalysis {
     $metaProp = { param($name) if ($pkgMeta -and $pkgMeta.PSObject.Properties[$name]) { [string]$pkgMeta.$name } else { '' } }
     if ($pkgMeta) {
         $installContext = & $metaProp 'InstallContext'
+        # Format metadata spells the context in prose ('Per-user');
+        # every consumer downstream compares against PerUser/PerMachine.
+        if ($installContext -match '^Per-?user$')        { $installContext = 'PerUser' }
+        elseif ($installContext -match '^Per-?machine$') { $installContext = 'PerMachine' }
         $registryHive   = & $metaProp 'RegistryHive'
         $registryView   = & $metaProp 'RegistryView'
         $installDir     = & $metaProp 'InstallDirWindows'
@@ -3862,6 +3866,12 @@ function Get-InstallerAnalysis {
     }
     if (-not $installMode) { $installMode = if ($installContext -eq 'PerMachine') { 'AllUsers' } elseif ($installContext -eq 'PerUser') { 'CurrentUser' } else { '' } }
 
+    # A Velopack setup stub's own PE architecture can differ from the
+    # application it carries; the deployment describes the application.
+    $architecture = if ($msiSummary -and $msiSummary.Architecture) { [string]$msiSummary.Architecture } else { [string]$fileInfo.Architecture }
+    $metaArchitecture = & $metaProp 'Architecture'
+    if ($type -eq 'Velopack' -and $metaArchitecture -in @('x86', 'x64', 'arm64')) { $architecture = $metaArchitecture }
+
     [pscustomobject]@{
         Path                 = (Resolve-Path -LiteralPath $Path).Path
         FileName             = Split-Path -Leaf $Path
@@ -3883,7 +3893,7 @@ function Get-InstallerAnalysis {
         InstallModes         = $installModes
         ModeVariants         = $modeVariants
         RequestedExecutionLevel = if ($fileInfo.PSObject.Properties['RequestedExecutionLevel']) { [string]$fileInfo.RequestedExecutionLevel } else { '' }
-        Architecture         = if ($msiSummary -and $msiSummary.Architecture) { [string]$msiSummary.Architecture } else { [string]$fileInfo.Architecture }
+        Architecture         = $architecture
         Confidence           = if ($type -eq 'MSI') { 'Authoritative' } else { 'Predicted' }
         Switches             = $switches
         Fields               = $fields
@@ -4364,8 +4374,8 @@ function Set-StageManifestInstallMode {
         requested mode's branch: install arguments gain that mode's switch
         (the other mode's switch is removed), the uninstall command moves to
         that branch's uninstaller path, registry detection follows the
-        branch's hive and view, file detection under the other branch's
-        folder moves to this branch's folder, and a per-user branch sets
+        branch's hive and view, per-user file detection becomes HKCU uninstall
+        version detection, system file detection follows its folder, and a per-user branch sets
         InstallationBehaviorType InstallForUser. Wrappers in the standard
         New-ExeWrapperContent shape are regenerated; other wrappers only
         have the switch token replaced. Throws when the installer does not
@@ -4456,6 +4466,30 @@ function Set-StageManifestInstallMode {
                 }
             }
             '^File$' {
+                if ([string]$branch.InstallContext -eq 'PerUser') {
+                    # Do not resolve a profile path in the packaging or SYSTEM context.
+                    # Use only a concrete uninstall key supplied by installer analysis.
+                    $userKey = [string]$branch.UninstallRegistryKey
+                    $keySuffix = $userKey -replace '^HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\', ''
+                    $unresolved = $keySuffix -replace '\{[0-9a-fA-F-]{36}\}', ''
+                    if ([string]$branch.UninstallRegistryHive -ne 'HKCU' -or
+                        $keySuffix -eq $userKey -or [string]::IsNullOrWhiteSpace($keySuffix) -or
+                        $unresolved -match '[\$\{\}\*\?%]' -or
+                        [string]::IsNullOrWhiteSpace([string]$ManifestData['SoftwareVersion'])) {
+                        throw "Cannot create user detection for ${installerName}: installer analysis did not provide a concrete HKCU uninstall key and application version."
+                    }
+                    $ManifestData['Detection'] = @{
+                        Type = 'RegistryKeyValue'
+                        Hive = 'CurrentUser'
+                        RegistryKeyRelative = ($userKey -replace '^HKCU:\\', '')
+                        ValueName = 'DisplayVersion'
+                        PropertyType = 'Version'
+                        Operator = 'GreaterEquals'
+                        ExpectedValue = [string]$ManifestData['SoftwareVersion']
+                        Is64Bit = $false
+                    }
+                    break
+                }
                 $filePath = [string]$det['FilePath']
                 $mapped = $false
                 if ($filePath -and $folderFor[$Mode] -and $folderFor[$otherMode]) {
