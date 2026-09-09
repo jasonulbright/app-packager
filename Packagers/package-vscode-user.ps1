@@ -15,8 +15,8 @@ UpdateCadenceDays: 14
 .DESCRIPTION
     Downloads the latest stable VS Code x64 user installer from the official
     update.code.visualstudio.com endpoint, stages content to a versioned local
-    folder, and creates a user-context MECM Application with file-version
-    detection under LOCALAPPDATA.
+    folder, and creates a user-context MECM Application with HKCU uninstall
+    registry DisplayVersion detection.
 
     This packager is intentionally separate from the system installer package.
 
@@ -159,13 +159,14 @@ function Invoke-StageVSCodeUser {
         InstallationBehaviorType = "InstallForUser"
         LogonRequirementType     = "OnlyWhenUserLoggedOn"
         Detection                = @{
-            Type          = "File"
-            FilePath      = "%LOCALAPPDATA%\Programs\Microsoft VS Code"
-            FileName      = "Code.exe"
-            PropertyType  = "Version"
-            Operator      = "GreaterEquals"
-            ExpectedValue = $version
-            Is64Bit       = $false
+            Type                = "RegistryKeyValue"
+            Hive                = "CurrentUser"
+            RegistryKeyRelative = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{771FD6B0-FA20-440A-A002-3B3BAC16DC50}_is1"
+            ValueName           = "DisplayVersion"
+            PropertyType        = "Version"
+            Operator            = "GreaterEquals"
+            ExpectedValue       = $version
+            Is64Bit             = $false
         }
     }
 

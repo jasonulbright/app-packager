@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.5.2.2] - 2026-09-09
+
+### Added
+
+- Package Velopack installers such as Draftable Desktop Setup from a drop.
+
+### Changed
+
+- Vendor installer-analysis 1.3.4.0 so drops recognize Velopack installers.
+
+### Fixed
+
+- Fixed HKCU detection for user installs.
+
 ## [1.5.2.1] - 2026-09-09
 
 ### Added

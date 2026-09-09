@@ -15,8 +15,8 @@ UpdateCadenceDays: 14
 .DESCRIPTION
     Downloads the public Postman Windows x64 desktop installer, derives the
     version from the installer file metadata, stages content to a versioned
-    local folder, and creates a user-context MECM Application with file-version
-    detection under LOCALAPPDATA.
+    local folder, and creates a user-context MECM Application with HKCU uninstall
+    registry DisplayVersion detection.
 
     The public Postman Windows installer is a per-user desktop app. The
     authenticated Postman Enterprise MSI is the system-wide and officially
@@ -190,13 +190,14 @@ function Invoke-StagePostman {
         InstallationBehaviorType = "InstallForUser"
         LogonRequirementType     = "OnlyWhenUserLoggedOn"
         Detection                = @{
-            Type          = "File"
-            FilePath      = "%LOCALAPPDATA%\Postman"
-            FileName      = "Postman.exe"
-            PropertyType  = "Version"
-            Operator      = "GreaterEquals"
-            ExpectedValue = $version
-            Is64Bit       = $false
+            Type                = "RegistryKeyValue"
+            Hive                = "CurrentUser"
+            RegistryKeyRelative = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Postman"
+            ValueName           = "DisplayVersion"
+            PropertyType        = "Version"
+            Operator            = "GreaterEquals"
+            ExpectedValue       = $version
+            Is64Bit             = $false
         }
     }
 

@@ -294,6 +294,27 @@ function script:Find-SquirrelNupkgRefs {
     return ,$hits
 }
 
+function script:Get-VelopackBundleHeader {
+    # Velopack src/bins/src/setup.rs: two little-endian Int64 values followed
+    # by the 32-byte BUNDLE_PLACEHOLDER signature. Only Setup embeds this header;
+    # an application using Velopack or an Update.exe is not itself an installer.
+    param([byte[]]$Bytes)
+    if ($Bytes.Length -lt 48 -or $Bytes[0] -ne 0x4D -or $Bytes[1] -ne 0x5A) { return $null }
+    $signature = [byte[]]@(
+        0x94,0xf0,0xb1,0x7b,0x68,0x93,0xe0,0x29,0x37,0xeb,0x34,0xef,0x53,0xaa,0xe7,0xd4,
+        0x2b,0x54,0xf5,0x70,0x7e,0xf5,0xd6,0xf5,0x78,0x54,0x98,0x3e,0x5e,0x94,0xed,0x7d
+    )
+    # Latin-1 preserves every byte, unlike ASCII. IndexOf avoids a slow
+    # PowerShell byte-by-byte walk across the multi-megabyte setup stub.
+    $encoding = [System.Text.Encoding]::GetEncoding(28591)
+    $index = $encoding.GetString($Bytes).IndexOf($encoding.GetString($signature), [StringComparison]::Ordinal)
+    if ($index -lt 16) { return $null }
+    return [PSCustomObject]@{
+        Offset = [BitConverter]::ToInt64($Bytes, $index - 16)
+        Length = [BitConverter]::ToInt64($Bytes, $index - 8)
+    }
+}
+
 function Get-InstallerType {
     <#
     .SYNOPSIS
@@ -303,7 +324,7 @@ function Get-InstallerType {
           MSI, NSIS, InnoSetup, InstallShield, WixBurn, AdvancedInstaller,
           BitRock, 7zSFX, WinRarSFX,
           Chocolatey, NuGet, Intunewin, Msix, MsixBundle, PsadtV3, PsadtV4,
-          Squirrel,
+          Squirrel, Velopack,
           Unknown.
     #>
     param([Parameter(Mandatory)][string]$Path)
@@ -393,6 +414,10 @@ function Get-InstallerType {
     if ($bytes.Length -ge 8 -and $bytes[0] -eq 0xD0 -and $bytes[1] -eq 0xCF -and $bytes[2] -eq 0x11 -and $bytes[3] -eq 0xE0) {
         return 'MSI'
     }
+
+    # Velopack can carry Squirrel compatibility strings. Its setup bundle
+    # signature takes precedence over lifecycle markers from its app payload.
+    if (Get-VelopackBundleHeader -Bytes $bytes) { return 'Velopack' }
 
     # Squirrel / Electron Setup.exe -- check BEFORE NSIS. Squirrel's bootstrapper is
     # not NSIS-built so it should not carry NullsoftInst markers, but being earlier
@@ -1268,6 +1293,116 @@ function Get-SquirrelMetadata {
         SilentInstallCommand    = '"<Setup.exe>" --silent'
         SilentUninstallCommand  = '"%LOCALAPPDATA%\<AppName>\Update.exe" --uninstall -s'
     }
+}
+
+# ---------------------------------------------------------------------------
+# Velopack Setup.exe
+# ---------------------------------------------------------------------------
+
+function Get-VelopackMetadata {
+    <#
+    .SYNOPSIS
+        Reads the nuspec from a Velopack Setup.exe's embedded package.
+    .DESCRIPTION
+        Uses the setup bundle offset/length and a read-only mapped ZIP view.
+        No installer execution, 7-Zip, extraction, or whole-payload heap copy.
+        Sources: velopack/velopack setup.rs, bundle.rs, locator.rs,
+        commands/install.rs and windows/registry.rs.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Metadata is a collective noun; matches the existing package analyzer API.')]
+    param([Parameter(Mandatory)][string]$Path)
+
+    $result = [PSCustomObject]@{
+        Format = 'Velopack'; InstallerType = 'Velopack'; HeaderAvailable = $false
+        DisplayName = ''; DisplayVersion = ''; PackageVersion = ''; Publisher = ''
+        Architecture = ''; ProductCodeOrEquivalent = ''; MainExe = ''; Channel = ''
+        BundleOffset = 0L; BundleLength = 0L; Nuspec = [ordered]@{}
+        InstallContext = 'Per-user'; InstallDir = ''; UninstallerPath = ''
+        UninstallRegistryKey = ''; RegistryHive = 'HKCU'
+        SilentInstallCommand = ('"{0}" --silent' -f [IO.Path]::GetFileName($Path))
+        SilentUninstallCommand = ''
+        Note = ''
+    }
+    $stream = $null; $mapping = $null; $view = $null; $archive = $null; $reader = $null
+    try {
+        $stream = [IO.File]::OpenRead($Path)
+        $bytes = New-Object byte[] ([Math]::Min(4MB, $stream.Length))
+        [void]$stream.Read($bytes, 0, $bytes.Length)
+        $header = Get-VelopackBundleHeader -Bytes $bytes
+        if (-not $header) { throw 'Velopack setup bundle signature not found.' }
+        if ($header.Offset -le 0 -or $header.Length -le 0 -or
+            $header.Offset -gt $stream.Length -or $header.Length -gt ($stream.Length - $header.Offset)) {
+            throw 'Velopack bundle offset/length is outside the file or the package is missing.'
+        }
+        $result.BundleOffset = $header.Offset
+        $result.BundleLength = $header.Length
+        Add-Type -AssemblyName System.IO.Compression
+        # The bounded view excludes the PE stub and trailing Authenticode data.
+        # NullString is needed because PowerShell otherwise coerces null to "".
+        $mapping = [IO.MemoryMappedFiles.MemoryMappedFile]::CreateFromFile(
+            $stream, [NullString]::Value, 0, [IO.MemoryMappedFiles.MemoryMappedFileAccess]::Read,
+            [IO.HandleInheritability]::None, $true)
+        $view = $mapping.CreateViewStream($header.Offset, $header.Length, [IO.MemoryMappedFiles.MemoryMappedFileAccess]::Read)
+        $archive = [IO.Compression.ZipArchive]::new($view, [IO.Compression.ZipArchiveMode]::Read, $true)
+        $entries = @($archive.Entries | Where-Object { $_.FullName -match '^[^/\\]+\.nuspec$' })
+        if ($entries.Count -ne 1) { throw 'Expected one root nuspec in the Velopack package.' }
+        if ($entries[0].Length -gt 1MB) { throw 'Velopack nuspec exceeds the 1 MB metadata limit.' }
+        $reader = [IO.StreamReader]::new($entries[0].Open())
+        # Bound the decompressed read too, in case the ZIP entry length is false.
+        $chars = New-Object char[] (1MB + 1)
+        $count = $reader.ReadBlock($chars, 0, $chars.Length)
+        if ($count -gt 1MB) { throw 'Velopack nuspec exceeds the 1 MB metadata limit.' }
+        $xml = [xml]::new()
+        $settings = [System.Xml.XmlReaderSettings]::new()
+        $settings.DtdProcessing = [System.Xml.DtdProcessing]::Prohibit
+        $settings.XmlResolver = $null
+        $settings.MaxCharactersInDocument = 1MB
+        $textReader = [IO.StringReader]::new([string]::new($chars, 0, $count))
+        $xmlReader = [System.Xml.XmlReader]::Create($textReader, $settings)
+        try { $xml.Load($xmlReader) } finally { $xmlReader.Dispose(); $textReader.Dispose() }
+        $metadata = $xml.SelectSingleNode('/*[local-name()="package"]/*[local-name()="metadata"]')
+        if (-not $metadata) { throw 'Velopack nuspec metadata is missing.' }
+        $nuspec = [ordered]@{}
+        foreach ($child in $metadata.ChildNodes) {
+            if ($child.NodeType -eq [System.Xml.XmlNodeType]::Element) {
+                $nuspec[$child.LocalName] = $child.InnerText.Trim()
+            }
+        }
+        $appId = [string]$nuspec['id']
+        # A NuGet id is a single path segment. Do not manufacture a command or
+        # registry key from an invalid manifest id, filename, or display title.
+        if ($appId -notmatch '^[A-Za-z0-9_][A-Za-z0-9_.-]*$' -or
+            [string]$nuspec['version'] -notmatch '^(\d+\.\d+\.\d+)(?:[-+][0-9A-Za-z.+-]+)?$') {
+            throw 'Velopack nuspec has an invalid package id or version.'
+        }
+        $result.DisplayVersion = $Matches[1]  # ARP uses major.minor.patch, without prerelease/build.
+        $result.PackageVersion = [string]$nuspec['version']
+        $result.DisplayName = if ($nuspec['title']) { [string]$nuspec['title'] } else { $appId }
+        $result.Publisher = [string]$nuspec['authors']
+        $result.Architecture = [string]$nuspec['machineArchitecture']
+        $result.ProductCodeOrEquivalent = $appId
+        $result.MainExe = [string]$nuspec['mainExe']
+        $result.Channel = [string]$nuspec['channel']
+        $result.Nuspec = $nuspec
+        $result.InstallDir = '%LOCALAPPDATA%\' + $appId
+        $result.UninstallerPath = $result.InstallDir + '\Update.exe'
+        $result.SilentUninstallCommand = '"' + $result.UninstallerPath + '" --uninstall --silent'
+        $result.UninstallRegistryKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\' + $appId
+        $result.Note = 'Default per-user location; --installto (-t) changes the install folder and Update.exe path. ARP DisplayVersion omits prerelease/build labels.'
+        $result.HeaderAvailable = $true
+    }
+    catch {
+        $result.Note = "Velopack metadata unavailable: $($_.Exception.Message)"
+        Write-Log $result.Note -Level WARN
+    }
+    finally {
+        if ($reader) { $reader.Dispose() }
+        if ($archive) { $archive.Dispose() }
+        if ($view) { $view.Dispose() }
+        if ($mapping) { $mapping.Dispose() }
+        if ($stream) { $stream.Dispose() }
+    }
+    return $result
 }
 
 # ---------------------------------------------------------------------------
@@ -3871,6 +4006,7 @@ function Get-PackageMetadataFor {
         'PsadtV3'    { return Get-PsadtMetadata      -Path $Path }
         'PsadtV4'    { return Get-PsadtMetadata      -Path $Path }
         'Squirrel'   { return Get-SquirrelMetadata   -Path $Path }
+        'Velopack'   { return Get-VelopackMetadata   -Path $Path }
         'WixBurn'    { return Get-WixBurnMetadata    -Path $Path }
         'MSP'        { return Get-MspMetadata        -Path $Path }
         'NSIS'       { return Get-NsisMetadata       -Path $Path }
@@ -3975,6 +4111,17 @@ function Get-UninstallRegistryKey {
             # No PackageMetadata = no BundleId. Rather than render "{BundleId}"
             # as a literal in the path, drop the field; the user will know it's
             # genuinely missing instead of seeing a templated placeholder.
+            return $null
+        }
+
+        'Velopack' {
+            if ($PackageMetadata -and $PackageMetadata.HeaderAvailable -and $PackageMetadata.UninstallRegistryKey) {
+                return [PSCustomObject]@{
+                    Path = $PackageMetadata.UninstallRegistryKey
+                    Hive = 'HKCU'
+                    Note = 'Velopack per-user registration; key name is the embedded nuspec id.'
+                }
+            }
             return $null
         }
 
@@ -4748,6 +4895,11 @@ function Get-SilentSwitchDatabase {
             Uninstall = '"%LOCALAPPDATA%\<AppName>\Update.exe" --uninstall -s'
             Notes     = 'Squirrel.Windows / Electron Setup.exe. Installs per-user to %LOCALAPPDATA%\<AppName>\. Use --silent (double-dash, lowercase), NOT the /S NSIS switch. Update.exe ships alongside the app and handles uninstalls and in-place updates.'
         }
+        'Velopack' = @{
+            Install   = '"<EXE>" --silent'
+            Uninstall = ''
+            Notes     = 'Velopack Setup.exe. Silent install: --silent or -s. Installs per-user to %LOCALAPPDATA%\<PackageId> by default. --installto (-t) overrides the folder; --log (-l) sets the log file. Uninstall uses the installed Update.exe --uninstall --silent; its default path is resolved from the embedded nuspec when available.'
+        }
         'NuGet' = @{
             Install   = 'nuget install <PackageId> -Version <Version> -Source "<SourceDirOrFeed>"'
             Uninstall = 'N/A (NuGet is a package source, not an installer)'
@@ -4796,6 +4948,9 @@ function Get-SilentSwitches {
 
     $install   = $entry.Install -replace '<EXE>', $fileName -replace '<MSI>', $fileName
     $uninstall = $entry.Uninstall -replace '<EXE>', $fileName -replace '<UninstallEXE>', $uninstallExe.Replace('$', '$$')
+    if ($InstallerType -eq 'Velopack' -and $PackageMetadata -and $PackageMetadata.SilentUninstallCommand) {
+        $uninstall = $PackageMetadata.SilentUninstallCommand
+    }
 
     if ($MsiProperties -and $MsiProperties.Contains('ProductCode')) {
         $install   = $install -replace '<ProductCode>', $MsiProperties['ProductCode']
@@ -5395,7 +5550,7 @@ function Get-InterestingStrings {
         '|(?<reg>(?:HKLM|HKCU|HKCR|HKU|HKEY_LOCAL_MACHINE|HKEY_CURRENT_USER|HKEY_CLASSES_ROOT|HKEY_USERS)\\[A-Za-z0-9._\\ -]+)' +
         '|(?<file>(?:[A-Za-z]:\\|%[A-Za-z_]+%\\|\$\{[A-Za-z_]+\}\\)[A-Za-z0-9._\\ -]+\.(?:exe|msi|msp|dll|sys|cab|nupkg|ps1|js|json|xml|cfg|ini|config|cmd|bat|reg|zip|7z|wxs|wxl))' +
         '|(?<guid>\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\})' +
-        '|(?<marker>NullsoftInst|Inno Setup|InstallShield|WixBurn|Advanced Installer|WixBundleManifest|Microsoft Visual C\+\+|\.NET Framework|NSIS|SquirrelTemp|squirrel-(?:install|updated|uninstall|firstrun|obsolete)|BitRock)' +
+        '|(?<marker>NullsoftInst|Inno Setup|InstallShield|WixBurn|Advanced Installer|WixBundleManifest|Microsoft Visual C\+\+|\.NET Framework|NSIS|SquirrelTemp|squirrel-(?:install|updated|uninstall|firstrun|obsolete)|Velopack Setup|VELOPACK_FIRSTRUN|BitRock)' +
         '|(?<ver>\b\d+\.\d+\.\d+(?:\.\d+)?\b)',
         $opts)
 
@@ -5850,6 +6005,19 @@ function New-AnalysisSummaryText {
                 }
                 $hasAnyPkg = $true
             }
+            'Velopack' {
+                $lines += ""; $lines += "Package Metadata (Velopack Setup.exe):"
+                if ($pkg.HeaderAvailable) {
+                    $lines += "  Package ID:       $($pkg.ProductCodeOrEquivalent)"
+                    $lines += "  Package Version:  $($pkg.PackageVersion)"
+                    $lines += "  App Architecture: $($pkg.Architecture)"
+                    $lines += "  Main Executable:  $($pkg.MainExe)"
+                    $lines += "  Install Context:  $($pkg.InstallContext)"
+                    $lines += "  Default Folder:   $($pkg.InstallDir)"
+                }
+                if ($pkg.Note) { $lines += "  Note: $($pkg.Note)" }
+                $hasAnyPkg = $true
+            }
             'Squirrel' {
                 $lines += ""; $lines += "Package Metadata (Squirrel / Electron Setup.exe):"
                 # DisplayName / DisplayVersion dropped here -- both appear under
@@ -6064,6 +6232,12 @@ function ConvertTo-DeploymentJson {
     $architecture = if ($FileInfo.Architecture) { [string]$FileInfo.Architecture }
                     elseif ($PackageMetadata -and $PackageMetadata.PSObject.Properties['Architecture']) { [string]$PackageMetadata.Architecture }
                     else { '' }
+    # A Velopack x86 setup stub can bundle an x64/ARM64 application. The JSON
+    # Application field describes the payload; the Overview retains both facts.
+    if ($InstallerType -eq 'Velopack' -and $PackageMetadata -and
+        $PackageMetadata.Architecture -in @('x86', 'x64', 'arm64')) {
+        $architecture = [string]$PackageMetadata.Architecture
+    }
 
     $installCmd = ''
     $uninstallCmd = ''
@@ -6103,6 +6277,7 @@ function ConvertTo-DeploymentJson {
         'PsadtV3'    { 'Registry uninstall key detection keyed on AppName/AppVersion (configure in Deploy-Application.ps1)' }
         'PsadtV4'    { 'Registry uninstall key detection keyed on AppName/AppVersion (configure in Invoke-AppDeployToolkit.ps1)' }
         'Squirrel'   { 'Registry uninstall key in HKCU\...\Uninstall\<AppName> (per-user) or file-version on the installed <AppName>.exe' }
+        'Velopack'   { 'Registry uninstall key in HKCU (per-user), named by the embedded nuspec id; DisplayVersion is major.minor.patch without prerelease/build labels' }
         '7zSFX'      { 'Not a true installer; detection depends on the extracted payload' }
         'WinRarSFX'  { 'Not a true installer; detection depends on the extracted payload' }
         default      { 'Pick a file-version or registry-uninstall detection per the extracted payload' }
