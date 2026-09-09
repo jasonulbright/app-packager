@@ -369,6 +369,8 @@ function Invoke-PackageSpecExec {
     Write-Log ""
 
     $localContentPath = Join-Path $BaseDownloadRoot $ContentVersion
+    $AppName = Get-PackagedApplicationName -AppName $AppName -Version $ContentVersion
+    Write-PackagePreflight -AppName $AppName -Version $ContentVersion
     if (-not (Test-Path -LiteralPath (Join-Path $localContentPath $InstallScriptName))) {
         throw "Staged content not found - run Stage phase first: $localContentPath"
     }
@@ -410,6 +412,9 @@ function Invoke-PackageSpecExec {
                 throw "Multiple existing MECM applications matched '$AppName'; refusing to package until the duplicate names are resolved."
             }
             $cmApp = $existingApps[0]
+            $existingPolicy = Resolve-OnExistingBehavior
+            if ($existingPolicy.Behavior -eq 'Fail') { throw "Application '$AppName' already exists (OnExisting=Fail)." }
+            if ($existingPolicy.Behavior -eq 'Skip') { Write-Log "Application already exists, skipped: $AppName"; return [UInt32]$cmApp.CI_ID }
             $resumeDts = @(Get-CMDeploymentType -ApplicationName $AppName -ErrorAction SilentlyContinue)
             Write-Log "Application already exists   : $AppName (has $($resumeDts.Count) of $($matrix.Count) deployment types; resuming, existing ones are skipped)" -Level WARN
         }
@@ -427,15 +432,17 @@ function Invoke-PackageSpecExec {
         }
 
         # --- Deployment types ---
+        $replacementDts = @()
         foreach ($entry in $matrix) {
             Write-Log ""
             Write-Log "Deployment type              : $($entry.Name)"
 
             # Get-CMDeploymentType directly: Test-MECMApplicationHasDeploymentType
             # is internal to AppPackagerCommon (not in FunctionsToExport).
+            $dtCreateName = $entry.Name
             if (Get-CMDeploymentType -ApplicationName $AppName -DeploymentTypeName $entry.Name -ErrorAction SilentlyContinue) {
-                Write-Log "  Already exists, skipping." -Level WARN
-                continue
+                $dtCreateName = "$($entry.Name) (staging)"
+                $replacementDts += $entry.Name
             }
 
             # Requirement rules are built on the CM drive; detection clauses
@@ -459,7 +466,7 @@ function Invoke-PackageSpecExec {
             $step = "Add-CMScriptDeploymentType ('$($entry.Name)')"
             Add-CMScriptDeploymentType `
                 -ApplicationName $AppName `
-                -DeploymentTypeName $entry.Name `
+                -DeploymentTypeName $dtCreateName `
                 -ContentLocation $networkContentPath `
                 -InstallCommand $installCommand `
                 -UninstallCommand $uninstallCommand `
@@ -477,6 +484,12 @@ function Invoke-PackageSpecExec {
 
             Write-Log "  Created: Override=$($entry.OverrideHex) HyperV=$($entry.IsHyperV) Requirements=$($requirements.Count) DetectionClauses=$($clauses.Count)"
         }
+
+        foreach ($oldName in $replacementDts) {
+            Remove-CMDeploymentType -ApplicationName $AppName -DeploymentTypeName $oldName -Force -ErrorAction Stop
+            Set-CMDeploymentType -ApplicationName $AppName -DeploymentTypeName "$oldName (staging)" -NewDeploymentTypeName $oldName -ErrorAction Stop
+        }
+        if ($existing) { Set-CMApplication -Name $AppName -SoftwareVersion $ContentVersion -ErrorAction Stop }
 
         # --- Verify server-side: every matrix entry must exist as a deployment type ---
         $step = "Deployment type verification ('$AppName')"

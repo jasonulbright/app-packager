@@ -1642,6 +1642,37 @@ function Write-StageManifest {
     Write-Log ("Stage integrity verified     : {0} file(s)" -f $verification.ExpectedCount)
 }
 
+function Get-PackagedApplicationName {
+    param(
+        [Parameter(Mandatory)][string]$AppName,
+        [Parameter(Mandatory)][string]$Version,
+        [ValidateSet('', 'Default', 'IncludeVersion', 'NoVersion')][string]$Mode = $env:APP_PACKAGER_TITLE_MODE
+    )
+    if (-not $Mode -or $Mode -eq 'Default') { return $AppName }
+    # Remove only this release's exact version token, preserving product
+    # years, architecture, language, and channel qualifiers.
+    $pattern = '(?<![\w.])v?' + [regex]::Escape($Version) + '(?![\w.])'
+    $baseName = [regex]::Replace($AppName, $pattern, '', 'IgnoreCase')
+    $baseName = $baseName -replace '\(\s*\)', '' -replace '\s+-\s+(?=\(|$)', ' ' -replace '\s{2,}', ' '
+    $baseName = $baseName.Trim().TrimEnd('-').Trim()
+    if (-not $baseName) { throw 'Application title cannot consist only of its version.' }
+    if ($Mode -eq 'IncludeVersion') { return "$baseName - $Version" }
+    return $baseName
+}
+
+function Write-PackagePreflight {
+    param([Parameter(Mandatory)][string]$AppName, [Parameter(Mandatory)][string]$Version)
+    # Only the isolated GUI probe process sets this flag. Stop at the
+    # packager's authoritative manifest selection, before share/site writes.
+    if ($env:APP_PACKAGER_PACKAGE_PREFLIGHT -eq '1') {
+        $identity = @{ AppName = $AppName; Version = $Version } | ConvertTo-Json -Compress
+        # Packagers assign Read-StageManifest to a variable: bypass the
+        # success pipeline so the probe marker still reaches child stdout.
+        [Console]::Out.WriteLine("[APP_PACKAGER_PREFLIGHT] $identity")
+        exit 0
+    }
+}
+
 function Read-StageManifest {
     param([Parameter(Mandatory)][string]$Path)
 
@@ -1665,6 +1696,12 @@ function Read-StageManifest {
     }
 
     Write-Log "Read stage manifest          : $Path"
+    if ($env:APP_PACKAGER_TITLE_MODE -and $env:APP_PACKAGER_TITLE_MODE -ne 'Default') {
+        $manifest.AppName = Get-PackagedApplicationName -AppName $manifest.AppName -Version $manifest.SoftwareVersion
+    }
+    if ($env:APP_PACKAGER_PACKAGE_PREFLIGHT -eq '1') {
+        Write-PackagePreflight -AppName $manifest.AppName -Version $manifest.SoftwareVersion
+    }
     return $manifest
 }
 
@@ -2694,7 +2731,7 @@ function New-MECMApplicationFromManifest {
           Compound          Multiple clauses joined by AND or OR
 
         Handles CM site connection, duplicate app check, New-CMApplication with
-        -AutoInstall $true, detection clause creation, Add-CMScriptDeploymentType
+        task-sequence eligibility, detection clause creation, Add-CMScriptDeploymentType
         with gold standard parameters, optional PostExecutionBehavior, and
         revision history cleanup.
 
@@ -2741,7 +2778,7 @@ function New-MECMApplicationFromManifest {
             throw "CM site connection failed."
         }
 
-        $appName = $Manifest.AppName
+        $appName = Get-PackagedApplicationName -AppName $Manifest.AppName -Version $Manifest.SoftwareVersion
         if ([string]::IsNullOrWhiteSpace([string]$appName)) {
             throw "Stage manifest AppName is null or empty; cannot create an MECM application. Re-run the Stage phase and verify the manifest."
         }
@@ -2750,6 +2787,14 @@ function New-MECMApplicationFromManifest {
 
         $step = 'Deployment type spec resolution'
         $dtSpecs = @(Get-ManifestDeploymentTypeSpecs -Manifest $Manifest -NetworkContentPath $NetworkContentPath -AppName $appName)
+        # AutoInstall is application-wide. Every resolved DT must run as
+        # system without needing a logged-on user or desktop interaction.
+        # Missing overrides use the same defaults as dtParams below.
+        $allowTaskSequence = @($dtSpecs | Where-Object {
+            ($_.InstallationBehaviorType -and $_.InstallationBehaviorType -ne 'InstallForSystem') -or
+            ($_.LogonRequirementType -eq 'OnlyWhenUserLoggedOn') -or
+            ($_.RequireUserInteraction -eq $true)
+        }).Count -eq 0
         $isMultiDt = ($dtSpecs.Count -gt 1 -or $dtSpecs[0].DtName -ne $appName)
         if ($isMultiDt) {
             Write-Log ("Deployment types (manifest)  : {0}" -f (($dtSpecs | ForEach-Object { $_.DtName }) -join ', '))
@@ -2780,7 +2825,7 @@ function New-MECMApplicationFromManifest {
         }
 
         $step = "Get-CMApplication duplicate check ('$appName')"
-        $existing = Get-CMApplication -Name $appName -ErrorAction SilentlyContinue
+        $existing = Get-CMApplication -Name $appName -DisableWildcardHandling -ErrorAction Stop
         $cmApp = $null
         $replaceDtNames = @()
         $replaceExisting = $false
@@ -2794,19 +2839,24 @@ function New-MECMApplicationFromManifest {
             $missingDts = @($dtSpecs | Where-Object { -not (Test-MECMApplicationHasDeploymentType -ApplicationName $appName -DeploymentTypeName $_.DtName) })
             $existingVersion = [string]$cmApp.SoftwareVersion
 
-            if ($existingVersion -eq [string]$Manifest.SoftwareVersion) {
-                # Not $onExisting: variable names are case-insensitive, so that
-                # would assign the result object into the [string]-constrained
-                # $OnExisting parameter and coerce it to its ToString().
-                $existingPolicy = Resolve-OnExistingBehavior -Requested $OnExisting
-                Write-Log ("On-existing behavior         : {0} (source: {1})" -f $existingPolicy.Behavior, $existingPolicy.Source)
-
+            # All name collisions require a policy, including browser updates
+            # using a perpetual (versionless) application name.
+            $existingPolicy = Resolve-OnExistingBehavior -Requested $OnExisting
+            Write-Log ("On-existing behavior         : {0} (source: {1})" -f $existingPolicy.Behavior, $existingPolicy.Source)
+            if ($existingPolicy.Behavior -ne 'Overwrite') {
                 if ($existingPolicy.Behavior -eq 'Fail') {
                     throw ("Existing MECM application '$appName' is already at version $existingVersion and OnExisting=Fail was requested.")
                 }
 
                 if ($existingPolicy.Behavior -eq 'Skip') {
                     if ($missingDts.Count -eq 0) {
+                        # Repair the old unconditional AutoInstall setting even
+                        # when the same-version deployment types are retained.
+                        if (-not $allowTaskSequence -and $cmApp.AutoInstall -ne $false) {
+                            $step = "Set-CMApplication task-sequence eligibility ('$appName')"
+                            Set-CMApplication -Name $appName -AutoInstall $false -ErrorAction Stop | Out-Null
+                            Write-Log "Task-sequence install        : disabled (deployment type requires user context or interaction)"
+                        }
                         Write-Log "Application already exists    : $appName (v$existingVersion, unchanged)" -Level WARN
                         Write-Log ("Deployment type(s) validated : {0}" -f (($dtSpecs | ForEach-Object { $_.DtName }) -join ', '))
                         # Machine-readable companion to the line above: the GUI
@@ -2821,17 +2871,12 @@ function New-MECMApplicationFromManifest {
                     throw ("Existing MECM application '$appName' is missing deployment type(s): {0}. This looks like a partial prior package run; fix or remove the partial app before packaging again." -f (($missingDts | ForEach-Object { $_.DtName }) -join ', '))
                 }
 
-                # Overwrite: same content path, same version, wrong deployment
-                # types. Takes the version-change replacement path below so the
-                # application object and its deployments survive.
-                Write-Log "Existing application         : overwriting deployment types (same version, operator choice)" -Level WARN
-                $replaceExisting = $true
             }
             else {
                 # Version change on a reused application name (version-less CMName by
                 # design): replace every deployment type with the new set pointing at
                 # the new content.
-                Write-Log "Application already exists    : $appName (v$existingVersion -> v$($Manifest.SoftwareVersion), replacing deployment types)" -Level WARN
+                Write-Log "Application already exists    : $appName (v$existingVersion -> v$($Manifest.SoftwareVersion), replacing deployment types, operator choice)" -Level WARN
                 $replaceExisting = $true
             }
 
@@ -2858,6 +2903,14 @@ function New-MECMApplicationFromManifest {
             $spec | Add-Member -NotePropertyName RequirementRules -NotePropertyValue @(New-DeploymentTypeRequirementRules -Manifest $spec.RequirementSource -IgnoreEnvironment:$isMultiDt)
         }
 
+        # Clear the incompatible flag before adding replacement user DTs.
+        # Preserve an operator's existing setting for compatible system apps.
+        if ($cmApp -and -not $allowTaskSequence -and $cmApp.AutoInstall -ne $false) {
+            $step = "Set-CMApplication task-sequence eligibility ('$appName')"
+            Set-CMApplication -Name $appName -AutoInstall $false -ErrorAction Stop | Out-Null
+            Write-Log "Task-sequence install        : disabled (deployment type requires user context or interaction)"
+        }
+
         if (-not $cmApp) {
             Write-Log "Creating CM Application      : $appName"
             $step = "New-CMApplication ('$appName')"
@@ -2866,7 +2919,7 @@ function New-MECMApplicationFromManifest {
                 Publisher        = $Manifest.Publisher
                 SoftwareVersion  = $Manifest.SoftwareVersion
                 Description      = $Comment
-                AutoInstall      = $true
+                AutoInstall      = $allowTaskSequence
                 ErrorAction      = 'Stop'
             }
             # Set Software Center display name if provided (omits channel/arch details)
@@ -4500,7 +4553,7 @@ function Get-OnExistingConflictMarker {
 function Resolve-OnExistingBehavior {
     <#
     .SYNOPSIS
-        Resolves what to do when an application of the same name and version
+        Resolves what to do when an application of the same name
         already exists in the site.
 
     .DESCRIPTION
