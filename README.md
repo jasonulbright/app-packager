@@ -55,6 +55,10 @@ The GUI (`start-apppackager.ps1`) provides a visual front-end that discovers pac
 
 For an NSIS installer the analysis reads the compiled script inside the file rather than guessing: the install directory, the uninstaller the script writes, the Add/Remove Programs key with its hive and 32/64-bit registry view, and the manifest's requested execution level. The uninstall command comes out as a real path (`"%LOCALAPPDATA%\App\Uninstall.exe" /S`), the detection rule targets the key the script actually writes (under `WOW6432Node` when a 32-bit installer never calls `SetRegView 64`), and a per-user installer — HKCU registration, a profile-relative install folder — is staged as an **Install for user** deployment type with HKCU detection, because a system-context run would install into the SYSTEM profile and never satisfy the detection. For an Inno Setup installer the compiled `[Setup]` header is read the same way: the ARP key is the real `<AppId>_is1` (GUID or name), `DisplayVersion` is the compiled `AppVersion` even when the stub has no file version, the install folder follows `DefaultDirName` and the 64-bit install mode, the uninstall command names `unins000.exe`, and `PrivilegesRequired=lowest` is what makes a setup per-user; an Inno Setup 6 stub is `asInvoker` and elevates itself, so its manifest alone says nothing about the context. An installer that accepts a mode switch (NSIS `/allusers` in electron-builder and MultiUser scripts, Inno Setup `/ALLUSERS` when `PrivilegesRequiredOverridesAllowed` includes the command line) gets an **Install for** toggle in the preview: the default is what the installer does without the switch, and choosing the other mode replaces the install arguments, uninstall command, install folder, detection key and hive, and deployment context together from that branch, so a per-machine deployment is never paired with a per-user uninstall or detection.
 
+**Application Workbench** — fine-tune any packager from a window instead of its script: commands, hook scripts, detection, requirements, runtime, icon and extra files, saved as named profiles that survive updates. See [Application Workbench](#application-workbench).
+
+**Script signing** — sign the detection, requirement and install/uninstall scripts AppPackager stages with your own certificate, and refuse to publish anything that fails verification. See [Script Signing](#options-window).
+
 ![AppPackager](screenshots/main-dark.png)
 
 ![Installer drop preview](screenshots/drop-preview.png)
@@ -166,29 +170,31 @@ Under **Options > Deployment Conditions > Application title**, choose per app: *
 
 Global conditions are created on the site the first time a rule needs them and are matched by name, so changing a condition's name in the panel attaches to a condition the site already has instead of creating a duplicate. A signed or changed script condition gets its own name carrying a short content hash, so an existing condition is never rewritten under another application's feet. The panel's per-app grid persists to `AppPackager.preferences.json`; condition names and VPN adapter patterns persist to `Packagers/condition-templates.json` (built-in defaults apply until the panel writes it). Selections apply on Package and One Click Stage-and-Package runs, and requirement resolution fails the run before anything is created when a rule can't be built — a package never silently ships without the rules configured for it.
 
-**Script signing** — Authenticode signing for the scripts AppPackager stages. Three independent sign switches (detection script, requirement scripts, install/uninstall scripts) and three matching require switches; a require switch fails the run instead of publishing unsigned content. The certificate is picked by thumbprint from `CurrentUser\Personal` or `LocalMachine\Personal` — each candidate row says whether the certificate is usable and why not when it isn't. Optional timestamp server with a "timestamp required" switch. **Test signing configuration** signs and verifies a temporary file and reports whether the signature is intact, whether this host trusts the chain, and whether the key would prompt for a PIN.
+**Script Signing** — Authenticode signing for the scripts AppPackager stages.
 
-Two things to know before turning it on. The endpoints must trust the publisher: a valid signature is not the same as a trusted one, so the signing certificate has to reach the client's Trusted Publisher store. And signed mode removes `-ExecutionPolicy Bypass` from the generated launchers, so the client's effective execution policy decides whether the script runs. Vendor scripts in the content keep an intact signature they already carry; an unsigned one is signed with your certificate. A PSADT package in signed mode enters through the toolkit's `.ps1`, not its `.exe` launcher.
+![Script Signing](screenshots/options-signing.png)
+
+- Sign detection scripts, requirement scripts and install/uninstall scripts independently. A require switch fails the run instead of publishing unsigned content.
+- Certificate by thumbprint from `CurrentUser\My` or `LocalMachine\My`, optional timestamp server, and a test button that signs and verifies a temporary file.
+- Signed launchers drop `-ExecutionPolicy Bypass`. The client's execution policy and Trusted Publishers store decide whether a script runs, so the certificate has to reach the clients.
+- Vendor scripts that already carry an intact signature are left alone; unsigned ones are signed with your certificate. A PSADT package enters through its `.ps1`, not its `.exe`.
 
 **About** — application name, installed version (parsed from the script header, the single source of truth), MIT license, a clickable link to the GitHub repository, the timestamp of the last update check, and the latest known release. The same **Update now** action offered in the sidebar is repeated here, enabled only once a check has actually found a newer release; a **Release notes** button opens the releases page.
 
 ### Application Workbench
 
-**Application Workbench** in the sidebar opens one window for everything that used to live in per-app columns and dialogs. A row's right-click **Edit application...** and a double-click on the row open it on that application.
+Fine-tune any packager without editing its script. Open it from the sidebar, or right-click a row and pick **Edit application...**.
 
-- Sections: Application, Install & uninstall, Detection, Requirements & variants, Timing & execution, Source files, Review & build.
-- Application — display name, publisher, description, title mode, custom icon.
-- Install & uninstall — keep the generated command, extend it with before/after hook scripts, or replace it with your own script. Return codes, reboot policy and working directory are editable.
-- Detection — inherit the packager's rule or write your own: registry, file, script, or clauses.
-- Requirements & variants — add, replace or remove requirement rules; per-variant overrides.
-- Timing & execution — estimated and maximum runtime, install context, logon requirement, user interaction, script host bitness.
-- Source files — extra files copied into the staged content at a destination you pick.
-- Review & build — local validation plus MECM and Intune findings, then Stage or Package from the same window.
-- Profiles — every change lives in a named profile per application. **Save** updates the active profile, **Save as** copies it. `default` is the packager's own behavior and is never edited in place; the first Save asks for a name.
-- Unsaved edits are kept as a draft and offered again when you reopen the application.
-- Options keeps what is not per app: environment defaults, condition templates, and script signing.
-- Data lives under `%LOCALAPPDATA%\AppPackagerData\Workbench`, outside the install folder, so an update never touches it. Override it with the `WorkbenchDataRoot` preference or `APP_PACKAGER_WORKBENCH_ROOT`.
-- Every build carries an identity: application, profile, profile revision, build id. One Click rebuilds when the vendor version, the profile revision or the signing policy changed, and Package consumes the exact build you selected instead of the newest folder on disk.
+![Application Workbench](screenshots/workbench.png)
+
+- Every field shows the packager's value as inherited; change it and it becomes a custom value with a per-field reset.
+- Install & uninstall: keep the generated command, add before/after scripts, or replace it with your own.
+- Detection, requirements, variant overrides, runtime, install context, icon and extra source files.
+- Changes save to a named profile per application. **Save** updates the active profile, **Save as** copies it, `default` is the packager as shipped.
+- The review pane lists MECM and Intune findings before you build; Stage and Package run from the window.
+- Profiles live under `%LOCALAPPDATA%\AppPackagerData\Workbench`, outside the install folder, so updates never touch them.
+- One Click rebuilds an application when its vendor version, profile or signing policy changed.
+- The same build runs from the command line through `Invoke-AppPackagerBuild.ps1`, see [Command Line](#command-line).
 
 ### Sidebar comment and toggles
 
@@ -197,7 +203,7 @@ The optional **Administrative Comment** field sits in the sidebar below the Opti
 ### Grid features
 
 - **Filter box** — narrows the grid by application, vendor, status, or CM name as you type
-- **Right-click context menu** on any row — Open Log Folder, Open Staged Folder, Open Network Share, Copy Latest Version
+- **Right-click context menu** on any row — Edit application, Open Log Folder, Open Staged Folder, Open Network Share, Copy Latest Version
 - **Ctrl+Click** any row to open the vendor's product page in the default browser
 - **Row hover tooltips** — hover over any row to see the application's description from the packager script
 - **Selection cycle header** — clicking the checkbox column header cycles none → all → updates only → none; selection acts on the rows the filter shows and the glyph reflects the current bulk state
