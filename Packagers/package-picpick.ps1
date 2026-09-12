@@ -15,7 +15,7 @@ UpdateCadenceDays: 60
 .DESCRIPTION
     Resolves the newest PicPick build from the vendor's free download page,
     downloads the machine-scope installer, stages content to a versioned local
-    folder, and creates an MECM Application with script-based detection on the
+    folder, and creates an MECM Application with registry detection on the
     ARP entry.
 
     The free edition is licensed for personal use only; commercial and
@@ -60,7 +60,7 @@ UpdateCadenceDays: 60
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with script-based detection.
+    create MECM application with registry detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available PicPick version string and exits.
@@ -108,9 +108,9 @@ $BaseDownloadRoot = Join-Path $DownloadRoot "PicPick"
 $InstallerFileName = "picpick_inst.exe"
 
 $UninstallKeyName = "PicPick"
+$ArpRegistryKey   = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$UninstallKeyName"
 
 # --- Functions ---
-
 
 function Assert-PayloadIsExecutable {
     <#
@@ -208,6 +208,7 @@ function Invoke-StagePicPick {
     Invoke-DownloadWithRetry -Url $releaseInfo.DownloadUrl -OutFile $localExe
 
     Assert-PayloadIsExecutable -Path $localExe
+    Assert-ArpDetectionKey -InstallerPath $localExe -ExpectedKey $ArpRegistryKey -Is64BitView $false
 
     $fileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($localExe).FileVersion
     if ($fileVersion) { $fileVersion = $fileVersion.Trim() }
@@ -230,8 +231,15 @@ function Invoke-StagePicPick {
     # of assuming a Program Files path.
     $installScript = @"
 `$exePath = Join-Path `$PSScriptRoot '$InstallerFileName'
-`$proc = Start-Process -FilePath `$exePath -ArgumentList @('/S') -Wait -PassThru -NoNewWindow
-exit `$proc.ExitCode
+# The silent installer launches the application on success; Start-Process -Wait
+# would also wait for that descendant, so the wait covers the installer alone
+# and the launched instance is closed afterwards.
+`$proc = Start-Process -FilePath `$exePath -ArgumentList @('/S') -PassThru -NoNewWindow
+`$proc.WaitForExit()
+`$code = `$proc.ExitCode
+Start-Sleep -Seconds 3
+Get-Process -Name 'picpick' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+exit `$code
 "@
 
     $uninstallScript = @"
@@ -260,26 +268,10 @@ exit 1
 
     # --- Detection ---
     # The 32-bit installer's ARP entry lands in the 32-bit view on x64 clients
-    # and the native view on x86, so both are read.
-    $detectionScript = @"
-`$keys = @(
-    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$UninstallKeyName',
-    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$UninstallKeyName'
-)
-`$wanted = [version]'$version'
-foreach (`$key in `$keys) {
-    if (-not (Test-Path -LiteralPath `$key)) { continue }
-    `$entry = Get-ItemProperty -LiteralPath `$key -ErrorAction SilentlyContinue
-    if (-not `$entry) { continue }
-    `$found = `$null
-    if (-not [version]::TryParse([string]`$entry.DisplayVersion, [ref]`$found)) { continue }
-    if (`$found -ge `$wanted) { Write-Output 'Installed'; exit 0 }
-}
-exit 0
-"@
-
+    # and in the only view an x86 client has, which one view-bound clause
+    # covers.
     Write-Log ""
-    Write-Log "Detection                    : ARP key '$UninstallKeyName' with DisplayVersion >= $version"
+    Write-Log "Detection                    : $ArpRegistryKey DisplayVersion >= $version (32-bit view)"
     Write-Log ""
 
     # --- Write stage manifest ---
@@ -294,9 +286,13 @@ exit 0
         UninstallArgs   = "/S"
         RunningProcess  = @("picpick")
         Detection       = @{
-            Type           = "Script"
-            ScriptLanguage = "PowerShell"
-            ScriptText     = $detectionScript
+            Type                = "RegistryKeyValue"
+            RegistryKeyRelative = $ArpRegistryKey
+            ValueName           = "DisplayVersion"
+            PropertyType        = "Version"
+            Operator            = "GreaterEquals"
+            ExpectedValue       = $version
+            Is64Bit             = $false
         }
     }
 

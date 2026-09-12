@@ -15,7 +15,7 @@ UpdateCadenceDays: 120
 .DESCRIPTION
     Resolves the newest Pidgin release from the vendor's SourceForge file
     feed, downloads the offline installer, stages content to a versioned
-    local folder, and creates an MECM Application with script-based detection
+    local folder, and creates an MECM Application with registry detection
     on the ARP entry.
 
     The vendor ships a 32-bit installer only; the deployment is per-machine
@@ -55,7 +55,7 @@ UpdateCadenceDays: 120
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with script-based detection.
+    create MECM application with registry detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available Pidgin version string and exits.
@@ -101,9 +101,9 @@ $AppFolder    = "Pidgin"
 $BaseDownloadRoot = Join-Path $DownloadRoot "Pidgin"
 
 $UninstallKeyName = "Pidgin"
+$ArpRegistryKey   = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$UninstallKeyName"
 
 # --- Functions ---
-
 
 function Assert-PayloadIsExecutable {
     <#
@@ -208,6 +208,7 @@ function Invoke-StagePidgin {
     }
 
     Assert-PayloadIsExecutable -Path $localExe
+    Assert-ArpDetectionKey -InstallerPath $localExe -ExpectedKey $ArpRegistryKey -Is64BitView $false
 
     $fileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($localExe).FileVersion
     if ($fileVersion) { $fileVersion = $fileVersion.Trim() }
@@ -265,26 +266,10 @@ exit 1
 
     # --- Detection ---
     # The 32-bit installer's ARP entry lands in the 32-bit view on x64 clients
-    # and the native view on x86, so both are read.
-    $detectionScript = @"
-`$keys = @(
-    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$UninstallKeyName',
-    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$UninstallKeyName'
-)
-`$wanted = [version]'$version'
-foreach (`$key in `$keys) {
-    if (-not (Test-Path -LiteralPath `$key)) { continue }
-    `$entry = Get-ItemProperty -LiteralPath `$key -ErrorAction SilentlyContinue
-    if (-not `$entry) { continue }
-    `$found = `$null
-    if (-not [version]::TryParse([string]`$entry.DisplayVersion, [ref]`$found)) { continue }
-    if (`$found -ge `$wanted) { Write-Output 'Installed'; exit 0 }
-}
-exit 0
-"@
-
+    # and in the only view an x86 client has, which one view-bound clause
+    # covers.
     Write-Log ""
-    Write-Log "Detection                    : ARP key '$UninstallKeyName' with DisplayVersion >= $version"
+    Write-Log "Detection                    : $ArpRegistryKey DisplayVersion >= $version (32-bit view)"
     Write-Log ""
 
     # --- Write stage manifest ---
@@ -299,9 +284,13 @@ exit 0
         UninstallArgs   = "/S"
         RunningProcess  = @("pidgin")
         Detection       = @{
-            Type           = "Script"
-            ScriptLanguage = "PowerShell"
-            ScriptText     = $detectionScript
+            Type                = "RegistryKeyValue"
+            RegistryKeyRelative = $ArpRegistryKey
+            ValueName           = "DisplayVersion"
+            PropertyType        = "Version"
+            Operator            = "GreaterEquals"
+            ExpectedValue       = $version
+            Is64Bit             = $false
         }
     }
 

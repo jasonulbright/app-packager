@@ -1,5 +1,46 @@
 # Changelog
 
+## [1.6.0.0] - 2026-09-12
+
+### Added
+
+- Application Workbench: edit any application's packaging settings in one window.
+- Save per-app profiles, switch between them, and Save as a copy.
+- Set custom install and uninstall scripts, with before and after hooks.
+- Set custom detection rules per application.
+- Add, replace or remove requirement rules per application.
+- Set estimated and maximum runtime per application.
+- Set a custom icon and add extra source files to the content.
+- Review pane lists MECM and Intune findings before you build.
+- Unsaved edits are kept as drafts and offered again next time.
+- Save a dropped installer as a permanent application.
+- Options: Script signing for detection, requirement, install and uninstall scripts.
+- Require a valid signature per category and refuse to publish without one.
+- Pick the signing certificate by thumbprint and set a timestamp server.
+- Stage or package one application from the command line without the GUI.
+
+### Changed
+
+- Signed install and uninstall launchers run without an execution-policy override.
+- Stage manifests move to schema 4 with build IDs and a plan digest.
+- Workbench data is stored under %LOCALAPPDATA%\AppPackagerData\Workbench.
+- Installer downloads share one cache across profiles.
+- Named profiles get their own content folder on the share.
+- Per-app rules move from Options to the workbench; Options keeps templates and defaults.
+- Native detection for AnyBurn, Bulk Rename Utility, ocenaudio and Oh My Posh.
+- Native detection for OpenShot, Pidgin, PicPick and TeraCopy.
+- MECM detection scripts are imported from a file and read back to verify.
+- Intune script rules carry the signature-check flag when the script is signed.
+
+### Removed
+
+- Removed the Speculative Execution Mitigations packager (catalog at 284).
+
+### Fixed
+
+- Fixed the PicPick install wrapper waiting on the launched app.
+- Fixed prefix, suffix and substring Intune conversions running without an explicit choice.
+
 ## [1.5.2.2] - 2026-09-09
 
 ### Added

@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.5.2.2
+    Version    : 1.6.0.0
     Updated    : 2026-09-09
 #>
 
@@ -64,6 +64,17 @@ $ErrorActionPreference = 'Stop'
 # roots inherited from the launching shell) before any runspace or child
 # powershell.exe starts.
 Import-Module (Join-Path $PSScriptRoot 'Packagers\AppPackagerCommon.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
+
+# The workbench definition model and the signing service. Common imports
+# them for the packager children; the GUI imports them here so the editor
+# and the Options signing panel work before any child process starts. A
+# second import of an already-loaded module is a no-op.
+foreach ($workbenchModule in @('AppPackagerWorkbench.psm1', 'AppPackagerSigning.psm1')) {
+    $modulePath = Join-Path $PSScriptRoot ('Packagers\' + $workbenchModule)
+    if (Test-Path -LiteralPath $modulePath) {
+        Import-Module $modulePath -Force -Global -DisableNameChecking -ErrorAction SilentlyContinue
+    }
+}
 
 if (-not $BatchMode) {
     Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms
@@ -193,6 +204,23 @@ function Read-Preferences {
         }
         CommandOverrides = [pscustomobject]@{
             Apps = [pscustomobject]@{}
+        }
+        WorkbenchDataRoot = ''
+        # Signing creation and signature enforcement are separate concerns;
+        # every switch defaults off so an existing installation keeps its
+        # current behavior until an operator turns one on.
+        ScriptSigning = [pscustomobject]@{
+            SignDetection         = $false
+            SignRequirements      = $false
+            SignDeployment        = $false
+            RequireDetection      = $false
+            RequireRequirements   = $false
+            RequireDeployment     = $false
+            CertificateThumbprint = ''
+            StoreLocation         = 'CurrentUser'
+            TimestampServer       = ''
+            TimestampRequired     = $false
+            HashAlgorithm         = 'SHA256'
         }
     }
 
@@ -395,6 +423,23 @@ function Read-Preferences {
                 }
             }
             $defaults.CommandOverrides.Apps = [pscustomobject]$cmdProps
+        }
+
+        if ($null -ne $data.WorkbenchDataRoot) { $defaults.WorkbenchDataRoot = [string]$data.WorkbenchDataRoot }
+
+        # ScriptSigning: an unknown or missing key keeps the all-off default,
+        # so a preferences file from an older build never enables signing.
+        if ($null -ne $data.ScriptSigning) {
+            $sign = $data.ScriptSigning
+            foreach ($flag in @('SignDetection','SignRequirements','SignDeployment','RequireDetection','RequireRequirements','RequireDeployment','TimestampRequired')) {
+                if ($null -ne $sign.$flag) { try { $defaults.ScriptSigning.$flag = [bool]$sign.$flag } catch { } }
+            }
+            if ($null -ne $sign.CertificateThumbprint) {
+                $thumb = ([string]$sign.CertificateThumbprint).Trim()
+                if ($thumb -match '^[0-9A-Fa-f]{40}$') { $defaults.ScriptSigning.CertificateThumbprint = $thumb.ToUpperInvariant() }
+            }
+            if ([string]$sign.StoreLocation -in @('CurrentUser','LocalMachine')) { $defaults.ScriptSigning.StoreLocation = [string]$sign.StoreLocation }
+            if ($null -ne $sign.TimestampServer) { $defaults.ScriptSigning.TimestampServer = ([string]$sign.TimestampServer).Trim() }
         }
 
         # DetectedTools: last known detection results. Refreshed on launch
@@ -1581,6 +1626,9 @@ function Invoke-PackagerStage {
         [string]$SevenZipPath = '',
         [string]$VariantsJson = '',
         [string]$InstallMode = '',
+        [string]$RunSnapshotPath = '',
+        [string]$SigningJson = '',
+        [string]$WorkbenchDataRoot = '',
         [System.Windows.Controls.TextBox]$LogTextBox = $null
     )
 
@@ -1611,7 +1659,7 @@ function Invoke-PackagerStage {
     # the env var first and fall back to Program Files\<tool> defaults.
     # Variant splits and the install mode shape the staged content, so
     # they travel with the Stage child too.
-    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -VariantsJson $VariantsJson -InstallMode $InstallMode
+    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -VariantsJson $VariantsJson -InstallMode $InstallMode -RunSnapshotPath $RunSnapshotPath -SigningJson $SigningJson -WorkbenchDataRoot $WorkbenchDataRoot -DownloadRoot $DownloadRoot
 
     $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -StructuredLog $structuredLog -LogTextBox $LogTextBox
     Assert-PackagerStageIntegrity -Result $result -PackagerPath $PackagerPath -DownloadRoot $DownloadRoot
@@ -1644,8 +1692,22 @@ function Invoke-PackagerPackage {
         [ValidateSet('', 'Default', 'IncludeVersion', 'NoVersion')][string]$TitleMode = '',
         [switch]$Preflight,
         [string]$InstallMode = '',
+        [string]$RunSnapshotPath = '',
+        [string]$SigningJson = '',
+        [string]$WorkbenchDataRoot = '',
+        [string]$BuildId = '',
         [System.Windows.Controls.TextBox]$LogTextBox = $null
     )
+
+    # Package consumes the build the operator chose. The child resolves its
+    # own content from staged-version.txt, so a selection that is not the
+    # newest stage in the tree the child will read is refused here rather
+    # than packaged as something else.
+    $selectedManifestPath = ''
+    if (-not [string]::IsNullOrWhiteSpace($BuildId)) {
+        $selected = Assert-WorkbenchBuildSelection -BuildId $BuildId -DownloadRoot $DownloadRoot -PackagerPath $PackagerPath
+        if ($selected) { $selectedManifestPath = [string]$selected.Path }
+    }
 
     if (-not (Test-Path -LiteralPath $LogFolder)) {
         New-Item -ItemType Directory -Path $LogFolder -Force | Out-Null
@@ -1679,7 +1741,7 @@ function Invoke-PackagerPackage {
     $psi.RedirectStandardError  = $true
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow  = $true
-    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName -RequirementsJson $RequirementsJson -VariantsJson $VariantsJson -CommandsJson $CommandsJson -OnExisting $OnExisting -InstallMode $InstallMode
+    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName -RequirementsJson $RequirementsJson -VariantsJson $VariantsJson -CommandsJson $CommandsJson -OnExisting $OnExisting -InstallMode $InstallMode -RunSnapshotPath $RunSnapshotPath -SigningJson $SigningJson -WorkbenchDataRoot $WorkbenchDataRoot -DownloadRoot $DownloadRoot -BuildId $BuildId -StageManifestPath $selectedManifestPath
     $psi.EnvironmentVariables['APP_PACKAGER_TITLE_MODE'] = $TitleMode
     $psi.EnvironmentVariables['APP_PACKAGER_PACKAGE_PREFLIGHT'] = $(if ($Preflight) { '1' } else { '0' })
 
@@ -1749,8 +1811,39 @@ function Set-PackagerEnvironment {
         [string]$VariantsJson,
         [string]$CommandsJson,
         [string]$OnExisting,
-        [string]$InstallMode
+        [string]$InstallMode,
+        [string]$RunSnapshotPath,
+        [string]$SigningJson,
+        [string]$WorkbenchDataRoot,
+        [string]$DownloadRoot,
+        [string]$BuildId,
+        [string]$StageManifestPath
     )
+    # The selected build travels to the child so a packager that learns to
+    # honor it resolves the same content this caller verified.
+    if (-not [string]::IsNullOrWhiteSpace($BuildId)) {
+        $StartInfo.EnvironmentVariables['APP_PACKAGER_BUILD_ID'] = [string]$BuildId
+    }
+    if (-not [string]::IsNullOrWhiteSpace($StageManifestPath)) {
+        $StartInfo.EnvironmentVariables['APP_PACKAGER_STAGE_MANIFEST'] = [string]$StageManifestPath
+    }
+    # The shared download cache resolves from the child's download root, so a
+    # per-profile subroot must still reach the common cache folder.
+    if (-not [string]::IsNullOrWhiteSpace($DownloadRoot)) {
+        $StartInfo.EnvironmentVariables['APP_PACKAGER_DOWNLOAD_ROOT'] = [string]$DownloadRoot
+    }
+    # The child resolves the same data root as the caller, so a snapshot
+    # written here is readable there.
+    if (-not [string]::IsNullOrWhiteSpace($RunSnapshotPath)) {
+        $StartInfo.EnvironmentVariables['APP_PACKAGER_RUN_SNAPSHOT'] = [string]$RunSnapshotPath
+    }
+    if (-not [string]::IsNullOrWhiteSpace($WorkbenchDataRoot)) {
+        $StartInfo.EnvironmentVariables['APP_PACKAGER_WORKBENCH_ROOT'] = [string]$WorkbenchDataRoot
+    }
+    # Signing travels even without a snapshot, so the legacy path signs too.
+    if (-not [string]::IsNullOrWhiteSpace($SigningJson)) {
+        $StartInfo.EnvironmentVariables['APP_PACKAGER_SIGNING'] = [string]$SigningJson
+    }
     if (-not [string]::IsNullOrWhiteSpace($OnExisting)) {
         $StartInfo.EnvironmentVariables['APP_PACKAGER_ON_EXISTING'] = [string]$OnExisting
     }
@@ -2765,6 +2858,41 @@ function Save-TvHostConfig {
 # =============================================================================
 # Batch-mode dispatcher (headless; no WPF)
 # =============================================================================
+# The signing policy and per-profile staging root are read by the CLI
+# batch driver below, which runs before the workbench region loads.
+function Get-WorkbenchProfileDownloadRoot {
+    # Two profiles of one application must never share mutable staging
+    # output; the default profile keeps today's paths byte for byte.
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$DownloadRoot, [AllowEmptyString()][string]$ProfileId)
+    if ([string]::IsNullOrWhiteSpace($ProfileId) -or $ProfileId -eq 'default') { return $DownloadRoot }
+    if ([string]::IsNullOrWhiteSpace($DownloadRoot)) { return $DownloadRoot }
+    return (Join-Path (Join-Path $DownloadRoot 'profiles') $ProfileId)
+}
+
+function Get-WorkbenchSigningPolicy {
+    param($Prefs = $script:Prefs)
+    try { return $Prefs.ScriptSigning } catch { return $null }
+}
+
+function Get-WorkbenchSigningPolicyJson {
+    param($Prefs = $script:Prefs)
+    $block = Get-WorkbenchSigningPolicy -Prefs $Prefs
+    if (-not $block) { return '' }
+    return ($block | ConvertTo-Json -Depth 4 -Compress)
+}
+
+function Get-WorkbenchSigningPolicyDigest {
+    param($Prefs = $script:Prefs)
+    $json = Get-WorkbenchSigningPolicyJson -Prefs $Prefs
+    if (-not $json) { return '' }
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($json))
+        return (($bytes | ForEach-Object { $_.ToString('x2') }) -join '')
+    }
+    finally { $sha.Dispose() }
+}
+
 function Invoke-BatchUpdate {
     <#
     .SYNOPSIS
@@ -2799,8 +2927,16 @@ function Invoke-BatchUpdate {
         [pscustomobject]$CadenceOverrides,
         [pscustomobject]$ConditionApps = $null,
         [pscustomobject]$CommandApps = $null,
+        [string]$SigningJson = '',
         [switch]$Force
     )
+
+    # Unattended builds honor the same policy an interactive one does; a
+    # configured Require flag must not be silently absent here.
+    $batchWorkbenchRoot = ''
+    if (Get-Command -Name 'Get-WorkbenchDataRoot' -ErrorAction SilentlyContinue) {
+        try { $batchWorkbenchRoot = [string](Get-WorkbenchDataRoot) } catch { }
+    }
 
     $defaultCadenceDays = 7
     $results = @()
@@ -2953,10 +3089,49 @@ function Invoke-BatchUpdate {
             $restoreModeEnv = $false
             $previousModeEnv = $null
             $previousTitleModeEnv = $env:APP_PACKAGER_TITLE_MODE
+
+            # The workbench bridge, the same set Invoke-PackagerStage and
+            # Invoke-PackagerPackage put on their child's environment block.
+            # This path launches through the process environment, so each
+            # value is saved here and restored in finally.
+            $batchRunSnapshot = ''
+            $batchDownloadRoot = $DownloadRoot
+            if ($batchWorkbenchRoot -and (Get-Command -Name 'New-RunSnapshot' -ErrorAction SilentlyContinue)) {
+                try {
+                    $batchAppId = [string](New-ApplicationId -Kind Catalog -ScriptPath $scriptPath)
+                    $batchDefinition = Get-ApplicationDefinition -ApplicationId $batchAppId
+                    $batchProfileId = [string]$batchDefinition.ActiveProfileId
+                    if (-not $batchProfileId) { $batchProfileId = 'default' }
+                    $batchDownloadRoot = Get-WorkbenchProfileDownloadRoot -DownloadRoot $DownloadRoot -ProfileId $batchProfileId
+                    $batchSnapshot = New-RunSnapshot -ApplicationId $batchAppId -ProfileId $batchProfileId `
+                        -Target 'MECM' -PackagerScriptPath $scriptPath -DownloadRoot $batchDownloadRoot
+                    $batchRunSnapshot = [string]$batchSnapshot.Path
+                }
+                catch {
+                    Write-Log ("[batch] {0}: run snapshot not created: {1}" -f $baseName, $_.Exception.Message) -Level WARN
+                }
+            }
+            $batchBridge = [ordered]@{
+                APP_PACKAGER_SIGNING        = $SigningJson
+                APP_PACKAGER_RUN_SNAPSHOT   = $batchRunSnapshot
+                APP_PACKAGER_WORKBENCH_ROOT = $batchWorkbenchRoot
+                APP_PACKAGER_DOWNLOAD_ROOT  = $batchDownloadRoot
+            }
+            $batchBridgeSaved = @{}
+            foreach ($bridgeName in @($batchBridge.Keys)) {
+                $batchBridgeSaved[$bridgeName] = [Environment]::GetEnvironmentVariable($bridgeName, 'Process')
+            }
+
             $packagerWorkingDirectory = Split-Path -Parent $scriptPath
             $pushedPackagerLocation = $false
             try {
                 $env:APP_PACKAGER_TITLE_MODE = $titleMode
+                foreach ($bridgeName in @($batchBridge.Keys)) {
+                    $bridgeValue = [string]$batchBridge[$bridgeName]
+                    if (-not [string]::IsNullOrWhiteSpace($bridgeValue)) {
+                        [Environment]::SetEnvironmentVariable($bridgeName, $bridgeValue, 'Process')
+                    }
+                }
                 if (-not [string]::IsNullOrWhiteSpace($SevenZipPath)) {
                     $restoreSevenZipEnv = $true
                     $previousSevenZipEnv = $env:APP_PACKAGER_SEVENZIP
@@ -2997,6 +3172,9 @@ function Invoke-BatchUpdate {
             }
             finally {
                 $env:APP_PACKAGER_TITLE_MODE = $previousTitleModeEnv
+                foreach ($bridgeName in @($batchBridgeSaved.Keys)) {
+                    [Environment]::SetEnvironmentVariable($bridgeName, $batchBridgeSaved[$bridgeName], 'Process')
+                }
                 if ($pushedPackagerLocation) {
                     try { Pop-Location } catch { }
                 }
@@ -3120,6 +3298,7 @@ if ($BatchMode) {
         -CadenceOverrides  $cadenceOverrides `
         -ConditionApps     $conditionApps `
         -CommandApps       $commandApps `
+        -SigningJson       (Get-WorkbenchSigningPolicyJson) `
         -Force:$Force
 
     Write-Log "" -Level INFO
@@ -3173,6 +3352,7 @@ $btnCheckMECM    = $window.FindName('btnCheckMECM')
 $btnStage        = $window.FindName('btnStage')
 $btnPackage      = $window.FindName('btnPackage')
 $btnAddInstaller = $window.FindName('btnAddInstaller')
+$btnWorkbench    = $window.FindName('btnWorkbench')
 $btnFullRun      = $window.FindName('btnFullRun')
 $btnOptions      = $window.FindName('btnOptions')
 $toggleDebugCols = $window.FindName('toggleDebugCols')
@@ -3307,6 +3487,12 @@ $menuSep1 = New-Object System.Windows.Controls.Separator
 $menuCopyLatestVersion = New-Object System.Windows.Controls.MenuItem
 $menuCopyLatestVersion.Header = "Copy Latest Version"
 
+$menuEditApplication = New-Object System.Windows.Controls.MenuItem
+$menuEditApplication.Header = "Edit application..."
+$menuSep0 = New-Object System.Windows.Controls.Separator
+
+$contextMenu.Items.Add($menuEditApplication) | Out-Null
+$contextMenu.Items.Add($menuSep0) | Out-Null
 $contextMenu.Items.Add($menuOpenLogFolder) | Out-Null
 $contextMenu.Items.Add($menuOpenStagedFolder) | Out-Null
 $contextMenu.Items.Add($menuOpenNetworkShare) | Out-Null
@@ -3314,6 +3500,28 @@ $contextMenu.Items.Add($menuSep1) | Out-Null
 $contextMenu.Items.Add($menuCopyLatestVersion) | Out-Null
 
 $dataGrid.ContextMenu = $contextMenu
+
+# Row entry points into the workbench. Both preselect the clicked row so
+# the editor opens on the application the operator pointed at.
+$menuEditApplication.Add_Click({
+    $row = $dataGrid.SelectedItem
+    $base = ''
+    if ($row) { $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script) }
+    Show-ApplicationWorkbench -Owner $window -PreselectPackagerBase $base
+})
+
+$dataGrid.Add_MouseDoubleClick({
+    param($s, $e)
+    # A double-click inside an editable cell (the selection checkbox, a
+    # combo) belongs to that cell, not to the row.
+    $source = $e.OriginalSource
+    if ($source -is [System.Windows.Controls.Primitives.ToggleButton] -or
+        $source -is [System.Windows.Controls.TextBox] -or
+        $source -is [System.Windows.Controls.ComboBox]) { return }
+    $row = $dataGrid.SelectedItem
+    if (-not $row) { return }
+    Show-ApplicationWorkbench -Owner $window -PreselectPackagerBase ([System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script))
+})
 
 $menuOpenLogFolder.Add_Click({
     $logFolder = Join-Path $PSScriptRoot "Logs"
@@ -3618,6 +3826,13 @@ $toggleDebugCols.Add_Toggled({
 })
 
 # --- Options (single unified window) ---
+$btnWorkbench.Add_Click({
+    $row = $dataGrid.SelectedItem
+    $base = ''
+    if ($row) { $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script) }
+    Show-ApplicationWorkbench -Owner $window -PreselectPackagerBase $base
+})
+
 $btnOptions.Add_Click({
     Show-OptionsDialog -Owner $window
 })
@@ -5055,80 +5270,28 @@ function New-DeploymentConditionsPanel {
     </Border>
     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" FontSize="11"
                Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,8"
-               Text="OS languages take comma-separated culture codes (e.g. de-DE, en-US); empty means no language requirement. Network 'VPN only' installs only when a VPN adapter is active, 'On-site only' installs only when it is not."/>
+               Text="Per-application rules moved to the Application Workbench. These rows show what the legacy preferences still hold; select one and open it in the workbench to change it. The condition names and VPN patterns above stay here because they belong to the site, not to one application."/>
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
+        <Button x:Name="btnOpenWorkbench" Content="Open in Workbench" MinWidth="170" Height="30"
+                Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                ToolTip="Opens the selected application in the Application Workbench."/>
+    </StackPanel>
     <DataGrid x:Name="dgCondApps" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
-              GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0" BorderThickness="0"
+              IsReadOnly="True" GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0"
+              BorderThickness="1" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}"
               IsTextSearchEnabled="True" TextSearch.TextPath="Application">
         <DataGrid.Columns>
-            <DataGridTextColumn Header="Application" Width="*" MinWidth="130" Binding="{Binding Application}" IsReadOnly="True"/>
-            <DataGridTextColumn Header="Vendor" Width="110" Binding="{Binding Vendor}" IsReadOnly="True"/>
-            <DataGridTemplateColumn Header="Arch" Width="92">
-                <DataGridTemplateColumn.CellTemplate>
-                    <DataTemplate>
-                        <ComboBox ItemsSource="{Binding ArchOptions}" SelectedItem="{Binding ArchitectureDisplay, UpdateSourceTrigger=PropertyChanged}"
-                                  FontSize="12" BorderThickness="0" Background="Transparent"
-                                  ToolTip="Requirement rule on the CPU architecture. Any attaches no rule."/>
-                    </DataTemplate>
-                </DataGridTemplateColumn.CellTemplate>
-            </DataGridTemplateColumn>
-            <DataGridTemplateColumn Header="OS languages" Width="126">
-                <DataGridTemplateColumn.CellTemplate>
-                    <DataTemplate>
-                        <TextBox Text="{Binding LanguagesDisplay, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"
-                                 FontSize="12" BorderThickness="0" Background="Transparent" Margin="2,0,2,0"
-                                 Controls:TextBoxHelper.Watermark="any"
-                                 ToolTip="Comma-separated culture codes (de-DE, en-US). Empty attaches no language rule."/>
-                    </DataTemplate>
-                </DataGridTemplateColumn.CellTemplate>
-            </DataGridTemplateColumn>
-            <DataGridTemplateColumn Header="Network" Width="104">
-                <DataGridTemplateColumn.CellTemplate>
-                    <DataTemplate>
-                        <ComboBox ItemsSource="{Binding NetworkOptions}" SelectedItem="{Binding NetworkDisplay, UpdateSourceTrigger=PropertyChanged}"
-                                  FontSize="12" BorderThickness="0" Background="Transparent"
-                                  ToolTip="VPN only installs when a VPN adapter is active; On-site only when it is not. Any attaches no rule."/>
-                    </DataTemplate>
-                </DataGridTemplateColumn.CellTemplate>
-            </DataGridTemplateColumn>
-            <DataGridTemplateColumn Header="Commands" Width="100">
-                <DataGridTemplateColumn.CellTemplate>
-                    <DataTemplate>
-                        <Button Content="{Binding CommandLabel}" FontSize="11" Padding="6,1,6,1" Margin="2"
-                                Tag="{Binding}" x:Name="btnRowCommands"
-                                ToolTip="Override the install/uninstall command lines for this app. Empty fields use the packager's shipped commands."/>
-                    </DataTemplate>
-                </DataGridTemplateColumn.CellTemplate>
-            </DataGridTemplateColumn>
-            <DataGridTemplateColumn Header="Variant split" Width="108">
-                <DataGridTemplateColumn.CellTemplate>
-                    <DataTemplate>
-                        <ComboBox ItemsSource="{Binding VariantOptions}" SelectedItem="{Binding SplitDisplay, UpdateSourceTrigger=PropertyChanged}"
-                                  IsEnabled="{Binding VariantCapable}" FontSize="12" BorderThickness="0" Background="Transparent"
-                                  ToolTip="Stage one application with multiple deployment types. Only offered where the packager declares SupportsVariants."/>
-                    </DataTemplate>
-                </DataGridTemplateColumn.CellTemplate>
-            </DataGridTemplateColumn>
-            <DataGridTemplateColumn Header="Application title" Width="138">
-                <DataGridTemplateColumn.CellTemplate>
-                    <DataTemplate>
-                        <ComboBox ItemsSource="{Binding TitleOptions}" SelectedItem="{Binding TitleModeDisplay, UpdateSourceTrigger=PropertyChanged}"
-                                  FontSize="12" BorderThickness="0" Background="Transparent"
-                                  ToolTip="MECM application title: include the release version for separate apps, or omit it to update a perpetual deployment. Changing this option does not rename existing site applications. Software Center display names are unchanged."/>
-                    </DataTemplate>
-                </DataGridTemplateColumn.CellTemplate>
-            </DataGridTemplateColumn>
-            <DataGridTemplateColumn Header="Install for" Width="96">
-                <DataGridTemplateColumn.CellTemplate>
-                    <DataTemplate>
-                        <ComboBox ItemsSource="{Binding InstallModeOptions}" SelectedItem="{Binding InstallModeDisplay, UpdateSourceTrigger=PropertyChanged}"
-                                  IsEnabled="{Binding InstallModeCapable}" FontSize="12" BorderThickness="0" Background="Transparent"
-                                  ToolTip="Install for all users (System) or the signed-in user (User); install arguments, uninstall command, detection and deployment behavior follow. Default keeps the packager's own mode. Only offered where the packager declares SupportsInstallModes."/>
-                    </DataTemplate>
-                </DataGridTemplateColumn.CellTemplate>
-            </DataGridTemplateColumn>
+            <DataGridTextColumn Header="Application" Width="*" MinWidth="130" Binding="{Binding Application}"/>
+            <DataGridTextColumn Header="Vendor" Width="110" Binding="{Binding Vendor}"/>
+            <DataGridTextColumn Header="Arch" Width="92" Binding="{Binding ArchitectureDisplay}"/>
+            <DataGridTextColumn Header="OS languages" Width="126" Binding="{Binding LanguagesDisplay}"/>
+            <DataGridTextColumn Header="Network" Width="104" Binding="{Binding NetworkDisplay}"/>
+            <DataGridTextColumn Header="Commands" Width="100" Binding="{Binding CommandLabel}"/>
+            <DataGridTextColumn Header="Variant split" Width="108" Binding="{Binding SplitDisplay}"/>
+            <DataGridTextColumn Header="Application title" Width="138" Binding="{Binding TitleModeDisplay}"/>
+            <DataGridTextColumn Header="Install for" Width="96" Binding="{Binding InstallModeDisplay}"/>
         </DataGrid.Columns>
-    </DataGrid>
-</DockPanel>
+    </DataGrid></DockPanel>
 '@
 
     [xml]$xml = $xaml
@@ -5228,23 +5391,12 @@ function New-DeploymentConditionsPanel {
     }
     $dgCondApps.ItemsSource = $rows
 
-    # Template-column buttons share one routed handler; the row rides in
-    # on the button's Tag. Combo boxes in the split column do not raise
-    # Button.Click, so no filtering is needed.
-    $dgCondApps.AddHandler([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent, [System.Windows.RoutedEventHandler]{
-        param($s, $e)
-        $btn = $e.OriginalSource
-        if ($btn -isnot [System.Windows.Controls.Button]) { return }
-        $row = $btn.Tag
-        if (-not $row -or -not $row.PSObject.Properties['CmdInstall']) { return }
-        $edited = Show-CommandOverrideDialog -AppLabel ([string]$row.Application) -Install ([string]$row.CmdInstall) -Uninstall ([string]$row.CmdUninstall) -Owner $window
-        if ($null -ne $edited) {
-            $row.CmdInstall = [string]$edited.Install
-            $row.CmdUninstall = [string]$edited.Uninstall
-            $row.CommandLabel = $(if ($row.CmdInstall -or $row.CmdUninstall) { 'Modified' } else { 'Default' })
-            $dgCondApps.Items.Refresh()
-        }
-    })
+    $btnOpenWorkbench = $element.FindName('btnOpenWorkbench')
+    $btnOpenWorkbench.Add_Click({
+        $row = $dgCondApps.SelectedItem
+        $base = $(if ($row) { [string]$row.Packager } else { '' })
+        Show-ApplicationWorkbench -Owner ([System.Windows.Window]::GetWindow($dgCondApps)) -PreselectPackagerBase $base
+    }.GetNewClosure())
 
     $condState = @{
         Doc   = $condDoc
@@ -5255,57 +5407,9 @@ function New-DeploymentConditionsPanel {
         InitialPatterns = $txtVpnPatterns.Text
     }
 
-    $prefsRef = $script:Prefs
     $commit = {
-        [void]$dgCondApps.CommitEdit([System.Windows.Controls.DataGridEditingUnit]::Cell, $true)
-        [void]$dgCondApps.CommitEdit([System.Windows.Controls.DataGridEditingUnit]::Row,  $true)
-
-        $displayToArch = @{ 'Any' = 'Any'; 'x64 only' = 'x64'; 'ARM64 only' = 'ARM64' }
-        $displayToNetwork = @{ 'Any' = 'Any'; 'VPN only' = 'VpnOnly'; 'On-site only' = 'OnSiteOnly' }
-
-        $condProps = [ordered]@{}
-        foreach ($row in $rows) {
-            $arch = 'Any'
-            if ($displayToArch.ContainsKey([string]$row.ArchitectureDisplay)) { $arch = $displayToArch[[string]$row.ArchitectureDisplay] }
-            $network = 'Any'
-            if ($displayToNetwork.ContainsKey([string]$row.NetworkDisplay)) { $network = $displayToNetwork[[string]$row.NetworkDisplay] }
-            $langs = @([string]$row.LanguagesDisplay -split '[,;]' |
-                ForEach-Object { $_.Trim() } |
-                Where-Object { $_ -match '^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,2}$' })
-            $split = 'None'
-            if ([string]$row.SplitDisplay -in @('Architecture', 'Language', 'Network') -and $row.VariantCapable) { $split = [string]$row.SplitDisplay }
-            $installMode = ''
-            if ($row.InstallModeCapable) {
-                switch ([string]$row.InstallModeDisplay) {
-                    'System' { $installMode = 'AllUsers' }
-                    'User'   { $installMode = 'CurrentUser' }
-                }
-            }
-            $titleMode = switch ([string]$row.TitleModeDisplay) { 'Include version' { 'IncludeVersion' }; 'No version' { 'NoVersion' }; default { '' } }
-            if ($arch -eq 'Any' -and $network -eq 'Any' -and $langs.Count -eq 0 -and $split -eq 'None' -and -not $installMode -and -not $titleMode) { continue }
-            $condProps[$row.Packager] = [pscustomobject]@{
-                Architecture = $arch
-                Languages    = $langs
-                Network      = $network
-                Split        = $split
-                InstallMode  = $installMode
-                TitleMode    = $titleMode
-            }
-        }
-        $prefsRef.DeploymentConditions.Apps = [pscustomobject]$condProps
-
-        $cmdProps = [ordered]@{}
-        foreach ($row in $rows) {
-            $inst = ([string]$row.CmdInstall).Trim()
-            $uninst = ([string]$row.CmdUninstall).Trim()
-            if (-not $inst -and -not $uninst) { continue }
-            $cmdProps[$row.Packager] = [pscustomobject]@{
-                Install   = $inst
-                Uninstall = $uninst
-            }
-        }
-        $prefsRef.CommandOverrides.Apps = [pscustomobject]$cmdProps
-
+        # The per-app maps are read-only here; the workbench profile is the
+        # single writer. Only the site-level condition templates commit.
         if ($archTemplate -and -not [string]::IsNullOrWhiteSpace($txtArchGc.Text)) {
             $archTemplate.GlobalConditionName = $txtArchGc.Text.Trim()
         }
@@ -5514,6 +5618,7 @@ function Show-OptionsDialog {
         (New-AppFlowPanel),
         (New-ProductFilterPanel),
         (New-DeploymentConditionsPanel),
+        (New-ScriptSigningPanel),
         (New-AboutPanel)
     )
 
@@ -5874,12 +5979,24 @@ function Initialize-BackgroundWorker {
     # Pre-import AppPackagerCommon into the bg runspace so Update-PackagerHistory /
     # Read-PackagerHistory / New-MECMApplicationFromManifest / Write-StageManifest
     # resolve inside the bg scriptblock.
-    $modulePath = Join-Path $PSScriptRoot 'Packagers\AppPackagerCommon.psm1'
+    # The workbench module comes too: One Click freshness reads build
+    # records from the background loop, not from the UI thread.
+    $modulePath = @(
+        (Join-Path $PSScriptRoot 'Packagers\AppPackagerCommon.psm1')
+        (Join-Path $PSScriptRoot 'Packagers\AppPackagerWorkbench.psm1')
+        (Join-Path $PSScriptRoot 'Packagers\AppPackagerSigning.psm1')
+    )
     $initPS = [powershell]::Create()
     $initPS.Runspace = $script:BgRunspace
     [void]$initPS.AddScript({
         param($ModulePath)
-        Import-Module -Name $ModulePath -Force -DisableNameChecking
+        $paths = @($ModulePath)
+        Import-Module -Name $paths[0] -Force -DisableNameChecking
+        foreach ($path in $paths[1..($paths.Count - 1)]) {
+            if (Test-Path -LiteralPath $path) {
+                Import-Module -Name $path -Force -DisableNameChecking -ErrorAction SilentlyContinue
+            }
+        }
     }).AddArgument($modulePath)
     [void]$initPS.Invoke()
     $initPS.Dispose()
@@ -6007,6 +6124,26 @@ function Invoke-MultiAppPipeline {
                 $path     = [string]$row.FullPath
                 $baseName = [System.IO.Path]::GetFileNameWithoutExtension($scrName)
 
+                # The run plan is prebuilt on the UI thread; an application
+                # with no entry keeps the legacy default-profile paths.
+                $plan = $null
+                if ($Ctx.RunPlanByApp -and $Ctx.RunPlanByApp.ContainsKey($baseName)) { $plan = $Ctx.RunPlanByApp[$baseName] }
+                $planSnapshot = ''
+                $planDataRoot = ''
+                $planDownloadRoot = [string]$Ctx.DownloadRoot
+                $planProfileId = 'default'
+                $planRevision = 0
+                $planApplicationId = ''
+                if ($plan) {
+                    $planSnapshot = [string]$plan.SnapshotPath
+                    $planDataRoot = [string]$plan.DataRoot
+                    $planProfileId = [string]$plan.ProfileId
+                    $planRevision = [int]$plan.ProfileRevision
+                    $planApplicationId = [string]$plan.ApplicationId
+                    if ([string]$plan.DownloadRoot) { $planDownloadRoot = [string]$plan.DownloadRoot }
+                }
+                $planSigning = [string]$Ctx.SigningJson
+
                 switch ($Op) {
                     'CheckLatest' {
                         $State.Step = ('Check {0}/{1}: {2}' -f $i, $n, $app)
@@ -6066,12 +6203,13 @@ function Invoke-MultiAppPipeline {
                             $res = Invoke-PackagerStage `
                                 -PackagerPath $path `
                                 -LogFolder $Ctx.LogFolder `
-                                -DownloadRoot $Ctx.DownloadRoot `
+                                -DownloadRoot $planDownloadRoot `
                                 -M365Channel $Ctx.M365Channel `
                                 -M365DeployMode $Ctx.M365DeployMode `
                                 -SevenZipPath $Ctx.SevenZipPath `
                                 -VariantsJson $(if ($Ctx.VariantsByApp) { [string]$Ctx.VariantsByApp[$baseName] } else { '' }) `
-                                -InstallMode $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' })
+                                -InstallMode $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' }) `
+                                -RunSnapshotPath $planSnapshot -SigningJson $planSigning -WorkbenchDataRoot $planDataRoot
 
                             if ($res.ExitCode -eq 0) {
                                 $row.Status = 'Staged'
@@ -6121,7 +6259,11 @@ function Invoke-MultiAppPipeline {
                                 Comment              = $Ctx.Comment
                                 FileServerPath       = $Ctx.FileShareRoot
                                 LogFolder            = $Ctx.LogFolder
-                                DownloadRoot         = $Ctx.DownloadRoot
+                                DownloadRoot         = $planDownloadRoot
+                                RunSnapshotPath      = $planSnapshot
+                                SigningJson          = $planSigning
+                                WorkbenchDataRoot    = $planDataRoot
+                                BuildId              = [string]$Ctx.BuildId
                                 M365Channel          = $Ctx.M365Channel
                                 M365DeployMode       = $Ctx.M365DeployMode
                                 EstimatedRuntimeMins = $Ctx.EstimatedRuntimeMins
@@ -6292,7 +6434,20 @@ function Invoke-MultiAppPipeline {
                         $versionChanged = (-not $lastKnown) -or ($lastKnown -ne $latest)
                         $neverStaged    = ($Ctx.Action -eq 'Stage'           -and -not $lastStaged)
                         $neverPackaged  = ($Ctx.Action -eq 'StageAndPackage' -and -not $lastPackaged)
-                        $shouldAct      = $versionChanged -or $Ctx.ForceFlag -or $neverStaged -or $neverPackaged
+
+                        # A vendor-version match alone is not freshness: a
+                        # changed profile revision or signing policy makes
+                        # the last build stale even at the same version.
+                        $buildStale = $false
+                        if ($planApplicationId) {
+                            $current = Test-WorkbenchBuildIsCurrent -ApplicationId $planApplicationId -ProfileId $planProfileId `
+                                -Version $latest -ProfileRevision $planRevision -PolicyDigest ([string]$Ctx.SigningDigest)
+                            if ($null -ne $current -and -not $current) { $buildStale = $true }
+                        }
+                        $shouldAct      = $versionChanged -or $Ctx.ForceFlag -or $neverStaged -or $neverPackaged -or $buildStale
+                        if ($buildStale -and -not $versionChanged) {
+                            [void]$State.LogQueue.Enqueue(('Rebuilding {0} at the same version: profile revision or signing policy changed.' -f $app))
+                        }
 
                         $histResult = if ($versionChanged) { 'Updated' } else { 'NoChange' }
                         try {
@@ -6323,12 +6478,13 @@ function Invoke-MultiAppPipeline {
                             $stg = Invoke-PackagerStage `
                                 -PackagerPath $path `
                                 -LogFolder $Ctx.LogFolder `
-                                -DownloadRoot $Ctx.DownloadRoot `
+                                -DownloadRoot $planDownloadRoot `
                                 -M365Channel $Ctx.M365Channel `
                                 -M365DeployMode $Ctx.M365DeployMode `
                                 -SevenZipPath $Ctx.SevenZipPath `
                                 -VariantsJson $(if ($Ctx.VariantsByApp) { [string]$Ctx.VariantsByApp[$baseName] } else { '' }) `
-                                -InstallMode $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' })
+                                -InstallMode $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' }) `
+                                -RunSnapshotPath $planSnapshot -SigningJson $planSigning -WorkbenchDataRoot $planDataRoot
 
                             if ($stg.ExitCode -eq 0) {
                                 $stageOk = $true
@@ -6385,7 +6541,11 @@ function Invoke-MultiAppPipeline {
                                 Comment              = $Ctx.Comment
                                 FileServerPath       = $Ctx.FileShareRoot
                                 LogFolder            = $Ctx.LogFolder
-                                DownloadRoot         = $Ctx.DownloadRoot
+                                DownloadRoot         = $planDownloadRoot
+                                RunSnapshotPath      = $planSnapshot
+                                SigningJson          = $planSigning
+                                WorkbenchDataRoot    = $planDataRoot
+                                BuildId              = [string]$Ctx.BuildId
                                 M365Channel          = $Ctx.M365Channel
                                 M365DeployMode       = $Ctx.M365DeployMode
                                 EstimatedRuntimeMins = $Ctx.EstimatedRuntimeMins
@@ -6665,6 +6825,8 @@ function Show-DropIntakeDialog {
                   Content="I verified the predicted silent switches and detection for this installer"/>
 
         <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button x:Name="btnDropSaveApplication" Content="Save as Application" MinWidth="150" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource MahApps.Styles.Button.Square}"
+                    ToolTip="Keep this installer as a durable application so it reopens in the Application Workbench without a download script. Its update source stays manual."/>
             <Button x:Name="btnDropSavePackager" Content="Save as Packager" MinWidth="130" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource MahApps.Styles.Button.Square}"/>
             <Button x:Name="btnDropStage" Content="Stage" MinWidth="90" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource MahApps.Styles.Button.Square}"/>
             <Button x:Name="btnDropStagePackage" Content="Stage + Package" MinWidth="130" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource MahApps.Styles.Button.Square.Accent}"/>
@@ -6828,6 +6990,31 @@ function Show-DropIntakeDialog {
     $btnStageOnly.Add_Click({ & $chooseAction 'Stage' })
     $btnStagePkg.Add_Click({ & $chooseAction 'StageAndPackage' })
     $btnSave.Add_Click({ & $chooseAction 'SavePackager' })
+
+    # Persisting the drop as an application creates no download script and
+    # deploys nothing; the installer becomes source revision 1.
+    $btnSaveApp = $dlg.FindName('btnDropSaveApplication')
+    $btnSaveApp.IsEnabled = [bool](Get-Command -Name 'Save-ByoApplication' -ErrorAction SilentlyContinue)
+    if (-not $btnSaveApp.IsEnabled) {
+        $btnSaveApp.ToolTip = 'The workbench definition model is not loaded, so a persistent application cannot be saved.'
+    }
+    $btnSaveApp.Add_Click({
+        $problem = & $validate
+        if ($problem) {
+            [void](Show-ThemedMessage -Owner $dlg -Title 'Missing Value' -Message $problem -Buttons OK -Icon Warning)
+            return
+        }
+        $v = & $readValues
+        try {
+            $saved = Save-ByoApplication -InstallerPath ([string]$Analysis.Path) -DisplayName ([string]$v.AppName) `
+                -Publisher ([string]$v.Publisher) -SoftwareVersion ([string]$v.SoftwareVersion) -Analysis $script:DropActiveAnalysis
+            $script:DropIntakeResult = @{ Action = 'SaveApplication'; Values = $v; Analysis = $script:DropActiveAnalysis; ApplicationId = [string]$saved.ApplicationId }
+            $dlg.Close()
+        }
+        catch {
+            [void](Show-ThemedMessage -Owner $dlg -Title 'Save as Application' -Message $_.Exception.Message -Buttons OK -Icon Error)
+        }
+    })
     $btnCancelDlg.Add_Click({ $dlg.Close() })
 
     [void]$dlg.ShowDialog()
@@ -6877,6 +7064,14 @@ function Invoke-AdHocPipeline {
 
         $counts = [ordered]@{ Staged = 0; Packaged = 0; Failed = 0 }
         $cmConnected = $null
+
+        # The ad-hoc stage runs in-process, so the policy has to sit on the
+        # process environment for the duration of this run only: leaving it
+        # behind would hand the next build a policy nobody selected for it.
+        $savedSigning = $env:APP_PACKAGER_SIGNING
+        $savedWorkbenchRoot = $env:APP_PACKAGER_WORKBENCH_ROOT
+        if ([string]$Ctx.SigningJson) { $env:APP_PACKAGER_SIGNING = [string]$Ctx.SigningJson }
+        if ([string]$Ctx.WorkbenchDataRoot) { $env:APP_PACKAGER_WORKBENCH_ROOT = [string]$Ctx.WorkbenchDataRoot }
 
         try {
             $jobs = @($JobsIn)
@@ -6949,6 +7144,10 @@ function Invoke-AdHocPipeline {
             $State.ErrorMsg = $_.Exception.Message
         }
         finally {
+            if ($null -eq $savedSigning) { Remove-Item Env:\APP_PACKAGER_SIGNING -ErrorAction SilentlyContinue }
+            else { $env:APP_PACKAGER_SIGNING = $savedSigning }
+            if ($null -eq $savedWorkbenchRoot) { Remove-Item Env:\APP_PACKAGER_WORKBENCH_ROOT -ErrorAction SilentlyContinue }
+            else { $env:APP_PACKAGER_WORKBENCH_ROOT = $savedWorkbenchRoot }
             $State.Done = $true
         }
     }).AddArgument($jobsArray).AddArgument($Context).AddArgument($script:BgState)
@@ -7078,6 +7277,17 @@ function Invoke-DropIntake {
         # The dialog hands back the analysis for the install mode it shows.
         if ($choice.Analysis) { $analysis = $choice.Analysis }
 
+        if ($choice.Action -eq 'SaveApplication') {
+            Add-LogLine -Message ('Saved as application {0}. It appears in the workbench with manual updates; nothing was staged or deployed.' -f [string]$choice.ApplicationId)
+            $answer = Show-ThemedMessage -Owner $window -Title 'Saved' `
+                -Message ('"{0}" is saved as an application. Open it in the Application Workbench now?' -f [string]$choice.Values.AppName) `
+                -Buttons YesNo -Icon Question
+            if ($answer -eq 'Yes') {
+                Show-ApplicationWorkbench -Owner $window -PreselectApplicationId ([string]$choice.ApplicationId)
+            }
+            continue
+        }
+
         if ($choice.Action -eq 'SavePackager') {
             try {
                 $generated = New-PackagerFromDrop -Analysis $analysis `
@@ -7100,6 +7310,8 @@ function Invoke-DropIntake {
 
     $txtStatus.Text = 'Processing dropped installers...'
     Invoke-AdHocPipeline -Jobs $jobs -Context @{
+        SigningJson          = Get-WorkbenchSigningPolicyJson
+        WorkbenchDataRoot    = $(if (Test-WorkbenchModuleAvailable) { Get-WorkbenchDataRoot } else { '' })
         DownloadRoot         = $script:Prefs.DownloadRoot
         SiteCode             = $script:Prefs.SiteCode
         ProviderMachineName  = $script:Prefs.ProviderMachineName
@@ -7309,6 +7521,9 @@ $btnStage.Add_Click({
         M365DeployMode = $script:Prefs.M365DeployMode
         LogFolder      = Join-Path $PSScriptRoot 'Logs'
         SevenZipPath   = Get-SevenZipPathForContext
+        RunPlanByApp   = Get-WorkbenchRunPlanForContext -Rows $selectedRows -Target ([string]$script:Prefs.Intune.DeploymentTarget)
+        SigningJson    = Get-WorkbenchSigningPolicyJson
+        SigningDigest  = Get-WorkbenchSigningPolicyDigest
     }
 })
 
@@ -7353,6 +7568,7 @@ $btnPackage.Add_Click({
     }
 
     $txtStatus.Text = "Packaging selected applications..."
+    $rowsForPlan = $selectedRows
     Invoke-MultiAppPipeline -Operation Package -Rows $selectedRows -Context @{
         SiteCode             = $siteCodeValue
         ProviderMachineName  = $script:Prefs.ProviderMachineName
@@ -7375,6 +7591,9 @@ $btnPackage.Add_Click({
         TitleModesByApp      = Get-TitleModesMapForContext
         IntunePublishConfig  = Get-IntunePublishConfigForContext
         DeploymentTarget     = [string]$script:Prefs.Intune.DeploymentTarget
+        RunPlanByApp         = Get-WorkbenchRunPlanForContext -Rows $rowsForPlan -Target ([string]$script:Prefs.Intune.DeploymentTarget)
+        SigningJson          = Get-WorkbenchSigningPolicyJson
+        SigningDigest        = Get-WorkbenchSigningPolicyDigest
     }
 })
 
@@ -7448,6 +7667,7 @@ $btnFullRun.Add_Click({
     Add-LogLine -Message ("One Click: {0} app(s), action={1}{2}" -f $rows.Count, $action, $(if ($forceFlag) { ', force=on' } else { '' }))
     $txtStatus.Text = ("One Click: {0} app(s)..." -f $rows.Count)
 
+    $rowsForPlan = $rows
     Invoke-MultiAppPipeline -Operation FullRun -Rows $rows -Context @{
         SiteCode             = $siteCodeValue
         ProviderMachineName  = $script:Prefs.ProviderMachineName
@@ -7474,8 +7694,2282 @@ $btnFullRun.Add_Click({
         TitleModesByApp      = Get-TitleModesMapForContext
         IntunePublishConfig  = Get-IntunePublishConfigForContext
         DeploymentTarget     = [string]$script:Prefs.Intune.DeploymentTarget
+        RunPlanByApp         = Get-WorkbenchRunPlanForContext -Rows $rowsForPlan -Target ([string]$script:Prefs.Intune.DeploymentTarget)
+        SigningJson          = Get-WorkbenchSigningPolicyJson
+        SigningDigest        = Get-WorkbenchSigningPolicyDigest
     }
 })
+
+# =============================================================================
+# Application Workbench
+# =============================================================================
+# The definition and build model lives in AppPackagerWorkbench.psm1; the
+# signing service lives in AppPackagerSigning.psm1. Signing calls stay
+# guarded because a build host without the signing module must report that
+# no script was signed rather than appear to have signed one.
+
+function Get-WorkbenchCommand {
+    param([Parameter(Mandatory)][string]$Name)
+    return (Get-Command -Name $Name -ErrorAction SilentlyContinue)
+}
+
+function Test-WorkbenchModuleAvailable {
+    return [bool](Get-Command -Name 'Get-WorkbenchApplications' -ErrorAction SilentlyContinue)
+}
+
+function ConvertTo-WorkbenchUiHashtable {
+    # The editor mutates nested members by name, so a profile loaded as a
+    # PSCustomObject tree is rebuilt as ordered hashtables.
+    param($InputObject)
+    if ($null -eq $InputObject) { return $null }
+    if ($InputObject -is [System.Collections.IDictionary]) {
+        $out = [ordered]@{}
+        foreach ($k in @($InputObject.Keys)) { $out[[string]$k] = ConvertTo-WorkbenchUiHashtable -InputObject $InputObject[$k] }
+        return $out
+    }
+    if ($InputObject -is [string] -or $InputObject -is [ValueType]) { return $InputObject }
+    if ($InputObject -is [System.Collections.IEnumerable]) {
+        return @(foreach ($item in $InputObject) { ConvertTo-WorkbenchUiHashtable -InputObject $item })
+    }
+    if ($InputObject -is [psobject] -and $InputObject.PSObject.Properties.Count -gt 0) {
+        $out = [ordered]@{}
+        foreach ($p in $InputObject.PSObject.Properties) { $out[$p.Name] = ConvertTo-WorkbenchUiHashtable -InputObject $p.Value }
+        return $out
+    }
+    return $InputObject
+}
+
+function Get-WorkbenchWindowStatePath {
+    Join-Path $PSScriptRoot 'AppPackager.workbench.windowstate.json'
+}
+
+function Get-WorkbenchXamlPath {
+    # The override exists so a UI probe can load the markup from a checkout
+    # while the functions themselves run outside the shell's file scope.
+    if ($script:WorkbenchXamlPathOverride) { return [string]$script:WorkbenchXamlPathOverride }
+    return (Join-Path $PSScriptRoot 'WorkbenchWindow.xaml')
+}
+
+function Get-WorkbenchCustomScriptRoot {
+    # User-authored packagers live outside the replaceable install tree.
+    # Discovery and legacy migration have to agree on this path, or a
+    # migrated profile lands under an id the picker never reads.
+    return (Join-Path (Get-WorkbenchDataRoot) 'scripts')
+}
+
+function Get-WorkbenchUiApplications {
+    # One list of catalog packagers, user-authored scripts and saved BYO
+    # applications, shaped for the picker. Manual sources report manual
+    # updates rather than a fictitious latest-version check.
+    $result = New-Object System.Collections.ArrayList
+    $packagerMeta = @{}
+    foreach ($p in @(Get-Packagers -Root $PackagersRoot)) {
+        $packagerMeta[[string]$p.FullPath] = $p
+    }
+    foreach ($a in @(Get-WorkbenchApplications -PackagersRoot $PackagersRoot -CustomScriptRoot (Get-WorkbenchCustomScriptRoot))) {
+        $meta = $null
+        if ($a.ScriptPath -and $packagerMeta.ContainsKey([string]$a.ScriptPath)) { $meta = $packagerMeta[[string]$a.ScriptPath] }
+        $sourceType = switch ([string]$a.Kind) {
+            'Catalog' { 'Catalog packager' }
+            'Custom'  { 'User-authored packager' }
+            default   { 'Bring your own installer' }
+        }
+        $display = [string]$a.DisplayName
+        if ($meta -and [string]$meta.Application) { $display = [string]$meta.Application }
+        $publisher = [string]$a.Publisher
+        if (-not $publisher -and $meta) { $publisher = [string]$meta.Vendor }
+        [void]$result.Add([pscustomobject]@{
+            ApplicationId        = [string]$a.ApplicationId
+            DisplayName          = $display
+            Publisher            = $publisher
+            SourceType           = $sourceType
+            Kind                 = [string]$a.Kind
+            PackagerBase         = $(if ($a.ScriptName) { [System.IO.Path]::GetFileNameWithoutExtension([string]$a.ScriptName) } else { '' })
+            ScriptPath           = [string]$a.ScriptPath
+            ActiveProfileId      = [string]$a.ActiveProfileId
+            Description          = $(if ($meta) { [string]$meta.Description } else { '' })
+            LatestVersionText    = $(if ([string]$a.Kind -eq 'Byo') { 'Manual updates' } else { '' })
+            SupportsVariants     = $(if ($meta) { @($meta.SupportsVariants) } else { @() })
+            SupportsInstallModes = $(if ($meta) { @($meta.SupportsInstallModes) } else { @() })
+        })
+    }
+    return $result
+}
+
+function Get-WorkbenchInheritedSettings {
+    # Everything below the profile: global defaults plus packager defaults.
+    # A value only a completed Stage can resolve is reported as such and
+    # never replaced with an invented default.
+    param([Parameter(Mandatory)]$Application)
+
+    $needsStaging = '(needs staging)'
+    $globals = [pscustomobject]@{
+        EstimatedRuntimeMins = 15
+        MaximumRuntimeMins   = 30
+        Description          = [string]$Application.Description
+        TitleMode            = ''
+    }
+    try {
+        $globals.EstimatedRuntimeMins = [int]$script:Prefs.EstimatedRuntimeMins
+        $globals.MaximumRuntimeMins   = [int]$script:Prefs.MaximumRuntimeMins
+    } catch { }
+
+    $resolved = $null
+    try { $resolved = Resolve-EffectiveSettings -GlobalDefaults $globals -BaseManifest $null -Profile $null } catch { }
+
+    $pick = {
+        param([string]$field, $fallback)
+        if ($resolved -and $resolved.Contains($field)) {
+            $entry = $resolved[$field]
+            if ([string]$entry.Source -eq 'NeedsStaging') { return $needsStaging }
+            if ($null -ne $entry.Value -and [string]$entry.Value -ne '') { return $entry.Value }
+        }
+        return $fallback
+    }
+
+    return [pscustomobject]@{
+        Source             = 'Packager default'
+        DisplayName        = $(if ([string]$Application.DisplayName) { [string]$Application.DisplayName } else { & $pick 'DisplayName' $needsStaging })
+        Publisher          = $(if ([string]$Application.Publisher) { [string]$Application.Publisher } else { & $pick 'Publisher' $needsStaging })
+        Description        = [string](& $pick 'Description' '')
+        TitleMode          = 'Packager default'
+        InstallCommand     = [string](& $pick 'InstallCommand' $needsStaging)
+        UninstallCommand   = [string](& $pick 'UninstallCommand' $needsStaging)
+        DetectionSummary   = [string](& $pick 'Detection' $needsStaging)
+        RebootPolicy       = 'Packager default'
+        WorkingDirectory   = ''
+        EstimatedMinutes   = [int](& $pick 'EstimatedMinutes' $globals.EstimatedRuntimeMins)
+        MaximumMinutes     = [int](& $pick 'MaximumMinutes' $globals.MaximumRuntimeMins)
+        ExecutionContext   = [string](& $pick 'Context' 'System')
+        LogonRequirement   = [string](& $pick 'LogonRequirement' 'Whether or not a user is logged on')
+        UserInteraction    = [string](& $pick 'UserInteraction' 'Hidden')
+        ScriptHost         = [string](& $pick 'ScriptHost' 'x64')
+        NeedsStagingMarker = $needsStaging
+    }
+}
+
+function Get-WorkbenchOverrideValue {
+    param([Parameter(Mandatory)]$Profile, [Parameter(Mandatory)][string]$Path)
+    $node = $Profile
+    foreach ($part in ($Path -split '\.')) {
+        if ($node -isnot [System.Collections.IDictionary] -or -not $node.Contains($part)) { return $null }
+        $node = $node[$part]
+    }
+    return $node
+}
+
+function Test-WorkbenchOverridePresent {
+    param([Parameter(Mandatory)]$Profile, [Parameter(Mandatory)][string]$Path)
+    $node = $Profile
+    foreach ($part in ($Path -split '\.')) {
+        if ($node -isnot [System.Collections.IDictionary] -or -not $node.Contains($part)) { return $false }
+        $node = $node[$part]
+    }
+    return $true
+}
+
+function Set-WorkbenchOverrideValue {
+    param([Parameter(Mandatory)]$Profile, [Parameter(Mandatory)][string]$Path, $Value)
+    $parts = @($Path -split '\.')
+    $node = $Profile
+    for ($i = 0; $i -lt $parts.Count - 1; $i++) {
+        if (-not $node.Contains($parts[$i]) -or $node[$parts[$i]] -isnot [System.Collections.IDictionary]) {
+            $node[$parts[$i]] = [ordered]@{}
+        }
+        $node = $node[$parts[$i]]
+    }
+    $node[$parts[-1]] = $Value
+}
+
+function Clear-WorkbenchOverrideValue {
+    param([Parameter(Mandatory)]$Profile, [Parameter(Mandatory)][string]$Path)
+    $parts = @($Path -split '\.')
+    $node = $Profile
+    for ($i = 0; $i -lt $parts.Count - 1; $i++) {
+        if ($node -isnot [System.Collections.IDictionary] -or -not $node.Contains($parts[$i])) { return }
+        $node = $node[$parts[$i]]
+    }
+    if ($node -is [System.Collections.IDictionary] -and $node.Contains($parts[-1])) { $node.Remove($parts[-1]) }
+}
+
+function Get-WorkbenchFieldSourceText {
+    param([Parameter(Mandatory)]$Profile, [Parameter(Mandatory)][string]$Path, $InheritedValue)
+    $inheritedText = if ($null -eq $InheritedValue -or [string]$InheritedValue -eq '') { '(none)' } else { [string]$InheritedValue }
+    if (Test-WorkbenchOverridePresent -Profile $Profile -Path $Path) {
+        $stored = Get-WorkbenchOverrideValue -Profile $Profile -Path $Path
+        if ($null -eq $stored) { return 'Custom: removed (inherited ' + $inheritedText + ')' }
+        return 'Custom (inherited ' + $inheritedText + ')'
+    }
+    return 'Inherited: ' + $inheritedText
+}
+
+function Get-WorkbenchLineNumberText {
+    # Gutter content for the script editors: one label per physical line, so
+    # the column stays aligned with an unwrapped monospace TextBox.
+    param([AllowEmptyString()][string]$Text)
+    if ($null -eq $Text) { $Text = '' }
+    $count = (@($Text -split "`n")).Count
+    if ($count -lt 1) { $count = 1 }
+    $sb = New-Object System.Text.StringBuilder
+    for ($i = 1; $i -le $count; $i++) { [void]$sb.AppendLine([string]$i) }
+    return $sb.ToString().TrimEnd("`r", "`n")
+}
+
+function Get-WorkbenchParseDiagnostics {
+    # Static inspection only: the text is parsed, never executed.
+    param([AllowEmptyString()][string]$Text)
+    $results = New-Object System.Collections.Generic.List[string]
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $results }
+    $tokens = $null
+    $errors = $null
+    try {
+        [void][System.Management.Automation.Language.Parser]::ParseInput($Text, [ref]$tokens, [ref]$errors)
+    } catch {
+        $results.Add('Parser failure: ' + $_.Exception.Message)
+        return $results
+    }
+    foreach ($err in @($errors)) {
+        $results.Add(('Line {0}, column {1}: {2}' -f $err.Extent.StartLineNumber, $err.Extent.StartColumnNumber, $err.Message))
+    }
+    return $results
+}
+
+function Test-WorkbenchDetectionScriptOutput {
+    # Intune reads exit 0 with no STDOUT as "not installed", so a detector
+    # that only exits successfully reports every endpoint as missing.
+    param([AllowEmptyString()][string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $false }
+    $tokens = $null
+    $errors = $null
+    $ast = $null
+    try { $ast = [System.Management.Automation.Language.Parser]::ParseInput($Text, [ref]$tokens, [ref]$errors) } catch { return $false }
+    if ($null -eq $ast) { return $false }
+    $writers = $ast.FindAll({
+        param($n)
+        ($n -is [System.Management.Automation.Language.CommandAst]) -and
+        (@('write-output', 'write-host', 'echo') -contains ([string]$n.GetCommandName()).ToLowerInvariant())
+    }, $true)
+    if (@($writers).Count -gt 0) { return $true }
+    # A bare expression statement is STDOUT in PowerShell too.
+    $pipelines = $ast.FindAll({
+        param($n)
+        ($n -is [System.Management.Automation.Language.PipelineAst]) -and
+        ($n.Parent -is [System.Management.Automation.Language.NamedBlockAst])
+    }, $true)
+    foreach ($p in @($pipelines)) {
+        if ($p.PipelineElements.Count -eq 1 -and $p.PipelineElements[0] -is [System.Management.Automation.Language.CommandExpressionAst]) { return $true }
+    }
+    return $false
+}
+
+function Show-WorkbenchUnsavedDialog {
+    # Three-way answer; a two-button themed message cannot express Cancel
+    # alongside Discard. Returns Save, Discard or Cancel.
+    param([Parameter(Mandatory)]$Owner, [Parameter(Mandatory)][string]$Message)
+
+    if ($script:WorkbenchUnsavedPromptOverride) {
+        return [string](& $script:WorkbenchUnsavedPromptOverride $Message)
+    }
+
+    $dlgXaml = @'
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="Unsaved Changes" Width="480" SizeToContent="Height" MinWidth="420"
+    WindowStartupLocation="CenterOwner" TitleCharacterCasing="Normal"
+    GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+    BorderThickness="1" ResizeMode="NoResize" ShowIconOnTitleBar="False">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+    <StackPanel Margin="18,16,18,14">
+        <TextBlock x:Name="txtUnsaved" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,16"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="btnUnsavedSave" Content="Save" MinWidth="100" Height="30" Margin="0,0,8,0"
+                    Style="{DynamicResource MahApps.Styles.Button.Square.Accent}"
+                    Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnUnsavedDiscard" Content="Discard" MinWidth="100" Height="30" Margin="0,0,8,0"
+                    Style="{DynamicResource MahApps.Styles.Button.Square}"
+                    Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnUnsavedCancel" Content="Cancel" MinWidth="100" Height="30" IsCancel="True"
+                    Style="{DynamicResource MahApps.Styles.Button.Square}"
+                    Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+        </StackPanel>
+    </StackPanel>
+</Controls:MetroWindow>
+'@
+    [xml]$dx = $dlgXaml
+    $reader = New-Object System.Xml.XmlNodeReader $dx
+    $dlg = [System.Windows.Markup.XamlReader]::Load($reader)
+    Install-TitleBarDragFallback -Window $dlg
+    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
+    $dlg.FindName('txtUnsaved').Text = $Message
+    # ShowDialog keeps this frame alive while the handlers run, so the
+    # answer travels through script scope rather than a local.
+    $script:WorkbenchUnsavedChoice = 'Cancel'
+    $dlg.FindName('btnUnsavedSave').Add_Click({ $script:WorkbenchUnsavedChoice = 'Save'; $dlg.Close() })
+    $dlg.FindName('btnUnsavedDiscard').Add_Click({ $script:WorkbenchUnsavedChoice = 'Discard'; $dlg.Close() })
+    $dlg.FindName('btnUnsavedCancel').Add_Click({ $script:WorkbenchUnsavedChoice = 'Cancel'; $dlg.Close() })
+    [void]$dlg.ShowDialog()
+    return [string]$script:WorkbenchUnsavedChoice
+}
+
+function Show-WorkbenchNameDialog {
+    param([Parameter(Mandatory)]$Owner, [Parameter(Mandatory)][string]$Title, [string]$Value = '')
+
+    if ($script:WorkbenchNamePromptOverride) {
+        return [string](& $script:WorkbenchNamePromptOverride $Title $Value)
+    }
+
+    $dlgXaml = @'
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="Profile" Width="440" SizeToContent="Height" MinWidth="380"
+    WindowStartupLocation="CenterOwner" TitleCharacterCasing="Normal"
+    GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+    BorderThickness="1" ResizeMode="NoResize" ShowIconOnTitleBar="False">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+    <StackPanel Margin="18,16,18,14">
+        <TextBlock x:Name="txtNamePrompt" FontSize="12" Margin="0,0,0,8"/>
+        <TextBox x:Name="txtNameValue" FontSize="12" Height="28" Margin="0,0,0,16"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="btnNameOk" Content="OK" MinWidth="90" Height="30" Margin="0,0,8,0" IsDefault="True"
+                    Style="{DynamicResource MahApps.Styles.Button.Square.Accent}"
+                    Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnNameCancel" Content="Cancel" MinWidth="90" Height="30" IsCancel="True"
+                    Style="{DynamicResource MahApps.Styles.Button.Square}"
+                    Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+        </StackPanel>
+    </StackPanel>
+</Controls:MetroWindow>
+'@
+    [xml]$dx = $dlgXaml
+    $reader = New-Object System.Xml.XmlNodeReader $dx
+    $dlg = [System.Windows.Markup.XamlReader]::Load($reader)
+    Install-TitleBarDragFallback -Window $dlg
+    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
+    $dlg.FindName('txtNamePrompt').Text = $Title
+    $box = $dlg.FindName('txtNameValue')
+    $box.Text = $Value
+    $script:WorkbenchNameResult = $null
+    $dlg.FindName('btnNameOk').Add_Click({
+        $v = ([string]$box.Text).Trim()
+        if ($v) { $script:WorkbenchNameResult = $v }
+        $dlg.Close()
+    })
+    $dlg.FindName('btnNameCancel').Add_Click({ $dlg.Close() })
+    [void]$dlg.ShowDialog()
+    return $script:WorkbenchNameResult
+}
+
+function Get-WorkbenchLocalFindings {
+    # Local validation only: it inspects the profile and never contacts a
+    # target. The Intune adapter's own findings are merged on top.
+    param([Parameter(Mandatory)]$Profile, [Parameter(Mandatory)]$Inherited)
+
+    $findings = New-Object System.Collections.ArrayList
+    $add = {
+        param($sev, $code, $msg)
+        [void]$findings.Add([pscustomobject]@{ Severity = $sev; Code = $code; Message = $msg })
+    }
+
+    $est = $null; $max = $null
+    if (Test-WorkbenchOverridePresent -Profile $Profile -Path 'Timing.EstimatedMinutes') { $est = Get-WorkbenchOverrideValue -Profile $Profile -Path 'Timing.EstimatedMinutes' }
+    if (Test-WorkbenchOverridePresent -Profile $Profile -Path 'Timing.MaximumMinutes')   { $max = Get-WorkbenchOverrideValue -Profile $Profile -Path 'Timing.MaximumMinutes' }
+    if ($null -eq $est) { $est = $Inherited.EstimatedMinutes }
+    if ($null -eq $max) { $max = $Inherited.MaximumMinutes }
+    $estInt = 0; $maxInt = 0
+    [void][int]::TryParse([string]$est, [ref]$estInt)
+    [void][int]::TryParse([string]$max, [ref]$maxInt)
+    if ($estInt -lt 1 -or $maxInt -lt 1) {
+        & $add 'Blocking' 'TIMING-RANGE' 'Estimated duration and maximum runtime must both be at least one minute.'
+    }
+    elseif ($estInt -gt $maxInt) {
+        & $add 'Blocking' 'TIMING-ORDER' 'Estimated install duration is greater than the maximum runtime.'
+    }
+    & $add 'Info' 'TIMING-INTUNE' 'Intune install timeout is not sent by this publisher; the value is recorded in the definition only.'
+
+    foreach ($section in @('Install', 'Uninstall')) {
+        if ([string](Get-WorkbenchOverrideValue -Profile $Profile -Path ($section + '.Mode')) -eq 'Custom') {
+            & $add 'Review' 'INSTALL-CUSTOM' ($section + ' uses a custom script, so later changes to the packager wrapper no longer reach this profile and need review.')
+        }
+    }
+
+    if ([string](Get-WorkbenchOverrideValue -Profile $Profile -Path 'Detection.Mode') -eq 'Custom') {
+        $rule = Get-WorkbenchOverrideValue -Profile $Profile -Path 'Detection.Rule'
+        $type = if ($rule -is [System.Collections.IDictionary] -and $rule.Contains('Type')) { [string]$rule['Type'] } else { '' }
+        if ($type -eq 'Script') {
+            $text = if ($rule.Contains('ScriptText')) { [string]$rule['ScriptText'] } else { '' }
+            if (-not (Test-WorkbenchDetectionScriptOutput -Text $text)) {
+                & $add 'Blocking' 'DETECT-NO-OUTPUT' 'The detection script writes nothing to STDOUT, so an installed endpoint still reports not installed.'
+            }
+            $diag = Get-WorkbenchParseDiagnostics -Text $text
+            if (@($diag).Count -gt 0) {
+                & $add 'Blocking' 'DETECT-PARSE' ('The detection script does not parse: ' + @($diag)[0])
+            }
+        }
+        $logic = if ($rule -is [System.Collections.IDictionary] -and $rule.Contains('Logic')) { [string]$rule['Logic'] } else { '' }
+        $conv = [bool](Get-WorkbenchOverrideValue -Profile $Profile -Path 'Detection.IntuneScriptConversion')
+        if ($logic -in @('Or', 'TwoGroup') -and -not $conv) {
+            & $add 'Blocking' 'DETECT-INTUNE-COMPOUND' 'Intune cannot express this grouped or OR detection; choose script conversion explicitly, or publish to MECM only.'
+        }
+    }
+
+    if (@(Get-WorkbenchOverrideValue -Profile $Profile -Path 'Requirements.Operations').Count -gt 0) {
+        & $add 'Review' 'REQ-INTUNE' 'Requirement rules are not translated by the Intune publisher; the MECM deployment type carries them.'
+    }
+
+    if (@(Get-WorkbenchOverrideValue -Profile $Profile -Path 'Variants.Split').Count -gt 0) {
+        & $add 'Blocking' 'VARIANT-INTUNE' 'A variant split produces several deployment types; Intune publishing of split applications is not supported.'
+    }
+
+    foreach ($f in @($Profile.SourceFiles)) {
+        $dest = ''
+        if ($f -is [System.Collections.IDictionary] -and $f.Contains('Destination')) { $dest = [string]$f['Destination'] }
+        if ([System.IO.Path]::IsPathRooted($dest) -or $dest -match '(^|[\\/])\.\.([\\/]|$)') {
+            & $add 'Blocking' 'SOURCE-PATH' ('Source file destination escapes the content root: ' + $dest)
+        }
+    }
+
+    return $findings
+}
+
+function Get-WorkbenchChipState {
+    # Three independent results: an Intune finding never changes the MECM
+    # or content-build verdict.
+    param([Parameter(Mandatory)]$Findings, [bool]$Validated)
+
+    $state = [ordered]@{ Content = 'Not validated'; Mecm = 'Not validated'; Intune = 'Not validated' }
+    if (-not $Validated) { return $state }
+
+    $all = @($Findings)
+    $contentIssues = @($all | Where-Object { $_.Severity -in @('Blocking', 'Review') -and ([string]$_.Code -like 'SOURCE-*' -or [string]$_.Code -like 'INSTALL-*') })
+    $mecmIssues    = @($all | Where-Object { $_.Severity -in @('Blocking', 'Review') -and [string]$_.Code -notlike '*INTUNE*' })
+    $intuneBlock   = @($all | Where-Object { $_.Severity -eq 'Blocking' -and [string]$_.Code -like '*INTUNE*' })
+    $intuneReview  = @($all | Where-Object { $_.Severity -eq 'Review' -and [string]$_.Code -like '*INTUNE*' })
+
+    $state.Content = $(if ($contentIssues.Count -gt 0) { 'Needs review' } else { 'Ready' })
+    $state.Mecm    = $(if ($mecmIssues.Count -gt 0) { 'Needs review' } else { 'Ready' })
+    if ($intuneBlock.Count -gt 0) { $state.Intune = 'Unsupported' }
+    elseif ($intuneReview.Count -gt 0) { $state.Intune = 'Needs review' }
+    else { $state.Intune = 'Ready' }
+    return $state
+}
+
+function Get-WorkbenchRunPlanForContext {
+    # Prebuilt on the UI thread: the background runspace has its own session
+    # state and cannot read the preferences object or the data root.
+    param([array]$Rows, [string]$Target = 'MECM')
+
+    $plan = @{}
+    if (-not (Test-WorkbenchModuleAvailable)) { return $plan }
+    if ([string]$Target -notin @('ContentOnly', 'MECM', 'MECMAndIntune', 'IntuneOnly')) { $Target = 'MECM' }
+    $signing = Get-WorkbenchSigningPolicy
+    $downloadRoot = [string]$script:Prefs.DownloadRoot
+    $dataRoot = Get-WorkbenchDataRoot
+
+    foreach ($row in @($Rows)) {
+        $scriptPath = [string]$row.FullPath
+        $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script)
+        if (-not $base) { continue }
+        $appId = ''
+        try { $appId = [string](New-ApplicationId -Kind Catalog -ScriptPath $scriptPath) } catch { continue }
+        $definition = Get-ApplicationDefinition -ApplicationId $appId
+        $profileId = [string]$definition.ActiveProfileId
+        if (-not $profileId) { $profileId = 'default' }
+
+        $revision = 0
+        $title = ''
+        if ($profileId -ne 'default') {
+            try {
+                $prof = Get-Profile -ApplicationId $appId -ProfileId $profileId
+                $revision = [int]$prof.Revision
+                $appBlock = $prof.Application
+                if ($appBlock) {
+                    $member = $null
+                    if ($appBlock -is [System.Collections.IDictionary]) { $member = $appBlock['DisplayName'] }
+                    else { $member = $appBlock.DisplayName }
+                    if ($member) { $title = [string]$member }
+                }
+            } catch { }
+        }
+
+        $snapshotPath = ''
+        $buildId = ''
+        try {
+            $snapshot = New-RunSnapshot -ApplicationId $appId -ProfileId $profileId -Target $Target `
+                -SigningPolicy $signing -PackagerScriptPath $scriptPath `
+                -DownloadRoot (Get-WorkbenchProfileDownloadRoot -DownloadRoot $downloadRoot -ProfileId $profileId)
+            $snapshotPath = [string]$snapshot.Path
+            $buildId = [string]$snapshot.BuildId
+        }
+        catch {
+            Add-LogLine -Message ('Run snapshot not created for {0}: {1}' -f $base, $_.Exception.Message)
+        }
+
+        $plan[$base] = @{
+            ApplicationId   = $appId
+            ProfileId       = $profileId
+            ProfileRevision = $revision
+            DisplayTitle    = $title
+            SnapshotPath    = $snapshotPath
+            BuildId         = $buildId
+            DataRoot        = $dataRoot
+            DownloadRoot    = (Get-WorkbenchProfileDownloadRoot -DownloadRoot $downloadRoot -ProfileId $profileId)
+        }
+    }
+    return $plan
+}
+
+function Get-WorkbenchPackagerStageRoot {
+    # The subtree the packager child reads through its own staged-version.txt.
+    # Scoping the search here keeps one packager's builds from matching
+    # another's stage folder under the same download root.
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$DownloadRoot, [AllowEmptyString()][string]$PackagerPath)
+
+    if ([string]::IsNullOrWhiteSpace($DownloadRoot)) { return '' }
+    if (-not [string]::IsNullOrWhiteSpace($PackagerPath) -and (Test-Path -LiteralPath $PackagerPath)) {
+        $info = Get-PackagerFolderInfo -ScriptPath $PackagerPath
+        if ($info.DownloadSubfolder) {
+            $scoped = Join-Path $DownloadRoot $info.DownloadSubfolder
+            if (Test-Path -LiteralPath $scoped) { return $scoped }
+        }
+    }
+    return $DownloadRoot
+}
+
+function Assert-WorkbenchBuildSelection {
+    <#
+        Refuses a Package run whose selected build is not what the child
+        would resolve. The packager child reads staged-version.txt itself,
+        so verifying the selection exists is not enough: the newest stage
+        in the tree the child will read has to be the selected build.
+        Returns the resolved manifest record.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$BuildId,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$DownloadRoot,
+        [AllowEmptyString()][string]$PackagerPath = ''
+    )
+
+    if (-not (Get-Command -Name 'Resolve-StageManifestForBuild' -ErrorAction SilentlyContinue)) {
+        throw "Build selection needs the workbench definition model; Resolve-StageManifestForBuild is not available."
+    }
+    $searchRoot = Get-WorkbenchPackagerStageRoot -DownloadRoot $DownloadRoot -PackagerPath $PackagerPath
+    if ([string]::IsNullOrWhiteSpace($searchRoot)) {
+        throw "stale build: a build id was selected but no download root is configured, so the staged content cannot be identified."
+    }
+
+    $selected = Resolve-StageManifestForBuild -BuildId $BuildId -SearchRoot $searchRoot
+
+    # The child picks the newest stage, so anything newer than the selection
+    # would be packaged instead of it.
+    $newest = @(Get-ChildItem -LiteralPath $searchRoot -Filter 'stage-manifest.json' -File -Recurse -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1)
+    if ($newest.Count -gt 0) {
+        $newestBuildId = ''
+        try { $newestBuildId = [string]((Get-Content -LiteralPath $newest[0].FullName -Raw -ErrorAction Stop | ConvertFrom-Json).BuildId) } catch { }
+        if ($newestBuildId -and $newestBuildId -ne $BuildId) {
+            throw ("stale build: the selected build '{0}' is not the staged content under '{1}'; the newest stage there is build '{2}'. Stage the selected profile again, or select build '{2}'." -f $BuildId, $searchRoot, $newestBuildId)
+        }
+    }
+    return $selected
+}
+
+function Test-WorkbenchBuildIsCurrent {
+    # One Click freshness: a vendor-version match alone must not skip an
+    # application whose profile or signing policy changed since the build.
+    # $null means "no build record model available"; the caller then keeps
+    # its legacy version-only decision.
+    param(
+        [Parameter(Mandatory)][string]$ApplicationId,
+        [string]$ProfileId = 'default',
+        [AllowEmptyString()][string]$Version,
+        [int]$ProfileRevision = 0,
+        [AllowEmptyString()][string]$PolicyDigest
+    )
+    if (-not (Get-Command -Name 'Get-LatestBuildRecord' -ErrorAction SilentlyContinue)) { return $null }
+    $record = $null
+    try { $record = Get-LatestBuildRecord -ApplicationId $ApplicationId -ProfileId $ProfileId } catch { return $null }
+    if (-not $record) { return $false }
+    if ([string]$record.SoftwareVersion -ne [string]$Version) { return $false }
+    if ([int]$record.ProfileRevision -ne [int]$ProfileRevision) { return $false }
+    if ([string]$record.PolicyDigest -ne [string]$PolicyDigest) { return $false }
+    return $true
+}
+
+function New-WorkbenchFieldDescriptor {
+    param(
+        [Parameter(Mandatory)]$Control,
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$InheritedKey,
+        $SourceLabel = $null,
+        $ResetButton = $null,
+        [ValidateSet('Text', 'Combo', 'Check', 'Int')][string]$Kind = 'Text'
+    )
+    return [pscustomobject]@{
+        Control      = $Control
+        Path         = $Path
+        InheritedKey = $InheritedKey
+        SourceLabel  = $SourceLabel
+        ResetButton  = $ResetButton
+        Kind         = $Kind
+    }
+}
+
+function Show-ApplicationWorkbench {
+    <#
+        Editor for one application definition: identity, commands and
+        scripts, detection, requirements and variants, timing and
+        execution, extra source files, and the review pane. Opening or
+        saving here deploys nothing.
+    #>
+    param(
+        [Parameter(Mandatory)]$Owner,
+        [string]$PreselectApplicationId = '',
+        [string]$PreselectPackagerBase = '',
+        [scriptblock]$Probe
+    )
+
+    if (-not (Test-WorkbenchModuleAvailable)) {
+        [void](Show-ThemedMessage -Owner $Owner -Title 'Application Workbench' `
+            -Message 'The workbench definition model (Packagers\AppPackagerWorkbench.psm1) is not loaded, so no application definition can be read or saved.' `
+            -Buttons OK -Icon Error)
+        return
+    }
+
+    # Legacy per-app preference maps become profiles on first open. The
+    # migration is idempotent and leaves the legacy keys in place.
+    if (-not $script:WorkbenchMigrationDone) {
+        $script:WorkbenchMigrationDone = $true
+        try {
+            # Both roots travel so a legacy key resolves to the id its script
+            # is actually discovered under: catalog:<name> or custom:<name>.
+            $migration = Invoke-LegacyPreferenceMigration -Preferences $script:Prefs -PackagersRoot $PackagersRoot -CustomScriptRoot (Get-WorkbenchCustomScriptRoot)
+            if ([int]$migration.MigratedCount -gt 0) {
+                Add-LogLine -Message ('Migrated {0} application(s) from the legacy preference maps into workbench profiles.' -f [int]$migration.MigratedCount)
+            }
+        }
+        catch {
+            Add-LogLine -Message ('Legacy preference migration failed: ' + $_.Exception.Message)
+        }
+    }
+
+    $xamlPath = Get-WorkbenchXamlPath
+    if (-not (Test-Path -LiteralPath $xamlPath)) {
+        [void](Show-ThemedMessage -Owner $Owner -Title 'Application Workbench' `
+            -Message ('WorkbenchWindow.xaml was not found at ' + $xamlPath + '.') -Buttons OK -Icon Error)
+        return
+    }
+    [xml]$wbXaml = Get-Content -LiteralPath $xamlPath -Raw
+    $reader = New-Object System.Xml.XmlNodeReader $wbXaml
+    $win = [System.Windows.Markup.XamlReader]::Load($reader)
+    Install-TitleBarDragFallback -Window $win
+    Set-DialogChromeFromOwner -Dialog $win -Owner $Owner
+
+    $ctl = {
+        param([string]$n)
+        $found = $win.FindName($n)
+        if ($null -eq $found) { throw ('WorkbenchWindow.xaml is missing the control ' + $n + '.') }
+        return $found
+    }
+
+    # Header
+    $cboApplication = & $ctl 'cboApplication'
+    $cboProfile     = & $ctl 'cboProfile'
+    $btnProfileRename = & $ctl 'btnProfileRename'
+    $txtSourceType  = & $ctl 'txtSourceType'
+    $cboBuild       = & $ctl 'cboBuild'
+    $lstSections    = & $ctl 'lstSections'
+
+    # Section panels, in the order the section list shows them.
+    $sectionNames = @('Application', 'Install & uninstall', 'Detection', 'Requirements & variants', 'Timing & execution', 'Source files', 'Review & build')
+    $sectionPanels = @(
+        (& $ctl 'pnlApplication'), (& $ctl 'pnlInstall'), (& $ctl 'pnlDetection'),
+        (& $ctl 'pnlRequirements'), (& $ctl 'pnlTiming'), (& $ctl 'pnlSources'), (& $ctl 'pnlReview')
+    )
+
+    # Application section
+    $txtDisplayName = & $ctl 'txtDisplayName'
+    $txtPublisher   = & $ctl 'txtPublisher'
+    $txtDescription = & $ctl 'txtDescription'
+    $cboTitleMode   = & $ctl 'cboTitleMode'
+    $txtProfileName = & $ctl 'txtProfileName'
+    $txtIdentity    = & $ctl 'txtIdentity'
+    $txtProvenance  = & $ctl 'txtProvenance'
+    $imgIcon        = & $ctl 'imgIcon'
+    $btnIconChoose  = & $ctl 'btnIconChoose'
+    $btnIconReset   = & $ctl 'btnIconReset'
+    $btnIconRemove  = & $ctl 'btnIconRemove'
+    $txtIconState   = & $ctl 'txtIconState'
+    $txtAppNote     = & $ctl 'txtAppNote'
+
+    # Install section
+    $cboScriptTarget     = & $ctl 'cboScriptTarget'
+    $cboInstallMode      = & $ctl 'cboInstallMode'
+    $lblInstallModeSrc   = & $ctl 'lblInstallModeSrc'
+    $btnInstallReset     = & $ctl 'btnInstallReset'
+    $txtEffectiveCommand = & $ctl 'txtEffectiveCommand'
+    $txtReturnCodes      = & $ctl 'txtReturnCodes'
+    $cboRebootPolicy     = & $ctl 'cboRebootPolicy'
+    $txtWorkingDirectory = & $ctl 'txtWorkingDirectory'
+    $lblScriptCaption    = & $ctl 'lblScriptCaption'
+    $txtScript           = & $ctl 'txtScript'
+    $txtScriptGutter     = & $ctl 'txtScriptGutter'
+    $txtHookBefore       = & $ctl 'txtHookBefore'
+    $txtHookAfter        = & $ctl 'txtHookAfter'
+    $chkAfterOnFailure   = & $ctl 'chkAfterOnFailure'
+    $txtScriptNote       = & $ctl 'txtScriptNote'
+    $lstScriptDiagnostics = & $ctl 'lstScriptDiagnostics'
+    $pnlFind             = & $ctl 'pnlFind'
+    $txtFind             = & $ctl 'txtFind'
+    $btnFindNext         = & $ctl 'btnFindNext'
+    $btnFindClose        = & $ctl 'btnFindClose'
+
+    # Detection section
+    $cboDetectionMode      = & $ctl 'cboDetectionMode'
+    $cboDetectionType      = & $ctl 'cboDetectionType'
+    $lblDetectionSrc       = & $ctl 'lblDetectionSrc'
+    $btnDetectionReset     = & $ctl 'btnDetectionReset'
+    $txtDetectionInherited = & $ctl 'txtDetectionInherited'
+    $pnlDetectionTyped     = & $ctl 'pnlDetectionTyped'
+    $pnlDetectionScript    = & $ctl 'pnlDetectionScript'
+    $cboDetHive            = & $ctl 'cboDetHive'
+    $cboDetView            = & $ctl 'cboDetView'
+    $txtDetKey             = & $ctl 'txtDetKey'
+    $txtDetValueName       = & $ctl 'txtDetValueName'
+    $cboDetOperator        = & $ctl 'cboDetOperator'
+    $txtDetExpected        = & $ctl 'txtDetExpected'
+    $cboDetVersionBinding  = & $ctl 'cboDetVersionBinding'
+    $txtDetFilePath        = & $ctl 'txtDetFilePath'
+    $txtDetFileName        = & $ctl 'txtDetFileName'
+    $cboDetFileProperty    = & $ctl 'cboDetFileProperty'
+    $cboDetLogic           = & $ctl 'cboDetLogic'
+    $dgDetClauses          = & $ctl 'dgDetClauses'
+    $btnDetClauseAdd       = & $ctl 'btnDetClauseAdd'
+    $btnDetClauseRemove    = & $ctl 'btnDetClauseRemove'
+    $txtIntuneContract     = & $ctl 'txtIntuneContract'
+    $txtDetectScript       = & $ctl 'txtDetectScript'
+    $txtDetectGutter       = & $ctl 'txtDetectGutter'
+    $chkIntuneScriptConversion = & $ctl 'chkIntuneScriptConversion'
+    $lstDetectDiagnostics  = & $ctl 'lstDetectDiagnostics'
+
+    # Requirements section
+    $cboReqTemplate   = & $ctl 'cboReqTemplate'
+    $btnReqAdd        = & $ctl 'btnReqAdd'
+    $btnReqReplace    = & $ctl 'btnReqReplace'
+    $btnReqRemove     = & $ctl 'btnReqRemove'
+    $dgRequirements   = & $ctl 'dgRequirements'
+    $cboVariantSplit  = & $ctl 'cboVariantSplit'
+    $cboInstallForMode = & $ctl 'cboInstallForMode'
+    $lblVariantSrc    = & $ctl 'lblVariantSrc'
+    $dgVariants       = & $ctl 'dgVariants'
+
+    # Timing section
+    $chkEstimatedDefault  = & $ctl 'chkEstimatedDefault'
+    $txtEstimatedMinutes  = & $ctl 'txtEstimatedMinutes'
+    $lblEstimatedEffective = & $ctl 'lblEstimatedEffective'
+    $chkMaximumDefault    = & $ctl 'chkMaximumDefault'
+    $txtMaximumMinutes    = & $ctl 'txtMaximumMinutes'
+    $lblMaximumEffective  = & $ctl 'lblMaximumEffective'
+    $txtTimingTargets     = & $ctl 'txtTimingTargets'
+    $cboExecContext       = & $ctl 'cboExecContext'
+    $lblExecContextSrc    = & $ctl 'lblExecContextSrc'
+    $cboExecLogon         = & $ctl 'cboExecLogon'
+    $cboExecInteraction   = & $ctl 'cboExecInteraction'
+    $cboExecScriptHost    = & $ctl 'cboExecScriptHost'
+    $btnTimingReset       = & $ctl 'btnTimingReset'
+
+    # Source files section
+    $dgSourceFiles      = & $ctl 'dgSourceFiles'
+    $btnSourceAddFile   = & $ctl 'btnSourceAddFile'
+    $btnSourceAddFolder = & $ctl 'btnSourceAddFolder'
+    $btnSourceReplace   = & $ctl 'btnSourceReplace'
+    $btnSourceRemove    = & $ctl 'btnSourceRemove'
+    $txtSourceNote      = & $ctl 'txtSourceNote'
+
+    # Review section
+    $dgDiff          = & $ctl 'dgDiff'
+    $dgFindings      = & $ctl 'dgFindings'
+    $txtResolvedPlan = & $ctl 'txtResolvedPlan'
+    $dgBuilds        = & $ctl 'dgBuilds'
+
+    # Footer
+    $chipContent   = & $ctl 'chipContent'
+    $chipMecm      = & $ctl 'chipMecm'
+    $chipIntune    = & $ctl 'chipIntune'
+    $txtSaveState  = & $ctl 'txtSaveState'
+    $btnUseDefaults = & $ctl 'btnUseDefaults'
+    $btnSave       = & $ctl 'btnSave'
+    $btnSaveAs     = & $ctl 'btnSaveAs'
+    $btnValidate   = & $ctl 'btnValidate'
+    $btnStage      = & $ctl 'btnStage'
+    $btnPackage    = & $ctl 'btnPackage'
+
+    # Static option lists.
+    foreach ($n in $sectionNames) { [void]$lstSections.Items.Add($n) }
+    foreach ($v in @('Packager default', 'Include version', 'No version')) { [void]$cboTitleMode.Items.Add($v) }
+    foreach ($v in @('Install', 'Uninstall')) { [void]$cboScriptTarget.Items.Add($v) }
+    foreach ($v in @('Generated', 'Extend generated', 'Custom')) { [void]$cboInstallMode.Items.Add($v) }
+    foreach ($v in @('Inherit', 'No reboot', 'Soft reboot', 'Hard reboot', 'Force restart')) { [void]$cboRebootPolicy.Items.Add($v) }
+    foreach ($v in @('Inherit', 'Custom')) { [void]$cboDetectionMode.Items.Add($v) }
+    foreach ($v in @('Registry', 'File', 'PowerShell', 'Compound')) { [void]$cboDetectionType.Items.Add($v) }
+    foreach ($v in @('HKLM', 'HKCU', 'HKCR')) { [void]$cboDetHive.Items.Add($v) }
+    foreach ($v in @('64-bit', '32-bit')) { [void]$cboDetView.Items.Add($v) }
+    foreach ($v in @('Exists', 'Equals', 'NotEquals', 'GreaterEqual', 'Greater', 'LessEqual', 'Less', 'Contains')) { [void]$cboDetOperator.Items.Add($v) }
+    foreach ($v in @('Follows staged version', 'Pinned')) { [void]$cboDetVersionBinding.Items.Add($v) }
+    foreach ($v in @('Exists', 'Version', 'Size', 'DateModified')) { [void]$cboDetFileProperty.Items.Add($v) }
+    foreach ($v in @('And', 'Or', 'Two groups')) { [void]$cboDetLogic.Items.Add($v) }
+    foreach ($v in @('System', 'User')) { [void]$cboExecContext.Items.Add($v) }
+    foreach ($v in @('Whether or not a user is logged on', 'Only when a user is logged on', 'Only when no user is logged on')) { [void]$cboExecLogon.Items.Add($v) }
+    foreach ($v in @('Hidden', 'Normal', 'Minimized', 'Maximized')) { [void]$cboExecInteraction.Items.Add($v) }
+    foreach ($v in @('x64', 'x86')) { [void]$cboExecScriptHost.Items.Add($v) }
+    $txtIntuneContract.Text = 'Intune reads the detection result from the script: exit code 0 plus output on STDOUT means installed. Any output on STDERR is a negative result, and exit 0 with no output means not installed. A detector that only exits successfully is rejected here.'
+    $txtSourceNote.Text = 'Bundling a file places it inside the package content. Copying it onto the endpoint is the install script''s job; a detector must not depend on package cache content.'
+    $txtTimingTargets.Text = 'MECM receives both values on the deployment type. The Intune publisher sends neither; the values stay in the definition and the review pane reports the gap.'
+
+    # Session state. Handlers read and write it rather than closing over
+    # a dozen separate variables.
+    $wb = @{
+        Applications   = @()
+        Application    = $null
+        Inherited      = $null
+        Profile        = $null
+        ProfileId      = 'default'
+        Baseline       = ''
+        Dirty          = $false
+        Loading        = $true
+        ScriptTarget   = 'Install'
+        Validated      = $false
+        Findings       = @()
+        Suppress       = $false
+    }
+
+    $sourceFileRows = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
+    $requirementRows = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
+    $clauseRows = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
+    $variantRows = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
+    $dgSourceFiles.ItemsSource = $sourceFileRows
+    $dgRequirements.ItemsSource = $requirementRows
+    $dgDetClauses.ItemsSource = $clauseRows
+    $dgVariants.ItemsSource = $variantRows
+
+    # Debounced parse: the parser runs on the UI thread but only after the
+    # user stops typing, so a large script never stalls each keystroke.
+    $parseTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $parseTimer.Interval = [TimeSpan]::FromMilliseconds(500)
+
+    $fieldDescriptors = @(
+        (New-WorkbenchFieldDescriptor -Control $txtDisplayName -Path 'Application.DisplayName' -InheritedKey 'DisplayName' -SourceLabel (& $ctl 'lblDisplayNameSrc') -ResetButton (& $ctl 'btnDisplayNameReset')),
+        (New-WorkbenchFieldDescriptor -Control $txtPublisher   -Path 'Application.Publisher'   -InheritedKey 'Publisher'   -SourceLabel (& $ctl 'lblPublisherSrc')   -ResetButton (& $ctl 'btnPublisherReset')),
+        (New-WorkbenchFieldDescriptor -Control $txtDescription -Path 'Application.Description' -InheritedKey 'Description' -SourceLabel (& $ctl 'lblDescriptionSrc') -ResetButton (& $ctl 'btnDescriptionReset')),
+        (New-WorkbenchFieldDescriptor -Control $cboTitleMode   -Path 'Application.TitleMode'   -InheritedKey 'TitleMode'   -SourceLabel (& $ctl 'lblTitleModeSrc')   -ResetButton (& $ctl 'btnTitleModeReset') -Kind 'Combo')
+    )
+
+    $setStatus = {
+        param([string]$text)
+        $txtSaveState.Text = $text
+    }
+
+    $markDirty = {
+        if ($wb.Loading -or $wb.Suppress) { return }
+        $wb.Dirty = $true
+        $wb.Validated = $false
+        $txtSaveState.Text = 'Unsaved changes. Save writes the profile; nothing is deployed.'
+        $chipContent.Text = 'Content build: Not validated'
+        $chipMecm.Text = 'MECM: Not validated'
+        $chipIntune.Text = 'Intune: Not validated'
+        if ($wb.ProfileId -ne 'default') {
+            try { [void](Save-Draft -ApplicationId ([string]$wb.Application.ApplicationId) -ProfileId $wb.ProfileId -Draft ([pscustomobject]$wb.Profile)) } catch { }
+        }
+    }
+
+    $refreshFieldIndicators = {
+        foreach ($d in $fieldDescriptors) {
+            if (-not $d.SourceLabel) { continue }
+            $inheritedValue = $null
+            try { $inheritedValue = $wb.Inherited.($d.InheritedKey) } catch { }
+            $d.SourceLabel.Text = Get-WorkbenchFieldSourceText -Profile $wb.Profile -Path $d.Path -InheritedValue $inheritedValue
+        }
+        $lblInstallModeSrc.Text = Get-WorkbenchFieldSourceText -Profile $wb.Profile -Path ($wb.ScriptTarget + '.Mode') -InheritedValue 'Generated'
+        $lblDetectionSrc.Text = Get-WorkbenchFieldSourceText -Profile $wb.Profile -Path 'Detection.Mode' -InheritedValue 'Inherit'
+        $lblExecContextSrc.Text = Get-WorkbenchFieldSourceText -Profile $wb.Profile -Path 'Execution.Context' -InheritedValue $wb.Inherited.ExecutionContext
+        $lblVariantSrc.Text = Get-WorkbenchFieldSourceText -Profile $wb.Profile -Path 'InstallMode' -InheritedValue 'Packager default'
+        $lblEstimatedEffective.Text = 'Default: ' + [string]$wb.Inherited.EstimatedMinutes + ' minutes'
+        $lblMaximumEffective.Text = 'Default: ' + [string]$wb.Inherited.MaximumMinutes + ' minutes'
+    }
+
+    $refreshScriptEditor = {
+        $target = $wb.ScriptTarget
+        $lblScriptCaption.Text = $target + ' script'
+        $wb.Suppress = $true
+        try {
+            $mode = [string](Get-WorkbenchOverrideValue -Profile $wb.Profile -Path ($target + '.Mode'))
+            if (-not $mode) { $mode = 'Generated' }
+            $display = switch ($mode) { 'Extend' { 'Extend generated' } 'Custom' { 'Custom' } default { 'Generated' } }
+            $cboInstallMode.SelectedItem = $display
+            $txtScript.Text = [string](Get-WorkbenchOverrideValue -Profile $wb.Profile -Path ($target + '.ScriptText'))
+            $txtHookBefore.Text = [string](Get-WorkbenchOverrideValue -Profile $wb.Profile -Path ($target + '.BeforeText'))
+            $txtHookAfter.Text = [string](Get-WorkbenchOverrideValue -Profile $wb.Profile -Path ($target + '.AfterText'))
+            $chkAfterOnFailure.IsChecked = [bool](Get-WorkbenchOverrideValue -Profile $wb.Profile -Path ($target + '.AfterRunsOnFailure'))
+            $txtReturnCodes.Text = [string](Get-WorkbenchOverrideValue -Profile $wb.Profile -Path ($target + '.ReturnCodes'))
+            $txtWorkingDirectory.Text = [string](Get-WorkbenchOverrideValue -Profile $wb.Profile -Path ($target + '.WorkingDirectory'))
+            $reboot = [string](Get-WorkbenchOverrideValue -Profile $wb.Profile -Path ($target + '.RebootPolicy'))
+            $cboRebootPolicy.SelectedItem = $(if ($reboot) { $reboot } else { 'Inherit' })
+
+            $custom = [string](Get-WorkbenchOverrideValue -Profile $wb.Profile -Path ($target + '.Command'))
+            if ($custom) { $txtEffectiveCommand.Text = $custom }
+            elseif ($target -eq 'Install') { $txtEffectiveCommand.Text = [string]$wb.Inherited.InstallCommand }
+            else { $txtEffectiveCommand.Text = [string]$wb.Inherited.UninstallCommand }
+
+            $scriptEditable = ($mode -ne 'Generated')
+            $txtScript.IsReadOnly = -not $scriptEditable
+            $txtHookBefore.IsEnabled = ($mode -eq 'Extend')
+            $txtHookAfter.IsEnabled = ($mode -eq 'Extend')
+            $chkAfterOnFailure.IsEnabled = ($mode -eq 'Extend')
+            $txtScriptNote.Text = switch ($mode) {
+                'Extend' { 'Extend generated runs the before hook, the generated wrapper, and the after hook as separate processes with explicit exit-code propagation, so an exit in one step cannot skip the rest.' }
+                'Custom' { 'Custom replaces the generated wrapper. Changes to the packager''s own wrapper at a later release no longer reach this profile and need review.' }
+                default  { 'Generated keeps the packager''s wrapper. Switch to Extend generated for hooks, or Custom to take ownership of the whole script.' }
+            }
+            $txtScriptGutter.Text = Get-WorkbenchLineNumberText -Text $txtScript.Text
+        }
+        finally { $wb.Suppress = $false }
+    }
+
+    $refreshDetectionEditor = {
+        $wb.Suppress = $true
+        try {
+            $mode = [string](Get-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Detection.Mode')
+            if (-not $mode) { $mode = 'Inherit' }
+            $cboDetectionMode.SelectedItem = $mode
+            $rule = Get-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Detection.Rule'
+            $get = {
+                param([string]$name, $fallback)
+                if ($rule -is [System.Collections.IDictionary] -and $rule.Contains($name) -and $null -ne $rule[$name]) { return $rule[$name] }
+                return $fallback
+            }
+            $type = [string](& $get 'Type' 'Registry')
+            $cboDetectionType.SelectedItem = $(if ($type -eq 'Script') { 'PowerShell' } else { $type })
+            $cboDetHive.SelectedItem = [string](& $get 'Hive' 'HKLM')
+            $cboDetView.SelectedItem = $(if ([string](& $get 'View' '64') -eq '32') { '32-bit' } else { '64-bit' })
+            $txtDetKey.Text = [string](& $get 'Key' '')
+            $txtDetValueName.Text = [string](& $get 'ValueName' '')
+            $cboDetOperator.SelectedItem = [string](& $get 'Operator' 'Exists')
+            $txtDetExpected.Text = [string](& $get 'ExpectedValue' '')
+            $cboDetVersionBinding.SelectedItem = $(if ([string](& $get 'VersionBinding' 'FollowsStaged') -eq 'Pinned') { 'Pinned' } else { 'Follows staged version' })
+            $txtDetFilePath.Text = [string](& $get 'FilePath' '')
+            $txtDetFileName.Text = [string](& $get 'FileName' '')
+            $cboDetFileProperty.SelectedItem = [string](& $get 'FileProperty' 'Exists')
+            $logic = [string](& $get 'Logic' 'And')
+            $cboDetLogic.SelectedItem = $(if ($logic -eq 'TwoGroup') { 'Two groups' } elseif ($logic -eq 'Or') { 'Or' } else { 'And' })
+            $txtDetectScript.Text = [string](& $get 'ScriptText' '')
+            $chkIntuneScriptConversion.IsChecked = [bool](Get-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Detection.IntuneScriptConversion')
+            $txtDetectGutter.Text = Get-WorkbenchLineNumberText -Text $txtDetectScript.Text
+
+            $clauseRows.Clear()
+            foreach ($c in @(& $get 'Clauses' @())) {
+                if ($c -isnot [System.Collections.IDictionary]) { continue }
+                $clauseRows.Add([pscustomobject]@{
+                    Group    = [string]$c['Group']
+                    Type     = [string]$c['Type']
+                    Subject  = [string]$c['Subject']
+                    Operator = [string]$c['Operator']
+                    Expected = [string]$c['Expected']
+                })
+            }
+
+            $isScript = ([string]$cboDetectionType.SelectedItem -eq 'PowerShell')
+            $pnlDetectionScript.Visibility = $(if ($isScript) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed })
+            $pnlDetectionTyped.Visibility  = $(if ($isScript) { [System.Windows.Visibility]::Collapsed } else { [System.Windows.Visibility]::Visible })
+            $enabled = ($mode -eq 'Custom')
+            foreach ($c in @($cboDetectionType, $cboDetHive, $cboDetView, $txtDetKey, $txtDetValueName, $cboDetOperator,
+                             $txtDetExpected, $cboDetVersionBinding, $txtDetFilePath, $txtDetFileName, $cboDetFileProperty,
+                             $cboDetLogic, $dgDetClauses, $btnDetClauseAdd, $btnDetClauseRemove, $txtDetectScript,
+                             $chkIntuneScriptConversion)) {
+                $c.IsEnabled = $enabled
+            }
+            $txtDetectionInherited.Text = 'Inherited rule: ' + [string]$wb.Inherited.DetectionSummary +
+                '. Detection establishes installed state; eligibility rules belong in Requirements & variants.'
+        }
+        finally { $wb.Suppress = $false }
+    }
+
+    $refreshSourceFiles = {
+        $sourceFileRows.Clear()
+        foreach ($f in @($wb.Profile.SourceFiles)) {
+            if ($f -isnot [System.Collections.IDictionary]) { continue }
+            $size = 0
+            [void][int64]::TryParse([string]$f['Size'], [ref]$size)
+            $hash = [string]$f['Sha256']
+            $sourceFileRows.Add([pscustomobject]@{
+                Asset       = [string]$f['Asset']
+                Provenance  = [string]$f['Provenance']
+                Destination = [string]$f['Destination']
+                SizeText    = ('{0:N0} bytes' -f $size)
+                ShortHash   = $(if ($hash.Length -ge 16) { $hash.Substring(0, 16) } else { $hash })
+                Sha256      = $hash
+                Size        = $size
+                Linked      = [bool]$f['Linked']
+            })
+        }
+    }
+
+    $refreshRequirements = {
+        $requirementRows.Clear()
+        foreach ($op in @(Get-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Requirements.Operations')) {
+            if ($op -isnot [System.Collections.IDictionary]) { continue }
+            $rule = $op['Rule']
+            $summary = ''
+            $value = ''
+            if ($rule -is [System.Collections.IDictionary]) {
+                $summary = [string]$rule['ConditionId']
+                if ($rule.Contains('Value')) { $value = [string]$rule['Value'] }
+                elseif ($rule.Contains('Cultures')) { $value = (@($rule['Cultures']) -join ', ') }
+            }
+            $requirementRows.Add([pscustomobject]@{
+                Op        = [string]$op['Op']
+                RuleId    = [string]$op['RuleId']
+                Summary   = $summary
+                Value     = $value
+                AppliesTo = (@($op['AppliesTo']) -join ', ')
+            })
+        }
+    }
+
+    $refreshVariants = {
+        $variantRows.Clear()
+        $overrides = Get-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Variants.Overrides'
+        if ($overrides -is [System.Collections.IDictionary]) {
+            foreach ($suffix in @($overrides.Keys)) {
+                $o = $overrides[$suffix]
+                $variantRows.Add([pscustomobject]@{
+                    Suffix         = [string]$suffix
+                    InstallCommand = $(if ($o -is [System.Collections.IDictionary]) { [string]$o['InstallCommand'] } else { '' })
+                    Detection      = $(if ($o -is [System.Collections.IDictionary]) { [string]$o['Detection'] } else { '' })
+                    Estimated      = $(if ($o -is [System.Collections.IDictionary]) { [string]$o['EstimatedMinutes'] } else { '' })
+                    Maximum        = $(if ($o -is [System.Collections.IDictionary]) { [string]$o['MaximumMinutes'] } else { '' })
+                })
+            }
+        }
+    }
+
+    $refreshBuilds = {
+        $cboBuild.Items.Clear()
+        $records = @()
+        try { $records = @(Get-BuildRecords -ApplicationId ([string]$wb.Application.ApplicationId) -ProfileId $wb.ProfileId) } catch { }
+        $rows = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
+        if (@($records).Count -eq 0) {
+            [void]$cboBuild.Items.Add('No sealed builds')
+            $cboBuild.SelectedIndex = 0
+        }
+        else {
+            foreach ($r in @($records)) {
+                [void]$cboBuild.Items.Add([string]$r.BuildId)
+                $rows.Add([pscustomobject]@{
+                    BuildId  = [string]$r.BuildId
+                    Version  = [string]$r.Version
+                    Revision = [string]$r.ProfileRevision
+                    Result   = [string]$r.Result
+                })
+            }
+            $cboBuild.SelectedIndex = 0
+        }
+        $dgBuilds.ItemsSource = $rows
+    }
+
+    $refreshReview = {
+        $diff = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
+        foreach ($d in $fieldDescriptors) {
+            if (-not (Test-WorkbenchOverridePresent -Profile $wb.Profile -Path $d.Path)) { continue }
+            $inheritedValue = ''
+            try { $inheritedValue = [string]$wb.Inherited.($d.InheritedKey) } catch { }
+            $custom = Get-WorkbenchOverrideValue -Profile $wb.Profile -Path $d.Path
+            $diff.Add([pscustomobject]@{
+                Field   = $d.Path
+                Default = $inheritedValue
+                Custom  = $(if ($null -eq $custom) { '(removed)' } else { [string]$custom })
+            })
+        }
+        foreach ($path in @('Install.Mode', 'Install.Command', 'Uninstall.Mode', 'Uninstall.Command',
+                            'Detection.Mode', 'InstallMode', 'Timing.EstimatedMinutes', 'Timing.MaximumMinutes',
+                            'Execution.Context', 'Execution.ScriptHost')) {
+            if (-not (Test-WorkbenchOverridePresent -Profile $wb.Profile -Path $path)) { continue }
+            $custom = Get-WorkbenchOverrideValue -Profile $wb.Profile -Path $path
+            $default = switch ($path) {
+                'Timing.EstimatedMinutes' { [string]$wb.Inherited.EstimatedMinutes }
+                'Timing.MaximumMinutes'   { [string]$wb.Inherited.MaximumMinutes }
+                'Execution.Context'       { [string]$wb.Inherited.ExecutionContext }
+                'Execution.ScriptHost'    { [string]$wb.Inherited.ScriptHost }
+                'Install.Command'         { [string]$wb.Inherited.InstallCommand }
+                'Uninstall.Command'       { [string]$wb.Inherited.UninstallCommand }
+                default                   { 'Inherit' }
+            }
+            $diff.Add([pscustomobject]@{
+                Field   = $path
+                Default = $default
+                Custom  = $(if ($null -eq $custom) { '(removed)' } else { [string]$custom })
+            })
+        }
+        if (@($wb.Profile.SourceFiles).Count -gt 0) {
+            $diff.Add([pscustomobject]@{ Field = 'SourceFiles'; Default = '(none)'; Custom = ('{0} file(s)' -f @($wb.Profile.SourceFiles).Count) })
+        }
+        $dgDiff.ItemsSource = $diff
+
+        $plan = New-Object System.Text.StringBuilder
+        [void]$plan.AppendLine('Application : ' + [string]$wb.Application.ApplicationId)
+        [void]$plan.AppendLine('Profile     : ' + [string]$wb.Profile.Name + ' (' + $wb.ProfileId + ', revision ' + [string]$wb.Profile.Revision + ')')
+        [void]$plan.AppendLine('Title        : ' + $(if ([string]$txtDisplayName.Text) { [string]$txtDisplayName.Text } else { [string]$wb.Inherited.DisplayName }))
+        [void]$plan.AppendLine('Install      : ' + [string]$txtEffectiveCommand.Text)
+        [void]$plan.AppendLine('Detection    : ' + $(if ([string]$cboDetectionMode.SelectedItem -eq 'Custom') { 'Custom ' + [string]$cboDetectionType.SelectedItem } else { [string]$wb.Inherited.DetectionSummary }))
+        [void]$plan.AppendLine('Timing       : estimated ' + [string]$txtEstimatedMinutes.Text + ' min, maximum ' + [string]$txtMaximumMinutes.Text + ' min')
+        [void]$plan.AppendLine('Execution    : ' + [string]$cboExecContext.SelectedItem + ', script host ' + [string]$cboExecScriptHost.SelectedItem)
+        [void]$plan.AppendLine('Source files : ' + [string]@($wb.Profile.SourceFiles).Count)
+        $signCmd = Get-WorkbenchCommand -Name 'Get-SigningPolicy'
+        if ($signCmd) { [void]$plan.AppendLine('Signing      : policy from preferences, applied at build time') }
+        else { [void]$plan.AppendLine('Signing      : signing service not loaded; no script will be signed in this build') }
+        $txtResolvedPlan.Text = $plan.ToString()
+    }
+
+    $refreshEditors = {
+        & $refreshFieldIndicators
+        & $refreshScriptEditor
+        & $refreshDetectionEditor
+        & $refreshSourceFiles
+        & $refreshRequirements
+        & $refreshVariants
+        & $refreshReview
+    }
+
+    $loadProfileIntoUi = {
+        $wb.Loading = $true
+        try {
+            $wb.Inherited = Get-WorkbenchInheritedSettings -Application $wb.Application
+            $txtSourceType.Text = [string]$wb.Application.SourceType
+            $txtIdentity.Text = 'Application id ' + [string]$wb.Application.ApplicationId +
+                '; output folders and vendor discovery keep using the packager identity, not the displayed title.'
+            $prov = [string]$wb.Application.ScriptPath
+            if (-not $prov) { $prov = 'Manual updates; no vendor discovery source is configured for this application.' }
+            $txtProvenance.Text = $prov
+            $txtProfileName.Text = [string]$wb.Profile.Name
+
+            foreach ($d in $fieldDescriptors) {
+                $stored = $null
+                $present = Test-WorkbenchOverridePresent -Profile $wb.Profile -Path $d.Path
+                if ($present) { $stored = Get-WorkbenchOverrideValue -Profile $wb.Profile -Path $d.Path }
+                if ($d.Kind -eq 'Combo') {
+                    $d.Control.SelectedItem = $(if ($present -and $stored) { [string]$stored } else { 'Packager default' })
+                }
+                else {
+                    $d.Control.Text = [string]$stored
+                }
+            }
+
+            $estPresent = Test-WorkbenchOverridePresent -Profile $wb.Profile -Path 'Timing.EstimatedMinutes'
+            $maxPresent = Test-WorkbenchOverridePresent -Profile $wb.Profile -Path 'Timing.MaximumMinutes'
+            $chkEstimatedDefault.IsChecked = -not $estPresent
+            $chkMaximumDefault.IsChecked = -not $maxPresent
+            $txtEstimatedMinutes.Text = $(if ($estPresent) { [string](Get-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Timing.EstimatedMinutes') } else { [string]$wb.Inherited.EstimatedMinutes })
+            $txtMaximumMinutes.Text = $(if ($maxPresent) { [string](Get-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Timing.MaximumMinutes') } else { [string]$wb.Inherited.MaximumMinutes })
+            $txtEstimatedMinutes.IsEnabled = $estPresent
+            $txtMaximumMinutes.IsEnabled = $maxPresent
+
+            $ctx = [string](Get-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Execution.Context')
+            $cboExecContext.SelectedItem = $(if ($ctx) { $ctx } else { [string]$wb.Inherited.ExecutionContext })
+            $logon = [string](Get-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Execution.LogonRequirement')
+            $cboExecLogon.SelectedItem = $(if ($logon) { $logon } else { [string]$wb.Inherited.LogonRequirement })
+            $inter = [string](Get-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Execution.UserInteraction')
+            $cboExecInteraction.SelectedItem = $(if ($inter) { $inter } else { [string]$wb.Inherited.UserInteraction })
+            $host32 = [string](Get-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Execution.ScriptHost')
+            $cboExecScriptHost.SelectedItem = $(if ($host32) { $host32 } else { [string]$wb.Inherited.ScriptHost })
+
+            $cboVariantSplit.Items.Clear()
+            [void]$cboVariantSplit.Items.Add('None')
+            foreach ($v in @($wb.Application.SupportsVariants)) { [void]$cboVariantSplit.Items.Add([string]$v) }
+            $split = @(Get-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Variants.Split')
+            $cboVariantSplit.SelectedItem = $(if ($split.Count -gt 0 -and $split[0]) { [string]$split[0] } else { 'None' })
+            $cboVariantSplit.IsEnabled = (@($wb.Application.SupportsVariants).Count -gt 0)
+
+            $cboInstallForMode.Items.Clear()
+            [void]$cboInstallForMode.Items.Add('Packager default')
+            if (@($wb.Application.SupportsInstallModes) -contains 'AllUsers') { [void]$cboInstallForMode.Items.Add('System') }
+            if (@($wb.Application.SupportsInstallModes) -contains 'CurrentUser') { [void]$cboInstallForMode.Items.Add('User') }
+            $im = [string](Get-WorkbenchOverrideValue -Profile $wb.Profile -Path 'InstallMode')
+            $cboInstallForMode.SelectedItem = $(switch ($im) { 'AllUsers' { 'System' } 'CurrentUser' { 'User' } default { 'Packager default' } })
+            $cboInstallForMode.IsEnabled = (@($wb.Application.SupportsInstallModes).Count -gt 0)
+
+            $iconAsset = $null
+            $iconPresent = Test-WorkbenchOverridePresent -Profile $wb.Profile -Path 'Application.Icon'
+            if ($iconPresent) { $iconAsset = Get-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Application.Icon' }
+            $imgIcon.Source = $null
+            if (-not $iconPresent) { $txtIconState.Text = 'Inherited from the packager (icon extraction or icon pack).' }
+            elseif ($null -eq $iconAsset) { $txtIconState.Text = 'Removed: this profile publishes no icon.' }
+            else {
+                $iconPath = ''
+                if ($iconAsset -is [System.Collections.IDictionary]) { $iconPath = [string]$iconAsset['Path'] }
+                $txtIconState.Text = 'Custom icon: ' + $iconPath
+                if ($iconPath -and (Test-Path -LiteralPath $iconPath)) {
+                    try {
+                        $bmp = New-Object System.Windows.Media.Imaging.BitmapImage
+                        $bmp.BeginInit()
+                        $bmp.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+                        $bmp.UriSource = New-Object System.Uri($iconPath)
+                        $bmp.EndInit()
+                        $imgIcon.Source = $bmp
+                    } catch { }
+                }
+            }
+            $txtAppNote.Text = 'The displayed title is separate from the stable identity: renaming a profile never renames an existing site application, and the output folder keeps the packager name.'
+
+            $cboReqTemplate.Items.Clear()
+            try {
+                foreach ($c in @((Get-ConditionTemplates).Conditions)) { [void]$cboReqTemplate.Items.Add([string]$c.Id) }
+            } catch { }
+            if ($cboReqTemplate.Items.Count -gt 0) { $cboReqTemplate.SelectedIndex = 0 }
+
+            & $refreshEditors
+            & $refreshBuilds
+            $wb.Baseline = ($wb.Profile | ConvertTo-Json -Depth 12 -Compress)
+            $wb.Dirty = $false
+            $wb.Validated = $false
+            $chipContent.Text = 'Content build: Not validated'
+            $chipMecm.Text = 'MECM: Not validated'
+            $chipIntune.Text = 'Intune: Not validated'
+            & $setStatus 'No unsaved changes.'
+        }
+        finally { $wb.Loading = $false }
+    }
+
+    $loadProfileList = {
+        param([string]$selectProfileId)
+        $wb.Loading = $true
+        try {
+            $cboProfile.Items.Clear()
+            $script:WorkbenchProfileIds = @()
+            foreach ($p in @(Get-Profiles -ApplicationId ([string]$wb.Application.ApplicationId))) {
+                [void]$cboProfile.Items.Add([string]$p.Name)
+                $script:WorkbenchProfileIds += [string]$p.ProfileId
+            }
+            [void]$cboProfile.Items.Add('Save as...')
+            $idx = [array]::IndexOf($script:WorkbenchProfileIds, $selectProfileId)
+            if ($idx -lt 0) { $idx = 0 }
+            $cboProfile.SelectedIndex = $idx
+        }
+        finally { $wb.Loading = $false }
+    }
+
+    $selectApplication = {
+        param($application, [string]$profileId)
+        $wb.Application = $application
+        if (-not $profileId) {
+            $definition = Get-ApplicationDefinition -ApplicationId ([string]$application.ApplicationId)
+            $profileId = [string]$definition.ActiveProfileId
+            if (-not $profileId) { $profileId = 'default' }
+        }
+        $wb.ProfileId = $profileId
+        $stored = $null
+        try { $stored = ConvertTo-WorkbenchUiHashtable -InputObject (Get-Profile -ApplicationId ([string]$application.ApplicationId) -ProfileId $profileId) }
+        catch { $stored = $null }
+        if (-not $stored) {
+            $wb.ProfileId = 'default'
+            $stored = ConvertTo-WorkbenchUiHashtable -InputObject (New-WorkbenchProfileObject -ApplicationId ([string]$application.ApplicationId) -ProfileId 'default' -Name 'Packager default')
+        }
+        $wb.Profile = $stored
+        if ($wb.ProfileId -ne 'default') {
+            $draft = $null
+            try { $draft = Get-Draft -ApplicationId ([string]$application.ApplicationId) -ProfileId $wb.ProfileId } catch { }
+            if ($draft) {
+                $answer = Show-ThemedMessage -Owner $win -Title 'Recover Draft' `
+                    -Message ('Unsaved changes to "' + [string]$stored.Name + '" were found from an earlier session. Recover them?') `
+                    -Buttons YesNo -Icon Question
+                if ($answer -eq 'Yes') { $wb.Profile = ConvertTo-WorkbenchUiHashtable -InputObject $draft }
+                else { [void](Remove-Draft -ApplicationId ([string]$application.ApplicationId) -ProfileId $wb.ProfileId) }
+            }
+        }
+        & $loadProfileList $wb.ProfileId
+        & $loadProfileIntoUi
+    }
+
+    $commitUi = {
+        # Reads every editable control back into the working profile.
+        # Empty text clears the override so the field returns to inherit;
+        # an explicit removal is set by the Remove buttons, not by blanking.
+        foreach ($d in $fieldDescriptors) {
+            $value = if ($d.Kind -eq 'Combo') { [string]$d.Control.SelectedItem } else { [string]$d.Control.Text }
+            if ($d.Kind -eq 'Combo' -and $value -eq 'Packager default') { $value = '' }
+            if ([string]::IsNullOrWhiteSpace($value)) {
+                if (-not (Test-WorkbenchOverridePresent -Profile $wb.Profile -Path $d.Path) -or
+                    $null -ne (Get-WorkbenchOverrideValue -Profile $wb.Profile -Path $d.Path)) {
+                    Clear-WorkbenchOverrideValue -Profile $wb.Profile -Path $d.Path
+                }
+            }
+            else { Set-WorkbenchOverrideValue -Profile $wb.Profile -Path $d.Path -Value $value }
+        }
+        $wb.Profile.Name = ([string]$txtProfileName.Text).Trim()
+        if (-not $wb.Profile.Name) { $wb.Profile.Name = 'Custom' }
+
+        $target = $wb.ScriptTarget
+        $mode = switch ([string]$cboInstallMode.SelectedItem) { 'Extend generated' { 'Extend' } 'Custom' { 'Custom' } default { 'Generated' } }
+        if ($mode -eq 'Generated') { Clear-WorkbenchOverrideValue -Profile $wb.Profile -Path ($target + '.Mode') }
+        else { Set-WorkbenchOverrideValue -Profile $wb.Profile -Path ($target + '.Mode') -Value $mode }
+        foreach ($pair in @(@{ P = 'ScriptText'; V = [string]$txtScript.Text }, @{ P = 'BeforeText'; V = [string]$txtHookBefore.Text },
+                            @{ P = 'AfterText'; V = [string]$txtHookAfter.Text }, @{ P = 'ReturnCodes'; V = [string]$txtReturnCodes.Text },
+                            @{ P = 'WorkingDirectory'; V = [string]$txtWorkingDirectory.Text })) {
+            if ([string]::IsNullOrWhiteSpace($pair.V)) { Clear-WorkbenchOverrideValue -Profile $wb.Profile -Path ($target + '.' + $pair.P) }
+            else { Set-WorkbenchOverrideValue -Profile $wb.Profile -Path ($target + '.' + $pair.P) -Value $pair.V }
+        }
+        if ($chkAfterOnFailure.IsChecked -eq $true) { Set-WorkbenchOverrideValue -Profile $wb.Profile -Path ($target + '.AfterRunsOnFailure') -Value $true }
+        else { Clear-WorkbenchOverrideValue -Profile $wb.Profile -Path ($target + '.AfterRunsOnFailure') }
+        $reboot = [string]$cboRebootPolicy.SelectedItem
+        if ($reboot -and $reboot -ne 'Inherit') { Set-WorkbenchOverrideValue -Profile $wb.Profile -Path ($target + '.RebootPolicy') -Value $reboot }
+        else { Clear-WorkbenchOverrideValue -Profile $wb.Profile -Path ($target + '.RebootPolicy') }
+
+        $detMode = [string]$cboDetectionMode.SelectedItem
+        if ($detMode -eq 'Custom') {
+            Set-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Detection.Mode' -Value 'Custom'
+            $type = [string]$cboDetectionType.SelectedItem
+            $rule = [ordered]@{
+                Type           = $(if ($type -eq 'PowerShell') { 'Script' } else { $type })
+                Hive           = [string]$cboDetHive.SelectedItem
+                View           = $(if ([string]$cboDetView.SelectedItem -eq '32-bit') { '32' } else { '64' })
+                Key            = [string]$txtDetKey.Text
+                ValueName      = [string]$txtDetValueName.Text
+                Operator       = [string]$cboDetOperator.SelectedItem
+                ExpectedValue  = [string]$txtDetExpected.Text
+                VersionBinding = $(if ([string]$cboDetVersionBinding.SelectedItem -eq 'Pinned') { 'Pinned' } else { 'FollowsStaged' })
+                FilePath       = [string]$txtDetFilePath.Text
+                FileName       = [string]$txtDetFileName.Text
+                FileProperty   = [string]$cboDetFileProperty.SelectedItem
+                Logic          = $(switch ([string]$cboDetLogic.SelectedItem) { 'Or' { 'Or' } 'Two groups' { 'TwoGroup' } default { 'And' } })
+                ScriptText     = [string]$txtDetectScript.Text
+                Clauses        = @(foreach ($r in $clauseRows) {
+                    [ordered]@{ Group = [string]$r.Group; Type = [string]$r.Type; Subject = [string]$r.Subject; Operator = [string]$r.Operator; Expected = [string]$r.Expected }
+                })
+            }
+            Set-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Detection.Rule' -Value $rule
+            Set-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Detection.IntuneScriptConversion' -Value ($chkIntuneScriptConversion.IsChecked -eq $true)
+        }
+        else {
+            Clear-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Detection.Mode'
+            Clear-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Detection.Rule'
+            Clear-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Detection.IntuneScriptConversion'
+        }
+
+        if ($chkEstimatedDefault.IsChecked -eq $true) { Clear-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Timing.EstimatedMinutes' }
+        else {
+            $n = 0
+            [void][int]::TryParse([string]$txtEstimatedMinutes.Text, [ref]$n)
+            Set-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Timing.EstimatedMinutes' -Value $n
+        }
+        if ($chkMaximumDefault.IsChecked -eq $true) { Clear-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Timing.MaximumMinutes' }
+        else {
+            $n = 0
+            [void][int]::TryParse([string]$txtMaximumMinutes.Text, [ref]$n)
+            Set-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Timing.MaximumMinutes' -Value $n
+        }
+
+        foreach ($pair in @(@{ P = 'Execution.Context'; C = $cboExecContext; D = [string]$wb.Inherited.ExecutionContext },
+                            @{ P = 'Execution.LogonRequirement'; C = $cboExecLogon; D = [string]$wb.Inherited.LogonRequirement },
+                            @{ P = 'Execution.UserInteraction'; C = $cboExecInteraction; D = [string]$wb.Inherited.UserInteraction },
+                            @{ P = 'Execution.ScriptHost'; C = $cboExecScriptHost; D = [string]$wb.Inherited.ScriptHost })) {
+            $v = [string]$pair.C.SelectedItem
+            if (-not $v -or $v -eq $pair.D) { Clear-WorkbenchOverrideValue -Profile $wb.Profile -Path $pair.P }
+            else { Set-WorkbenchOverrideValue -Profile $wb.Profile -Path $pair.P -Value $v }
+        }
+
+        $split = [string]$cboVariantSplit.SelectedItem
+        if ($split -and $split -ne 'None') { Set-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Variants.Split' -Value @($split) }
+        else { Set-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Variants.Split' -Value @() }
+
+        switch ([string]$cboInstallForMode.SelectedItem) {
+            'System' { $wb.Profile.InstallMode = 'AllUsers' }
+            'User'   { $wb.Profile.InstallMode = 'CurrentUser' }
+            default  { $wb.Profile.InstallMode = $null }
+        }
+
+        $ops = New-Object System.Collections.ArrayList
+        foreach ($r in $requirementRows) {
+            $rule = [ordered]@{ ConditionId = [string]$r.Summary }
+            if ([string]$r.Value) {
+                if ([string]$r.Summary -eq 'os-language') { $rule['Cultures'] = @([string]$r.Value -split '\s*,\s*' | Where-Object { $_ }) }
+                else { $rule['Value'] = [string]$r.Value }
+            }
+            [void]$ops.Add([ordered]@{
+                Op        = [string]$r.Op
+                RuleId    = [string]$r.RuleId
+                Rule      = $rule
+                AppliesTo = @([string]$r.AppliesTo -split '\s*,\s*' | Where-Object { $_ })
+            })
+        }
+        Set-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Requirements.Operations' -Value @($ops)
+
+        $files = New-Object System.Collections.ArrayList
+        foreach ($r in $sourceFileRows) {
+            [void]$files.Add([ordered]@{
+                Asset       = [string]$r.Asset
+                Destination = [string]$r.Destination
+                Sha256      = [string]$r.Sha256
+                Size        = [int64]$r.Size
+                Provenance  = [string]$r.Provenance
+                Linked      = [bool]$r.Linked
+            })
+        }
+        $wb.Profile.SourceFiles = @($files)
+    }
+
+    $validateProfile = {
+        & $commitUi
+        $findings = @(Get-WorkbenchLocalFindings -Profile $wb.Profile -Inherited $wb.Inherited)
+        $manifestCmd = Get-WorkbenchCommand -Name 'Get-IntuneCompatibilityFindings'
+        if (-not $manifestCmd) {
+            $findings += [pscustomobject]@{ Severity = 'Info'; Code = 'INTUNE-ADAPTER'; Message = 'The Intune compatibility check is not loaded; only local validation ran.' }
+        }
+        $wb.Findings = $findings
+        $wb.Validated = $true
+        $rows = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
+        foreach ($f in $findings) { $rows.Add($f) }
+        $dgFindings.ItemsSource = $rows
+        $chips = Get-WorkbenchChipState -Findings $findings -Validated $true
+        $chipContent.Text = 'Content build: ' + $chips.Content
+        $chipMecm.Text = 'MECM: ' + $chips.Mecm
+        $chipIntune.Text = 'Intune: ' + $chips.Intune
+        & $refreshReview
+        return $findings
+    }
+
+    $saveProfile = {
+        param([string]$newName)
+        & $commitUi
+        # The packager default profile is never stored or edited: the first
+        # save of a default-profile edit becomes a named profile.
+        if ($newName -or $wb.ProfileId -eq 'default') {
+            $name = $newName
+            if (-not $name) {
+                $name = Show-WorkbenchNameDialog -Owner $win -Title 'Name for this profile' -Value 'Managed'
+                if (-not $name) { return $false }
+            }
+            $wb.ProfileId = ([guid]::NewGuid().ToString('N'))
+            $wb.Profile['ProfileId'] = $wb.ProfileId
+            $wb.Profile['Name'] = $name
+            $wb.Profile['Revision'] = 0
+        }
+        $wb.Profile['IsDefault'] = $false
+        try {
+            $saved = Save-Profile -Profile ([pscustomobject]$wb.Profile) -SetActive
+        }
+        catch {
+            [void](Show-ThemedMessage -Owner $win -Title 'Save Failed' -Message $_.Exception.Message -Buttons OK -Icon Error)
+            return $false
+        }
+        $wb.Profile = ConvertTo-WorkbenchUiHashtable -InputObject $saved
+        $wb.ProfileId = [string]$wb.Profile['ProfileId']
+        try { [void](Remove-Draft -ApplicationId ([string]$wb.Application.ApplicationId) -ProfileId $wb.ProfileId) } catch { }
+        $wb.Baseline = ($wb.Profile | ConvertTo-Json -Depth 12 -Compress)
+        $wb.Dirty = $false
+        & $loadProfileList $wb.ProfileId
+        $wb.Loading = $true
+        try { $txtProfileName.Text = [string]$wb.Profile['Name'] } finally { $wb.Loading = $false }
+        & $refreshEditors
+        & $setStatus ('Saved "' + [string]$wb.Profile['Name'] + '" at revision ' + [string]$wb.Profile['Revision'] + '. Existing builds are now stale relative to this profile; nothing was deployed.')
+        return $true
+    }
+
+    $confirmDiscard = {
+        param([string]$message)
+        if (-not $wb.Dirty) { return $true }
+        $answer = Show-WorkbenchUnsavedDialog -Owner $win -Message $message
+        switch ($answer) {
+            'Save'    { return [bool](& $saveProfile '') }
+            'Discard' {
+                try { [void](Remove-Draft -ApplicationId ([string]$wb.Application.ApplicationId) -ProfileId $wb.ProfileId) } catch { }
+                $wb.Dirty = $false
+                return $true
+            }
+            default   { return $false }
+        }
+    }
+
+    # ---- Handlers -----------------------------------------------------
+    $lstSections.Add_SelectionChanged({
+        $idx = $lstSections.SelectedIndex
+        for ($i = 0; $i -lt $sectionPanels.Count; $i++) {
+            $sectionPanels[$i].Visibility = $(if ($i -eq $idx) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed })
+        }
+        if ($idx -eq 6) { & $refreshReview }
+    })
+
+    $cboApplication.Add_SelectionChanged({
+        if ($wb.Loading) { return }
+        $sel = $cboApplication.SelectedItem
+        if (-not $sel) { return }
+        $target = @($wb.Applications | Where-Object { [string]$_.DisplayLabel -eq [string]$sel })
+        if ($target.Count -eq 0) { return }
+        if ([string]$target[0].ApplicationId -eq [string]$wb.Application.ApplicationId) { return }
+        if (-not (& $confirmDiscard 'This application has unsaved changes. Save them before switching?')) {
+            $wb.Loading = $true
+            try { $cboApplication.SelectedItem = [string]$wb.Application.DisplayLabel } finally { $wb.Loading = $false }
+            return
+        }
+        & $selectApplication $target[0] ''
+    })
+
+    $cboProfile.Add_SelectionChanged({
+        if ($wb.Loading) { return }
+        $idx = $cboProfile.SelectedIndex
+        if ($idx -lt 0) { return }
+        if ($idx -ge @($script:WorkbenchProfileIds).Count) {
+            # "Save as..." entry.
+            $wb.Loading = $true
+            try { $cboProfile.SelectedIndex = [array]::IndexOf($script:WorkbenchProfileIds, $wb.ProfileId) } finally { $wb.Loading = $false }
+            $name = Show-WorkbenchNameDialog -Owner $win -Title 'Name for the new profile' -Value ([string]$wb.Profile.Name + ' copy')
+            if ($name) { [void](& $saveProfile $name) }
+            return
+        }
+        $newId = [string]@($script:WorkbenchProfileIds)[$idx]
+        if ($newId -eq $wb.ProfileId) { return }
+        if (-not (& $confirmDiscard 'This profile has unsaved changes. Save them before switching?')) {
+            $wb.Loading = $true
+            try { $cboProfile.SelectedIndex = [array]::IndexOf($script:WorkbenchProfileIds, $wb.ProfileId) } finally { $wb.Loading = $false }
+            return
+        }
+        & $selectApplication $wb.Application $newId
+    })
+
+    $btnProfileRename.Add_Click({
+        if ($wb.ProfileId -eq 'default') {
+            [void](Show-ThemedMessage -Owner $win -Title 'Rename Profile' -Message 'The packager default profile cannot be renamed. Use Save as to create a named profile.' -Buttons OK -Icon Info)
+            return
+        }
+        $name = Show-WorkbenchNameDialog -Owner $win -Title 'New name for this profile' -Value ([string]$wb.Profile.Name)
+        if (-not $name) { return }
+        $txtProfileName.Text = $name
+        & $markDirty
+    })
+
+    foreach ($descriptor in $fieldDescriptors) {
+        $d = $descriptor
+        if ($d.Kind -eq 'Combo') { $d.Control.Add_SelectionChanged({ & $markDirty }.GetNewClosure()) }
+        else { $d.Control.Add_TextChanged({ & $markDirty }.GetNewClosure()) }
+        if ($d.ResetButton) {
+            $d.ResetButton.Add_Click({
+                Clear-WorkbenchOverrideValue -Profile $wb.Profile -Path $d.Path
+                $wb.Suppress = $true
+                try {
+                    if ($d.Kind -eq 'Combo') { $d.Control.SelectedItem = 'Packager default' } else { $d.Control.Text = '' }
+                }
+                finally { $wb.Suppress = $false }
+                & $markDirty
+                & $refreshFieldIndicators
+            }.GetNewClosure())
+        }
+    }
+
+    $cboScriptTarget.Add_SelectionChanged({
+        if ($wb.Loading -or $wb.Suppress) { return }
+        & $commitUi
+        $wb.ScriptTarget = [string]$cboScriptTarget.SelectedItem
+        & $refreshScriptEditor
+        & $refreshFieldIndicators
+    })
+    $cboScriptTarget.SelectedIndex = 0
+
+    $cboInstallMode.Add_SelectionChanged({
+        if ($wb.Loading -or $wb.Suppress) { return }
+        & $markDirty
+        & $commitUi
+        & $refreshScriptEditor
+        & $refreshFieldIndicators
+    })
+
+    foreach ($box in @($txtReturnCodes, $txtWorkingDirectory, $txtHookBefore, $txtHookAfter)) {
+        $box.Add_TextChanged({ & $markDirty }.GetNewClosure())
+    }
+    $chkAfterOnFailure.Add_Checked({ & $markDirty })
+    $chkAfterOnFailure.Add_Unchecked({ & $markDirty })
+    $cboRebootPolicy.Add_SelectionChanged({ & $markDirty })
+
+    $parseTimer.Add_Tick({
+        $parseTimer.Stop()
+        $lstScriptDiagnostics.Items.Clear()
+        foreach ($line in (Get-WorkbenchParseDiagnostics -Text ([string]$txtScript.Text))) { [void]$lstScriptDiagnostics.Items.Add($line) }
+        if ($lstScriptDiagnostics.Items.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace([string]$txtScript.Text)) {
+            [void]$lstScriptDiagnostics.Items.Add('No parse errors. Validation inspects the script; it never runs it.')
+        }
+        $lstDetectDiagnostics.Items.Clear()
+        foreach ($line in (Get-WorkbenchParseDiagnostics -Text ([string]$txtDetectScript.Text))) { [void]$lstDetectDiagnostics.Items.Add($line) }
+        if ($lstDetectDiagnostics.Items.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace([string]$txtDetectScript.Text)) {
+            if (Test-WorkbenchDetectionScriptOutput -Text ([string]$txtDetectScript.Text)) {
+                [void]$lstDetectDiagnostics.Items.Add('No parse errors; the script writes to STDOUT.')
+            }
+            else {
+                [void]$lstDetectDiagnostics.Items.Add('No parse errors, but nothing is written to STDOUT: Intune would read this as not installed.')
+            }
+        }
+    })
+
+    $txtScript.Add_TextChanged({
+        $txtScriptGutter.Text = Get-WorkbenchLineNumberText -Text ([string]$txtScript.Text)
+        $parseTimer.Stop()
+        $parseTimer.Start()
+        & $markDirty
+    })
+    $txtDetectScript.Add_TextChanged({
+        $txtDetectGutter.Text = Get-WorkbenchLineNumberText -Text ([string]$txtDetectScript.Text)
+        $parseTimer.Stop()
+        $parseTimer.Start()
+        & $markDirty
+    })
+    # The gutter is a separate TextBox, so it has to follow the editor's
+    # own vertical offset rather than its own scrollbar.
+    $txtScript.Add_TextChanged({ $txtScriptGutter.ScrollToVerticalOffset($txtScript.VerticalOffset) })
+    $txtScript.AddHandler([System.Windows.Controls.ScrollViewer]::ScrollChangedEvent, [System.Windows.RoutedEventHandler]{
+        $txtScriptGutter.ScrollToVerticalOffset($txtScript.VerticalOffset)
+    })
+    $txtDetectScript.AddHandler([System.Windows.Controls.ScrollViewer]::ScrollChangedEvent, [System.Windows.RoutedEventHandler]{
+        $txtDetectGutter.ScrollToVerticalOffset($txtDetectScript.VerticalOffset)
+    })
+
+    $findNext = {
+        $needle = [string]$txtFind.Text
+        if (-not $needle) { return }
+        $box = if ($pnlDetectionScript.IsVisible) { $txtDetectScript } else { $txtScript }
+        $start = $box.SelectionStart + [Math]::Max($box.SelectionLength, 1)
+        if ($start -ge $box.Text.Length) { $start = 0 }
+        $idx = $box.Text.IndexOf($needle, $start, [System.StringComparison]::OrdinalIgnoreCase)
+        if ($idx -lt 0) { $idx = $box.Text.IndexOf($needle, 0, [System.StringComparison]::OrdinalIgnoreCase) }
+        if ($idx -ge 0) {
+            $box.Focus()
+            $box.Select($idx, $needle.Length)
+            $box.ScrollToLine([Math]::Max(0, $box.GetLineIndexFromCharacterIndex($idx)))
+        }
+    }
+    $btnFindNext.Add_Click({ & $findNext })
+    $btnFindClose.Add_Click({ $pnlFind.Visibility = [System.Windows.Visibility]::Collapsed })
+    $txtFind.Add_KeyDown({
+        param($s, $e)
+        if ($e.Key -eq [System.Windows.Input.Key]::Enter) { & $findNext; $e.Handled = $true }
+    })
+    $win.Add_PreviewKeyDown({
+        param($s, $e)
+        if ($e.Key -eq [System.Windows.Input.Key]::F -and
+            ([System.Windows.Input.Keyboard]::Modifiers -band [System.Windows.Input.ModifierKeys]::Control)) {
+            $pnlFind.Visibility = [System.Windows.Visibility]::Visible
+            $txtFind.Focus()
+            $e.Handled = $true
+        }
+    })
+
+    $cboDetectionMode.Add_SelectionChanged({
+        if ($wb.Loading -or $wb.Suppress) { return }
+        & $markDirty
+        & $commitUi
+        & $refreshDetectionEditor
+        & $refreshFieldIndicators
+    })
+    $cboDetectionType.Add_SelectionChanged({
+        if ($wb.Loading -or $wb.Suppress) { return }
+        & $markDirty
+        & $commitUi
+        & $refreshDetectionEditor
+    })
+    foreach ($c in @($txtDetKey, $txtDetValueName, $txtDetExpected, $txtDetFilePath, $txtDetFileName)) {
+        $c.Add_TextChanged({ & $markDirty }.GetNewClosure())
+    }
+    foreach ($c in @($cboDetHive, $cboDetView, $cboDetOperator, $cboDetVersionBinding, $cboDetFileProperty, $cboDetLogic)) {
+        $c.Add_SelectionChanged({ & $markDirty }.GetNewClosure())
+    }
+    $chkIntuneScriptConversion.Add_Checked({ & $markDirty })
+    $chkIntuneScriptConversion.Add_Unchecked({ & $markDirty })
+
+    $btnDetClauseAdd.Add_Click({
+        $clauseRows.Add([pscustomobject]@{ Group = '1'; Type = 'Registry'; Subject = ''; Operator = 'Exists'; Expected = '' })
+        & $markDirty
+    })
+    $btnDetClauseRemove.Add_Click({
+        $sel = $dgDetClauses.SelectedItem
+        if ($sel) { [void]$clauseRows.Remove($sel); & $markDirty }
+    })
+
+    $btnReqAdd.Add_Click({
+        $id = [string]$cboReqTemplate.SelectedItem
+        if (-not $id) { return }
+        $requirementRows.Add([pscustomobject]@{ Op = 'Add'; RuleId = $id; Summary = $id; Value = ''; AppliesTo = '*' })
+        & $markDirty
+    })
+    $btnReqReplace.Add_Click({
+        $sel = $dgRequirements.SelectedItem
+        if (-not $sel) { return }
+        $sel.Op = 'Replace'
+        $dgRequirements.Items.Refresh()
+        & $markDirty
+    })
+    $btnReqRemove.Add_Click({
+        $sel = $dgRequirements.SelectedItem
+        if (-not $sel) { return }
+        # An explicit Remove operation is not the same as dropping the row:
+        # it suppresses a rule the packager would otherwise contribute.
+        $sel.Op = 'Remove'
+        $dgRequirements.Items.Refresh()
+        & $markDirty
+    })
+    $cboVariantSplit.Add_SelectionChanged({ & $markDirty })
+    $cboInstallForMode.Add_SelectionChanged({ & $markDirty })
+
+    $chkEstimatedDefault.Add_Checked({ $txtEstimatedMinutes.IsEnabled = $false; $txtEstimatedMinutes.Text = [string]$wb.Inherited.EstimatedMinutes; & $markDirty })
+    $chkEstimatedDefault.Add_Unchecked({ $txtEstimatedMinutes.IsEnabled = $true; & $markDirty })
+    $chkMaximumDefault.Add_Checked({ $txtMaximumMinutes.IsEnabled = $false; $txtMaximumMinutes.Text = [string]$wb.Inherited.MaximumMinutes; & $markDirty })
+    $chkMaximumDefault.Add_Unchecked({ $txtMaximumMinutes.IsEnabled = $true; & $markDirty })
+    $txtEstimatedMinutes.Add_TextChanged({ & $markDirty })
+    $txtMaximumMinutes.Add_TextChanged({ & $markDirty })
+    foreach ($c in @($cboExecContext, $cboExecLogon, $cboExecInteraction, $cboExecScriptHost)) {
+        $c.Add_SelectionChanged({ & $markDirty }.GetNewClosure())
+    }
+    $btnTimingReset.Add_Click({
+        foreach ($p in @('Timing.EstimatedMinutes', 'Timing.MaximumMinutes', 'Execution.Context',
+                         'Execution.LogonRequirement', 'Execution.UserInteraction', 'Execution.ScriptHost')) {
+            Clear-WorkbenchOverrideValue -Profile $wb.Profile -Path $p
+        }
+        & $loadProfileIntoUi
+        & $markDirty
+    })
+
+    $btnInstallReset.Add_Click({
+        foreach ($p in @('Mode', 'Command', 'ScriptText', 'BeforeText', 'AfterText', 'AfterRunsOnFailure',
+                         'ReturnCodes', 'RebootPolicy', 'WorkingDirectory')) {
+            Clear-WorkbenchOverrideValue -Profile $wb.Profile -Path ($wb.ScriptTarget + '.' + $p)
+        }
+        & $refreshScriptEditor
+        & $refreshFieldIndicators
+        & $markDirty
+    })
+    $btnDetectionReset.Add_Click({
+        foreach ($p in @('Detection.Mode', 'Detection.Rule', 'Detection.IntuneScriptConversion')) {
+            Clear-WorkbenchOverrideValue -Profile $wb.Profile -Path $p
+        }
+        & $refreshDetectionEditor
+        & $refreshFieldIndicators
+        & $markDirty
+    })
+
+    $addSourceEntry = {
+        param([string]$path)
+        if (-not (Test-Path -LiteralPath $path)) { return }
+        $item = Get-Item -LiteralPath $path -Force
+        if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            [void](Show-ThemedMessage -Owner $win -Title 'Source Files' -Message ('Reparse points are not accepted as source files: ' + $path) -Buttons OK -Icon Warning)
+            return
+        }
+        $files = @()
+        if ($item.PSIsContainer) { $files = @(Get-ChildItem -LiteralPath $path -Recurse -File -Force -ErrorAction SilentlyContinue) }
+        else { $files = @($item) }
+        foreach ($f in $files) {
+            $dest = $f.Name
+            if ($item.PSIsContainer) {
+                $rel = $f.FullName.Substring($item.FullName.Length).TrimStart('\')
+                $dest = Join-Path $item.Name $rel
+            }
+            $hash = ''
+            try { $hash = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() } catch { }
+            $sourceFileRows.Add([pscustomobject]@{
+                Asset       = ''
+                Provenance  = $f.FullName
+                Destination = $dest
+                SizeText    = ('{0:N0} bytes' -f $f.Length)
+                ShortHash   = $(if ($hash.Length -ge 16) { $hash.Substring(0, 16) } else { $hash })
+                Sha256      = $hash
+                Size        = [int64]$f.Length
+                Linked      = $false
+            })
+        }
+        & $markDirty
+    }
+
+    $btnSourceAddFile.Add_Click({
+        $dlg = New-Object Microsoft.Win32.OpenFileDialog
+        $dlg.Title = 'Add source file'
+        $dlg.Multiselect = $true
+        if ($dlg.ShowDialog() -eq $true) { foreach ($p in @($dlg.FileNames)) { & $addSourceEntry $p } }
+    })
+    $btnSourceAddFolder.Add_Click({
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+        $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dlg.Description = 'Add every file under this folder'
+        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { & $addSourceEntry $dlg.SelectedPath }
+    })
+    $btnSourceReplace.Add_Click({
+        $sel = $dgSourceFiles.SelectedItem
+        if (-not $sel) { return }
+        $dlg = New-Object Microsoft.Win32.OpenFileDialog
+        $dlg.Title = 'Replace source file'
+        if ($dlg.ShowDialog() -ne $true) { return }
+        $f = Get-Item -LiteralPath $dlg.FileName
+        $hash = ''
+        try { $hash = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() } catch { }
+        $sel.Provenance = $f.FullName
+        $sel.Sha256 = $hash
+        $sel.ShortHash = $(if ($hash.Length -ge 16) { $hash.Substring(0, 16) } else { $hash })
+        $sel.Size = [int64]$f.Length
+        $sel.SizeText = ('{0:N0} bytes' -f $f.Length)
+        $sel.Asset = ''
+        $dgSourceFiles.Items.Refresh()
+        & $markDirty
+    })
+    $btnSourceRemove.Add_Click({
+        $sel = $dgSourceFiles.SelectedItem
+        if ($sel) { [void]$sourceFileRows.Remove($sel); & $markDirty }
+    })
+
+    $btnIconChoose.Add_Click({
+        $dlg = New-Object Microsoft.Win32.OpenFileDialog
+        $dlg.Title = 'Choose icon'
+        $dlg.Filter = 'Image files|*.png;*.ico;*.jpg;*.jpeg;*.bmp|All files|*.*'
+        if ($dlg.ShowDialog() -ne $true) { return }
+        Set-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Application.Icon' -Value ([ordered]@{ Path = $dlg.FileName; Asset = '' })
+        & $markDirty
+        & $loadProfileIntoUi
+        $wb.Dirty = $true
+    })
+    $btnIconReset.Add_Click({
+        Clear-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Application.Icon'
+        & $markDirty
+        & $loadProfileIntoUi
+        $wb.Dirty = $true
+    })
+    $btnIconRemove.Add_Click({
+        # Explicit null is "publish no icon", distinct from inheriting one.
+        Set-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Application.Icon' -Value $null
+        & $markDirty
+        & $loadProfileIntoUi
+        $wb.Dirty = $true
+    })
+
+    $btnUseDefaults.Add_Click({
+        $answer = Show-ThemedMessage -Owner $win -Title 'Use Defaults' `
+            -Message 'Clear every override in this profile and inherit the packager defaults? Saved builds are not touched.' `
+            -Buttons YesNo -Icon Question
+        if ($answer -ne 'Yes') { return }
+        $name = [string]$wb.Profile.Name
+        $revision = [int]$wb.Profile.Revision
+        $wb.Profile = ConvertTo-WorkbenchUiHashtable -InputObject (New-WorkbenchProfileObject -ApplicationId ([string]$wb.Application.ApplicationId) -ProfileId $wb.ProfileId -Name $name)
+        $wb.Profile['Revision'] = $revision
+        & $loadProfileIntoUi
+        $wb.Dirty = $true
+        & $markDirty
+    })
+
+    $btnSave.Add_Click({ [void](& $saveProfile '') })
+    $btnSaveAs.Add_Click({
+        $name = Show-WorkbenchNameDialog -Owner $win -Title 'Name for the new profile' -Value ([string]$wb.Profile.Name + ' copy')
+        if ($name) { [void](& $saveProfile $name) }
+    })
+    $btnValidate.Add_Click({
+        [void](& $validateProfile)
+        $lstSections.SelectedIndex = 6
+        & $setStatus 'Validation inspected the profile without running anything. Results are per target.'
+    })
+
+    $runFromWorkbench = {
+        param([string]$operation)
+        if ($wb.Dirty) {
+            if (-not (& $confirmDiscard 'Save the profile before this run? A run uses the saved profile revision.')) { return }
+        }
+        $findings = @(& $validateProfile)
+        $blocking = @($findings | Where-Object { $_.Severity -eq 'Blocking' -and [string]$_.Code -notlike '*INTUNE*' })
+        if ($blocking.Count -gt 0) {
+            [void](Show-ThemedMessage -Owner $win -Title 'Blocked' -Message ('This profile has blocking findings: ' + [string]$blocking[0].Message) -Buttons OK -Icon Warning)
+            return
+        }
+        if (-not [string]$wb.Application.ScriptPath) {
+            [void](Show-ThemedMessage -Owner $win -Title $operation `
+                -Message 'This application has no packager script. Bring-your-own applications run through the installer intake flow.' -Buttons OK -Icon Info)
+            return
+        }
+        $selectedBuild = [string]$cboBuild.SelectedItem
+        if ($operation -eq 'Package' -and ($selectedBuild -eq 'No sealed builds' -or -not $selectedBuild)) {
+            [void](Show-ThemedMessage -Owner $win -Title 'Package' `
+                -Message 'No sealed build exists for this profile. Stage it first; Package consumes an exact build id, not the newest manifest on disk.' -Buttons OK -Icon Warning)
+            return
+        }
+        $win.Close()
+        $row = @($script:PackagerData | Where-Object { [string]$_.FullPath -eq [string]$wb.Application.ScriptPath })
+        if ($row.Count -eq 0) {
+            Add-LogLine -Message ('Workbench run skipped: {0} is not in the current grid.' -f [string]$wb.Application.DisplayName)
+            return
+        }
+        Add-LogLine -Message ('Workbench {0}: {1} (profile {2}, revision {3})' -f $operation, [string]$wb.Application.DisplayName, [string]$wb.Profile.Name, [string]$wb.Profile.Revision)
+        Invoke-WorkbenchRun -Operation $operation -Rows $row -BuildId $(if ($operation -eq 'Package') { $selectedBuild } else { '' })
+    }
+    $btnStage.Add_Click({ & $runFromWorkbench 'Stage' })
+    $btnPackage.Add_Click({ & $runFromWorkbench 'Package' })
+
+    $win.Add_Closing({
+        param($s, $e)
+        if ($wb.Dirty) {
+            if (-not (& $confirmDiscard 'This profile has unsaved changes. Save them before closing?')) {
+                $e.Cancel = $true
+                return
+            }
+        }
+        $parseTimer.Stop()
+        Save-WindowState -Window $win -Path (Get-WorkbenchWindowStatePath)
+    })
+
+    # ---- Population ---------------------------------------------------
+    $apps = @(Get-WorkbenchUiApplications)
+    foreach ($a in $apps) {
+        $label = [string]$a.DisplayName
+        if ([string]$a.Publisher) { $label = [string]$a.Publisher + ' - ' + $label }
+        $a | Add-Member -NotePropertyName DisplayLabel -NotePropertyValue $label -Force
+    }
+    $wb.Applications = @($apps | Sort-Object DisplayLabel)
+    if (@($wb.Applications).Count -eq 0) {
+        [void](Show-ThemedMessage -Owner $Owner -Title 'Application Workbench' `
+            -Message 'No applications were found. Load packagers or save a bring-your-own installer first.' -Buttons OK -Icon Info)
+        return
+    }
+    foreach ($a in $wb.Applications) { [void]$cboApplication.Items.Add([string]$a.DisplayLabel) }
+
+    $initial = $null
+    if ($PreselectApplicationId) { $initial = @($wb.Applications | Where-Object { [string]$_.ApplicationId -eq $PreselectApplicationId })[0] }
+    if (-not $initial -and $PreselectPackagerBase) { $initial = @($wb.Applications | Where-Object { [string]$_.PackagerBase -eq $PreselectPackagerBase })[0] }
+    if (-not $initial) { $initial = $wb.Applications[0] }
+
+    $lstSections.SelectedIndex = 0
+    & $selectApplication $initial ''
+    $wb.Loading = $true
+    try { $cboApplication.SelectedItem = [string]$initial.DisplayLabel } finally { $wb.Loading = $false }
+
+    if ($Probe) {
+        # UI probe seam: the window is fully built and populated but never
+        # shown, so a headless run can drive the same handlers.
+        & $Probe @{
+            Window            = $win
+            State             = $wb
+            Sections          = $lstSections
+            Panels            = $sectionPanels
+            Find              = $ctl
+            Commit            = $commitUi
+            Save              = $saveProfile
+            Validate          = $validateProfile
+            Reload            = $loadProfileIntoUi
+            SelectApplication = $selectApplication
+            ConfirmDiscard    = $confirmDiscard
+            MarkDirty         = $markDirty
+            Refresh           = $refreshEditors
+        }
+        $parseTimer.Stop()
+        return
+    }
+
+    Restore-WindowState -Window $win -Path (Get-WorkbenchWindowStatePath)
+    [void]$win.ShowDialog()
+}
+
+function New-WorkbenchPipelineContext {
+    # Every per-app map is built here on the UI thread: the background
+    # runspace has its own session state and cannot read the preferences.
+    param(
+        [Parameter(Mandatory)][ValidateSet('Stage', 'Package')][string]$Operation,
+        [array]$Rows = @(),
+        [AllowEmptyString()][string]$BuildId = ''
+    )
+    $target = [string]$script:Prefs.Intune.DeploymentTarget
+    $context = @{
+        DownloadRoot   = $script:Prefs.DownloadRoot
+        M365Channel    = $script:Prefs.M365Channel
+        M365DeployMode = $script:Prefs.M365DeployMode
+        LogFolder      = Join-Path $PSScriptRoot 'Logs'
+        SevenZipPath   = Get-SevenZipPathForContext
+        RunPlanByApp   = Get-WorkbenchRunPlanForContext -Rows $Rows -Target $target
+        SigningJson    = Get-WorkbenchSigningPolicyJson
+        SigningDigest  = Get-WorkbenchSigningPolicyDigest
+    }
+    if ($Operation -eq 'Package') {
+        $context['SiteCode']             = $script:Prefs.SiteCode
+        $context['ProviderMachineName']  = $script:Prefs.ProviderMachineName
+        $context['Comment']              = $txtComment.Text.Trim()
+        $context['FileShareRoot']        = $script:Prefs.FileShareRoot
+        $context['ContentLayout']        = $script:Prefs.ContentLayout
+        $context['EstimatedRuntimeMins'] = $script:Prefs.EstimatedRuntimeMins
+        $context['MaximumRuntimeMins']   = $script:Prefs.MaximumRuntimeMins
+        $context['IntuneWinCreate']      = ([bool]$script:Prefs.Intune.CreateIntuneWin -and -not [string]::IsNullOrWhiteSpace((Get-IntuneWinToolPathForContext)))
+        $context['IntuneWinToolPath']    = Get-IntuneWinToolPathForContext
+        $context['RequirementsByApp']    = Get-RequirementsMapForContext
+        $context['VariantsByApp']        = Get-VariantsMapForContext
+        $context['CommandsByApp']        = Get-CommandsMapForContext
+        $context['InstallModesByApp']    = Get-InstallModesMapForContext
+        $context['TitleModesByApp']      = Get-TitleModesMapForContext
+        $context['IntunePublishConfig']  = Get-IntunePublishConfigForContext
+        $context['DeploymentTarget']     = $target
+        $context['BuildId']                = $BuildId
+    }
+    return $context
+}
+
+function Invoke-WorkbenchRun {
+    # Stage or Package a single application through the shared pipeline, so
+    # a workbench run lands the same history and status a grid run does.
+    param(
+        [Parameter(Mandatory)][ValidateSet('Stage', 'Package')][string]$Operation,
+        [Parameter(Mandatory)][array]$Rows,
+        [AllowEmptyString()][string]$BuildId = ''
+    )
+    $context = New-WorkbenchPipelineContext -Operation $Operation -Rows $Rows -BuildId $BuildId
+    Invoke-MultiAppPipeline -Operation $Operation -Rows $Rows -Context $context
+}
+
+function New-ScriptSigningPanel {
+    # Signing creation and signature enforcement are separate: every
+    # switch here defaults off, and a Require flag blocks a publish rather
+    # than falling back to unsigned content.
+    $xaml = @'
+<ScrollViewer xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+      VerticalScrollBarVisibility="Auto">
+    <StackPanel>
+        <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,12"
+                   Text="Authenticode signing for the scripts AppPackager generates. Signing a detection script does not sign install wrappers, and signing deployment scripts does not sign requirement scripts. A local signature check does not prove the certificate is trusted on your clients."/>
+
+        <TextBlock Text="Sign" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
+        <CheckBox x:Name="chkSignDetection" FontSize="12" Margin="0,0,0,4"
+                  Content="Sign detection scripts" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                  ToolTip="Signs generated and custom detection scripts. An unchanged import carrying a valid third-party signature is left alone."/>
+        <CheckBox x:Name="chkSignRequirements" FontSize="12" Margin="0,0,0,4"
+                  Content="Sign requirement scripts and script global conditions" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                  ToolTip="Covers script-based requirement rules including the VPN predicate. WQL and native rules need no signature."/>
+        <CheckBox x:Name="chkSignDeployment" FontSize="12" Margin="0,0,0,12"
+                  Content="Sign install and uninstall PowerShell scripts" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                  ToolTip="Signs the deployment execution chain and removes the execution-policy argument from its generated launchers, letting the configured endpoint policy govern."/>
+
+        <TextBlock Text="Require valid signatures" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
+        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,6"
+                   Text="A publishing constraint, not a change to client execution policy. When a required category fails verification the build stops; there is no unsigned fallback."/>
+        <CheckBox x:Name="chkRequireDetection" FontSize="12" Margin="0,0,0,4"
+                  Content="Require valid detection signatures" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+        <CheckBox x:Name="chkRequireRequirements" FontSize="12" Margin="0,0,0,4"
+                  Content="Require valid requirement signatures" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+        <CheckBox x:Name="chkRequireDeployment" FontSize="12" Margin="0,0,0,12"
+                  Content="Require valid deployment script signatures" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+
+        <TextBlock Text="Signing identity" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
+        <Grid Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="150"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Certificate store" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
+            <ComboBox  Grid.Row="0" Grid.Column="1" x:Name="cboSignStore" FontSize="12" Height="26" Margin="0,0,0,6"
+                       ToolTip="CurrentUser\My is the supported identity. LocalMachine\My needs an explicit choice and tested private-key access."/>
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Certificate" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
+            <ComboBox  Grid.Row="1" Grid.Column="1" x:Name="cboSignCertificate" FontSize="12" Height="26" Margin="0,0,0,6"
+                       ToolTip="Selected by thumbprint. A renewed certificate is a new thumbprint and needs reselecting here."/>
+            <Button    Grid.Row="1" Grid.Column="2" x:Name="btnSignRefresh" Content="Refresh" MinWidth="80" Height="26" Margin="8,0,0,6"
+                       Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+
+            <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" x:Name="txtSignCertDetail" FontSize="11" TextWrapping="Wrap"
+                       Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,8"/>
+
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Timestamp server" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
+            <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtSignTimestamp" FontSize="12" Height="26" Margin="0,0,0,6"
+                       Controls:TextBoxHelper.Watermark="none"
+                       ToolTip="A timestamped signature stays valid after the certificate expires. A signature that exists is not the same as a verified timestamp."/>
+            <CheckBox  Grid.Row="4" Grid.Column="1" x:Name="chkSignTimestampRequired" FontSize="12" Margin="0,0,0,6"
+                       Content="Timestamp required" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                       ToolTip="With this on, a timestamp server failure fails the signed build instead of producing an untimestamped signature."/>
+        </Grid>
+
+        <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
+            <Button x:Name="btnSignTest" Content="Test signing configuration" MinWidth="200" Height="30" Margin="0,0,10,0"
+                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    ToolTip="Signs and verifies a temporary file with the selected certificate. Nothing is published."/>
+        </StackPanel>
+        <TextBlock x:Name="txtSignTestResult" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
+
+        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
+                   Text="Private keys are never exported and never reach profiles, manifests, logs or command lines. A key held on a hardware token may require a PIN and can prevent unattended runs."/>
+    </StackPanel>
+</ScrollViewer>
+'@
+
+    [xml]$xml = $xaml
+    $reader  = New-Object System.Xml.XmlNodeReader $xml
+    $element = [System.Windows.Markup.XamlReader]::Load($reader)
+
+    $chkSignDetection    = $element.FindName('chkSignDetection')
+    $chkSignRequirements = $element.FindName('chkSignRequirements')
+    $chkSignDeployment   = $element.FindName('chkSignDeployment')
+    $chkRequireDetection = $element.FindName('chkRequireDetection')
+    $chkRequireRequirements = $element.FindName('chkRequireRequirements')
+    $chkRequireDeployment = $element.FindName('chkRequireDeployment')
+    $cboSignStore        = $element.FindName('cboSignStore')
+    $cboSignCertificate  = $element.FindName('cboSignCertificate')
+    $btnSignRefresh      = $element.FindName('btnSignRefresh')
+    $txtSignCertDetail   = $element.FindName('txtSignCertDetail')
+    $txtSignTimestamp    = $element.FindName('txtSignTimestamp')
+    $chkSignTimestampRequired = $element.FindName('chkSignTimestampRequired')
+    $btnSignTest         = $element.FindName('btnSignTest')
+    $txtSignTestResult   = $element.FindName('txtSignTestResult')
+
+    foreach ($v in @('CurrentUser', 'LocalMachine')) { [void]$cboSignStore.Items.Add($v) }
+
+    $signing = $script:Prefs.ScriptSigning
+    $chkSignDetection.IsChecked    = [bool]$signing.SignDetection
+    $chkSignRequirements.IsChecked = [bool]$signing.SignRequirements
+    $chkSignDeployment.IsChecked   = [bool]$signing.SignDeployment
+    $chkRequireDetection.IsChecked = [bool]$signing.RequireDetection
+    $chkRequireRequirements.IsChecked = [bool]$signing.RequireRequirements
+    $chkRequireDeployment.IsChecked = [bool]$signing.RequireDeployment
+    $cboSignStore.SelectedItem     = $(if ([string]$signing.StoreLocation -eq 'LocalMachine') { 'LocalMachine' } else { 'CurrentUser' })
+    $txtSignTimestamp.Text         = [string]$signing.TimestampServer
+    $chkSignTimestampRequired.IsChecked = [bool]$signing.TimestampRequired
+
+    # Thumbprints run parallel to the combo items; selection is by
+    # thumbprint only, never by subject or list position.
+    $state = @{ Thumbprints = @('') }
+
+    $loadCertificates = {
+        $cboSignCertificate.Items.Clear()
+        $state.Thumbprints = @('')
+        [void]$cboSignCertificate.Items.Add('(none selected)')
+        $cmd = Get-WorkbenchCommand -Name 'Get-CodeSigningCertificateCandidates'
+        if (-not $cmd) {
+            $txtSignCertDetail.Text = 'The signing service is not loaded, so no certificates can be listed. Signing stays off until it is installed.'
+            $cboSignCertificate.SelectedIndex = 0
+            $cboSignCertificate.IsEnabled = $false
+            $btnSignTest.IsEnabled = $false
+            return
+        }
+        $cboSignCertificate.IsEnabled = $true
+        $btnSignTest.IsEnabled = $true
+        $candidates = @()
+        try { $candidates = @(& $cmd -StoreLocation ([string]$cboSignStore.SelectedItem)) }
+        catch { $txtSignCertDetail.Text = 'Certificate enumeration failed: ' + $_.Exception.Message }
+        foreach ($c in $candidates) {
+            $label = ('{0}  (expires {1})' -f [string]$c.Subject, ([datetime]$c.NotAfter).ToString('yyyy-MM-dd'))
+            if (-not [bool]$c.Usable) { $label += '  [unusable]' }
+            [void]$cboSignCertificate.Items.Add($label)
+            $state.Thumbprints += [string]$c.Thumbprint
+        }
+        $state['Candidates'] = $candidates
+        $idx = [array]::IndexOf($state.Thumbprints, [string]$signing.CertificateThumbprint)
+        if ($idx -lt 0) { $idx = 0 }
+        $cboSignCertificate.SelectedIndex = $idx
+        if ($candidates.Count -eq 0) {
+            $txtSignCertDetail.Text = 'No code-signing certificate with a private key was found in ' + [string]$cboSignStore.SelectedItem + '\My.'
+        }
+    }.GetNewClosure()
+
+    $showDetail = {
+        $idx = $cboSignCertificate.SelectedIndex
+        if ($idx -le 0) {
+            $txtSignCertDetail.Text = 'No certificate selected. Signing cannot run until one is chosen by thumbprint.'
+            return
+        }
+        $thumb = [string]@($state.Thumbprints)[$idx]
+        $c = @($state['Candidates'] | Where-Object { [string]$_.Thumbprint -eq $thumb })
+        if ($c.Count -eq 0) { return }
+        $c = $c[0]
+        $lines = @(
+            'Subject: ' + [string]$c.Subject
+            'Issuer: ' + [string]$c.Issuer
+            'Valid: ' + ([datetime]$c.NotBefore).ToString('yyyy-MM-dd') + ' to ' + ([datetime]$c.NotAfter).ToString('yyyy-MM-dd')
+            'Thumbprint: ' + $thumb
+            'Usable: ' + $(if ([bool]$c.Usable) { 'yes' } else { 'no - ' + [string]$c.Reason })
+        )
+        $txtSignCertDetail.Text = ($lines -join '   ')
+    }.GetNewClosure()
+
+    & $loadCertificates
+    & $showDetail
+
+    # The panel builder returns before any of these fire, so each handler
+    # takes a closure over the builder's scope rather than relying on it.
+    $cboSignStore.Add_SelectionChanged({ & $loadCertificates; & $showDetail }.GetNewClosure())
+    $btnSignRefresh.Add_Click({ & $loadCertificates; & $showDetail }.GetNewClosure())
+    $cboSignCertificate.Add_SelectionChanged({ & $showDetail }.GetNewClosure())
+
+    $btnSignTest.Add_Click({
+        $cmd = Get-WorkbenchCommand -Name 'Test-SigningConfiguration'
+        if (-not $cmd) {
+            $txtSignTestResult.Text = 'The signing service is not loaded; the test cannot run.'
+            return
+        }
+        $idx = $cboSignCertificate.SelectedIndex
+        $thumb = $(if ($idx -gt 0) { [string]@($state.Thumbprints)[$idx] } else { '' })
+        $policy = [pscustomobject]@{
+            SignDetection         = ($chkSignDetection.IsChecked -eq $true)
+            SignRequirements      = ($chkSignRequirements.IsChecked -eq $true)
+            SignDeployment        = ($chkSignDeployment.IsChecked -eq $true)
+            RequireDetection      = ($chkRequireDetection.IsChecked -eq $true)
+            RequireRequirements   = ($chkRequireRequirements.IsChecked -eq $true)
+            RequireDeployment     = ($chkRequireDeployment.IsChecked -eq $true)
+            CertificateThumbprint = $thumb
+            StoreLocation         = [string]$cboSignStore.SelectedItem
+            TimestampServer       = ([string]$txtSignTimestamp.Text).Trim()
+            TimestampRequired     = ($chkSignTimestampRequired.IsChecked -eq $true)
+            HashAlgorithm         = 'SHA256'
+        }
+        $txtSignTestResult.Text = 'Testing...'
+        $btnSignTest.IsEnabled = $false
+        try {
+            $result = & $cmd -Policy $policy
+            $txtSignTestResult.Text = ('Status: {0}. Timestamp verified: {1}. {2}' -f `
+                [string]$result.Status, [string]$result.TimestampVerified, [string]$result.Reason)
+        }
+        catch {
+            $txtSignTestResult.Text = 'Test failed: ' + $_.Exception.Message
+        }
+        finally { $btnSignTest.IsEnabled = $true }
+    }.GetNewClosure())
+
+    $prefsRef = $script:Prefs
+    $commit = {
+        $idx = $cboSignCertificate.SelectedIndex
+        $thumb = $(if ($idx -gt 0) { [string]@($state.Thumbprints)[$idx] } else { '' })
+        $prefsRef.ScriptSigning.SignDetection       = ($chkSignDetection.IsChecked -eq $true)
+        $prefsRef.ScriptSigning.SignRequirements    = ($chkSignRequirements.IsChecked -eq $true)
+        $prefsRef.ScriptSigning.SignDeployment      = ($chkSignDeployment.IsChecked -eq $true)
+        $prefsRef.ScriptSigning.RequireDetection    = ($chkRequireDetection.IsChecked -eq $true)
+        $prefsRef.ScriptSigning.RequireRequirements = ($chkRequireRequirements.IsChecked -eq $true)
+        $prefsRef.ScriptSigning.RequireDeployment   = ($chkRequireDeployment.IsChecked -eq $true)
+        $prefsRef.ScriptSigning.CertificateThumbprint = $thumb
+        $prefsRef.ScriptSigning.StoreLocation       = [string]$cboSignStore.SelectedItem
+        $prefsRef.ScriptSigning.TimestampServer     = ([string]$txtSignTimestamp.Text).Trim()
+        $prefsRef.ScriptSigning.TimestampRequired   = ($chkSignTimestampRequired.IsChecked -eq $true)
+        $prefsRef.ScriptSigning.HashAlgorithm       = 'SHA256'
+    }.GetNewClosure()
+
+    return @{ Name = 'Script Signing'; Element = $element; Commit = $commit }
+}
+
 
 # =============================================================================
 # Window lifecycle

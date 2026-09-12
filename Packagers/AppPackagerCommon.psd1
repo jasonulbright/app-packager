@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AppPackagerCommon.psm1'
-    ModuleVersion     = '0.0.25'
+    ModuleVersion     = '0.0.26'
     GUID              = 'f5cdd2d6-eb09-47bd-8493-16dfd5666455'
     Author            = 'AppPackager'
     Description       = 'Shared helpers for AppPackager packager scripts.'
@@ -12,6 +12,12 @@
         # Download
         'Invoke-DownloadWithRetry'
         'Invoke-CachedDownload'
+        'Test-IsAppPackagerTestHost'
+        'Resolve-CommonSigningPolicy'
+        'Get-PolicyFlag'
+        'Get-StageManifestPlanDigest'
+        'Get-DeploymentLauncherCommandLine'
+        'Resolve-DeploymentTypeTiming'
         'Get-GitHubApiCurlArgs'
 
         # Environment / pre-flight
@@ -23,6 +29,8 @@
         # Network path
         'Get-NetworkAppRoot'
         'Get-NetworkContentPath'
+        'Get-ProfileContentScope'
+        'Get-ProfileScopedVersionFolder'
 
         # MSI / ARP
         'Get-MsiPropertyMap'
@@ -66,9 +74,17 @@
         'Save-ConditionTemplates'
         'New-VpnConditionScriptText'
         'Get-OrCreateGlobalConditionFromTemplate'
+        'Get-SdmPackageScriptText'
+        'ConvertFrom-CMEncodedScriptBody'
+        'Get-CMGlobalConditionScriptText'
+        'Get-CMDeploymentTypeDetectionScript'
+        'Test-StoredDetectionScript'
+        'Test-StoredScriptSignature'
+        'Resolve-DetectionScriptTransport'
         'Get-DeploymentTypeRequirementSpecs'
         'New-DeploymentTypeRequirementRules'
         'Get-ManifestDeploymentTypeSpecs'
+        'Test-ResolvedDeploymentCommand'
         'Get-RequestedPackagerVariants'
         'Get-RequestedCommandOverrides'
         'Get-RequestedInstallMode'
@@ -81,6 +97,11 @@
         'Invoke-GraphJson'
         'Invoke-AzureBlobUpload'
         'ConvertTo-IntuneWin32Rules'
+        'Get-IntuneCompatibilityFindings'
+        'Get-IntuneAllowedArchitecture'
+        'Get-IntuneIdentityTag'
+        'Get-IntuneScriptRuleSettings'
+        'New-IntuneDetectionScriptRule'
         'Publish-IntuneWin32App'
 
         # Intune Win32 content prep
@@ -104,7 +125,8 @@
         'Update-PackagerHistory'
 
         # Ad-hoc drop intake
-        'Get-InstallerAnalysis'
+        'Get-InstallerAnalysis',
+        'Assert-ArpDetectionKey'
         'Set-InstallerAnalysisMode'
         'New-AdHocStage'
         'Invoke-AdHocPackage'

@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](#prerequisites)
 [![License](https://img.shields.io/github/license/jasonulbright/app-packager)](LICENSE)
 
-Automated application packaging for MECM and Intune: 285 enterprise applications, each one click from vendor download to deployed app. AppPackager checks the vendor for the latest version, downloads and verifies the installer, generates silent install/uninstall wrappers and detection rules, and creates the MECM Application — or builds the `.intunewin` and publishes it to Intune via Graph, no ConfigMgr site required. Drag any unknown `.msi`/`.exe` onto the window and it analyzes and packages that too. A companion version monitor flags stale deployments and looks up their CVEs. Built entirely in PowerShell 5.1 — the version that ships in the box on every supported Windows release, oldest to newest. Nothing to install, no add-ons, no agents, no subscription.
+Automated application packaging for MECM and Intune: 284 enterprise applications, each one click from vendor download to deployed app. AppPackager checks the vendor for the latest version, downloads and verifies the installer, generates silent install/uninstall wrappers and detection rules, and creates the MECM Application — or builds the `.intunewin` and publishes it to Intune via Graph, no ConfigMgr site required. Drag any unknown `.msi`/`.exe` onto the window and it analyzes and packages that too. A companion version monitor flags stale deployments and looks up their CVEs. Built entirely in PowerShell 5.1 — the version that ships in the box on every supported Windows release, oldest to newest. Nothing to install, no add-ons, no agents, no subscription.
 
 This is the class of work commercial third-party patching catalogs sell as a subscription. AppPackager covers a comparable application set — the coverage decision for each of 933 reviewed catalog entries is documented in [CATALOG-PARITY.csv](CATALOG-PARITY.csv) — runs entirely inside your environment, and is MIT-licensed.
 
@@ -28,7 +28,7 @@ Installs the latest release into `%LOCALAPPDATA%\AppPackager`. Only a zip crosse
 On an unrestricted network, the installer can do the whole flow itself — resolve the release from the GitHub API, download, verify SHA-256, extract:
 
 ```powershell
-curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 1.5.2.2
+curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 1.6.0.0
 ```
 
 Omitting `-ZipPath` makes it download and checksum-verify the requested release; `-InstallPath` picks the folder and `-Version` pins a release. `-Force` is required to replace a non-empty folder that holds no existing AppPackager install. If even the curl download is blocked, fetch the zip in a browser and run the same `-ZipPath` command against it.
@@ -144,13 +144,15 @@ CWA switches persist to `Packagers/citrix-workspace-switches.json`; TeamViewer H
 
 **Product Filter** — show or hide individual packager scripts in the main grid, grouped by vendor in a checkbox TreeView with Select All / Select None helpers. Hidden applications persist to `AppPackager.preferences.json`. On the first Check MECM run, the tool offers to auto-hide applications not found in your MECM environment.
 
-**Deployment Conditions** — per-app requirement rules attached to the deployment type each Package run creates. The client evaluates requirement rules at deployment evaluation time, so no collections (and no collection-evaluation load) are involved. Three conditions ship:
+**Deployment Conditions** — the condition templates and environment defaults behind the requirement rules each Package run attaches to the deployment type. The client evaluates requirement rules at deployment evaluation time, so no collections (and no collection-evaluation load) are involved. Per-app rules are edited in the [Application Workbench](#application-workbench); this panel keeps the site-level condition names and VPN adapter patterns and shows the legacy per-app map read-only with an **Open in Workbench** button. Three conditions ship:
 
 - **Architecture** — `Any` / `x64 only` / `ARM64 only`, backed by a WQL global condition on `Win32_Processor.Architecture` (9 = x64, 12 = ARM64). The numeric property compares identically on every OS language, and unlike the OS-platform requirement list it needs no update when a new Windows version releases.
 - **OS languages** — comma-separated culture codes (e.g. `de-DE, en-US`) mapped onto the site's built-in Operating System Language condition with a OneOf rule. Useful when a packaged build is single-language and MUI or English builds are deployed separately.
 - **Network** — `Any` / `VPN only` / `On-site only`, backed by a Boolean script global condition that reports whether an IP-enabled adapter description matches a configurable VPN client pattern list (or an interface alias contains `vpn`). `VPN only` suits a small CDN-sourced deployment that should avoid pulling large content over the tunnel; `On-site only` suits its full-content counterpart.
 
 ![Deployment Conditions](screenshots/deployment-conditions.png)
+
+The per-app columns below describe settings that are now edited in the workbench, one application at a time; the environment JSON the packager child receives is unchanged.
 
 A **Variant split** column offers multi-deployment-type staging where a packager declares it with a `SupportsVariants:` header tag (`Architecture`, `Language`, `Network`): one application, one deployment type per variant, each gated by its own requirement rules with an unconditional fallback last. The selection reaches the packager as `APP_PACKAGER_VARIANTS` environment JSON; packagers without the tag keep the single-deployment-type flow and the column stays disabled.
 
@@ -162,9 +164,31 @@ Before copying content or changing MECM, Package and One Click Stage-and-Package
 
 Under **Options > Deployment Conditions > Application title**, choose per app: **Packager default**, **Include version** (separate applications per release), or **No version** (one perpetual application, useful for browsers). Versionless updates still ask before overwriting. Content folders and detection remain versioned. Changing the setting does not rename or migrate existing applications or deployments; choose the desired naming before establishing a perpetual deployment. Software Center display-name overrides are unchanged.
 
-Global conditions are created on the site the first time a rule needs them and are matched by name, so changing a condition's name in the panel attaches to a condition the site already has instead of creating a duplicate. The panel's per-app grid persists to `AppPackager.preferences.json`; condition names and VPN adapter patterns persist to `Packagers/condition-templates.json` (built-in defaults apply until the panel writes it). Selections apply on Package and One Click Stage-and-Package runs, and requirement resolution fails the run before anything is created when a rule can't be built — a package never silently ships without the rules configured for it.
+Global conditions are created on the site the first time a rule needs them and are matched by name, so changing a condition's name in the panel attaches to a condition the site already has instead of creating a duplicate. A signed or changed script condition gets its own name carrying a short content hash, so an existing condition is never rewritten under another application's feet. The panel's per-app grid persists to `AppPackager.preferences.json`; condition names and VPN adapter patterns persist to `Packagers/condition-templates.json` (built-in defaults apply until the panel writes it). Selections apply on Package and One Click Stage-and-Package runs, and requirement resolution fails the run before anything is created when a rule can't be built — a package never silently ships without the rules configured for it.
+
+**Script signing** — Authenticode signing for the scripts AppPackager stages. Three independent sign switches (detection script, requirement scripts, install/uninstall scripts) and three matching require switches; a require switch fails the run instead of publishing unsigned content. The certificate is picked by thumbprint from `CurrentUser\Personal` or `LocalMachine\Personal` — each candidate row says whether the certificate is usable and why not when it isn't. Optional timestamp server with a "timestamp required" switch. **Test signing configuration** signs and verifies a temporary file and reports whether the signature is intact, whether this host trusts the chain, and whether the key would prompt for a PIN.
+
+Two things to know before turning it on. The endpoints must trust the publisher: a valid signature is not the same as a trusted one, so the signing certificate has to reach the client's Trusted Publisher store. And signed mode removes `-ExecutionPolicy Bypass` from the generated launchers, so the client's effective execution policy decides whether the script runs.
 
 **About** — application name, installed version (parsed from the script header, the single source of truth), MIT license, a clickable link to the GitHub repository, the timestamp of the last update check, and the latest known release. The same **Update now** action offered in the sidebar is repeated here, enabled only once a check has actually found a newer release; a **Release notes** button opens the releases page.
+
+### Application Workbench
+
+**Application Workbench** in the sidebar opens one window for everything that used to live in per-app columns and dialogs. A row's right-click **Edit application...** and a double-click on the row open it on that application.
+
+- Sections: Application, Install & uninstall, Detection, Requirements & variants, Timing & execution, Source files, Review & build.
+- Application — display name, publisher, description, title mode, custom icon.
+- Install & uninstall — keep the generated command, extend it with before/after hook scripts, or replace it with your own script. Return codes, reboot policy and working directory are editable.
+- Detection — inherit the packager's rule or write your own: registry, file, script, or clauses.
+- Requirements & variants — add, replace or remove requirement rules; per-variant overrides.
+- Timing & execution — estimated and maximum runtime, install context, logon requirement, user interaction, script host bitness.
+- Source files — extra files copied into the staged content at a destination you pick.
+- Review & build — local validation plus MECM and Intune findings, then Stage or Package from the same window.
+- Profiles — every change lives in a named profile per application. **Save** updates the active profile, **Save as** copies it. `default` is the packager's own behavior and is never edited in place; the first Save asks for a name.
+- Unsaved edits are kept as a draft and offered again when you reopen the application.
+- Options keeps what is not per app: environment defaults, condition templates, and script signing.
+- Data lives under `%LOCALAPPDATA%\AppPackagerData\Workbench`, outside the install folder, so an update never touches it. Override it with the `WorkbenchDataRoot` preference or `APP_PACKAGER_WORKBENCH_ROOT`.
+- Every build carries an identity: application, profile, profile revision, build id. One Click rebuilds when the vendor version, the profile revision or the signing policy changed, and Package consumes the exact build you selected instead of the newest folder on disk.
 
 ### Sidebar comment and toggles
 
@@ -200,6 +224,31 @@ Run a packager script directly:
 .\Packagers\package-chrome.ps1 -GetLatestVersionOnly
 ```
 
+Or drive one application through a workbench profile without the GUI:
+
+```powershell
+# Stage 7-Zip through the "Managed" profile
+.\Invoke-AppPackagerBuild.ps1 -Application catalog:package-7zip -Profile Managed -Stage
+
+# Stage and package with runtime run overrides for this build only
+.\Invoke-AppPackagerBuild.ps1 -Application package-git.ps1 -Profile default -Target MECM -Stage -Package -EstimatedMinutes 10 -MaximumMinutes 25
+```
+
+| Parameter | Description |
+|---|---|
+| `-Application` | `catalog:package-7zip`, `custom:<script>`, `byo:<id>`, or a packager file name |
+| `-Profile` | Profile name or id; `default` (the packager's own behavior) when omitted |
+| `-Version` | Package this version instead of the latest |
+| `-Target` | `ContentOnly`, `MECM` (default), `MECMAndIntune`, `IntuneOnly` |
+| `-Stage` / `-Package` | One or both phases; at least one is required |
+| `-DownloadRoot` | Local staging root; a non-default profile stages under its own subfolder |
+| `-EstimatedMinutes` / `-MaximumMinutes` | Run overrides for this build; never written back to the profile |
+| `-PackagersRoot` / `-LogFolder` | Locations, defaulting beside the script |
+| `-SiteCode` / `-ProviderMachineName` / `-FileServerPath` | MECM connection and share, as the packagers take them |
+| `-Comment` | Administrative comment stored on the application |
+
+It creates the run snapshot, sets the child environment and launches the packager exactly as the GUI does, so a scheduled build and a button click produce the same content.
+
 All packager scripts accept the same core parameters:
 
 | Parameter | Description |
@@ -210,6 +259,10 @@ All packager scripts accept the same core parameters:
 | `APP_PACKAGER_VARIANTS` | Optional environment JSON selecting a multi-deployment-type variant split for packagers that declare `SupportsVariants:`; the GUI sets it from the Variant split column |
 | `APP_PACKAGER_INSTALL_MODE` | Optional `CurrentUser` or `AllUsers` for packagers that declare `SupportsInstallModes:`; the Stage phase rewrites arguments, uninstaller, detection and install behavior from that branch of the installer. The GUI sets it from the Install for column |
 | `APP_PACKAGER_COMMANDS` | Optional environment JSON of per-app install/uninstall command overrides; the GUI sets it from the Commands editor. Ignored with a warning when a DeploymentTypes manifest carries per-deployment-type commands |
+| `APP_PACKAGER_RUN_SNAPSHOT` | Path of this run's snapshot: the application, profile, profile revision, resolved assets and run overrides the Stage phase applies. Set by the GUI and the CLI; absent means the packager's own defaults |
+| `APP_PACKAGER_SIGNING` | Optional environment JSON of the script signing policy; the GUI sets it from Options > Script signing |
+| `APP_PACKAGER_WORKBENCH_ROOT` | Optional override of the workbench data root (default `%LOCALAPPDATA%\AppPackagerData\Workbench`), so a child resolves the same store as its caller |
+| `APP_PACKAGER_DOWNLOAD_ROOT` | Optional root whose `_cache` folder holds downloaded installers, shared by every profile of every application |
 | `APP_PACKAGER_ON_EXISTING` | Optional `Skip` (default), `Overwrite`, or `Fail`, deciding what a Package run does when the site already holds this application at this version. `Overwrite` replaces the deployment types in place, keeping the application object and its deployments. An unrecognized value fails the run |
 | `-Comment` | Optional administrative comment stored on the CM Application Description |
 | `-FileServerPath` | UNC root containing the `Applications` folder (default: `\\fileserver\sccm$`) |
@@ -222,13 +275,11 @@ All packager scripts accept the same core parameters:
 | `-OnExisting` | Passed through to `New-MECMApplicationFromManifest`: `Skip` / `Overwrite` / `Fail`. Outranks `APP_PACKAGER_ON_EXISTING`; unset falls through to that variable and then to `Skip` |
 | `-LogPath` | Path to a structured log file (timestamps + severity levels) |
 
-## Supported Applications (285)
+## Supported Applications (284)
 
-All 285 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op.
+All 284 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op.
 
 The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting every viable entry from a 933-application enterprise catalog review. [CATALOG-PARITY.csv](CATALOG-PARITY.csv) records the disposition and reasoning for all 933 entries — what was added, what was already covered, and why each skipped application was skipped (licensed suites, managed agents, end-of-life products, download walls, component libraries, and niche tools, each with evidence). Every packager is verified at stage level with installer magic-byte checks before content is accepted; a core set is additionally end-to-end validated against a live MECM site.
-
-`package-specexec-mitigations.ps1` is the repo's first multi-deployment-type packager: one application, six Script deployment types (Intel HT-on / Intel HT-off / AMD, each in standard and Hyper-V-host variants), routed by global-condition requirement rules (CPU vendor WQL, HT-state script, Hyper-V vmms registry key) and detected by `FeatureSettingsOverride` / `FeatureSettingsOverrideMask` DWORDs. It generates its own content (no vendor download); `-GetLatestVersionOnly` reports the pinned `-ContentVersion`. Deployment targets: the SpecExec collections from the general-scripts repo (`MECM/Collections/New-SpecExecTargetCollections.ps1`).
 
 | Script | Vendor | Application | Detection Type |
 |---|---|---|---|
@@ -441,7 +492,6 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-smathstudio.ps1 | SMath | SMath Studio | RegistryKey existence |
 | package-soapui.ps1 | SmartBear Software | SoapUI | File existence |
 | package-softerraldapbrowser.ps1 | Softerra | Softerra LDAP Browser | RegistryKeyValue |
-| package-specexec-mitigations.ps1 | Microsoft | Speculative Execution Mitigations (Intel-AMD-BHI) | RegistryKeyValue (per-DT DWORD) |
 | package-spectrapdf.ps1 | Signal Ridge Labs | Spectra PDF | RegistryKeyValue |
 | package-sqlserver2022express.ps1 | Microsoft | Microsoft SQL Server 2022 Express | RegistryKeyValue |
 | package-ssms.ps1 | Microsoft | SQL Server Management Studio 22 | File version |
@@ -537,7 +587,7 @@ The monitor discovers all `package-*.ps1` scripts in the sibling `Packagers/` fo
 
 | Feature | Details |
 |---|---|
-| **Packager discovery** | Auto-discovers every `package-*.ps1` script (285 today) via relative path |
+| **Packager discovery** | Auto-discovers every `package-*.ps1` script (284 today) via relative path |
 | **Version checking** | Calls each packager with `-GetLatestVersionOnly` |
 | **MECM comparison** | Queries ConfigMgr for deployed versions |
 | **NVD CVE lookup** | Queries NIST NVD API for stale apps with CPE headers |
@@ -650,6 +700,8 @@ C:\temp\ap\
           uninstall.ps1
 ```
 
+A named workbench profile gets its own version folder, `<Version>-<ProfileName>`, so two profiles of one release never share content; the packager default keeps `<Version>`.
+
 Every content folder contains **four wrapper files** alongside the installer. The `.bat` files are thin wrappers that call the corresponding `.ps1`:
 
 ```batch
@@ -657,6 +709,8 @@ Every content folder contains **four wrapper files** alongside the installer. Th
 PowerShell.exe -NonInteractive -ExecutionPolicy Bypass -File "%~dp0install.ps1"
 exit /b %ERRORLEVEL%
 ```
+
+With **Sign install/uninstall PowerShell scripts** enabled the launcher drops the execution-policy argument (`PowerShell.exe -NoProfile -NonInteractive -File "%~dp0install.ps1"`) and the `.ps1` files carry an Authenticode signature, so the client's effective execution policy governs.
 
 The `.ps1` files contain the actual install/uninstall logic using `Start-Process -Wait -PassThru -NoNewWindow` and `exit $proc.ExitCode` to propagate native installer return codes (0, 1603, 3010, etc.) through to MECM.
 
@@ -668,7 +722,7 @@ Written by the Stage phase, read by the Package phase. Contains all metadata nee
 
 ```json
 {
-  "SchemaVersion": 1,
+  "SchemaVersion": 4,
   "StagedAt": "2026-03-28T10:00:00Z",
   "AppName": "7-Zip - 26.00 (x64)",
   "Publisher": "Igor Pavlov",
@@ -692,7 +746,21 @@ Written by the Stage phase, read by the Package phase. Contains all metadata nee
 
 Five detection types are supported: `RegistryKeyValue`, `RegistryKey`, `File`, `Script`, and `Compound` (multiple clauses with AND/OR connectors).
 
-Optional fields for deployment tool integration (PSADT, Intune, custom wrappers): `InstallerType`, `InstallArgs`, `UninstallArgs`, `UninstallCommand`, `ProductCode`, `RunningProcess`. Two further optional fields, `InstallCommandLine` and `UninstallCommandLine`, override the deployment type's command lines entirely (default: the generated `install.bat` / `uninstall.bat`) — this is how PSADT-wrapped apps point MECM at the toolkit entry instead of the wrappers.
+Optional fields for deployment tool integration (PSADT, Intune, custom wrappers): `InstallerType`, `InstallArgs`, `UninstallArgs`, `UninstallCommand`, `ProductCode`, `RunningProcess`.
+
+Manifests are written at schema 4. The Package phase reads schema 3 and 4 and refuses anything newer, so an older build never gets read by guesswork. Schema 4 adds:
+
+| Field | Meaning |
+|---|---|
+| `BuildId` | Identity of this build (`yyyyMMdd-HHmmss-<hex>`); Package resolves content by it rather than by folder date |
+| `ApplicationId` / `ProfileId` / `ProfileRevision` | Which application and profile produced the content, and at which revision |
+| `Timing` | Estimated and maximum runtime carried into the deployment type; the manifest wins over the command-line defaults |
+| `Execution` | Install context, logon requirement, user interaction, script host bitness |
+| `DetectionSource` | `Default` for the packager's rule, `Custom` for a profile rule |
+| `InstallCommandLine` / `UninstallCommandLine` | The deployment type's command lines (default: the generated `install.bat` / `uninstall.bat`) — this is how PSADT-wrapped apps point MECM at the toolkit entry instead of the wrappers |
+| `SetupFile` | Setup entry inside the content, used when publishing to Intune |
+| `ScriptSigning` | Per-category signing outcome: status, thumbprint, hash, timestamp, and the files covered |
+| `PlanDigest` | Hash of everything in the manifest except the file hashes and the timestamp, so two builds of the same plan are comparable |
 
 ### PSADT-wrapped applications
 
@@ -704,6 +772,8 @@ Optional fields for deployment tool integration (PSADT, Intune, custom wrappers)
 app-packager/
   start-apppackager.ps1           # MahApps WPF GUI
   MainWindow.xaml                    # WPF window layout
+  WorkbenchWindow.xaml               # Application Workbench window layout
+  Invoke-AppPackagerBuild.ps1        # Command-line build entry point (one app, one profile)
   AppPackager.preferences.json       # Persisted GUI preferences (auto-created)
   AppPackager.windowstate.json       # Persisted window state, theme, debug cols (auto-created)
   Lib/
@@ -713,7 +783,11 @@ app-packager/
   Packagers/
     AppPackagerCommon.psm1           # Shared module (logging, wrappers, MECM helpers)
     AppPackagerCommon.psd1           # Module manifest
-    package-7zip.ps1                 # One script per application (285 total)
+    AppPackagerWorkbench.psm1        # Applications, profiles, run snapshots, build records
+    AppPackagerWorkbench.psd1        # Module manifest
+    AppPackagerSigning.psm1          # Authenticode signing of staged scripts and launchers
+    AppPackagerSigning.psd1          # Module manifest
+    package-7zip.ps1                 # One script per application (284 total)
     package-chrome.ps1
     ...
     Templates/                       # Skeleton packagers for non-standard installer formats
@@ -860,6 +934,13 @@ All packager scripts import the shared module which provides:
 | `New-AdHocStage` | Stages a dropped installer as a versioned content folder with wrappers and a schema-v3 stage manifest |
 | `Invoke-AdHocPackage` | Copies ad-hoc staged content to the network share and creates the MECM application from its manifest |
 | `New-PackagerFromDrop` | Writes a starter `package-<app>.ps1` from the matching template with analysis-filled identity values |
+| `Assert-ArpDetectionKey` | Compares a literal ARP key and registry view in the manifest against the staged installer's own analysis and fails the Stage on a mismatch |
+
+Common loads two further modules at import, so packagers get them without any change of their own:
+
+**`AppPackagerWorkbench.psm1`** — applications, profiles and their revisions, effective-value resolution (global, packager, profile, variant, target, run), migration of the legacy per-app preference maps, the run snapshot, the stage finalization hook that applies a profile to the manifest, build records, and portable profile bundles.
+
+**`AppPackagerSigning.psm1`** — the signing policy, code-signing certificate candidates and selection by thumbprint, signing and verification per category (detection, requirements, deployment), the exact launcher command strings for signed and unsigned mode, a check that no staged launcher carries an execution-policy override in signed mode, and signature verification of script bytes read back from the site.
 
 ## License
 

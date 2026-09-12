@@ -39,7 +39,7 @@
     ScriptName : install.ps1
     Purpose    : Bootstrap install / update for AppPackager
     Owner      : CM Engineering
-    Version    : 1.5.2.2
+    Version    : 1.6.0.0
 #>
 
 [CmdletBinding()]
@@ -131,8 +131,17 @@ function Get-ChecksumForFile {
 
 function Get-PreservedStateFile {
     # Mirrors the .gitignore rules that keep these files out of the release zip,
-    # so nothing restored here can be clobbered by an extracted file.
-    param([Parameter(Mandatory)][string]$Root)
+    # so nothing restored here can be clobbered by an extracted file. Given the
+    # extracted release tree, every file the release does not ship is kept as
+    # well (user-authored packagers, templates, assets, the icon pack), except
+    # paths the release lists as retired, so a deliberately removed shipped
+    # file does not survive the update. Without the release tree the shipped
+    # set is unknown and only the state files are kept: restoring an old copy
+    # over a shipped file would downgrade it.
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        [string]$StagePath
+    )
 
     if (-not (Test-Path -LiteralPath $Root)) { return @() }
 
@@ -140,6 +149,24 @@ function Get-PreservedStateFile {
     $logs  = Join-Path $Root 'Logs'
     if (Test-Path -LiteralPath $logs) {
         $items += @(Get-ChildItem -LiteralPath $logs -Recurse -File -ErrorAction SilentlyContinue)
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($StagePath) -and (Test-Path -LiteralPath $StagePath)) {
+        $stageFull = (Get-Item -LiteralPath $StagePath).FullName.TrimEnd('\')
+        $retired = @{}
+        $retiredList = Join-Path $StagePath 'Packagers\retired-packagers.txt'
+        if (Test-Path -LiteralPath $retiredList) {
+            foreach ($line in (Get-Content -LiteralPath $retiredList)) {
+                $entry = $line.Trim()
+                if (-not $entry -or $entry.StartsWith('#')) { continue }
+                if ($entry -notmatch '\\') { $entry = 'Packagers\' + $entry }
+                $retired[$entry] = $true
+            }
+        }
+        $items += @(Get-ChildItem -LiteralPath $Root -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
+            $relative = $_.FullName.Substring($Root.Length).TrimStart('\')
+            -not (Test-Path -LiteralPath (Join-Path $stageFull $relative) -PathType Leaf) -and -not $retired.ContainsKey($relative)
+        })
     }
 
     $seen = @{}
@@ -255,7 +282,7 @@ function Invoke-Install {
                 }
             }
 
-            $preserved = @(Get-PreservedStateFile -Root $InstallPath)
+            $preserved = @(Get-PreservedStateFile -Root $InstallPath -StagePath $stage)
             if ($preserved.Count -gt 0) {
                 Write-Step ("Preserving {0} user-state file(s)..." -f $preserved.Count)
                 foreach ($relative in $preserved) {

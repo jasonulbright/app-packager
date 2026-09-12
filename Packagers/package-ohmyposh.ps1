@@ -97,6 +97,37 @@ $PackageIdentity  = "ohmyposh.cli"
 # --- Functions ---
 
 
+function Get-MsixPublisherHash {
+    <#
+    .SYNOPSIS
+        Returns the 13-character publisher hash that completes an MSIX package
+        full name.
+    .DESCRIPTION
+        The hash is the first 64 bits of the SHA-256 of the UTF-16LE publisher
+        string, padded to 65 bits and written in 5-bit groups over the Crockford
+        base32 alphabet. Detection needs it because the provisioning store keys
+        packages by full name, not by identity name.
+    #>
+    param([Parameter(Mandatory)][string]$Publisher)
+
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try { $digest = $sha.ComputeHash([System.Text.Encoding]::Unicode.GetBytes($Publisher)) }
+    finally { $sha.Dispose() }
+
+    $bits = ''
+    foreach ($byte in $digest[0..7]) { $bits += [Convert]::ToString($byte, 2).PadLeft(8, '0') }
+    $bits += '0'
+
+    $alphabet = '0123456789abcdefghjkmnpqrstvwxyz'
+    $hash = ''
+    for ($i = 0; $i -lt 65; $i += 5) {
+        $hash += $alphabet[[Convert]::ToInt32($bits.Substring($i, 5), 2)]
+    }
+
+    return $hash
+}
+
+
 function Assert-MsixPayload {
     <#
     .SYNOPSIS
@@ -263,22 +294,14 @@ exit 0
         -UninstallPs1Content $uninstallScript
 
     # --- Detection ---
-    # A provisioned MSIX lands under Program Files\WindowsApps in a directory
-    # named with the publisher hash, so detection queries the provisioning
-    # store instead of a path.
-    $detectionScript = @"
-`$wanted = [version]'$identityVersion'
-`$prov = Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
-    Where-Object { `$_.DisplayName -eq '$identityName' }
-foreach (`$p in `$prov) {
-    `$found = `$null
-    if (-not [version]::TryParse([string]`$p.Version, [ref]`$found)) { continue }
-    if (`$found -ge `$wanted) { Write-Output 'Installed'; exit 0 }
-}
-exit 0
-"@
+    # Provisioning writes one key per package full name under the all-user
+    # store; the name carries the exact version, and deprovisioning removes the
+    # key, so its presence is the installed state of this build.
+    $publisherHash   = Get-MsixPublisherHash -Publisher ([string]$identity.Publisher)
+    $packageFullName = "{0}_{1}_{2}__{3}" -f $identityName, $identityVersion, [string]$identity.ProcessorArchitecture, $publisherHash
+    $provisioningKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Appx\AppxAllUserStore\Applications\$packageFullName"
 
-    Write-Log "Detection                    : provisioned package '$identityName' with Version >= $identityVersion"
+    Write-Log "Detection                    : $provisioningKey (64-bit view)"
     Write-Log ""
 
     # --- Write stage manifest ---
@@ -293,9 +316,9 @@ exit 0
         UninstallArgs   = ""
         RunningProcess  = @("oh-my-posh")
         Detection       = @{
-            Type           = "Script"
-            ScriptLanguage = "PowerShell"
-            ScriptText     = $detectionScript
+            Type                = "RegistryKey"
+            RegistryKeyRelative = $provisioningKey
+            Is64Bit             = $true
         }
     }
 

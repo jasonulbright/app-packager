@@ -51,6 +51,266 @@ if (-not [string]::IsNullOrWhiteSpace($env:APP_PACKAGER_VERBOSE) -and [string]::
     $env:SUITE_VERBOSE = $env:APP_PACKAGER_VERBOSE
 }
 
+# The workbench (build model, finalization hook, build records) and the
+# signing service load beside this module and are imported -Global so the
+# 285 packager scripts reach their functions without a per-packager import.
+# Same guard shape as SuiteCommon: a -Force reimport of this module must not
+# reset their attached state.
+function Test-IsAppPackagerTestHost {
+    <#
+    .SYNOPSIS
+        True when this import is a unit-test host rather than a deployment run.
+    #>
+    if ($env:APP_PACKAGER_TEST_HOST -eq '1') { return $true }
+    return [bool](Get-Module -Name Pester)
+}
+
+$script:WorkbenchModulesAvailable = @{}
+foreach ($companion in @(
+        @{ Name = 'AppPackagerWorkbench'; Role = 'build model and stage finalization' },
+        @{ Name = 'AppPackagerSigning';   Role = 'script signing service' })) {
+    $script:WorkbenchModulesAvailable[$companion.Name] = $false
+    if (Get-Module -Name $companion.Name) {
+        $script:WorkbenchModulesAvailable[$companion.Name] = $true
+        continue
+    }
+    $manifest = Join-Path $PSScriptRoot ('{0}.psd1' -f $companion.Name)
+    if (Test-Path -LiteralPath $manifest -PathType Leaf) {
+        try {
+            Import-Module -Name $manifest -Global -DisableNameChecking -ErrorAction Stop
+            $script:WorkbenchModulesAvailable[$companion.Name] = $true
+            continue
+        }
+        catch {
+            throw ("AppPackagerCommon could not load {0} ({1}) from '{2}'. If these files came from a downloaded zip, clear the Mark-of-the-Web first: Get-ChildItem <app folder> -Recurse | Unblock-File. Underlying error: {3}" -f $companion.Name, $companion.Role, $manifest, $_.Exception.Message)
+        }
+    }
+    # Only the unit-test host may run without them: the module files are part
+    # of every shipped install, so their absence anywhere else is a broken
+    # installation that must fail now rather than at stage time.
+    if (-not (Test-IsAppPackagerTestHost)) {
+        throw ("AppPackagerCommon requires {0}.psd1 ({1}) beside it in '{2}'. Reinstall AppPackager; a partial copy of the Packagers folder cannot stage or package." -f $companion.Name, $companion.Role, $PSScriptRoot)
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Workbench adapters (signing policy, plan digest, launcher commands, timing)
+# ---------------------------------------------------------------------------
+
+function Resolve-CommonSigningPolicy {
+    <#
+    .SYNOPSIS
+        Returns the effective script-signing policy, or all-off defaults.
+
+    .DESCRIPTION
+        Get-SigningPolicy lives in the signing module. A host without it (unit
+        tests, a partial checkout) resolves to every switch off so unsigned
+        output stays byte-identical to the pre-signing behavior.
+    #>
+    $defaults = [pscustomobject]@{
+        SignDetection = $false; SignRequirements = $false; SignDeployment = $false
+        RequireDetection = $false; RequireRequirements = $false; RequireDeployment = $false
+        CertificateThumbprint = ''; StoreLocation = 'CurrentUser'
+        TimestampServer = ''; TimestampRequired = $false; HashAlgorithm = 'SHA256'
+    }
+    if (-not (Get-Command -Name Get-SigningPolicy -ErrorAction SilentlyContinue)) { return $defaults }
+    try {
+        $policy = Get-SigningPolicy
+        if ($policy) { return $policy }
+    }
+    catch {
+        Write-Log ("Signing policy unavailable; treating every signing switch as off: {0}" -f $_.Exception.Message) -Level WARN
+    }
+    return $defaults
+}
+
+function Get-PolicyFlag {
+    <#
+    .SYNOPSIS
+        Reads one boolean off a signing policy object without assuming shape.
+    #>
+    param($Policy, [Parameter(Mandatory)][string]$Name)
+    if (-not $Policy) { return $false }
+    if ($Policy -is [hashtable]) { return [bool]$Policy[$Name] }
+    $property = $Policy.PSObject.Properties[$Name]
+    if (-not $property) { return $false }
+    return [bool]$property.Value
+}
+
+function ConvertTo-CanonicalManifestObject {
+    <#
+    .SYNOPSIS
+        Deep copy of manifest data with every mapping's keys ordered by name.
+
+    .DESCRIPTION
+        The plan digest must not change when an unrelated caller inserts a key
+        in a different order, so hashtables and objects are rewritten as
+        ordered dictionaries sorted with the invariant ordinal comparer.
+        Arrays keep their order: deployment-type and clause order is meaning.
+    #>
+    param($Value)
+
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [string] -or $Value -is [System.ValueType]) { return $Value }
+
+    if ($Value -is [System.Collections.IDictionary]) {
+        $ordered = [ordered]@{}
+        foreach ($key in @($Value.Keys | Sort-Object -CaseSensitive:$false)) {
+            $ordered[[string]$key] = ConvertTo-CanonicalManifestObject -Value $Value[$key]
+        }
+        return $ordered
+    }
+    if ($Value -is [System.Collections.IEnumerable]) {
+        return @(foreach ($item in $Value) { ConvertTo-CanonicalManifestObject -Value $item })
+    }
+    if ($Value -is [pscustomobject]) {
+        $ordered = [ordered]@{}
+        foreach ($property in @($Value.PSObject.Properties | Sort-Object Name)) {
+            $ordered[$property.Name] = ConvertTo-CanonicalManifestObject -Value $property.Value
+        }
+        return $ordered
+    }
+    return $Value
+}
+
+function Get-StageManifestPlanDigest {
+    <#
+    .SYNOPSIS
+        SHA-256 over the canonical JSON of a manifest's resolved plan.
+
+    .DESCRIPTION
+        FileHashes covers the payload bytes; stage-manifest.json is excluded
+        from its own hash list, so a metadata-only change (commands, detection,
+        timing, signing status) would otherwise leave no integrity record.
+        FileHashes, PlanDigest and StagedAt are excluded: the first is already
+        covered, the second is the output, and the third changes on every run.
+    #>
+    param([Parameter(Mandatory)]$ManifestData)
+
+    $copy = [ordered]@{}
+    $names = if ($ManifestData -is [System.Collections.IDictionary]) { @($ManifestData.Keys) } else { @($ManifestData.PSObject.Properties.Name) }
+    foreach ($name in $names) {
+        if (@('FileHashes', 'PlanDigest', 'StagedAt') -contains [string]$name) { continue }
+        $copy[[string]$name] = if ($ManifestData -is [System.Collections.IDictionary]) { $ManifestData[$name] } else { $ManifestData.$name }
+    }
+    $canonical = ConvertTo-CanonicalManifestObject -Value $copy
+    $json = $canonical | ConvertTo-Json -Depth 12
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($json))
+    }
+    finally {
+        $sha.Dispose()
+    }
+    return (($bytes | ForEach-Object { $_.ToString('X2') }) -join '')
+}
+
+function Get-DeploymentLauncherCommandLine {
+    <#
+    .SYNOPSIS
+        The command line a .bat shim or fallback launcher uses to run a .ps1.
+
+    .DESCRIPTION
+        Unsigned mode reproduces the historical string byte for byte. Signed
+        mode drops -ExecutionPolicy Bypass so the endpoint's configured policy
+        governs, and adds -NoProfile because the detection/deployment chain
+        must not inherit a profile. The signing module owns the authoritative
+        strings; a returned command that does not name the requested script is
+        rejected rather than written into deployed content.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$ScriptToken,
+        [switch]$Signed,
+        [ValidateSet('x64', 'x86')][string]$ScriptHost = 'x64',
+        [string]$ExecutableName = 'PowerShell.exe'
+    )
+
+    $executable = if ($ScriptHost -eq 'x86') { '%SystemRoot%\SysWOW64\WindowsPowerShell\v1.0\powershell.exe' } else { $ExecutableName }
+    $fallback = if ($Signed) {
+        '{0} -NoProfile -NonInteractive -File "{1}"' -f $executable, $ScriptToken
+    }
+    else {
+        '{0} -NonInteractive -ExecutionPolicy Bypass -File "{1}"' -f $executable, $ScriptToken
+    }
+
+    # A caller that pins the executable spelling (the PSADT fallback keeps the
+    # toolkit's own lowercase form) owns the whole string; the service builds
+    # its own executable name.
+    if ($ExecutableName -cne 'PowerShell.exe') { return $fallback }
+    if (-not (Get-Command -Name New-DeploymentLauncherCommand -ErrorAction SilentlyContinue)) { return $fallback }
+    try {
+        $produced = [string]((New-DeploymentLauncherCommand -Script $ScriptToken -Signed ([bool]$Signed) -ScriptHost $ScriptHost).CommandLine)
+    }
+    catch {
+        Write-Log ("Launcher command service unavailable; using the built-in launcher string: {0}" -f $_.Exception.Message) -Level WARN
+        return $fallback
+    }
+    if ([string]::IsNullOrWhiteSpace($produced) -or $produced -notlike ("*" + $ScriptToken + "*")) {
+        Write-Log "Launcher command service returned a command that does not name the requested script; using the built-in launcher string." -Level WARN
+        return $fallback
+    }
+    return $produced
+}
+
+function Resolve-DeploymentTypeTiming {
+    <#
+    .SYNOPSIS
+        Validates and resolves estimated/maximum runtime minutes.
+
+    .DESCRIPTION
+        Manifest Timing wins over the caller's parameters. Both values are
+        whole minutes greater than zero; the estimate may not exceed the
+        maximum. A maximum above the documented 12-hour monitoring ceiling is
+        accepted but reported, because a maximum longer than a maintenance
+        window prevents the deployment type from running at all.
+
+    .OUTPUTS
+        [pscustomobject] EstimatedRuntimeMins, MaximumRuntimeMins, Source.
+    #>
+    param(
+        $Timing,
+        [int]$DefaultEstimated = 15,
+        [int]$DefaultMaximum = 30,
+        [string]$Context = 'deployment type'
+    )
+
+    $estimated = $DefaultEstimated
+    $maximum = $DefaultMaximum
+    $source = 'parameters'
+
+    $read = {
+        param($Object, $Name)
+        if (-not $Object) { return $null }
+        if ($Object -is [System.Collections.IDictionary]) { return $Object[$Name] }
+        $property = $Object.PSObject.Properties[$Name]
+        if (-not $property) { return $null }
+        return $property.Value
+    }
+
+    $manifestEstimated = & $read $Timing 'EstimatedMinutes'
+    $manifestMaximum = & $read $Timing 'MaximumMinutes'
+    if ($null -ne $manifestEstimated -and '' -ne [string]$manifestEstimated) { $estimated = [int]$manifestEstimated; $source = 'manifest' }
+    if ($null -ne $manifestMaximum -and '' -ne [string]$manifestMaximum) { $maximum = [int]$manifestMaximum; $source = 'manifest' }
+
+    foreach ($pair in @(@{ Name = 'estimated installation time'; Value = $estimated }, @{ Name = 'maximum allowed run time'; Value = $maximum })) {
+        if ($pair.Value -lt 1 -or $pair.Value -gt 1440) {
+            throw ("Timing for the $Context is out of range: {0} is {1} minutes; use a whole number of minutes from 1 to 1440." -f $pair.Name, $pair.Value)
+        }
+    }
+    if ($estimated -gt $maximum) {
+        throw ("Timing for the $Context is inconsistent: estimated installation time {0} minutes exceeds the maximum allowed run time {1} minutes." -f $estimated, $maximum)
+    }
+    if ($maximum -gt 720) {
+        Write-Log ("Maximum allowed run time      : {0} minutes exceeds the 12-hour monitoring ceiling; a maintenance window shorter than this blocks the deployment type." -f $maximum) -Level WARN
+    }
+
+    return [pscustomobject]@{
+        EstimatedRuntimeMins = $estimated
+        MaximumRuntimeMins   = $maximum
+        Source               = $source
+    }
+}
+
 # ---------------------------------------------------------------------------
 # Download with retry
 # ---------------------------------------------------------------------------
@@ -205,6 +465,83 @@ function Invoke-CachedDownload {
     param(
         [Parameter(Mandatory)][string]$Url,
         [Parameter(Mandatory)][string]$OutFile,
+        [switch]$Quiet,
+        [string]$DownloadRoot = $env:APP_PACKAGER_DOWNLOAD_ROOT
+    )
+
+    # Per-profile staging points -DownloadRoot at a profile subfolder, which
+    # would otherwise re-download the same vendor file once per profile. The
+    # shared cache keeps one copy keyed by URL plus file name; the profile's
+    # own path still receives the file, so callers see today's layout. Without
+    # a known download root there is no shared cache and the file is fetched
+    # into its own path exactly as before.
+    $cacheRoot = Get-SharedDownloadCacheRootSafe -DownloadRoot $DownloadRoot
+    if ($cacheRoot) {
+        $cached = Join-Path $cacheRoot (Get-SharedDownloadCacheKey -Url $Url -FileName (Split-Path -Leaf $OutFile))
+        Invoke-CachedDownloadToPath -Url $Url -OutFile $cached -Quiet:$Quiet
+        Copy-Item -LiteralPath $cached -Destination $OutFile -Force -ErrorAction Stop
+        # The If-Modified-Since condition reads the file's timestamp, so the
+        # copy must carry the server's Last-Modified time, not the copy time.
+        (Get-Item -LiteralPath $OutFile).LastWriteTimeUtc = (Get-Item -LiteralPath $cached).LastWriteTimeUtc
+        return
+    }
+    Invoke-CachedDownloadToPath -Url $Url -OutFile $OutFile -Quiet:$Quiet
+}
+
+function Get-SharedDownloadCacheRootSafe {
+    <#
+    .SYNOPSIS
+        The shared download cache folder, or $null when none is configured.
+    #>
+    param([AllowEmptyString()][AllowNull()][string]$DownloadRoot)
+
+    if ([string]::IsNullOrWhiteSpace($DownloadRoot)) { return $null }
+    if (-not (Get-Command -Name Get-SharedDownloadCacheRoot -ErrorAction SilentlyContinue)) { return $null }
+    try {
+        $root = [string](Get-SharedDownloadCacheRoot -DownloadRoot $DownloadRoot)
+    }
+    catch {
+        Write-Log ("Shared download cache unavailable; caching per download root: {0}" -f $_.Exception.Message) -Level WARN
+        return $null
+    }
+    if ([string]::IsNullOrWhiteSpace($root)) { return $null }
+    if (-not (Test-Path -LiteralPath $root)) { New-Item -ItemType Directory -Path $root -Force -ErrorAction Stop | Out-Null }
+    return $root
+}
+
+function Get-SharedDownloadCacheKey {
+    <#
+    .SYNOPSIS
+        Cache file name for a URL plus its download file name.
+
+    .DESCRIPTION
+        Two vendors can serve the same file name, and one vendor can serve
+        different content under one name per channel, so the key carries a
+        digest of the URL as well as the readable file name.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Url,
+        [Parameter(Mandatory)][string]$FileName
+    )
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Url))
+    }
+    finally {
+        $sha.Dispose()
+    }
+    $digest = (($bytes[0..7] | ForEach-Object { $_.ToString('x2') }) -join '')
+    return ('{0}-{1}' -f $digest, $FileName)
+}
+
+function Invoke-CachedDownloadToPath {
+    <#
+    .SYNOPSIS
+        The conditional download itself, against one concrete path.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Url,
+        [Parameter(Mandatory)][string]$OutFile,
         [switch]$Quiet
     )
 
@@ -242,6 +579,55 @@ function Invoke-CachedDownload {
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
+function Get-ProfileContentScope {
+    <#
+    .SYNOPSIS
+        The profile-scoped suffix for network content folders.
+
+    .DESCRIPTION
+        Two profiles of one application at one vendor version must never write to the
+        same network folder. The scope comes from the run snapshot the caller inherits,
+        so every path helper resolves the same value without a packager change. The
+        virtual default profile has no suffix and keeps today's paths byte for byte.
+    #>
+    param([AllowNull()][string]$SnapshotPath = $env:APP_PACKAGER_RUN_SNAPSHOT)
+
+    $empty = [pscustomobject]@{ ProfileId = 'default'; Name = ''; Suffix = '' }
+    if ([string]::IsNullOrWhiteSpace($SnapshotPath) -or -not (Test-Path -LiteralPath "FileSystem::$SnapshotPath")) { return $empty }
+
+    try { $snapshot = Get-Content -LiteralPath $SnapshotPath -Raw | ConvertFrom-Json }
+    catch { return $empty }
+
+    $profileId = ''
+    if ($snapshot.PSObject.Properties['ProfileId']) { $profileId = [string]$snapshot.ProfileId }
+    if ([string]::IsNullOrWhiteSpace($profileId) -or $profileId -eq 'default') { return $empty }
+
+    $name = ''
+    if ($snapshot.PSObject.Properties['Profile'] -and $snapshot.Profile -and
+        $snapshot.Profile.PSObject.Properties['Name']) {
+        $name = [string]$snapshot.Profile.Name
+    }
+    $suffix = ($name -replace '[^A-Za-z0-9._-]', '').TrimEnd([char]'.', [char]' ')
+    if ([string]::IsNullOrWhiteSpace($suffix)) {
+        $suffix = ($profileId -replace '[^A-Za-z0-9._-]', '')
+        if ($suffix.Length -gt 8) { $suffix = $suffix.Substring(0, 8) }
+    }
+    return [pscustomobject]@{ ProfileId = $profileId; Name = $name; Suffix = $suffix }
+}
+
+function Get-ProfileScopedVersionFolder {
+    <#
+    .SYNOPSIS
+        The version folder name for the current profile scope.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Version,
+        [AllowEmptyString()][string]$ProfileSuffix = (Get-ProfileContentScope).Suffix
+    )
+    if ([string]::IsNullOrWhiteSpace($ProfileSuffix)) { return $Version }
+    return ('{0}-{1}' -f $Version, $ProfileSuffix)
+}
+
 function Get-NetworkContentPath {
     <#
     .SYNOPSIS
@@ -263,19 +649,24 @@ function Get-NetworkContentPath {
         [Parameter(Mandatory)][string]$VendorFolder,
         [Parameter(Mandatory)][string]$AppFolder,
         [Parameter(Mandatory)][string]$Version,
-        [ValidateSet('Nested', 'Flat')][string]$Layout = 'Nested'
+        [ValidateSet('Nested', 'Flat')][string]$Layout = 'Nested',
+        [AllowEmptyString()][string]$ProfileSuffix = (Get-ProfileContentScope).Suffix
     )
+
+    # The version segment carries the profile scope in both layouts, so the stage, the
+    # integrity check, the network sync and the deployment type all resolve one path.
+    $versionFolder = Get-ProfileScopedVersionFolder -Version $Version -ProfileSuffix $ProfileSuffix
 
     if ($Layout -eq 'Flat') {
         $appsRoot    = Join-Path $FileServerPath 'Applications'
-        $contentPath = Join-Path $appsRoot ('{0}-{1}-{2}' -f $VendorFolder, $AppFolder, $Version)
+        $contentPath = Join-Path $appsRoot (('{0}-{1}-{2}' -f $VendorFolder, $AppFolder, $versionFolder).TrimEnd([char]'.', [char]' '))
         Initialize-Folder -Path $appsRoot
         Initialize-Folder -Path $contentPath
         return $contentPath
     }
 
     $appRoot     = Get-NetworkAppRoot -FileServerPath $FileServerPath -VendorFolder $VendorFolder -AppFolder $AppFolder
-    $contentPath = Join-Path $appRoot $Version
+    $contentPath = Join-Path $appRoot $versionFolder
     Initialize-Folder -Path $contentPath
     return $contentPath
 }
@@ -1613,22 +2004,38 @@ function Write-StageManifest {
 
     Add-StageIcon -StageRoot $stageRoot -ManifestData $ManifestData -PackagerScriptPath $PackagerScriptPath
 
-    $fileHashes = Get-StageFileHashes -Root $stageRoot -Exclude @($manifestName)
-
-    $ManifestData['SchemaVersion'] = 3
-    $ManifestData['StagedAt'] = (Get-Date -Format 'o')
-    $ManifestData['FileHashes'] = @($fileHashes)
-
-    # A build staged under operator command overrides records them, so the
-    # manifest distinguishes it from a stock build.
+    # Operator command overrides resolve before finalization so the launcher
+    # chain check inspects the commands the build actually ships.
     $stageOverrides = Get-RequestedCommandOverrides
     if ($stageOverrides) {
         $ManifestData['CommandOverrides'] = @{
             Install   = [string]$stageOverrides.Install
             Uninstall = [string]$stageOverrides.Uninstall
         }
+        if (-not [string]::IsNullOrWhiteSpace([string]$stageOverrides.Install)) {
+            $ManifestData['InstallCommandLine'] = [string]$stageOverrides.Install
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string]$stageOverrides.Uninstall)) {
+            $ManifestData['UninstallCommandLine'] = [string]$stageOverrides.Uninstall
+        }
         Write-Log "Command overrides recorded in manifest."
     }
+
+    # Profile customization, custom source files and script signing all land
+    # here, after the icon and before hashing, so every byte the finalizer
+    # writes is covered by FileHashes and nothing edits a signed file after.
+    if (Get-Command -Name Invoke-StageFinalization -ErrorAction SilentlyContinue) {
+        [void](Invoke-StageFinalization -StageRoot $stageRoot -ManifestData $ManifestData -PackagerScriptPath $PackagerScriptPath)
+    }
+
+    $fileHashes = Get-StageFileHashes -Root $stageRoot -Exclude @($manifestName)
+
+    $ManifestData['SchemaVersion'] = 4
+    $ManifestData['StagedAt'] = (Get-Date -Format 'o')
+    $ManifestData['FileHashes'] = @($fileHashes)
+    # FileHashes cannot cover the manifest that records them, so a separate
+    # digest seals the resolved plan: commands, detection, timing, signing.
+    $ManifestData['PlanDigest'] = Get-StageManifestPlanDigest -ManifestData $ManifestData
 
     $json = $ManifestData | ConvertTo-Json -Depth 8
     Set-Content -LiteralPath $Path -Value $json -Encoding UTF8 -ErrorAction Stop
@@ -1640,6 +2047,13 @@ function Write-StageManifest {
         throw ("Stage integrity verification failed: {0}" -f (Format-StageFileHashComparison -Comparison $verification))
     }
     Write-Log ("Stage integrity verified     : {0} file(s)" -f $verification.ExpectedCount)
+
+    # The build record is the workbench's durable provenance for this stage and
+    # the only copy of the signed detection/requirement scripts that survives
+    # content pruning.
+    if (Get-Command -Name Write-BuildRecord -ErrorAction SilentlyContinue) {
+        [void](Write-BuildRecord -StageRoot $stageRoot -Manifest $ManifestData)
+    }
 }
 
 function Get-PackagedApplicationName {
@@ -1687,9 +2101,16 @@ function Read-StageManifest {
         throw "Invalid stage manifest (missing SchemaVersion): $Path"
     }
 
+    # A newer AppPackager can add fields this build would silently ignore, and
+    # an ignored detection or signing field publishes the wrong thing.
+    $schemaVersion = [int]$manifest.SchemaVersion
+    if ($schemaVersion -gt 4) {
+        throw "Stage manifest schema version $schemaVersion is newer than this AppPackager understands (maximum 4): $Path. Update AppPackager, or re-run the Stage phase with this version."
+    }
+
     $hasFileHashes = ($manifest.PSObject.Properties.Name -contains 'FileHashes') -and $null -ne $manifest.FileHashes
     if (-not $hasFileHashes) {
-        if ([int]$manifest.SchemaVersion -ge 3) {
+        if ($schemaVersion -ge 3) {
             throw "Invalid stage manifest (SchemaVersion $($manifest.SchemaVersion) missing FileHashes): $Path"
         }
         Write-Log "Stage manifest has no file hashes; byte-level integrity verification skipped for this pre-1.0.7 manifest." -Level WARN
@@ -1759,9 +2180,12 @@ function Get-NetworkAppRoot {
         [Parameter(Mandatory)][string]$AppFolder
     )
 
+    # Windows strips trailing dots and spaces when creating a directory, but the site stores the
+    # literal path and resolves it through \\?\UNC\, which does not normalize: an untrimmed segment
+    # distributes as 0x80070003. Trim before the path reaches either side.
     $appsRoot   = Join-Path $FileServerPath "Applications"
-    $vendorPath = Join-Path $appsRoot $VendorFolder
-    $appPath    = Join-Path $vendorPath $AppFolder
+    $vendorPath = Join-Path $appsRoot ($VendorFolder.TrimEnd([char]'.', [char]' '))
+    $appPath    = Join-Path $vendorPath ($AppFolder.TrimEnd([char]'.', [char]' '))
 
     Initialize-Folder -Path $appsRoot
     Initialize-Folder -Path $vendorPath
@@ -1811,16 +2235,22 @@ function Write-ContentWrappers {
     # .bat wrapper template: @echo off, call PowerShell, propagate exit code
     # When exit code override is set (e.g. 3010), only apply on success --
     # real failures must propagate so ConfigMgr can detect them.
+    # Signed deployment mode removes the execution-policy argument so the
+    # endpoint's configured policy governs the launched script.
+    $signed = Get-PolicyFlag -Policy (Resolve-CommonSigningPolicy) -Name 'SignDeployment'
+    $installLaunch = Get-DeploymentLauncherCommandLine -ScriptToken '%~dp0install.ps1' -Signed:$signed
+    $uninstallLaunch = Get-DeploymentLauncherCommandLine -ScriptToken '%~dp0uninstall.ps1' -Signed:$signed
+
     $installBat = if ($InstallBatExitCode -eq '%ERRORLEVEL%') {
         (@(
             '@echo off',
-            'PowerShell.exe -NonInteractive -ExecutionPolicy Bypass -File "%~dp0install.ps1"',
+            $installLaunch,
             'exit /b %ERRORLEVEL%'
         ) -join "`r`n")
     } else {
         (@(
             '@echo off',
-            'PowerShell.exe -NonInteractive -ExecutionPolicy Bypass -File "%~dp0install.ps1"',
+            $installLaunch,
             ('if %ERRORLEVEL% EQU 0 exit /b {0}' -f $InstallBatExitCode),
             'exit /b %ERRORLEVEL%'
         ) -join "`r`n")
@@ -1829,13 +2259,13 @@ function Write-ContentWrappers {
     $uninstallBat = if ($UninstallBatExitCode -eq '%ERRORLEVEL%') {
         (@(
             '@echo off',
-            'PowerShell.exe -NonInteractive -ExecutionPolicy Bypass -File "%~dp0uninstall.ps1"',
+            $uninstallLaunch,
             'exit /b %ERRORLEVEL%'
         ) -join "`r`n")
     } else {
         (@(
             '@echo off',
-            'PowerShell.exe -NonInteractive -ExecutionPolicy Bypass -File "%~dp0uninstall.ps1"',
+            $uninstallLaunch,
             ('if %ERRORLEVEL% EQU 0 exit /b {0}' -f $UninstallBatExitCode),
             'exit /b %ERRORLEVEL%'
         ) -join "`r`n")
@@ -2188,6 +2618,7 @@ function Test-PsadtLayout {
     }
 
     $modeSuffix = if ([string]::IsNullOrWhiteSpace($DeployMode)) { '' } else { " -DeployMode $DeployMode" }
+    $signed = Get-PolicyFlag -Policy (Resolve-CommonSigningPolicy) -Name 'SignDeployment'
 
     $v4Exe = Join-Path $Path 'Invoke-AppDeployToolkit.exe'
     $v4Ps1 = Join-Path $Path 'Invoke-AppDeployToolkit.ps1'
@@ -2201,7 +2632,7 @@ function Test-PsadtLayout {
         }
         else {
             $entry = 'Invoke-AppDeployToolkit.ps1'
-            $prefix = "powershell.exe -NonInteractive -ExecutionPolicy Bypass -File `"$entry`""
+            $prefix = Get-DeploymentLauncherCommandLine -ScriptToken $entry -Signed:$signed -ExecutableName 'powershell.exe'
         }
         return [pscustomobject]@{
             Generation           = 'v4'
@@ -2218,7 +2649,7 @@ function Test-PsadtLayout {
         }
         else {
             $entry = 'Deploy-Application.ps1'
-            $prefix = "powershell.exe -NonInteractive -ExecutionPolicy Bypass -File `"$entry`""
+            $prefix = Get-DeploymentLauncherCommandLine -ScriptToken $entry -Signed:$signed -ExecutableName 'powershell.exe'
         }
         return [pscustomobject]@{
             Generation           = 'v3'
@@ -2421,16 +2852,238 @@ function New-VpnConditionScriptText {
     return ($lines -join "`r`n")
 }
 
+function ConvertFrom-CMEncodedScriptBody {
+    <#
+    .SYNOPSIS
+        Returns the real bytes of a script body stored by the SMS provider.
+
+    .DESCRIPTION
+        A signed script is stored as a plain-text preview followed by an
+        encoded block whose base64 payload is the imported file byte for byte;
+        an unsigned script is stored as plain text with no such block. The
+        signature only verifies against those exact bytes, so a read-back
+        comparison decodes the block instead of comparing the preview text.
+
+    .OUTPUTS
+        [pscustomobject] Bytes, Text, Encoded.
+    #>
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Body)
+
+    $match = [regex]::Match($Body, '#\s*ENCODEDSCRIPT\s*#.*?script block\s*#(?<payload>[A-Za-z0-9+/=\s]+?)#\s*ENCODEDSCRIPT\s*#', 'Singleline, IgnoreCase')
+    if ($match.Success) {
+        $payload = ($match.Groups['payload'].Value -replace '\s', '')
+        try {
+            $bytes = [Convert]::FromBase64String($payload)
+            return [pscustomobject]@{
+                Bytes   = $bytes
+                Text    = [System.Text.Encoding]::UTF8.GetString($bytes)
+                Encoded = $true
+            }
+        }
+        catch {
+            Write-Log ("A stored script carried an encoded block that is not valid base64: {0}" -f $_.Exception.Message) -Level WARN
+        }
+    }
+    return [pscustomobject]@{
+        Bytes   = [System.Text.Encoding]::UTF8.GetBytes($Body)
+        Text    = $Body
+        Encoded = $false
+    }
+}
+
+function Get-SdmPackageScriptText {
+    <#
+    .SYNOPSIS
+        Extracts one stored script body from an SDMPackageXML document.
+
+    .DESCRIPTION
+        A deployment type's detection script is serialized as an Arg named
+        ScriptBody, duplicated under CustomData/DetectionScript; a script
+        global condition uses the same Arg. DeploymentTypeName selects the
+        DeploymentType element by Title, because an application document holds
+        every type's body. Nodes are matched by local name so a namespace
+        prefix or schema revision does not silently return nothing.
+
+    .OUTPUTS
+        [string] the stored body, or $null when the document carries none.
+    #>
+    param(
+        [AllowNull()][string]$SdmPackageXml,
+        [AllowEmptyString()][string]$DeploymentTypeName = ''
+    )
+
+    if ([string]::IsNullOrWhiteSpace($SdmPackageXml)) { return $null }
+    try {
+        $document = [xml]$SdmPackageXml
+    }
+    catch {
+        Write-Log ("Could not parse SDMPackageXML for a script read-back: {0}" -f $_.Exception.Message) -Level WARN
+        return $null
+    }
+
+    $scope = $document
+    if (-not [string]::IsNullOrWhiteSpace($DeploymentTypeName)) {
+        $escaped = $DeploymentTypeName.Replace("'", "&apos;")
+        $node = $document.SelectSingleNode(("//*[local-name()='DeploymentType'][*[local-name()='Title']='{0}']" -f $escaped))
+        if (-not $node) {
+            # A document holding exactly one type needs no title match; more
+            # than one and the wrong body would be verified silently.
+            $all = @($document.SelectNodes("//*[local-name()='DeploymentType']"))
+            if ($all.Count -eq 1) { $node = $all[0] }
+        }
+        if (-not $node) { return $null }
+        $scope = $node
+    }
+
+    foreach ($xpath in @(
+            ".//*[local-name()='Arg'][@Name='ScriptBody']",
+            ".//*[local-name()='DetectionScript']",
+            ".//*[local-name()='ScriptBody']")) {
+        $found = $scope.SelectSingleNode($xpath)
+        if ($found -and -not [string]::IsNullOrWhiteSpace($found.InnerText)) { return [string]$found.InnerText }
+    }
+    return $null
+}
+
+function Get-CMGlobalConditionScriptText {
+    <#
+    .SYNOPSIS
+        Reads back the script body stored on a CM script global condition.
+
+    .DESCRIPTION
+        A cmdlet reporting success is not proof the provider stored what was
+        sent, so the created condition is read back before it is used. Returns
+        $null when the object carries no readable script, which callers treat
+        as "cannot compare" rather than as "empty".
+    #>
+    param([Parameter(Mandatory)]$GlobalCondition)
+
+    $property = $GlobalCondition.PSObject.Properties['SDMPackageXML']
+    if (-not $property -or [string]::IsNullOrWhiteSpace([string]$property.Value)) {
+        try {
+            $reloaded = Get-CMGlobalCondition -Id ([string]$GlobalCondition.CI_ID) -ErrorAction Stop
+            $property = $reloaded.PSObject.Properties['SDMPackageXML']
+        }
+        catch {
+            return $null
+        }
+    }
+    if (-not $property) { return $null }
+    $body = Get-SdmPackageScriptText -SdmPackageXml ([string]$property.Value)
+    if ($null -eq $body) { return $null }
+    return (ConvertFrom-CMEncodedScriptBody -Body $body).Text
+}
+
+function Find-CMGlobalConditionByName {
+    <#
+    .SYNOPSIS
+        The single site condition matching a name for this template, or $null.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][pscustomobject]$Template
+    )
+
+    # A name can match several site conditions (the stock Operating System
+    # Language exists once per PlatformType: 1 = Windows, 2 = Mobile).
+    # Passing an array to a requirement rule cmdlet's -InputObject fails,
+    # so narrow by the template's PlatformType and require a single match.
+    $existing = @(Get-CMGlobalCondition -Name $Name)
+    if ($existing.Count -gt 1 -and $Template.PSObject.Properties['PlatformType'] -and $Template.PlatformType) {
+        $existing = @($existing | Where-Object { [int]$_.PlatformType -eq [int]$Template.PlatformType })
+    }
+    if ($existing.Count -gt 1) {
+        throw "Global condition name '$Name' matches $($existing.Count) site conditions; add a PlatformType to the '$($Template.Id)' template or rename to a unique condition."
+    }
+    if ($existing.Count -eq 1) { return $existing[0] }
+    return $null
+}
+
+function Get-ConditionScriptContentIdentity {
+    <#
+    .SYNOPSIS
+        Resolves a script condition template to its final text and identity.
+
+    .DESCRIPTION
+        The requirement-script signing switch signs the text that the site will
+        store, so the identity is computed from the post-signing bytes. A
+        required signature that cannot be produced throws here, before any
+        site object is created.
+
+    .OUTPUTS
+        [pscustomobject] Text, Sha256, Signed, Thumbprint, Status.
+    #>
+    param([Parameter(Mandatory)][pscustomobject]$Template)
+
+    $scriptText = ''
+    if ($Template.PSObject.Properties['ScriptText'] -and $Template.ScriptText) {
+        $scriptText = (@($Template.ScriptText) -join "`r`n")
+    }
+    else {
+        $scriptText = New-VpnConditionScriptText -AdapterPatterns @($Template.AdapterPatterns) -AliasPattern ([string]$Template.AliasPattern)
+    }
+
+    $policy = Resolve-CommonSigningPolicy
+    $sign = Get-PolicyFlag -Policy $policy -Name 'SignRequirements'
+    $require = Get-PolicyFlag -Policy $policy -Name 'RequireRequirements'
+    $status = 'NotRequested'
+    $thumbprint = ''
+
+    if ($sign -or $require) {
+        if (-not (Get-Command -Name Invoke-ScriptSigning -ErrorAction SilentlyContinue)) {
+            if ($require) { throw "Requirement script signatures are required but the signing service is not available; reinstall AppPackager." }
+        }
+        else {
+            $temporary = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + '.ps1')
+            try {
+                [System.IO.File]::WriteAllText($temporary, $scriptText, (New-Object System.Text.UTF8Encoding($true)))
+                $result = Invoke-ScriptSigning -Path $temporary -Policy $policy -Category Requirements
+                $status = [string]$result.Status
+                $thumbprint = [string]$result.Thumbprint
+                if (@('SignedAndVerified', 'ExistingSignatureValid') -contains $status) {
+                    $scriptText = [System.IO.File]::ReadAllText($temporary)
+                }
+                elseif ($require) {
+                    throw ("Requirement script signing is required and did not succeed for condition '{0}': {1} ({2})." -f $Template.GlobalConditionName, $status, $result.Reason)
+                }
+            }
+            finally {
+                Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($scriptText))
+    }
+    finally {
+        $sha.Dispose()
+    }
+    return [pscustomobject]@{
+        Text       = $scriptText
+        Sha256     = (($bytes | ForEach-Object { $_.ToString('x2') }) -join '')
+        Signed     = (@('SignedAndVerified', 'ExistingSignatureValid') -contains $status)
+        Thumbprint = $thumbprint
+        Status     = $status
+    }
+}
+
 function Get-OrCreateGlobalConditionFromTemplate {
     <#
     .SYNOPSIS
         Resolves a condition template to a CM global condition, creating it when absent.
 
     .DESCRIPTION
-        Must be called from the CM site drive. Matching is by name, so an
-        existing site condition of any origin is attached rather than
-        duplicated; renaming a template's GlobalConditionName points it at
-        a site's own condition.
+        Must be called from the CM site drive. Built-in and WQL conditions match
+        by name, so an existing site condition of any origin is attached rather
+        than duplicated.
+
+        A script condition is a shared site object: changing its body would
+        change every application that already references it. A signed or
+        changed script therefore never mutates the existing condition; it
+        resolves to '<name> (<8 hex of the final text's sha256>)', and the
+        condition still referenced by other applications is named in the log.
     #>
     param([Parameter(Mandatory)][pscustomobject]$Template)
 
@@ -2439,56 +3092,173 @@ function Get-OrCreateGlobalConditionFromTemplate {
         throw "Condition template '$($Template.Id)' has no GlobalConditionName."
     }
 
-    # A name can match several site conditions (the stock Operating System
-    # Language exists once per PlatformType: 1 = Windows, 2 = Mobile).
-    # Passing an array to a requirement rule cmdlet's -InputObject fails,
-    # so narrow by the template's PlatformType and require a single match.
-    $existing = @(Get-CMGlobalCondition -Name $name)
-    if ($existing.Count -gt 1 -and $Template.PSObject.Properties['PlatformType'] -and $Template.PlatformType) {
-        $existing = @($existing | Where-Object { [int]$_.PlatformType -eq [int]$Template.PlatformType })
-    }
-    if ($existing.Count -gt 1) {
-        throw "Global condition name '$name' matches $($existing.Count) site conditions; add a PlatformType to the '$($Template.Id)' template or rename to a unique condition."
-    }
-    if ($existing.Count -eq 1) {
-        Write-Log ("Global condition (existing)  : {0}" -f $name)
-        return $existing[0]
+    $kind = [string]$Template.Kind
+    if ($kind -ne 'Script') {
+        $existing = Find-CMGlobalConditionByName -Name $name -Template $Template
+        if ($existing) {
+            Write-Log ("Global condition (existing)  : {0}" -f $name)
+            return $existing
+        }
+        switch ($kind) {
+            'BuiltIn' {
+                throw "Built-in global condition '$name' was not found on the site."
+            }
+            'Wql' {
+                Write-Log ("Global condition (creating)  : {0}" -f $name)
+                return New-CMGlobalConditionWqlQuery `
+                    -Name $name `
+                    -DataType ([string]$Template.DataType) `
+                    -Namespace ([string]$Template.Namespace) `
+                    -Class ([string]$Template.Class) `
+                    -Property ([string]$Template.Property) `
+                    -Description ([string]$Template.Description)
+            }
+            default {
+                throw "Condition template '$($Template.Id)' has unsupported Kind '$kind'."
+            }
+        }
     }
 
-    switch ([string]$Template.Kind) {
-        'BuiltIn' {
-            throw "Built-in global condition '$name' was not found on the site."
-        }
-        'Wql' {
+    $identity = Get-ConditionScriptContentIdentity -Template $Template
+    $baseCondition = Find-CMGlobalConditionByName -Name $name -Template $Template
+
+    if (-not $identity.Signed) {
+        if (-not $baseCondition) {
             Write-Log ("Global condition (creating)  : {0}" -f $name)
-            return New-CMGlobalConditionWqlQuery `
-                -Name $name `
-                -DataType ([string]$Template.DataType) `
-                -Namespace ([string]$Template.Namespace) `
-                -Class ([string]$Template.Class) `
-                -Property ([string]$Template.Property) `
-                -Description ([string]$Template.Description)
+            return New-CMScriptGlobalConditionVerified -Name $name -Template $Template -Identity $identity
         }
-        'Script' {
-            Write-Log ("Global condition (creating)  : {0}" -f $name)
-            $scriptText = ''
-            if ($Template.PSObject.Properties['ScriptText'] -and $Template.ScriptText) {
-                $scriptText = (@($Template.ScriptText) -join "`r`n")
-            }
-            else {
-                $scriptText = New-VpnConditionScriptText -AdapterPatterns @($Template.AdapterPatterns) -AliasPattern ([string]$Template.AliasPattern)
-            }
-            return New-CMGlobalConditionScript `
-                -Name $name `
-                -DataType ([string]$Template.DataType) `
-                -ScriptLanguage PowerShell `
-                -ScriptText $scriptText `
-                -Description ([string]$Template.Description)
-        }
-        default {
-            throw "Condition template '$($Template.Id)' has unsupported Kind '$($Template.Kind)'."
+        $storedText = Get-CMGlobalConditionScriptText -GlobalCondition $baseCondition
+        if ($null -eq $storedText -or $storedText -eq $identity.Text) {
+            Write-Log ("Global condition (existing)  : {0}" -f $name)
+            return $baseCondition
         }
     }
+
+    $versionedName = '{0} ({1})' -f $name, $identity.Sha256.Substring(0, 8)
+    $versioned = Find-CMGlobalConditionByName -Name $versionedName -Template $Template
+    if ($versioned) {
+        Write-Log ("Global condition (existing)  : {0}" -f $versionedName)
+        return $versioned
+    }
+    if ($baseCondition) {
+        Write-Log ("Global condition unchanged   : '{0}' keeps its current script and its existing application references; this run uses '{1}'." -f $name, $versionedName) -Level WARN
+    }
+    Write-Log ("Global condition (creating)  : {0}" -f $versionedName)
+    return New-CMScriptGlobalConditionVerified -Name $versionedName -Template $Template -Identity $identity
+}
+
+function New-CMScriptGlobalConditionVerified {
+    <#
+    .SYNOPSIS
+        Creates a script global condition and verifies what the site stored.
+
+    .DESCRIPTION
+        The provider can refuse a write while the cmdlet reports success, and a
+        signature that survives locally can still be altered in transport, so
+        the stored script is read back and compared, and verified against the
+        signing service when the text was signed.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][pscustomobject]$Template,
+        [Parameter(Mandatory)][pscustomobject]$Identity
+    )
+
+    $temporary = ''
+    try {
+        $parameters = @{
+            Name           = $Name
+            DataType       = [string]$Template.DataType
+            ScriptLanguage = 'PowerShell'
+            Description    = [string]$Template.Description
+        }
+        if ($Identity.Signed) {
+            # The provider refuses a signed script passed as text; only the
+            # file parameter set carries a signature through the import.
+            $temporary = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + '.ps1')
+            [System.IO.File]::WriteAllBytes($temporary, [System.Text.Encoding]::UTF8.GetBytes($Identity.Text))
+            $parameters['FilePath'] = $temporary
+        }
+        else {
+            $parameters['ScriptText'] = $Identity.Text
+        }
+        $created = New-CMGlobalConditionScript @parameters
+    }
+    finally {
+        if (-not [string]::IsNullOrWhiteSpace($temporary)) {
+            Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    $storedText = Get-CMGlobalConditionScriptText -GlobalCondition $created
+    if ($null -eq $storedText) {
+        Write-Log ("Global condition read-back   : '{0}' stored no readable script body; the site copy could not be compared." -f $Name) -Level WARN
+        return $created
+    }
+    if ($storedText -ne $Identity.Text) {
+        throw ("Global condition '{0}' read back different script content than was sent; the site did not store the finalized script." -f $Name)
+    }
+    if ($Identity.Signed) {
+        Test-StoredScriptSignature -Bytes ([System.Text.Encoding]::UTF8.GetBytes($storedText)) -Context ("global condition '$Name'")
+    }
+    Write-Log ("Global condition read-back   : {0} verified" -f $Name)
+    return $created
+}
+
+function Test-StoredScriptSignature {
+    <#
+    .SYNOPSIS
+        Verifies that read-back script text still carries a valid signature.
+
+    .DESCRIPTION
+        A round trip through XML, JSON or a provider write can re-encode a
+        signed script and invalidate its signature while leaving the text
+        readable, so verification runs on the bytes that came back. The test is
+        integrity, not host trust: the build host is not required to trust the
+        signer chain, and an untrusted chain says nothing about the endpoint.
+        A hash mismatch, a missing signature, or a different signer is fatal.
+    #>
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][byte[]]$Bytes,
+        [Parameter(Mandatory)][string]$Context,
+        [AllowEmptyString()][string]$ExpectedThumbprint = ''
+    )
+
+    if (-not (Get-Command -Name Test-ScriptSignatureBytes -ErrorAction SilentlyContinue)) {
+        throw ("Signature verification for {0} was requested but the signing service is not available; reinstall AppPackager." -f $Context)
+    }
+    $verification = Test-ScriptSignatureBytes -Bytes $Bytes
+    # An older signing service reports only Valid, which folds trust into the result.
+    $intact = if ($verification.PSObject.Properties['SignatureIntact']) { [bool]$verification.SignatureIntact } else { [bool]$verification.Valid }
+    if (-not $intact) {
+        throw ("The signature on the stored script for {0} did not verify after read-back: {1} ({2})." -f $Context, $verification.Status, $verification.Reason)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedThumbprint) -and
+        $verification.Thumbprint -ne $ExpectedThumbprint) {
+        throw ("The stored script for {0} is signed by {1}, not by the certificate this build signed with ({2})." -f $Context, $verification.Thumbprint, $ExpectedThumbprint)
+    }
+    # Chain trust on this host is recorded, never required: under AllSigned the signer
+    # must be trusted as a publisher on the client, which is a client configuration.
+    $trusted = ($verification.PSObject.Properties['TrustedOnThisHost'] -and $verification.TrustedOnThisHost)
+    $trustState = if ($trusted) { 'chain trusted on this host' } else { ("chain not trusted on this host: {0}" -f $verification.Status) }
+    Write-Log ("Signature verified           : {0} ({1}); {2}; endpoint publisher trust is a separate client configuration." -f $Context, $verification.Thumbprint, $trustState)
+}
+
+function Compare-ByteSequence {
+    <#
+    .SYNOPSIS
+        True when two byte arrays are identical in length and content.
+    #>
+    param(
+        [AllowNull()][byte[]]$Left,
+        [AllowNull()][byte[]]$Right
+    )
+    if ($null -eq $Left -or $null -eq $Right) { return $false }
+    if ($Left.Length -ne $Right.Length) { return $false }
+    for ($i = 0; $i -lt $Left.Length; $i++) {
+        if ($Left[$i] -ne $Right[$i]) { return $false }
+    }
+    return $true
 }
 
 function Get-DeploymentTypeRequirementSpecs {
@@ -2661,6 +3431,7 @@ function Get-ManifestDeploymentTypeSpecs {
             UninstallCommand         = $(if (-not [string]::IsNullOrWhiteSpace([string]$Manifest.UninstallCommandLine)) { [string]$Manifest.UninstallCommandLine } else { 'uninstall.bat' })
             Detection                = $Manifest.Detection
             RequirementSource        = $Manifest
+            Timing                   = $Manifest.Timing
             PostExecutionBehavior    = $Manifest.PostExecutionBehavior
             InstallationBehaviorType = $Manifest.InstallationBehaviorType
             LogonRequirementType     = $Manifest.LogonRequirementType
@@ -2706,6 +3477,7 @@ function Get-ManifestDeploymentTypeSpecs {
             UninstallCommand         = $(if (-not [string]::IsNullOrWhiteSpace($uninstallOverride)) { $uninstallOverride } else { 'uninstall.bat' })
             Detection                = $detection
             RequirementSource        = $reqSource
+            Timing                   = (& $base $entry 'Timing')
             PostExecutionBehavior    = (& $base $entry 'PostExecutionBehavior')
             InstallationBehaviorType = (& $base $entry 'InstallationBehaviorType')
             LogonRequirementType     = (& $base $entry 'LogonRequirementType')
@@ -2713,6 +3485,232 @@ function Get-ManifestDeploymentTypeSpecs {
         }
     }
     return $specs
+}
+
+function Resolve-DetectionScriptTransport {
+    <#
+    .SYNOPSIS
+        Chooses how a script detection reaches Add-CMScriptDeploymentType.
+
+    .DESCRIPTION
+        A finalized detection names a file under the content root; that file
+        carries the exact bytes the signature covers, so it is imported with
+        -ScriptFile rather than re-serialized text. A file that is not
+        reachable from this host is copied byte for byte to a temporary path
+        first; re-reading it as text would re-encode it and invalidate the
+        signature. A manifest with no ScriptFile keeps today's -ScriptText.
+
+    .OUTPUTS
+        [pscustomobject] Transport ('File'|'Text'), Path, TempPath, Text,
+        Bytes, Signed.
+    #>
+    param(
+        [Parameter(Mandatory)]$Detection,
+        [Parameter(Mandatory)][string]$ContentLocation,
+        [AllowEmptyString()][string]$SignatureStatus = ''
+    )
+
+    $signed = @('SignedAndVerified', 'ExistingSignatureValid') -contains $SignatureStatus
+
+    $scriptFile = ''
+    if ($Detection.PSObject.Properties['ScriptFile']) { $scriptFile = [string]$Detection.ScriptFile }
+    if ([string]::IsNullOrWhiteSpace($scriptFile)) {
+        if ($signed) {
+            # The provider rejects a signed script supplied as text outright,
+            # so a signed detection without a finalized file has no transport.
+            throw 'The detection script is signed but the manifest names no Detection.ScriptFile; a signed script cannot be imported as script text. Re-run the Stage phase so the finalized script is written to the content folder.'
+        }
+        $text = [string]$Detection.ScriptText
+        return [pscustomobject]@{
+            Transport = 'Text'; Path = ''; TempPath = ''
+            Text      = $text
+            Bytes     = [System.Text.Encoding]::UTF8.GetBytes($text)
+            Signed    = $signed
+        }
+    }
+
+    $absolute = $scriptFile
+    if (-not [System.IO.Path]::IsPathRooted($absolute)) {
+        $absolute = Join-Path $ContentLocation $scriptFile
+    }
+    # After Connect-CMSite the session sits on the CMSite drive, where a bare
+    # UNC path resolves through the CM provider and reports missing files as
+    # absent; the FileSystem:: qualifier keeps the check on the filesystem.
+    if (-not (Test-Path -LiteralPath ("FileSystem::" + $absolute) -PathType Leaf)) {
+        throw ("Detection script '{0}' was not found under the content location '{1}'; re-run the Stage phase." -f $scriptFile, $ContentLocation)
+    }
+    $bytes = [System.IO.File]::ReadAllBytes($absolute)
+    # The signature block counts toward the site's script size limit, so the
+    # check runs on the finalized bytes rather than the authored text.
+    if (Get-Command -Name Get-ConfigMgrDetectionScriptMaxBytes -ErrorAction SilentlyContinue) {
+        $maxBytes = [int](Get-ConfigMgrDetectionScriptMaxBytes)
+        if ($maxBytes -gt 0 -and $bytes.Length -gt $maxBytes) {
+            throw ("The finalized detection script is {0} bytes, above the {1}-byte limit a deployment type accepts; shorten the detector or use a native detection rule." -f $bytes.Length, $maxBytes)
+        }
+    }
+
+    $temporary = ''
+    $importPath = $absolute
+    if ($absolute -like '\\*') {
+        # The site server reads -ScriptFile from the console host, so a share
+        # the console cannot reach is staged locally with identical bytes.
+        $temporary = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + '.ps1')
+        [System.IO.File]::WriteAllBytes($temporary, $bytes)
+        $importPath = $temporary
+    }
+
+    return [pscustomobject]@{
+        Transport = 'File'
+        Path      = $importPath
+        TempPath  = $temporary
+        Text      = [System.Text.Encoding]::UTF8.GetString($bytes)
+        Bytes     = $bytes
+        Signed    = $signed
+    }
+}
+
+function Get-CMDeploymentTypeDetectionScript {
+    <#
+    .SYNOPSIS
+        Reads back the detection script a deployment type actually stored.
+
+    .DESCRIPTION
+        The read-back reads the application document, not the deployment type
+        object: Get-CMDeploymentType returns the first type's SDMPackageXML for
+        every type of an application, so a multi-type app would verify the
+        wrong body. The stored body is decoded, because a signed script is
+        carried as an encoded block rather than as its own text.
+
+    .OUTPUTS
+        [pscustomobject] Bytes, Text, Encoded; $null when none is readable.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$ApplicationName,
+        [Parameter(Mandatory)][string]$DeploymentTypeName
+    )
+
+    try {
+        $application = Get-CMApplication -Name $ApplicationName -DisableWildcardHandling -ErrorAction Stop
+    }
+    catch {
+        Write-Log ("Detection read-back unavailable: {0}" -f $_.Exception.Message) -Level WARN
+        return $null
+    }
+    $application = @($application) | Select-Object -First 1
+    if (-not $application) { return $null }
+    $property = $application.PSObject.Properties['SDMPackageXML']
+    if (-not $property) { return $null }
+
+    $body = Get-SdmPackageScriptText -SdmPackageXml ([string]$property.Value) -DeploymentTypeName $DeploymentTypeName
+    if ($null -eq $body) { return $null }
+    return ConvertFrom-CMEncodedScriptBody -Body $body
+}
+
+function Test-StoredDetectionScript {
+    <#
+    .SYNOPSIS
+        Verifies the detection script the site stored against what was sent.
+
+    .DESCRIPTION
+        A CM cmdlet reports success without the provider having accepted the
+        write, and a signed script can survive import as readable text while
+        its signature no longer verifies. A signed detection that does not
+        come back intact stops the run rather than deploying a detector the
+        client will refuse under AllSigned.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$ApplicationName,
+        [Parameter(Mandatory)][string]$DeploymentTypeName,
+        [Parameter(Mandatory)][pscustomobject]$Transport,
+        [AllowEmptyString()][string]$ExpectedThumbprint = ''
+    )
+
+    try {
+        $stored = Get-CMDeploymentTypeDetectionScript -ApplicationName $ApplicationName -DeploymentTypeName $DeploymentTypeName
+        $require = Get-PolicyFlag -Policy (Resolve-CommonSigningPolicy) -Name 'RequireDetection'
+        if ($null -eq $stored) {
+            if ($Transport.Signed -or $require) {
+                throw ("The detection script stored on deployment type '{0}' could not be read back, so its signature cannot be verified." -f $DeploymentTypeName)
+            }
+            Write-Log ("Detection read-back          : '{0}' stored no readable script body; not compared." -f $DeploymentTypeName) -Level WARN
+            return
+        }
+        if ($stored.Encoded -or $Transport.Signed) {
+            # A signature covers bytes, so a signed import is compared byte for
+            # byte rather than through a text normalization.
+            if (-not (Compare-ByteSequence -Left $stored.Bytes -Right $Transport.Bytes)) {
+                throw ("Deployment type '{0}' read back different detection script bytes than were sent." -f $DeploymentTypeName)
+            }
+        }
+        elseif (([string]$stored.Text).TrimEnd("`r", "`n") -ne ([string]$Transport.Text).TrimEnd("`r", "`n")) {
+            throw ("Deployment type '{0}' read back different detection script content than was sent." -f $DeploymentTypeName)
+        }
+        if ($Transport.Signed -or $require) {
+            Test-StoredScriptSignature -Bytes $stored.Bytes -Context ("deployment type '$DeploymentTypeName'") -ExpectedThumbprint $ExpectedThumbprint
+        }
+        Write-Log ("Detection read-back          : {0} verified" -f $DeploymentTypeName)
+    }
+    finally {
+        if (-not [string]::IsNullOrWhiteSpace([string]$Transport.TempPath)) {
+            Remove-Item -LiteralPath $Transport.TempPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Test-ResolvedDeploymentCommand {
+    <#
+    .SYNOPSIS
+        Re-checks the resolved deployment-type command lines for execution-policy
+        relaxation at Package time.
+
+    .DESCRIPTION
+        The stage-time launcher check cannot see operator overrides or per-variant
+        commands resolved later. This runs the same check over the final commands and
+        throws before any site mutation whenever the deployment category is signed or
+        the policy requires deployment signatures. Without the signing module the build
+        is a legacy unsigned build and nothing is enforced.
+    #>
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Specs,
+        $Manifest
+    )
+
+    $checker = Get-Command -Name Test-DeploymentLauncherChain -ErrorAction SilentlyContinue
+    if (-not $checker) { return $null }
+
+    $policy = $null
+    if (Get-Command -Name Get-SigningPolicy -ErrorAction SilentlyContinue) { $policy = Get-SigningPolicy }
+
+    $deploymentStatus = ''
+    if ($Manifest -and $Manifest.PSObject.Properties['ScriptSigning'] -and $Manifest.ScriptSigning -and
+        $Manifest.ScriptSigning.PSObject.Properties['Deployment'] -and $Manifest.ScriptSigning.Deployment) {
+        $deploymentStatus = [string]$Manifest.ScriptSigning.Deployment.Status
+    }
+    $signed = @('SignedAndVerified', 'ExistingSignatureValid') -contains $deploymentStatus
+    $required = [bool]($policy -and ($policy.SignDeployment -or $policy.RequireDeployment))
+    if (-not ($signed -or $required)) { return $null }
+
+    # A synthetic manifest carries only the resolved commands: the stage tree was
+    # already inspected during finalization and is not re-read here.
+    $commandManifest = [pscustomobject]@{
+        InstallCommandLine   = ''
+        UninstallCommandLine = ''
+        DeploymentTypes      = @($Specs | ForEach-Object {
+            [pscustomobject]@{
+                InstallCommand   = [string]$_.InstallCommand
+                UninstallCommand = [string]$_.UninstallCommand
+            }
+        })
+    }
+    # Enforcement follows the manifest's own signed state as well as the policy, so a
+    # signed build is refused even when the child runs without a policy in scope.
+    $effectivePolicy = if ($policy) { $policy } else { [pscustomobject]@{ SignDeployment = $false; RequireDeployment = $false } }
+    if ($signed) { $effectivePolicy = [pscustomobject]@{ SignDeployment = $true; RequireDeployment = $true } }
+
+    # The stage root is deliberately a path that cannot exist: only the commands are
+    # inspected here, the staged files were covered at finalization time.
+    $commandsOnlyRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('ap-commands-only-' + [guid]::NewGuid().ToString('N'))
+    return Test-DeploymentLauncherChain -StageRoot $commandsOnlyRoot -Manifest $commandManifest -Policy $effectivePolicy
 }
 
 function New-MECMApplicationFromManifest {
@@ -2785,6 +3783,18 @@ function New-MECMApplicationFromManifest {
 
         Write-Log ("Manifest fields              : AppName='{0}' Publisher='{1}' SoftwareVersion='{2}' DetectionType='{3}'" -f $appName, $Manifest.Publisher, $Manifest.SoftwareVersion, $Manifest.Detection.Type) -Level DEBUG
 
+        # The signing service records what it achieved per category; a signed
+        # detector must be imported and read back as bytes, not as text.
+        $detectionSignatureStatus = ''
+        $detectionSignatureThumbprint = ''
+        if ($Manifest.PSObject.Properties['ScriptSigning'] -and $Manifest.ScriptSigning -and
+            $Manifest.ScriptSigning.PSObject.Properties['Detection'] -and $Manifest.ScriptSigning.Detection) {
+            $detectionSignatureStatus = [string]$Manifest.ScriptSigning.Detection.Status
+            if ($Manifest.ScriptSigning.Detection.PSObject.Properties['Thumbprint']) {
+                $detectionSignatureThumbprint = [string]$Manifest.ScriptSigning.Detection.Thumbprint
+            }
+        }
+
         $step = 'Deployment type spec resolution'
         $dtSpecs = @(Get-ManifestDeploymentTypeSpecs -Manifest $Manifest -NetworkContentPath $NetworkContentPath -AppName $appName)
         # AutoInstall is application-wide. Every resolved DT must run as
@@ -2823,6 +3833,11 @@ function New-MECMApplicationFromManifest {
                 }
             }
         }
+
+        # Stage-time signing inspected the stage tree; the commands that reach the
+        # deployment types can still change here (overrides, per-variant specs), so
+        # the resolved command lines are re-checked before the first site write.
+        [void](Test-ResolvedDeploymentCommand -Specs $dtSpecs -Manifest $Manifest)
 
         $step = "Get-CMApplication duplicate check ('$appName')"
         $existing = Get-CMApplication -Name $appName -DisableWildcardHandling -ErrorAction Stop
@@ -2959,6 +3974,17 @@ function New-MECMApplicationFromManifest {
                 Write-Log "Uninstall command (manifest) : $uninstallCommand"
             }
 
+            # The manifest's own timing wins over the caller's parameters: it is
+            # the value the operator saved with the profile, and a run that
+            # silently used the GUI defaults would misreport install duration
+            # and shorten the maintenance-window budget.
+            $timing = Resolve-DeploymentTypeTiming -Timing $spec.Timing `
+                -DefaultEstimated $EstimatedRuntimeMins -DefaultMaximum $MaximumRuntimeMins `
+                -Context ("deployment type '$dtName'")
+            if ($timing.Source -eq 'manifest') {
+                Write-Log ("Runtime minutes (manifest)   : estimated {0}, maximum {1}" -f $timing.EstimatedRuntimeMins, $timing.MaximumRuntimeMins)
+            }
+
             $dtParams = @{
                 ApplicationName           = $appName
                 DeploymentTypeName        = $dtCreateName
@@ -2967,8 +3993,8 @@ function New-MECMApplicationFromManifest {
                 UninstallCommand          = $uninstallCommand
                 InstallationBehaviorType  = 'InstallForSystem'
                 LogonRequirementType      = 'WhetherOrNotUserLoggedOn'
-                EstimatedRuntimeMins      = $EstimatedRuntimeMins
-                MaximumRuntimeMins        = $MaximumRuntimeMins
+                EstimatedRuntimeMins      = $timing.EstimatedRuntimeMins
+                MaximumRuntimeMins        = $timing.MaximumRuntimeMins
                 ContentFallback           = $true
                 SlowNetworkDeploymentMode = 'Download'
                 UserInteractionMode       = 'Hidden'
@@ -2999,11 +4025,19 @@ function New-MECMApplicationFromManifest {
                 $dtParams['RequireUserInteraction'] = $true
             }
 
+            $detectionTransport = $null
             if ($detType -eq 'Script') {
                 # Script-based detection: pass script text, no clause objects needed
                 $lang = if ($det.ScriptLanguage) { $det.ScriptLanguage } else { 'PowerShell' }
                 $dtParams['ScriptLanguage'] = $lang
-                $dtParams['ScriptText']     = $det.ScriptText
+                $detectionTransport = Resolve-DetectionScriptTransport -Detection $det -ContentLocation $spec.ContentLocation -SignatureStatus $detectionSignatureStatus
+                if ($detectionTransport.Transport -eq 'File') {
+                    $dtParams['ScriptFile'] = $detectionTransport.Path
+                    Write-Log ("Detection script (file)      : {0}" -f $detectionTransport.Path)
+                }
+                else {
+                    $dtParams['ScriptText'] = $detectionTransport.Text
+                }
             }
             else {
                 # Clause-based detection: leave CM PSDrive to create clause objects
@@ -3079,6 +4113,12 @@ function New-MECMApplicationFromManifest {
             Write-Log "Adding Script Deployment Type : $dtCreateName"
             $step = "Add-CMScriptDeploymentType ('$dtCreateName')"
             Add-CMScriptDeploymentType @dtParams | Out-Null
+
+            if ($detectionTransport) {
+                $step = "Get-CMDeploymentType detection read-back ('$dtCreateName')"
+                Test-StoredDetectionScript -ApplicationName $appName -DeploymentTypeName $dtCreateName `
+                    -Transport $detectionTransport -ExpectedThumbprint $detectionSignatureThumbprint
+            }
 
             if ($dtCreateName -ne $dtName) {
                 $stagedRenames += [pscustomobject]@{ From = $dtCreateName; To = $dtName }
@@ -3901,6 +4941,45 @@ function Get-InstallerAnalysis {
     }
 }
 
+function Assert-ArpDetectionKey {
+    <#
+    .SYNOPSIS
+        Throws when the staged installer names a different ARP key or registry
+        view than the detection clause.
+    .DESCRIPTION
+        The clause carries a literal key confirmed on a client. A vendor that
+        renames the key or moves it between registry views in a later build
+        would otherwise stage a rule that can never evaluate true.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$InstallerPath,
+        [Parameter(Mandatory)][string]$ExpectedKey,
+        [Parameter(Mandatory)][bool]$Is64BitView
+    )
+
+    $analysis = Get-InstallerAnalysis -Path $InstallerPath
+    $decoded  = [string]$analysis.UninstallRegistryKey
+    if ([string]::IsNullOrWhiteSpace($decoded)) {
+        Write-Log "Installer header names no ARP key; detection keeps the confirmed literal." -Level WARN
+        return
+    }
+
+    $relative = $decoded -replace '^HK(LM|CU):\\', ''
+    $relative = $relative -replace '(?i)^SOFTWARE\\WOW6432Node\\', 'SOFTWARE\'
+    if ($relative -ne $ExpectedKey) {
+        throw "Installer registers '$relative' but detection expects '$ExpectedKey'."
+    }
+
+    $decodedView = [string]$analysis.RegistryView
+    if ($decodedView) {
+        $decoded64 = ($decodedView -ne '32')
+        if ($decoded64 -ne $Is64BitView) {
+            throw "Installer writes its ARP key in the $decodedView-bit view but detection expects the other view."
+        }
+    }
+}
+
+Export-ModuleMember -Function Assert-ArpDetectionKey
 function Set-InstallerAnalysisMode {
     <#
     .SYNOPSIS
@@ -4083,6 +5162,9 @@ function New-AdHocStage {
         UninstallArgs   = $UninstallArgs
         UninstallCommand = if ($isMsi) { '' } else { $UninstallCommand }
         ProductCode     = [string]$Analysis.ProductCode
+        # The workbench and the Intune adapter read architecture off the
+        # manifest; a BYO app has no packager script header to fall back on.
+        Architecture    = $(if ($is64) { 'x64' } else { 'x86' })
         RunningProcess  = @()
         AdHocSource     = [string]$Analysis.Path
         InstallContext  = if ($perUser) { 'PerUser' } else { 'PerMachine' }
@@ -4829,12 +5911,81 @@ function New-IntuneRegistryValueScriptRule {
         'exit 1'
     )
 
+    return ($lines -join "`r`n")
+}
+
+function Get-IntuneScriptRuleSettings {
+    <#
+    .SYNOPSIS
+        Resolves enforceSignatureCheck and runAs32Bit for a script rule.
+
+    .DESCRIPTION
+        Signature enforcement only asks the client to verify; it never signs.
+        It is set when the detection category actually produced a valid
+        signature, or when policy requires one - and a required signature that
+        was not produced stops the publish instead of shipping an unenforced
+        rule. Script host bitness comes from the definition, not a constant.
+
+    .OUTPUTS
+        [pscustomobject] EnforceSignatureCheck, RunAs32Bit.
+    #>
+    param([Parameter(Mandatory)]$Manifest)
+
+    $status = ''
+    if ($Manifest.PSObject.Properties['ScriptSigning'] -and $Manifest.ScriptSigning -and
+        $Manifest.ScriptSigning.PSObject.Properties['Detection'] -and $Manifest.ScriptSigning.Detection) {
+        $status = [string]$Manifest.ScriptSigning.Detection.Status
+    }
+    $signed = @('SignedAndVerified', 'ExistingSignatureValid') -contains $status
+    $require = Get-PolicyFlag -Policy (Resolve-CommonSigningPolicy) -Name 'RequireDetection'
+    if ($require -and -not $signed) {
+        throw ("Valid detection script signatures are required, but the staged detection reports status '{0}'; re-stage with signing enabled before publishing to Intune." -f $(if ($status) { $status } else { 'none' }))
+    }
+
+    $runAs32Bit = $false
+    if ($Manifest.PSObject.Properties['Execution'] -and $Manifest.Execution -and
+        $Manifest.Execution.PSObject.Properties['ScriptHost']) {
+        $runAs32Bit = ([string]$Manifest.Execution.ScriptHost -eq 'x86')
+    }
+
+    return [pscustomobject]@{
+        EnforceSignatureCheck = ($signed -or $require)
+        RunAs32Bit            = $runAs32Bit
+    }
+}
+
+function New-IntuneDetectionScriptRule {
+    <#
+    .SYNOPSIS
+        Builds a Graph PowerShell script detection rule from script content.
+
+    .DESCRIPTION
+        A finalized detection names a file whose bytes the signature covers;
+        scriptContent carries those exact bytes so the signature survives the
+        transport. Text is only encoded directly when no such file exists.
+    #>
+    param(
+        [Parameter(Mandatory)]$Manifest,
+        [AllowEmptyString()][string]$ScriptText = '',
+        [AllowEmptyString()][string]$ScriptFile = ''
+    )
+
+    $settings = Get-IntuneScriptRuleSettings -Manifest $Manifest
+    $content = $null
+    if (-not [string]::IsNullOrWhiteSpace($ScriptFile) -and (Get-Command -Name Get-SignedScriptRepresentation -ErrorAction SilentlyContinue)) {
+        $representation = Get-SignedScriptRepresentation -Path $ScriptFile
+        $content = [string]$representation.Base64
+    }
+    if ([string]::IsNullOrWhiteSpace($content)) {
+        $content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($ScriptText))
+    }
+
     return @{
         '@odata.type'         = '#microsoft.graph.win32LobAppPowerShellScriptRule'
         ruleType              = 'detection'
-        enforceSignatureCheck = $false
-        runAs32Bit            = $false
-        scriptContent         = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($lines -join "`r`n")))
+        enforceSignatureCheck = $settings.EnforceSignatureCheck
+        runAs32Bit            = $settings.RunAs32Bit
+        scriptContent         = $content
         operationType         = 'notConfigured'
         operator              = 'notConfigured'
     }
@@ -4849,15 +6000,28 @@ function ConvertTo-IntuneWin32Rules {
         Field names per the v1.0 win32LobApp*Rule resources. RegistryKeyValue
         compares DisplayVersion-style strings with a version operation when
         the expected value parses as a version, string equality otherwise.
-        Operators map one to one where Graph has an equivalent; a prefix,
-        suffix, or substring operator becomes a script rule and any other
-        operator is refused. Compound detections map clause-per-rule (Graph
+        Operators map one to one where Graph has an equivalent; any other
+        operator is refused. A prefix, suffix, or substring operator has no
+        native Graph equivalent: it becomes a generated script rule only when
+        the profile set Detection.IntuneScriptConversion, because turning a
+        validated native detector into a script silently is the behavior the
+        catalog policy forbids. Compound detections map clause-per-rule (Graph
         ANDs all detection rules; OR-connected compounds are refused rather
         than silently narrowed).
     #>
-    param([Parameter(Mandatory)][pscustomobject]$Manifest)
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Manifest,
+        [AllowNull()][pscustomobject]$Profile
+    )
 
     $det = $Manifest.Detection
+    $scriptConversionAllowed = $false
+    if ($det -and $det.PSObject.Properties['IntuneScriptConversion']) {
+        $scriptConversionAllowed = ($det.IntuneScriptConversion -eq $true)
+    }
+    if (-not $scriptConversionAllowed -and $Profile -and $Profile.PSObject.Properties['Detection'] -and $Profile.Detection) {
+        $scriptConversionAllowed = ($Profile.Detection.IntuneScriptConversion -eq $true)
+    }
     $type = if ($det.Type) { [string]$det.Type } else { 'RegistryKeyValue' }
 
     $hiveRoot = { param($d) if ($d.PSObject.Properties['Hive'] -and [string]$d.Hive -match '^(CurrentUser|HKCU)$') { 'HKEY_CURRENT_USER\' } else { 'HKEY_LOCAL_MACHINE\' } }
@@ -4884,8 +6048,12 @@ function ConvertTo-IntuneWin32Rules {
                 # Missing operators default the way the MECM clause builder does.
                 $opName = if ($d.Operator) { [string]$d.Operator } else { 'IsEquals' }
                 if ($scriptOperators -contains $opName) {
-                    return (New-IntuneRegistryValueScriptRule -HiveRoot (& $hiveRoot $d) -KeyPath ([string]$d.RegistryKeyRelative) `
-                        -ValueName $valName -Expected $expected -Operator $opName -Is64Bit ([bool]$d.Is64Bit))
+                    if (-not $scriptConversionAllowed) {
+                        throw ("Detection operator '{0}' on registry value '{1}' has no native Intune rule; converting it to a PowerShell detection script is an explicit profile choice (Detection.IntuneScriptConversion). Set it in the workbench, or publish this application to MECM only." -f $opName, $valName)
+                    }
+                    $generated = New-IntuneRegistryValueScriptRule -HiveRoot (& $hiveRoot $d) -KeyPath ([string]$d.RegistryKeyRelative) `
+                        -ValueName $valName -Expected $expected -Operator $opName -Is64Bit ([bool]$d.Is64Bit)
+                    return (New-IntuneDetectionScriptRule -Manifest $Manifest -ScriptText $generated)
                 }
                 $ver = $null
                 $opType = if ([version]::TryParse($expected, [ref]$ver)) { 'version' } else { 'string' }
@@ -4943,15 +6111,20 @@ function ConvertTo-IntuneWin32Rules {
                 }
             }
             'Script' {
-                @{
-                    '@odata.type'         = '#microsoft.graph.win32LobAppPowerShellScriptRule'
-                    ruleType              = 'detection'
-                    enforceSignatureCheck = $false
-                    runAs32Bit            = $false
-                    scriptContent         = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$d.ScriptText))
-                    operationType         = 'notConfigured'
-                    operator              = 'notConfigured'
+                $scriptFile = ''
+                if ($d.PSObject.Properties['ScriptFile'] -and -not [string]::IsNullOrWhiteSpace([string]$d.ScriptFile)) {
+                    $scriptFile = [string]$d.ScriptFile
+                    if (-not [System.IO.Path]::IsPathRooted($scriptFile) -and $Manifest.PSObject.Properties['ContentRoot']) {
+                        $scriptFile = Join-Path ([string]$Manifest.ContentRoot) $scriptFile
+                    }
+                    # Re-encoding the manifest text would only reproduce the signed bytes for
+                    # an ASCII or BOM-less UTF-8 original, so a named-but-missing file is fatal
+                    # rather than a silent fallback.
+                    if (-not (Test-Path -LiteralPath ("FileSystem::" + $scriptFile) -PathType Leaf)) {
+                        throw ("The manifest names detection script file '{0}' but it is missing under the content root; re-run the Stage phase so the finalized script is written before publishing." -f [string]$d.ScriptFile)
+                    }
                 }
+                New-IntuneDetectionScriptRule -Manifest $Manifest -ScriptText ([string]$d.ScriptText) -ScriptFile $scriptFile
             }
             default { throw "Detection type '$dType' has no Intune rule mapping." }
         }
@@ -4968,6 +6141,124 @@ function ConvertTo-IntuneWin32Rules {
         return $rules
     }
     return @(& $mapOne $det $type)
+}
+
+function Get-IntuneCompatibilityFindings {
+    <#
+    .SYNOPSIS
+        Reports what an Intune publish of this manifest would and would not do.
+
+    .DESCRIPTION
+        The review pane and the publisher both read this list, so a blocking
+        gap is visible before any Graph mutation instead of surfacing as a
+        half-created app. Severity Blocking refuses the target; Review needs an
+        operator decision; Info records a capability the adapter does not carry.
+
+    .OUTPUTS
+        [pscustomobject[]] Severity, Code, Message.
+    #>
+    param([Parameter(Mandatory)][pscustomobject]$Manifest)
+
+    $findings = New-Object System.Collections.Generic.List[object]
+    $add = {
+        param($Severity, $Code, $Message)
+        $findings.Add([pscustomobject]@{ Severity = $Severity; Code = $Code; Message = $Message })
+    }
+
+    # Multi-DT means the same thing here as in Get-ManifestDeploymentTypeSpecs: more than one
+    # entry, or a single entry whose name differs from the application. A one-entry manifest
+    # named after the app is a plain single deployment type and publishes normally.
+    $isMultiDt = $false
+    if ($Manifest.PSObject.Properties['DeploymentTypes'] -and @($Manifest.DeploymentTypes).Count -gt 0) {
+        $specAppName = [string]$Manifest.AppName
+        try {
+            $specs = @(Get-ManifestDeploymentTypeSpecs -Manifest $Manifest -NetworkContentPath '.' -AppName $specAppName)
+            $isMultiDt = ($specs.Count -gt 1 -or $specs[0].DtName -ne $specAppName)
+        }
+        catch {
+            # A findings pass never throws: an unresolvable variant set is reported as blocking.
+            $isMultiDt = $true
+        }
+    }
+    if ($isMultiDt) {
+        & $add 'Blocking' 'MultipleDeploymentTypes' 'This application has deployment-type variants. Intune has no equivalent priority and fallback model, so the variant set cannot be published as one Win32 app.'
+    }
+    if ($Manifest.RequireUserInteraction -eq $true) {
+        & $add 'Blocking' 'InteractiveInstall' 'This deployment type allows the user to interact with the installation. Intune runs Win32 installs silently, so an interactive profile cannot be published.'
+    }
+
+    try {
+        [void](ConvertTo-IntuneWin32Rules -Manifest $Manifest)
+    }
+    catch {
+        & $add 'Blocking' 'DetectionNotMappable' $_.Exception.Message
+    }
+
+    $requirements = @()
+    if ($Manifest.PSObject.Properties['Requirements'] -and $Manifest.Requirements) { $requirements = @($Manifest.Requirements) }
+    if ($requirements.Count -gt 0) {
+        & $add 'Review' 'RequirementsNotTranslated' ("This application carries {0} MECM requirement rule(s). The Intune adapter does not translate them, so the published app has no equivalent gating." -f $requirements.Count)
+    }
+
+    $architecture = [string]$Manifest.Architecture
+    if ([string]::IsNullOrWhiteSpace($architecture)) {
+        & $add 'Review' 'ArchitectureUnresolved' 'The manifest declares no architecture, so the published app keeps the publisher default rather than a value resolved from the installer.'
+    }
+    elseif (@('x86', 'x64', 'arm64') -notcontains (Get-IntuneAllowedArchitecture -Architecture $architecture)) {
+        & $add 'Blocking' 'ArchitectureUnsupported' ("Architecture '{0}' has no allowedArchitectures value in the Graph v1.0 Win32 app resource (x86, x64, arm64)." -f $architecture)
+    }
+
+    $timing = $Manifest.Timing
+    if ($timing) {
+        & $add 'Info' 'TimingNotApplied' 'Estimated and maximum runtime minutes are recorded in the build but not sent to Intune: the Graph v1.0 install-experience resource has no runtime property (Timing.IntuneApplied = false).'
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$Manifest.SetupFile)) {
+        & $add 'Info' 'SetupFileFromPackage' 'The manifest names no setup file, so the setup reference comes from the .intunewin package metadata.'
+    }
+
+    return @($findings.ToArray())
+}
+
+function Get-IntuneAllowedArchitecture {
+    <#
+    .SYNOPSIS
+        Maps a manifest architecture onto a Graph windowsArchitecture value.
+
+    .DESCRIPTION
+        The v1.0 win32LobApp resource documents null, x86, x64 and arm64 for
+        allowedArchitectures. Setting allowedArchitectures sets
+        applicableArchitectures to none, so only one of the two is sent.
+    #>
+    param([AllowEmptyString()][string]$Architecture)
+
+    switch -Regex ([string]$Architecture) {
+        '^(?i)(x64|amd64|64|64-bit|x86_64)$' { return 'x64' }
+        '^(?i)(x86|intel|32|32-bit)$'        { return 'x86' }
+        '^(?i)(arm64|aarch64)$'              { return 'arm64' }
+        default                              { return '' }
+    }
+}
+
+function Get-IntuneIdentityTag {
+    <#
+    .SYNOPSIS
+        The notes value that identifies an Intune app as this build's target.
+
+    .DESCRIPTION
+        'AppPackager:<ApplicationId>/<ProfileId>'. A manifest staged before the
+        workbench carries neither id; it falls back to the packager-default
+        profile of an application key derived from the title, which keeps a
+        legacy app matchable without claiming an identity it never had.
+    #>
+    param([Parameter(Mandatory)][pscustomobject]$Manifest)
+
+    $applicationId = [string]$Manifest.ApplicationId
+    if ([string]::IsNullOrWhiteSpace($applicationId)) {
+        $applicationId = 'legacy:' + (([string]$Manifest.AppName) -replace '[^\w.-]', '-')
+    }
+    $profileId = [string]$Manifest.ProfileId
+    if ([string]::IsNullOrWhiteSpace($profileId)) { $profileId = 'default' }
+    return ('AppPackager:{0}/{1}' -f $applicationId, $profileId)
 }
 
 function Publish-IntuneWin32App {
@@ -5001,25 +6292,76 @@ function Publish-IntuneWin32App {
         [Parameter(Mandatory)][pscustomobject]$Manifest,
         [AllowEmptyString()][string]$Description = '',
         [string]$MinimumSupportedWindowsRelease = 'Windows10_21H2',
-        [ValidateSet('x86', 'x64')][string]$Architecture = 'x64',
+        [ValidateSet('x86', 'x64', 'arm64')][string]$Architecture = 'x64',
         [string]$GraphBase = 'https://graph.microsoft.com/v1.0',
         [int]$PollTimeoutSec = 600,
         [AllowEmptyString()][string]$IconPath = ''
     )
 
     $meta = Get-IntuneWinEncryptionInfo -Path $IntuneWinPath
+
+    # Compatibility is decided before the first Graph mutation: a blocking gap
+    # must not leave a half-created app behind in the tenant.
+    $findings = @(Get-IntuneCompatibilityFindings -Manifest $Manifest)
+    foreach ($finding in $findings) {
+        $level = if ($finding.Severity -eq 'Info') { 'INFO' } else { 'WARN' }
+        Write-Log ("Intune compatibility         : [{0}] {1} - {2}" -f $finding.Severity, $finding.Code, $finding.Message) -Level $level
+    }
+    $blocking = @($findings | Where-Object { $_.Severity -eq 'Blocking' })
+    if ($blocking.Count -gt 0) {
+        throw ("This application cannot be published to Intune: {0}" -f (($blocking | ForEach-Object { "$($_.Code): $($_.Message)" }) -join ' | '))
+    }
+
     $rules = @(ConvertTo-IntuneWin32Rules -Manifest $Manifest)
 
     $installCommand = if (-not [string]::IsNullOrWhiteSpace([string]$Manifest.InstallCommandLine)) { [string]$Manifest.InstallCommandLine } else { 'install.bat' }
     $uninstallCommand = if (-not [string]::IsNullOrWhiteSpace([string]$Manifest.UninstallCommandLine)) { [string]$Manifest.UninstallCommandLine } else { 'uninstall.bat' }
+    # The real entry the package runs; the prep tool's own setup reference is
+    # only correct for the generic install.bat layout.
+    $setupFilePath = if (-not [string]::IsNullOrWhiteSpace([string]$Manifest.SetupFile)) { [string]$Manifest.SetupFile } else { [string]$meta.SetupFile }
+
+    # Display names are not identity: two profiles of one application can carry
+    # the same title, and a renamed profile must not adopt a different app.
+    $identityTag = Get-IntuneIdentityTag -Manifest $Manifest
+
+    # The definition's architecture wins over the caller's default; an
+    # unmappable value was already refused by the compatibility findings.
+    $resolvedArchitecture = Get-IntuneAllowedArchitecture -Architecture ([string]$Manifest.Architecture)
+    if ([string]::IsNullOrWhiteSpace($resolvedArchitecture)) { $resolvedArchitecture = $Architecture }
 
     $token = Get-MsGraphToken -TenantId $TenantId -ClientId $ClientId -ClientSecret $ClientSecret
 
     # Repeat publishes update the existing app (new content version on the
     # same app identity) instead of stacking duplicates in the console.
-    $filterName = ([string]$Manifest.AppName) -replace "'", "''"
-    $existing = Invoke-GraphJson -Method GET -Uri ("$GraphBase/deviceAppManagement/mobileApps?`$filter=displayName eq '$filterName'") -Token $token
-    $existingApp = @($existing.value | Where-Object { $_.'@odata.type' -eq '#microsoft.graph.win32LobApp' }) | Select-Object -First 1
+    # Identity first: an app renamed in the tenant keeps its tag but no longer matches a
+    # display-name filter, and `notes` is not a filterable property, so the Win32 apps are
+    # listed and matched here.
+    $tagged = @()
+    $uri = "$GraphBase/deviceAppManagement/mobileApps?`$filter=isof('microsoft.graph.win32LobApp')"
+    while ($uri) {
+        $page = Invoke-GraphJson -Method GET -Uri $uri -Token $token
+        $tagged += @($page.value | Where-Object {
+            $_.'@odata.type' -eq '#microsoft.graph.win32LobApp' -and [string]$_.notes -eq $identityTag
+        })
+        $uri = [string]$page.'@odata.nextLink'
+    }
+    if ($tagged.Count -gt 1) {
+        throw ("Multiple Intune apps carry the identity tag '{0}' (ids: {1}); resolve the duplicates before publishing." -f $identityTag, (($tagged | ForEach-Object { [string]$_.id }) -join ', '))
+    }
+
+    $existingApp = $null
+    if ($tagged.Count -eq 1) {
+        $existingApp = $tagged[0]
+    }
+    else {
+        $filterName = ([string]$Manifest.AppName) -replace "'", "''"
+        $existing = Invoke-GraphJson -Method GET -Uri ("$GraphBase/deviceAppManagement/mobileApps?`$filter=displayName eq '$filterName'") -Token $token
+        $candidates = @($existing.value | Where-Object { $_.'@odata.type' -eq '#microsoft.graph.win32LobApp' })
+        if ($candidates.Count -gt 1) {
+            throw ("Multiple Intune apps are named '{0}' and none carries this application's identity tag (ids: {1}); rename or tag the intended app before publishing." -f $Manifest.AppName, (($candidates | ForEach-Object { [string]$_.id }) -join ', '))
+        }
+        $existingApp = @($candidates) | Select-Object -First 1
+    }
 
     $appBody = @{
         '@odata.type'                  = '#microsoft.graph.win32LobApp'
@@ -5027,10 +6369,13 @@ function Publish-IntuneWin32App {
         description                    = $(if ($Description) { $Description } else { [string]$Manifest.AppName })
         publisher                      = [string]$Manifest.Publisher
         fileName                       = (Split-Path -Leaf $IntuneWinPath)
-        setupFilePath                  = $meta.SetupFile
+        setupFilePath                  = $setupFilePath
         installCommandLine             = $installCommand
         uninstallCommandLine           = $uninstallCommand
-        applicableArchitectures        = $Architecture
+        notes                          = $identityTag
+        # Graph sets applicableArchitectures to none when allowedArchitectures
+        # carries a value, so only the newer property is sent.
+        allowedArchitectures           = $resolvedArchitecture
         minimumSupportedWindowsRelease = $MinimumSupportedWindowsRelease
         installExperience              = @{
             # A manifest that installs for the user (per-user installer, HKCU
@@ -5051,6 +6396,13 @@ function Publish-IntuneWin32App {
     # separate upload. An unresolvable icon leaves the property unset rather
     # than failing the publish.
     $resolvedIconPath = $IconPath
+    # A custom icon chosen in the workbench outranks the packager's extracted
+    # or icon-pack image, which a later pack refresh would otherwise restore.
+    if ([string]::IsNullOrWhiteSpace($resolvedIconPath) -and
+        ($Manifest.PSObject.Properties.Name -contains 'CustomIcon') -and
+        -not [string]::IsNullOrWhiteSpace([string]$Manifest.CustomIcon)) {
+        $resolvedIconPath = Join-Path (Split-Path -Path $IntuneWinPath -Parent) ([string]$Manifest.CustomIcon)
+    }
     if ([string]::IsNullOrWhiteSpace($resolvedIconPath) -and
         ($Manifest.PSObject.Properties.Name -contains 'Icon') -and
         -not [string]::IsNullOrWhiteSpace([string]$Manifest.Icon)) {
@@ -5142,4 +6494,4 @@ function Publish-IntuneWin32App {
     }
 }
 
-Export-ModuleMember -Function Get-IntuneWinEncryptionInfo, Export-IntuneWinPayload, Get-MsGraphToken, Invoke-GraphJson, Invoke-AzureBlobUpload, ConvertTo-IntuneWin32Rules, Publish-IntuneWin32App
+Export-ModuleMember -Function Get-IntuneWinEncryptionInfo, Export-IntuneWinPayload, Get-MsGraphToken, Invoke-GraphJson, Invoke-AzureBlobUpload, ConvertTo-IntuneWin32Rules, Publish-IntuneWin32App, Get-IntuneCompatibilityFindings, Get-IntuneAllowedArchitecture, Get-IntuneIdentityTag, Get-IntuneScriptRuleSettings, New-IntuneDetectionScriptRule

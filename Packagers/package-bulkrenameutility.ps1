@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: TGRMN Software
 App: Bulk Rename Utility
 CMName: Bulk Rename Utility
@@ -16,7 +16,7 @@ UpdateCadenceDays: 180
     Resolves the newest build from the vendor's unversioned download endpoint,
     which redirects to a versioned installer filename, downloads it, stages
     content to a versioned local folder, and creates an MECM Application with
-    script-based detection on the ARP entry.
+    registry detection on the ARP entry.
 
     The payload is an Inno Setup installer, so the silent switches are
     /VERYSILENT /SUPPRESSMSGBOXES /NORESTART and the uninstaller is resolved
@@ -60,7 +60,7 @@ UpdateCadenceDays: 180
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with script-based detection.
+    create MECM application with registry detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available Bulk Rename Utility version string and exits.
@@ -108,8 +108,11 @@ $BaseDownloadRoot = Join-Path $DownloadRoot "BulkRenameUtility"
 
 $InstallerFileName = "BRU_setup.exe"
 
-# --- Functions ---
+# Inno AppId "Bulk Rename Utility Installation"; the vendor has changed the id
+# across major versions, so the stage guard rechecks it on every run.
+$ArpRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Bulk Rename Utility Installation_is1"
 
+# --- Functions ---
 
 function Assert-PayloadIsExecutable {
     <#
@@ -202,6 +205,7 @@ function Invoke-StageBulkRenameUtility {
     Invoke-DownloadWithRetry -Url $releaseInfo.DownloadUrl -OutFile $localExe
 
     Assert-PayloadIsExecutable -Path $localExe
+    Assert-ArpDetectionKey -InstallerPath $localExe -ExpectedKey $ArpRegistryKey -Is64BitView $true
 
     $productVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($localExe).ProductVersion
     if ($productVersion) { $productVersion = $productVersion.Trim() }
@@ -255,30 +259,8 @@ exit 1
         -UninstallPs1Content $uninstallScript
 
     # --- Detection ---
-    # The Inno ARP key name carries the product's app id, which the vendor has
-    # changed across major versions, so detection matches on DisplayName and
-    # compares DisplayVersion.
-    $detectionScript = @"
-`$roots = @(
-    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
-    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
-)
-`$wanted = [version]'$version'
-foreach (`$root in `$roots) {
-    if (-not (Test-Path -LiteralPath `$root)) { continue }
-    foreach (`$sub in Get-ChildItem -LiteralPath `$root -ErrorAction SilentlyContinue) {
-        `$entry = Get-ItemProperty -LiteralPath `$sub.PSPath -ErrorAction SilentlyContinue
-        if (-not `$entry -or [string]`$entry.DisplayName -notlike 'Bulk Rename Utility*') { continue }
-        `$found = `$null
-        if (-not [version]::TryParse([string]`$entry.DisplayVersion, [ref]`$found)) { continue }
-        if (`$found -ge `$wanted) { Write-Output 'Installed'; exit 0 }
-    }
-}
-exit 0
-"@
-
     Write-Log ""
-    Write-Log "Detection                    : ARP DisplayName 'Bulk Rename Utility*' with DisplayVersion >= $version"
+    Write-Log "Detection                    : $ArpRegistryKey DisplayVersion >= $version (64-bit view)"
     Write-Log ""
 
     # --- Write stage manifest ---
@@ -293,9 +275,13 @@ exit 0
         UninstallArgs   = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
         RunningProcess  = @("BulkRenameUtility")
         Detection       = @{
-            Type           = "Script"
-            ScriptLanguage = "PowerShell"
-            ScriptText     = $detectionScript
+            Type                = "RegistryKeyValue"
+            RegistryKeyRelative = $ArpRegistryKey
+            ValueName           = "DisplayVersion"
+            PropertyType        = "Version"
+            Operator            = "GreaterEquals"
+            ExpectedValue       = $version
+            Is64Bit             = $true
         }
     }
 

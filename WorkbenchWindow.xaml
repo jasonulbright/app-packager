@@ -1,0 +1,744 @@
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="Application Workbench"
+    Width="1280" Height="820"
+    MinWidth="1024" MinHeight="700"
+    WindowStartupLocation="CenterOwner"
+    TitleCharacterCasing="Normal"
+    ShowIconOnTitleBar="False"
+    ResizeMode="CanResize"
+    GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+    NonActiveGlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+    BorderThickness="1">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <Style x:Key="WbButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="MinWidth" Value="96"/>
+                <Setter Property="Height" Value="30"/>
+                <Setter Property="Margin" Value="0,0,8,0"/>
+                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
+            </Style>
+            <Style x:Key="WbAccentButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="MinWidth" Value="96"/>
+                <Setter Property="Height" Value="30"/>
+                <Setter Property="Margin" Value="0,0,8,0"/>
+                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
+            </Style>
+            <Style x:Key="WbSmallButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="MinWidth" Value="54"/>
+                <Setter Property="Height" Value="22"/>
+                <Setter Property="FontSize" Value="10"/>
+                <Setter Property="Padding" Value="4,0,4,0"/>
+                <Setter Property="Margin" Value="6,0,0,0"/>
+                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
+            </Style>
+            <Style x:Key="WbLabel" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="VerticalAlignment" Value="Center"/>
+                <Setter Property="Margin" Value="0,0,10,6"/>
+            </Style>
+            <Style x:Key="WbSource" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="10"/>
+                <Setter Property="VerticalAlignment" Value="Center"/>
+                <Setter Property="Margin" Value="8,0,0,6"/>
+                <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+            </Style>
+            <Style x:Key="WbField" TargetType="TextBox">
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="Height" Value="26"/>
+                <Setter Property="Margin" Value="0,0,0,6"/>
+            </Style>
+            <Style x:Key="WbCombo" TargetType="ComboBox">
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="Height" Value="26"/>
+                <Setter Property="Margin" Value="0,0,0,6"/>
+            </Style>
+            <Style x:Key="WbCode" TargetType="TextBox">
+                <Setter Property="FontFamily" Value="Consolas"/>
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="AcceptsReturn" Value="True"/>
+                <Setter Property="AcceptsTab" Value="True"/>
+                <Setter Property="TextWrapping" Value="NoWrap"/>
+                <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
+                <Setter Property="HorizontalScrollBarVisibility" Value="Auto"/>
+            </Style>
+            <Style x:Key="WbGutter" TargetType="TextBox" BasedOn="{StaticResource WbCode}">
+                <Setter Property="IsReadOnly" Value="True"/>
+                <Setter Property="IsTabStop" Value="False"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="TextAlignment" Value="Right"/>
+                <Setter Property="Width" Value="44"/>
+                <Setter Property="VerticalScrollBarVisibility" Value="Hidden"/>
+                <Setter Property="HorizontalScrollBarVisibility" Value="Hidden"/>
+                <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+            </Style>
+            <Style x:Key="WbHeading" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="FontWeight" Value="Bold"/>
+                <Setter Property="Margin" Value="0,10,0,6"/>
+            </Style>
+            <Style x:Key="WbNote" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="TextWrapping" Value="Wrap"/>
+                <Setter Property="Margin" Value="0,0,0,8"/>
+                <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+            </Style>
+            <Style x:Key="WbChip" TargetType="Border">
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray8}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding" Value="8,3,8,3"/>
+                <Setter Property="Margin" Value="0,0,8,0"/>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="1"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="1"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header: application, profile, source type, build -->
+        <Grid Grid.Row="0" Margin="16,12,16,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="300"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="200"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="230"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0" Text="Application" Style="{StaticResource WbLabel}" Margin="0,0,8,0"/>
+            <ComboBox  Grid.Column="1" x:Name="cboApplication" IsEditable="True" IsTextSearchEnabled="True"
+                       StaysOpenOnEdit="True" FontSize="12" Height="28" Margin="0,0,14,0"
+                       Controls:TextBoxHelper.Watermark="Search catalog, custom and BYO applications"
+                       ToolTip="Catalog packagers, user-authored scripts, and saved bring-your-own applications."/>
+
+            <TextBlock Grid.Column="2" Text="Profile" Style="{StaticResource WbLabel}" Margin="0,0,8,0"/>
+            <ComboBox  Grid.Column="3" x:Name="cboProfile" FontSize="12" Height="28" Margin="0,0,8,0"
+                       ToolTip="Packager default is read-only. Save as creates a named profile; one profile is active per application."/>
+            <Button    Grid.Column="4" x:Name="btnProfileRename" Content="Rename" Style="{StaticResource WbButton}" MinWidth="70" Height="28"
+                       ToolTip="Rename the selected custom profile."/>
+            <TextBlock Grid.Column="5" x:Name="txtSourceType" Style="{StaticResource WbSource}" FontSize="12" Margin="6,0,0,0"
+                       ToolTip="Where this application definition comes from."/>
+
+            <TextBlock Grid.Column="7" Text="Build" Style="{StaticResource WbLabel}" Margin="0,0,8,0"/>
+            <ComboBox  Grid.Column="8" x:Name="cboBuild" FontSize="12" Height="28"
+                       ToolTip="Sealed builds for this application and profile. Package consumes the selected build."/>
+        </Grid>
+
+        <Border Grid.Row="1" Background="{DynamicResource MahApps.Brushes.Gray8}"/>
+
+        <!-- Body: section list + editor pane -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="210"/>
+                <ColumnDefinition Width="1"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <ListBox Grid.Column="0" x:Name="lstSections" BorderThickness="0" Padding="0,8,0,0">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Padding" Value="16,9,16,9"/>
+                        <Setter Property="FontSize" Value="13"/>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+            </ListBox>
+
+            <Border Grid.Column="1" Background="{DynamicResource MahApps.Brushes.Gray8}"/>
+
+            <Grid Grid.Column="2" Margin="18,14,18,10">
+
+                <!-- ================= Application ================= -->
+                <ScrollViewer x:Name="pnlApplication" VerticalScrollBarVisibility="Auto">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" MinWidth="150"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto" MinWidth="150"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Display name" Style="{StaticResource WbLabel}"/>
+                        <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtDisplayName" Style="{StaticResource WbField}"/>
+                        <TextBlock Grid.Row="0" Grid.Column="2" x:Name="lblDisplayNameSrc" Style="{StaticResource WbSource}"/>
+                        <Button    Grid.Row="0" Grid.Column="3" x:Name="btnDisplayNameReset" Content="Reset" Style="{StaticResource WbSmallButton}"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Publisher" Style="{StaticResource WbLabel}"/>
+                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtPublisher" Style="{StaticResource WbField}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="2" x:Name="lblPublisherSrc" Style="{StaticResource WbSource}"/>
+                        <Button    Grid.Row="1" Grid.Column="3" x:Name="btnPublisherReset" Content="Reset" Style="{StaticResource WbSmallButton}"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Description" Style="{StaticResource WbLabel}" VerticalAlignment="Top" Margin="0,4,10,6"/>
+                        <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtDescription" FontSize="12" Height="64"
+                                   AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0,0,0,6"/>
+                        <TextBlock Grid.Row="2" Grid.Column="2" x:Name="lblDescriptionSrc" Style="{StaticResource WbSource}" VerticalAlignment="Top" Margin="8,4,0,6"/>
+                        <Button    Grid.Row="2" Grid.Column="3" x:Name="btnDescriptionReset" Content="Reset" Style="{StaticResource WbSmallButton}" VerticalAlignment="Top" Margin="6,2,0,0"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Application title" Style="{StaticResource WbLabel}"/>
+                        <ComboBox  Grid.Row="3" Grid.Column="1" x:Name="cboTitleMode" Style="{StaticResource WbCombo}"
+                                   ToolTip="Versioned titles create one MECM application per release; a perpetual title updates the same application."/>
+                        <TextBlock Grid.Row="3" Grid.Column="2" x:Name="lblTitleModeSrc" Style="{StaticResource WbSource}"/>
+                        <Button    Grid.Row="3" Grid.Column="3" x:Name="btnTitleModeReset" Content="Reset" Style="{StaticResource WbSmallButton}"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Profile name" Style="{StaticResource WbLabel}"/>
+                        <TextBox   Grid.Row="4" Grid.Column="1" x:Name="txtProfileName" Style="{StaticResource WbField}"/>
+
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Stable identity" Style="{StaticResource WbLabel}"/>
+                        <TextBlock Grid.Row="5" Grid.Column="1" x:Name="txtIdentity" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"
+                                   Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
+
+                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Source provenance" Style="{StaticResource WbLabel}"/>
+                        <TextBlock Grid.Row="6" Grid.Column="1" x:Name="txtProvenance" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"
+                                   Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
+
+                        <TextBlock Grid.Row="7" Grid.Column="0" Text="Icon" Style="{StaticResource WbLabel}" VerticalAlignment="Top" Margin="0,6,10,6"/>
+                        <StackPanel Grid.Row="7" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,6">
+                            <Border BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="1" Width="64" Height="64" Margin="0,0,12,0">
+                                <Image x:Name="imgIcon" Stretch="Uniform" Margin="4"/>
+                            </Border>
+                            <StackPanel VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                    <Button x:Name="btnIconChoose" Content="Choose file..." Style="{StaticResource WbButton}" MinWidth="110"/>
+                                    <Button x:Name="btnIconReset" Content="Reset" Style="{StaticResource WbButton}" MinWidth="70"/>
+                                    <Button x:Name="btnIconRemove" Content="Remove" Style="{StaticResource WbButton}" MinWidth="70"
+                                            ToolTip="Explicitly publish no icon, rather than inheriting the packager's icon."/>
+                                </StackPanel>
+                                <TextBlock x:Name="txtIconState" Style="{StaticResource WbNote}" Margin="0"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <TextBlock Grid.Row="8" Grid.Column="0" Grid.ColumnSpan="4" x:Name="txtAppNote" Style="{StaticResource WbNote}" Margin="0,10,0,0"/>
+                    </Grid>
+                </ScrollViewer>
+
+                <!-- ================= Install and uninstall ================= -->
+                <Grid x:Name="pnlInstall" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="110"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="190"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Editing" Style="{StaticResource WbLabel}"/>
+                        <ComboBox  Grid.Column="1" x:Name="cboScriptTarget" Style="{StaticResource WbCombo}"
+                                   ToolTip="Install and uninstall are configured independently."/>
+                        <TextBlock Grid.Column="2" Text="Mode" Style="{StaticResource WbLabel}" Margin="16,0,10,6"/>
+                        <ComboBox  Grid.Column="3" x:Name="cboInstallMode" Style="{StaticResource WbCombo}"
+                                   ToolTip="Generated keeps the packager wrapper. Extend generated runs before/after hooks around it as separate processes. Custom replaces the entry command entirely."/>
+                        <TextBlock Grid.Column="4" x:Name="lblInstallModeSrc" Style="{StaticResource WbSource}"/>
+                        <Button    Grid.Column="5" x:Name="btnInstallReset" Content="Reset section" Style="{StaticResource WbSmallButton}" HorizontalAlignment="Left" MinWidth="94"/>
+                    </Grid>
+
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="150"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Effective command" Style="{StaticResource WbLabel}"/>
+                        <TextBox   Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="5" x:Name="txtEffectiveCommand" Style="{StaticResource WbField}"
+                                   IsReadOnly="True" FontFamily="Consolas"
+                                   ToolTip="The entry command the build writes for this target. Needs staging until the packager resolves its installer."/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Return codes" Style="{StaticResource WbLabel}"/>
+                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtReturnCodes" Style="{StaticResource WbField}"
+                                   Controls:TextBoxHelper.Watermark="inherit (e.g. 0,3010=SoftReboot,1641=HardReboot)"/>
+                        <TextBlock Grid.Row="1" Grid.Column="2" Text="Reboot" Style="{StaticResource WbLabel}" Margin="14,0,10,6"/>
+                        <ComboBox  Grid.Row="1" Grid.Column="3" x:Name="cboRebootPolicy" Style="{StaticResource WbCombo}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="4" Text="Working dir" Style="{StaticResource WbLabel}" Margin="14,0,10,6"/>
+                        <TextBox   Grid.Row="1" Grid.Column="5" x:Name="txtWorkingDirectory" Style="{StaticResource WbField}"
+                                   Controls:TextBoxHelper.Watermark="inherit"/>
+                    </Grid>
+
+                    <Grid Grid.Row="2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="6"/>
+                            <ColumnDefinition Width="320"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <DockPanel Grid.Row="0" Grid.Column="0" LastChildFill="False" Margin="0,6,0,4">
+                            <TextBlock DockPanel.Dock="Left" x:Name="lblScriptCaption" Text="Script" Style="{StaticResource WbHeading}" Margin="0"/>
+                            <StackPanel DockPanel.Dock="Right" x:Name="pnlFind" Orientation="Horizontal" Visibility="Collapsed">
+                                <TextBox x:Name="txtFind" Width="180" FontSize="11" Height="22" Margin="0,0,6,0"
+                                         Controls:TextBoxHelper.Watermark="Find"/>
+                                <Button x:Name="btnFindNext" Content="Next" Style="{StaticResource WbSmallButton}" Margin="0"/>
+                                <Button x:Name="btnFindClose" Content="Close" Style="{StaticResource WbSmallButton}"/>
+                            </StackPanel>
+                        </DockPanel>
+
+                        <Border Grid.Row="1" Grid.Column="0" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="1">
+                            <DockPanel>
+                                <TextBox DockPanel.Dock="Left" x:Name="txtScriptGutter" Style="{StaticResource WbGutter}"/>
+                                <TextBox x:Name="txtScript" Style="{StaticResource WbCode}" BorderThickness="0"/>
+                            </DockPanel>
+                        </Border>
+
+                        <TextBlock Grid.Row="0" Grid.Column="2" Text="Hooks" Style="{StaticResource WbHeading}" Margin="0,6,0,4"/>
+                        <Grid Grid.Row="1" Grid.Column="2">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Before" FontSize="11" Margin="0,0,0,3"/>
+                            <TextBox   Grid.Row="1" x:Name="txtHookBefore" Style="{StaticResource WbCode}" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="2" Text="After" FontSize="11" Margin="0,0,0,3"/>
+                            <TextBox   Grid.Row="3" x:Name="txtHookAfter" Style="{StaticResource WbCode}" Margin="0,0,0,6"/>
+                            <CheckBox  Grid.Row="4" x:Name="chkAfterOnFailure" FontSize="11" Content="After hook runs even when the generated step fails"
+                                       Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                        </Grid>
+                    </Grid>
+
+                    <TextBlock Grid.Row="3" x:Name="txtScriptNote" Style="{StaticResource WbNote}" Margin="0,8,0,4"/>
+
+                    <DockPanel Grid.Row="4">
+                        <TextBlock DockPanel.Dock="Top" Text="Parse diagnostics" FontSize="11" Margin="0,0,0,3"/>
+                        <ListBox x:Name="lstScriptDiagnostics" FontSize="11" BorderThickness="1"
+                                 BorderBrush="{DynamicResource MahApps.Brushes.Gray8}"/>
+                    </DockPanel>
+                </Grid>
+
+                <!-- ================= Detection ================= -->
+                <Grid x:Name="pnlDetection" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="160"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="180"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Detection" Style="{StaticResource WbLabel}"/>
+                        <ComboBox  Grid.Column="1" x:Name="cboDetectionMode" Style="{StaticResource WbCombo}"
+                                   ToolTip="Inherit uses the packager's validated native rule. Custom takes ownership of the whole rule."/>
+                        <TextBlock Grid.Column="2" Text="Type" Style="{StaticResource WbLabel}" Margin="16,0,10,6"/>
+                        <ComboBox  Grid.Column="3" x:Name="cboDetectionType" Style="{StaticResource WbCombo}"/>
+                        <TextBlock Grid.Column="4" x:Name="lblDetectionSrc" Style="{StaticResource WbSource}"/>
+                        <Button    Grid.Column="5" x:Name="btnDetectionReset" Content="Reset section" Style="{StaticResource WbSmallButton}" HorizontalAlignment="Left" MinWidth="94"/>
+                    </Grid>
+
+                    <TextBlock Grid.Row="1" x:Name="txtDetectionInherited" Style="{StaticResource WbNote}" Margin="0,4,0,6"/>
+
+                    <Grid Grid.Row="2">
+                        <!-- Typed native editor -->
+                        <ScrollViewer x:Name="pnlDetectionTyped" VerticalScrollBarVisibility="Auto">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" MinWidth="130"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto" MinWidth="110"/>
+                                    <ColumnDefinition Width="200"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Registry hive" Style="{StaticResource WbLabel}"/>
+                                <ComboBox  Grid.Row="0" Grid.Column="1" x:Name="cboDetHive" Style="{StaticResource WbCombo}"/>
+                                <TextBlock Grid.Row="0" Grid.Column="2" Text="Registry view" Style="{StaticResource WbLabel}"/>
+                                <ComboBox  Grid.Row="0" Grid.Column="3" x:Name="cboDetView" Style="{StaticResource WbCombo}"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Key" Style="{StaticResource WbLabel}"/>
+                                <TextBox   Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" x:Name="txtDetKey" Style="{StaticResource WbField}" FontFamily="Consolas"/>
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Value name" Style="{StaticResource WbLabel}"/>
+                                <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtDetValueName" Style="{StaticResource WbField}" FontFamily="Consolas"/>
+                                <TextBlock Grid.Row="2" Grid.Column="2" Text="Operator" Style="{StaticResource WbLabel}"/>
+                                <ComboBox  Grid.Row="2" Grid.Column="3" x:Name="cboDetOperator" Style="{StaticResource WbCombo}"/>
+
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Expected value" Style="{StaticResource WbLabel}"/>
+                                <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtDetExpected" Style="{StaticResource WbField}" FontFamily="Consolas"/>
+                                <TextBlock Grid.Row="3" Grid.Column="2" Text="Version binding" Style="{StaticResource WbLabel}"/>
+                                <ComboBox  Grid.Row="3" Grid.Column="3" x:Name="cboDetVersionBinding" Style="{StaticResource WbCombo}"
+                                           ToolTip="Follows staged version updates the expected value at every build; Pinned keeps the literal value. Vendor version strings do not all compare as numeric versions."/>
+
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="File path" Style="{StaticResource WbLabel}"/>
+                                <TextBox   Grid.Row="4" Grid.Column="1" x:Name="txtDetFilePath" Style="{StaticResource WbField}" FontFamily="Consolas"/>
+                                <TextBlock Grid.Row="4" Grid.Column="2" Text="File name" Style="{StaticResource WbLabel}"/>
+                                <TextBox   Grid.Row="4" Grid.Column="3" x:Name="txtDetFileName" Style="{StaticResource WbField}" FontFamily="Consolas"/>
+
+                                <TextBlock Grid.Row="5" Grid.Column="0" Text="File property" Style="{StaticResource WbLabel}"/>
+                                <ComboBox  Grid.Row="5" Grid.Column="1" x:Name="cboDetFileProperty" Style="{StaticResource WbCombo}"/>
+                                <TextBlock Grid.Row="5" Grid.Column="2" Text="Clause logic" Style="{StaticResource WbLabel}"/>
+                                <ComboBox  Grid.Row="5" Grid.Column="3" x:Name="cboDetLogic" Style="{StaticResource WbCombo}"
+                                           ToolTip="The existing schema supports flat AND, flat OR, and two groups. Nested expressions are not flattened silently."/>
+
+                                <DockPanel Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="4" Margin="0,8,0,4">
+                                    <TextBlock DockPanel.Dock="Left" Text="Clauses" Style="{StaticResource WbHeading}" Margin="0"/>
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                        <Button x:Name="btnDetClauseAdd" Content="Add clause" Style="{StaticResource WbSmallButton}" MinWidth="80"/>
+                                        <Button x:Name="btnDetClauseRemove" Content="Remove" Style="{StaticResource WbSmallButton}" MinWidth="70"/>
+                                    </StackPanel>
+                                </DockPanel>
+
+                                <DataGrid Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="4" x:Name="dgDetClauses" MinHeight="120"
+                                          AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                                          GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0" BorderThickness="1"
+                                          BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" FontSize="11">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Group" Width="60" Binding="{Binding Group}"/>
+                                        <DataGridTextColumn Header="Type" Width="90" Binding="{Binding Type}"/>
+                                        <DataGridTextColumn Header="Subject" Width="*" Binding="{Binding Subject}"/>
+                                        <DataGridTextColumn Header="Operator" Width="110" Binding="{Binding Operator}"/>
+                                        <DataGridTextColumn Header="Expected" Width="160" Binding="{Binding Expected}"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </Grid>
+                        </ScrollViewer>
+
+                        <!-- PowerShell detection editor -->
+                        <Grid x:Name="pnlDetectionScript" Visibility="Collapsed">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="100"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" x:Name="txtIntuneContract" Style="{StaticResource WbNote}"/>
+                            <Border Grid.Row="1" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="1">
+                                <DockPanel>
+                                    <TextBox DockPanel.Dock="Left" x:Name="txtDetectGutter" Style="{StaticResource WbGutter}"/>
+                                    <TextBox x:Name="txtDetectScript" Style="{StaticResource WbCode}" BorderThickness="0"/>
+                                </DockPanel>
+                            </Border>
+                            <CheckBox Grid.Row="2" x:Name="chkIntuneScriptConversion" FontSize="11" Margin="0,8,0,6"
+                                      Content="Allow Intune to publish this rule as a converted detection script"
+                                      Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                                      ToolTip="Native clauses without an Intune mapping stay blocked until this is chosen explicitly."/>
+                            <DockPanel Grid.Row="3">
+                                <TextBlock DockPanel.Dock="Top" Text="Parse diagnostics" FontSize="11" Margin="0,0,0,3"/>
+                                <ListBox x:Name="lstDetectDiagnostics" FontSize="11" BorderThickness="1"
+                                         BorderBrush="{DynamicResource MahApps.Brushes.Gray8}"/>
+                            </DockPanel>
+                        </Grid>
+                    </Grid>
+                </Grid>
+
+                <!-- ================= Requirements and variants ================= -->
+                <Grid x:Name="pnlRequirements" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Style="{StaticResource WbNote}"
+                               Text="Requirements decide eligibility; detection decides installed state. Operations are keyed by rule id so adding an application-wide rule cannot silently gate a variant fallback."/>
+
+                    <DockPanel Grid.Row="1" Margin="0,0,0,6">
+                        <TextBlock DockPanel.Dock="Left" Text="Requirement operations" Style="{StaticResource WbHeading}" Margin="0"/>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <ComboBox x:Name="cboReqTemplate" Width="200" FontSize="11" Height="24" Margin="0,0,6,0"
+                                      ToolTip="Condition templates come from Options; the workbench attaches them per application."/>
+                            <Button x:Name="btnReqAdd" Content="Add" Style="{StaticResource WbSmallButton}" MinWidth="60"/>
+                            <Button x:Name="btnReqReplace" Content="Replace" Style="{StaticResource WbSmallButton}" MinWidth="70"/>
+                            <Button x:Name="btnReqRemove" Content="Remove" Style="{StaticResource WbSmallButton}" MinWidth="70"/>
+                        </StackPanel>
+                    </DockPanel>
+
+                    <DataGrid Grid.Row="2" x:Name="dgRequirements" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                              GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0" BorderThickness="1"
+                              BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" FontSize="11">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Operation" Width="90" Binding="{Binding Op}" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Rule id" Width="140" Binding="{Binding RuleId}" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Rule" Width="*" Binding="{Binding Summary}" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Value" Width="180" Binding="{Binding Value}"/>
+                            <DataGridTextColumn Header="Applies to" Width="130" Binding="{Binding AppliesTo}"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <Grid Grid.Row="3" Margin="0,12,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="180"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="180"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Variant split" Style="{StaticResource WbLabel}"/>
+                        <ComboBox  Grid.Column="1" x:Name="cboVariantSplit" Style="{StaticResource WbCombo}"
+                                   ToolTip="Stage one application with several deployment types. Offered only where the packager declares support."/>
+                        <TextBlock Grid.Column="2" Text="Install for" Style="{StaticResource WbLabel}" Margin="16,0,10,6"/>
+                        <ComboBox  Grid.Column="3" x:Name="cboInstallForMode" Style="{StaticResource WbCombo}"
+                                   ToolTip="System installs for all users; User installs for the signed-in user. Arguments, uninstall command, detection hive and view follow this choice."/>
+                        <TextBlock Grid.Column="4" x:Name="lblVariantSrc" Style="{StaticResource WbSource}"/>
+                    </Grid>
+
+                    <TextBlock Grid.Row="4" Text="Variant overrides" Style="{StaticResource WbHeading}"/>
+
+                    <DataGrid Grid.Row="5" x:Name="dgVariants" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                              GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0" BorderThickness="1"
+                              BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" FontSize="11">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Variant" Width="150" Binding="{Binding Suffix}" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Install command" Width="*" Binding="{Binding InstallCommand}"/>
+                            <DataGridTextColumn Header="Detection" Width="200" Binding="{Binding Detection}"/>
+                            <DataGridTextColumn Header="Estimated" Width="80" Binding="{Binding Estimated}"/>
+                            <DataGridTextColumn Header="Maximum" Width="80" Binding="{Binding Maximum}"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+
+                <!-- ================= Timing and execution ================= -->
+                <ScrollViewer x:Name="pnlTiming" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" MinWidth="180"/>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.ColumnSpan="4" Style="{StaticResource WbNote}"
+                                   Text="Both values describe endpoint deployment behavior, not download or staging time. They inherit independently."/>
+
+                        <CheckBox  Grid.Row="1" Grid.Column="0" x:Name="chkEstimatedDefault" FontSize="12" Margin="0,0,10,8"
+                                   Content="Use default estimated install duration" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtEstimatedMinutes" Style="{StaticResource WbField}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="2" Text="minutes" Style="{StaticResource WbLabel}" Margin="8,0,10,6"/>
+                        <TextBlock Grid.Row="1" Grid.Column="3" x:Name="lblEstimatedEffective" Style="{StaticResource WbSource}"/>
+
+                        <CheckBox  Grid.Row="2" Grid.Column="0" x:Name="chkMaximumDefault" FontSize="12" Margin="0,0,10,8"
+                                   Content="Use default maximum runtime" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                        <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtMaximumMinutes" Style="{StaticResource WbField}"/>
+                        <TextBlock Grid.Row="2" Grid.Column="2" Text="minutes" Style="{StaticResource WbLabel}" Margin="8,0,10,6"/>
+                        <TextBlock Grid.Row="2" Grid.Column="3" x:Name="lblMaximumEffective" Style="{StaticResource WbSource}"/>
+
+                        <TextBlock Grid.Row="3" Grid.ColumnSpan="4" x:Name="txtTimingTargets" Style="{StaticResource WbNote}" Margin="0,4,0,10"/>
+
+                        <TextBlock Grid.Row="4" Grid.ColumnSpan="4" Text="Execution" Style="{StaticResource WbHeading}"/>
+
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Install context" Style="{StaticResource WbLabel}"/>
+                        <ComboBox  Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" x:Name="cboExecContext" Style="{StaticResource WbCombo}"/>
+                        <TextBlock Grid.Row="5" Grid.Column="3" x:Name="lblExecContextSrc" Style="{StaticResource WbSource}"/>
+
+                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Logon requirement" Style="{StaticResource WbLabel}"/>
+                        <ComboBox  Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" x:Name="cboExecLogon" Style="{StaticResource WbCombo}"/>
+
+                        <TextBlock Grid.Row="7" Grid.Column="0" Text="User interaction" Style="{StaticResource WbLabel}"/>
+                        <ComboBox  Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" x:Name="cboExecInteraction" Style="{StaticResource WbCombo}"/>
+
+                        <TextBlock Grid.Row="8" Grid.Column="0" Text="Script host" Style="{StaticResource WbLabel}"/>
+                        <ComboBox  Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="2" x:Name="cboExecScriptHost" Style="{StaticResource WbCombo}"
+                                   ToolTip="Detection and requirement scripts run in the host selected here; Intune maps this to the 32-bit flag."/>
+                        <Button    Grid.Row="8" Grid.Column="3" x:Name="btnTimingReset" Content="Reset section" Style="{StaticResource WbSmallButton}" HorizontalAlignment="Left" MinWidth="94"/>
+                    </Grid>
+                </ScrollViewer>
+
+                <!-- ================= Source files ================= -->
+                <Grid x:Name="pnlSources" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Style="{StaticResource WbNote}"
+                               Text="Bundled files travel inside the package content. A file only reaches the endpoint when the install script copies it there; destinations are relative to the content root."/>
+
+                    <DockPanel Grid.Row="1" Margin="0,0,0,6">
+                        <TextBlock DockPanel.Dock="Left" Text="Custom source files" Style="{StaticResource WbHeading}" Margin="0"/>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button x:Name="btnSourceAddFile" Content="Add file..." Style="{StaticResource WbSmallButton}" MinWidth="78"/>
+                            <Button x:Name="btnSourceAddFolder" Content="Add folder..." Style="{StaticResource WbSmallButton}" MinWidth="90"/>
+                            <Button x:Name="btnSourceReplace" Content="Replace..." Style="{StaticResource WbSmallButton}" MinWidth="80"/>
+                            <Button x:Name="btnSourceRemove" Content="Remove" Style="{StaticResource WbSmallButton}" MinWidth="70"/>
+                        </StackPanel>
+                    </DockPanel>
+
+                    <DataGrid Grid.Row="2" x:Name="dgSourceFiles" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                              GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0" BorderThickness="1"
+                              BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" FontSize="11">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Source" Width="*" Binding="{Binding Provenance}" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Destination" Width="220" Binding="{Binding Destination}"/>
+                            <DataGridTextColumn Header="Size" Width="90" Binding="{Binding SizeText}" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="SHA-256" Width="150" Binding="{Binding ShortHash}" IsReadOnly="True"/>
+                            <DataGridCheckBoxColumn Header="Linked" Width="60" Binding="{Binding Linked}"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <TextBlock Grid.Row="3" x:Name="txtSourceNote" Style="{StaticResource WbNote}" Margin="0,8,0,0"/>
+                </Grid>
+
+                <!-- ================= Review and build ================= -->
+                <Grid x:Name="pnlReview" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Default versus custom" Style="{StaticResource WbHeading}" Margin="0,0,0,6"/>
+                    <DataGrid Grid.Row="1" Grid.Column="0" x:Name="dgDiff" AutoGenerateColumns="False" CanUserAddRows="False"
+                              CanUserDeleteRows="False" IsReadOnly="True" GridLinesVisibility="Horizontal" HeadersVisibility="Column"
+                              RowHeaderWidth="0" BorderThickness="1" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" FontSize="11">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Field" Width="200" Binding="{Binding Field}"/>
+                            <DataGridTextColumn Header="Default" Width="*" Binding="{Binding Default}"/>
+                            <DataGridTextColumn Header="Custom" Width="*" Binding="{Binding Custom}"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <TextBlock Grid.Row="0" Grid.Column="2" Text="Compatibility findings" Style="{StaticResource WbHeading}" Margin="0,0,0,6"/>
+                    <DataGrid Grid.Row="1" Grid.Column="2" x:Name="dgFindings" AutoGenerateColumns="False" CanUserAddRows="False"
+                              CanUserDeleteRows="False" IsReadOnly="True" GridLinesVisibility="Horizontal" HeadersVisibility="Column"
+                              RowHeaderWidth="0" BorderThickness="1" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" FontSize="11">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Severity" Width="80" Binding="{Binding Severity}"/>
+                            <DataGridTextColumn Header="Code" Width="130" Binding="{Binding Code}"/>
+                            <DataGridTextColumn Header="Message" Width="*" Binding="{Binding Message}"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Resolved plan" Style="{StaticResource WbHeading}"/>
+                    <TextBox   Grid.Row="3" Grid.Column="0" x:Name="txtResolvedPlan" Style="{StaticResource WbCode}" IsReadOnly="True"
+                               BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="1"/>
+
+                    <TextBlock Grid.Row="2" Grid.Column="2" Text="Prior builds" Style="{StaticResource WbHeading}"/>
+                    <DataGrid Grid.Row="3" Grid.Column="2" x:Name="dgBuilds" AutoGenerateColumns="False" CanUserAddRows="False"
+                              CanUserDeleteRows="False" IsReadOnly="True" GridLinesVisibility="Horizontal" HeadersVisibility="Column"
+                              RowHeaderWidth="0" BorderThickness="1" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" FontSize="11">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Build id" Width="180" Binding="{Binding BuildId}"/>
+                            <DataGridTextColumn Header="Version" Width="110" Binding="{Binding Version}"/>
+                            <DataGridTextColumn Header="Revision" Width="70" Binding="{Binding Revision}"/>
+                            <DataGridTextColumn Header="Result" Width="*" Binding="{Binding Result}"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+
+            </Grid>
+        </Grid>
+
+        <Border Grid.Row="3" Background="{DynamicResource MahApps.Brushes.Gray8}"/>
+
+        <!-- Footer: status chips, save state, actions -->
+        <Grid Grid.Row="4" Margin="16,10,16,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal">
+                <Border Style="{StaticResource WbChip}">
+                    <TextBlock x:Name="chipContent" FontSize="11" Text="Content build: Not validated"/>
+                </Border>
+                <Border Style="{StaticResource WbChip}">
+                    <TextBlock x:Name="chipMecm" FontSize="11" Text="MECM: Not validated"/>
+                </Border>
+                <Border Style="{StaticResource WbChip}">
+                    <TextBlock x:Name="chipIntune" FontSize="11" Text="Intune: Not validated"/>
+                </Border>
+            </StackPanel>
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" x:Name="txtSaveState" FontSize="11" Margin="0,8,0,0"
+                       Foreground="{DynamicResource MahApps.Brushes.Gray3}" Text="No unsaved changes."/>
+
+            <StackPanel Grid.Row="0" Grid.RowSpan="2" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="btnUseDefaults" Content="Use defaults" Style="{StaticResource WbButton}" MinWidth="106"
+                        ToolTip="Clear every override in this profile and inherit the packager defaults."/>
+                <Button x:Name="btnSave" Content="Save" Style="{StaticResource WbButton}"/>
+                <Button x:Name="btnSaveAs" Content="Save as..." Style="{StaticResource WbButton}"/>
+                <Button x:Name="btnValidate" Content="Validate" Style="{StaticResource WbButton}"/>
+                <Button x:Name="btnStage" Content="Stage" Style="{StaticResource WbButton}"/>
+                <Button x:Name="btnPackage" Content="Package" Style="{StaticResource WbAccentButton}" Margin="0"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Controls:MetroWindow>

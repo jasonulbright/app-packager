@@ -92,9 +92,9 @@ $AppFolder    = "ocenaudio"
 $BaseDownloadRoot  = Join-Path $DownloadRoot "ocenaudio"
 $InstallerFileName = "ocenaudio_windows64.exe"
 $UninstallKeyName  = "ocenaudio"
+$ArpRegistryKey    = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$UninstallKeyName"
 
 # --- Functions ---
-
 
 function Assert-ExePayload {
     <#
@@ -172,6 +172,7 @@ function Invoke-StageOcenaudio {
     Invoke-DownloadWithRetry -Url $DownloadUrl -OutFile $localExe
 
     Assert-ExePayload -Path $localExe
+    Assert-ArpDetectionKey -InstallerPath $localExe -ExpectedKey $ArpRegistryKey -Is64BitView $false
 
     $fileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($localExe).FileVersion
     Write-Log "Installer FileVersion        : $fileVersion"
@@ -222,28 +223,10 @@ exit 1
         -UninstallPs1Content $uninstallScript
 
     # --- Detection ---
-    # The installer offers an operator-selectable target directory and the
-    # 32-bit NSIS stub's registry view is not fixed, so detection reads the
-    # fixed ARP key name from both views rather than a file path.
-    $detectionScript = @"
-`$keys = @(
-    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$UninstallKeyName',
-    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$UninstallKeyName'
-)
-`$wanted = [version]'$version'
-foreach (`$key in `$keys) {
-    if (-not (Test-Path -LiteralPath `$key)) { continue }
-    `$entry = Get-ItemProperty -LiteralPath `$key -ErrorAction SilentlyContinue
-    if (-not `$entry) { continue }
-    `$found = `$null
-    if (-not [version]::TryParse([string]`$entry.DisplayVersion, [ref]`$found)) { continue }
-    if (`$found -ge `$wanted) { Write-Output 'Installed'; exit 0 }
-}
-exit 0
-"@
-
+    # The 32-bit NSIS stub installs under Program Files but registers its ARP
+    # entry in the 32-bit registry view, so the clause is view-bound.
     Write-Log ""
-    Write-Log "Detection                    : ARP key '$UninstallKeyName' with DisplayVersion >= $version"
+    Write-Log "Detection                    : $ArpRegistryKey DisplayVersion >= $version (32-bit view)"
     Write-Log ""
 
     # --- Write stage manifest ---
@@ -258,9 +241,13 @@ exit 0
         UninstallArgs   = "/AllUsers /S"
         RunningProcess  = @("ocenaudio")
         Detection       = @{
-            Type           = "Script"
-            ScriptLanguage = "PowerShell"
-            ScriptText     = $detectionScript
+            Type                = "RegistryKeyValue"
+            RegistryKeyRelative = $ArpRegistryKey
+            ValueName           = "DisplayVersion"
+            PropertyType        = "Version"
+            Operator            = "GreaterEquals"
+            ExpectedValue       = $version
+            Is64Bit             = $false
         }
     }
 
