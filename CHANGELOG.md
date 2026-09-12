@@ -4,27 +4,12 @@
 
 ### Added
 
-- Application Workbench: per-app profiles for commands, scripts, detection, requirements, timing, icon and extra files.
-- Script signing for detection, requirement and install/uninstall scripts, with require switches.
-- Build one application from the command line through a profile.
-- Save a dropped installer as a permanent application.
-
-### Changed
-
-- Signed launchers run without an execution-policy override.
-- Named profiles get their own content folder on the share.
-- Per-app rules moved from Options to the workbench.
-- Native detection for AnyBurn, Bulk Rename Utility, ocenaudio, Oh My Posh, OpenShot, Pidgin, PicPick and TeraCopy.
-- MECM detection scripts are imported from a file and verified after import.
-
-### Removed
-
-- Removed the Speculative Execution Mitigations packager.
+- Application Workbench for fine-tuning packagers.
+- Script signing.
 
 ### Fixed
 
-- Fixed the PicPick install wrapper waiting on the launched app.
-- Fixed Intune prefix, suffix and substring conversions running without an explicit choice.
+- Various bug fixes.
 
 ## [1.5.2.2] - 2026-09-09
 
