@@ -88,8 +88,11 @@ $AppFolder    = "OpenShot Video Editor"
 
 $BaseDownloadRoot = Join-Path $DownloadRoot "OpenShot"
 
-# --- Functions ---
+# The Inno AppId comes from a setup code function whose default is this GUID;
+# the all-users branch this packager installs registers under it.
+$ArpRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{4BB0DCDC-BC24-49EC-8937-72956C33A470}_is1"
 
+# --- Functions ---
 
 function Assert-ExePayload {
     <#
@@ -190,6 +193,7 @@ function Invoke-StageOpenShot {
     }
 
     Assert-ExePayload -Path $localExe
+    Assert-ArpDetectionKey -InstallerPath $localExe -ExpectedKey $ArpRegistryKey -Is64BitView $true
 
     # --- Versioned local content folder ---
     $localContentPath = Join-Path $BaseDownloadRoot $version
@@ -242,31 +246,8 @@ exit 1
         -UninstallPs1Content $uninstallScript
 
     # --- Detection ---
-    # The Inno AppId is not published and the install directory is
-    # operator-selectable, so detection matches the ARP DisplayName across both
-    # registry views.
-    $detectionScript = @"
-`$roots = @(
-    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
-    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
-)
-`$wanted = [version]'$version'
-foreach (`$root in `$roots) {
-    if (-not (Test-Path -LiteralPath `$root)) { continue }
-    `$hit = Get-ChildItem -LiteralPath `$root -ErrorAction SilentlyContinue |
-        ForEach-Object { Get-ItemProperty -LiteralPath `$_.PSPath -ErrorAction SilentlyContinue } |
-        Where-Object { `$_.DisplayName -like 'OpenShot Video Editor*' } |
-        Select-Object -First 1
-    if (-not `$hit) { continue }
-    `$found = `$null
-    if (-not [version]::TryParse([string]`$hit.DisplayVersion, [ref]`$found)) { continue }
-    if (`$found -ge `$wanted) { Write-Output 'Installed'; exit 0 }
-}
-exit 0
-"@
-
     Write-Log ""
-    Write-Log "Detection                    : ARP entry 'OpenShot Video Editor*' with DisplayVersion >= $version"
+    Write-Log "Detection                    : $ArpRegistryKey DisplayVersion >= $version (64-bit view)"
     Write-Log ""
 
     # --- Write stage manifest ---
@@ -281,9 +262,13 @@ exit 0
         UninstallArgs   = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
         RunningProcess  = @("openshot-qt")
         Detection       = @{
-            Type           = "Script"
-            ScriptLanguage = "PowerShell"
-            ScriptText     = $detectionScript
+            Type                = "RegistryKeyValue"
+            RegistryKeyRelative = $ArpRegistryKey
+            ValueName           = "DisplayVersion"
+            PropertyType        = "Version"
+            Operator            = "GreaterEquals"
+            ExpectedValue       = $version
+            Is64Bit             = $true
         }
     }
 

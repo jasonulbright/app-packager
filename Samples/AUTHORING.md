@@ -157,6 +157,17 @@ Align label:value lines to the width shown in existing packagers (30 chars for t
 
 No phase requires local admin. Stage derives detection from installer metadata (MSI properties via COM, file versions) instead of temp installs, downloads and extracts under the user-writable DownloadRoot, and Package needs network-share ACLs plus CM RBAC — neither is local elevation, so packaging works from a standard user account. Do not add a `Test-IsAdmin` gate to a new packager unless its Stage provably writes protected paths or runs vendor tooling that demands elevation; if it does, gate only that phase and exit with a clear message.
 
+## Defaults, and where the operator's settings live
+
+A packager ships defaults, not policy. Whatever the script puts in the stage manifest — commands, detection, requirements, timing, install mode — is the starting point; the Application Workbench applies the operator's profile on top of it at stage time, and a value the profile does not set inherits yours. Write the manifest as if no profile existed and it stays correct either way.
+
+Two consequences for new packagers:
+
+- Do not add per-app controls to the Options window. Anything that varies by application belongs in a profile, and the workbench already edits every manifest field. Options is for settings that are the same for every application (environment, condition templates, script signing).
+- Keep defaults conservative and honest. An operator overriding a default sees your value first in the editor, so a wrong default is a wrong starting point for everyone who touches that app.
+
+`Assert-ArpDetectionKey` is a Common function: call it when your detection names a literal ARP key, and it compares that key and registry view against the staged installer's own analysis, failing the Stage on a mismatch and warning when the installer header names no key. Do not copy a private version into a packager.
+
 ## Common mistakes
 
 **Em-dashes in PS files.** PowerShell 5.1 parses em-dash (U+2014) as an invalid token inside executable code. Use plain hyphens. Em-dashes in `.md` docs are fine; not in `.ps1`.

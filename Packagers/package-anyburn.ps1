@@ -15,7 +15,7 @@ UpdateCadenceDays: 120
 .DESCRIPTION
     Reads the current version from the vendor home page, downloads the free
     edition installer, stages content to a versioned local folder, and creates
-    an MECM Application with script-based detection against the product's
+    an MECM Application with registry detection against the product's
     Add/Remove Programs entry.
 
     Supports two-phase operation:
@@ -55,7 +55,7 @@ UpdateCadenceDays: 120
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with script-based detection.
+    create MECM application with registry detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available AnyBurn version string and exits.
@@ -102,8 +102,9 @@ $AppFolder    = "AnyBurn"
 
 $BaseDownloadRoot = Join-Path $DownloadRoot "AnyBurn"
 
-# --- Functions ---
+$ArpRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\AnyBurn"
 
+# --- Functions ---
 
 function Assert-ExecutablePayload {
     <#
@@ -199,6 +200,7 @@ function Invoke-StageAnyBurn {
     }
 
     Assert-ExecutablePayload -Path $localExe
+    Assert-ArpDetectionKey -InstallerPath $localExe -ExpectedKey $ArpRegistryKey -Is64BitView $false
 
     # --- Versioned local content folder ---
     $localContentPath = Join-Path $BaseDownloadRoot $version
@@ -246,31 +248,10 @@ exit $proc.ExitCode
         -UninstallPs1Content $uninstallContent
 
     # --- Write stage manifest ---
-    # The vendor publishes no install path and the installer picks between a
-    # 32-bit and a 64-bit build at run time, so detection reads the ARP entry
-    # instead of hard-coding a Program Files location.
-    $detectionScript = @"
-`$keys = @(
-    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
-    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
-)
-`$wanted = [version]'$version'
-foreach (`$root in `$keys) {
-    if (-not (Test-Path -LiteralPath `$root)) { continue }
-    `$hit = Get-ChildItem -LiteralPath `$root -ErrorAction SilentlyContinue |
-        ForEach-Object { Get-ItemProperty -LiteralPath `$_.PSPath -ErrorAction SilentlyContinue } |
-        Where-Object { `$_.DisplayName -like 'AnyBurn*' } |
-        Select-Object -First 1
-    if (-not `$hit) { continue }
-    `$found = `$null
-    if (-not [version]::TryParse([string]`$hit.DisplayVersion, [ref]`$found)) { continue }
-    if (`$found -ge `$wanted) { Write-Output 'Installed'; exit 0 }
-}
-exit 0
-"@
-
+    # The installer writes its ARP entry into the 32-bit registry view even
+    # though it installs under Program Files, so the clause is view-bound.
     Write-Log ""
-    Write-Log "Detection                    : ARP entry 'AnyBurn*' with DisplayVersion >= $version"
+    Write-Log "Detection                    : $ArpRegistryKey DisplayVersion >= $version (32-bit view)"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -284,9 +265,13 @@ exit 0
         UninstallArgs   = "/S"
         RunningProcess  = @("AnyBurn")
         Detection       = @{
-            Type           = "Script"
-            ScriptLanguage = "PowerShell"
-            ScriptText     = $detectionScript
+            Type                = "RegistryKeyValue"
+            RegistryKeyRelative = $ArpRegistryKey
+            ValueName           = "DisplayVersion"
+            PropertyType        = "Version"
+            Operator            = "GreaterEquals"
+            ExpectedValue       = $version
+            Is64Bit             = $false
         }
     }
 

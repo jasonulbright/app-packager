@@ -1,5 +1,8 @@
 # Packager templates
 
+[![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](../../README.md#prerequisites)
+[![License](https://img.shields.io/github/license/jasonulbright/app-packager)](../../LICENSE)
+
 Skeleton packagers for new installer formats. Copy a template into
 `Packagers/` (drop the `.template` suffix), rename to
 `package-<appname>.ps1`, fill in the `TODO-*` markers, and the main

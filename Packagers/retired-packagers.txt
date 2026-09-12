@@ -1,0 +1,2 @@
+# Catalog scripts removed from the release; the updater does not carry them forward.
+package-specexec-mitigations.ps1

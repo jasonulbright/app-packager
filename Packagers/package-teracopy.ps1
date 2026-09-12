@@ -17,7 +17,7 @@ UpdateCadenceDays: 180
     (codesector.com/updates/teracopy.txt), which carries the product version,
     a versioned download URL and the payload SHA256. Downloads the installer,
     verifies its hash, stages content to a versioned local folder, and creates
-    an MECM Application with script-based detection on the ARP entry.
+    an MECM Application with registry detection on the ARP entry.
 
     The payload is an Advanced Installer bootstrapper wrapping an MSI, so the
     silent switches are /exenoui /qn and ALLUSERS=1 forces the per-machine
@@ -61,7 +61,7 @@ UpdateCadenceDays: 180
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with script-based detection.
+    create MECM application with registry detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available TeraCopy version string and exits.
@@ -107,6 +107,8 @@ $AppFolder    = "TeraCopy"
 $BaseDownloadRoot = Join-Path $DownloadRoot "TeraCopy"
 
 $InstallerFileName = "teracopy-setup.exe"
+
+$ProductRegistryKey = "SOFTWARE\Code Sector\TeraCopy"
 
 # --- Functions ---
 
@@ -265,28 +267,10 @@ exit 1
 
     # --- Detection ---
     # The ARP key name is the wrapped MSI's ProductCode and changes between
-    # builds, so detection matches on DisplayName and compares DisplayVersion.
-    $detectionScript = @"
-`$roots = @(
-    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
-    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
-)
-`$wanted = [version]'$version'
-foreach (`$root in `$roots) {
-    if (-not (Test-Path -LiteralPath `$root)) { continue }
-    foreach (`$sub in Get-ChildItem -LiteralPath `$root -ErrorAction SilentlyContinue) {
-        `$entry = Get-ItemProperty -LiteralPath `$sub.PSPath -ErrorAction SilentlyContinue
-        if (-not `$entry -or [string]`$entry.DisplayName -notlike 'TeraCopy*') { continue }
-        `$found = `$null
-        if (-not [version]::TryParse([string]`$entry.DisplayVersion, [ref]`$found)) { continue }
-        if (`$found -ge `$wanted) { Write-Output 'Installed'; exit 0 }
-    }
-}
-exit 0
-"@
-
+    # builds, so detection reads the product's own fixed version value, which
+    # the uninstall removes with the rest of the key.
     Write-Log ""
-    Write-Log "Detection                    : ARP DisplayName 'TeraCopy*' with DisplayVersion >= $version"
+    Write-Log "Detection                    : $ProductRegistryKey Version >= $version (64-bit view)"
     Write-Log ""
 
     # --- Write stage manifest ---
@@ -301,9 +285,13 @@ exit 0
         UninstallArgs   = ""
         RunningProcess  = @("TeraCopy")
         Detection       = @{
-            Type           = "Script"
-            ScriptLanguage = "PowerShell"
-            ScriptText     = $detectionScript
+            Type                = "RegistryKeyValue"
+            RegistryKeyRelative = $ProductRegistryKey
+            ValueName           = "Version"
+            PropertyType        = "Version"
+            Operator            = "GreaterEquals"
+            ExpectedValue       = $version
+            Is64Bit             = $true
         }
     }
 
