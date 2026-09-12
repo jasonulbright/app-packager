@@ -168,7 +168,7 @@ Global conditions are created on the site the first time a rule needs them and a
 
 **Script signing** — Authenticode signing for the scripts AppPackager stages. Three independent sign switches (detection script, requirement scripts, install/uninstall scripts) and three matching require switches; a require switch fails the run instead of publishing unsigned content. The certificate is picked by thumbprint from `CurrentUser\Personal` or `LocalMachine\Personal` — each candidate row says whether the certificate is usable and why not when it isn't. Optional timestamp server with a "timestamp required" switch. **Test signing configuration** signs and verifies a temporary file and reports whether the signature is intact, whether this host trusts the chain, and whether the key would prompt for a PIN.
 
-Two things to know before turning it on. The endpoints must trust the publisher: a valid signature is not the same as a trusted one, so the signing certificate has to reach the client's Trusted Publisher store. And signed mode removes `-ExecutionPolicy Bypass` from the generated launchers, so the client's effective execution policy decides whether the script runs.
+Two things to know before turning it on. The endpoints must trust the publisher: a valid signature is not the same as a trusted one, so the signing certificate has to reach the client's Trusted Publisher store. And signed mode removes `-ExecutionPolicy Bypass` from the generated launchers, so the client's effective execution policy decides whether the script runs. Vendor scripts in the content keep an intact signature they already carry; an unsigned one is signed with your certificate. A PSADT package in signed mode enters through the toolkit's `.ps1`, not its `.exe` launcher.
 
 **About** — application name, installed version (parsed from the script header, the single source of truth), MIT license, a clickable link to the GitHub repository, the timestamp of the last update check, and the latest known release. The same **Update now** action offered in the sidebar is repeated here, enabled only once a check has actually found a newer release; a **Release notes** button opens the releases page.
 
@@ -247,7 +247,7 @@ Or drive one application through a workbench profile without the GUI:
 | `-SiteCode` / `-ProviderMachineName` / `-FileServerPath` | MECM connection and share, as the packagers take them |
 | `-Comment` | Administrative comment stored on the application |
 
-It creates the run snapshot, sets the child environment and launches the packager exactly as the GUI does, so a scheduled build and a button click produce the same content.
+It creates the run snapshot, sets the child environment and launches the packager exactly as the GUI does, so a scheduled build and a button click produce the same content. A `custom:` script lives under `<workbench data root>\scripts`, outside the install folder, and must import `AppPackagerCommon.psd1` by its full path; it builds from the command line only, since the main grid lists the `Packagers` folder.
 
 All packager scripts accept the same core parameters:
 

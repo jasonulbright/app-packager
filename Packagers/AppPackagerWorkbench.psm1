@@ -1770,6 +1770,16 @@ function Remove-WorkbenchStaleStageArtifacts {
             $full = [System.IO.Path]::GetFullPath((Join-Path $rootFull $relative))
             if (-not $full.StartsWith($rootFull + '\', [System.StringComparison]::OrdinalIgnoreCase)) { continue }
             if (Test-Path -LiteralPath $full -PathType Leaf) {
+                # A source file lands at an operator-chosen path that a later
+                # vendor release can also use, so only the bytes the record
+                # sealed are removed; hook and script names are AppPackager's.
+                if ($category -eq 'SourceFile') {
+                    $sealedHash = [string](Get-WorkbenchMember -InputObject $asset -Path 'Sha256').Value
+                    if ([string]::IsNullOrWhiteSpace($sealedHash) -or ((Get-WorkbenchFileSha256 -Path $full) -ne $sealedHash)) {
+                        Write-WorkbenchLog ("Stage prune kept             : {0} (content differs from the sealed source file)" -f $relative) -Level WARN
+                        continue
+                    }
+                }
                 Remove-Item -LiteralPath $full -Force -ErrorAction Stop
                 [void]$removed.Add($relative)
             }
@@ -2481,12 +2491,26 @@ function Import-WorkbenchBundle {
             throw "Bundle schema $($manifest.SchemaVersion) is newer than this build supports ($script:WorkbenchBundleSchemaVersion)."
         }
         $payload = Join-Path $staging 'application'
+        $payloadFull = [System.IO.Path]::GetFullPath($payload).TrimEnd('\')
+        $verified = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
         foreach ($entry in @($manifest.Entries)) {
             if ($null -eq $entry) { continue }
-            $file = Join-Path $payload ([string]$entry.RelativePath)
-            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Bundle entry '$($entry.RelativePath)' is missing from the archive." }
+            $relative = [string]$entry.RelativePath
+            if ([System.IO.Path]::IsPathRooted($relative)) { throw "Bundle entry '$relative' is not a relative path." }
+            $file = [System.IO.Path]::GetFullPath((Join-Path $payloadFull $relative))
+            if (-not $file.StartsWith($payloadFull + '\', [System.StringComparison]::OrdinalIgnoreCase)) { throw "Bundle entry '$relative' escapes the bundle." }
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Bundle entry '$relative' is missing from the archive." }
             $actual = Get-WorkbenchFileSha256 -Path $file
-            if ($actual -ne [string]$entry.Sha256) { throw "Bundle entry '$($entry.RelativePath)' failed its hash check." }
+            if ($actual -ne [string]$entry.Sha256) { throw "Bundle entry '$relative' failed its hash check." }
+            [void]$verified.Add($file.Substring($payloadFull.Length).TrimStart('\'))
+        }
+        # Only what the manifest lists and hashed is imported; an extra file in
+        # the archive would otherwise arrive unverified.
+        if (Test-Path -LiteralPath $payloadFull) {
+            foreach ($file in @(Get-ChildItem -LiteralPath $payloadFull -File -Recurse -ErrorAction SilentlyContinue)) {
+                $relative = $file.FullName.Substring($payloadFull.Length).TrimStart('\')
+                if (-not $verified.Contains($relative)) { throw "Bundle carries '$relative', which its manifest does not list; refusing the import." }
+            }
         }
 
         if ([string]::IsNullOrWhiteSpace($ApplicationId)) { $ApplicationId = [string]$manifest.ApplicationId }
@@ -2496,7 +2520,11 @@ function Import-WorkbenchBundle {
         }
         if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop }
         [void](New-WorkbenchFolder -Path $target)
-        Copy-Item -Path (Join-Path $payload '*') -Destination $target -Recurse -Force -ErrorAction SilentlyContinue
+        foreach ($relative in $verified) {
+            $destination = Join-Path $target $relative
+            [void](New-WorkbenchFolder -Path (Split-Path -Path $destination -Parent))
+            Copy-Item -LiteralPath (Join-Path $payloadFull $relative) -Destination $destination -Force -ErrorAction Stop
+        }
 
         $definitionPath = Join-Path $target 'application.json'
         if (Test-Path -LiteralPath $definitionPath) {

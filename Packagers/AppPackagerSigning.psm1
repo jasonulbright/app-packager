@@ -236,10 +236,49 @@ function Get-SigningTokenFindings {
             [void]$findings.Add([pscustomobject]@{ Code = 'LauncherEncodedCommand'; Token = $raw })
         }
     }
-    if ($Text -match '(?i)\bbypass\b' -or $Text -match '(?i)\bunrestricted\b') {
-        [void]$findings.Add([pscustomobject]@{ Code = 'LauncherPolicyRelaxation'; Token = 'bypass' })
+    # The bare policy names only count on a line that names the execution
+    # policy (Set-ExecutionPolicy, the preference variable, a split
+    # argument); a comment or a string that merely contains the word is not
+    # a launcher.
+    if ($Text -match '(?i)executionpolicy' -and $Text -match '(?i)\b(bypass|unrestricted|remotesigned)\b') {
+        [void]$findings.Add([pscustomobject]@{ Code = 'LauncherPolicyRelaxation'; Token = $Matches[1].ToLowerInvariant() })
     }
     return $findings.ToArray()
+}
+
+function Get-SigningThirdPartyRoots {
+    <#
+        Folders holding vendor toolkit content. A PSADT layout is identified
+        by its entry script; the manifest may declare further third-party
+        scripts by relative path.
+    #>
+    param([Parameter(Mandatory)][string]$StageRoot, $ManifestData)
+
+    $roots = @()
+    if (Test-Path -LiteralPath $StageRoot) {
+        $roots = @(Get-ChildItem -LiteralPath $StageRoot -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq 'Invoke-AppDeployToolkit.ps1' -or $_.Name -eq 'Deploy-Application.ps1' } |
+            ForEach-Object { $_.DirectoryName.TrimEnd('\') })
+    }
+    $declared = @()
+    $declaredValue = Get-SigningPropertyValue -InputObject $ManifestData -Name 'ThirdPartyScripts' -Default $null
+    if ($null -ne $declaredValue) { $declared = @($declaredValue | ForEach-Object { [string]$_ }) }
+    return [pscustomobject]@{ Roots = @($roots); Declared = @($declared) }
+}
+
+function Test-SigningThirdPartyFile {
+    param(
+        [Parameter(Mandatory)][string]$FullName,
+        [Parameter(Mandatory)][string]$RelativePath,
+        [Parameter(Mandatory)]$ThirdParty
+    )
+    foreach ($root in @($ThirdParty.Roots)) {
+        if ($FullName.StartsWith($root + '\', [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    foreach ($name in @($ThirdParty.Declared)) {
+        if ($RelativePath -ieq $name) { return $true }
+    }
+    return $false
 }
 
 function Write-SigningScriptFile {
@@ -640,12 +679,14 @@ function Test-ScriptSignature {
 
     # A signature whose hash matches but whose chain is not trusted by this
     # host is intact: the endpoint decides trust, and the build host is not
-    # required to trust the signer. A hash or content failure is not.
+    # required to trust the signer. A hash or content failure reports its
+    # own status, so UnknownError with a signer present is a chain-policy
+    # failure; the chain is rebuilt with trust and revocation ignored rather
+    # than read from the localized status text.
     $trusted = ($sig.Status -eq 'Valid')
     $intact = $trusted
-    if (-not $intact -and $null -ne $sig.SignerCertificate) {
-        $intact = ($sig.Status -eq 'UnknownError' -and
-                   [string]$sig.StatusMessage -match '(?i)(not trusted|terminated in a root certificate|revocation)')
+    if (-not $intact -and $null -ne $sig.SignerCertificate -and $sig.Status -eq 'UnknownError') {
+        $intact = Test-SigningChainIgnoringTrust -Certificate $sig.SignerCertificate
     }
 
     return [pscustomobject]@{
@@ -657,6 +698,28 @@ function Test-ScriptSignature {
         Timestamped       = $timestamped
         TimestampVerified = $timestampVerified
         Reason            = [string]$sig.StatusMessage
+    }
+}
+
+function Test-SigningChainIgnoringTrust {
+    <#
+        Builds the signer chain with an unknown authority allowed and no
+        revocation lookup: a self-signed or privately issued signer passes,
+        an expired signer without a timestamp or an explicitly distrusted
+        one does not, which matches what the endpoint's own policy decides
+        on top of publisher trust.
+    #>
+    param([Parameter(Mandatory)][System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate)
+
+    $chain = New-Object System.Security.Cryptography.X509Certificates.X509Chain
+    try {
+        $chain.ChainPolicy.RevocationMode = [System.Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
+        $chain.ChainPolicy.VerificationFlags = [System.Security.Cryptography.X509Certificates.X509VerificationFlags]::AllowUnknownCertificateAuthority
+        return [bool]$chain.Build($Certificate)
+    }
+    catch { return $false }
+    finally {
+        if ($chain -is [System.IDisposable]) { $chain.Dispose() }
     }
 }
 
@@ -1010,24 +1073,40 @@ function Test-DeploymentLauncherChain {
     }
 
     $files = @()
+    $thirdPartySkipped = 0
     if (Test-Path -LiteralPath $StageRoot) {
-        $files = @(Get-ChildItem -LiteralPath $StageRoot -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Extension -match '^(?i)\.(bat|cmd|ps1|psm1)$' })
+        # Vendor toolkit content keeps its own signatures and its own internal
+        # launches; the chain that is checked here is what AppPackager
+        # generates plus the commands the deployment type runs.
+        $thirdParty = Get-SigningThirdPartyRoots -StageRoot $StageRoot -ManifestData $Manifest
+        $rootFull = (Get-Item -LiteralPath $StageRoot).FullName.TrimEnd('\')
+        foreach ($file in @(Get-ChildItem -LiteralPath $StageRoot -Recurse -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Extension -match '^(?i)\.(bat|cmd|ps1|psm1)$' })) {
+            $relative = $file.FullName.Substring($rootFull.Length).TrimStart('\')
+            if (Test-SigningThirdPartyFile -FullName $file.FullName -RelativePath $relative -ThirdParty $thirdParty) {
+                $thirdPartySkipped++
+                continue
+            }
+            $files += $file
+        }
     }
 
     foreach ($file in $files) {
         $lines = @()
         try { $lines = @([System.IO.File]::ReadAllLines($file.FullName)) } catch { continue }
+        $isBatch = ($file.Extension -match '^(?i)\.(bat|cmd)$')
         $inSignatureBlock = $false
         for ($i = 0; $i -lt $lines.Count; $i++) {
             $line = $lines[$i]
-            # Every line is token-scanned: a launcher can reach PowerShell as
-            # pwsh.exe, through a variable, or through a cmd start, so the
-            # literal host name is not a reliable gate. Only the Authenticode
-            # block is skipped, because its Base64 is not a command line.
+            # Every code line is token-scanned: a launcher can reach PowerShell
+            # as pwsh.exe, through a variable, or through a cmd start, so the
+            # literal host name is not a reliable gate. Comment lines and the
+            # Authenticode block are skipped because neither is a command.
             if ($line -match '^\s*#\s*SIG # Begin signature block') { $inSignatureBlock = $true; continue }
             if ($line -match '^\s*#\s*SIG # End signature block') { $inSignatureBlock = $false; continue }
             if ($inSignatureBlock) { continue }
+            if ($isBatch) { if ($line -match '^\s*(?i:rem)\b|^\s*::') { continue } }
+            elseif ($line -match '^\s*#') { continue }
             foreach ($hit in (Get-SigningTokenFindings -Text $line)) {
                 $message = switch ($hit.Code) {
                     'LauncherExecutionPolicy'  { "Launcher passes an execution-policy argument ('$($hit.Token)')." }
@@ -1068,6 +1147,7 @@ function Test-DeploymentLauncherChain {
     $result = [pscustomobject]@{
         Findings          = $findings.ToArray()
         FilesInspected    = $files.Count
+        ThirdPartySkipped = $thirdPartySkipped
         CommandsInspected = $commands.Count
         BypassFree        = ($findings.Count -eq 0)
         Enforced          = ([bool]$policy.SignDeployment -or [bool]$policy.RequireDeployment)
@@ -1100,27 +1180,16 @@ function Get-SigningDeploymentFileInventory {
 
     # A PSADT layout is vendor content; its files keep their own signatures
     # unless the caller has edited them.
-    $toolkitRoots = @(Get-ChildItem -LiteralPath $StageRoot -Recurse -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -eq 'Invoke-AppDeployToolkit.ps1' -or $_.Name -eq 'Deploy-Application.ps1' } |
-        ForEach-Object { $_.DirectoryName })
-
-    $declared = @()
-    $declaredValue = Get-SigningPropertyValue -InputObject $ManifestData -Name 'ThirdPartyScripts' -Default $null
-    if ($null -ne $declaredValue) { $declared = @($declaredValue | ForEach-Object { [string]$_ }) }
+    $thirdPartyRoots = Get-SigningThirdPartyRoots -StageRoot $StageRoot -ManifestData $ManifestData
+    $rootFull = (Get-Item -LiteralPath $StageRoot).FullName.TrimEnd('\')
 
     foreach ($file in (Get-ChildItem -LiteralPath $StageRoot -Recurse -File -ErrorAction SilentlyContinue |
             Where-Object { $_.Extension -match '^(?i)\.(ps1|psm1)$' })) {
-        $relative = $file.FullName.Substring($StageRoot.TrimEnd('\').Length).TrimStart('\')
+        $relative = $file.FullName.Substring($rootFull.Length).TrimStart('\')
         # scripts\ holds the detection and requirement categories; the
         # deployment category must not re-sign them under its own switch.
         if ($relative -like 'scripts\*') { continue }
-        $isThirdParty = $false
-        foreach ($root in $toolkitRoots) {
-            if ($file.FullName -like ('{0}*' -f $root)) { $isThirdParty = $true; break }
-        }
-        foreach ($name in $declared) {
-            if ($relative -eq $name) { $isThirdParty = $true; break }
-        }
+        $isThirdParty = Test-SigningThirdPartyFile -FullName $file.FullName -RelativePath $relative -ThirdParty $thirdPartyRoots
         if ($isThirdParty) { [void]$thirdParty.Add([pscustomobject]@{ FullName = $file.FullName; RelativePath = $relative }) }
         else { [void]$owned.Add([pscustomobject]@{ FullName = $file.FullName; RelativePath = $relative }) }
     }

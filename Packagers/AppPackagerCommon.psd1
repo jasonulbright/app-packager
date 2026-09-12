@@ -77,6 +77,7 @@
         'Get-SdmPackageScriptText'
         'ConvertFrom-CMEncodedScriptBody'
         'Get-CMGlobalConditionScriptText'
+        'Get-CMGlobalConditionScriptBody'
         'Get-CMDeploymentTypeDetectionScript'
         'Test-StoredDetectionScript'
         'Test-StoredScriptSignature'
