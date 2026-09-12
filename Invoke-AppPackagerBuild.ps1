@@ -91,6 +91,12 @@ function Read-CliPreferences {
     catch { return $null }
 }
 
+function Get-CliCustomScriptRoot {
+    # User-authored packagers outside the install tree live beside the
+    # workbench data; the picker discovers them under the same folder.
+    return (Join-Path (Get-WorkbenchDataRoot) 'scripts')
+}
+
 function Resolve-CliApplication {
     param([string]$Value, [string]$Root)
 
@@ -98,6 +104,9 @@ function Resolve-CliApplication {
     $base = [System.IO.Path]::GetFileNameWithoutExtension($Value)
     foreach ($candidate in @("$base.ps1", "$base.notps1")) {
         if (Test-Path -LiteralPath (Join-Path $Root $candidate)) { return (New-ApplicationId -Kind Catalog -Name $base) }
+    }
+    foreach ($candidate in @("$base.ps1", "$base.notps1")) {
+        if (Test-Path -LiteralPath (Join-Path (Get-CliCustomScriptRoot) $candidate)) { return (New-ApplicationId -Kind Custom -Name $base) }
     }
     return (New-ApplicationId -Kind Catalog -Name $base)
 }
@@ -195,11 +204,12 @@ if ($isByo) {
 }
 else {
     $packagerName = ($applicationId -split ':', 2)[1]
+    $scriptRoot = if ($applicationId -like 'custom:*') { Get-CliCustomScriptRoot } else { $PackagersRoot }
     foreach ($candidate in @("$packagerName.ps1", "$packagerName.notps1")) {
-        $probe = Join-Path $PackagersRoot $candidate
+        $probe = Join-Path $scriptRoot $candidate
         if (Test-Path -LiteralPath $probe) { $packagerPath = $probe; break }
     }
-    if (-not $packagerPath) { throw "No packager script for application '$applicationId' under $PackagersRoot." }
+    if (-not $packagerPath) { throw "No packager script for application '$applicationId' under $scriptRoot." }
 }
 
 if ([string]::IsNullOrWhiteSpace($DownloadRoot)) {

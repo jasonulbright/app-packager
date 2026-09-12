@@ -3097,6 +3097,12 @@ function Invoke-BatchUpdate {
             $batchRunSnapshot = ''
             $batchDownloadRoot = $DownloadRoot
             if ($batchWorkbenchRoot -and (Get-Command -Name 'New-RunSnapshot' -ErrorAction SilentlyContinue)) {
+                # The snapshot carries the signing policy so the certificate
+                # gate runs here, before the child writes any content.
+                $batchSigningPolicy = $null
+                if (-not [string]::IsNullOrWhiteSpace($SigningJson)) {
+                    try { $batchSigningPolicy = $SigningJson | ConvertFrom-Json } catch { $batchSigningPolicy = $null }
+                }
                 try {
                     $batchAppId = [string](New-ApplicationId -Kind Catalog -ScriptPath $scriptPath)
                     $batchDefinition = Get-ApplicationDefinition -ApplicationId $batchAppId
@@ -3104,10 +3110,15 @@ function Invoke-BatchUpdate {
                     if (-not $batchProfileId) { $batchProfileId = 'default' }
                     $batchDownloadRoot = Get-WorkbenchProfileDownloadRoot -DownloadRoot $DownloadRoot -ProfileId $batchProfileId
                     $batchSnapshot = New-RunSnapshot -ApplicationId $batchAppId -ProfileId $batchProfileId `
-                        -Target 'MECM' -PackagerScriptPath $scriptPath -DownloadRoot $batchDownloadRoot
+                        -Target 'MECM' -SigningPolicy $batchSigningPolicy -PackagerScriptPath $scriptPath -DownloadRoot $batchDownloadRoot
                     $batchRunSnapshot = [string]$batchSnapshot.Path
                 }
                 catch {
+                    if ($_.Exception.Message -match 'SigningCertificateUnavailable') {
+                        Write-Log ("[batch] {0}: skipped, the signing policy cannot be met: {1}" -f $baseName, $_.Exception.Message) -Level ERROR
+                        $results += [pscustomobject]@{ Name = $baseName; Action = 'Failed'; OldVersion = $lastKnown; NewVersion = $null; Reason = $_.Exception.Message }
+                        continue
+                    }
                     Write-Log ("[batch] {0}: run snapshot not created: {1}" -f $baseName, $_.Exception.Message) -Level WARN
                 }
             }
@@ -9610,7 +9621,10 @@ function Show-ApplicationWorkbench {
         $win.Close()
         $row = @($script:PackagerData | Where-Object { [string]$_.FullPath -eq [string]$wb.Application.ScriptPath })
         if ($row.Count -eq 0) {
-            Add-LogLine -Message ('Workbench run skipped: {0} is not in the current grid.' -f [string]$wb.Application.DisplayName)
+            $cliHint = ('.\Invoke-AppPackagerBuild.ps1 -Application {0} -Profile {1} -{2}' -f [string]$wb.Application.ApplicationId, [string]$wb.ProfileId, $operation)
+            Add-LogLine -Message ('Workbench run skipped: {0} is not in the current grid. Build it from the command line: {1}' -f [string]$wb.Application.DisplayName, $cliHint)
+            [void](Show-ThemedMessage -Owner $win -Title $operation `
+                -Message ('This application is not in the main grid, so it cannot run through the grid pipeline. Build it from the command line:' + "`r`n`r`n" + $cliHint) -Buttons OK -Icon Info)
             return
         }
         Add-LogLine -Message ('Workbench {0}: {1} (profile {2}, revision {3})' -f $operation, [string]$wb.Application.DisplayName, [string]$wb.Profile.Name, [string]$wb.Profile.Revision)
@@ -9757,7 +9771,7 @@ function New-ScriptSigningPanel {
                   ToolTip="Covers script-based requirement rules including the VPN predicate. WQL and native rules need no signature."/>
         <CheckBox x:Name="chkSignDeployment" FontSize="12" Margin="0,0,0,12"
                   Content="Sign install and uninstall PowerShell scripts" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                  ToolTip="Signs the deployment execution chain and removes the execution-policy argument from its generated launchers, letting the configured endpoint policy govern."/>
+                  ToolTip="Signs the deployment execution chain and removes the execution-policy argument from its generated launchers, letting the configured endpoint policy govern. A vendor script that already carries an intact signature is left alone; an unsigned one is signed with this certificate."/>
 
         <TextBlock Text="Require valid signatures" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
         <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,6"

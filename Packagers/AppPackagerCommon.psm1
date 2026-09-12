@@ -2618,15 +2618,19 @@ function Test-PsadtLayout {
     }
 
     $modeSuffix = if ([string]::IsNullOrWhiteSpace($DeployMode)) { '' } else { " -DeployMode $DeployMode" }
-    $signed = Get-PolicyFlag -Policy (Resolve-CommonSigningPolicy) -Name 'SignDeployment'
+    $policy = Resolve-CommonSigningPolicy
+    $signed = (Get-PolicyFlag -Policy $policy -Name 'SignDeployment') -or (Get-PolicyFlag -Policy $policy -Name 'RequireDeployment')
 
     $v4Exe = Join-Path $Path 'Invoke-AppDeployToolkit.exe'
     $v4Ps1 = Join-Path $Path 'Invoke-AppDeployToolkit.ps1'
     $v3Exe = Join-Path $Path 'Deploy-Application.exe'
     $v3Ps1 = Join-Path $Path 'Deploy-Application.ps1'
 
+    # The toolkit's native launchers start PowerShell with their own
+    # execution-policy override, which a signed deployment must not carry, so
+    # signed mode always enters through the script.
     if (Test-Path -LiteralPath $v4Ps1) {
-        if (Test-Path -LiteralPath $v4Exe) {
+        if ((Test-Path -LiteralPath $v4Exe) -and -not $signed) {
             $entry = 'Invoke-AppDeployToolkit.exe'
             $prefix = $entry
         }
@@ -2643,13 +2647,16 @@ function Test-PsadtLayout {
     }
 
     if ((Test-Path -LiteralPath $v3Exe) -or (Test-Path -LiteralPath $v3Ps1)) {
-        if (Test-Path -LiteralPath $v3Exe) {
+        if ((Test-Path -LiteralPath $v3Exe) -and -not $signed) {
             $entry = 'Deploy-Application.exe'
             $prefix = $entry
         }
-        else {
+        elseif (Test-Path -LiteralPath $v3Ps1) {
             $entry = 'Deploy-Application.ps1'
             $prefix = Get-DeploymentLauncherCommandLine -ScriptToken $entry -Signed:$signed -ExecutableName 'powershell.exe'
+        }
+        else {
+            throw "Signed deployment mode needs Deploy-Application.ps1 in '$Path'; the toolkit's .exe launcher applies its own execution-policy override and cannot be the signed entry point."
         }
         return [pscustomobject]@{
             Generation           = 'v3'
@@ -2958,6 +2965,22 @@ function Get-CMGlobalConditionScriptText {
     #>
     param([Parameter(Mandatory)]$GlobalCondition)
 
+    $stored = Get-CMGlobalConditionScriptBody -GlobalCondition $GlobalCondition
+    if ($null -eq $stored) { return $null }
+    return $stored.Text
+}
+
+function Get-CMGlobalConditionScriptBody {
+    <#
+    .SYNOPSIS
+        Reads back the decoded script body stored on a CM script global
+        condition.
+
+    .OUTPUTS
+        [pscustomobject] Bytes, Text, Encoded; $null when none is readable.
+    #>
+    param([Parameter(Mandatory)]$GlobalCondition)
+
     $property = $GlobalCondition.PSObject.Properties['SDMPackageXML']
     if (-not $property -or [string]::IsNullOrWhiteSpace([string]$property.Value)) {
         try {
@@ -2971,7 +2994,7 @@ function Get-CMGlobalConditionScriptText {
     if (-not $property) { return $null }
     $body = Get-SdmPackageScriptText -SdmPackageXml ([string]$property.Value)
     if ($null -eq $body) { return $null }
-    return (ConvertFrom-CMEncodedScriptBody -Body $body).Text
+    return (ConvertFrom-CMEncodedScriptBody -Body $body)
 }
 
 function Find-CMGlobalConditionByName {
@@ -3011,7 +3034,7 @@ function Get-ConditionScriptContentIdentity {
         site object is created.
 
     .OUTPUTS
-        [pscustomobject] Text, Sha256, Signed, Thumbprint, Status.
+        [pscustomobject] Text, Bytes, Sha256, Signed, Thumbprint, Status.
     #>
     param([Parameter(Mandatory)][pscustomobject]$Template)
 
@@ -3028,6 +3051,10 @@ function Get-ConditionScriptContentIdentity {
     $require = Get-PolicyFlag -Policy $policy -Name 'RequireRequirements'
     $status = 'NotRequested'
     $thumbprint = ''
+    # The Authenticode hash of a script covers its byte-order mark, so the
+    # bytes that were signed are the only bytes that verify: the file is
+    # written without a BOM and the signed bytes travel to the site verbatim.
+    $scriptBytes = [System.Text.Encoding]::UTF8.GetBytes($scriptText)
 
     if ($sign -or $require) {
         if (-not (Get-Command -Name Invoke-ScriptSigning -ErrorAction SilentlyContinue)) {
@@ -3036,12 +3063,13 @@ function Get-ConditionScriptContentIdentity {
         else {
             $temporary = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + '.ps1')
             try {
-                [System.IO.File]::WriteAllText($temporary, $scriptText, (New-Object System.Text.UTF8Encoding($true)))
+                [System.IO.File]::WriteAllBytes($temporary, $scriptBytes)
                 $result = Invoke-ScriptSigning -Path $temporary -Policy $policy -Category Requirements
                 $status = [string]$result.Status
                 $thumbprint = [string]$result.Thumbprint
                 if (@('SignedAndVerified', 'ExistingSignatureValid') -contains $status) {
-                    $scriptText = [System.IO.File]::ReadAllText($temporary)
+                    $scriptBytes = [System.IO.File]::ReadAllBytes($temporary)
+                    $scriptText = [System.Text.Encoding]::UTF8.GetString($scriptBytes)
                 }
                 elseif ($require) {
                     throw ("Requirement script signing is required and did not succeed for condition '{0}': {1} ({2})." -f $Template.GlobalConditionName, $status, $result.Reason)
@@ -3055,13 +3083,14 @@ function Get-ConditionScriptContentIdentity {
 
     $sha = [System.Security.Cryptography.SHA256]::Create()
     try {
-        $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($scriptText))
+        $bytes = $sha.ComputeHash($scriptBytes)
     }
     finally {
         $sha.Dispose()
     }
     return [pscustomobject]@{
         Text       = $scriptText
+        Bytes      = $scriptBytes
         Sha256     = (($bytes | ForEach-Object { $_.ToString('x2') }) -join '')
         Signed     = (@('SignedAndVerified', 'ExistingSignatureValid') -contains $status)
         Thumbprint = $thumbprint
@@ -3172,11 +3201,15 @@ function New-CMScriptGlobalConditionVerified {
             ScriptLanguage = 'PowerShell'
             Description    = [string]$Template.Description
         }
+        $signedBytes = $null
+        if ($Identity.PSObject.Properties['Bytes'] -and $null -ne $Identity.Bytes) { $signedBytes = [byte[]]$Identity.Bytes }
         if ($Identity.Signed) {
             # The provider refuses a signed script passed as text; only the
-            # file parameter set carries a signature through the import.
+            # file parameter set carries a signature through the import, and
+            # only the exact signed bytes verify afterwards.
+            if ($null -eq $signedBytes) { $signedBytes = [System.Text.Encoding]::UTF8.GetBytes([string]$Identity.Text) }
             $temporary = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + '.ps1')
-            [System.IO.File]::WriteAllBytes($temporary, [System.Text.Encoding]::UTF8.GetBytes($Identity.Text))
+            [System.IO.File]::WriteAllBytes($temporary, $signedBytes)
             $parameters['FilePath'] = $temporary
         }
         else {
@@ -3190,16 +3223,21 @@ function New-CMScriptGlobalConditionVerified {
         }
     }
 
-    $storedText = Get-CMGlobalConditionScriptText -GlobalCondition $created
-    if ($null -eq $storedText) {
+    $stored = Get-CMGlobalConditionScriptBody -GlobalCondition $created
+    if ($null -eq $stored) {
         Write-Log ("Global condition read-back   : '{0}' stored no readable script body; the site copy could not be compared." -f $Name) -Level WARN
         return $created
     }
-    if ($storedText -ne $Identity.Text) {
-        throw ("Global condition '{0}' read back different script content than was sent; the site did not store the finalized script." -f $Name)
-    }
     if ($Identity.Signed) {
-        Test-StoredScriptSignature -Bytes ([System.Text.Encoding]::UTF8.GetBytes($storedText)) -Context ("global condition '$Name'")
+        if (-not (Compare-ByteSequence -Left $stored.Bytes -Right $signedBytes)) {
+            throw ("Global condition '{0}' read back different script bytes than were sent; the site did not store the signed script." -f $Name)
+        }
+        $expectedThumbprint = ''
+        if ($Identity.PSObject.Properties['Thumbprint']) { $expectedThumbprint = [string]$Identity.Thumbprint }
+        Test-StoredScriptSignature -Bytes $stored.Bytes -Context ("global condition '$Name'") -ExpectedThumbprint $expectedThumbprint
+    }
+    elseif ([string]$stored.Text -ne [string]$Identity.Text) {
+        throw ("Global condition '{0}' read back different script content than was sent; the site did not store the finalized script." -f $Name)
     }
     Write-Log ("Global condition read-back   : {0} verified" -f $Name)
     return $created
