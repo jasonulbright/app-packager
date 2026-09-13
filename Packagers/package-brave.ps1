@@ -14,7 +14,7 @@ UpdateCadenceDays: 14
 
 .DESCRIPTION
     Resolves the latest Brave release from the brave-browser GitHub releases API,
-    downloads the standalone silent system-level installer, stages content to a
+    downloads the raw x64 installer from the vendor endpoint, stages content to a
     versioned local folder, and creates an MECM Application with file-version
     based detection on brave.exe.
 
@@ -91,15 +91,20 @@ if ($StageOnly -and $PackageOnly) {
 
 # --- Configuration ---
 $ReleaseApiUrl = "https://api.github.com/repos/brave/brave-browser/releases/latest"
-$DownloadBase  = "https://github.com/brave/brave-browser/releases/download"
+# The GitHub release carries only the Omaha wrappers, which refuse a
+# system-level install; the raw installer that honors --system-level is
+# published unversioned at this endpoint, so the downloaded file's own
+# version is the packaged version.
+$DownloadUrl   = "https://referrals.brave.com/latest/brave_installer-x64.exe"
 
 $VendorFolder = "Brave Software"
 $AppFolder    = "Brave Browser"
 
 $BaseDownloadRoot = Join-Path $DownloadRoot "Brave"
-$InstallArgsLine   = "--install --silent --system-level"
-$UninstallArgsLine = "--uninstall --silent --system-level"
-$DetectionPath     = "C:\Program Files\BraveSoftware\Brave-Browser\Application"
+$InstallArgsLine   = "--install --silent --system-level --do-not-launch-chrome"
+$UninstallArgsLine = "--uninstall --system-level --force-uninstall"
+$InstallRoot       = "C:\Program Files\BraveSoftware\Brave-Browser\Application"
+$DetectionPath     = $InstallRoot
 
 # --- Functions ---
 
@@ -146,27 +151,33 @@ function Invoke-StageBrave {
 
     Initialize-Folder -Path $BaseDownloadRoot
 
-    # --- Get version ---
-    $version = Get-LatestBraveVersion
-    if (-not $version) { throw "Could not resolve Brave version." }
-
-    $installerFileName = "BraveBrowserStandaloneSilentSetup-$version.exe"
-    $downloadUrl = "$DownloadBase/v$version/BraveBrowserStandaloneSilentSetup.exe"
-
-    Write-Log "Version                      : $version"
-    Write-Log "Installer filename           : $installerFileName"
-    Write-Log "Download URL                 : $downloadUrl"
-    Write-Log ""
-
     # --- Download ---
-    $localInstaller = Join-Path $BaseDownloadRoot $installerFileName
-    if (-not (Test-Path -LiteralPath $localInstaller)) {
-        Write-Log "Downloading installer..."
-        Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localInstaller
+    # The endpoint serves the current release only, so the cached copy is
+    # refreshed when the server reports a newer file and the version comes
+    # from the binary itself.
+    $localInstaller = Join-Path $BaseDownloadRoot "brave_installer-x64.exe"
+    Write-Log "Download URL                 : $DownloadUrl"
+    Invoke-CachedDownload -Url $DownloadUrl -OutFile $localInstaller
+
+    $fileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($localInstaller).FileVersion
+    if ($fileVersion) { $fileVersion = $fileVersion.Trim() }
+    # The binary reports <Chromium major>.<Brave version>; brave.exe carries
+    # the same value, so the detector compares against the full string while
+    # the package is versioned the way the vendor numbers releases.
+    if ($fileVersion -notmatch '^\d+\.(\d+\.\d+\.\d+)$') {
+        throw "Installer file version '$fileVersion' is not in the expected <chromium>.<brave> form."
     }
-    else {
-        Write-Log "Local installer exists. Skipping download."
+    $version = $Matches[1]
+    $latest = Get-LatestBraveVersion -Quiet
+    if ($latest -and $latest -ne $version) {
+        Write-Log ("Downloaded installer is {0}; the release feed lists {1}. Packaging the downloaded build." -f $version, $latest) -Level WARN
     }
+
+    $installerFileName = "brave_installer-x64-$version.exe"
+    Write-Log "Version                      : $version"
+    Write-Log "Installer file version       : $fileVersion"
+    Write-Log "Installer filename           : $installerFileName"
+    Write-Log ""
 
     # --- Versioned local content folder ---
     $localContentPath = Join-Path $BaseDownloadRoot $version
@@ -182,21 +193,23 @@ function Invoke-StageBrave {
     }
 
     # --- Generate content wrappers ---
-    # The standalone setup handles both directions; uninstall runs the staged
-    # copy from the deployment type content folder rather than a fixed path,
-    # because the installed product keeps its setup under a versioned
-    # Installer directory that moves with every update.
+    # Without --do-not-launch-chrome the installer starts the browser under
+    # the installing account. Uninstall runs the setup the product keeps
+    # under its versioned Installer folder; 19 is its success code and 20
+    # asks for a reboot.
     $installWrapper = (
         ('$installer = Join-Path $PSScriptRoot ''{0}''' -f $installerFileName),
         'if (-not (Test-Path -LiteralPath $installer)) { Write-Error "Missing Brave installer"; exit 2 }',
-        '$proc = Start-Process -FilePath $installer -ArgumentList @(''--install'', ''--silent'', ''--system-level'') -Wait -PassThru -NoNewWindow',
+        '$proc = Start-Process -FilePath $installer -ArgumentList @(''--install'', ''--silent'', ''--system-level'', ''--do-not-launch-chrome'') -Wait -PassThru -NoNewWindow',
         'exit $proc.ExitCode'
     ) -join "`r`n"
 
     $uninstallWrapper = (
-        ('$installer = Join-Path $PSScriptRoot ''{0}''' -f $installerFileName),
-        'if (-not (Test-Path -LiteralPath $installer)) { exit 0 }',
-        '$proc = Start-Process -FilePath $installer -ArgumentList @(''--uninstall'', ''--silent'', ''--system-level'') -Wait -PassThru -NoNewWindow',
+        ('$setup = Get-ChildItem -Path ''{0}\*\Installer\setup.exe'' -ErrorAction SilentlyContinue | Sort-Object -Property FullName -Descending | Select-Object -First 1' -f $InstallRoot),
+        'if (-not $setup) { exit 0 }',
+        '$proc = Start-Process -FilePath $setup.FullName -ArgumentList @(''--uninstall'', ''--system-level'', ''--force-uninstall'') -Wait -PassThru -NoNewWindow',
+        'if ($proc.ExitCode -eq 19) { exit 0 }',
+        'if ($proc.ExitCode -eq 20) { exit 3010 }',
         'exit $proc.ExitCode'
     ) -join "`r`n"
 
@@ -220,7 +233,7 @@ function Invoke-StageBrave {
         InstallerType    = "EXE"
         InstallArgs      = $InstallArgsLine
         UninstallArgs    = $UninstallArgsLine
-        UninstallCommand = $installerFileName
+        UninstallCommand = ("{0}\{1}\Installer\setup.exe" -f $InstallRoot, $fileVersion)
         RunningProcess   = @("brave")
         Detection        = @{
             Type          = "File"
@@ -228,7 +241,7 @@ function Invoke-StageBrave {
             FileName      = "brave.exe"
             PropertyType  = "Version"
             Operator      = "GreaterEquals"
-            ExpectedValue = $version
+            ExpectedValue = $fileVersion
             Is64Bit       = $true
         }
     }
