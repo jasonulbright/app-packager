@@ -490,6 +490,9 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Style="{StaticResource WbNote}"
@@ -499,7 +502,7 @@
                         <TextBlock DockPanel.Dock="Left" Text="Requirement operations" Style="{StaticResource WbHeading}" Margin="0"/>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                             <ComboBox x:Name="cboReqTemplate" Width="200" FontSize="11" Height="24" Margin="0,0,6,0"
-                                      ToolTip="Condition templates come from Options; the workbench attaches them per application."/>
+                                      ToolTip="Site conditions, named below; a rule attaches one to this application."/>
                             <Button x:Name="btnReqAdd" Content="Add" Style="{StaticResource WbSmallButton}" MinWidth="60"/>
                             <Button x:Name="btnReqReplace" Content="Replace" Style="{StaticResource WbSmallButton}" MinWidth="70"/>
                             <Button x:Name="btnReqRemove" Content="Remove" Style="{StaticResource WbSmallButton}" MinWidth="70"/>
@@ -548,6 +551,34 @@
                             <DataGridTextColumn Header="Maximum" Width="80" Binding="{Binding Maximum}"/>
                         </DataGrid.Columns>
                     </DataGrid>
+
+                    <TextBlock Grid.Row="6" Text="Site condition names" Style="{StaticResource WbHeading}" Margin="0,12,0,4"/>
+                    <TextBlock Grid.Row="7" Style="{StaticResource WbNote}"
+                               Text="Shared by every application. A rule attaches to the site global condition with this name, creating it on first use; change a name to reuse a condition your site already has. Saved when a field loses focus."/>
+                    <Grid Grid.Row="8" Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" MinWidth="180"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="CPU architecture condition" Style="{StaticResource WbLabel}"/>
+                        <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtSiteArchGc" FontSize="11" Height="24" Margin="0,0,0,6"
+                                   ToolTip="Site global condition name for the WQL query on Win32_Processor.Architecture (9 = x64, 12 = ARM64)"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="OS language condition" Style="{StaticResource WbLabel}"/>
+                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtSiteLangGc" FontSize="11" Height="24" Margin="0,0,0,6"
+                                   ToolTip="Name of the built-in Operating System Language site condition. Must already exist on the site."/>
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="VPN condition" Style="{StaticResource WbLabel}"/>
+                        <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtSiteVpnGc" FontSize="11" Height="24" Margin="0,0,0,6"
+                                   ToolTip="Site global condition name for the script that reports whether a VPN adapter is active"/>
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="VPN adapter patterns" Style="{StaticResource WbLabel}"/>
+                        <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtSiteVpnPatterns" FontSize="11" Height="24"
+                                   ToolTip="Comma-separated adapter description substrings that identify a VPN client. Applied when the condition is next created; an existing site condition keeps its script."/>
+                    </Grid>
                 </Grid>
 
                 <!-- ================= Timing and execution ================= -->
