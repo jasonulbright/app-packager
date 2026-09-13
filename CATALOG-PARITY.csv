@@ -99,7 +99,7 @@
 "BrowserStackLocal","Skip-Agent","account-keyed tunnel binary"
 "Bulk Crap Uninstaller","Added-1.4.0.16","free direct download, enterprise-relevant; port target [ported, stage-verified 2026-08-31]"
 "Bullzip PDF to Word","Skip-Licensed","licensed PDF tools; free PDF stack covered elsewhere"
-"BurnAware Free","Added-1.4.0.16","free direct download, enterprise-relevant; port target [ported, stage-verified 2026-08-31]"
+"BurnAware Free","Removed-1.6.0.0","installer downloads and installs third-party software during a silent install with no opt-out"
 "Burp Suite Community Edition","Skip-Wall","PortSwigger gated anonymous downloads as of 2026.4 (2026.4-2026.8 return HTML redirect to portswigger.net; 2026.3 and older still stream) - verified 2026-08-31"
 "Burp Suite Professional Edition","Skip-Licensed","licensed security tooling"
 "Business Tax Software BLR","Skip-Niche","vertical/regional line-of-business software"

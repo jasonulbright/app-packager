@@ -321,7 +321,6 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-boxdrive.ps1 | Box | Box Drive | RegistryKeyValue |
 | package-brave.ps1 | Brave Software | Brave Browser | File version |
 | package-bulkrenameutility.ps1 | TGRMN Software | Bulk Rename Utility | Script |
-| package-burnaware.ps1 | Burnaware | BurnAware Free | RegistryKeyValue |
 | package-calibre.ps1 | Kovid Goyal | calibre | RegistryKeyValue |
 | package-calibrite.ps1 | Calibrite | Calibrite PROFILER | File version |
 | package-ccleaner.ps1 | Piriform Software Ltd. | CCleaner | RegistryKeyValue |
