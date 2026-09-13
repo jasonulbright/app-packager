@@ -214,7 +214,7 @@ function Invoke-StageHashTools {
         -InstallerFileName $installerFileName `
         -InstallArgs ("'/VERYSILENT', '/NORESTART', '/SUPPRESSMSGBOXES', '/SP-', '/DIR=`"{0}`"'" -f $InstallPath) `
         -UninstallCommand ("{0}\unins000.exe" -f $InstallPath) `
-        -UninstallArgs "'/VERYSILENT', '/NORESTART', '/SUPPRESSMSGBOXES'"
+        -UninstallArgs "'/VERYSILENT', '/NORESTART', '/SUPPRESSMSGBOXES'" -PostInstallKillProcesses @('HashTools')
 
     Write-ContentWrappers -OutputPath $localContentPath `
         -InstallPs1Content $wrapperContent.Install `
