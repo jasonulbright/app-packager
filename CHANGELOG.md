@@ -13,7 +13,7 @@
 
 ### Removed
 
-- BurnAware Free: its installer adds third-party software with no opt-out.
+- BurnAware Free.
 
 ## [1.5.2.2] - 2026-09-09
 
