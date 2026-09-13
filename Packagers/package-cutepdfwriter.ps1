@@ -25,10 +25,10 @@ UpdateCadenceDays: 180
     serves the current build, so the version is read from the downloaded EXE's
     version resource. GetLatestVersionOnly therefore downloads the installer.
 
-    The Inno Setup uninstaller is registered under a fixed ARP key rather than
-    a ProductCode, and the staged installer accepts /uninstall, so the uninstall
-    wrapper re-runs the staged EXE instead of calling unins000.exe from a path
-    that varies by build.
+    Setup registers its own uninstaller (unInstcpw64.exe) under a fixed ARP key
+    rather than a ProductCode; that uninstaller removes silently with
+    /uninstall /s. The installer's own /uninstall switch exits 1 without
+    removing anything.
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -129,13 +129,10 @@ function Get-CutePdfWriterExeVersion {
 
 
 function Get-CutePdfWriterUninstallContent {
-    param([Parameter(Mandatory)][string]$InstallerFileName)
-
-    $escaped = $InstallerFileName -replace "'", "''"
     return (
-        ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $escaped),
-        'if (-not (Test-Path -LiteralPath $exePath)) { exit 1 }',
-        '$proc = Start-Process -FilePath $exePath -ArgumentList @(''/uninstall'', ''/SP-'', ''/VERYSILENT'', ''/SUPPRESSMSGBOXES'', ''/NORESTART'') -Wait -PassThru -NoNewWindow',
+        '$uninstaller = Join-Path ${env:ProgramFiles(x86)} ''CutePDF Writer\unInstcpw64.exe''',
+        'if (-not (Test-Path -LiteralPath $uninstaller)) { exit 0 }',
+        '$proc = Start-Process -FilePath $uninstaller -ArgumentList @(''/uninstall'', ''/s'') -Wait -PassThru -NoNewWindow',
         'exit $proc.ExitCode'
     ) -join "`r`n"
 }
@@ -191,7 +188,7 @@ function Invoke-StageCutePdfWriter {
 
     Write-ContentWrappers -OutputPath $localContentPath `
         -InstallPs1Content $wrapperContent.Install `
-        -UninstallPs1Content (Get-CutePdfWriterUninstallContent -InstallerFileName $installerFileName)
+        -UninstallPs1Content (Get-CutePdfWriterUninstallContent)
 
     # --- Write stage manifest ---
     Write-Log "Detection key                : HKLM\$DetectionRegistryKey"
@@ -206,7 +203,8 @@ function Invoke-StageCutePdfWriter {
         InstallerFile   = $installerFileName
         InstallerType   = "EXE"
         InstallArgs     = "/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
-        UninstallArgs   = "/uninstall /SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
+        UninstallCommand = "%ProgramFiles(x86)%\CutePDF Writer\unInstcpw64.exe"
+        UninstallArgs   = "/uninstall /s"
         RunningProcess  = @()
         Detection       = @{
             Type                = "RegistryKeyValue"

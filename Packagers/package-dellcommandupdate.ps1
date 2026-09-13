@@ -265,17 +265,21 @@ function Invoke-StageDellCommandUpdate {
     }
 
     # --- Generate content wrappers ---
-    # The Dell installer is its own uninstaller: /s installs silently, /x removes.
-    # Uninstall therefore runs the copy in the content folder, not an installed path.
+    # The Dell installer is its own uninstaller: /s installs silently; removal
+    # needs /passthrough /x /s /v"/qn" (plain /x /s exits 10, invalid command
+    # line). Uninstall therefore runs the copy in the content folder, not an
+    # installed path. The package framework returns 2 for reboot required.
     $installPs1 = (
         ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $installerFileName),
         '$proc = Start-Process -FilePath $exePath -ArgumentList @(''/s'') -Wait -PassThru -NoNewWindow',
+        'if ($proc.ExitCode -eq 2) { exit 3010 }',
         'exit $proc.ExitCode'
     ) -join "`r`n"
 
     $uninstallPs1 = (
         ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $installerFileName),
-        '$proc = Start-Process -FilePath $exePath -ArgumentList @(''/x'', ''/s'') -Wait -PassThru -NoNewWindow',
+        '$proc = Start-Process -FilePath $exePath -ArgumentList @(''/passthrough'', ''/x'', ''/s'', ''/v"/qn"'') -Wait -PassThru -NoNewWindow',
+        'if ($proc.ExitCode -eq 2) { exit 3010 }',
         'exit $proc.ExitCode'
     ) -join "`r`n"
 
@@ -297,7 +301,7 @@ function Invoke-StageDellCommandUpdate {
         InstallerType    = "EXE"
         InstallArgs      = "/s"
         UninstallCommand = ".\$installerFileName"
-        UninstallArgs    = "/x /s"
+        UninstallArgs    = '/passthrough /x /s /v"/qn"'
         RunningProcess   = @("DellCommandUpdate", "dcu-cli")
         Detection        = @{
             Type          = "File"

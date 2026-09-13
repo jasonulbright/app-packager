@@ -217,9 +217,11 @@ function Invoke-StageWindowsAdminCenter {
 
     Write-Log "Install arguments            : $($installArgList -join ' ')"
 
+    # Setup starts the tray launcher as its last step even when silent; the
+    # launcher never exits, so a wrapper waiting on descendants never returns.
     $wrappers = New-ExeWrapperContent -InstallerFileName $InstallerFileName `
         -InstallArgs $installArgs `
-        -UninstallCommand 'unused'
+        -UninstallCommand 'unused' -PostInstallKillProcesses @('WindowsAdminCenterLauncher')
 
     # Setup names its uninstaller unins###.exe by install order, so the ARP
     # UninstallString is the only value that names the right one; the fixed
