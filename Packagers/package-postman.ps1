@@ -136,7 +136,11 @@ function New-PostmanInstallWrapper {
 }
 
 function New-PostmanUninstallWrapper {
+    # Squirrel removes the ARP entry and reports success while the app is
+    # running, leaving the app-<version> folder and the process in place.
     return (
+        'Get-Process Postman -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue',
+        'Start-Sleep -Seconds 2',
         '$updateExe = Join-Path $env:LOCALAPPDATA ''Postman\Update.exe''',
         'if (-not (Test-Path -LiteralPath $updateExe)) { exit 0 }',
         '$proc = Start-Process -FilePath $updateExe -ArgumentList @(''--uninstall'', ''-s'') -Wait -PassThru -NoNewWindow',

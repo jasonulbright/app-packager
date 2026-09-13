@@ -211,7 +211,7 @@ function Invoke-StageRainmeter {
     $wrapperContent = New-ExeWrapperContent `
         -InstallerFileName $installerFileName `
         -InstallArgs "'/S', '/VERSION=64', '/AUTOSTARTUP=0', '/RESTART=0'" `
-        -UninstallCommand "$InstallPath\uninstall.exe" `
+        -UninstallCommand "$InstallPath\uninst.exe" `
         -UninstallArgs "'/S'"
 
     # The skin host runs from the tray and holds its own files; the uninstaller
@@ -220,7 +220,7 @@ function Invoke-StageRainmeter {
     $customUninstall = (
         'Get-Process Rainmeter -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue',
         'Start-Sleep -Seconds 2',
-        ('$uninstaller = ''{0}\uninstall.exe''' -f $InstallPath),
+        ('$uninstaller = ''{0}\uninst.exe''' -f $InstallPath),
         'if (-not (Test-Path -LiteralPath $uninstaller)) { exit 0 }',
         '$proc = Start-Process -FilePath $uninstaller -ArgumentList @(''/S'') -Wait -PassThru -NoNewWindow',
         'exit $proc.ExitCode'

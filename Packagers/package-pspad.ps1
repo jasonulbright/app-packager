@@ -210,16 +210,17 @@ function Invoke-StagePSPad {
     $wrapperContent = New-ExeWrapperContent `
         -InstallerFileName $installerFileName `
         -InstallArgs ("'/VERYSILENT', '/NORESTART', '/SUPPRESSMSGBOXES', '/SP-', '/DIR=`"{0}`"'" -f $InstallPath) `
-        -UninstallCommand "$InstallPath\unins000.exe" `
+        -UninstallCommand "$InstallPath\Uninst\unins000.exe" `
         -UninstallArgs "'/SP-', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'"
 
-    # The editor holds its own files open; the InnoSetup uninstaller aborts
+    # Setup writes its uninstaller under Uninst, not the install root. The
+    # editor holds its own files open; the InnoSetup uninstaller aborts
     # while the process is running. Absent uninstaller means the product is not
     # present, so removal exits clean.
     $customUninstall = (
         'Get-Process PSPad -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue',
         'Start-Sleep -Seconds 2',
-        ('$uninstaller = ''{0}\unins000.exe''' -f $InstallPath),
+        ('$uninstaller = ''{0}\Uninst\unins000.exe''' -f $InstallPath),
         'if (-not (Test-Path -LiteralPath $uninstaller)) { exit 0 }',
         '$proc = Start-Process -FilePath $uninstaller -ArgumentList @(''/SP-'', ''/VERYSILENT'', ''/SUPPRESSMSGBOXES'', ''/NORESTART'') -Wait -PassThru -NoNewWindow',
         'exit $proc.ExitCode'
