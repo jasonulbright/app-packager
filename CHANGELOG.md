@@ -6,6 +6,7 @@
 
 - Application Workbench for fine-tuning packagers.
 - Script signing.
+- Previously gitignored and private test suite.
 
 ### Fixed
 
@@ -13,7 +14,7 @@
 
 ### Removed
 
-- BurnAware Free.
+- BurnAware Free
 
 ## [1.5.2.2] - 2026-09-09
 
