@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.6.0.1
+    Version    : 1.6.0.2
     Updated    : 2026-09-09
 #>
 
@@ -2418,6 +2418,32 @@ function Get-IconPackRoot {
 function Get-IconPackManifestPath {
     param([string]$AppRoot = $PSScriptRoot)
     Join-Path (Get-IconPackRoot -AppRoot $AppRoot) 'manifest.json'
+}
+
+function Get-WorkbenchInheritedIconPath {
+    # Mirrors what Stage publishes: the newest build's staged app-icon first,
+    # then the icon pack entry named for the packager.
+    param(
+        [string]$ScriptPath,
+        [string]$DownloadRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ScriptPath)) { return '' }
+    if ((Get-PackagerIconSource -ScriptPath $ScriptPath) -eq 'None') { return '' }
+
+    $manifest = Find-NewestStageManifestForPackager -PackagerPath $ScriptPath -DownloadRoot $DownloadRoot
+    if ($manifest) {
+        $staged = @(Get-ChildItem -LiteralPath (Split-Path -Parent $manifest) -Filter 'app-icon.*' -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -match '^\.(ico|png)$' } | Select-Object -First 1)
+        if ($staged.Count -gt 0) { return $staged[0].FullName }
+    }
+
+    $base = [System.IO.Path]::GetFileNameWithoutExtension($ScriptPath) -replace '^package-', ''
+    $pack = @(Get-ChildItem -LiteralPath (Get-IconPackRoot) -Filter "$base.*" -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.BaseName -eq $base -and $_.Extension -match '^\.(png|ico)$' } |
+        Sort-Object Extension -Descending | Select-Object -First 1)
+    if ($pack.Count -gt 0) { return $pack[0].FullName }
+    return ''
 }
 
 function Read-IconPackManifest {
@@ -8756,22 +8782,27 @@ function Show-ApplicationWorkbench {
             $iconPresent = Test-WorkbenchOverridePresent -Profile $wb.Profile -Path 'Application.Icon'
             if ($iconPresent) { $iconAsset = Get-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Application.Icon' }
             $imgIcon.Source = $null
-            if (-not $iconPresent) { $txtIconState.Text = 'Inherited from the packager (icon extraction or icon pack).' }
+            $previewPath = ''
+            if (-not $iconPresent) {
+                $downloadRoot = ''
+                try { $downloadRoot = [string]$script:Prefs.DownloadRoot } catch { }
+                $previewPath = Get-WorkbenchInheritedIconPath -ScriptPath ([string]$wb.Application.ScriptPath) -DownloadRoot $downloadRoot
+                $txtIconState.Text = $(if ($previewPath) { 'Inherited from the packager: ' + $previewPath } else { 'Inherited from the packager. No staged icon or icon pack entry was found.' })
+            }
             elseif ($null -eq $iconAsset) { $txtIconState.Text = 'Removed: this profile publishes no icon.' }
             else {
-                $iconPath = ''
-                if ($iconAsset -is [System.Collections.IDictionary]) { $iconPath = [string]$iconAsset['Path'] }
-                $txtIconState.Text = 'Custom icon: ' + $iconPath
-                if ($iconPath -and (Test-Path -LiteralPath $iconPath)) {
-                    try {
-                        $bmp = New-Object System.Windows.Media.Imaging.BitmapImage
-                        $bmp.BeginInit()
-                        $bmp.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
-                        $bmp.UriSource = New-Object System.Uri($iconPath)
-                        $bmp.EndInit()
-                        $imgIcon.Source = $bmp
-                    } catch { }
-                }
+                if ($iconAsset -is [System.Collections.IDictionary]) { $previewPath = [string]$iconAsset['Path'] }
+                $txtIconState.Text = 'Custom icon: ' + $previewPath
+            }
+            if ($previewPath -and (Test-Path -LiteralPath $previewPath)) {
+                try {
+                    $bmp = New-Object System.Windows.Media.Imaging.BitmapImage
+                    $bmp.BeginInit()
+                    $bmp.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+                    $bmp.UriSource = New-Object System.Uri($previewPath)
+                    $bmp.EndInit()
+                    $imgIcon.Source = $bmp
+                } catch { }
             }
             $txtAppNote.Text = 'The displayed title is separate from the stable identity: renaming a profile never renames an existing site application, and the output folder keeps the packager name.'
 
@@ -9586,7 +9617,7 @@ function New-ScriptSigningPanel {
       xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
       VerticalScrollBarVisibility="Auto">
     <StackPanel>
-        <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,12"
+        <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,12"
                    Text="Authenticode signing for the scripts AppPackager generates. Signing a detection script does not sign install wrappers, and signing deployment scripts does not sign requirement scripts. A local signature check does not prove the certificate is trusted on your clients."/>
 
         <TextBlock Text="Sign" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
@@ -9601,7 +9632,7 @@ function New-ScriptSigningPanel {
                   ToolTip="Signs the deployment execution chain and removes the execution-policy argument from its generated launchers, letting the configured endpoint policy govern. A vendor script that already carries an intact signature is left alone; an unsigned one is signed with this certificate."/>
 
         <TextBlock Text="Require valid signatures" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
-        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,6"
+        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,6"
                    Text="A publishing constraint, not a change to client execution policy. When a required category fails verification the build stops; there is no unsigned fallback."/>
         <CheckBox x:Name="chkRequireDetection" FontSize="12" Margin="0,0,0,4"
                   Content="Require valid detection signatures" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
@@ -9626,20 +9657,20 @@ function New-ScriptSigningPanel {
             </Grid.RowDefinitions>
 
             <TextBlock Grid.Row="0" Grid.Column="0" Text="Certificate store" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
-            <ComboBox  Grid.Row="0" Grid.Column="1" x:Name="cboSignStore" FontSize="12" Height="26" Margin="0,0,0,6"
+            <ComboBox  Grid.Row="0" Grid.Column="1" x:Name="cboSignStore" FontSize="12" Height="28" Margin="0,0,0,6"
                        ToolTip="CurrentUser\My is the supported identity. LocalMachine\My needs an explicit choice and tested private-key access."/>
 
             <TextBlock Grid.Row="1" Grid.Column="0" Text="Certificate" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
-            <ComboBox  Grid.Row="1" Grid.Column="1" x:Name="cboSignCertificate" FontSize="12" Height="26" Margin="0,0,0,6"
+            <ComboBox  Grid.Row="1" Grid.Column="1" x:Name="cboSignCertificate" FontSize="12" Height="28" Margin="0,0,0,6"
                        ToolTip="Selected by thumbprint. A renewed certificate is a new thumbprint and needs reselecting here."/>
-            <Button    Grid.Row="1" Grid.Column="2" x:Name="btnSignRefresh" Content="Refresh" MinWidth="80" Height="26" Margin="8,0,0,6"
+            <Button    Grid.Row="1" Grid.Column="2" x:Name="btnSignRefresh" Content="Refresh" MinWidth="100" Height="28" Margin="8,0,0,6"
                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
             <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" x:Name="txtSignCertDetail" FontSize="11" TextWrapping="Wrap"
-                       Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,8"/>
+                       Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,8"/>
 
             <TextBlock Grid.Row="3" Grid.Column="0" Text="Timestamp server" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
-            <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtSignTimestamp" FontSize="12" Height="26" Margin="0,0,0,6"
+            <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtSignTimestamp" FontSize="12" Height="28" VerticalContentAlignment="Center" Margin="0,0,0,6"
                        Controls:TextBoxHelper.Watermark="none"
                        ToolTip="A timestamped signature stays valid after the certificate expires. A signature that exists is not the same as a verified timestamp."/>
             <CheckBox  Grid.Row="4" Grid.Column="1" x:Name="chkSignTimestampRequired" FontSize="12" Margin="0,0,0,6"
@@ -9648,13 +9679,13 @@ function New-ScriptSigningPanel {
         </Grid>
 
         <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
-            <Button x:Name="btnSignTest" Content="Test signing configuration" MinWidth="200" Height="30" Margin="0,0,10,0"
+            <Button x:Name="btnSignTest" Content="Test signing configuration" MinWidth="200" Height="28" Margin="0,0,10,0"
                     Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                     ToolTip="Signs and verifies a temporary file with the selected certificate. Nothing is published."/>
         </StackPanel>
         <TextBlock x:Name="txtSignTestResult" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
 
-        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
+        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MahApps.Brushes.Gray1}"
                    Text="Private keys are never exported and never reach profiles, manifests, logs or command lines. A key held on a hardware token may require a PIN and can prevent unattended runs."/>
     </StackPanel>
 </ScrollViewer>
