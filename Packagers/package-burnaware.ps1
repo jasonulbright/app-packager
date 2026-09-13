@@ -219,7 +219,7 @@ function Invoke-StageBurnAware {
     # --- Generate content wrappers ---
     $wrappers = New-ExeWrapperContent -InstallerFileName $installerFileName `
         -InstallArgs "'/VERYSILENT', '/NORESTART', '/SUPPRESSMSGBOXES'" `
-        -UninstallCommand 'unused'
+        -UninstallCommand 'unused' -PostInstallKillProcesses @('BurnAware')
 
     # Inno Setup names the uninstaller unins###.exe by install order, so the
     # ARP UninstallString is the only value that names the right one.

@@ -271,6 +271,25 @@ Describe 'New-ExeWrapperContent' {
             $null = [scriptblock]::Create($result.Uninstall)
         }
     }
+
+    Context 'processes the installer launches on success' {
+        It 'waits for the installer alone and closes the launched processes' {
+            $result = New-ExeWrapperContent -InstallerFileName 'setup.exe' -InstallArgs "'/S'" `
+                -UninstallCommand 'C:\Program Files\Acme\uninstall.exe' -PostInstallKillProcesses @('Acme', 'AcmeTray')
+            $result.Install | Should -Match '\$proc\.WaitForExit\(\)'
+            $result.Install | Should -Not -Match '-Wait'
+            $result.Install | Should -Match "@\('Acme', 'AcmeTray'\)"
+            $result.Install | Should -Match 'Stop-Process -Force'
+            $result.Install | Should -Match 'exit \$exit'
+            $null = [scriptblock]::Create($result.Install)
+        }
+
+        It 'keeps the descendant-aware wait when no process is named' {
+            $result = New-ExeWrapperContent -InstallerFileName 'setup.exe' -InstallArgs "'/S'" -UninstallCommand 'x.exe'
+            $result.Install | Should -Match '-Wait -PassThru'
+            $result.Install | Should -Not -Match 'Stop-Process'
+        }
+    }
 }
 
 # ============================================================================

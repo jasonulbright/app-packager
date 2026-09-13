@@ -2460,12 +2460,19 @@ function New-ExeWrapperContent {
         For products where uninstall uses a different command (e.g. registry
         lookup, msiexec), the caller should build uninstall content directly
         and pass it to Write-ContentWrappers.
+
+        -PostInstallKillProcesses: process names (no .exe) the installer
+        launches on success. Start-Process -Wait also waits for those
+        descendants, so the wrapper then waits for the installer alone and
+        closes the launched instances, which a system-context install would
+        otherwise leave running where no user can see them.
     #>
     param(
         [Parameter(Mandatory)][string]$InstallerFileName,
         [Parameter(Mandatory)][string]$InstallArgs,
         [Parameter(Mandatory)][string]$UninstallCommand,
-        [string]$UninstallArgs = ''
+        [string]$UninstallArgs = '',
+        [string[]]$PostInstallKillProcesses = @()
     )
 
     # Filename and uninstall path land inside single-quoted literals in the
@@ -2475,11 +2482,25 @@ function New-ExeWrapperContent {
     $InstallerFileName = $InstallerFileName -replace "'", "''"
     $UninstallCommand  = $UninstallCommand -replace "'", "''"
 
-    $install = (
-        ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $InstallerFileName),
-        ('$proc = Start-Process -FilePath $exePath -ArgumentList @({0}) -Wait -PassThru -NoNewWindow' -f $InstallArgs),
-        'exit $proc.ExitCode'
-    ) -join "`r`n"
+    if ($PostInstallKillProcesses.Count -gt 0) {
+        $procList = ($PostInstallKillProcesses | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ', '
+        $install = (
+            ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $InstallerFileName),
+            ('$proc = Start-Process -FilePath $exePath -ArgumentList @({0}) -PassThru -NoNewWindow' -f $InstallArgs),
+            '$proc.WaitForExit()',
+            '$exit = $proc.ExitCode',
+            'Start-Sleep -Seconds 3',
+            ('foreach ($pn in @({0})) {{ Get-Process -Name $pn -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }}' -f $procList),
+            'exit $exit'
+        ) -join "`r`n"
+    }
+    else {
+        $install = (
+            ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $InstallerFileName),
+            ('$proc = Start-Process -FilePath $exePath -ArgumentList @({0}) -Wait -PassThru -NoNewWindow' -f $InstallArgs),
+            'exit $proc.ExitCode'
+        ) -join "`r`n"
+    }
 
     # The uninstall path may carry %VAR% segments (a per-user uninstaller
     # under %LOCALAPPDATA%); a single-quoted literal would hand them to
