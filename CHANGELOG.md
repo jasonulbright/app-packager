@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.6.0.1] - 2026-09-13
+
+### Changed
+
+Deployment conditions moved to Application Workbench
+
+### Removed
+Deployment Conditions options panel
+
 ## [1.6.0.0] - 2026-09-12
 
 ### Added
