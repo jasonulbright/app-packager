@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.6.0.0
+    Version    : 1.6.0.1
     Updated    : 2026-09-09
 #>
 
@@ -5245,211 +5245,6 @@ function Show-ExistingConflictDialog {
     return @{ Choice = [string]$script:ConflictDialogChoice; ApplyToAll = [bool]$chkAll.IsChecked }
 }
 
-function New-DeploymentConditionsPanel {
-    $xaml = @'
-<DockPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-           xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-           xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro">
-    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" FontSize="12"
-               Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,10"
-               Text="Per-app requirement rules attached to the deployment type at Package time. The client evaluates them at install time, so no collections are involved. Site conditions are created in MECM on first use; change a name below to attach to a condition your site already has."/>
-    <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="1" Padding="10,8,10,8" Margin="0,0,0,10">
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="CPU architecture condition:" VerticalAlignment="Center" FontSize="12" Margin="0,0,10,6"/>
-            <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtArchGc" FontSize="12" Margin="0,0,0,6"
-                       ToolTip="Site global condition name for the WQL query on Win32_Processor.Architecture (9 = x64, 12 = ARM64)"/>
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="OS language condition:" VerticalAlignment="Center" FontSize="12" Margin="0,0,10,6"/>
-            <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtLangGc" FontSize="12" Margin="0,0,0,6"
-                       ToolTip="Name of the built-in Operating System Language site condition. Must already exist on the site."/>
-            <TextBlock Grid.Row="2" Grid.Column="0" Text="VPN condition:" VerticalAlignment="Center" FontSize="12" Margin="0,0,10,6"/>
-            <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtVpnGc" FontSize="12" Margin="0,0,0,6"
-                       ToolTip="Site global condition name for the script that reports whether a VPN adapter is active"/>
-            <TextBlock Grid.Row="3" Grid.Column="0" Text="VPN adapter patterns:" VerticalAlignment="Center" FontSize="12" Margin="0,0,10,0"/>
-            <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtVpnPatterns" FontSize="12"
-                       ToolTip="Comma-separated adapter description substrings that identify a VPN client. The script also matches interface aliases containing 'vpn'. Changes apply when the condition is next created; an existing site condition keeps its script."/>
-        </Grid>
-    </Border>
-    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" FontSize="11"
-               Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,8"
-               Text="Per-application rules moved to the Application Workbench. These rows show what the legacy preferences still hold; select one and open it in the workbench to change it. The condition names and VPN patterns above stay here because they belong to the site, not to one application."/>
-    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
-        <Button x:Name="btnOpenWorkbench" Content="Open in Workbench" MinWidth="170" Height="30"
-                Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                ToolTip="Opens the selected application in the Application Workbench."/>
-    </StackPanel>
-    <DataGrid x:Name="dgCondApps" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
-              IsReadOnly="True" GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0"
-              BorderThickness="1" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}"
-              IsTextSearchEnabled="True" TextSearch.TextPath="Application">
-        <DataGrid.Columns>
-            <DataGridTextColumn Header="Application" Width="*" MinWidth="130" Binding="{Binding Application}"/>
-            <DataGridTextColumn Header="Vendor" Width="110" Binding="{Binding Vendor}"/>
-            <DataGridTextColumn Header="Arch" Width="92" Binding="{Binding ArchitectureDisplay}"/>
-            <DataGridTextColumn Header="OS languages" Width="126" Binding="{Binding LanguagesDisplay}"/>
-            <DataGridTextColumn Header="Network" Width="104" Binding="{Binding NetworkDisplay}"/>
-            <DataGridTextColumn Header="Commands" Width="100" Binding="{Binding CommandLabel}"/>
-            <DataGridTextColumn Header="Variant split" Width="108" Binding="{Binding SplitDisplay}"/>
-            <DataGridTextColumn Header="Application title" Width="138" Binding="{Binding TitleModeDisplay}"/>
-            <DataGridTextColumn Header="Install for" Width="96" Binding="{Binding InstallModeDisplay}"/>
-        </DataGrid.Columns>
-    </DataGrid></DockPanel>
-'@
-
-    [xml]$xml = $xaml
-    $reader = New-Object System.Xml.XmlNodeReader $xml
-    $element = [System.Windows.Markup.XamlReader]::Load($reader)
-
-    $txtArchGc      = $element.FindName('txtArchGc')
-    $txtLangGc      = $element.FindName('txtLangGc')
-    $txtVpnGc       = $element.FindName('txtVpnGc')
-    $txtVpnPatterns = $element.FindName('txtVpnPatterns')
-    $dgCondApps     = $element.FindName('dgCondApps')
-
-    $archOptions = [string[]]@('Any', 'x64 only', 'ARM64 only')
-    $networkOptions = [string[]]@('Any', 'VPN only', 'On-site only')
-    $modeToDisplay = @{ 'AllUsers' = 'System'; 'CurrentUser' = 'User' }
-
-    $condDoc = Get-ConditionTemplates
-    $archTemplate = @($condDoc.Conditions | Where-Object { [string]$_.Id -eq 'cpu-arch' })
-    $langTemplate = @($condDoc.Conditions | Where-Object { [string]$_.Id -eq 'os-language' })
-    $vpnTemplate  = @($condDoc.Conditions | Where-Object { [string]$_.Id -eq 'vpn-connected' })
-    $archTemplate = if ($archTemplate.Count -gt 0) { $archTemplate[0] } else { $null }
-    $langTemplate = if ($langTemplate.Count -gt 0) { $langTemplate[0] } else { $null }
-    $vpnTemplate  = if ($vpnTemplate.Count  -gt 0) { $vpnTemplate[0]  } else { $null }
-
-    if ($archTemplate) { $txtArchGc.Text = [string]$archTemplate.GlobalConditionName } else { $txtArchGc.IsEnabled = $false }
-    if ($langTemplate) { $txtLangGc.Text = [string]$langTemplate.GlobalConditionName } else { $txtLangGc.IsEnabled = $false }
-    if ($vpnTemplate) {
-        $txtVpnGc.Text       = [string]$vpnTemplate.GlobalConditionName
-        $txtVpnPatterns.Text = (@($vpnTemplate.AdapterPatterns) -join ', ')
-    }
-    else {
-        $txtVpnGc.IsEnabled       = $false
-        $txtVpnPatterns.IsEnabled = $false
-    }
-
-    $archToDisplay = @{ 'Any' = 'Any'; 'x64' = 'x64 only'; 'ARM64' = 'ARM64 only' }
-    $networkToDisplay = @{ 'Any' = 'Any'; 'VpnOnly' = 'VPN only'; 'OnSiteOnly' = 'On-site only' }
-
-    $currentApps = $script:Prefs.DeploymentConditions.Apps
-    $currentCommands = $script:Prefs.CommandOverrides.Apps
-    $rows = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
-    $packagers = Get-Packagers -Root $PackagersRoot | Sort-Object Vendor, Application
-    foreach ($p in $packagers) {
-        $base = [System.IO.Path]::GetFileNameWithoutExtension($p.Script)
-        $arch = 'Any'
-        $network = 'Any'
-        $langsText = ''
-        $entryProp = $null
-        if ($currentApps) { $entryProp = $currentApps.PSObject.Properties[$base] }
-        $split = 'None'
-        $installMode = ''
-        $titleMode = 'Packager default'
-        if ($entryProp) {
-            $entry = $entryProp.Value
-            if ([string]$entry.Architecture -in @('x64', 'ARM64')) { $arch = [string]$entry.Architecture }
-            if ([string]$entry.Network -in @('VpnOnly', 'OnSiteOnly')) { $network = [string]$entry.Network }
-            if ($entry.Languages) { $langsText = (@($entry.Languages) -join ', ') }
-            if ($entry.PSObject.Properties['Split'] -and [string]$entry.Split -in @($p.SupportsVariants)) { $split = [string]$entry.Split }
-            if ($entry.PSObject.Properties['InstallMode'] -and [string]$entry.InstallMode -in @($p.SupportsInstallModes)) { $installMode = [string]$entry.InstallMode }
-            if ([string]$entry.TitleMode -eq 'IncludeVersion') { $titleMode = 'Include version' }
-            elseif ([string]$entry.TitleMode -eq 'NoVersion') { $titleMode = 'No version' }
-        }
-        $modeOptions = @('Default')
-        if (@($p.SupportsInstallModes) -contains 'AllUsers')    { $modeOptions += 'System' }
-        if (@($p.SupportsInstallModes) -contains 'CurrentUser') { $modeOptions += 'User' }
-        $cmdInstall = ''
-        $cmdUninstall = ''
-        if ($currentCommands) {
-            $cmdProp = $currentCommands.PSObject.Properties[$base]
-            if ($cmdProp) {
-                $cmdInstall = ([string]$cmdProp.Value.Install).Trim()
-                $cmdUninstall = ([string]$cmdProp.Value.Uninstall).Trim()
-            }
-        }
-        $variantOptions = @('None') + @($p.SupportsVariants)
-        $rows.Add([pscustomobject]@{
-            Packager            = $base
-            Application         = $p.Application
-            Vendor              = $p.Vendor
-            ArchOptions         = $archOptions
-            ArchitectureDisplay = $archToDisplay[$arch]
-            LanguagesDisplay    = $langsText
-            NetworkOptions      = $networkOptions
-            NetworkDisplay      = $networkToDisplay[$network]
-            VariantOptions      = [string[]]$variantOptions
-            VariantCapable      = (@($p.SupportsVariants).Count -gt 0)
-            SplitDisplay        = $split
-            InstallModeOptions  = [string[]]$modeOptions
-            InstallModeCapable  = (@($p.SupportsInstallModes).Count -gt 0)
-            InstallModeDisplay  = $(if ($installMode) { $modeToDisplay[$installMode] } else { 'Default' })
-            TitleOptions        = [string[]]@('Packager default', 'Include version', 'No version')
-            TitleModeDisplay    = $titleMode
-            CmdInstall          = $cmdInstall
-            CmdUninstall        = $cmdUninstall
-            CommandLabel        = $(if ($cmdInstall -or $cmdUninstall) { 'Modified' } else { 'Default' })
-        })
-    }
-    $dgCondApps.ItemsSource = $rows
-
-    $btnOpenWorkbench = $element.FindName('btnOpenWorkbench')
-    $btnOpenWorkbench.Add_Click({
-        $row = $dgCondApps.SelectedItem
-        $base = $(if ($row) { [string]$row.Packager } else { '' })
-        Show-ApplicationWorkbench -Owner ([System.Windows.Window]::GetWindow($dgCondApps)) -PreselectPackagerBase $base
-    }.GetNewClosure())
-
-    $condState = @{
-        Doc   = $condDoc
-        Dirty = $false
-        InitialArchGc   = $txtArchGc.Text
-        InitialLangGc   = $txtLangGc.Text
-        InitialVpnGc    = $txtVpnGc.Text
-        InitialPatterns = $txtVpnPatterns.Text
-    }
-
-    $commit = {
-        # The per-app maps are read-only here; the workbench profile is the
-        # single writer. Only the site-level condition templates commit.
-        if ($archTemplate -and -not [string]::IsNullOrWhiteSpace($txtArchGc.Text)) {
-            $archTemplate.GlobalConditionName = $txtArchGc.Text.Trim()
-        }
-        if ($langTemplate -and -not [string]::IsNullOrWhiteSpace($txtLangGc.Text)) {
-            $langTemplate.GlobalConditionName = $txtLangGc.Text.Trim()
-        }
-        if ($vpnTemplate) {
-            if (-not [string]::IsNullOrWhiteSpace($txtVpnGc.Text)) {
-                $vpnTemplate.GlobalConditionName = $txtVpnGc.Text.Trim()
-            }
-            $patterns = @([string]$txtVpnPatterns.Text -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-            if ($patterns.Count -gt 0) { $vpnTemplate.AdapterPatterns = $patterns }
-        }
-        if ($txtArchGc.Text -ne $condState.InitialArchGc -or
-            $txtLangGc.Text -ne $condState.InitialLangGc -or
-            $txtVpnGc.Text -ne $condState.InitialVpnGc -or
-            $txtVpnPatterns.Text -ne $condState.InitialPatterns) {
-            $condState.Dirty = $true
-        }
-    }.GetNewClosure()
-
-    return @{
-        Name           = 'Deployment Conditions'
-        Element        = $element
-        Commit         = $commit
-        ConditionState = $condState
-    }
-}
-
 function New-AboutPanel {
     $xaml = @'
 <ScrollViewer xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -5628,7 +5423,6 @@ function Show-OptionsDialog {
         (New-PackagerPreferencesPanel),
         (New-AppFlowPanel),
         (New-ProductFilterPanel),
-        (New-DeploymentConditionsPanel),
         (New-ScriptSigningPanel),
         (New-AboutPanel)
     )
@@ -5659,9 +5453,6 @@ function Show-OptionsDialog {
             foreach ($p in $panels) {
                 if ($p.CwaSwitches) { Save-CwaSwitches -Switches $p.CwaSwitches }
                 if ($p.TvConfig)    { Save-TvHostConfig -Config $p.TvConfig }
-                if ($p.ConditionState -and $p.ConditionState.Dirty) {
-                    [void](Save-ConditionTemplates -Templates $p.ConditionState.Doc)
-                }
             }
             Invoke-RefreshGrid
             Update-SidebarForDeploymentTarget
@@ -6761,8 +6552,8 @@ function Show-DropIntakeDialog {
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
     Title="Installer Drop"
-    Width="620" Height="560"
-    MinWidth="560" MinHeight="480"
+    Width="720" Height="560"
+    MinWidth="660" MinHeight="480"
     WindowStartupLocation="CenterOwner"
     TitleCharacterCasing="Normal"
     ShowIconOnTitleBar="False"
@@ -8490,6 +8281,41 @@ function Show-ApplicationWorkbench {
     $dgRequirements   = & $ctl 'dgRequirements'
     $cboVariantSplit  = & $ctl 'cboVariantSplit'
     $cboInstallForMode = & $ctl 'cboInstallForMode'
+    $txtSiteArchGc      = & $ctl 'txtSiteArchGc'
+    $txtSiteLangGc      = & $ctl 'txtSiteLangGc'
+    $txtSiteVpnGc       = & $ctl 'txtSiteVpnGc'
+    $txtSiteVpnPatterns = & $ctl 'txtSiteVpnPatterns'
+
+    # Site condition names are shared by every application and every
+    # profile, so they persist on focus loss instead of with Save.
+    $loadSiteConditions = {
+        try { $doc = Get-ConditionTemplates } catch { return }
+        $byId = @{}
+        foreach ($c in @($doc.Conditions)) { $byId[[string]$c.Id] = $c }
+        $txtSiteArchGc.Text      = if ($byId['cpu-arch'])      { [string]$byId['cpu-arch'].GlobalConditionName } else { '' }
+        $txtSiteLangGc.Text      = if ($byId['os-language'])   { [string]$byId['os-language'].GlobalConditionName } else { '' }
+        $txtSiteVpnGc.Text       = if ($byId['vpn-connected']) { [string]$byId['vpn-connected'].GlobalConditionName } else { '' }
+        $txtSiteVpnPatterns.Text = if ($byId['vpn-connected']) { (@($byId['vpn-connected'].AdapterPatterns) -join ', ') } else { '' }
+    }
+    $saveSiteConditions = {
+        try {
+            $doc = Get-ConditionTemplates
+            foreach ($c in @($doc.Conditions)) {
+                switch ([string]$c.Id) {
+                    'cpu-arch'      { if ($txtSiteArchGc.Text.Trim()) { $c.GlobalConditionName = $txtSiteArchGc.Text.Trim() } }
+                    'os-language'   { if ($txtSiteLangGc.Text.Trim()) { $c.GlobalConditionName = $txtSiteLangGc.Text.Trim() } }
+                    'vpn-connected' {
+                        if ($txtSiteVpnGc.Text.Trim()) { $c.GlobalConditionName = $txtSiteVpnGc.Text.Trim() }
+                        $patterns = @([string]$txtSiteVpnPatterns.Text -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+                        if ($patterns.Count -gt 0) { $c.AdapterPatterns = $patterns }
+                    }
+                }
+            }
+            [void](Save-ConditionTemplates -Templates $doc)
+            & $loadSiteConditions
+        } catch { }
+    }
+    foreach ($tb in @($txtSiteArchGc, $txtSiteLangGc, $txtSiteVpnGc, $txtSiteVpnPatterns)) { $tb.Add_LostFocus($saveSiteConditions) }
     $lblVariantSrc    = & $ctl 'lblVariantSrc'
     $dgVariants       = & $ctl 'dgVariants'
 
@@ -8954,6 +8780,7 @@ function Show-ApplicationWorkbench {
                 foreach ($c in @((Get-ConditionTemplates).Conditions)) { [void]$cboReqTemplate.Items.Add([string]$c.Id) }
             } catch { }
             if ($cboReqTemplate.Items.Count -gt 0) { $cboReqTemplate.SelectedIndex = 0 }
+            & $loadSiteConditions
 
             & $refreshEditors
             & $refreshBuilds

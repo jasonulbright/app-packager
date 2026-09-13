@@ -98,7 +98,7 @@ No test writes to a certificate trust store in any scope. `SigningCombinations.T
 - `Invoke-TeamViewerHostVersionSmoke.ps1` - TeamViewer Host version read from the version resource fixed block when the string table is empty.
 - `Invoke-WorkbenchSmoke.ps1` - Application Workbench window build, population, validation and unsaved-switch paths.
 - `Invoke-SigningOptionsSmoke.ps1` - the Options script-signing panel, its certificate picker and its test button.
-- `Invoke-TitleOptionsSmoke.ps1` - the read-only per-app deployment-conditions view and the title-mode options.
+- `Invoke-TitleOptionsSmoke.ps1` - stored title-mode choices reach the background context map.
 - `Invoke-FullRegression.ps1` - runs every offline stage on both hosts and prints one summary table.
 - `PackagerSmoke.Tests.ps1` - Pester wrapper around the smoke harness.
 - `PackageWorkflow.Tests.ps1` - title policy, package conflict preflight, profile precedence, legacy migration, per-profile stage isolation, build selection, run overrides, One Click freshness, and a CLI stage of an offline fixture packager compared against a GUI-equivalent run snapshot.
