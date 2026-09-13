@@ -1,4 +1,0 @@
-.gitattributes export-ignore
-Tests export-ignore
-Tests/** export-ignore
-*.Tests.ps1 export-ignore
