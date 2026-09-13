@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.6.0.2] - 2026-09-13
+
+### Fixed
+
+- Various bug fixes.
+
 ## [1.6.0.1] - 2026-09-13
 
 ### Changed
@@ -27,13 +33,9 @@ Deployment Conditions options panel
 
 ## [1.5.2.2] - 2026-09-09
 
-### Added
+### Added/Changed
 
-- Package Velopack installers such as Draftable Desktop Setup from a drop.
-
-### Changed
-
-- Vendor installer-analysis 1.3.4.0 so drops recognize Velopack installers.
+- Velopack installer support via installer-analysis 1.3.4.0.
 
 ### Fixed
 
