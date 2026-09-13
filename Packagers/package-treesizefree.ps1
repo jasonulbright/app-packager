@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.jam-software.com/treesize_free/changes.shtml
 DownloadPageUrl: https://www.jam-software.com/treesize_free
 IconSource: Installer
 UpdateCadenceDays: 90
+SupportsInstallModes: CurrentUser, AllUsers
 
 .SYNOPSIS
     Packages TreeSize Free (x64) for MECM.
@@ -208,13 +209,15 @@ function Invoke-StageTreeSizeFree {
 
     # --- Generate content wrappers ---
     $wrappers = New-ExeWrapperContent -InstallerFileName $InstallerFileName `
-        -InstallArgs "'/VERYSILENT', '/NORESTART', '/MERGETASKS=!desktopicon'" `
+        -InstallArgs "'/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/ALLUSERS', '/MERGETASKS=!desktopicon'" `
         -UninstallCommand 'unused'
 
     # The setup names its uninstaller by install order, so the ARP
-    # UninstallString is the only value that names the right one.
+    # UninstallString is the only value that names the right one. A per-user
+    # install registers under HKCU, which a user-context uninstall reads first.
     $uninstallContent = @'
 $keys = @(
+    'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
     'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
     'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
 )
@@ -230,7 +233,7 @@ foreach ($root in $keys) {
 if (-not $cmd) { exit 0 }
 if ($cmd -match '^"([^"]+)"') { $exe = $matches[1] } else { $exe = $cmd.Trim() }
 if (-not (Test-Path -LiteralPath $exe)) { exit 0 }
-$proc = Start-Process -FilePath $exe -ArgumentList @('/VERYSILENT', '/NORESTART') -Wait -PassThru -NoNewWindow
+$proc = Start-Process -FilePath $exe -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru -NoNewWindow
 exit $proc.ExitCode
 '@
 
@@ -254,8 +257,8 @@ exit $proc.ExitCode
         SoftwareVersion = $version
         InstallerFile   = $InstallerFileName
         InstallerType   = "EXE"
-        InstallArgs     = "/VERYSILENT /NORESTART /MERGETASKS=!desktopicon"
-        UninstallArgs   = "/VERYSILENT /NORESTART"
+        InstallArgs     = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /ALLUSERS /MERGETASKS=!desktopicon"
+        UninstallArgs   = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
         RunningProcess  = @("TreeSizeFree")
         Detection       = @{
             Type          = "File"
