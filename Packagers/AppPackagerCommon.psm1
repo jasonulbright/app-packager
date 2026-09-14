@@ -5274,32 +5274,44 @@ function Invoke-AdHocPackage {
         [int]$MaximumRuntimeMins = 30
     )
 
-    $manifest = Read-StageManifest -Path (Join-Path $StagedPath 'stage-manifest.json')
-    if (-not (Test-NetworkShareAccess -Path $FileServerPath)) {
-        throw "Network root path not accessible: $FileServerPath"
+    # The caller may already sit on the site drive (a background runspace that
+    # connected before this call). Local and UNC paths resolved through the
+    # site provider collapse to a null path, so the manifest read, the network
+    # sync and the integrity check all run from the file system.
+    $origLocation = Get-Location
+    try {
+        Set-Location -LiteralPath "$env:SystemDrive\" -ErrorAction Stop
+
+        $manifest = Read-StageManifest -Path (Join-Path $StagedPath 'stage-manifest.json')
+        if (-not (Test-NetworkShareAccess -Path $FileServerPath)) {
+            throw "Network root path not accessible: $FileServerPath"
+        }
+
+        # Version becomes a path segment; strip the same characters the stage
+        # sanitized so local and network folder names agree.
+        $versionSegment = ((([string]$manifest.SoftwareVersion) -replace '[\\/:*?"<>|]', '') -replace '\s+', ' ').Trim()
+        if ([string]::IsNullOrWhiteSpace($versionSegment)) {
+            throw ("Manifest version '{0}' contains no usable path characters." -f $manifest.SoftwareVersion)
+        }
+        $networkContentPath = Get-NetworkContentPath -FileServerPath $FileServerPath `
+            -VendorFolder $VendorFolder -AppFolder $AppFolder `
+            -Version $versionSegment -Layout $ContentLayout
+        Initialize-Folder -Path $networkContentPath
+
+        Sync-StagedContentToNetwork -LocalContentPath $StagedPath -NetworkContentPath $networkContentPath -Manifest $manifest
+        Write-Log "Ad-hoc content on network    : $networkContentPath"
+
+        return New-MECMApplicationFromManifest `
+            -Manifest $manifest `
+            -SiteCode $SiteCode `
+            -Comment $Comment `
+            -NetworkContentPath $networkContentPath `
+            -EstimatedRuntimeMins $EstimatedRuntimeMins `
+            -MaximumRuntimeMins $MaximumRuntimeMins
     }
-
-    # Version becomes a path segment; strip the same characters the stage
-    # sanitized so local and network folder names agree.
-    $versionSegment = ((([string]$manifest.SoftwareVersion) -replace '[\\/:*?"<>|]', '') -replace '\s+', ' ').Trim()
-    if ([string]::IsNullOrWhiteSpace($versionSegment)) {
-        throw ("Manifest version '{0}' contains no usable path characters." -f $manifest.SoftwareVersion)
+    finally {
+        Set-Location $origLocation -ErrorAction SilentlyContinue
     }
-    $networkContentPath = Get-NetworkContentPath -FileServerPath $FileServerPath `
-        -VendorFolder $VendorFolder -AppFolder $AppFolder `
-        -Version $versionSegment -Layout $ContentLayout
-    Initialize-Folder -Path $networkContentPath
-
-    Sync-StagedContentToNetwork -LocalContentPath $StagedPath -NetworkContentPath $networkContentPath -Manifest $manifest
-    Write-Log "Ad-hoc content on network    : $networkContentPath"
-
-    return New-MECMApplicationFromManifest `
-        -Manifest $manifest `
-        -SiteCode $SiteCode `
-        -Comment $Comment `
-        -NetworkContentPath $networkContentPath `
-        -EstimatedRuntimeMins $EstimatedRuntimeMins `
-        -MaximumRuntimeMins $MaximumRuntimeMins
 }
 
 function New-PackagerFromDrop {
