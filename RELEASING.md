@@ -5,10 +5,10 @@ Maintainer procedure for publishing a release. Run every command from the reposi
 ## 1. Preconditions
 
 - On `main`, working tree clean, `main` level with `origin/main`.
-- The full test suite passes under PowerShell 7 with Pester 5:
+- The full test suite passes under Windows PowerShell 5.1 with Pester 5. Never run the suite or the build under PowerShell 7; every app in the suite targets 5.1 and PowerShell 7 failures are not defects:
 
 ```bash
-pwsh -NoProfile -Command "$r = Invoke-Pester -Path Tests, Packagers -PassThru -Output None; 'passed {0} failed {1}' -f $r.PassedCount, $r.FailedCount"
+powershell -NoProfile -Command "Import-Module Pester -MinimumVersion 5.0; $r = Invoke-Pester -Path Tests, Packagers -PassThru -Output None; 'passed {0} failed {1}' -f $r.PassedCount, $r.FailedCount"
 ```
 
 Any failure stops the release.
