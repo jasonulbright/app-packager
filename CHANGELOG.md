@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.6.0.3] - 2026-09-14
+
+### Changed
+
+- Include the test suite in source code downloads.
+
 ## [1.6.0.2] - 2026-09-13
 
 ### Fixed
