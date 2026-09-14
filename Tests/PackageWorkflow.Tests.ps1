@@ -709,3 +709,39 @@ catch {
         $process.ExitCode | Should -Be 0 -Because (Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue)
     }
 }
+
+Describe 'Ad-hoc package from a non-file-system location' {
+    # A background runspace that has already connected to the site sits on
+    # the site drive when the drop intake packages. Paths resolved through
+    # that provider collapse to null and the sync fails with a null
+    # reference, so the file-system work must run from a file-system drive.
+    BeforeAll {
+        $script:AdHocRoot = Join-Path $env:TEMP ('adhoc-loc-' + [guid]::NewGuid().ToString('N'))
+        $script:AdHocStage = Join-Path $script:AdHocRoot 'stage'
+        $script:AdHocShare = Join-Path $script:AdHocRoot 'share'
+        New-Item -ItemType Directory -Path $script:AdHocStage, $script:AdHocShare -Force | Out-Null
+        @{ SchemaVersion = 2; AppName = 'Fixture'; SoftwareVersion = '1.0'; FileHashes = @() } |
+            ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $script:AdHocStage 'stage-manifest.json') -Encoding UTF8
+        Mock -ModuleName AppPackagerCommon Test-NetworkShareAccess { $true }
+        Mock -ModuleName AppPackagerCommon Sync-StagedContentToNetwork {
+            $script:SyncProvider = (Get-Location).Provider.Name
+        }
+        Mock -ModuleName AppPackagerCommon New-MECMApplicationFromManifest { [UInt32]7 }
+    }
+    AfterAll {
+        Remove-Item -LiteralPath $script:AdHocRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'syncs from the file system and restores the caller location' {
+        $script:SyncProvider = ''
+        Push-Location HKCU:\
+        try {
+            $result = Invoke-AdHocPackage -StagedPath $script:AdHocStage -VendorFolder 'Vendor' -AppFolder 'Fixture' `
+                -FileServerPath $script:AdHocShare -SiteCode 'MCM'
+            $result | Should -Be 7
+            $script:SyncProvider | Should -Be 'FileSystem'
+            (Get-Location).Provider.Name | Should -Be 'Registry'
+        }
+        finally { Pop-Location }
+    }
+}
