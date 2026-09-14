@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.6.0.4] - 2026-09-14
+
+### Fixed
+
+- Various bug fixes.
+
 ## [1.6.0.3] - 2026-09-14
 
 ### Changed
