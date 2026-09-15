@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.6.0.5
+    Version    : 1.6.0.6
     Updated    : 2026-09-09
 #>
 
@@ -1328,8 +1328,9 @@ function Compare-SemVer {
         [Parameter(Mandatory)][string]$B
     )
     try {
-        $va = [version]($A -replace '[+-].*$', '')
-        $vb = [version]($B -replace '[+-].*$', '')
+        # [version] rejects a single number such as NetBeans "31".
+        $va = [version](($A -replace '[+-].*$', '') -replace '^(\d+)$', '$1.0')
+        $vb = [version](($B -replace '[+-].*$', '') -replace '^(\d+)$', '$1.0')
 
         # Significant-part counts. Unset Build/Revision on [version] is -1.
         $aCount = 2
@@ -1409,7 +1410,7 @@ function Invoke-PackagerGetLatestVersion {
         if (-not $lines -or $lines.Count -lt 1) { throw "No version output received." }
 
         $version = ([string]$lines[0]).Trim()
-        if ($version -notmatch '^\d+(\.\d+){1,3}([+-]\d+)?$') {
+        if ($version -notmatch '^\d+(\.\d+){0,3}([+-]\d+)?$') {
             throw ("Unexpected version string: '{0}'" -f $version)
         }
         return $version
@@ -1510,11 +1511,11 @@ function Get-MecmCurrentVersionByCMName {
             $parsable = @()
             $nonParsable = @()
             foreach ($a in $apps) {
-                try { $null = [version]$a.SoftwareVersion; $parsable += $a }
+                try { $null = [version]([string]$a.SoftwareVersion -replace '^(\d+)$', '$1.0'); $parsable += $a }
                 catch { $nonParsable += $a }
             }
             if ($parsable.Count -gt 0) {
-                $chosen = $parsable | Sort-Object { [version]$_.SoftwareVersion } -Descending | Select-Object -First 1
+                $chosen = $parsable | Sort-Object { [version]([string]$_.SoftwareVersion -replace '^(\d+)$', '$1.0') } -Descending | Select-Object -First 1
             }
             else {
                 $chosen = $nonParsable | Sort-Object Name -Descending | Select-Object -First 1

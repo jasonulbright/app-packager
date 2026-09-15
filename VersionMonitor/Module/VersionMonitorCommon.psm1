@@ -186,11 +186,11 @@ function Get-MecmApplicationVersions {
                 $parsable = @()
                 $nonParsable = @()
                 foreach ($a in $apps) {
-                    try { $null = [version]$a.SoftwareVersion; $parsable += $a }
+                    try { $null = [version]([string]$a.SoftwareVersion -replace '^(\d+)$', '$1.0'); $parsable += $a }
                     catch { $nonParsable += $a }
                 }
                 if ($parsable.Count -gt 0) {
-                    $chosen = $parsable | Sort-Object { [version]$_.SoftwareVersion } -Descending | Select-Object -First 1
+                    $chosen = $parsable | Sort-Object { [version]([string]$_.SoftwareVersion -replace '^(\d+)$', '$1.0') } -Descending | Select-Object -First 1
                 }
                 else {
                     $chosen = $nonParsable | Sort-Object Name -Descending | Select-Object -First 1
@@ -263,7 +263,7 @@ function Invoke-VendorVersionCheck {
     # Strip build metadata suffixes (e.g. "11.0.30+7", "2025.12-2", "2026.03.0-212")
     $version = $version -replace '[+-]\d+$', ''
 
-    if ($version -notmatch '^\d+(\.\d+){1,3}$') {
+    if ($version -notmatch '^\d+(\.\d+){0,3}$') {
         throw ("Unexpected version string: '{0}'" -f $version)
     }
 
@@ -285,8 +285,9 @@ function Compare-Versions {
     }
 
     try {
-        $vm = [version]$MecmVersion
-        $vv = [version]$VendorVersion
+        # [version] rejects a single number such as NetBeans "31".
+        $vm = [version]($MecmVersion -replace '^(\d+)$', '$1.0')
+        $vv = [version]($VendorVersion -replace '^(\d+)$', '$1.0')
         $cmp = $vm.CompareTo($vv)
         $status = if ($cmp -ge 0) { 'Current' } else { 'Stale' }
         return [pscustomobject]@{ Status = $status; MecmParsed = $vm; VendorParsed = $vv }
