@@ -3481,6 +3481,25 @@ Describe 'Read-StageManifest schema range' {
             if ($saved) { $env:APP_PACKAGER_TITLE_MODE = $saved } else { Remove-Item Env:APP_PACKAGER_TITLE_MODE -ErrorAction SilentlyContinue }
         }
     }
+
+    It 'lets the title mode recorded at Stage outrank the run-wide value' {
+        $saved = $env:APP_PACKAGER_TITLE_MODE
+        try {
+            $env:APP_PACKAGER_TITLE_MODE = 'IncludeVersion'
+            $recorded = Join-Path $TestDrive 'title-recorded.json'
+            @{ SchemaVersion = 4; AppName = 'Widget'; SoftwareVersion = '1.0'; FileHashes = @(); TitleMode = 'NoVersion' } |
+                ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $recorded -Encoding UTF8
+            (Read-StageManifest -Path $recorded).AppName | Should -Be 'Widget'
+
+            $inherited = Join-Path $TestDrive 'title-inherited.json'
+            @{ SchemaVersion = 4; AppName = 'Widget'; SoftwareVersion = '1.0'; FileHashes = @() } |
+                ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $inherited -Encoding UTF8
+            (Read-StageManifest -Path $inherited).AppName | Should -Be 'Widget - 1.0'
+        }
+        finally {
+            if ($saved) { $env:APP_PACKAGER_TITLE_MODE = $saved } else { Remove-Item Env:APP_PACKAGER_TITLE_MODE -ErrorAction SilentlyContinue }
+        }
+    }
 }
 
 # ---------------------------------------------------------------------------

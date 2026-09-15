@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.6.0.5] - 2026-09-15
+
+### Added
+
+- Add an Options setting to include the version in every application name.
+
+### Fixed
+
+- Fix application title choices saved in the Application Workbench never applying.
+
 ## [1.6.0.4] - 2026-09-14
 
 ### Fixed

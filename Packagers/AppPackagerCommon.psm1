@@ -2066,6 +2066,7 @@ function Get-PackagedApplicationName {
     # Remove only this release's exact version token, preserving product
     # years, architecture, language, and channel qualifiers.
     $pattern = '(?<![\w.])v?' + [regex]::Escape($Version) + '(?![\w.])'
+    if ($Mode -eq 'IncludeVersion' -and [regex]::IsMatch($AppName, $pattern, 'IgnoreCase')) { return $AppName }
     $baseName = [regex]::Replace($AppName, $pattern, '', 'IgnoreCase')
     $baseName = $baseName -replace '\(\s*\)', '' -replace '\s+-\s+(?=\(|$)', ' ' -replace '\s{2,}', ' '
     $baseName = $baseName.Trim().TrimEnd('-').Trim()
@@ -2117,8 +2118,10 @@ function Read-StageManifest {
     }
 
     Write-Log "Read stage manifest          : $Path"
-    if ($env:APP_PACKAGER_TITLE_MODE -and $env:APP_PACKAGER_TITLE_MODE -ne 'Default') {
-        $manifest.AppName = Get-PackagedApplicationName -AppName $manifest.AppName -Version $manifest.SoftwareVersion
+    $titleMode = [string]$env:APP_PACKAGER_TITLE_MODE
+    if ($manifest.PSObject.Properties['TitleMode'] -and [string]$manifest.TitleMode) { $titleMode = [string]$manifest.TitleMode }
+    if ($titleMode -and $titleMode -ne 'Default') {
+        $manifest.AppName = Get-PackagedApplicationName -AppName $manifest.AppName -Version $manifest.SoftwareVersion -Mode $titleMode
     }
     if ($env:APP_PACKAGER_PACKAGE_PREFLIGHT -eq '1') {
         Write-PackagePreflight -AppName $manifest.AppName -Version $manifest.SoftwareVersion

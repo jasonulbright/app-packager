@@ -6,7 +6,7 @@ $root = Split-Path $PSScriptRoot -Parent
 $t = $null; $e = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'start-apppackager.ps1'), [ref]$t, [ref]$e)
 if ($e) { throw ($e.Message -join '; ') }
-foreach ($name in @('Read-Preferences', 'Resolve-FirstRunCompleted', 'Get-TitleModesMapForContext')) {
+foreach ($name in @('Read-Preferences', 'Resolve-FirstRunCompleted', 'Get-TitleModesMapForContext', 'Get-DefaultTitleModeForContext')) {
     $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
     . ([scriptblock]::Create($fn.Extent.Text))
 }
@@ -32,6 +32,7 @@ try {
             }
         }
         CommandOverrides = [pscustomobject]@{ Apps = [pscustomobject]@{} }
+        IncludeVersionInTitle = $true
     }
     Set-Content -LiteralPath $script:fixturePath -Value ($seed | ConvertTo-Json -Depth 8) -Encoding UTF8
 
@@ -39,6 +40,15 @@ try {
     $map = Get-TitleModesMapForContext
     if ($map['package-chrome'] -ne 'NoVersion' -or $map['package-firefox'] -ne 'IncludeVersion') {
         throw 'Stored title choices did not reach the background context map'
+    }
+    if ((Get-DefaultTitleModeForContext) -ne 'IncludeVersion') {
+        throw 'The stored include-version preference did not load'
+    }
+
+    Set-Content -LiteralPath $script:fixturePath -Value '{}' -Encoding UTF8
+    $script:Prefs = Read-Preferences
+    if ($script:Prefs.IncludeVersionInTitle -ne $false -or (Get-DefaultTitleModeForContext) -ne '') {
+        throw 'A preferences file without the setting did not default to off'
     }
 
     'PASS: the stored title policy reaches the background context'
