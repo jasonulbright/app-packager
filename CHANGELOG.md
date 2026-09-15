@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.6.0.6] - 2026-09-15
+
+### Fixed
+
+- Fix Check latest failing for Apache NetBeans.
+
 ## [1.6.0.5] - 2026-09-15
 
 ### Added
