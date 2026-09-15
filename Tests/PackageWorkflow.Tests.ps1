@@ -3,7 +3,7 @@ BeforeAll {
     $t = $null; $e = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\start-apppackager.ps1'), [ref]$t, [ref]$e)
     if ($e) { throw ($e.Message -join '; ') }
-    foreach ($name in @('Invoke-PackagerPackageWithConflictPrompt', 'Get-TitleModesMapForContext')) {
+    foreach ($name in @('Invoke-PackagerPackageWithConflictPrompt', 'Get-TitleModesMapForContext', 'Get-DefaultTitleModeForContext')) {
         $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
         . ([scriptblock]::Create($fn.Extent.Text))
     }
@@ -17,6 +17,8 @@ Describe 'Application title policy' {
         @{ Name = 'Google Chrome 131.0.2'; Version = '131.0.2'; Mode = 'NoVersion'; Expected = 'Google Chrome' }
         @{ Name = 'Mozilla Firefox (x64 en-US)'; Version = '130.0'; Mode = 'IncludeVersion'; Expected = 'Mozilla Firefox (x64 en-US) - 130.0' }
         @{ Name = 'Microsoft Edge - 130.0'; Version = '130.0'; Mode = 'IncludeVersion'; Expected = 'Microsoft Edge - 130.0' }
+        @{ Name = '7-Zip 26.03 (x64 edition)'; Version = '26.03'; Mode = 'IncludeVersion'; Expected = '7-Zip 26.03 (x64 edition)' }
+        @{ Name = 'M365 Apps - 16.0.1 (x64) (Current)'; Version = '16.0.1'; Mode = 'IncludeVersion'; Expected = 'M365 Apps - 16.0.1 (x64) (Current)' }
         @{ Name = 'M365 Apps - 16.0.1 (x64) (Current)'; Version = '16.0.1'; Mode = 'NoVersion'; Expected = 'M365 Apps (x64) (Current)' }
         @{ Name = 'SQL Server 2022 - 16.0.1'; Version = '16.0.1'; Mode = 'NoVersion'; Expected = 'SQL Server 2022' }
         @{ Name = 'App - 1.0'; Version = '1.0'; Mode = 'Default'; Expected = 'App - 1.0' }
@@ -36,6 +38,13 @@ Describe 'Application title policy' {
         $map['package-chrome'] | Should -Be 'NoVersion'
         $map['package-firefox'] | Should -Be 'IncludeVersion'
         $map.ContainsKey('package-edge') | Should -BeFalse
+    }
+
+    It 'maps the global include-version preference to the run-wide default' {
+        $script:Prefs = [pscustomobject]@{ IncludeVersionInTitle = $true }
+        Get-DefaultTitleModeForContext | Should -Be 'IncludeVersion'
+        $script:Prefs = [pscustomobject]@{ IncludeVersionInTitle = $false }
+        Get-DefaultTitleModeForContext | Should -Be ''
     }
 
     It 'ends an isolated probe at manifest read without running subsequent package writes' {

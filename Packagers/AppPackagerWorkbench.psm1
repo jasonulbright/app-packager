@@ -2020,9 +2020,14 @@ function Invoke-StageFinalization {
     }
 
     # 2g. Title mode from the profile, applied the same way the legacy bridge does.
-    $titleMode = [string]$settings['TitleMode'].Value
-    if ($titleMode -in @('IncludeVersion', 'NoVersion') -and (Get-Command -Name Get-PackagedApplicationName -ErrorAction SilentlyContinue)) {
-        $ManifestData['AppName'] = Get-PackagedApplicationName -AppName ([string]$ManifestData['AppName']) -Version ([string]$ManifestData['SoftwareVersion']) -Mode $titleMode
+    # Older profiles store the combo display text instead of the mode name.
+    # The recorded TitleMode outranks the run-wide value at Package.
+    $titleMode = switch ([string]$settings['TitleMode'].Value) { 'Include version' { 'IncludeVersion' } 'No version' { 'NoVersion' } default { [string]$_ } }
+    if ($titleMode -in @('IncludeVersion', 'NoVersion')) {
+        $ManifestData['TitleMode'] = $titleMode
+        if (Get-Command -Name Get-PackagedApplicationName -ErrorAction SilentlyContinue) {
+            $ManifestData['AppName'] = Get-PackagedApplicationName -AppName ([string]$ManifestData['AppName']) -Version ([string]$ManifestData['SoftwareVersion']) -Mode $titleMode
+        }
     }
 
     # 2h. Source files, after every generated file exists so a collision is real.

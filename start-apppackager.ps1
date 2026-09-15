@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.6.0.4
+    Version    : 1.6.0.5
     Updated    : 2026-09-09
 #>
 
@@ -151,6 +151,7 @@ function Read-Preferences {
         }
         HiddenApplications   = @()
         FirstRunCompleted    = $false
+        IncludeVersionInTitle = $false
         AppFlow              = [pscustomobject]@{
             Tracked          = @()
             Action           = 'Report'
@@ -296,6 +297,9 @@ function Read-Preferences {
 
         if ($null -ne $data.HiddenApplications)    { $defaults.HiddenApplications  = @($data.HiddenApplications) }
         $defaults.FirstRunCompleted = Resolve-FirstRunCompleted -StoredValue $data.FirstRunCompleted -PreferencesFileExisted $true
+        if ($null -ne $data.IncludeVersionInTitle) {
+            try { $defaults.IncludeVersionInTitle = [bool]$data.IncludeVersionInTitle } catch { }
+        }
 
         # AppFlow: 1-click Full Run settings. Schema is additive; missing key
         # keeps the defaults above so older prefs files from v1.0 still load.
@@ -1949,6 +1953,11 @@ function Get-TitleModesMapForContext {
     return $map
 }
 
+function Get-DefaultTitleModeForContext {
+    if ($script:Prefs -and [bool]$script:Prefs.IncludeVersionInTitle) { return 'IncludeVersion' }
+    return ''
+}
+
 function ConvertTo-CommandsJson {
     # Maps one CommandOverrides prefs entry onto the APP_PACKAGER_COMMANDS
     # JSON that Get-RequestedCommandOverrides consumes. Returns '' when
@@ -2953,6 +2962,7 @@ function Invoke-BatchUpdate {
         [pscustomobject]$CadenceOverrides,
         [pscustomobject]$ConditionApps = $null,
         [pscustomobject]$CommandApps = $null,
+        [string]$DefaultTitleMode = '',
         [string]$SigningJson = '',
         [switch]$Force
     )
@@ -3096,6 +3106,7 @@ function Invoke-BatchUpdate {
                 if ([string]$condProp.Value.TitleMode -in @('IncludeVersion', 'NoVersion')) { $titleMode = [string]$condProp.Value.TitleMode }
             }
         }
+        if (-not $titleMode) { $titleMode = $DefaultTitleMode }
         if ($CommandApps) {
             $cmdProp = $CommandApps.PSObject.Properties[$baseName]
             if ($cmdProp) { $commandsJson = ConvertTo-CommandsJson -Entry $cmdProp.Value }
@@ -3335,6 +3346,7 @@ if ($BatchMode) {
         -CadenceOverrides  $cadenceOverrides `
         -ConditionApps     $conditionApps `
         -CommandApps       $commandApps `
+        -DefaultTitleMode  $(if ($prefs -and [bool]$prefs.IncludeVersionInTitle) { 'IncludeVersion' } else { '' }) `
         -SigningJson       (Get-WorkbenchSigningPolicyJson) `
         -Force:$Force
 
@@ -3937,6 +3949,7 @@ function New-MecmPreferencesPanel {
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
     <Grid.ColumnDefinitions>
         <ColumnDefinition Width="140"/>
@@ -3988,18 +4001,21 @@ function New-MecmPreferencesPanel {
     <TextBlock Grid.Row="11" Grid.Column="0" Text="" Margin="0,0,0,8"/>
     <CheckBox  Grid.Row="11" Grid.Column="1" x:Name="chkCreateTestColl" Content="Create collection if it does not exist" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Creates an empty direct-membership device collection limited to All Systems when the named collection is missing."/>
 
-    <TextBlock Grid.Row="12" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
-    <Grid Grid.Row="12" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
+    <TextBlock Grid.Row="12" Grid.Column="0" Text="Application title:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Default application naming for every Package run."/>
+    <CheckBox  Grid.Row="12" Grid.Column="1" x:Name="chkTitleVersion" Content="Include version in application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Adds the version to every application name, creating one MECM application per release. A per-application choice in the Application Workbench overrides this. Existing applications are not renamed."/>
 
-    <TextBlock Grid.Row="13" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="7-Zip command-line (7z.exe) detection status. Required by the Adobe Reader packager."/>
-    <Grid Grid.Row="13" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
-    <TextBlock Grid.Row="14" Grid.Column="0" Text="GitHub API:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="How the 90 packagers that read GitHub releases authenticate. Anonymous calls are limited to 60 per hour per address; a token raises that to 5000. Resolved from GITHUB_TOKEN, then GH_TOKEN, then the GitHub CLI login (gh auth login)."/>
-    <Grid Grid.Row="14" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtGitHubStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
+    <TextBlock Grid.Row="13" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
+    <Grid Grid.Row="13" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
 
-    <TextBlock Grid.Row="15" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe) detection status. Downloaded on first use, or place the exe on PATH."/>
+    <TextBlock Grid.Row="14" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="7-Zip command-line (7z.exe) detection status. Required by the Adobe Reader packager."/>
+    <Grid Grid.Row="14" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
+    <TextBlock Grid.Row="15" Grid.Column="0" Text="GitHub API:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="How the 90 packagers that read GitHub releases authenticate. Anonymous calls are limited to 60 per hour per address; a token raises that to 5000. Resolved from GITHUB_TOKEN, then GH_TOKEN, then the GitHub CLI login (gh auth login)."/>
+    <Grid Grid.Row="15" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtGitHubStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
+
+    <TextBlock Grid.Row="16" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe) detection status. Downloaded on first use, or place the exe on PATH."/>
     <!-- Status text in a star column so a long message wraps instead of
          pushing the buttons past the panel edge, where they clip out of view. -->
-    <Grid Grid.Row="15" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
+    <Grid Grid.Row="16" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="Auto"/>
@@ -4008,8 +4024,8 @@ function New-MecmPreferencesPanel {
         <Button Grid.Column="1" x:Name="btnIntuneWinDownload" Content="Download" FontSize="11" Margin="10,0,0,0" Padding="10,2" VerticalAlignment="Center" Visibility="Collapsed"/>
     </Grid>
 
-    <TextBlock Grid.Row="16" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Packager icon pack for IconSource External packagers. Installs into Packagers\Icons and is read at stage time."/>
-    <Grid Grid.Row="16" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
+    <TextBlock Grid.Row="17" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Packager icon pack for IconSource External packagers. Installs into Packagers\Icons and is read at stage time."/>
+    <Grid Grid.Row="17" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="Auto"/>
@@ -4020,16 +4036,16 @@ function New-MecmPreferencesPanel {
         <Button Grid.Column="2" x:Name="btnIconPackFromFile" Content="Install from file..." FontSize="11" Margin="6,0,0,0" Padding="10,2" VerticalAlignment="Center" ToolTip="Installs an icon pack from a local or UNC icon-pack.zip when the release download is blocked (proxy/SSL inspection). A checksums.txt beside the zip is verified when present."/>
     </Grid>
 
-    <TextBlock Grid.Row="17" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, a successful Package also produces an .intunewin from the staged content and stores it beside the network content version folder."/>
-    <CheckBox  Grid.Row="17" Grid.Column="1" x:Name="chkIntuneWin" Content="Create .intunewin during Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-    <TextBlock Grid.Row="18" Grid.Column="0" Text="Intune Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
-    <TextBox   Grid.Row="18" Grid.Column="1" x:Name="txtIntuneTenant" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="19" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
-    <TextBox   Grid.Row="19" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="20" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
-    <PasswordBox Grid.Row="20" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="21" Grid.Column="0" Text="Deployment Target:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Where Package creates applications. MECM only: today's flow. MECM + Intune: MECM app plus a Graph publish of the .intunewin. Intune only: stage, build the .intunewin, and publish via Graph - no ConfigMgr console, site, or file share needed. Repeat publishes update the existing Intune app."/>
-    <ComboBox  Grid.Row="21" Grid.Column="1" x:Name="cboDeployTarget" FontSize="13" Margin="0,0,0,8" Width="260" HorizontalAlignment="Left">
+    <TextBlock Grid.Row="18" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, a successful Package also produces an .intunewin from the staged content and stores it beside the network content version folder."/>
+    <CheckBox  Grid.Row="18" Grid.Column="1" x:Name="chkIntuneWin" Content="Create .intunewin during Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+    <TextBlock Grid.Row="19" Grid.Column="0" Text="Intune Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
+    <TextBox   Grid.Row="19" Grid.Column="1" x:Name="txtIntuneTenant" FontSize="13" Margin="0,0,0,8"/>
+    <TextBlock Grid.Row="20" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
+    <TextBox   Grid.Row="20" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,0,0,8"/>
+    <TextBlock Grid.Row="21" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
+    <PasswordBox Grid.Row="21" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,0,0,8"/>
+    <TextBlock Grid.Row="22" Grid.Column="0" Text="Deployment Target:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Where Package creates applications. MECM only: today's flow. MECM + Intune: MECM app plus a Graph publish of the .intunewin. Intune only: stage, build the .intunewin, and publish via Graph - no ConfigMgr console, site, or file share needed. Repeat publishes update the existing Intune app."/>
+    <ComboBox  Grid.Row="22" Grid.Column="1" x:Name="cboDeployTarget" FontSize="13" Margin="0,0,0,8" Width="260" HorizontalAlignment="Left">
         <ComboBoxItem Content="MECM only" Tag="MECM"/>
         <ComboBoxItem Content="MECM + Intune" Tag="MECMAndIntune"/>
         <ComboBoxItem Content="Intune only" Tag="IntuneOnly"/>
@@ -4054,6 +4070,7 @@ function New-MecmPreferencesPanel {
     $chkTestDeploy     = $element.FindName('chkTestDeploy')
     $txtTestCollection = $element.FindName('txtTestCollection')
     $chkCreateTestColl = $element.FindName('chkCreateTestColl')
+    $chkTitleVersion   = $element.FindName('chkTitleVersion')
     $txtConsoleStatus  = $element.FindName('txtConsoleStatus')
     $txtSevenZipStatus = $element.FindName('txtSevenZipStatus')
     $txtGitHubStatus   = $element.FindName('txtGitHubStatus')
@@ -4080,6 +4097,7 @@ function New-MecmPreferencesPanel {
     $chkTestDeploy.IsChecked     = [bool]$script:Prefs.ContentDistribution.DeployToTestCollection
     $txtTestCollection.Text      = [string]$script:Prefs.ContentDistribution.TestCollectionName
     $chkCreateTestColl.IsChecked = [bool]$script:Prefs.ContentDistribution.CreateTestCollectionIfMissing
+    $chkTitleVersion.IsChecked   = [bool]$script:Prefs.IncludeVersionInTitle
 
     # Test-deployment controls require auto-distribute + DP group: the
     # deployment only runs after successful content distribution.
@@ -4236,6 +4254,7 @@ function New-MecmPreferencesPanel {
         $prefsRef.ContentDistribution.DeployToTestCollection        = [bool]$chkTestDeploy.IsChecked
         $prefsRef.ContentDistribution.TestCollectionName            = $txtTestCollection.Text.Trim()
         $prefsRef.ContentDistribution.CreateTestCollectionIfMissing = [bool]$chkCreateTestColl.IsChecked
+        $prefsRef.IncludeVersionInTitle = [bool]$chkTitleVersion.IsChecked
         $prefsRef.Intune.CreateIntuneWin = [bool]$chkIntuneWin.IsChecked
         $prefsRef.Intune.DeploymentTarget = [string]$cboDeployTarget.SelectedItem.Tag
         $prefsRef.Intune.PublishToIntune = ($prefsRef.Intune.DeploymentTarget -ne 'MECM')
@@ -6107,7 +6126,7 @@ function Invoke-MultiAppPipeline {
                                 CommandsJson         = $cmdJson
                                 InstallMode          = $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' })
                             }
-                            $packageArgs['TitleMode'] = $(if ($Ctx.TitleModesByApp) { [string]$Ctx.TitleModesByApp[$baseName] } else { '' })
+                            $packageArgs['TitleMode'] = $(if ($Ctx.TitleModesByApp -and [string]$Ctx.TitleModesByApp[$baseName]) { [string]$Ctx.TitleModesByApp[$baseName] } else { [string]$Ctx.DefaultTitleMode })
                             $res = Invoke-PackagerPackageWithConflictPrompt -State $State -AppLabel $app -PackageArgs $packageArgs
 
                             if ($res.PSObject.Properties['PackageOutcome'] -and $res.PackageOutcome -in @('Skipped', 'Canceled')) {
@@ -6389,7 +6408,7 @@ function Invoke-MultiAppPipeline {
                                 CommandsJson         = $cmdJson
                                 InstallMode          = $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' })
                             }
-                            $packageArgs['TitleMode'] = $(if ($Ctx.TitleModesByApp) { [string]$Ctx.TitleModesByApp[$baseName] } else { '' })
+                            $packageArgs['TitleMode'] = $(if ($Ctx.TitleModesByApp -and [string]$Ctx.TitleModesByApp[$baseName]) { [string]$Ctx.TitleModesByApp[$baseName] } else { [string]$Ctx.DefaultTitleMode })
                             $pkg = Invoke-PackagerPackageWithConflictPrompt -State $State -AppLabel $app -PackageArgs $packageArgs
 
                             if ($pkg.PSObject.Properties['PackageOutcome'] -and $pkg.PackageOutcome -in @('Skipped', 'Canceled')) {
@@ -7417,6 +7436,7 @@ $btnPackage.Add_Click({
         CommandsByApp        = Get-CommandsMapForContext
         InstallModesByApp    = Get-InstallModesMapForContext
         TitleModesByApp      = Get-TitleModesMapForContext
+        DefaultTitleMode     = Get-DefaultTitleModeForContext
         IntunePublishConfig  = Get-IntunePublishConfigForContext
         DeploymentTarget     = [string]$script:Prefs.Intune.DeploymentTarget
         RunPlanByApp         = Get-WorkbenchRunPlanForContext -Rows $rowsForPlan -Target ([string]$script:Prefs.Intune.DeploymentTarget)
@@ -7520,6 +7540,7 @@ $btnFullRun.Add_Click({
         CommandsByApp        = Get-CommandsMapForContext
         InstallModesByApp    = Get-InstallModesMapForContext
         TitleModesByApp      = Get-TitleModesMapForContext
+        DefaultTitleMode     = Get-DefaultTitleModeForContext
         IntunePublishConfig  = Get-IntunePublishConfigForContext
         DeploymentTarget     = [string]$script:Prefs.Intune.DeploymentTarget
         RunPlanByApp         = Get-WorkbenchRunPlanForContext -Rows $rowsForPlan -Target ([string]$script:Prefs.Intune.DeploymentTarget)
@@ -7635,7 +7656,7 @@ function Get-WorkbenchInheritedSettings {
         EstimatedRuntimeMins = 15
         MaximumRuntimeMins   = 30
         Description          = [string]$Application.Description
-        TitleMode            = ''
+        TitleMode            = Get-DefaultTitleModeForContext
     }
     try {
         $globals.EstimatedRuntimeMins = [int]$script:Prefs.EstimatedRuntimeMins
@@ -7660,7 +7681,7 @@ function Get-WorkbenchInheritedSettings {
         DisplayName        = $(if ([string]$Application.DisplayName) { [string]$Application.DisplayName } else { & $pick 'DisplayName' $needsStaging })
         Publisher          = $(if ([string]$Application.Publisher) { [string]$Application.Publisher } else { & $pick 'Publisher' $needsStaging })
         Description        = [string](& $pick 'Description' '')
-        TitleMode          = 'Packager default'
+        TitleMode          = $(if (Get-DefaultTitleModeForContext) { 'Include version' } else { 'Packager default' })
         InstallCommand     = [string](& $pick 'InstallCommand' $needsStaging)
         UninstallCommand   = [string](& $pick 'UninstallCommand' $needsStaging)
         DetectionSummary   = [string](& $pick 'Detection' $needsStaging)
@@ -8738,7 +8759,11 @@ function Show-ApplicationWorkbench {
                 $present = Test-WorkbenchOverridePresent -Profile $wb.Profile -Path $d.Path
                 if ($present) { $stored = Get-WorkbenchOverrideValue -Profile $wb.Profile -Path $d.Path }
                 if ($d.Kind -eq 'Combo') {
-                    $d.Control.SelectedItem = $(if ($present -and $stored) { [string]$stored } else { 'Packager default' })
+                    $display = 'Packager default'
+                    if ($present -and $stored) {
+                        $display = switch ([string]$stored) { 'IncludeVersion' { 'Include version' } 'NoVersion' { 'No version' } default { [string]$stored } }
+                    }
+                    $d.Control.SelectedItem = $display
                 }
                 else {
                     $d.Control.Text = [string]$stored
@@ -8882,7 +8907,9 @@ function Show-ApplicationWorkbench {
         # an explicit removal is set by the Remove buttons, not by blanking.
         foreach ($d in $fieldDescriptors) {
             $value = if ($d.Kind -eq 'Combo') { [string]$d.Control.SelectedItem } else { [string]$d.Control.Text }
-            if ($d.Kind -eq 'Combo' -and $value -eq 'Packager default') { $value = '' }
+            if ($d.Kind -eq 'Combo') {
+                $value = switch ($value) { 'Packager default' { '' } 'Include version' { 'IncludeVersion' } 'No version' { 'NoVersion' } default { $value } }
+            }
             if ([string]::IsNullOrWhiteSpace($value)) {
                 if (-not (Test-WorkbenchOverridePresent -Profile $wb.Profile -Path $d.Path) -or
                     $null -ne (Get-WorkbenchOverrideValue -Profile $wb.Profile -Path $d.Path)) {
@@ -9588,6 +9615,7 @@ function New-WorkbenchPipelineContext {
         $context['CommandsByApp']        = Get-CommandsMapForContext
         $context['InstallModesByApp']    = Get-InstallModesMapForContext
         $context['TitleModesByApp']      = Get-TitleModesMapForContext
+        $context['DefaultTitleMode']     = Get-DefaultTitleModeForContext
         $context['IntunePublishConfig']  = Get-IntunePublishConfigForContext
         $context['DeploymentTarget']     = $target
         $context['BuildId']                = $BuildId

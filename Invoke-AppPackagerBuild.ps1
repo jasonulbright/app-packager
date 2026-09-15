@@ -262,8 +262,10 @@ if ($uninstallCommand) { $commands['Uninstall'] = [string]$uninstallCommand }
 if ($commands.Count -gt 1) { $legacy['APP_PACKAGER_COMMANDS'] = ($commands | ConvertTo-Json -Depth 3 -Compress) }
 $installModeValue = Get-CliProfileField $profileObject 'InstallMode'
 if ($installModeValue) { $legacy['APP_PACKAGER_INSTALL_MODE'] = [string]$installModeValue }
-$titleModeValue = Get-CliProfileField (Get-CliProfileField $profileObject 'Application') 'TitleMode'
-if ($titleModeValue) { $legacy['APP_PACKAGER_TITLE_MODE'] = [string]$titleModeValue }
+$titleModeValue = [string](Get-CliProfileField (Get-CliProfileField $profileObject 'Application') 'TitleMode')
+$titleModeValue = switch ($titleModeValue) { 'Include version' { 'IncludeVersion' } 'No version' { 'NoVersion' } default { $titleModeValue } }
+if (-not $titleModeValue -and [bool](Get-CliProfileField $preferences 'IncludeVersionInTitle')) { $titleModeValue = 'IncludeVersion' }
+if ($titleModeValue) { $legacy['APP_PACKAGER_TITLE_MODE'] = $titleModeValue }
 
 function Invoke-CliPackagerPhase {
     param([Parameter(Mandatory)][ValidateSet('Stage', 'Package')][string]$Phase)
