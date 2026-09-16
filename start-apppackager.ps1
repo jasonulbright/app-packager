@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.6.0.6
+    Version    : 1.6.0.7
     Updated    : 2026-09-09
 #>
 
@@ -5491,7 +5491,9 @@ function Show-OptionsDialog {
     $script:OptionsDlgResult = $false
     $btnOK.Add_Click({
         try {
+            $siteBefore = '{0}|{1}' -f $script:Prefs.SiteCode, $script:Prefs.ProviderMachineName
             foreach ($p in $panels) { if ($p.Commit) { & $p.Commit } }
+            $siteChanged = ('{0}|{1}' -f $script:Prefs.SiteCode, $script:Prefs.ProviderMachineName) -ne $siteBefore
             Save-Preferences -Prefs $script:Prefs
             # Panels that mutate sibling JSON configs expose the refs on
             # the panel hash; master persists them here so panel commits
@@ -5500,7 +5502,7 @@ function Show-OptionsDialog {
                 if ($p.CwaSwitches) { Save-CwaSwitches -Switches $p.CwaSwitches }
                 if ($p.TvConfig)    { Save-TvHostConfig -Config $p.TvConfig }
             }
-            Invoke-RefreshGrid
+            Invoke-RefreshGrid -DiscardSiteResults:$siteChanged
             Update-SidebarForDeploymentTarget
             $script:OptionsDlgResult = $true
             $dlg.Close()
@@ -5741,6 +5743,12 @@ function Show-FirstRunWizard {
 # Grid refresh helper
 # =============================================================================
 function Invoke-RefreshGrid {
+    # MECM versions and compare results describe one site; a site change
+    # must not carry them onto rows that now point elsewhere.
+    param([switch]$DiscardSiteResults)
+
+    $session = @{}
+    foreach ($row in @($script:PackagerData)) { $session[[string]$row.Script] = $row }
     $script:PackagerData.Clear()
 
     $items = Get-Packagers -Root $PackagersRoot
@@ -5772,7 +5780,7 @@ function Invoke-RefreshGrid {
             }
         }
 
-        $script:PackagerData.Add([pscustomobject]@{
+        $newRow = [pscustomobject]@{
             Selected       = $false
             Vendor         = $m.Vendor
             Application    = $m.Application
@@ -5785,7 +5793,18 @@ function Invoke-RefreshGrid {
             VendorURL      = $m.VendorUrl
             Description    = $m.Description
             LastChecked    = $lastChecked
-        })
+        }
+        $prior = $session[[string]$m.Script]
+        if ($prior) {
+            $newRow.Selected = [bool]$prior.Selected
+            if ([string]$prior.LatestVersion) { $newRow.LatestVersion = [string]$prior.LatestVersion }
+            if ([string]$prior.LastChecked)   { $newRow.LastChecked   = [string]$prior.LastChecked }
+            if (-not $DiscardSiteResults -and -not ([string]$m.Status).StartsWith('Read error')) {
+                $newRow.CurrentVersion = [string]$prior.CurrentVersion
+                $newRow.Status         = $prior.Status
+            }
+        }
+        $script:PackagerData.Add($newRow)
     }
 
     if ($hiddenCount -gt 0) {
