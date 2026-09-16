@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.6.0.7] - 2026-09-16
+
+### Fixed
+
+- Keep MECM versions and compare results after saving Options.
+
 ## [1.6.0.6] - 2026-09-15
 
 ### Fixed
