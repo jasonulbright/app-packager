@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.6.0.9] - 2026-09-17
+
+### Added
+
+- Add GitHub Desktop for per-user installs.
+
 ## [1.6.0.8] - 2026-09-17
 
 ### Added
