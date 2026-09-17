@@ -14,10 +14,13 @@ Describe 'Get-WorkbenchInheritedIconPath' {
         $script:stageDir = Join-Path $TestDrive 'stage\7-Zip\26.03'
         $script:iconSource = 'Installer'
         $script:manifestPath = $null
+        $script:downloadSubfolder = '7-Zip'
+        $script:searchedDownloadRoot = $false
         New-Item -ItemType Directory -Path $script:packDir, $script:stageDir -Force | Out-Null
         function Get-IconPackRoot { $script:packDir }
         function Get-PackagerIconSource { param($ScriptPath) $script:iconSource }
-        function Find-NewestStageManifestForPackager { param($PackagerPath, $DownloadRoot) $script:manifestPath }
+        function Get-PackagerFolderInfo { param($ScriptPath) @{ DownloadSubfolder = $script:downloadSubfolder; VendorFolder = $null; AppFolder = $null } }
+        function Find-NewestStageManifestForPackager { param($PackagerPath, $DownloadRoot) $script:searchedDownloadRoot = $true; $script:manifestPath }
     }
     AfterEach {
         Remove-Item -LiteralPath (Join-Path $TestDrive 'Icons'), (Join-Path $TestDrive 'stage') -Recurse -Force -ErrorAction SilentlyContinue
@@ -46,6 +49,15 @@ Describe 'Get-WorkbenchInheritedIconPath' {
         Set-Content -LiteralPath (Join-Path $script:packDir '7zip.png') -Value 'x'
         $script:iconSource = 'None'
         Get-WorkbenchInheritedIconPath -ScriptPath 'C:\x\package-7zip.ps1' -DownloadRoot '' | Should -Be ''
+    }
+
+    It 'skips the stage manifest search when the download subfolder is unknown' {
+        Set-Content -LiteralPath (Join-Path $script:packDir '7zip.png') -Value 'x'
+        $script:downloadSubfolder = $null
+        $script:manifestPath = Join-Path $script:stageDir 'stage-manifest.json'
+        Get-WorkbenchInheritedIconPath -ScriptPath 'C:\x\package-7zip.ps1' -DownloadRoot 'C:\temp\ap' |
+            Should -Be (Join-Path $script:packDir '7zip.png')
+        $script:searchedDownloadRoot | Should -BeFalse
     }
 
     It 'returns nothing when the application has no packager script' {
