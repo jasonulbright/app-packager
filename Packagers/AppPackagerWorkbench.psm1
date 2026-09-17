@@ -859,6 +859,48 @@ function Add-ProfileAsset {
     }
 }
 
+function Import-WorkbenchProfileAssets {
+    <#
+    .SYNOPSIS
+        Copies an icon and source files referenced only by path into profile storage.
+
+    .DESCRIPTION
+        Stage resolves the icon and every non-linked source file by asset id,
+        so an entry carrying only a picked file path fails the build or is
+        silently skipped. Entries that already carry an asset id, linked
+        entries and a removed icon are left unchanged.
+    #>
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Profile,
+        [string]$DataRoot
+    )
+
+    $applicationId = [string]$Profile['ApplicationId']
+    $profileId = [string]$Profile['ProfileId']
+
+    $application = $Profile['Application']
+    if ($application -is [System.Collections.IDictionary] -and $application.Contains('Icon')) {
+        $icon = $application['Icon']
+        if ($icon -is [System.Collections.IDictionary] -and [string]::IsNullOrWhiteSpace([string]$icon['Asset']) -and
+            -not [string]::IsNullOrWhiteSpace([string]$icon['Path'])) {
+            $asset = Add-ProfileAsset -ApplicationId $applicationId -ProfileId $profileId -Path ([string]$icon['Path']) -DataRoot $DataRoot
+            $icon['Asset'] = $asset.AssetId
+            $icon['Path'] = $asset.Path
+        }
+    }
+
+    foreach ($entry in @($Profile['SourceFiles'])) {
+        if (-not ($entry -is [System.Collections.IDictionary])) { continue }
+        if ([bool]$entry['Linked'] -or -not [string]::IsNullOrWhiteSpace([string]$entry['Asset'])) { continue }
+        $provenance = [string]$entry['Provenance']
+        if ([string]::IsNullOrWhiteSpace($provenance)) { continue }
+        $asset = Add-ProfileAsset -ApplicationId $applicationId -ProfileId $profileId -Path $provenance -DataRoot $DataRoot
+        $entry['Asset'] = $asset.AssetId
+        $entry['Sha256'] = $asset.Sha256
+        $entry['Size'] = [int64]$asset.Size
+    }
+}
+
 function Remove-ProfileAsset {
     <#
     .SYNOPSIS
@@ -2608,6 +2650,7 @@ Export-ModuleMember -Function @(
     'Copy-Profile'
     'Remove-ProfileField'
     'Add-ProfileAsset'
+    'Import-WorkbenchProfileAssets'
     'Remove-ProfileAsset'
     'Resolve-ProfileAssetPath'
     'Resolve-EffectiveSettings'

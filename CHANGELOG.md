@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.6.0.8] - 2026-09-17
+
+### Added
+
+- Add Beyond Compare 5.
+
+### Fixed
+
+- Stop the Application Workbench freezing on packagers created from a dropped installer.
+- Apply icons and extra files chosen in the Application Workbench.
+
 ## [1.6.0.7] - 2026-09-16
 
 ### Fixed

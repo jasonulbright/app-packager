@@ -273,6 +273,67 @@ Describe 'Profile assets' {
         { Add-ProfileAsset -ApplicationId 'catalog:package-x' -ProfileId 'default' -Path $source } |
             Should -Throw '*default profile*'
     }
+
+    It 'imports an icon and source files that the editor referenced only by path' {
+        $id = 'catalog:package-import-assets'
+        $profile = New-TestProfile -ApplicationId $id
+        $folder = New-TestFolder
+        $iconFile = New-TestFile -Path (Join-Path $folder 'logo.png') -Content 'png'
+        $keyFile = New-TestFile -Path (Join-Path $folder 'key.txt') -Content 'license'
+        $data = [ordered]@{
+            ApplicationId = $id
+            ProfileId     = $profile.ProfileId
+            Application   = [ordered]@{ Icon = [ordered]@{ Path = $iconFile; Asset = '' } }
+            SourceFiles   = @([ordered]@{ Asset = ''; Destination = 'key.txt'; Sha256 = ''; Size = [int64]0; Provenance = $keyFile; Linked = $false })
+        }
+
+        Import-WorkbenchProfileAssets -Profile $data
+
+        $data.Application.Icon.Asset | Should -Match '^[0-9a-f]{16}$'
+        Resolve-ProfileAssetPath -ApplicationId $id -ProfileId $profile.ProfileId -Asset $data.Application.Icon.Asset |
+            Should -Be $data.Application.Icon.Path
+        $entry = @($data.SourceFiles)[0]
+        $entry.Asset | Should -Match '^[0-9a-f]{16}$'
+        $entry.Size | Should -Be 7
+        $entry.Sha256 | Should -Not -BeNullOrEmpty
+        Test-Path -LiteralPath (Resolve-ProfileAssetPath -ApplicationId $id -ProfileId $profile.ProfileId -Asset $entry) | Should -BeTrue
+    }
+
+    It 'leaves linked, already imported and removed entries unchanged' {
+        $id = 'catalog:package-import-skip'
+        $profile = New-TestProfile -ApplicationId $id
+        $linkedFile = New-TestFile -Path (Join-Path (New-TestFolder) 'linked.txt') -Content 'x'
+        $data = [ordered]@{
+            ApplicationId = $id
+            ProfileId     = $profile.ProfileId
+            Application   = [ordered]@{ Icon = $null }
+            SourceFiles   = @(
+                [ordered]@{ Asset = ''; Destination = 'linked.txt'; Provenance = $linkedFile; Linked = $true }
+                [ordered]@{ Asset = 'abcdef0123456789'; Destination = 'kept.txt'; Provenance = 'C:\missing\kept.txt'; Linked = $false }
+            )
+        }
+
+        { Import-WorkbenchProfileAssets -Profile $data } | Should -Not -Throw
+
+        $data.Application.Icon | Should -BeNullOrEmpty
+        @($data.SourceFiles)[0].Asset | Should -Be ''
+        @($data.SourceFiles)[1].Asset | Should -Be 'abcdef0123456789'
+    }
+
+    It 'lets a run snapshot resolve an icon imported on save' {
+        $id = 'catalog:package-import-snapshot'
+        $profile = New-TestProfile -ApplicationId $id
+        $iconFile = New-TestFile -Path (Join-Path (New-TestFolder) 'logo.png') -Content 'png'
+        $data = [ordered]@{}
+        foreach ($p in $profile.PSObject.Properties) { $data[$p.Name] = $p.Value }
+        $data['Application'] = [ordered]@{ Icon = [ordered]@{ Path = $iconFile; Asset = '' } }
+
+        Import-WorkbenchProfileAssets -Profile $data
+        $saved = Save-Profile -Profile ([pscustomobject]$data) -SetActive
+        $snapshot = New-RunSnapshot -ApplicationId $id -ProfileId $saved.ProfileId
+
+        $snapshot.AssetPaths[$data.Application.Icon.Asset] | Should -Be $data.Application.Icon.Path
+    }
 }
 
 Describe 'Resolve-EffectiveSettings' {

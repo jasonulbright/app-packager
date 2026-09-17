@@ -27,6 +27,7 @@
         'Copy-Profile'
         'Remove-ProfileField'
         'Add-ProfileAsset'
+        'Import-WorkbenchProfileAssets'
         'Remove-ProfileAsset'
         'Resolve-ProfileAssetPath'
         'Resolve-EffectiveSettings'

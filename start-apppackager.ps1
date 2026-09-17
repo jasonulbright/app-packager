@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.6.0.7
+    Version    : 1.6.0.8
     Updated    : 2026-09-09
 #>
 
@@ -149,6 +149,7 @@ function Read-Preferences {
             InstallScope = "System"
             DisableAI    = $false
         }
+        BeyondCompareKeyFile = ""
         HiddenApplications   = @()
         FirstRunCompleted    = $false
         IncludeVersionInTitle = $false
@@ -295,6 +296,7 @@ function Read-Preferences {
             }
         }
 
+        if ($null -ne $data.BeyondCompareKeyFile)  { $defaults.BeyondCompareKeyFile = [string]$data.BeyondCompareKeyFile }
         if ($null -ne $data.HiddenApplications)    { $defaults.HiddenApplications  = @($data.HiddenApplications) }
         $defaults.FirstRunCompleted = Resolve-FirstRunCompleted -StoredValue $data.FirstRunCompleted -PreferencesFileExisted $true
         if ($null -ne $data.IncludeVersionInTitle) {
@@ -525,6 +527,7 @@ function Save-Preferences {
         $pkgPrefs["M365ExcludeApps"] = @($Prefs.M365ExcludeApps)
         $pkgPrefs["SSMSInstallOptions"] = $Prefs.SSMSInstallOptions
         $pkgPrefs["DBeaverInstallOptions"] = $Prefs.DBeaverInstallOptions
+        $pkgPrefs["BeyondCompareKeyFile"] = [string]$Prefs.BeyondCompareKeyFile
         $pkgPrefs | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $pkgPrefsPath -Encoding UTF8
     }
     catch {
@@ -985,17 +988,27 @@ function Get-PackagerFolderInfo {
         # Stream the file and stop as soon as all three vars are found. Avoids
         # the prior -TotalCount 120 cutoff that missed packagers (e.g.
         # package-teamviewerhost.ps1) where the declarations sit past line 120.
+        # Drop-generated packagers name the subfolder through $AppFolder or
+        # $VendorFolder; an unresolved subfolder widens manifest searches to
+        # the whole download root.
+        $subfolderVariable = $null
         foreach ($line in Get-Content -LiteralPath $ScriptPath -ErrorAction Stop) {
-            if (-not $info.DownloadSubfolder -and $line -match '\$BaseDownloadRoot\s*=\s*Join-Path\s+\$DownloadRoot\s+"([^"]+)"') {
-                $info.DownloadSubfolder = $matches[1]
+            if (-not $info.DownloadSubfolder -and -not $subfolderVariable -and
+                $line -match '\$BaseDownloadRoot\s*=\s*Join-Path\s+\$DownloadRoot\s+(?:"([^"]+)"|''([^'']+)''|\$(AppFolder|VendorFolder)\b)') {
+                if ($matches[1]) { $info.DownloadSubfolder = $matches[1] }
+                elseif ($matches[2]) { $info.DownloadSubfolder = $matches[2] }
+                else { $subfolderVariable = $matches[3] }
             }
-            if (-not $info.VendorFolder -and $line -match '^\s*\$VendorFolder\s*=\s*"([^"]+)"') {
-                $info.VendorFolder = $matches[1]
+            if (-not $info.VendorFolder -and $line -match '^\s*\$VendorFolder\s*=\s*(?:"([^"]+)"|''([^'']+)'')') {
+                $info.VendorFolder = $(if ($matches[1]) { $matches[1] } else { $matches[2] })
             }
-            if (-not $info.AppFolder -and $line -match '^\s*\$AppFolder\s*=\s*"([^"]+)"') {
-                $info.AppFolder = $matches[1]
+            if (-not $info.AppFolder -and $line -match '^\s*\$AppFolder\s*=\s*(?:"([^"]+)"|''([^'']+)'')') {
+                $info.AppFolder = $(if ($matches[1]) { $matches[1] } else { $matches[2] })
             }
-            if ($info.DownloadSubfolder -and $info.VendorFolder -and $info.AppFolder) { break }
+            if (($info.DownloadSubfolder -or $subfolderVariable) -and $info.VendorFolder -and $info.AppFolder) { break }
+        }
+        if (-not $info.DownloadSubfolder -and $subfolderVariable) {
+            $info.DownloadSubfolder = $info[$subfolderVariable]
         }
     }
     catch { }
@@ -2441,7 +2454,12 @@ function Get-WorkbenchInheritedIconPath {
     if ([string]::IsNullOrWhiteSpace($ScriptPath)) { return '' }
     if ((Get-PackagerIconSource -ScriptPath $ScriptPath) -eq 'None') { return '' }
 
-    $manifest = Find-NewestStageManifestForPackager -PackagerPath $ScriptPath -DownloadRoot $DownloadRoot
+    # Runs on the UI thread at every profile load: without a resolved
+    # subfolder the manifest search would walk the entire download root.
+    $manifest = $null
+    if ((Get-PackagerFolderInfo -ScriptPath $ScriptPath).DownloadSubfolder) {
+        $manifest = Find-NewestStageManifestForPackager -PackagerPath $ScriptPath -DownloadRoot $DownloadRoot
+    }
     if ($manifest) {
         $staged = @(Get-ChildItem -LiteralPath (Split-Path -Parent $manifest) -Filter 'app-icon.*' -File -ErrorAction SilentlyContinue |
             Where-Object { $_.Extension -match '^\.(ico|png)$' } | Select-Object -First 1)
@@ -4779,6 +4797,34 @@ function New-PackagerPreferencesPanel {
     $chkDbvDisableAI = & $addCheckBox "Disable AI features (-Dai.disabled=true)" ([bool]$dbv.DisableAI) "Appends -Dai.disabled=true to the installed dbeaver.ini after a successful install, which is DBeaver's documented way to turn off AI assistant features. The line is added once and re-applied after every reinstall."
 
     # =============================================
+    # BEYOND COMPARE 5
+    # =============================================
+    & $addDivider
+    & $addHeader "Beyond Compare 5"
+
+    $txtBc5KeyFile = New-Object System.Windows.Controls.TextBox
+    $txtBc5KeyFile.Text = [string]$script:Prefs.BeyondCompareKeyFile
+    $txtBc5KeyFile.FontSize = 13
+    $txtBc5KeyFile.Width = 350
+    $btnBc5KeyBrowse = New-Object System.Windows.Controls.Button
+    $btnBc5KeyBrowse.Content = 'Browse...'
+    $btnBc5KeyBrowse.MinWidth = 90
+    $btnBc5KeyBrowse.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
+    $btnBc5KeyBrowse.SetResourceReference([System.Windows.FrameworkElement]::StyleProperty, 'MahApps.Styles.Button.Square')
+    [MahApps.Metro.Controls.ControlsHelper]::SetContentCharacterCasing($btnBc5KeyBrowse, [System.Windows.Controls.CharacterCasing]::Normal)
+    $spBc5Key = New-Object System.Windows.Controls.StackPanel
+    $spBc5Key.Orientation = [System.Windows.Controls.Orientation]::Horizontal
+    [void]$spBc5Key.Children.Add($txtBc5KeyFile)
+    [void]$spBc5Key.Children.Add($btnBc5KeyBrowse)
+    & $addLabelRow "License Key File:" $spBc5Key "BC5Key.txt from Scooter Software. Stage places it beside the installer, where setup reads it to register Beyond Compare 5. Required to stage and package Beyond Compare 5."
+    $btnBc5KeyBrowse.Add_Click({
+        $dlg = New-Object Microsoft.Win32.OpenFileDialog
+        $dlg.Title = 'Choose the Beyond Compare 5 license key file'
+        $dlg.Filter = 'License key file (BC5Key.txt)|BC5Key.txt|Text files (*.txt)|*.txt|All files (*.*)|*.*'
+        if ($dlg.ShowDialog() -eq $true) { $txtBc5KeyFile.Text = $dlg.FileName }
+    }.GetNewClosure())
+
+    # =============================================
     # TEAMVIEWER HOST
     # =============================================
     & $addDivider
@@ -5079,6 +5125,8 @@ function New-PackagerPreferencesPanel {
         if ($selectedDbvScope -notin @('System','User')) { $selectedDbvScope = 'System' }
         $prefsRef.DBeaverInstallOptions.InstallScope = $selectedDbvScope
         $prefsRef.DBeaverInstallOptions.DisableAI    = ($chkDbvDisableAI.IsChecked -eq $true)
+
+        $prefsRef.BeyondCompareKeyFile = [string]$txtBc5KeyFile.Text.Trim()
 
         $sw.Store.Name = $txtStoreName.Text.Trim()
         $sw.Store.Url  = $txtStoreUrl.Text.Trim()
@@ -9088,6 +9136,7 @@ function Show-ApplicationWorkbench {
         }
         $wb.Profile['IsDefault'] = $false
         try {
+            Import-WorkbenchProfileAssets -Profile $wb.Profile
             $saved = Save-Profile -Profile ([pscustomobject]$wb.Profile) -SetActive
         }
         catch {
