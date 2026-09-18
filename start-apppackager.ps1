@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 1.6.0.9
+    Version    : 2026.09.18.0089
     Updated    : 2026-09-09
 #>
 
@@ -150,6 +150,7 @@ function Read-Preferences {
             DisableAI    = $false
         }
         BeyondCompareKeyFile = ""
+        LocalSourceFolders   = [pscustomobject]@{}
         HiddenApplications   = @()
         FirstRunCompleted    = $false
         IncludeVersionInTitle = $false
@@ -297,6 +298,15 @@ function Read-Preferences {
         }
 
         if ($null -ne $data.BeyondCompareKeyFile)  { $defaults.BeyondCompareKeyFile = [string]$data.BeyondCompareKeyFile }
+        if ($null -ne $data.LocalSourceFolders) {
+            $sourceProps = [ordered]@{}
+            foreach ($prop in $data.LocalSourceFolders.PSObject.Properties) {
+                if ($prop.Name -notmatch '^package-') { continue }
+                if ([string]::IsNullOrWhiteSpace([string]$prop.Value)) { continue }
+                $sourceProps[$prop.Name] = [string]$prop.Value
+            }
+            $defaults.LocalSourceFolders = [pscustomobject]$sourceProps
+        }
         if ($null -ne $data.HiddenApplications)    { $defaults.HiddenApplications  = @($data.HiddenApplications) }
         $defaults.FirstRunCompleted = Resolve-FirstRunCompleted -StoredValue $data.FirstRunCompleted -PreferencesFileExisted $true
         if ($null -ne $data.IncludeVersionInTitle) {
@@ -528,6 +538,7 @@ function Save-Preferences {
         $pkgPrefs["SSMSInstallOptions"] = $Prefs.SSMSInstallOptions
         $pkgPrefs["DBeaverInstallOptions"] = $Prefs.DBeaverInstallOptions
         $pkgPrefs["BeyondCompareKeyFile"] = [string]$Prefs.BeyondCompareKeyFile
+        $pkgPrefs["LocalSourceFolders"] = $Prefs.LocalSourceFolders
         $pkgPrefs | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $pkgPrefsPath -Encoding UTF8
     }
     catch {
@@ -806,6 +817,8 @@ function Get-PackagerMetadata {
         UpdateCadenceDays = $null
         SupportsVariants  = @()
         SupportsInstallModes = @()
+        LocalSource       = $false
+        LocalSourceRequired = $false
     }
 
     $lines = Get-Content -LiteralPath $Path -TotalCount 200 -ErrorAction Stop
@@ -827,6 +840,11 @@ function Get-PackagerMetadata {
         }
         if ($meta.SupportsInstallModes.Count -eq 0 -and $l -match '^\s*(?:#\s*)?SupportsInstallModes\s*:\s*(.+?)\s*$') {
             $meta.SupportsInstallModes = @($Matches[1] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -in @('CurrentUser', 'AllUsers') })
+            continue
+        }
+        if (-not $meta.LocalSource -and $l -match '^\s*(?:#\s*)?LocalSource\s*:\s*(Required|Optional)\s*$') {
+            $meta.LocalSource = $true
+            $meta.LocalSourceRequired = ($Matches[1] -eq 'Required')
             continue
         }
         if ($null -eq $meta.UpdateCadenceDays -and $l -match '^\s*(?:#\s*)?UpdateCadenceDays\s*:\s*(\d+)\s*$') {
@@ -858,6 +876,8 @@ function Get-PackagerMetadata {
         UpdateCadenceDays = $meta.UpdateCadenceDays
         SupportsVariants  = @($meta.SupportsVariants)
         SupportsInstallModes = @($meta.SupportsInstallModes)
+        LocalSource       = [bool]$meta.LocalSource
+        LocalSourceRequired = [bool]$meta.LocalSourceRequired
         Script            = (Split-Path -Leaf $Path)
         FullPath          = $Path
     }
@@ -893,6 +913,8 @@ function Get-Packagers {
                 UpdateCadenceDays = $m.UpdateCadenceDays
                 SupportsVariants  = @($m.SupportsVariants)
                 SupportsInstallModes = @($m.SupportsInstallModes)
+                LocalSource       = [bool]$m.LocalSource
+                LocalSourceRequired = [bool]$m.LocalSourceRequired
                 CurrentVersion    = ""
                 LatestVersion     = ""
                 Status            = $status
@@ -1970,6 +1992,47 @@ function Get-TitleModesMapForContext {
 function Get-DefaultTitleModeForContext {
     if ($script:Prefs -and [bool]$script:Prefs.IncludeVersionInTitle) { return 'IncludeVersion' }
     return ''
+}
+
+function Confirm-LocalSourceFolders {
+    # Runs on the UI thread before a Stage: a hybrid packager whose installer
+    # folder is unset or missing cannot prompt from the background runspace.
+    param([array]$Rows)
+
+    $kept = New-Object System.Collections.Generic.List[object]
+    $changed = $false
+    foreach ($row in @($Rows)) {
+        $meta = $null
+        try { $meta = Get-PackagerMetadata -Path ([string]$row.FullPath) } catch { }
+        if (-not $meta -or -not $meta.LocalSourceRequired) { $kept.Add($row); continue }
+
+        $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script)
+        $folder = ''
+        if ($script:Prefs.LocalSourceFolders -and $script:Prefs.LocalSourceFolders.PSObject.Properties[$base]) {
+            $folder = [string]$script:Prefs.LocalSourceFolders.$base
+        }
+        if ($folder -and (Test-Path -LiteralPath $folder -PathType Container)) { $kept.Add($row); continue }
+
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+        $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dlg.Description = ('Choose the folder that holds the {0} installer. Its download requires a sign-in, so it stages from a local copy.' -f [string]$row.Application)
+        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            $props = [ordered]@{}
+            if ($script:Prefs.LocalSourceFolders) {
+                foreach ($p in $script:Prefs.LocalSourceFolders.PSObject.Properties) { $props[$p.Name] = $p.Value }
+            }
+            $props[$base] = $dlg.SelectedPath
+            $script:Prefs.LocalSourceFolders = [pscustomobject]$props
+            $changed = $true
+            Add-LogLine -Message ('Installer source for {0}: {1}' -f [string]$row.Application, $dlg.SelectedPath)
+            $kept.Add($row)
+        }
+        else {
+            Add-LogLine -Message ('Skipped {0}: no installer source folder chosen.' -f [string]$row.Application)
+        }
+    }
+    if ($changed) { Save-Preferences -Prefs $script:Prefs }
+    return $kept.ToArray()
 }
 
 function ConvertTo-CommandsJson {
@@ -4825,6 +4888,43 @@ function New-PackagerPreferencesPanel {
     }.GetNewClosure())
 
     # =============================================
+    # LOCAL INSTALLER SOURCES
+    # =============================================
+    $localSourceBoxes = @{}
+    $localSourcePackagers = @(Get-Packagers -Root $PackagersRoot | Where-Object { $_.LocalSource })
+    if ($localSourcePackagers.Count -gt 0) {
+        & $addDivider
+        & $addHeader "Local Installer Sources"
+        foreach ($lsp in $localSourcePackagers) {
+            $lspBase = [System.IO.Path]::GetFileNameWithoutExtension([string]$lsp.Script)
+            $lspBox = New-Object System.Windows.Controls.TextBox
+            $lspBox.FontSize = 13
+            $lspBox.Width = 350
+            if ($script:Prefs.LocalSourceFolders -and $script:Prefs.LocalSourceFolders.PSObject.Properties[$lspBase]) {
+                $lspBox.Text = [string]$script:Prefs.LocalSourceFolders.$lspBase
+            }
+            $lspBrowse = New-Object System.Windows.Controls.Button
+            $lspBrowse.Content = 'Browse...'
+            $lspBrowse.MinWidth = 90
+            $lspBrowse.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
+            $lspBrowse.SetResourceReference([System.Windows.FrameworkElement]::StyleProperty, 'MahApps.Styles.Button.Square')
+            [MahApps.Metro.Controls.ControlsHelper]::SetContentCharacterCasing($lspBrowse, [System.Windows.Controls.CharacterCasing]::Normal)
+            $lspRow = New-Object System.Windows.Controls.StackPanel
+            $lspRow.Orientation = [System.Windows.Controls.Orientation]::Horizontal
+            [void]$lspRow.Children.Add($lspBox)
+            [void]$lspRow.Children.Add($lspBrowse)
+            & $addLabelRow ([string]$lsp.Application + ':') $lspRow ("Folder that holds the {0} installer. Its download requires a sign-in, so Stage uses the newest matching installer in this folder. Stage asks for it when this is empty." -f [string]$lsp.Application)
+            $lspBrowse.Add_Click({
+                Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+                $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+                if ($lspBox.Text -and (Test-Path -LiteralPath $lspBox.Text -PathType Container)) { $dlg.SelectedPath = $lspBox.Text }
+                if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $lspBox.Text = $dlg.SelectedPath }
+            }.GetNewClosure())
+            $localSourceBoxes[$lspBase] = $lspBox
+        }
+    }
+
+    # =============================================
     # TEAMVIEWER HOST
     # =============================================
     & $addDivider
@@ -5127,6 +5227,19 @@ function New-PackagerPreferencesPanel {
         $prefsRef.DBeaverInstallOptions.DisableAI    = ($chkDbvDisableAI.IsChecked -eq $true)
 
         $prefsRef.BeyondCompareKeyFile = [string]$txtBc5KeyFile.Text.Trim()
+
+        if ($localSourceBoxes.Count -gt 0) {
+            $sourceProps = [ordered]@{}
+            if ($prefsRef.LocalSourceFolders) {
+                foreach ($p in $prefsRef.LocalSourceFolders.PSObject.Properties) { $sourceProps[$p.Name] = $p.Value }
+            }
+            foreach ($key in $localSourceBoxes.Keys) {
+                $value = [string]$localSourceBoxes[$key].Text.Trim()
+                if ($value) { $sourceProps[$key] = $value }
+                elseif ($sourceProps.Contains($key)) { $sourceProps.Remove($key) }
+            }
+            $prefsRef.LocalSourceFolders = [pscustomobject]$sourceProps
+        }
 
         $sw.Store.Name = $txtStoreName.Text.Trim()
         $sw.Store.Url  = $txtStoreUrl.Text.Trim()
@@ -7428,6 +7541,11 @@ $btnStage.Add_Click({
         Add-LogLine -Message "No rows selected."
         return
     }
+    $selectedRows = @(Confirm-LocalSourceFolders -Rows $selectedRows)
+    if ($selectedRows.Count -eq 0) {
+        $txtStatus.Text = "Nothing to stage."
+        return
+    }
 
     $txtStatus.Text = "Staging selected packages..."
     Invoke-MultiAppPipeline -Operation Stage -Rows $selectedRows -Context @{
@@ -7577,6 +7695,13 @@ $btnFullRun.Add_Click({
         Add-LogLine -Message ("No tracked apps are visible in the grid. Check Product Filter.")
         $txtStatus.Text = "No visible tracked apps."
         return
+    }
+    if ($action -in @('Stage','StageAndPackage')) {
+        $rows = @(Confirm-LocalSourceFolders -Rows $rows)
+        if ($rows.Count -eq 0) {
+            $txtStatus.Text = "Nothing to run."
+            return
+        }
     }
 
     Add-LogSeparator
@@ -9700,6 +9825,10 @@ function Invoke-WorkbenchRun {
         [Parameter(Mandatory)][array]$Rows,
         [AllowEmptyString()][string]$BuildId = ''
     )
+    if ($Operation -eq 'Stage') {
+        $Rows = @(Confirm-LocalSourceFolders -Rows $Rows)
+        if ($Rows.Count -eq 0) { return }
+    }
     $context = New-WorkbenchPipelineContext -Operation $Operation -Rows $Rows -BuildId $BuildId
     Invoke-MultiAppPipeline -Operation $Operation -Rows $Rows -Context $context
 }

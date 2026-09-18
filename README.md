@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](#prerequisites)
 [![License](https://img.shields.io/github/license/jasonulbright/app-packager)](LICENSE)
 
-Automated application packaging for MECM and Intune: 285 enterprise applications, each one click from vendor download to deployed app. AppPackager checks the vendor for the latest version, downloads and verifies the installer, generates silent install/uninstall wrappers and detection rules, and creates the MECM Application — or builds the `.intunewin` and publishes it to Intune via Graph, no ConfigMgr site required. Drag any unknown `.msi`/`.exe` onto the window and it analyzes and packages that too. A companion version monitor flags stale deployments and looks up their CVEs. Built entirely in PowerShell 5.1 — the version that ships in the box on every supported Windows release, oldest to newest. Nothing to install, no add-ons, no agents, no subscription.
+Automated application packaging for MECM and Intune: 292 enterprise applications, each one click from vendor download to deployed app. AppPackager checks the vendor for the latest version, downloads and verifies the installer, generates silent install/uninstall wrappers and detection rules, and creates the MECM Application — or builds the `.intunewin` and publishes it to Intune via Graph, no ConfigMgr site required. Drag any unknown `.msi`/`.exe` onto the window and it analyzes and packages that too. A companion version monitor flags stale deployments and looks up their CVEs. Built entirely in PowerShell 5.1 — the version that ships in the box on every supported Windows release, oldest to newest. Nothing to install, no add-ons, no agents, no subscription.
 
 This is the class of work commercial third-party patching catalogs sell as a subscription. AppPackager covers a comparable application set — the coverage decision for each of 933 reviewed catalog entries is documented in [CATALOG-PARITY.csv](CATALOG-PARITY.csv) — runs entirely inside your environment, and is MIT-licensed.
 
@@ -28,7 +28,7 @@ Installs the latest release into `%LOCALAPPDATA%\AppPackager`. Only a zip crosse
 On an unrestricted network, the installer can do the whole flow itself — resolve the release from the GitHub API, download, verify SHA-256, extract:
 
 ```powershell
-curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 1.6.0.9
+curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.09.18.0089
 ```
 
 Omitting `-ZipPath` makes it download and checksum-verify the requested release; `-InstallPath` picks the folder and `-Version` pins a release. `-Force` is required to replace a non-empty folder that holds no existing AppPackager install. If even the curl download is blocked, fetch the zip in a browser and run the same `-ZipPath` command against it.
@@ -134,6 +134,7 @@ ConfigMgr Console detection runs once per launch. It scans the registry ARP entr
 - **Beyond Compare 5** — License Key File, chosen with a file browser. Stage places it beside the installer as `BC5Key.txt`, where setup reads it to register the product. Stage and Package stop when no key file is available. The packager also takes `-KeyFile` directly, overriding the stored path.
 - **TeamViewer Host** — API Token, Custom Configuration ID, Assignment Options, and a toggle for removing the desktop shortcut at install. Values are passed through the generated EXE install wrapper to TeamViewer Host's documented mass-deployment switches.
 - **Citrix Workspace App** — full install-switch coverage (Store Configuration, Installation Options, Plugins/Add-ons, Update/Telemetry, Store Policy, Components). Applied during Stage for both CR and LTSR packagers.
+- **Local Installer Sources** — one folder per packager that can use an installer you download yourself. Stage uses the highest file version in the folder. Packagers that have no public download ask for the folder at Stage when it is not set. The packager also takes `-SourceFolder` directly, overriding the stored folder.
 
 Two themed preview buttons at the top-right of the panel:
 - **CWA Preview** shows the assembled `CitrixWorkspaceApp.exe …` command line for the current switch selection.
@@ -276,9 +277,9 @@ All packager scripts accept the same core parameters:
 | `-OnExisting` | Passed through to `New-MECMApplicationFromManifest`: `Skip` / `Overwrite` / `Fail`. Outranks `APP_PACKAGER_ON_EXISTING`; unset falls through to that variable and then to `Skip` |
 | `-LogPath` | Path to a structured log file (timestamps + severity levels) |
 
-## Supported Applications (285)
+## Supported Applications (292)
 
-All 285 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op.
+All 292 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op.
 
 The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting every viable entry from a 933-application enterprise catalog review. [CATALOG-PARITY.csv](CATALOG-PARITY.csv) records the disposition and reasoning for all 933 entries — what was added, what was already covered, and why each skipped application was skipped (licensed suites, managed agents, end-of-life products, download walls, component libraries, and niche tools, each with evidence). Every packager is verified at stage level with installer magic-byte checks before content is accepted; a core set is additionally end-to-end validated against a live MECM site.
 
@@ -297,6 +298,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-arduinoide.ps1 | Arduino | Arduino IDE | RegistryKeyValue |
 | package-asperaconnect.ps1 | IBM | IBM Aspera Connect | RegistryKeyValue |
 | package-aspnethostingbundle8.ps1 | Microsoft | ASP.NET Core Hosting Bundle 8 | RegistryKey existence |
+| package-aspnethostingbundle10.ps1 | Microsoft | ASP.NET Core Hosting Bundle 10 | File existence |
 | package-audacity.ps1 | Audacity Team | Audacity (x64) | RegistryKeyValue |
 | package-awscli.ps1 | Amazon | AWS Command Line Interface | RegistryKeyValue |
 | package-awssamcli.ps1 | Amazon Web Services | AWS SAM CLI | RegistryKeyValue |
@@ -325,6 +327,9 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-chrome.ps1 | Google | Google Chrome Enterprise (x64) | RegistryKeyValue |
 | package-chromeremotedesktophost.ps1 | Google | Chrome Remote Desktop Host | RegistryKeyValue |
 | package-citrixworkspace-cr.ps1 | Cloud Software Group | Citrix Workspace CR | RegistryKeyValue |
+| package-citrixworkspace-ltsr-arm64.ps1 | Cloud Software Group | Citrix Workspace LTSR ARM64 | RegistryKeyValue |
+| package-citrixworkspace-ltsr-x64.ps1 | Cloud Software Group | Citrix Workspace LTSR x64 | RegistryKeyValue |
+| package-citrixworkspace-ltsr-x86.ps1 | Cloud Software Group | Citrix Workspace LTSR x86 | RegistryKeyValue |
 | package-clockify.ps1 | CAKE.com | Clockify | RegistryKeyValue |
 | package-cloudcompare.ps1 | CloudCompare Project | CloudCompare | File version |
 | package-cloudflarewarp.ps1 | Cloudflare | Cloudflare WARP | RegistryKeyValue |
@@ -501,6 +506,9 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-syncbackfree.ps1 | 2BrightSparks | SyncBackFree | File version |
 | package-synologydriveclient.ps1 | Synology | Synology Drive Client | RegistryKeyValue |
 | package-sysinternals.ps1 | Microsoft | Sysinternals Suite | File existence |
+| package-tableaudesktop.ps1 | Salesforce (Tableau) | Tableau Desktop (x64) | Script |
+| package-tableauprep.ps1 | Salesforce (Tableau) | Tableau Prep Builder (x64) | Script |
+| package-tableaureader.ps1 | Salesforce (Tableau) | Tableau Reader (x64) | Script |
 | package-tabulareditor2.ps1 | Tabular Editor ApS | Tabular Editor 2 | RegistryKeyValue |
 | package-tailscale.ps1 | Tailscale | Tailscale | RegistryKeyValue |
 | package-teams-new.ps1 | Microsoft | Microsoft Teams (new client) | File existence |
@@ -589,7 +597,7 @@ The monitor discovers all `package-*.ps1` scripts in the sibling `Packagers/` fo
 
 | Feature | Details |
 |---|---|
-| **Packager discovery** | Auto-discovers every `package-*.ps1` script (285 today) via relative path |
+| **Packager discovery** | Auto-discovers every `package-*.ps1` script (292 today) via relative path |
 | **Version checking** | Calls each packager with `-GetLatestVersionOnly` |
 | **MECM comparison** | Queries ConfigMgr for deployed versions |
 | **NVD CVE lookup** | Queries NIST NVD API for stale apps with CPE headers |
@@ -789,7 +797,7 @@ app-packager/
     AppPackagerWorkbench.psd1        # Module manifest
     AppPackagerSigning.psm1          # Authenticode signing of staged scripts and launchers
     AppPackagerSigning.psd1          # Module manifest
-    package-7zip.ps1                 # One script per application (285 total)
+    package-7zip.ps1                 # One script per application (292 total)
     package-chrome.ps1
     ...
     Templates/                       # Skeleton packagers for non-standard installer formats

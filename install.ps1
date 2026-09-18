@@ -33,13 +33,13 @@
     .\install.ps1
 
 .EXAMPLE
-    .\install.ps1 -InstallPath 'D:\Tools\AppPackager' -Version 1.5.0.3
+    .\install.ps1 -InstallPath 'D:\Tools\AppPackager' -Version 2026.09.18.0089
 
 .NOTES
     ScriptName : install.ps1
     Purpose    : Bootstrap install / update for AppPackager
     Owner      : CM Engineering
-    Version    : 1.6.0.9
+    Version    : 2026.09.18.0089
 #>
 
 [CmdletBinding()]

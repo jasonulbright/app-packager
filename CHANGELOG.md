@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026.09.18.0089] - 2026-09-18
+
+### Added
+
+- Add ASP.NET Core 10 Server Hosting Bundle.
+- Add Citrix Workspace app LTSR for x86, x64 and ARM64.
+- Add Tableau Desktop, Prep Builder and Reader.
+- Add a per-packager folder for installers you download yourself.
+
 ## [1.6.0.9] - 2026-09-17
 
 ### Added

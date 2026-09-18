@@ -16,7 +16,7 @@ Any failure stops the release.
 
 ## 2. Version
 
-Versions increase by 0.0.1 per release. Set the same version in three places:
+The version is `YYYY.MM.DD.BBBB`: the release date, then a four-digit, zero-padded build number that increases by 1 per release and never resets. Keep the zero-padded text everywhere; `[version]` drops the leading zeros. Set the same version in three places:
 
 - `start-apppackager.ps1`, header line `Version    : <ver>`
 - `install.ps1`, header line `Version    : <ver>`
