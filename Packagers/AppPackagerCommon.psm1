@@ -4465,6 +4465,75 @@ function Get-PackagerPreferences {
     return ($json | ConvertFrom-Json)
 }
 
+function Get-LocalSourceFolder {
+    <#
+    .SYNOPSIS
+        Returns the local source folder for a packager: the override when
+        given, otherwise the folder saved in packager preferences, or ''.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$PackagerName,
+        [string]$Override
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($Override)) { return $Override }
+    $prefs = Get-PackagerPreferences
+    if ($prefs -and $prefs.PSObject.Properties['LocalSourceFolders'] -and $prefs.LocalSourceFolders -and
+        $prefs.LocalSourceFolders.PSObject.Properties[$PackagerName]) {
+        return [string]$prefs.LocalSourceFolders.$PackagerName
+    }
+    return ''
+}
+
+function Resolve-LocalSourceInstaller {
+    <#
+    .SYNOPSIS
+        Returns the highest-version installer matching a file pattern in a
+        hybrid packager's local source folder.
+
+    .DESCRIPTION
+        Hybrid packagers read the latest version from a public page, but the
+        vendor download requires a sign-in, so the installer comes from a
+        folder chosen in Options or at the Stage prompt. Vendors reuse one
+        file name across releases, so the file version decides, not the
+        download time. Throws when no folder is set, the folder is missing, or
+        it holds no matching installer.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$PackagerName,
+        [Parameter(Mandatory)][string]$Filter,
+        [string[]]$Exclude = @(),
+        [string]$Override
+    )
+
+    $folder = Get-LocalSourceFolder -PackagerName $PackagerName -Override $Override
+
+    if ([string]::IsNullOrWhiteSpace($folder)) {
+        throw "No installer source folder is set for $PackagerName. Choose one in Options > Packager Preferences > Local Installer Sources, or run Stage from the app to be prompted."
+    }
+    if (-not (Test-Path -LiteralPath $folder -PathType Container)) {
+        throw "Installer source folder for $PackagerName not found: $folder"
+    }
+
+    $candidates = @(Get-ChildItem -LiteralPath $folder -Filter $Filter -File -ErrorAction SilentlyContinue |
+        Where-Object { $name = $_.Name; -not @($Exclude | Where-Object { $name -like $_ }) })
+    if ($candidates.Count -eq 0) {
+        throw "No installer matching '$Filter' found in $folder"
+    }
+
+    $ranked = foreach ($c in $candidates) {
+        $v = $null
+        # FileVersion may carry a build label after the number ("10.0.1 (WinBuild...)").
+        $raw = ([string][System.Diagnostics.FileVersionInfo]::GetVersionInfo($c.FullName).FileVersion).Trim()
+        if ($raw -match '^\d+(\.\d+){1,3}') { [void][version]::TryParse($Matches[0], [ref]$v) }
+        if (-not $v) { $v = [version]'0.0' }
+        [pscustomobject]@{ File = $c; Version = $v }
+    }
+    $best = $ranked | Sort-Object -Property @{ Expression = 'Version'; Descending = $true }, @{ Expression = { $_.File.LastWriteTimeUtc }; Descending = $true } |
+        Select-Object -First 1
+    return $best.File.FullName
+}
+
 # ---------------------------------------------------------------------------
 # ODT config XML generation
 # ---------------------------------------------------------------------------
