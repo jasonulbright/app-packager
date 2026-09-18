@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : MahApps WPF front-end for packager scripts
     Owner      : CM Engineering
-    Version    : 2026.09.18.0089
+    Version    : 2026.09.18.0090
     Updated    : 2026-09-09
 #>
 
@@ -2507,14 +2507,21 @@ function Get-IconPackManifestPath {
 }
 
 function Get-WorkbenchInheritedIconPath {
-    # Mirrors what Stage publishes: the newest build's staged app-icon first,
-    # then the icon pack entry named for the packager.
+    # Mirrors what Stage publishes: the icon pack entry named for the
+    # packager first, then the newest build's staged app-icon.
     param(
         [string]$ScriptPath,
         [string]$DownloadRoot
     )
 
     if ([string]::IsNullOrWhiteSpace($ScriptPath)) { return '' }
+
+    $base = [System.IO.Path]::GetFileNameWithoutExtension($ScriptPath) -replace '^package-', ''
+    $pack = @(Get-ChildItem -LiteralPath (Get-IconPackRoot) -Filter "$base.*" -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.BaseName -eq $base -and $_.Extension -match '^\.(png|ico)$' } |
+        Sort-Object Extension | Select-Object -First 1)
+    if ($pack.Count -gt 0) { return $pack[0].FullName }
+
     if ((Get-PackagerIconSource -ScriptPath $ScriptPath) -eq 'None') { return '' }
 
     # Runs on the UI thread at every profile load: without a resolved
@@ -2528,12 +2535,6 @@ function Get-WorkbenchInheritedIconPath {
             Where-Object { $_.Extension -match '^\.(ico|png)$' } | Select-Object -First 1)
         if ($staged.Count -gt 0) { return $staged[0].FullName }
     }
-
-    $base = [System.IO.Path]::GetFileNameWithoutExtension($ScriptPath) -replace '^package-', ''
-    $pack = @(Get-ChildItem -LiteralPath (Get-IconPackRoot) -Filter "$base.*" -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.BaseName -eq $base -and $_.Extension -match '^\.(png|ico)$' } |
-        Sort-Object Extension -Descending | Select-Object -First 1)
-    if ($pack.Count -gt 0) { return $pack[0].FullName }
     return ''
 }
 

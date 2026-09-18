@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026.09.18.0090] - 2026-09-18
+
+### Fixed
+
+- Use the icon pack icon for every packager that has one.
+
 ## [2026.09.18.0089] - 2026-09-18
 
 ### Added

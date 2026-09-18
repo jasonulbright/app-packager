@@ -26,15 +26,22 @@ Describe 'Get-WorkbenchInheritedIconPath' {
         Remove-Item -LiteralPath (Join-Path $TestDrive 'Icons'), (Join-Path $TestDrive 'stage') -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    It 'returns the staged app-icon of the newest build before the icon pack entry' {
+    It 'returns the icon pack entry before the staged app-icon of the newest build' {
         Set-Content -LiteralPath (Join-Path $script:packDir '7zip.png') -Value 'x'
+        Set-Content -LiteralPath (Join-Path $script:stageDir 'app-icon.ico') -Value 'x'
+        $script:manifestPath = Join-Path $script:stageDir 'stage-manifest.json'
+        Get-WorkbenchInheritedIconPath -ScriptPath 'C:\x\package-7zip.ps1' -DownloadRoot 'C:\temp\ap' |
+            Should -Be (Join-Path $script:packDir '7zip.png')
+    }
+
+    It 'falls back to the staged app-icon when the pack has no entry' {
         Set-Content -LiteralPath (Join-Path $script:stageDir 'app-icon.ico') -Value 'x'
         $script:manifestPath = Join-Path $script:stageDir 'stage-manifest.json'
         Get-WorkbenchInheritedIconPath -ScriptPath 'C:\x\package-7zip.ps1' -DownloadRoot 'C:\temp\ap' |
             Should -Be (Join-Path $script:stageDir 'app-icon.ico')
     }
 
-    It 'falls back to the icon pack entry when nothing is staged' {
+    It 'returns the icon pack entry when nothing is staged' {
         Set-Content -LiteralPath (Join-Path $script:packDir '7zip.png') -Value 'x'
         Get-WorkbenchInheritedIconPath -ScriptPath 'C:\x\package-7zip.ps1' -DownloadRoot '' |
             Should -Be (Join-Path $script:packDir '7zip.png')
@@ -45,18 +52,25 @@ Describe 'Get-WorkbenchInheritedIconPath' {
         Get-WorkbenchInheritedIconPath -ScriptPath 'C:\x\package-chrome.ps1' -DownloadRoot '' | Should -Be ''
     }
 
-    It 'returns nothing for a packager that publishes no icon' {
+    It 'returns the icon pack entry for a packager tagged None' {
         Set-Content -LiteralPath (Join-Path $script:packDir '7zip.png') -Value 'x'
         $script:iconSource = 'None'
-        Get-WorkbenchInheritedIconPath -ScriptPath 'C:\x\package-7zip.ps1' -DownloadRoot '' | Should -Be ''
+        Get-WorkbenchInheritedIconPath -ScriptPath 'C:\x\package-7zip.ps1' -DownloadRoot '' |
+            Should -Be (Join-Path $script:packDir '7zip.png')
+    }
+
+    It 'returns nothing for a packager tagged None without a pack entry' {
+        Set-Content -LiteralPath (Join-Path $script:stageDir 'app-icon.ico') -Value 'x'
+        $script:manifestPath = Join-Path $script:stageDir 'stage-manifest.json'
+        $script:iconSource = 'None'
+        Get-WorkbenchInheritedIconPath -ScriptPath 'C:\x\package-7zip.ps1' -DownloadRoot 'C:\temp\ap' | Should -Be ''
     }
 
     It 'skips the stage manifest search when the download subfolder is unknown' {
-        Set-Content -LiteralPath (Join-Path $script:packDir '7zip.png') -Value 'x'
         $script:downloadSubfolder = $null
         $script:manifestPath = Join-Path $script:stageDir 'stage-manifest.json'
-        Get-WorkbenchInheritedIconPath -ScriptPath 'C:\x\package-7zip.ps1' -DownloadRoot 'C:\temp\ap' |
-            Should -Be (Join-Path $script:packDir '7zip.png')
+        Set-Content -LiteralPath (Join-Path $script:stageDir 'app-icon.ico') -Value 'x'
+        Get-WorkbenchInheritedIconPath -ScriptPath 'C:\x\package-7zip.ps1' -DownloadRoot 'C:\temp\ap' | Should -Be ''
         $script:searchedDownloadRoot | Should -BeFalse
     }
 

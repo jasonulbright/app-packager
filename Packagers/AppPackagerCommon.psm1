@@ -1821,12 +1821,15 @@ function Get-PackagerIconSource {
 function Add-StageIcon {
     <#
     .SYNOPSIS
-        Places app-icon.* in a stage folder per the packager's IconSource tag.
+        Places app-icon.* in a stage folder, icon pack first, then per the
+        packager's IconSource tag.
 
     .DESCRIPTION
-        Installer extracts from the staged installer named by the manifest's
-        InstallerFile. External copies Packagers\Icons\<packagername>.* beside
-        the payload. None is a no-op.
+        An icon pack entry Packagers\Icons\<packagername>.png|ico wins for
+        every tag: pack icons are at least 256x256, extracted installer icons
+        are often 64x64 or 128x128. Without a pack entry, Installer extracts
+        from the staged installer named by the manifest's InstallerFile,
+        External warns, and None is a no-op.
 
         Sets ManifestData['Icon'] to the icon's file name on success so the
         Package phase can find it inside the content folder. Never throws: an
@@ -1835,26 +1838,29 @@ function Add-StageIcon {
     param(
         [Parameter(Mandatory)][string]$StageRoot,
         [Parameter(Mandatory)][hashtable]$ManifestData,
-        [AllowNull()][string]$PackagerScriptPath
+        [AllowNull()][string]$PackagerScriptPath,
+        [string]$IconsDirectory = (Join-Path $PSScriptRoot 'Icons')
     )
 
     $iconSource = Get-PackagerIconSource -ScriptPath $PackagerScriptPath
-    if ($iconSource -eq 'None') { return }
 
     try {
-        if ($iconSource -eq 'External') {
+        if (-not [string]::IsNullOrWhiteSpace($PackagerScriptPath)) {
             $baseName = [System.IO.Path]::GetFileNameWithoutExtension($PackagerScriptPath) -replace '^package-', ''
-            $iconsDirectory = Join-Path $PSScriptRoot 'Icons'
-            $candidate = @(Get-ChildItem -LiteralPath $iconsDirectory -Filter "$baseName.*" -File -ErrorAction SilentlyContinue |
-                Where-Object { $_.Extension -match '^\.(ico|png)$' } | Sort-Object Extension | Select-Object -First 1)
-            if ($candidate.Count -eq 0) {
-                Write-Log ("IconSource External but no Packagers\Icons\{0}.ico|png found; continuing without an icon." -f $baseName) -Level WARN
+            $candidate = @(Get-ChildItem -LiteralPath $IconsDirectory -Filter "$baseName.*" -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.BaseName -eq $baseName -and $_.Extension -match '^\.(ico|png)$' } | Sort-Object Extension | Select-Object -First 1)
+            if ($candidate.Count -gt 0) {
+                $destination = Join-Path $StageRoot ('app-icon' + $candidate[0].Extension.ToLowerInvariant())
+                Copy-Item -LiteralPath $candidate[0].FullName -Destination $destination -Force -ErrorAction Stop
+                $ManifestData['Icon'] = Split-Path -Leaf $destination
+                Write-Log ("Staged icon pack icon        : {0}" -f $ManifestData['Icon'])
                 return
             }
-            $destination = Join-Path $StageRoot ('app-icon' + $candidate[0].Extension.ToLowerInvariant())
-            Copy-Item -LiteralPath $candidate[0].FullName -Destination $destination -Force -ErrorAction Stop
-            $ManifestData['Icon'] = Split-Path -Leaf $destination
-            Write-Log ("Staged external icon         : {0}" -f $ManifestData['Icon'])
+        }
+
+        if ($iconSource -eq 'None') { return }
+        if ($iconSource -eq 'External') {
+            Write-Log ("IconSource External but no Packagers\Icons\{0}.ico|png found; continuing without an icon." -f $baseName) -Level WARN
             return
         }
 
