@@ -28,7 +28,7 @@ Installs the latest release into `%LOCALAPPDATA%\AppPackager`. Only a zip crosse
 On an unrestricted network, the installer can do the whole flow itself — resolve the release from the GitHub API, download, verify SHA-256, extract:
 
 ```powershell
-curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.09.18.0089
+curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.09.18.0090
 ```
 
 Omitting `-ZipPath` makes it download and checksum-verify the requested release; `-InstallPath` picks the folder and `-Version` pins a release. `-Force` is required to replace a non-empty folder that holds no existing AppPackager install. If even the curl download is blocked, fetch the zip in a browser and run the same `-ZipPath` command against it.
@@ -642,21 +642,24 @@ UpdateCadenceDays: 90
 
 ## Application Icons
 
-An application icon makes a packaged app recognizable in Software Center and the Company Portal. Where the icon comes from is a per-packager decision, declared by the `IconSource` header tag.
+An application icon makes a packaged app recognizable in Software Center and the Company Portal. Stage uses the icon pack entry first, for every packager. Pack icons are at least 256x256; icons extracted from installers are often 64x64 or 128x128. When the pack has no entry for the packager, the `IconSource` header tag decides.
 
-### `IconSource` values
+### Icon order
+
+1. `Packagers\Icons\<packagername>.ico` or `.png`, copied into the version folder as `app-icon.ico` / `app-icon.png`. `<packagername>` is the packager script's file name without the `package-` prefix and the `.ps1` extension, so `package-7zip.ps1` reads `Packagers\Icons\7zip.png`. When both extensions exist, `.ico` wins.
+2. The `IconSource` tag, when the pack has no entry:
 
 | Value | Behavior |
 |---|---|
 | `Installer` | `Add-StageIcon` extracts the largest icon resource from the staged installer — the PE resource directory for an `.exe`, or the MSI `Icon` table preferring `ARPPRODUCTICON` — and writes it into the version folder as `app-icon.ico`. Icons whose largest image is under 32px are rejected: generic installer stubs ship 16/32px only, and a 32px icon looks wrong at Software Center's display size. |
-| `External` | Copies `Packagers\Icons\<packagername>.ico` or `.png` into the version folder as `app-icon.ico` / `app-icon.png`. `<packagername>` is the packager script's file name without the `package-` prefix and the `.ps1` extension, so `package-7zip.ps1` reads `Packagers\Icons\7zip.ico`. When both extensions exist, `.ico` wins. A missing file logs a warning and the stage continues without an icon. |
-| `None` or absent | No icon is staged. Every untagged packager stays on this path. |
+| `External` | Logs a warning; the stage continues without an icon. |
+| `None` or absent | No icon is staged. |
 
 Whichever path produced it, the icon is recorded as `Icon` in `stage-manifest.json`, covered by the manifest file hashes, applied to the MECM application via `Set-CMApplication -IconLocationFile`, and sent as the Intune `win32LobApp` `largeIcon`. An icon is decoration: a failed extraction or a missing external file never fails a stage.
 
 ### The external icon pack
 
-`External` packagers read from `Packagers\Icons\`, which ships empty. The icons themselves live in a separate repository, [jasonulbright/app-packager-icons](https://github.com/jasonulbright/app-packager-icons), published as an `icon-pack.zip` release asset alongside a `checksums.txt`. Application icons are the property of their respective vendors; the pack is operator-contributed and this project commits no vendor artwork itself.
+Stage reads the pack from `Packagers\Icons\`, which ships empty. The icons themselves live in a separate repository, [jasonulbright/app-packager-icons](https://github.com/jasonulbright/app-packager-icons), published as an `icon-pack.zip` release asset alongside a `checksums.txt`. Application icons are the property of their respective vendors; the pack is operator-contributed and this project commits no vendor artwork itself.
 
 The pack carries a `manifest.json`:
 
