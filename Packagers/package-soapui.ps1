@@ -9,16 +9,16 @@ DownloadPageUrl: https://www.soapui.org/downloads/soapui/
 IconSource: Installer
 
 .SYNOPSIS
-    Packages SoapUI Open Source for MECM.
+    Packages SoapUI Open Source for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest SoapUI Open Source x64 setup EXE from the SmartBear
     CDN, stages content to a versioned local folder with file-existence
-    detection metadata, and creates an MECM Application.
+    detection metadata, and creates a ConfigMgr Application.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The installer is an install4j package. The -q flag runs a quiet install.
     SoapUI installs to a versioned directory (SmartBear\SoapUI-{VER}) so

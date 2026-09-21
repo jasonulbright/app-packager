@@ -3,7 +3,7 @@
     ModuleVersion     = '1.0.0'
     GUID              = 'd4e5f6a7-b8c9-0123-def4-567890123456'
     Author            = 'Jason Ulbright'
-    Description       = 'Vendor Version Monitor - compares MECM-packaged versions against vendor releases, with NVD CVE lookup.'
+    Description       = 'Vendor Version Monitor - compares ConfigMgr-packaged versions against vendor releases, with NVD CVE lookup.'
     PowerShellVersion = '5.1'
 
     FunctionsToExport = @(

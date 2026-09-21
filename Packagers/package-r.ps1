@@ -9,19 +9,19 @@ DownloadPageUrl: https://cran.r-project.org/bin/windows/base/
 IconSource: Installer
 
 .SYNOPSIS
-    Packages R for Windows (x64) for MECM.
+    Packages R for Windows (x64) for ConfigMgr.
 
 .DESCRIPTION
     Queries the r-hub versions API for the latest R release, downloads the
     64-bit EXE installer from CRAN, stages content to a versioned local folder
-    with file-existence detection metadata, and creates an MECM Application.
+    with file-existence detection metadata, and creates a ConfigMgr Application.
 
     R installs to a version-specific directory (C:\Program Files\R\R-X.Y.Z\),
     so detection targets the R.exe binary in that versioned path.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -40,11 +40,11 @@ IconSource: Installer
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -53,7 +53,7 @@ IconSource: Installer
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with file-based detection.
+    create ConfigMgr application with file-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available R version string and exits.
@@ -300,7 +300,7 @@ function Invoke-PackageR {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

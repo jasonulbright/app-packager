@@ -9,16 +9,16 @@ DownloadPageUrl: https://tortoisesvn.net/downloads.html
 IconSource: Installer
 
 .SYNOPSIS
-    Packages TortoiseSVN (x64) MSI for MECM.
+    Packages TortoiseSVN (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest TortoiseSVN x64 MSI from SourceForge, stages content
     to a versioned local folder with ARP detection metadata, and creates an
-    MECM Application with registry-based detection.
+    ConfigMgr Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The version and download URL are scraped from tortoisesvn.net/downloads.html.
     The MSI filename includes both the app version and a build number, plus the
@@ -51,7 +51,7 @@ IconSource: Installer
 
 .PARAMETER GetLatestVersionOnly
     Scrapes tortoisesvn.net for the latest version, outputs the version string,
-    and exits. No download or MECM changes are made.
+    and exits. No download or ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1
@@ -214,7 +214,7 @@ function Invoke-StageTortoiseSVN {
     # because MSI's version format can't hold 4 segments with a large build
     # number. The website/download URL carries the full 4-part version
     # ("1.14.9.29743") which is what GetLatestVersionOnly returns. Store the
-    # full URL-style version in SoftwareVersion so Check MECM matches Check
+    # full URL-style version in SoftwareVersion so Check ConfigMgr matches Check
     # Latest; ARP detection stays on the MSI's raw version because that's
     # what's actually written to the DisplayVersion registry value post-install.
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"

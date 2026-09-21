@@ -9,12 +9,12 @@ DownloadPageUrl: https://dotnet.microsoft.com/en-us/download/dotnet/10.0
 IconSource: None
 
 .SYNOPSIS
-    Packages ASP.NET 10 Server Hosting Bundle for MECM.
+    Packages ASP.NET 10 Server Hosting Bundle for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest .NET 10 ASP.NET Core Windows Server Hosting Bundle
     installer from the official Microsoft CDN, stages content to a versioned
-    local folder, and creates an MECM Application with file existence
+    local folder, and creates a ConfigMgr Application with file existence
     detection.
     Detection uses the versioned shared framework file that the runtime
     installs, because .NET 10 no longer writes a per-version ASP.NET Core
@@ -22,7 +22,7 @@ IconSource: None
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -41,11 +41,11 @@ IconSource: None
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -54,7 +54,7 @@ IconSource: None
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with file existence detection.
+    create ConfigMgr application with file existence detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available .NET 10 runtime version string and exits.
@@ -229,10 +229,9 @@ function Invoke-StageASPNETHostingBundle10 {
     if ($nextVersion) {
         Write-Log "Detection also accepts       : $nextVersion (successor patch)"
         $detection = @{
-            Type       = "Compound"
-            Connector  = "Or"
-            GroupSizes = @(1, 1)
-            Clauses    = @(
+            Type      = "Compound"
+            Connector = "Or"
+            Clauses   = @(
                 @{
                     Type         = "File"
                     FilePath     = $sharedFrameworkPath
@@ -323,7 +322,7 @@ function Invoke-PackageASPNETHostingBundle10 {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

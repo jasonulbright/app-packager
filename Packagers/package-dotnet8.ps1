@@ -9,13 +9,13 @@ DownloadPageUrl: https://dotnet.microsoft.com/en-us/download/dotnet/8.0
 IconSource: None
 
 .SYNOPSIS
-    Packages .NET 8 Windows Desktop Runtime (x86 and x64) for MECM.
+    Packages .NET 8 Windows Desktop Runtime (x86 and x64) for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest .NET 8 Windows Desktop Runtime installers for both
     x86 and x64 from the official Microsoft CDN, stages content to a versioned
     local folder with compound file-based detection metadata, and creates an
-    MECM Application with file-based detection.
+    ConfigMgr Application with file-based detection.
     Detection uses hostfxr.dll existence in the version-specific fxr path for
     both architectures, and also accepts the immediate successor patch:
     (x86-N AND x64-N) OR (x86-N+1 AND x64-N+1). An in-place upgrade to next
@@ -25,7 +25,7 @@ IconSource: None
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -44,11 +44,11 @@ IconSource: None
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -57,7 +57,7 @@ IconSource: None
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with compound file-based detection.
+    create ConfigMgr application with compound file-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available .NET 8 runtime version string and exits.
@@ -379,7 +379,7 @@ function Invoke-PackageDotNet8 {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

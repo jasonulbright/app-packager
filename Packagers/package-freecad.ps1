@@ -11,17 +11,17 @@ SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 90
 
 .SYNOPSIS
-    Packages FreeCAD (x64) for MECM.
+    Packages FreeCAD (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the latest stable FreeCAD release from the GitHub releases API,
     downloads the Windows x86_64 NSIS installer, stages content to a versioned
-    local folder with ARP detection metadata, and creates an MECM Application
+    local folder with ARP detection metadata, and creates a ConfigMgr Application
     with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive detection metadata, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -39,10 +39,10 @@ UpdateCadenceDays: 90
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type. Default: 20
+    Estimated runtime in minutes for the ConfigMgr deployment type. Default: 20
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type. Default: 45
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type. Default: 45
 
 .PARAMETER StageOnly
     Runs only the Stage phase.

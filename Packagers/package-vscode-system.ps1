@@ -10,12 +10,12 @@ IconSource: Installer
 UpdateCadenceDays: 14
 
 .SYNOPSIS
-    Packages Visual Studio Code x64 system installer for MECM.
+    Packages Visual Studio Code x64 system installer for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest stable VS Code x64 system installer from the official
     update.code.visualstudio.com endpoint, stages content to a versioned local
-    folder, and creates a machine-context MECM Application with file-version
+    folder, and creates a machine-context ConfigMgr Application with file-version
     detection under Program Files.
 
     This packager is intentionally separate from the user installer package.

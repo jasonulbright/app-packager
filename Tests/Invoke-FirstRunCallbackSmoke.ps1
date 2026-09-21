@@ -107,7 +107,7 @@ function Test-WizardCallback {
         $saved = $script:SavedJson | ConvertFrom-Json
         Assert-True $saved.FirstRunCompleted 'Saved preferences did not suppress setup.'
         Assert-True ($saved.Intune.DeploymentTarget -eq $Target) 'Deployment target was not saved.'
-        if ($Target -ne 'IntuneOnly') { Assert-True ($saved.SiteCode -eq 'TEST') 'MECM fields were not trimmed and saved.' }
+        if ($Target -ne 'IntuneOnly') { Assert-True ($saved.SiteCode -eq 'TEST') 'ConfigMgr fields were not trimmed and saved.' }
         if ($Target -ne 'MECM') { Assert-True ($saved.Intune.TenantId -eq 'tenant' -and $saved.Intune.PublishToIntune) 'Intune fields were not saved.' }
     } else {
         Assert-True ($script:SaveCount -eq [int]$Suppress) 'Skip/close suppression was not persisted correctly.'

@@ -9,16 +9,16 @@ DownloadPageUrl: https://www.audacityteam.org/download/
 IconSource: Installer
 
 .SYNOPSIS
-    Packages Audacity (x64) for MECM.
+    Packages Audacity (x64) for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest Audacity x64 MSI from GitHub releases, stages content
     to a versioned local folder with ARP ProductCode detection metadata read
-    from the MSI Property table, and creates an MECM Application.
+    from the MSI Property table, and creates a ConfigMgr Application.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     Audacity 4.0 moved from an Inno Setup EXE to an MSI (audacity-win-<ver>-x86_64.msi).
     GitHub release tags use the Audacity- prefix (e.g. Audacity-4.0.0).

@@ -11,12 +11,12 @@ UpdateCadenceDays: 30
 
 .DESCRIPTION
     Intunewin is an encrypted-ZIP wrapper Microsoft ships via
-    IntuneWinAppUtil.exe. The app-packager context is MECM-first, so
+    IntuneWinAppUtil.exe. The app-packager context is ConfigMgr-first, so
     this framework's default strategy is:
 
       1. Receive the vendor's native installer (MSI / EXE).
       2. Repackage to .intunewin only if the operator actually wants
-         Intune deployment (rare; app-packager is MECM).
+         Intune deployment (rare; app-packager is ConfigMgr).
       3. Or: if the input IS an .intunewin from upstream, peel it
          back to the inner MSI / EXE and delegate to the existing
          MSI or EXE packager pattern.

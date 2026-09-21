@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](#prerequisites)
 [![License](https://img.shields.io/github/license/jasonulbright/app-packager)](LICENSE)
 
-Automated application packaging for MECM and Intune: 292 enterprise applications, each one click from vendor download to deployed app. AppPackager checks the vendor for the latest version, downloads and verifies the installer, generates silent install/uninstall wrappers and detection rules, and creates the MECM Application — or builds the `.intunewin` and publishes it to Intune via Graph, no ConfigMgr site required. Drag any unknown `.msi`/`.exe` onto the window and it analyzes and packages that too. A companion version monitor flags stale deployments and looks up their CVEs. Built entirely in PowerShell 5.1 — the version that ships in the box on every supported Windows release, oldest to newest. Nothing to install, no add-ons, no agents, no subscription.
+Automated application packaging for Microsoft Configuration Manager (ConfigMgr) and Intune: 292 enterprise applications, each one click from vendor download to deployed app. AppPackager checks the vendor for the latest version, downloads and verifies the installer, generates silent install/uninstall wrappers and detection rules, and creates the ConfigMgr Application — or builds the `.intunewin` and publishes it to Intune via Graph, no ConfigMgr site required. Drag any unknown `.msi`/`.exe` onto the window and it analyzes and packages that too. A companion version monitor flags stale deployments and looks up their CVEs. Built entirely in PowerShell 5.1 — the version that ships in the box on every supported Windows release, oldest to newest. Nothing to install, no add-ons, no agents, no subscription.
 
 This is the class of work commercial third-party patching catalogs sell as a subscription. AppPackager covers a comparable application set — the coverage decision for each of 933 reviewed catalog entries is documented in [CATALOG-PARITY.csv](CATALOG-PARITY.csv) — runs entirely inside your environment, and is MIT-licensed.
 
@@ -28,7 +28,7 @@ Installs the latest release into `%LOCALAPPDATA%\AppPackager`. Only a zip crosse
 On an unrestricted network, the installer can do the whole flow itself — resolve the release from the GitHub API, download, verify SHA-256, extract:
 
 ```powershell
-curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.09.18.0090
+curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.09.21.0091
 ```
 
 Omitting `-ZipPath` makes it download and checksum-verify the requested release; `-InstallPath` picks the folder and `-Version` pins a release. `-Force` is required to replace a non-empty folder that holds no existing AppPackager install. If even the curl download is blocked, fetch the zip in a browser and run the same `-ZipPath` command against it.
@@ -45,11 +45,11 @@ The GUI checks for updates itself: once per day, in the background, at launch. W
 
 Each packager script operates in two phases:
 
-**Stage** — Downloads the latest installer from the vendor's official source, extracts metadata (version, publisher, detection info), generates install/uninstall wrapper scripts, and writes a `stage-manifest.json`. Everything is built locally under a configurable download root. No network share or MECM required.
+**Stage** — Downloads the latest installer from the vendor's official source, extracts metadata (version, publisher, detection info), generates install/uninstall wrapper scripts, and writes a `stage-manifest.json`. Everything is built locally under a configurable download root. No network share or ConfigMgr site required.
 
-**Package** — Reads the stage manifest, copies the content folder to a versioned UNC network share, and creates an MECM Application with the appropriate deployment type and detection method. Depending on the configured Deployment Target, a Package run can also (or instead) build a `.intunewin` from the staged content and publish it to Intune as a Win32 app via Microsoft Graph — in Intune-only mode no site connection, file share, or ConfigMgr console is involved at all.
+**Package** — Reads the stage manifest, copies the content folder to a versioned UNC network share, and creates a ConfigMgr Application with the appropriate deployment type and detection method. Depending on the configured Deployment Target, a Package run can also (or instead) build a `.intunewin` from the staged content and publish it to Intune as a Win32 app via Microsoft Graph — in Intune-only mode no site connection, file share, or ConfigMgr console is involved at all.
 
-The GUI (`start-apppackager.ps1`) provides a visual front-end that discovers packager scripts automatically, lets you check latest versions, query MECM for current versions, and stage or package selected applications.
+The GUI (`start-apppackager.ps1`) provides a visual front-end that discovers packager scripts automatically, lets you check latest versions, query ConfigMgr for current versions, and stage or package selected applications.
 
 **Drop to package** — Drag an `.msi` or `.exe` installer onto the window (or use the sidebar **Add Installer...** button — a drag from Explorer is silently blocked when the two processes run at different elevation levels) and the app analyzes it (engine detection, MSI property tables, silent-switch prediction), opens an editable manifest preview, and stages or packages it through the same manifest pipeline the packager scripts use. MSI identity is authoritative; for other installers the predicted values must be explicitly confirmed before Stage + Package enables. A dropped installer that turns out to be a recurring need can be saved as a starter packager script generated from the matching template, with identity, folders, and filename pre-filled and the download source left as the one remaining TODO.
 
@@ -71,9 +71,9 @@ For an NSIS installer the analysis reads the compiled script inside the file rat
 | **PowerShell** | 5.1 (ships with Windows) |
 | **.NET Framework** | 4.7.2 or later (4.8 recommended; required by WPF GUI and MahApps.Metro) |
 | **ConfigMgr Console** | Installed locally — provides `ConfigurationManager.psd1` (Package phase only) |
-| **MECM Permissions** | RBAC rights to create Applications and Deployment Types (Package phase only) |
+| **ConfigMgr Permissions** | RBAC rights to create Applications and Deployment Types (Package phase only) |
 | **Local Admin** | Required for packager script execution |
-| **7-Zip CLI** | Required by Adobe Reader for installer extraction. Detected at launch and shown in MECM Preferences; the detected `7z.exe` path is forwarded automatically to packagers, including non-default install locations. |
+| **7-Zip CLI** | Required by Adobe Reader for installer extraction. Detected at launch and shown in ConfigMgr Preferences; the detected `7z.exe` path is forwarded automatically to packagers, including non-default install locations. |
 | **Network Share** | Write access to the SCCM content share, e.g., `\\fileserver\sccm$` (Package phase only) |
 
 ## Usage
@@ -92,19 +92,19 @@ Or with custom parameters:
 .\start-apppackager.ps1 -SiteCode "MCM" -PackagersRoot "D:\CM\Packagers"
 ```
 
-**No network or MECM actions occur on launch.** The GUI loads packager scripts locally (pre-populating the Latest and Last Checked columns from any persistent history) and waits for you to act.
+**No network or ConfigMgr actions occur on launch.** The GUI loads packager scripts locally (pre-populating the Latest and Last Checked columns from any persistent history) and waits for you to act.
 
-**First-run setup** — on a machine with no `AppPackager.preferences.json` yet, a themed Setup window opens over the main window once the grid has loaded. It asks for the environment first (MECM only, MECM + Intune, or Intune only) and then shows only the settings that choice needs: Site Code, Provider Machine, File Share Root, and Download Root for MECM targets, Tenant ID, Client ID, and Client Secret for Intune targets. Saving writes the same preference keys the Options window writes — the client secret DPAPI-protected for the current Windows user, an empty secret box keeping any saved one — and the main window picks the settings up without a restart. A "Don't show this again" checkbox lets you dismiss the wizard permanently without configuring anything; skipping or closing it without that box ticked brings it back on the next launch. Existing installs are unaffected: a preferences file from an earlier version counts as already set up.
+**First-run setup** — on a machine with no `AppPackager.preferences.json` yet, a themed Setup window opens over the main window once the grid has loaded. It asks for the environment first (ConfigMgr only, ConfigMgr + Intune, or Intune only) and then shows only the settings that choice needs: Site Code, Provider Machine, File Share Root, and Download Root for ConfigMgr targets, Tenant ID, Client ID, and Client Secret for Intune targets. Saving writes the same preference keys the Options window writes — the client secret DPAPI-protected for the current Windows user, an empty secret box keeping any saved one — and the main window picks the settings up without a restart. A "Don't show this again" checkbox lets you dismiss the wizard permanently without configuring anything; skipping or closing it without that box ticked brings it back on the next launch. Existing installs are unaffected: a preferences file from an earlier version counts as already set up.
 
 The sidebar has five workflow actions at the top, an **Add Installer...** button that feeds the drop-to-package intake, a single **Options** button below them, a sidebar comment field, and Debug Columns / theme toggles plus the installed version at the bottom:
 
-- **One Click** — iterates the apps you've marked as tracked in One Click Settings and runs Check Latest → Stage → Package per the action you've chosen. Cadence gating throttles Report-only runs; Stage and Stage-and-Package always run. Before staging, a MECM pre-flight query skips any tracked app whose version is already in MECM, avoiding wasted downloads. Multi-app loops (Check Latest, Stage, Package, One Click) run on a background STA runspace with an animated progress overlay so the window stays responsive instead of freezing during long downloads / extracts / MECM round-trips
+- **One Click** — iterates the apps you've marked as tracked in One Click Settings and runs Check Latest → Stage → Package per the action you've chosen. Cadence gating throttles Report-only runs; Stage and Stage-and-Package always run. Before staging, a ConfigMgr pre-flight query skips any tracked app whose version is already in ConfigMgr, avoiding wasted downloads. Multi-app loops (Check Latest, Stage, Package, One Click) run on a background STA runspace with an animated progress overlay so the window stays responsive instead of freezing during long downloads / extracts / ConfigMgr round-trips
 - **Check Latest** — queries vendor sources for the latest version of selected applications
-- **Check MECM** — queries your ConfigMgr site for the currently deployed version
+- **Check ConfigMgr** — queries your ConfigMgr site for the currently deployed version
 - **Stage Packages** — downloads installers, extracts metadata, generates wrappers and manifests locally
-- **Package Apps** — reads manifests, copies content to network share, creates MECM applications
+- **Package Apps** — reads manifests, copies content to network share, creates ConfigMgr applications
 
-The sidebar adapts to the Deployment Target set in MECM Preferences: with **Intune only**, Check MECM is disabled with a tooltip explaining why and Package Apps reads **Publish Apps**.
+The sidebar adapts to the Deployment Target set in ConfigMgr Preferences: with **Intune only**, Check ConfigMgr is disabled with a tooltip explaining why and Package Apps reads **Publish Apps**.
 
 All five actions share the same persistent history file at `%LOCALAPPDATA%\AppPackager\app-history.json`, so Latest Version and Last Checked survive across sessions.
 
@@ -114,17 +114,17 @@ Clicking **Options** opens a unified settings window with a left-nav list and a 
 
 ![Options window](screenshots/options-mecm.png)
 
-**MECM Preferences** — Site Code, Provider Machine, File Share Root, Content Layout, Download Root, estimated/maximum deployment runtime, an Auto-distribute-to-DP checkbox + DP Group Name, a test-deployment group (Deploy to test collection, Test collection name, Create collection if it does not exist), and a "Create .intunewin during Package" option. Content Layout selects the share folder shape for packaged content: **Nested** (`Applications\Vendor\App\Version`, the default — an app's versions sit adjacent, so retention pruning is deleting old version folders in place) or **Flat** (`Applications\Vendor-App-Version`, one folder per package, for org conventions that mandate it). It applies to future Package runs; existing content stays where it is, so pick one and stay with it — mixing layouts splits content across two trees. Provider Machine is the `$ProviderMachineName` value from the ConfigMgr AdminUI-generated connect script. The bottom of the panel shows detected-tools status: ConfigMgr Console (name, version, install path in tooltip), 7-Zip CLI (display name, version, exe path), GitHub API (Authenticated with the token source and remaining hourly quota, or Anonymous at 60 requests/hour; see [Vendor Version Monitor](#vendor-version-monitor)), Content Prep (IntuneWinAppUtil.exe version and path, with a Download button when missing), and Icon Pack (installed pack version and icon count, with a Download packager icon pack button — see [Application Icons](#application-icons)). Each row shows a checkmark + version when found or an `X` + guidance when missing.
+**ConfigMgr Preferences** — Site Code, Provider Machine, File Share Root, Content Layout, Download Root, estimated/maximum deployment runtime, an Auto-distribute-to-DP checkbox + DP Group Name, a test-deployment group (Deploy to test collection, Test collection name, Create collection if it does not exist), and a "Create .intunewin during Package" option. Content Layout selects the share folder shape for packaged content: **Nested** (`Applications\Vendor\App\Version`, the default — an app's versions sit adjacent, so retention pruning is deleting old version folders in place) or **Flat** (`Applications\Vendor-App-Version`, one folder per package, for org conventions that mandate it). It applies to future Package runs; existing content stays where it is, so pick one and stay with it — mixing layouts splits content across two trees. Provider Machine is the `$ProviderMachineName` value from the ConfigMgr AdminUI-generated connect script. The bottom of the panel shows detected-tools status: ConfigMgr Console (name, version, install path in tooltip), 7-Zip CLI (display name, version, exe path), GitHub API (Authenticated with the token source and remaining hourly quota, or Anonymous at 60 requests/hour; see [Vendor Version Monitor](#vendor-version-monitor)), Content Prep (IntuneWinAppUtil.exe version and path, with a Download button when missing), and Icon Pack (installed pack version and icon count, with a Download packager icon pack button — see [Application Icons](#application-icons)). Each row shows a checkmark + version when found or an `X` + guidance when missing.
 
-When Auto-distribute is enabled and DP Group Name is populated, every Package phase (manual or One Click) calls `Start-CMContentDistribution -ApplicationName <app> -DistributionPointGroupName <group>` after creating the MECM Application. "Already been targeted" is silently treated as success so re-packaging is idempotent.
+When Auto-distribute is enabled and DP Group Name is populated, every Package phase (manual or One Click) calls `Start-CMContentDistribution -ApplicationName <app> -DistributionPointGroupName <group>` after creating the ConfigMgr Application. "Already been targeted" is silently treated as success so re-packaging is idempotent.
 
 The test-deployment controls unlock only when Auto-distribute is on and a DP Group is set (the gating lives in the GUI — without content on a DP a test deployment could never install). When enabled with a collection name, the Package phase follows content distribution with `New-CMApplicationDeployment -Name <app> -CollectionName <collection> -DeployAction Install -DeployPurpose Available -AvailableDateTime (Get-Date)` — Available, immediately, default options. With "Create collection if it does not exist" checked, a missing collection is created as an empty direct-membership device collection limited to All Systems; otherwise a missing collection logs a warning and the deployment is skipped. An already-existing deployment is treated as success so re-packaging stays idempotent.
 
-**Deployment Target** selects where a Package run lands: **MECM only** (the default flow above), **MECM + Intune** (the MECM Application plus a Graph publish of the same content), or **Intune only** (Stage, build `.intunewin`, publish via Graph — no site connection, no file share, no console requirement; MECM-specific features like deployment conditions, variant splits, auto-distribute, and test deployment do not apply). Intune publishing needs an Entra app registration with `DeviceManagementApps.ReadWrite.All`; Tenant ID, Client ID, and Client Secret live in MECM Preferences with the secret DPAPI-protected for the current Windows user. Repeat publishes update the existing Intune app (new content version on the same identity) instead of creating duplicates; detection rules are mapped from the stage manifest, and assignment stays with the operator in the Intune console.
+**Deployment Target** selects where a Package run lands: **ConfigMgr only** (the default flow above), **ConfigMgr + Intune** (the ConfigMgr Application plus a Graph publish of the same content), or **Intune only** (Stage, build `.intunewin`, publish via Graph — no site connection, no file share, no console requirement; ConfigMgr-specific features like deployment conditions, variant splits, auto-distribute, and test deployment do not apply). Intune publishing needs an Entra app registration with `DeviceManagementApps.ReadWrite.All`; Tenant ID, Client ID, and Client Secret live in ConfigMgr Preferences with the secret DPAPI-protected for the current Windows user. Repeat publishes update the existing Intune app (new content version on the same identity) instead of creating duplicates; detection rules are mapped from the stage manifest, and assignment stays with the operator in the Intune console.
 
-With "Create .intunewin during Package" enabled, a successful Package run also produces `<app>-<version>.intunewin` from the staged content (setup reference: `install.bat`) and stores it beside the network content version folder, with a copy beside the local staged version folder. The artifact is written beside the version folders, never inside them, so stage hash verification is unaffected. Prep failures log a warning and never fail the package run — the MECM application is already created by the time the post-step executes. The option unlocks once IntuneWinAppUtil.exe is detected: the Content Prep row checks the stored preferences path, `%LOCALAPPDATA%\AppPackager\Tools`, and PATH once per launch, and its Download button fetches the Microsoft Win32 Content Prep Tool from Microsoft's repository, keeping the file only after its Authenticode signature verifies as Valid and Microsoft-signed. The tool is never redistributed with AppPackager.
+With "Create .intunewin during Package" enabled, a successful Package run also produces `<app>-<version>.intunewin` from the staged content (setup reference: `install.bat`) and stores it beside the network content version folder, with a copy beside the local staged version folder. The artifact is written beside the version folders, never inside them, so stage hash verification is unaffected. Prep failures log a warning and never fail the package run — the ConfigMgr application is already created by the time the post-step executes. The option unlocks once IntuneWinAppUtil.exe is detected: the Content Prep row checks the stored preferences path, `%LOCALAPPDATA%\AppPackager\Tools`, and PATH once per launch, and its Download button fetches the Microsoft Win32 Content Prep Tool from Microsoft's repository, keeping the file only after its Authenticode signature verifies as Valid and Microsoft-signed. The tool is never redistributed with AppPackager.
 
-ConfigMgr Console detection runs once per launch. It scans the registry ARP entries for "Configuration Manager Console", then falls back to `$env:SMS_ADMIN_UI_PATH` and known install paths to locate `ConfigurationManager.psd1`. Check MECM, Package Apps, and One Click with Stage-and-Package create the missing `CMSite` PSDrive with `New-PSDrive -PSProvider CMSite -Root <Provider Machine>`, matching the AdminUI connect prompt, then show a themed "Console Required" warning and bail when the module can't be found on the workstation.
+ConfigMgr Console detection runs once per launch. It scans the registry ARP entries for "Configuration Manager Console", then falls back to `$env:SMS_ADMIN_UI_PATH` and known install paths to locate `ConfigurationManager.psd1`. Check ConfigMgr, Package Apps, and One Click with Stage-and-Package create the missing `CMSite` PSDrive with `New-PSDrive -PSProvider CMSite -Root <Provider Machine>`, matching the AdminUI connect prompt, then show a themed "Console Required" warning and bail when the module can't be found on the workstation.
 
 **Packager Preferences** — grouped settings that packagers read at Stage time:
 
@@ -148,7 +148,7 @@ CWA switches persist to `Packagers/citrix-workspace-switches.json`; TeamViewer H
 
 **One Click Settings** — configures the **One Click** sidebar button. Pick which packagers the tracked set includes (checkbox column), choose the action (Report only / Stage / Stage and Package), toggle Force on launch (bypasses cadence), and set per-app cadence overrides in the grid. Tracked apps and their settings persist to `AppPackager.preferences.json`. Default cadence for each packager is read from its `UpdateCadenceDays:` header tag (falling back to 7 days); per-app overrides in this dialog take precedence.
 
-**Product Filter** — show or hide individual packager scripts in the main grid, grouped by vendor in a checkbox TreeView with Select All / Select None helpers. Hidden applications persist to `AppPackager.preferences.json`. On the first Check MECM run, the tool offers to auto-hide applications not found in your MECM environment.
+**Product Filter** — show or hide individual packager scripts in the main grid, grouped by vendor in a checkbox TreeView with Select All / Select None helpers. Hidden applications persist to `AppPackager.preferences.json`. On the first Check ConfigMgr run, the tool offers to auto-hide applications not found in your ConfigMgr environment.
 
 **Deployment Conditions** — requirement rules are optional and off for every application until you add one in the [Application Workbench](#application-workbench) under Requirements & variants. The client evaluates them at deployment evaluation time, so no collections are involved. Three site conditions ship, matched by name so a condition your site already has is reused; their names and the VPN adapter patterns are edited in that same section and persist to `Packagers/condition-templates.json`:
 
@@ -156,7 +156,7 @@ CWA switches persist to `Packagers/citrix-workspace-switches.json`; TeamViewer H
 - **OS languages** — comma-separated culture codes (e.g. `de-DE, en-US`) mapped onto the site's built-in Operating System Language condition with a OneOf rule. Useful when a packaged build is single-language and MUI or English builds are deployed separately.
 - **Network** — `Any` / `VPN only` / `On-site only`, backed by a Boolean script global condition that reports whether an IP-enabled adapter description matches a configurable VPN client pattern list (or an interface alias contains `vpn`). `VPN only` suits a small CDN-sourced deployment that should avoid pulling large content over the tunnel; `On-site only` suits its full-content counterpart.
 
-Before copying content or changing MECM, Package and One Click Stage-and-Package check the exact application title and ask **Overwrite**, **Skip**, or **Cancel run** if it already exists, even at a different version. Overwrite replaces deployment types while keeping the application and its deployments. Skip leaves it unchanged; Cancel stops the remaining run. **Do this for all remaining conflicts** applies only to the current run.
+Before copying content or changing ConfigMgr, Package and One Click Stage-and-Package check the exact application title and ask **Overwrite**, **Skip**, or **Cancel run** if it already exists, even at a different version. Overwrite replaces deployment types while keeping the application and its deployments. Skip leaves it unchanged; Cancel stops the remaining run. **Do this for all remaining conflicts** applies only to the current run.
 
 **Script Signing** — Authenticode signing for the scripts AppPackager stages.
 
@@ -179,7 +179,7 @@ Fine-tune any packager without editing its script. Open it from the sidebar, or 
 - Install & uninstall: keep the generated command, add before/after scripts, or replace it with your own.
 - Detection, requirements, variant overrides, runtime, install context, icon and extra source files.
 - Changes save to a named profile per application. **Save** updates the active profile, **Save as** copies it, `default` is the packager as shipped.
-- The review pane lists MECM and Intune findings before you build; Stage and Package run from the window.
+- The review pane lists ConfigMgr and Intune findings before you build; Stage and Package run from the window.
 - Profiles live under `%LOCALAPPDATA%\AppPackagerData\Workbench`, outside the install folder, so updates never touch them.
 - One Click rebuilds an application when its vendor version, profile or signing policy changed.
 - The same build runs from the command line through `Invoke-AppPackagerBuild.ps1`, see [Command Line](#command-line).
@@ -188,7 +188,7 @@ Fine-tune any packager without editing its script. Open it from the sidebar, or 
 
 **Install & uninstall** — the install and uninstall command lines the deployment type will carry, against the shipped defaults with a per-field reset. Overrides reach the packager as `APP_PACKAGER_COMMANDS`, are recorded in the stage manifest, and an explicit override always beats the manifest's generated command.
 
-**Application title** — **Packager default**, **Include version** (separate applications per release), or **No version** (one perpetual application, useful for browsers). **Options > MECM Preferences > Include version in application name** sets the default for every application; a per-application choice here overrides it. Versionless updates still ask before overwriting. Content folders and detection remain versioned. Changing the setting does not rename or migrate existing applications or deployments; choose the naming before establishing a perpetual deployment.
+**Application title** — **Packager default**, **Include version** (separate applications per release), or **No version** (one perpetual application, useful for browsers). **Options > ConfigMgr Preferences > Include version in application name** sets the default for every application; a per-application choice here overrides it. Versionless updates still ask before overwriting. Content folders and detection remain versioned. Changing the setting does not rename or migrate existing applications or deployments; choose the naming before establishing a perpetual deployment.
 
 Global conditions are created on the site the first time a rule needs them. A signed or changed script condition gets its own name carrying a short content hash, so an existing condition is never rewritten under another application's feet. Requirement resolution fails the run before anything is created when a rule can't be built — a package never silently ships without the rules configured for it.
 
@@ -216,13 +216,13 @@ Run a packager script directly:
 # Stage only — download, extract metadata, generate wrappers + manifest
 .\Packagers\package-chrome.ps1 -StageOnly
 
-# Package only — read manifest, copy to network, create MECM app
+# Package only — read manifest, copy to network, create ConfigMgr app
 .\Packagers\package-chrome.ps1 -PackageOnly -SiteCode "MCM" -Comment "Initial deployment" -FileServerPath "\\fileserver\sccm$"
 
 # Both phases in sequence (original behavior)
 .\Packagers\package-chrome.ps1 -SiteCode "MCM" -Comment "Initial deployment" -FileServerPath "\\fileserver\sccm$"
 
-# Check the latest available version without downloading or creating an MECM application
+# Check the latest available version without downloading or creating a ConfigMgr application
 .\Packagers\package-chrome.ps1 -GetLatestVersionOnly
 ```
 
@@ -246,7 +246,7 @@ Or drive one application through a workbench profile without the GUI:
 | `-DownloadRoot` | Local staging root; a non-default profile stages under its own subfolder |
 | `-EstimatedMinutes` / `-MaximumMinutes` | Run overrides for this build; never written back to the profile |
 | `-PackagersRoot` / `-LogFolder` | Locations, defaulting beside the script |
-| `-SiteCode` / `-ProviderMachineName` / `-FileServerPath` | MECM connection and share, as the packagers take them |
+| `-SiteCode` / `-ProviderMachineName` / `-FileServerPath` | ConfigMgr connection and share, as the packagers take them |
 | `-Comment` | Administrative comment stored on the application |
 
 It creates the run snapshot, sets the child environment and launches the packager exactly as the GUI does, so a scheduled build and a button click produce the same content. A `custom:` script lives under `<workbench data root>\scripts`, outside the install folder, and must import `AppPackagerCommon.psd1` by its full path; it builds from the command line only, since the main grid lists the `Packagers` folder.
@@ -269,8 +269,8 @@ All packager scripts accept the same core parameters:
 | `-Comment` | Optional administrative comment stored on the CM Application Description |
 | `-FileServerPath` | UNC root containing the `Applications` folder (default: `\\fileserver\sccm$`) |
 | `-DownloadRoot` | Local root folder for staging (default: `C:\temp\ap`) |
-| `-EstimatedRuntimeMins` | MECM deployment type estimated runtime (default: `15`) |
-| `-MaximumRuntimeMins` | MECM deployment type maximum runtime (default: `30`) |
+| `-EstimatedRuntimeMins` | ConfigMgr deployment type estimated runtime (default: `15`) |
+| `-MaximumRuntimeMins` | ConfigMgr deployment type maximum runtime (default: `30`) |
 | `-StageOnly` | Run only the Stage phase |
 | `-PackageOnly` | Run only the Package phase |
 | `-GetLatestVersionOnly` | Output the latest version string and exit |
@@ -279,9 +279,9 @@ All packager scripts accept the same core parameters:
 
 ## Supported Applications (292)
 
-All 292 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same MECM Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op.
+All 292 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same ConfigMgr Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op.
 
-The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting every viable entry from a 933-application enterprise catalog review. [CATALOG-PARITY.csv](CATALOG-PARITY.csv) records the disposition and reasoning for all 933 entries — what was added, what was already covered, and why each skipped application was skipped (licensed suites, managed agents, end-of-life products, download walls, component libraries, and niche tools, each with evidence). Every packager is verified at stage level with installer magic-byte checks before content is accepted; a core set is additionally end-to-end validated against a live MECM site.
+The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting every viable entry from a 933-application enterprise catalog review. [CATALOG-PARITY.csv](CATALOG-PARITY.csv) records the disposition and reasoning for all 933 entries — what was added, what was already covered, and why each skipped application was skipped (licensed suites, managed agents, end-of-life products, download walls, component libraries, and niche tools, each with evidence). Every packager is verified at stage level with installer magic-byte checks before content is accepted; a core set is additionally end-to-end validated against a live ConfigMgr site.
 
 | Script | Vendor | Application | Detection Type |
 |---|---|---|---|
@@ -580,13 +580,13 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 
 ## Vendor Version Monitor
 
-The Version Monitor is a headless companion tool that compares MECM-deployed application versions against the latest vendor releases, flags stale packages, and optionally queries the NIST NVD for known CVEs. It produces a self-contained HTML report.
+The Version Monitor is a headless companion tool that compares ConfigMgr-deployed application versions against the latest vendor releases, flags stale packages, and optionally queries the NIST NVD for known CVEs. It produces a self-contained HTML report.
 
 ```powershell
-# Full run: MECM + vendor checks + NVD CVE lookups
+# Full run: ConfigMgr + vendor checks + NVD CVE lookups
 .\VersionMonitor\Start-VersionMonitor.ps1
 
-# Vendor version checks only (no MECM or NVD dependency)
+# Vendor version checks only (no ConfigMgr or NVD dependency)
 .\VersionMonitor\Start-VersionMonitor.ps1 -SkipMECM -SkipNVD
 
 # Simulate stale versions for testing report rendering and CVE lookups
@@ -599,12 +599,12 @@ The monitor discovers all `package-*.ps1` scripts in the sibling `Packagers/` fo
 |---|---|
 | **Packager discovery** | Auto-discovers every `package-*.ps1` script (292 today) via relative path |
 | **Version checking** | Calls each packager with `-GetLatestVersionOnly` |
-| **MECM comparison** | Queries ConfigMgr for deployed versions |
+| **ConfigMgr comparison** | Queries ConfigMgr for deployed versions |
 | **NVD CVE lookup** | Queries NIST NVD API for stale apps with CPE headers |
 | **Rate limiting** | Sliding-window rate limiter with configurable limits |
 | **NVD caching** | JSON cache with configurable TTL (default 6 hours) |
 | **HTML report** | Self-contained report with status badges, CVE pills, CVSS scores |
-| **Simulation mode** | Override MECM versions via `simulate-overrides.json` for testing |
+| **Simulation mode** | Override ConfigMgr versions via `simulate-overrides.json` for testing |
 | **Notifications** | Drop folder copy and webhook stub (extensible) |
 | **Log/report cleanup** | Configurable retention for old logs and reports |
 
@@ -655,7 +655,7 @@ An application icon makes a packaged app recognizable in Software Center and the
 | `External` | Logs a warning; the stage continues without an icon. |
 | `None` or absent | No icon is staged. |
 
-Whichever path produced it, the icon is recorded as `Icon` in `stage-manifest.json`, covered by the manifest file hashes, applied to the MECM application via `Set-CMApplication -IconLocationFile`, and sent as the Intune `win32LobApp` `largeIcon`. An icon is decoration: a failed extraction or a missing external file never fails a stage.
+Whichever path produced it, the icon is recorded as `Icon` in `stage-manifest.json`, covered by the manifest file hashes, applied to the ConfigMgr application via `Set-CMApplication -IconLocationFile`, and sent as the Intune `win32LobApp` `largeIcon`. An icon is decoration: a failed extraction or a missing external file never fails a stage.
 
 ### The external icon pack
 
@@ -671,7 +671,7 @@ The pack carries a `manifest.json`:
 
 ### Downloading the pack
 
-Options → MECM Preferences carries an **Icon Pack** row beside the other detected-tool rows: a status line reading the installed `Packagers\Icons\manifest.json` for the pack version and icon count, a **Download packager icon pack** button, and an **Install from file...** button for hosts whose proxy or SSL inspection blocks the release download — browse to a local or UNC `icon-pack.zip`; a `checksums.txt` beside it is verified when present, and without one the install proceeds with an unverified note in the status line.
+Options → ConfigMgr Preferences carries an **Icon Pack** row beside the other detected-tool rows: a status line reading the installed `Packagers\Icons\manifest.json` for the pack version and icon count, a **Download packager icon pack** button, and an **Install from file...** button for hosts whose proxy or SSL inspection blocks the release download — browse to a local or UNC `icon-pack.zip`; a `checksums.txt` beside it is verified when present, and without one the install proceeds with an unverified note in the status line.
 
 The button resolves the icons repository's latest release through the GitHub API, downloads `icon-pack.zip` and `checksums.txt` to a scratch folder, verifies the zip's SHA-256 against the checksum file, and extracts it into `Packagers\Icons\`. Nothing is extracted when the hash does not match. The download and extract go through `Invoke-WebRequest` and `Expand-Archive` into a scratch folder, so no extracted file carries the Mark-of-the-Web; hosts whose proxy blocks that download use the **Install from file...** button.
 
@@ -725,13 +725,13 @@ exit /b %ERRORLEVEL%
 
 With **Sign install/uninstall PowerShell scripts** enabled the launcher drops the execution-policy argument (`PowerShell.exe -NoProfile -NonInteractive -File "%~dp0install.ps1"`) and the `.ps1` files carry an Authenticode signature, so the client's effective execution policy governs.
 
-The `.ps1` files contain the actual install/uninstall logic using `Start-Process -Wait -PassThru -NoNewWindow` and `exit $proc.ExitCode` to propagate native installer return codes (0, 1603, 3010, etc.) through to MECM.
+The `.ps1` files contain the actual install/uninstall logic using `Start-Process -Wait -PassThru -NoNewWindow` and `exit $proc.ExitCode` to propagate native installer return codes (0, 1603, 3010, etc.) through to ConfigMgr.
 
-**Why `.bat` wrappers?** One consistent launch path for every installer type: `@echo off` keeps the console quiet, the wrapper hands off to the `.ps1` that holds the real logic, and `exit /b %ERRORLEVEL%` propagates the native return code (0, 1603, 3010) unchanged to MECM.
+**Why `.bat` wrappers?** One consistent launch path for every installer type: `@echo off` keeps the console quiet, the wrapper hands off to the `.ps1` that holds the real logic, and `exit /b %ERRORLEVEL%` propagates the native return code (0, 1603, 3010) unchanged to ConfigMgr.
 
 ### Stage manifest (`stage-manifest.json`)
 
-Written by the Stage phase, read by the Package phase. Contains all metadata needed to create the MECM application without re-downloading or re-parsing the installer:
+Written by the Stage phase, read by the Package phase. Contains all metadata needed to create the ConfigMgr application without re-downloading or re-parsing the installer:
 
 ```json
 {
@@ -770,14 +770,14 @@ Manifests are written at schema 4. The Package phase reads schema 3 and 4 and re
 | `Timing` | Estimated and maximum runtime carried into the deployment type; the manifest wins over the command-line defaults |
 | `Execution` | Install context, logon requirement, user interaction, script host bitness |
 | `DetectionSource` | `Default` for the packager's rule, `Custom` for a profile rule |
-| `InstallCommandLine` / `UninstallCommandLine` | The deployment type's command lines (default: the generated `install.bat` / `uninstall.bat`) — this is how PSADT-wrapped apps point MECM at the toolkit entry instead of the wrappers |
+| `InstallCommandLine` / `UninstallCommandLine` | The deployment type's command lines (default: the generated `install.bat` / `uninstall.bat`) — this is how PSADT-wrapped apps point ConfigMgr at the toolkit entry instead of the wrappers |
 | `SetupFile` | Setup entry inside the content, used when publishing to Intune |
 | `ScriptSigning` | Per-category signing outcome: status, thumbprint, hash, timestamp, and the files covered |
 | `PlanDigest` | Hash of everything in the manifest except the file hashes and the timestamp, so two builds of the same plan are comparable |
 
 ### PSADT-wrapped applications
 
-`Packagers/Templates/package-psadt.ps1.template` is a functional packager for the "wrap-a-wrap" case: an app whose PSADT folder (v3 or v4) already exists. Copy it, fill the identity markers (vendor/app/publisher, toolkit source path, version) and the detection block, and it stages the full toolkit tree as versioned content with SHA256 hashes over every file (subfolders included), then creates the MECM Application with the deployment type invoking the toolkit directly — `Invoke-AppDeployToolkit.exe -DeploymentType Install` (v4) or `Deploy-Application.exe -DeploymentType "Install"` (v3), detected by the module's `Test-PsadtLayout`. `DeployMode` is left to the toolkit by default so the interactive close-app/defer UX engages when a user is logged on; pass `-DeployMode Silent` to suppress all UI. Pin the toolkit version per app inside its source folder — refreshing the toolkit is a deliberate re-stage, and package integrity verification covers the toolkit files the same as any installer.
+`Packagers/Templates/package-psadt.ps1.template` is a functional packager for the "wrap-a-wrap" case: an app whose PSADT folder (v3 or v4) already exists. Copy it, fill the identity markers (vendor/app/publisher, toolkit source path, version) and the detection block, and it stages the full toolkit tree as versioned content with SHA256 hashes over every file (subfolders included), then creates the ConfigMgr Application with the deployment type invoking the toolkit directly — `Invoke-AppDeployToolkit.exe -DeploymentType Install` (v4) or `Deploy-Application.exe -DeploymentType "Install"` (v3), detected by the module's `Test-PsadtLayout`. `DeployMode` is left to the toolkit by default so the interactive close-app/defer UX engages when a user is logged on; pass `-DeployMode Silent` to suppress all UI. Pin the toolkit version per app inside its source folder — refreshing the toolkit is a deliberate re-stage, and package integrity verification covers the toolkit files the same as any installer.
 
 ## Project Structure
 
@@ -794,7 +794,7 @@ app-packager/
     ControlzEx.dll                   # ControlzEx 4.4.0 (net45)
     Microsoft.Xaml.Behaviors.dll     # XAML Behaviors 1.1.135 (net462)
   Packagers/
-    AppPackagerCommon.psm1           # Shared module (logging, wrappers, MECM helpers)
+    AppPackagerCommon.psm1           # Shared module (logging, wrappers, ConfigMgr helpers)
     AppPackagerCommon.psd1           # Module manifest
     AppPackagerWorkbench.psm1        # Applications, profiles, run snapshots, build records
     AppPackagerWorkbench.psd1        # Module manifest
@@ -812,7 +812,7 @@ app-packager/
       README.md                      # Template authoring notes
   VersionMonitor/
     Start-VersionMonitor.ps1         # Headless version monitor entry point
-    monitor-config.json              # Monitor configuration (MECM, NVD, report settings)
+    monitor-config.json              # Monitor configuration (ConfigMgr, NVD, report settings)
     Module/
       VersionMonitorCommon.psm1      # Monitor module (discovery, comparison, NVD, HTML)
       VersionMonitorCommon.psd1      # Module manifest
@@ -900,7 +900,7 @@ Two folders ship starter scaffolding for contributors:
 
 **`Packagers/Templates/`** — skeleton packagers for non-standard installer formats. Each lives as a `.template` file so it doesn't pollute the main grid, and contains `throw "TODO: ..."` guards in every phase until you fill them in:
 
-| File | Format | MECM deployment path |
+| File | Format | ConfigMgr deployment path |
 |---|---|---|
 | `package-msix.ps1.template` | MSIX / APPX / MSIXBUNDLE | Script (Add-AppxProvisionedPackage) |
 | `package-intunewin.ps1.template` | Intunewin (Win32) | Script (delegates to inner MSI/EXE) |
@@ -932,7 +932,7 @@ All packager scripts import the shared module which provides:
 | `New-ExeWrapperContent` | Returns EXE install/uninstall .ps1 content strings |
 | `Get-NetworkAppRoot` | Constructs and initializes the network share path |
 | `Write-StageManifest` / `Read-StageManifest` | JSON manifest serialization |
-| `New-MECMApplicationFromManifest` | Creates MECM Application + deployment type from manifest, attaching requirement rules from the manifest `Requirements` array or `APP_PACKAGER_REQUIREMENTS`. `-OnExisting` decides every same-name collision, regardless of version |
+| `New-MECMApplicationFromManifest` | Creates ConfigMgr Application + deployment type from manifest, attaching requirement rules from the manifest `Requirements` array or `APP_PACKAGER_REQUIREMENTS`. `-OnExisting` decides every same-name collision, regardless of version |
 | `Resolve-OnExistingBehavior` | Resolves `Skip` / `Overwrite` / `Fail` from the parameter, then `APP_PACKAGER_ON_EXISTING`, then the default |
 | `Get-ConditionTemplates` / `Save-ConditionTemplates` | Condition template document: built-in defaults (CPU architecture WQL, built-in OS language, VPN adapter script) with an optional `condition-templates.json` override |
 | `New-DeploymentTypeRequirementRules` | Resolves requirement specs to CM requirement rule objects, creating missing global conditions by name (get-or-create, so existing site conditions are reused) |
@@ -945,7 +945,7 @@ All packager scripts import the shared module which provides:
 | `Get-LatestCorrettoRelease` | Queries GitHub releases for latest Amazon Corretto MSI (JDK, x64/x86) |
 | `Get-InstallerAnalysis` | Runs the vendored installer analysis over one file: engine detection, MSI properties, silent-switch and ARP-key prediction, with an Authoritative/Predicted confidence flag |
 | `New-AdHocStage` | Stages a dropped installer as a versioned content folder with wrappers and a schema-v3 stage manifest |
-| `Invoke-AdHocPackage` | Copies ad-hoc staged content to the network share and creates the MECM application from its manifest |
+| `Invoke-AdHocPackage` | Copies ad-hoc staged content to the network share and creates the ConfigMgr application from its manifest |
 | `New-PackagerFromDrop` | Writes a starter `package-<app>.ps1` from the matching template with analysis-filled identity values |
 | `Assert-ArpDetectionKey` | Compares a literal ARP key and registry view in the manifest against the staged installer's own analysis and fails the Stage on a mismatch |
 

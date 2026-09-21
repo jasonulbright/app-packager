@@ -10,16 +10,16 @@ IconSource: Installer
 UpdateCadenceDays: 120
 
 .SYNOPSIS
-    Packages OpenShot Video Editor (x64, all-users) for MECM.
+    Packages OpenShot Video Editor (x64, all-users) for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest x86_64 Inno Setup installer from the openshot-qt
     GitHub releases, stages content to a versioned local folder, and creates an
-    MECM Application with script-based ARP detection.
+    ConfigMgr Application with script-based ARP detection.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

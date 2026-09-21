@@ -10,17 +10,17 @@ IconSource: Installer
 UpdateCadenceDays: 14
 
 .SYNOPSIS
-    Packages the new Microsoft Teams client for MECM.
+    Packages the new Microsoft Teams client for ConfigMgr.
 
 .DESCRIPTION
     Downloads the official Teams bootstrapper and x64 offline MSIX, stages
     content to a versioned local folder by reading AppxManifest.xml from the
-    MSIX, and creates an MECM Application using script detection against the
+    MSIX, and creates a ConfigMgr Application using script detection against the
     provisioned MSTeams package.
 
     Supports two-phase operation:
       -StageOnly    Download bootstrapper + MSIX, write wrappers and manifest
-      -PackageOnly  Read manifest, copy content to network, create MECM app
+      -PackageOnly  Read manifest, copy content to network, create ConfigMgr app
 
     GetLatestVersionOnly reads the public Teams version history and returns
     the newest Windows build that is no longer marked "rolling out". Stage is

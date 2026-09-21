@@ -9,19 +9,19 @@ DownloadPageUrl: https://dotnet.microsoft.com/en-us/download/dotnet/8.0
 IconSource: None
 
 .SYNOPSIS
-    Packages ASP.NET 8 Server Hosting Bundle for MECM.
+    Packages ASP.NET 8 Server Hosting Bundle for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest .NET 8 ASP.NET Core Windows Server Hosting Bundle
     installer from the official Microsoft CDN, stages content to a versioned
-    local folder with registry-based detection metadata, and creates an MECM
+    local folder with registry-based detection metadata, and creates a ConfigMgr
     Application with registry key existence detection.
     Detection uses the existence of the ASP.NET Core Shared Framework v8.0
     registry key for the specific version.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -40,11 +40,11 @@ IconSource: None
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -53,7 +53,7 @@ IconSource: None
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry key existence detection.
+    create ConfigMgr application with registry key existence detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available .NET 8 runtime version string and exits.
@@ -283,7 +283,7 @@ function Invoke-PackageASPNETHostingBundle8 {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

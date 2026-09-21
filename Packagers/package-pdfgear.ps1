@@ -9,19 +9,19 @@ IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS
-    Packages PDFgear (x64) for MECM.
+    Packages PDFgear (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the current build from the vendor download page, downloads the
     setup executable, stages content to a versioned local folder, and creates
-    an MECM Application with registry-based detection.
+    a ConfigMgr Application with registry-based detection.
 
     The installer is an InnoSetup package that elevates itself and installs
     per-machine under Program Files.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

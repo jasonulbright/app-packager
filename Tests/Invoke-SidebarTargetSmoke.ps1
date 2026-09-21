@@ -48,11 +48,11 @@ $intune    = Get-SidebarTargetState -DeploymentTarget 'IntuneOnly'
 $unknown   = Get-SidebarTargetState -DeploymentTarget 'Nonsense'
 
 $cases = @(
-    @{ Name = 'MECM enables Check MECM';                 Actual = { $mecm.CheckMecmEnabled };        Expected = $true }
+    @{ Name = 'MECM enables Check ConfigMgr';            Actual = { $mecm.CheckMecmEnabled };        Expected = $true }
     @{ Name = 'MECM keeps the Package Apps label';       Actual = { $mecm.PackageContent };          Expected = 'Package Apps' }
     @{ Name = 'MECM runs the One Click pre-flight';      Actual = { $mecm.SkipMecmPreflight };       Expected = $false }
     @{ Name = 'MECMAndIntune matches MECM exactly';      Actual = { ($both | ConvertTo-Json -Compress) -eq ($mecm | ConvertTo-Json -Compress) }; Expected = $true }
-    @{ Name = 'IntuneOnly disables Check MECM';          Actual = { $intune.CheckMecmEnabled };      Expected = $false }
+    @{ Name = 'IntuneOnly disables Check ConfigMgr';     Actual = { $intune.CheckMecmEnabled };      Expected = $false }
     @{ Name = 'IntuneOnly tooltip names the site need';  Actual = { $intune.CheckMecmToolTip -match 'ConfigMgr site' -and $intune.CheckMecmToolTip -match 'Intune only' }; Expected = $true }
     @{ Name = 'IntuneOnly relabels to Publish Apps';     Actual = { $intune.PackageContent };        Expected = 'Publish Apps' }
     @{ Name = 'IntuneOnly package tooltip mentions Intune'; Actual = { $intune.PackageToolTip -match 'Intune' }; Expected = $true }

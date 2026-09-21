@@ -10,12 +10,12 @@ IconSource: External
 UpdateCadenceDays: 180
 
 .SYNOPSIS
-    Packages the MSEndpointMgr Intune Debug Toolkit (x64) MSI for MECM.
+    Packages the MSEndpointMgr Intune Debug Toolkit (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Resolves the newest MSI committed to the repository root, downloads it,
     stages content to a versioned local folder with ARP detection metadata
-    derived from MSI properties, and creates an MECM Application with
+    derived from MSI properties, and creates a ConfigMgr Application with
     registry-based detection.
 
     The project publishes no GitHub releases; the shipped MSI lives at the root
@@ -24,7 +24,7 @@ UpdateCadenceDays: 180
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

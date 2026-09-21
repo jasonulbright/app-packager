@@ -9,16 +9,16 @@ DownloadPageUrl: https://inkscape.org/release/
 IconSource: Installer
 
 .SYNOPSIS
-    Packages Inkscape MSI for MECM.
+    Packages Inkscape MSI for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest Inkscape MSI from the Inkscape CDN, stages content
     to a versioned local folder with ARP detection metadata, and creates an
-    MECM Application with registry-based detection.
+    ConfigMgr Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The version is scraped from the Inkscape release page. The MSI is
     downloaded from media.inkscape.org.
@@ -49,7 +49,7 @@ IconSource: Installer
 
 .PARAMETER GetLatestVersionOnly
     Scrapes inkscape.org for the latest version, outputs the version string,
-    and exits. No download or MECM changes are made.
+    and exits. No download or ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1

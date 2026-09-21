@@ -17,7 +17,7 @@ need filling.
 
 ## Available templates
 
-| File | Format | MECM deployment path | Status |
+| File | Format | ConfigMgr deployment path | Status |
 |---|---|---|---|
 | `package-msix.ps1.template` | MSIX / APPX / MSIXBUNDLE | Script (Add-AppxProvisionedPackage) | Framework ready; native Add-CMWindowsAppxDeploymentType path TODO |
 | `package-intunewin.ps1.template` | Intunewin (Win32) | Script (delegates to inner MSI/EXE) | Skeleton only; .intunewin extraction routine not implemented |

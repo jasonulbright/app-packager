@@ -5,7 +5,7 @@
     Pester 5.x tests for AppPackagerCommon shared module.
 
 .DESCRIPTION
-    Tests pure-logic and local-filesystem functions. Does NOT require MECM,
+    Tests pure-logic and local-filesystem functions. Does NOT require ConfigMgr,
     network shares, real MSI files, or administrator elevation.
 
 .EXAMPLE
@@ -1579,6 +1579,36 @@ Describe 'New-MECMApplicationFromManifest existing application validation' {
             $connectors[0].Connector | Should -Be 'OR'
         }
 
+        It 'sends no clause group when the second run holds one clause (<Sizes>)' -ForEach @(
+            @{ Sizes = '1,1'; GroupSizes = @(1, 1); Paths = @('C:\a', 'C:\b') }
+            @{ Sizes = '2,1'; GroupSizes = @(2, 1); Paths = @('C:\a', 'C:\b', 'C:\c') }
+        ) {
+            $script:testManifest.Detection = [pscustomobject]@{
+                Type       = 'Compound'
+                Connector  = 'Or'
+                GroupSizes = $GroupSizes
+                Clauses    = @($Paths | ForEach-Object { [pscustomobject]@{ Type = 'File'; FilePath = $_; FileName = 'f.dll'; PropertyType = 'Existence' } })
+            }
+            Mock Get-CMApplication { $null }
+            Mock New-CMApplication { [pscustomobject]@{ CI_ID = 4321 } }
+            $script:capturedDtParams = $null
+            Mock Add-CMScriptDeploymentType { $script:capturedDtParams = $PesterBoundParameters }
+            Mock Remove-CMApplicationRevisionHistoryByCIId { }
+
+            New-MECMApplicationFromManifest `
+                -Manifest $script:testManifest `
+                -SiteCode 'MCM' `
+                -NetworkContentPath '\\server\share\Applications\Test' | Should -Be 4321
+
+            $clauses = @($script:capturedDtParams.AddDetectionClause)
+            $clauses.Count | Should -Be $Paths.Count
+            $script:capturedDtParams.ContainsKey('GroupDetectionClauses') | Should -BeFalse
+            $connectors = @($script:capturedDtParams.DetectionClauseConnector)
+            $connectors.Count | Should -Be 1
+            $connectors[0].LogicalName | Should -Be $clauses[-1].Setting.LogicalName
+            $connectors[0].Connector | Should -Be 'OR'
+        }
+
         It 'rejects GroupSizes that do not sum to the clause count' {
             $script:testManifest.Detection = [pscustomobject]@{
                 Type       = 'Compound'
@@ -1630,10 +1660,10 @@ Describe 'New-MECMApplicationFromManifest existing application validation' {
                     -Manifest $script:testManifest `
                     -SiteCode 'MCM' `
                     -NetworkContentPath '\\server\share\Applications\Test'
-            } | Should -Throw '*Multiple existing MECM applications*'
+            } | Should -Throw '*Multiple existing ConfigMgr applications*'
         }
 
-        It 'fails before MECM app lookup when network content does not match manifest hashes' {
+        It 'fails before ConfigMgr app lookup when network content does not match manifest hashes' {
             $contentPath = Join-Path $TestDrive 'network-content-mismatch'
             New-Item -ItemType Directory -Path $contentPath -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $contentPath 'install.ps1') -Value 'expected' -Encoding ASCII
@@ -1812,12 +1842,12 @@ Describe 'Packager history helpers' {
 # New-MECMApplicationFromManifest reads AppPackager.preferences.json relative
 # to its own $PSScriptRoot (one level up from Packagers\) and, when
 # ContentDistribution.AutoDistribute is true AND DPGroupName is non-empty,
-# calls Start-CMContentDistribution after creating the MECM Application.
+# calls Start-CMContentDistribution after creating the ConfigMgr Application.
 #
 # Testing this path cleanly requires either:
 #   (a) refactoring the auto-distribute block into its own helper that takes
 #       the prefs path as a parameter (then tested in isolation), or
-#   (b) mocking the full MECM cmdlet surface (Connect-CMSite,
+#   (b) mocking the full ConfigMgr cmdlet surface (Connect-CMSite,
 #       New-CMApplication, Get-CMApplication, Add-CMScriptDeploymentType,
 #       Remove-CMApplicationRevisionHistoryByCIId, Start-CMContentDistribution)
 #       and writing a temp AppPackager.preferences.json at the real repo root.
@@ -3622,7 +3652,7 @@ Describe 'Deployment launcher commands' {
 }
 
 # ---------------------------------------------------------------------------
-# MECM detection script transport and read-back
+# ConfigMgr detection script transport and read-back
 # ---------------------------------------------------------------------------
 
 Describe 'Resolve-DetectionScriptTransport' {
@@ -3890,7 +3920,7 @@ Describe 'Get-IntuneCompatibilityFindings' {
         @(Get-IntuneCompatibilityFindings -Manifest $m | Where-Object { $_.Code -eq 'TimingNotApplied' }).Severity | Should -Be 'Info'
     }
 
-    It 'reports untranslated MECM requirements for review' {
+    It 'reports untranslated ConfigMgr requirements for review' {
         $m = [pscustomobject]@{
             AppName = 'A'; Architecture = 'x64'; SetupFile = 'install.bat'
             Detection = [pscustomobject]@{ Type = 'RegistryKey'; RegistryKeyRelative = 'K'; Is64Bit = $true }

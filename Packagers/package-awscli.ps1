@@ -10,17 +10,17 @@ IconSource: None
 UpdateCadenceDays: 14
 
 .SYNOPSIS
-    Packages the AWS Command Line Interface v2 (x64) MSI for MECM.
+    Packages the AWS Command Line Interface v2 (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Reads the current v2 release from the aws-cli changelog, downloads the
     matching version-pinned MSI from the vendor distribution host, stages
     content to a versioned local folder with ARP detection metadata, and
-    creates an MECM Application with registry-based detection.
+    creates a ConfigMgr Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The version-pinned MSI URL is used rather than the rolling AWSCLIV2.msi so
     the staged payload matches the version the run reported.
@@ -42,11 +42,11 @@ UpdateCadenceDays: 14
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -55,7 +55,7 @@ UpdateCadenceDays: 14
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available AWS CLI v2 version string and exits.
@@ -350,7 +350,7 @@ function Invoke-PackageAwsCli {
     # its payload in a subfolder) ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

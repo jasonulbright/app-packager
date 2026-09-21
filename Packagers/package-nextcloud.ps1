@@ -10,17 +10,17 @@ IconSource: Installer
 UpdateCadenceDays: 45
 
 .SYNOPSIS
-    Packages the Nextcloud desktop client (x64) MSI for MECM.
+    Packages the Nextcloud desktop client (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Resolves the latest stable desktop client release from the GitHub releases
     API of the nextcloud-releases/desktop mirror, downloads the x64 MSI, stages
     content to a versioned local folder with ARP detection metadata, and creates
-    an MECM Application with registry-based detection.
+    a ConfigMgr Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

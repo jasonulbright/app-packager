@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Shared core module for the MECM tool suite.
+    Shared core module for the Configuration Manager tool suite.
 
 .DESCRIPTION
     Vendored into each consumer tool at Lib\SuiteCommon\ by
@@ -11,7 +11,7 @@
       - Flat JSON settings persistence (Read-SuiteSettings, Save-SuiteSettings)
 
     Consumers never edit the vendored copy; changes flow through the
-    suite-core repository and re-sync.
+    app-packager-suite repository and re-sync.
 
 .EXAMPLE
     # Top of a consumer tool module (Module\<Tool>Common.psm1):

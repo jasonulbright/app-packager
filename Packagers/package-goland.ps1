@@ -10,19 +10,19 @@ IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS
-    Packages GoLand (x64) for MECM.
+    Packages GoLand (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the latest GoLand release from the JetBrains product releases API,
     downloads the Windows installer, stages content to a versioned local folder,
-    and creates an MECM Application with registry-key detection.
+    and creates a ConfigMgr Application with registry-key detection.
 
     The installer is an NSIS package installed silently with /S. Detection is the
     presence of the versioned ARP uninstall key ("GoLand <version>").
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

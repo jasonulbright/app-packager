@@ -12,15 +12,15 @@ UpdateCadenceDays: 14
 .DESCRIPTION
     A .nupkg is a ZIP with a .nuspec manifest + tools\chocolateyInstall.ps1
     + tools\chocolateyUninstall.ps1. Chocolatey packages install by
-    running chocolateyInstall.ps1 inside the MECM install context.
+    running chocolateyInstall.ps1 inside the ConfigMgr install context.
 
-    This framework exists mainly for completeness; most MECM shops
+    This framework exists mainly for completeness; most ConfigMgr shops
     prefer the vendor's native installer to going through Chocolatey's
     community feed. Use this template when:
       - A specific vendor ships their primary installer as .nupkg
         (Rare, but examples exist: Cake.Tool, internal dotnet tools).
       - The operator already has a Chocolatey deployment fleet and
-        wants MECM to just own the metadata / scheduling.
+        wants ConfigMgr to just own the metadata / scheduling.
 
     Required on targets: choco.exe installed (community install or
     internal Chocolatey feed).
@@ -76,7 +76,7 @@ if ($StageOnly) {
     # TODO: download .nupkg from the Chocolatey / NuGet feed
     # TODO: extract .nupkg (it's a ZIP) and read .nuspec for version +
     #       metadata. Copy tools\ folder to the stage content path so
-    #       MECM can bundle it.
+    #       ConfigMgr can bundle it.
     # TODO: install.ps1 calls 'choco install <pkgid> --version <ver>
     #       --source <internal-feed> -y --no-progress' OR inlines
     #       chocolateyInstall.ps1 directly if avoiding choco.exe on

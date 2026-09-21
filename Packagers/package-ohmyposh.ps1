@@ -10,11 +10,11 @@ IconSource: None
 UpdateCadenceDays: 30
 
 .SYNOPSIS
-    Packages Oh My Posh (x64 MSIX, device-wide) for MECM.
+    Packages Oh My Posh (x64 MSIX, device-wide) for ConfigMgr.
 
 .DESCRIPTION
     Downloads the signed x64 MSIX from the oh-my-posh GitHub releases, stages
-    content to a versioned local folder, and creates an MECM Application that
+    content to a versioned local folder, and creates a ConfigMgr Application that
     provisions the package for every user on the device.
 
     The vendor retired the Inno Setup installer; install-x64.msix is the only
@@ -23,7 +23,7 @@ UpdateCadenceDays: 30
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

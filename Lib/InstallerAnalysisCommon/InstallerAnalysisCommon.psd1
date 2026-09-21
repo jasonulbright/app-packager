@@ -1,6 +1,6 @@
 @{
     RootModule        = 'InstallerAnalysisCommon.psm1'
-    ModuleVersion     = '1.3.4.0'
+    ModuleVersion     = '2026.09.21.0012'
     GUID              = 'c3d4e5f6-a7b8-9012-cdef-456789012345'
     Author            = 'Jason Ulbright'
     Description       = 'Installer analysis tool - version intelligence, installer type detection, silent switches, payload extraction.'

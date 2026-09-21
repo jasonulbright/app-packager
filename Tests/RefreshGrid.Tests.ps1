@@ -34,7 +34,7 @@ Describe 'Grid refresh keeps session results' {
         $firefox.Status = 'Up to date'
     }
 
-    It 'keeps MECM versions, compare results, latest versions and selections' {
+    It 'keeps ConfigMgr versions, compare results, latest versions and selections' {
         Invoke-RefreshGrid
         $chrome = $script:PackagerData | Where-Object Script -eq 'package-chrome.ps1'
         $chrome.CurrentVersion | Should -Be '129.0'
@@ -43,7 +43,7 @@ Describe 'Grid refresh keeps session results' {
         $chrome.Selected | Should -BeTrue
     }
 
-    It 'clears MECM versions and compare results when the site changed' {
+    It 'clears ConfigMgr versions and compare results when the site changed' {
         Invoke-RefreshGrid -DiscardSiteResults
         $chrome = $script:PackagerData | Where-Object Script -eq 'package-chrome.ps1'
         $chrome.CurrentVersion | Should -Be ''

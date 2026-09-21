@@ -10,17 +10,17 @@ IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS
-    Packages the NetBird client (x64) MSI for MECM.
+    Packages the NetBird client (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Resolves the latest release from the NetBird GitHub releases API, downloads
     the windows_amd64 MSI, stages content to a versioned local folder with ARP
-    detection metadata derived from MSI properties, and creates an MECM
+    detection metadata derived from MSI properties, and creates a ConfigMgr
     Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

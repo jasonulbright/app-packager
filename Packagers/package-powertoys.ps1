@@ -9,16 +9,16 @@ DownloadPageUrl: https://github.com/microsoft/PowerToys/releases
 IconSource: Installer
 
 .SYNOPSIS
-    Packages Microsoft PowerToys for MECM.
+    Packages Microsoft PowerToys for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest PowerToys x64 setup EXE from GitHub releases, stages
     content to a versioned local folder with file-based version detection
-    metadata, and creates an MECM Application with file-based detection.
+    metadata, and creates a ConfigMgr Application with file-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The installer is a custom bootstrapper supporting /install /quiet /norestart.
 

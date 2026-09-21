@@ -12,7 +12,7 @@
       - Folder initialization (Initialize-Folder)
       - Network share access test (Test-NetworkShareAccess)
       - Content wrapper generation (Write-ContentWrappers, New-MsiWrapperContent)
-      - MECM application creation (New-MECMApplicationFromManifest)
+      - ConfigMgr application creation (New-MECMApplicationFromManifest)
       - CM revision history cleanup (Remove-CMApplicationRevisionHistoryByCIId)
 
 .EXAMPLE
@@ -747,7 +747,7 @@ function Connect-CMSite {
     $provider = Resolve-CMProviderMachineName -ProviderMachineName $ProviderMachineName
     if ([string]::IsNullOrWhiteSpace($provider) -and
         -not (Get-PSDrive -Name $SiteCode -PSProvider CMSite -ErrorAction SilentlyContinue)) {
-        Write-Log "Configuration Manager PSDrive '$SiteCode' is not available and no provider machine name is configured. Set Provider Machine in MECM Preferences, copy the ProviderMachineName value from the AdminUI connect script, or set APP_PACKAGER_CM_PROVIDER." -Level ERROR
+        Write-Log "Configuration Manager PSDrive '$SiteCode' is not available and no provider machine name is configured. Set Provider Machine in ConfigMgr Preferences, copy the ProviderMachineName value from the AdminUI connect script, or set APP_PACKAGER_CM_PROVIDER." -Level ERROR
         return $false
     }
     return (SuiteCommon\Connect-CMSite -SiteCode $SiteCode -SMSProvider $provider -SkipSiteVerification)
@@ -797,7 +797,7 @@ function Test-NetworkShareAccess {
 }
 
 # ---------------------------------------------------------------------------
-# MECM helpers
+# ConfigMgr helpers
 # ---------------------------------------------------------------------------
 
 function Get-MsiPropertyMap {
@@ -1222,8 +1222,8 @@ function Format-StageFileHashComparison {
 # Installer icon extraction
 # ---------------------------------------------------------------------------
 
-# MECM's Set-CMApplication -IconLocationFile and Intune's win32LobApp
-# largeIcon both accept .ico and .png; MECM stores at most 512x512, so a
+# ConfigMgr's Set-CMApplication -IconLocationFile and Intune's win32LobApp
+# largeIcon both accept .ico and .png; ConfigMgr stores at most 512x512, so a
 # larger extraction is downscaled before it is handed over.
 $script:IconMaxDimension = 512
 
@@ -1539,7 +1539,7 @@ function Get-MsiIconBytes {
 function Get-InstallerIcon {
     <#
     .SYNOPSIS
-        Extracts an application icon from an installer into a MECM-compatible file.
+        Extracts an application icon from an installer into a ConfigMgr-compatible file.
 
     .DESCRIPTION
         PE inputs (.exe, .dll) yield the largest image of the first icon group,
@@ -1549,7 +1549,7 @@ function Get-InstallerIcon {
 
         OutputPath's extension selects the written format: .png converts through
         System.Drawing, anything else writes the icon bytes verbatim. Images
-        wider than 512 pixels are downscaled, the MECM ceiling.
+        wider than 512 pixels are downscaled, the ConfigMgr ceiling.
 
         Returns $null when no icon exists or the largest image is under
         MinimumSize.
@@ -2136,7 +2136,7 @@ function Read-StageManifest {
 }
 
 # ---------------------------------------------------------------------------
-# MECM helpers (continued)
+# ConfigMgr helpers (continued)
 # ---------------------------------------------------------------------------
 
 function Remove-CMApplicationRevisionHistoryByCIId {
@@ -2357,10 +2357,10 @@ function New-MsixWrapperContent {
     .SYNOPSIS
         Returns install and uninstall .ps1 content strings for an MSIX/APPX
         package, using the Script deployment-type pattern (install.bat +
-        install.ps1) so MECM treats it the same way as MSI / EXE packagers.
+        install.ps1) so ConfigMgr treats it the same way as MSI / EXE packagers.
 
     .DESCRIPTION
-        MECM also supports a native MSIX deployment type via
+        ConfigMgr also supports a native MSIX deployment type via
         Add-CMWindowsAppxDeploymentType, but the house rule is Script
         deployment for everything we can shoehorn that way (single code
         path, uniform logging, consistent detection authoring). These
@@ -2538,7 +2538,7 @@ function New-ExeWrapperContent {
 }
 
 # ---------------------------------------------------------------------------
-# MECM application creation from manifest
+# ConfigMgr application creation from manifest
 # ---------------------------------------------------------------------------
 
 function New-SingleDetectionClause {
@@ -2618,7 +2618,7 @@ function New-SingleDetectionClause {
 function Test-PsadtLayout {
     <#
     .SYNOPSIS
-        Detects the PSADT toolkit generation in a folder and returns the MECM
+        Detects the PSADT toolkit generation in a folder and returns the ConfigMgr
         deployment type command lines for it.
 
     .DESCRIPTION
@@ -3784,7 +3784,7 @@ function Test-ResolvedDeploymentCommand {
 function New-MECMApplicationFromManifest {
     <#
     .SYNOPSIS
-        Creates an MECM application with Script deployment type from a stage manifest.
+        Creates a ConfigMgr application with Script deployment type from a stage manifest.
 
     .DESCRIPTION
         Reads a stage manifest object and creates a CM Application with a single
@@ -3846,7 +3846,7 @@ function New-MECMApplicationFromManifest {
 
         $appName = Get-PackagedApplicationName -AppName $Manifest.AppName -Version $Manifest.SoftwareVersion
         if ([string]::IsNullOrWhiteSpace([string]$appName)) {
-            throw "Stage manifest AppName is null or empty; cannot create an MECM application. Re-run the Stage phase and verify the manifest."
+            throw "Stage manifest AppName is null or empty; cannot create a ConfigMgr application. Re-run the Stage phase and verify the manifest."
         }
 
         Write-Log ("Manifest fields              : AppName='{0}' Publisher='{1}' SoftwareVersion='{2}' DetectionType='{3}'" -f $appName, $Manifest.Publisher, $Manifest.SoftwareVersion, $Manifest.Detection.Type) -Level DEBUG
@@ -3915,7 +3915,7 @@ function New-MECMApplicationFromManifest {
         if ($existing) {
             $existingApps = @($existing)
             if ($existingApps.Count -gt 1) {
-                throw "Multiple existing MECM applications matched '$appName'; refusing to package until the duplicate names are resolved."
+                throw "Multiple existing ConfigMgr applications matched '$appName'; refusing to package until the duplicate names are resolved."
             }
             $cmApp = $existingApps[0]
 
@@ -3928,7 +3928,7 @@ function New-MECMApplicationFromManifest {
             Write-Log ("On-existing behavior         : {0} (source: {1})" -f $existingPolicy.Behavior, $existingPolicy.Source)
             if ($existingPolicy.Behavior -ne 'Overwrite') {
                 if ($existingPolicy.Behavior -eq 'Fail') {
-                    throw ("Existing MECM application '$appName' is already at version $existingVersion and OnExisting=Fail was requested.")
+                    throw ("Existing ConfigMgr application '$appName' is already at version $existingVersion and OnExisting=Fail was requested.")
                 }
 
                 if ($existingPolicy.Behavior -eq 'Skip') {
@@ -3951,7 +3951,7 @@ function New-MECMApplicationFromManifest {
                         Set-CMApplicationIconFromManifest -Manifest $Manifest -AppName $appName -NetworkContentPath $NetworkContentPath
                         return [UInt32]$cmApp.CI_ID
                     }
-                    throw ("Existing MECM application '$appName' is missing deployment type(s): {0}. This looks like a partial prior package run; fix or remove the partial app before packaging again." -f (($missingDts | ForEach-Object { $_.DtName }) -join ', '))
+                    throw ("Existing ConfigMgr application '$appName' is missing deployment type(s): {0}. This looks like a partial prior package run; fix or remove the partial app before packaging again." -f (($missingDts | ForEach-Object { $_.DtName }) -join ', '))
                 }
 
             }
@@ -4137,7 +4137,11 @@ function New-MECMApplicationFromManifest {
                             throw "Detection.GroupSizes must be exactly two non-zero sizes summing to the clause count (got: '$($groupSizes -join ',')' for $($clauses.Count) clauses)."
                         }
                         $secondStart = $groupSizes[0]
-                        $dtParams['GroupDetectionClauses'] = @($clauses[$secondStart..($clauses.Count - 1)] | ForEach-Object { $_.Setting.LogicalName })
+                        # A group holds two or more clauses; a one-clause second
+                        # run takes the OR connector alone.
+                        if ($groupSizes[1] -ge 2) {
+                            $dtParams['GroupDetectionClauses'] = @($clauses[$secondStart..($clauses.Count - 1)] | ForEach-Object { $_.Setting.LogicalName })
+                        }
                         $dtParams['DetectionClauseConnector'] = @(@{
                             LogicalName = $clauses[$secondStart].Setting.LogicalName
                             Connector   = 'OR'
@@ -4291,7 +4295,7 @@ function New-MECMApplicationFromManifest {
         }
 
         Write-Log ""
-        Write-Log "Created MECM application     : $appName"
+        Write-Log "Created ConfigMgr application : $appName"
 
         return [UInt32]$cmApp.CI_ID
     }
@@ -5337,7 +5341,7 @@ function Invoke-AdHocPackage {
     <#
     .SYNOPSIS
         Packages an ad-hoc staged folder: copies content to the network
-        version folder and creates the MECM application from the manifest -
+        version folder and creates the ConfigMgr application from the manifest -
         the same path every packager takes.
     #>
     param(
@@ -6194,11 +6198,11 @@ function ConvertTo-IntuneWin32Rules {
             'RegistryKeyValue' {
                 $expected = if ($d.ExpectedValue) { [string]$d.ExpectedValue } else { [string]$d.DisplayVersion }
                 $valName = if ($d.ValueName) { [string]$d.ValueName } else { 'DisplayVersion' }
-                # Missing operators default the way the MECM clause builder does.
+                # Missing operators default the way the ConfigMgr clause builder does.
                 $opName = if ($d.Operator) { [string]$d.Operator } else { 'IsEquals' }
                 if ($scriptOperators -contains $opName) {
                     if (-not $scriptConversionAllowed) {
-                        throw ("Detection operator '{0}' on registry value '{1}' has no native Intune rule; converting it to a PowerShell detection script is an explicit profile choice (Detection.IntuneScriptConversion). Set it in the workbench, or publish this application to MECM only." -f $opName, $valName)
+                        throw ("Detection operator '{0}' on registry value '{1}' has no native Intune rule; converting it to a PowerShell detection script is an explicit profile choice (Detection.IntuneScriptConversion). Set it in the workbench, or publish this application to ConfigMgr only." -f $opName, $valName)
                     }
                     $generated = New-IntuneRegistryValueScriptRule -HiveRoot (& $hiveRoot $d) -KeyPath ([string]$d.RegistryKeyRelative) `
                         -ValueName $valName -Expected $expected -Operator $opName -Is64Bit ([bool]$d.Is64Bit)
@@ -6346,7 +6350,7 @@ function Get-IntuneCompatibilityFindings {
     $requirements = @()
     if ($Manifest.PSObject.Properties['Requirements'] -and $Manifest.Requirements) { $requirements = @($Manifest.Requirements) }
     if ($requirements.Count -gt 0) {
-        & $add 'Review' 'RequirementsNotTranslated' ("This application carries {0} MECM requirement rule(s). The Intune adapter does not translate them, so the published app has no equivalent gating." -f $requirements.Count)
+        & $add 'Review' 'RequirementsNotTranslated' ("This application carries {0} ConfigMgr requirement rule(s). The Intune adapter does not translate them, so the published app has no equivalent gating." -f $requirements.Count)
     }
 
     $architecture = [string]$Manifest.Architecture

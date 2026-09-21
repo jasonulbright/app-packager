@@ -10,17 +10,17 @@ IconSource: Installer
 UpdateCadenceDays: 45
 
 .SYNOPSIS
-    Packages Kreya (x64) MSI for MECM.
+    Packages Kreya (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Resolves the current release from the vendor download page, downloads the
     x64 MSI from the vendor's stable download host, stages content to a
-    versioned local folder with ARP detection metadata, and creates an MECM
+    versioned local folder with ARP detection metadata, and creates a ConfigMgr
     Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -39,11 +39,11 @@ UpdateCadenceDays: 45
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -52,7 +52,7 @@ UpdateCadenceDays: 45
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available Kreya version string and exits.

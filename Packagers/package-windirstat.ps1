@@ -8,16 +8,16 @@ DownloadPageUrl: https://windirstat.net/download.html
 IconSource: Installer
 
 .SYNOPSIS
-    Packages WinDirStat (x64) MSI for MECM.
+    Packages WinDirStat (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest WinDirStat x64 MSI from GitHub releases, stages content
     to a versioned local folder with file-based version detection metadata, and
-    creates an MECM Application.
+    creates a ConfigMgr Application.
 
     Supports two-phase operation:
       -StageOnly    Download MSI, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     WinDirStat 2.x is a complete rewrite of the classic 1.1.2 version. The MSI
     uses auto-generated ProductCodes (WiX ProductID="*"), so detection uses file
@@ -51,7 +51,7 @@ IconSource: Installer
 
 .PARAMETER GetLatestVersionOnly
     Queries the GitHub releases API for the latest version, outputs the version
-    string, and exits. No MECM changes are made.
+    string, and exits. No ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1

@@ -10,12 +10,12 @@ IconSource: External
 UpdateCadenceDays: 120
 
 .SYNOPSIS
-    Packages RVTools MSI for MECM.
+    Packages RVTools MSI for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest RVTools MSI from the Dell download host, stages
     content to a versioned local folder with ARP detection metadata, and
-    creates an MECM Application with registry-based detection.
+    creates a ConfigMgr Application with registry-based detection.
 
     The download host serves the MSI at a fixed, predictable path but does not
     publish a directory index, and the vendor knowledge-base article that names
@@ -25,7 +25,7 @@ UpdateCadenceDays: 120
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

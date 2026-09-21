@@ -10,12 +10,12 @@ IconSource: None
 UpdateCadenceDays: 30
 
 .SYNOPSIS
-    Packages Azure PowerShell (Az cmdlets, x64) MSI for MECM.
+    Packages Azure PowerShell (Az cmdlets, x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Resolves the latest Azure/azure-powershell GitHub release, downloads the
     Az-Cmdlets-<version>-x64.msi asset, stages content to a versioned local
-    folder with ARP detection metadata, and creates an MECM Application with
+    folder with ARP detection metadata, and creates a ConfigMgr Application with
     registry-based detection derived from the MSI ProductCode.
 
     The MSI drops the Az modules into the machine-wide module path; it does not
@@ -23,7 +23,7 @@ UpdateCadenceDays: 30
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -42,11 +42,11 @@ UpdateCadenceDays: 30
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -55,7 +55,7 @@ UpdateCadenceDays: 30
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available Azure PowerShell version string and exits.

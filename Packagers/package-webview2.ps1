@@ -9,19 +9,19 @@ DownloadPageUrl: https://developer.microsoft.com/en-us/microsoft-edge/webview2/
 IconSource: Installer
 
 .SYNOPSIS
-    Packages Microsoft Edge WebView2 Runtime (x64) for MECM.
+    Packages Microsoft Edge WebView2 Runtime (x64) for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest WebView2 Runtime x64 standalone installer from the
     official Microsoft link, stages content to a versioned local folder with
-    file-based version detection metadata, and creates an MECM Application
+    file-based version detection metadata, and creates a ConfigMgr Application
     with file-based detection.
     Detection uses msedgewebview2.exe version in the version-specific
     EdgeWebView\Application path.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -40,11 +40,11 @@ IconSource: Installer
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -53,7 +53,7 @@ IconSource: Installer
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with file-based detection.
+    create ConfigMgr application with file-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available WebView2 version string and exits.
@@ -281,7 +281,7 @@ function Invoke-PackageWebView2 {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

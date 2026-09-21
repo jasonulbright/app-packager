@@ -10,19 +10,19 @@ IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS
-    Packages pgAdmin 4 (x64) for MECM.
+    Packages pgAdmin 4 (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the latest pgAdmin 4 Windows release from the vendor download page,
     downloads the x64 installer from the PostgreSQL FTP mirror, stages content to
-    a versioned local folder, and creates an MECM Application with file-existence
+    a versioned local folder, and creates a ConfigMgr Application with file-existence
     detection.
 
     The installer is an InnoSetup package installed silently for all users.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

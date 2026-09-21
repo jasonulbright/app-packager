@@ -1,5 +1,15 @@
 # Changelog
 
+## [2026.09.21.0091] - 2026-09-21
+
+### Changed
+
+- Use the product name ConfigMgr in the application and the documentation.
+
+### Fixed
+
+- Fix the Package step for ASP.NET Core 10 Server Hosting Bundle.
+
 ## [2026.09.18.0090] - 2026-09-18
 
 ### Fixed

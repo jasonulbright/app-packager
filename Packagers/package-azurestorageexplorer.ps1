@@ -10,12 +10,12 @@ IconSource: Installer
 UpdateCadenceDays: 45
 
 .SYNOPSIS
-    Packages Microsoft Azure Storage Explorer (x64) for MECM.
+    Packages Microsoft Azure Storage Explorer (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the latest microsoft/AzureStorageExplorer GitHub release,
     downloads the StorageExplorer-windows-x64.exe Inno Setup installer, stages
-    content to a versioned local folder, and creates an MECM Application with
+    content to a versioned local folder, and creates a ConfigMgr Application with
     file-based detection.
 
     The installer defaults to a per-user install under
@@ -24,7 +24,7 @@ UpdateCadenceDays: 45
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -43,11 +43,11 @@ UpdateCadenceDays: 45
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -56,7 +56,7 @@ UpdateCadenceDays: 45
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with file-based detection.
+    create ConfigMgr application with file-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available Storage Explorer version string and exits.

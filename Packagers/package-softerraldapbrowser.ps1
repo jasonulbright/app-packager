@@ -10,17 +10,17 @@ IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS
-    Packages Softerra LDAP Browser (x64, English) for MECM.
+    Packages Softerra LDAP Browser (x64, English) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the current freeware LDAP Browser MSI link from the vendor download
     page, downloads it, stages content to a versioned local folder with ARP
-    detection metadata, and creates an MECM Application with registry-based
+    detection metadata, and creates a ConfigMgr Application with registry-based
     detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The download page also lists the paid LDAP Administrator builds and German
     localizations; only the x64 English ldapbrowser MSI is matched.
@@ -42,11 +42,11 @@ UpdateCadenceDays: 180
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -55,7 +55,7 @@ UpdateCadenceDays: 180
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available LDAP Browser version string and exits.

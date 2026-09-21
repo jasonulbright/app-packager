@@ -10,20 +10,20 @@ IconSource: External
 SupportsVariants: Network
 
 .SYNOPSIS
-    Packages M365 Project (x86) for MECM using the Office Deployment Tool.
+    Packages M365 Project (x86) for ConfigMgr using the Office Deployment Tool.
 
 .DESCRIPTION
     Downloads the latest Office Deployment Tool, uses it to download the offline
     source files for M365 Project (x86) from the configured update channel
     (Monthly Enterprise or Current), stages content to a versioned local folder
-    with file-based detection metadata, and creates an MECM Application.
+    with file-based detection metadata, and creates a ConfigMgr Application.
 
     Detection uses WINPROJ.EXE file version >= packaged version in the
     Program Files (x86) install path.
 
     Supports two-phase operation:
       -StageOnly    Download ODT + Office source, generate wrappers + manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -39,11 +39,11 @@ SupportsVariants: Network
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly

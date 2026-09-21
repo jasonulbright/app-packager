@@ -9,16 +9,16 @@ DownloadPageUrl: https://www.teamviewer.com/en-us/download/windows/
 IconSource: Installer
 
 .SYNOPSIS
-    Packages TeamViewer Host (x64) EXE for MECM.
+    Packages TeamViewer Host (x64) EXE for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest TeamViewer Host x64 setup EXE from TeamViewer's static
     download URL, stages content to a versioned local folder with file-version
-    detection metadata, and creates an MECM Application.
+    detection metadata, and creates a ConfigMgr Application.
 
     Supports two-phase operation:
       -StageOnly    Download EXE, derive version from file properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     TeamViewer Host is the unattended-access variant of TeamViewer. It is
     deployed to endpoints that need to be remotely managed by IT without a
@@ -61,11 +61,11 @@ IconSource: Installer
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -74,11 +74,11 @@ IconSource: Installer
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with file-based detection.
+    create ConfigMgr application with file-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Downloads the TeamViewer Host EXE, reads the file version, outputs the
-    version string, and exits. No MECM changes are made.
+    version string, and exits. No ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1
@@ -258,7 +258,7 @@ function Invoke-StageTeamViewerHost {
     # installer runs (it can't replace an open exe), then run /S, then
     # post-install kill TeamViewer.exe so a SYSTEM-session GUI doesn't sit
     # on the user's desktop (TV post-install occasionally spawns one under
-    # the MECM install context).
+    # the ConfigMgr install context).
     $installContent = (
         'Stop-Process -Name "TeamViewer","tv_w32","tv_x64" -Force -ErrorAction SilentlyContinue',
         ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $InstallerFileName),
@@ -367,7 +367,7 @@ function Invoke-PackageTeamViewerHost {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

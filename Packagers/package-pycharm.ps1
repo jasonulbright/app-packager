@@ -9,19 +9,19 @@ DownloadPageUrl: https://www.jetbrains.com/pycharm/download/?section=windows
 UpdateCadenceDays: 60
 
 .SYNOPSIS
-    Packages PyCharm Community (x64) for MECM.
+    Packages PyCharm Community (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the latest PyCharm release from the JetBrains product releases API,
     downloads the unified Windows installer, stages content to a versioned local
-    folder, and creates an MECM Application with registry-key detection.
+    folder, and creates a ConfigMgr Application with registry-key detection.
 
     The installer is an NSIS package installed silently with /S. Detection is the
     presence of the versioned ARP uninstall key ("PyCharm <version>").
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

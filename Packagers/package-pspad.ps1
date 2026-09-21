@@ -10,16 +10,16 @@ IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS
-    Packages PSPad (x64) for MECM.
+    Packages PSPad (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the current PSPad release from the vendor download page, downloads
     the x64 InnoSetup installer, stages content to a versioned local folder, and
-    creates an MECM Application with file-existence detection.
+    creates a ConfigMgr Application with file-existence detection.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

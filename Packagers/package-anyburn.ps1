@@ -10,17 +10,17 @@ IconSource: Installer
 UpdateCadenceDays: 120
 
 .SYNOPSIS
-    Packages AnyBurn (free edition, x64 host) for MECM.
+    Packages AnyBurn (free edition, x64 host) for ConfigMgr.
 
 .DESCRIPTION
     Reads the current version from the vendor home page, downloads the free
     edition installer, stages content to a versioned local folder, and creates
-    an MECM Application with registry detection against the product's
+    a ConfigMgr Application with registry detection against the product's
     Add/Remove Programs entry.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The installer filename carries no version, so the staged copy is named for
     the resolved version to keep versioned content folders self-describing.
@@ -42,11 +42,11 @@ UpdateCadenceDays: 120
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -55,7 +55,7 @@ UpdateCadenceDays: 120
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry detection.
+    create ConfigMgr application with registry detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available AnyBurn version string and exits.
@@ -330,7 +330,7 @@ function Invoke-PackageAnyBurn {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

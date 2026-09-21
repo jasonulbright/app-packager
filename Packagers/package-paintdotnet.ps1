@@ -9,16 +9,16 @@ DownloadPageUrl: https://www.getpaint.net/download.html
 IconSource: Installer
 
 .SYNOPSIS
-    Packages Paint.NET (x64) MSI for MECM.
+    Packages Paint.NET (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest Paint.NET x64 MSI ZIP from GitHub releases, extracts
     the MSI, stages content to a versioned local folder with ARP detection
-    metadata, and creates an MECM Application with registry-based detection.
+    metadata, and creates a ConfigMgr Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download ZIP, extract MSI, derive ARP detection, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The MSI install passes CHECKFORUPDATES=0 and DESKTOPSHORTCUT=0 for
     enterprise-appropriate defaults.
@@ -40,11 +40,11 @@ IconSource: Installer
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -53,11 +53,11 @@ IconSource: Installer
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Queries the GitHub releases API for the latest Paint.NET version, outputs
-    the version string, and exits. No download or MECM changes are made.
+    the version string, and exits. No download or ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1
@@ -319,7 +319,7 @@ function Invoke-PackagePaintDotNet {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

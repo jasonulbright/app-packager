@@ -10,12 +10,12 @@ IconSource: Installer
 UpdateCadenceDays: 120
 
 .SYNOPSIS
-    Packages Bulk Crap Uninstaller for MECM.
+    Packages Bulk Crap Uninstaller for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest Bulk Crap Uninstaller setup from the official GitHub
     releases API, stages content to a versioned local folder, and creates an
-    MECM Application with registry-based detection on the Inno Setup ARP entry.
+    ConfigMgr Application with registry-based detection on the Inno Setup ARP entry.
 
     The installer requires the .NET 8 desktop runtime and downloads it when the
     target machine does not already have it, so deployed clients need outbound
@@ -23,7 +23,7 @@ UpdateCadenceDays: 120
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -42,11 +42,11 @@ UpdateCadenceDays: 120
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -55,7 +55,7 @@ UpdateCadenceDays: 120
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available Bulk Crap Uninstaller version string and exits.
@@ -331,7 +331,7 @@ function Invoke-PackageBCUninstaller {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

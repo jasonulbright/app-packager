@@ -10,17 +10,17 @@ IconSource: Installer
 UpdateCadenceDays: 120
 
 .SYNOPSIS
-    Packages the DisplayLink USB Graphics Software (dock driver) for MECM.
+    Packages the DisplayLink USB Graphics Software (dock driver) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the newest public Windows driver release from the vendor download
     index, downloads the self-extracting installer, stages content to a
-    versioned local folder, and creates an MECM Application with file-version
+    versioned local folder, and creates a ConfigMgr Application with file-version
     detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive detection metadata, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -38,10 +38,10 @@ UpdateCadenceDays: 120
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type. Default: 15
+    Estimated runtime in minutes for the ConfigMgr deployment type. Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type. Default: 45
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type. Default: 45
 
 .PARAMETER StageOnly
     Runs only the Stage phase.

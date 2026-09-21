@@ -9,16 +9,16 @@ DownloadPageUrl: https://www.teamviewer.com/en-us/download/windows/
 IconSource: Installer
 
 .SYNOPSIS
-    Packages TeamViewer (x64) MSI for MECM.
+    Packages TeamViewer (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest TeamViewer x64 MSI ZIP from TeamViewer's static download
     URL, extracts the MSI, stages content to a versioned local folder with ARP
-    detection metadata, and creates an MECM Application with registry-based detection.
+    detection metadata, and creates a ConfigMgr Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download ZIP, extract MSI, derive ARP detection, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     NOTE: The download URL always serves the current release. The version is read
     from MSI properties after extraction.
@@ -43,11 +43,11 @@ IconSource: Installer
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -56,11 +56,11 @@ IconSource: Installer
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Downloads the TeamViewer ZIP, extracts the MSI version, outputs the version
-    string, and exits. No MECM changes are made.
+    string, and exits. No ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1
@@ -214,7 +214,7 @@ function Invoke-StageTeamViewer {
 
     # --- Generate content wrappers ---
     # Post-install the TV MSI can launch TeamViewer.exe in the SYSTEM session
-    # under MECM. Kill it so a SYSTEM-context GUI doesn't end up sitting on
+    # under ConfigMgr. Kill it so a SYSTEM-context GUI doesn't end up sitting on
     # the user's desktop (click-to-SYSTEM-shell exposure).
     $wrapperContent = New-MsiWrapperContent `
         -MsiFileName $MsiFileName `
@@ -301,7 +301,7 @@ function Invoke-PackageTeamViewer {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

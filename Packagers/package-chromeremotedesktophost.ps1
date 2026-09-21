@@ -10,16 +10,16 @@ IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS
-    Packages the Chrome Remote Desktop Host (x64) MSI for MECM.
+    Packages the Chrome Remote Desktop Host (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Downloads the Chrome Remote Desktop Host MSI from Google's evergreen
     download URL, stages content to a versioned local folder with ARP detection
-    metadata, and creates an MECM Application with registry-based detection.
+    metadata, and creates a ConfigMgr Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     NOTE: The download URL always serves the current release; Google publishes no
     version endpoint for the host, so the version is read from MSI properties
@@ -42,11 +42,11 @@ UpdateCadenceDays: 30
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -55,7 +55,7 @@ UpdateCadenceDays: 30
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Downloads the MSI, outputs its ProductVersion, and exits.
@@ -276,7 +276,7 @@ function Invoke-PackageCrdHost {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

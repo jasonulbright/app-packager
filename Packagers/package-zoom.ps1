@@ -10,17 +10,17 @@ IconSource: Installer
 UpdateCadenceDays: 14
 
 .SYNOPSIS
-    Packages Zoom Workplace (x64) MSI for MECM.
+    Packages Zoom Workplace (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Downloads the full Zoom Workplace x64 MSI from the vendor's "latest" URL,
     stages content to a versioned local folder with ARP detection metadata
-    derived from MSI properties, and creates an MECM Application with
+    derived from MSI properties, and creates a ConfigMgr Application with
     registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     NOTE: Zoom's "latest" MSI URL always serves the current general release. The
     version is read from MSI properties after download.
@@ -46,11 +46,11 @@ UpdateCadenceDays: 14
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -59,7 +59,7 @@ UpdateCadenceDays: 14
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available Zoom version string and exits.
@@ -294,7 +294,7 @@ function Invoke-PackageZoom {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

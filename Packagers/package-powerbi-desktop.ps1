@@ -10,17 +10,17 @@ IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS
-    Packages Microsoft Power BI Desktop (x64) for MECM.
+    Packages Microsoft Power BI Desktop (x64) for ConfigMgr.
 
 .DESCRIPTION
     Reads the official Microsoft Download Center details page for the current
     x64 Power BI Desktop installer, downloads the EXE, stages content to a
-    versioned local folder, and creates an MECM Application with file-version
+    versioned local folder, and creates a ConfigMgr Application with file-version
     detection against PBIDesktop.exe.
 
     Supports two-phase operation:
       -StageOnly    Download EXE, write wrappers and manifest
-      -PackageOnly  Read manifest, copy to network, create MECM app
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr app
 
     Microsoft documents the EXE silent switches and deployment properties:
     -quiet, -norestart, ACCEPT_EULA=1, and DISABLE_UPDATE_NOTIFICATION=1.

@@ -10,17 +10,17 @@ IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS
-    Packages SyncBackFree for MECM.
+    Packages SyncBackFree for ConfigMgr.
 
 .DESCRIPTION
     Reads the current version from the vendor download page, downloads the
     administrator (all-users) Inno Setup installer, stages content to a
-    versioned local folder, and creates an MECM Application with file-version
+    versioned local folder, and creates a ConfigMgr Application with file-version
     detection.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The free edition ships as a single 32-bit build; there is no x64 payload to
     stage. The administrator installer always installs for all users, so no
@@ -43,11 +43,11 @@ UpdateCadenceDays: 90
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -56,7 +56,7 @@ UpdateCadenceDays: 90
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with file-version detection.
+    create ConfigMgr application with file-version detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available SyncBackFree version string and exits.

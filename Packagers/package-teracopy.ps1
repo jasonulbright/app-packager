@@ -10,14 +10,14 @@ IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS
-    Packages TeraCopy (x64) for MECM.
+    Packages TeraCopy (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the newest build from the vendor's update feed
     (codesector.com/updates/teracopy.txt), which carries the product version,
     a versioned download URL and the payload SHA256. Downloads the installer,
     verifies its hash, stages content to a versioned local folder, and creates
-    an MECM Application with registry detection on the ARP entry.
+    a ConfigMgr Application with registry detection on the ARP entry.
 
     The payload is an Advanced Installer bootstrapper wrapping an MSI, so the
     silent switches are /exenoui /qn and ALLUSERS=1 forces the per-machine
@@ -29,7 +29,7 @@ UpdateCadenceDays: 180
 
     Supports two-phase operation:
       -StageOnly    Download, verify hash, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -48,11 +48,11 @@ UpdateCadenceDays: 180
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -61,7 +61,7 @@ UpdateCadenceDays: 180
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry detection.
+    create ConfigMgr application with registry detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available TeraCopy version string and exits.
@@ -350,7 +350,7 @@ function Invoke-PackageTeraCopy {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

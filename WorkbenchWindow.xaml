@@ -213,7 +213,7 @@
 
                         <TextBlock Grid.Row="3" Grid.Column="0" Text="Application title" Style="{StaticResource WbLabel}"/>
                         <ComboBox  Grid.Row="3" Grid.Column="1" x:Name="cboTitleMode" Style="{StaticResource WbCombo}"
-                                   ToolTip="Versioned titles create one MECM application per release; a perpetual title updates the same application."/>
+                                   ToolTip="Versioned titles create one ConfigMgr application per release; a perpetual title updates the same application."/>
                         <TextBlock Grid.Row="3" Grid.Column="2" x:Name="lblTitleModeSrc" Style="{StaticResource WbSource}"/>
                         <Button    Grid.Row="3" Grid.Column="3" x:Name="btnTitleModeReset" Content="Reset" Style="{StaticResource WbInlineButton}"/>
 
@@ -763,7 +763,7 @@
                     <TextBlock x:Name="chipContent" FontSize="11" Text="Content build: Not validated"/>
                 </Border>
                 <Border Style="{StaticResource WbChip}">
-                    <TextBlock x:Name="chipMecm" FontSize="11" Text="MECM: Not validated"/>
+                    <TextBlock x:Name="chipMecm" FontSize="11" Text="ConfigMgr: Not validated"/>
                 </Border>
                 <Border Style="{StaticResource WbChip}">
                     <TextBlock x:Name="chipIntune" FontSize="11" Text="Intune: Not validated"/>

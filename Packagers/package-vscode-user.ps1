@@ -10,12 +10,12 @@ IconSource: Installer
 UpdateCadenceDays: 14
 
 .SYNOPSIS
-    Packages Visual Studio Code x64 user installer for MECM.
+    Packages Visual Studio Code x64 user installer for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest stable VS Code x64 user installer from the official
     update.code.visualstudio.com endpoint, stages content to a versioned local
-    folder, and creates a user-context MECM Application with HKCU uninstall
+    folder, and creates a user-context ConfigMgr Application with HKCU uninstall
     registry DisplayVersion detection.
 
     This packager is intentionally separate from the system installer package.

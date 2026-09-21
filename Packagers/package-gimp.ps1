@@ -10,16 +10,16 @@ IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 
 .SYNOPSIS
-    Packages GIMP (x64) for MECM.
+    Packages GIMP (x64) for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest GIMP 3.0.x setup EXE from the GIMP CDN, stages content
     to a versioned local folder with ARP-based detection metadata, and creates an
-    MECM Application.
+    ConfigMgr Application.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The latest version is resolved by scraping the CDN directory listing for the
     marker file (0.0_LATEST-IS-{version}-{revision}).
@@ -52,7 +52,7 @@ SupportsInstallModes: CurrentUser, AllUsers
 
 .PARAMETER GetLatestVersionOnly
     Scrapes the GIMP CDN for the latest version, outputs the version string,
-    and exits. No MECM changes are made.
+    and exits. No ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1

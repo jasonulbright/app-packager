@@ -10,12 +10,12 @@ IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS
-    Packages GeoGebra Classic 6 MSI for MECM.
+    Packages GeoGebra Classic 6 MSI for ConfigMgr.
 
 .DESCRIPTION
     Reads the current Classic 6 build from the vendor installer index, downloads
     the matching Windows MSI, stages content to a versioned local folder, and
-    creates an MECM Application with registry-value detection.
+    creates a ConfigMgr Application with registry-value detection.
 
     Two properties of this MSI drive the packaging:
 
@@ -29,7 +29,7 @@ UpdateCadenceDays: 60
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

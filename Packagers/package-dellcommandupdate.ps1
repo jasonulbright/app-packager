@@ -10,7 +10,7 @@ IconSource: Installer
 UpdateCadenceDays: 120
 
 .SYNOPSIS
-    Packages the Dell Command | Update Windows Universal Application (x64) for MECM.
+    Packages the Dell Command | Update Windows Universal Application (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the current release from the Dell client catalog
@@ -18,12 +18,12 @@ UpdateCadenceDays: 120
     the FOLDER path segment of the download URL changes with every release and
     the support page is not machine-readable.
 
-    Stages content to a versioned local folder and creates an MECM Application
+    Stages content to a versioned local folder and creates a ConfigMgr Application
     with file-version detection on dcu-cli.exe.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

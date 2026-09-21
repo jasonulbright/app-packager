@@ -10,17 +10,17 @@ IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS
-    Packages CPU-Z (x64) for MECM.
+    Packages CPU-Z (x64) for ConfigMgr.
 
 .DESCRIPTION
     Reads the current version from the vendor product page, downloads the
     matching English Inno Setup installer, stages content to a versioned local
-    folder, and creates an MECM Application with file-existence detection on
+    folder, and creates a ConfigMgr Application with file-existence detection on
     the installed cpuz_x64.exe.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -39,11 +39,11 @@ UpdateCadenceDays: 90
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -52,7 +52,7 @@ UpdateCadenceDays: 90
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with file-based detection.
+    create ConfigMgr application with file-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available CPU-Z version string and exits.
@@ -364,7 +364,7 @@ function Invoke-PackageCpuZ {
     # its payload in a subfolder) ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

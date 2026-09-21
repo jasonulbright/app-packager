@@ -10,12 +10,12 @@ IconSource: Installer
 UpdateCadenceDays: 365
 
 .SYNOPSIS
-    Packages SmarTTY MSI for MECM.
+    Packages SmarTTY MSI for ConfigMgr.
 
 .DESCRIPTION
     Resolves the current SmarTTY MSI from the vendor download page, stages
     content to a versioned local folder with ARP detection metadata, and creates
-    an MECM Application with registry-based detection.
+    a ConfigMgr Application with registry-based detection.
 
     The payload is a 32-bit (Intel) MSI with ALLUSERS=1, so it installs
     per-machine under Program Files (x86) and registers its ARP entry in the
@@ -23,7 +23,7 @@ UpdateCadenceDays: 365
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -42,11 +42,11 @@ UpdateCadenceDays: 365
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -55,7 +55,7 @@ UpdateCadenceDays: 365
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available SmarTTY version string and exits.
@@ -340,7 +340,7 @@ function Invoke-PackageSmarTTY {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

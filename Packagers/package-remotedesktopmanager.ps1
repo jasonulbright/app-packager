@@ -10,12 +10,12 @@ IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS
-    Packages Remote Desktop Manager (x64 MSI, Free edition entitlement) for MECM.
+    Packages Remote Desktop Manager (x64 MSI, Free edition entitlement) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the current release from the vendor version feed at
     devolutions.net/productinfo.htm, downloads the x64 MSI, stages content to a
-    versioned local folder with ARP detection metadata, and creates an MECM
+    versioned local folder with ARP detection metadata, and creates a ConfigMgr
     Application with registry-based detection.
 
     Free and paid editions ship the same installer; the edition follows from the
@@ -25,7 +25,7 @@ UpdateCadenceDays: 60
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

@@ -9,12 +9,12 @@ IconSource: Installer
 UpdateCadenceDays: 14
 
 .SYNOPSIS
-    Packages Salesforce CLI (sf, x64) for MECM.
+    Packages Salesforce CLI (sf, x64) for ConfigMgr.
 
 .DESCRIPTION
     Reads the version from the vendor's stable-channel build manifest, downloads
     the matching x64 installer from the same channel path, stages content to a
-    versioned local folder, and creates an MECM Application with registry-based
+    versioned local folder, and creates a ConfigMgr Application with registry-based
     detection on the installer's ARP entry.
 
     The installer adds <InstallDir>\bin to the PATH of the account that runs it,
@@ -23,7 +23,7 @@ UpdateCadenceDays: 14
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -42,11 +42,11 @@ UpdateCadenceDays: 14
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -55,7 +55,7 @@ UpdateCadenceDays: 14
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available Salesforce CLI version string and exits.
@@ -311,7 +311,7 @@ function Invoke-PackageSalesforceCli {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

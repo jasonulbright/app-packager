@@ -10,13 +10,13 @@ IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS
-    Packages GitHub Desktop (x64) for MECM as a per-user install.
+    Packages GitHub Desktop (x64) for ConfigMgr as a per-user install.
 
 .DESCRIPTION
     Resolves the newest GitHub Desktop build from the vendor's download
     endpoint, which redirects to a versioned installer URL, downloads
     GitHubDesktopSetup-x64.exe, stages content to a versioned local folder, and
-    creates an MECM Application that installs for the logged-on user.
+    creates a ConfigMgr Application that installs for the logged-on user.
 
     The GitHub repository does not publish every shipped build as a GitHub
     release, so the releases API can lag the version the app updates to.
@@ -27,7 +27,7 @@ UpdateCadenceDays: 30
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -46,11 +46,11 @@ UpdateCadenceDays: 30
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -59,7 +59,7 @@ UpdateCadenceDays: 30
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry detection.
+    create ConfigMgr application with registry detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available GitHub Desktop version string and exits.

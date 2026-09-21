@@ -9,16 +9,16 @@ DownloadPageUrl: https://www.postgresql.org/download/windows/
 IconSource: Installer
 
 .SYNOPSIS
-    Packages PostgreSQL 15 (x64) for MECM.
+    Packages PostgreSQL 15 (x64) for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest PostgreSQL 15.x EDB installer from the EnterpriseDB CDN,
     stages content to a versioned local folder with file-based version detection
-    metadata, and creates an MECM Application.
+    metadata, and creates a ConfigMgr Application.
 
     Supports two-phase operation:
       -StageOnly    Download installer, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The EDB installer is a BitRock InstallBuilder EXE (not MSI). Default install
     creates the PostgreSQL service, data directory, and superuser account.
@@ -46,11 +46,11 @@ IconSource: Installer
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -59,11 +59,11 @@ IconSource: Installer
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with file-based detection.
+    create ConfigMgr application with file-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Queries the endoflife.date API for the latest PostgreSQL 15.x version,
-    outputs the version string, and exits. No MECM changes are made.
+    outputs the version string, and exits. No ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1
@@ -199,7 +199,7 @@ function Invoke-StagePostgreSQL {
     # EnterpriseDB installer writes ARP DisplayVersion as "<ver>-1" (build
     # suffix). Use BeginsWith on the short version so we're agnostic to the
     # trailing suffix. File-based Version detection on postgres.exe was
-    # observed to fail intermittently in MECM even though FileVersion
+    # observed to fail intermittently in ConfigMgr even though FileVersion
     # metadata reads correctly - registry ARP is more reliable.
     $arpRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PostgreSQL $MajorVersion"
 

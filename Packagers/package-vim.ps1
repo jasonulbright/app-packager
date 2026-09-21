@@ -9,22 +9,22 @@ DownloadPageUrl: https://github.com/vim/vim-win32-installer/releases
 IconSource: Installer
 
 .SYNOPSIS
-    Packages Vim/gVim (x64) for MECM.
+    Packages Vim/gVim (x64) for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest gVim x64 installer from GitHub releases, stages content
     to a versioned local folder with ARP-based detection metadata, and creates
-    an MECM Application.
+    a ConfigMgr Application.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The version is resolved from the GitHub releases API for the
     vim/vim-win32-installer repository.
 
     The ARP key uses the major.minor format (e.g., "Vim 9.2") which remains
-    stable across patch updates, making it reliable for MECM detection.
+    stable across patch updates, making it reliable for ConfigMgr detection.
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -54,7 +54,7 @@ IconSource: Installer
 
 .PARAMETER GetLatestVersionOnly
     Queries the GitHub releases API for the latest gVim version, outputs the
-    version string, and exits. No MECM changes are made.
+    version string, and exits. No ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1

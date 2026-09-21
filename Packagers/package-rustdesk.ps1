@@ -10,12 +10,12 @@ IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS
-    Packages RustDesk (x64) MSI for MECM.
+    Packages RustDesk (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest RustDesk x86_64 MSI from GitHub releases, stages
     content to a versioned local folder with ARP detection metadata, and
-    creates an MECM Application with registry-based detection.
+    creates a ConfigMgr Application with registry-based detection.
 
     Deployment consideration: RustDesk provides unattended remote access and
     installs a Windows service that listens for inbound sessions. Endpoint
@@ -26,7 +26,7 @@ UpdateCadenceDays: 60
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

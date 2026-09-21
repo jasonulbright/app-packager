@@ -10,12 +10,12 @@ IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS
-    Packages QGIS (x64, latest release channel) for MECM.
+    Packages QGIS (x64, latest release channel) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the current QGIS release from the vendor download page, downloads
     the OSGeo4W MSI, stages content to a versioned local folder with ARP
-    detection metadata, and creates an MECM Application with registry-based
+    detection metadata, and creates a ConfigMgr Application with registry-based
     detection.
 
     The vendor publishes two channels side by side. This packager follows the
@@ -23,7 +23,7 @@ UpdateCadenceDays: 30
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

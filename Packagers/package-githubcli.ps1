@@ -10,17 +10,17 @@ IconSource: None
 UpdateCadenceDays: 30
 
 .SYNOPSIS
-    Packages GitHub CLI (x64) MSI for MECM.
+    Packages GitHub CLI (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Resolves the latest cli/cli GitHub release, downloads the
     gh_<version>_windows_amd64.msi asset, stages content to a versioned local
-    folder, and creates an MECM Application with registry-based detection
+    folder, and creates a ConfigMgr Application with registry-based detection
     derived from the MSI ProductCode.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

@@ -10,12 +10,12 @@ IconSource: Installer
 UpdateCadenceDays: 14
 
 .SYNOPSIS
-    Packages the Postman desktop app for MECM user-context deployment.
+    Packages the Postman desktop app for ConfigMgr user-context deployment.
 
 .DESCRIPTION
     Downloads the public Postman Windows x64 desktop installer, derives the
     version from the installer file metadata, stages content to a versioned
-    local folder, and creates a user-context MECM Application with HKCU uninstall
+    local folder, and creates a user-context ConfigMgr Application with HKCU uninstall
     registry DisplayVersion detection.
 
     The public Postman Windows installer is a per-user desktop app. The
@@ -25,7 +25,7 @@ UpdateCadenceDays: 14
 
     Supports two-phase operation:
       -StageOnly    Download EXE, write wrappers and manifest
-      -PackageOnly  Read manifest, copy to network, create MECM app
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr app
 
 .REQUIREMENTS
     - PowerShell 5.1

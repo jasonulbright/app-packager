@@ -10,16 +10,16 @@ IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 
 .SYNOPSIS
-    Packages Bitwarden Desktop (x64) for MECM.
+    Packages Bitwarden Desktop (x64) for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest Bitwarden Desktop x64 EXE from GitHub releases, stages
     content to a versioned local folder with file-based version detection
-    metadata, and creates an MECM Application with file-based detection.
+    metadata, and creates a ConfigMgr Application with file-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The installer is an NSIS package that supports /allusers /S for system-wide
     silent installation.
@@ -41,11 +41,11 @@ SupportsInstallModes: CurrentUser, AllUsers
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -54,11 +54,11 @@ SupportsInstallModes: CurrentUser, AllUsers
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with file-based detection.
+    create ConfigMgr application with file-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Queries the GitHub releases API for the latest Bitwarden Desktop version,
-    outputs the version string, and exits. No download or MECM changes are made.
+    outputs the version string, and exits. No download or ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1
@@ -291,7 +291,7 @@ function Invoke-PackageBitwarden {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

@@ -49,7 +49,7 @@ Describe 'Shipped user detection' {
     }
 }
 
-Describe 'MECM registry detection hive routing' {
+Describe 'ConfigMgr registry detection hive routing' {
     InModuleScope AppPackagerCommon {
         BeforeAll {
             function New-CMDetectionClauseRegistryKeyValue {

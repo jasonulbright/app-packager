@@ -9,16 +9,16 @@ DownloadPageUrl: https://aws.amazon.com/corretto/
 IconSource: None
 
 .SYNOPSIS
-    Packages Amazon Corretto JDK 11 (x86) MSI for MECM.
+    Packages Amazon Corretto JDK 11 (x86) MSI for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest Amazon Corretto JDK 11 x86 MSI, stages content to a
-    versioned local folder with ARP detection metadata, and creates an MECM
+    versioned local folder with ARP detection metadata, and creates a ConfigMgr
     Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -34,10 +34,10 @@ IconSource: None
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type. Default: 15
+    Estimated runtime in minutes for the ConfigMgr deployment type. Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type. Default: 30
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type. Default: 30
 
 .PARAMETER StageOnly
     Runs only the Stage phase.
@@ -175,8 +175,8 @@ function Invoke-StageCorrettoJDK11X86 {
 
     # --- Write stage manifest ---
     # Amazon's MSI ProductName is "Amazon Corretto (x86)" for v11+ (no
-    # version in it), which collides in MECM. Construct an AppName that
-    # includes the major version so each release gets a distinct MECM app.
+    # version in it), which collides in ConfigMgr. Construct an AppName that
+    # includes the major version so each release gets a distinct ConfigMgr app.
     $appName = "Amazon Corretto $FeatureVersion ($Architecture)"
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -255,7 +255,7 @@ function Invoke-PackageCorrettoJDK11X86 {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

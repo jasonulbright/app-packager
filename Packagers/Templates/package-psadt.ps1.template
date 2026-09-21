@@ -14,8 +14,8 @@ UpdateCadenceDays: 30
     Wraps an existing per-app PSADT folder ("wrap-a-wrap"): a toolkit a vendor
     or predecessor already built, with the installer under Files\ and the app
     logic in the toolkit entry script. This packager stages that folder as the
-    MECM content, records SHA256 hashes over the whole tree (subfolders
-    included) for package integrity verification, and creates an MECM
+    ConfigMgr content, records SHA256 hashes over the whole tree (subfolders
+    included) for package integrity verification, and creates a ConfigMgr
     Application whose Script deployment type invokes the toolkit directly:
 
       v4: Invoke-AppDeployToolkit.exe -DeploymentType Install
@@ -137,7 +137,7 @@ function Invoke-StagePsadt {
         RunningProcess       = @()
         # TODO: detection. Registry example below; swap for File/Compound as
         # fits the wrapped installer (see AUTHORING.md detection preference
-        # order). The toolkit does not provide detection - MECM needs it.
+        # order). The toolkit does not provide detection - ConfigMgr needs it.
         Detection            = @{
             Type                = "RegistryKeyValue"
             RegistryKeyRelative = "SOFTWARE\TODO\TODO"
@@ -200,7 +200,7 @@ function Invoke-PackagePsadt {
     }
     Write-Log "Copied toolkit tree to network."
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

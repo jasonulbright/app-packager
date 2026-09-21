@@ -9,12 +9,12 @@ DownloadPageUrl: https://repo.anaconda.com/archive/
 UpdateCadenceDays: 90
 
 .SYNOPSIS
-    Packages Anaconda Distribution (x64) for MECM.
+    Packages Anaconda Distribution (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the latest Anaconda3 Windows x86_64 installer from the vendor
     archive index, stages content to a versioned local folder, and creates an
-    MECM Application with file-existence detection.
+    ConfigMgr Application with file-existence detection.
 
     The installer is an NSIS package. It is installed for all users into
     C:\ProgramData\Anaconda3 with Python registration disabled so it does not
@@ -22,7 +22,7 @@ UpdateCadenceDays: 90
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

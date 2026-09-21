@@ -58,7 +58,7 @@ $sampleLog = @"
 [2026-09-02 10:00:00] [INFO ] Deployment type(s) validated : Audacity
 [2026-09-02 10:00:00] [INFO ] $marker app='Audacity' version='3.7.9'
 "@
-$cleanLog = "[2026-09-02 10:00:00] [INFO ] Created MECM application     : Audacity"
+$cleanLog = "[2026-09-02 10:00:00] [INFO ] Created ConfigMgr application : Audacity"
 
 $env:APP_PACKAGER_ON_EXISTING = $null
 Remove-Item Env:\APP_PACKAGER_ON_EXISTING -ErrorAction SilentlyContinue

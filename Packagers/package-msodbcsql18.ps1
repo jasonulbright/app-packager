@@ -9,16 +9,16 @@ DownloadPageUrl: https://learn.microsoft.com/en-us/sql/connect/odbc/download-odb
 IconSource: External
 
 .SYNOPSIS
-    Packages Microsoft ODBC Driver 18 for SQL Server (x64) for MECM.
+    Packages Microsoft ODBC Driver 18 for SQL Server (x64) for ConfigMgr.
 
 .DESCRIPTION
     Downloads the Microsoft ODBC Driver 18 (x64) MSI via the Microsoft FWLink
     redirect URL, stages content to a versioned local folder with ARP detection
-    metadata, and creates an MECM Application with registry-based detection.
+    metadata, and creates a ConfigMgr Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     NOTE: The FWLink URL always serves the current release. The version is read
     from MSI properties after download.
@@ -43,11 +43,11 @@ IconSource: External
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -56,11 +56,11 @@ IconSource: External
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Scrapes the Microsoft documentation page for the current ODBC 18 version,
-    outputs the version string, and exits. No download or MECM changes are made.
+    outputs the version string, and exits. No download or ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1
@@ -314,7 +314,7 @@ function Invoke-PackageOdbc18 {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

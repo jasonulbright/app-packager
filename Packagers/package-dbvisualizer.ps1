@@ -10,16 +10,16 @@ IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS
-    Packages DbVisualizer (x64, bundled JRE) for MECM.
+    Packages DbVisualizer (x64, bundled JRE) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the current release from the vendor download page, downloads the
     windows-x64 installer that bundles the JRE, stages content to a versioned
-    local folder, and creates an MECM Application with file-version detection.
+    local folder, and creates a ConfigMgr Application with file-version detection.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The installer is an install4j package: -q runs unattended with default
     settings, which installs machine-wide under %ProgramFiles%\DbVisualizer.
