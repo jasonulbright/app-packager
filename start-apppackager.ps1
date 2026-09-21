@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.09.21.0091
+    Version    : 2026.09.21.0092
     Updated    : 2026-09-09
 #>
 
@@ -801,6 +801,22 @@ if ($PSBoundParameters.ContainsKey('SiteCode')) {
 if ($PSBoundParameters.ContainsKey('ProviderMachineName')) {
     $script:Prefs.ProviderMachineName = $ProviderMachineName
 }
+
+function Set-LauncherConnectionDefault {
+    # The suite launcher hands its site code and provider to each tool it
+    # starts. A saved value or a parameter wins; the launcher value fills an
+    # empty one, and it is saved only when the operator saves the settings.
+    param([Parameter(Mandatory)]$Prefs)
+
+    if ([string]::IsNullOrWhiteSpace([string]$Prefs.SiteCode) -and -not [string]::IsNullOrWhiteSpace($env:SUITE_CM_SITECODE)) {
+        $Prefs.SiteCode = $env:SUITE_CM_SITECODE.Trim()
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$Prefs.ProviderMachineName) -and -not [string]::IsNullOrWhiteSpace($env:SUITE_CM_PROVIDER)) {
+        $Prefs.ProviderMachineName = $env:SUITE_CM_PROVIDER.Trim()
+    }
+}
+
+Set-LauncherConnectionDefault -Prefs $script:Prefs
 
 function Get-PackagerMetadata {
     param([Parameter(Mandatory)][string]$Path)
