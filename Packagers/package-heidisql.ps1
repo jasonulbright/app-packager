@@ -10,12 +10,12 @@ IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS
-    Packages HeidiSQL (x64) Inno Setup installer for MECM.
+    Packages HeidiSQL (x64) Inno Setup installer for ConfigMgr.
 
 .DESCRIPTION
     Resolves the latest tagged HeidiSQL release from the GitHub releases API,
     downloads the Setup executable, stages content to a versioned local folder,
-    and creates an MECM Application with file-version detection.
+    and creates a ConfigMgr Application with file-version detection.
 
     The vendor download page also lists nightly build installers with higher
     build numbers than the current release. The GitHub releases API is used
@@ -23,7 +23,7 @@ UpdateCadenceDays: 90
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -41,10 +41,10 @@ UpdateCadenceDays: 90
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type. Default: 15
+    Estimated runtime in minutes for the ConfigMgr deployment type. Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type. Default: 30
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type. Default: 30
 
 .PARAMETER StageOnly
     Runs only the Stage phase.

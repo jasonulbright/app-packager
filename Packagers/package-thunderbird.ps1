@@ -9,16 +9,16 @@ DownloadPageUrl: https://www.thunderbird.net/en-US/
 IconSource: External
 
 .SYNOPSIS
-    Packages Mozilla Thunderbird (x64) MSI for MECM.
+    Packages Mozilla Thunderbird (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest Thunderbird x64 MSI from Mozilla's download server,
     stages content to a versioned local folder with file-based version detection
-    metadata, and creates an MECM Application with file-based detection.
+    metadata, and creates a ConfigMgr Application with file-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     NOTE: Thunderbird's ARP registry key includes the version and locale in the
     key name (e.g., "Mozilla Thunderbird 148.0 (x64 en-US)"), making registry
@@ -45,11 +45,11 @@ IconSource: External
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -58,11 +58,11 @@ IconSource: External
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with file-based detection.
+    create ConfigMgr application with file-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Queries Mozilla's product-details API for the latest Thunderbird version,
-    outputs the version string, and exits. No download or MECM changes are made.
+    outputs the version string, and exits. No download or ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1
@@ -282,7 +282,7 @@ function Invoke-PackageThunderbird {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

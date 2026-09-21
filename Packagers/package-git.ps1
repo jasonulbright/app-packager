@@ -9,19 +9,19 @@ DownloadPageUrl: https://git-scm.com/download/win
 IconSource: Installer
 
 .SYNOPSIS
-    Packages Git for Windows (x64) for MECM.
+    Packages Git for Windows (x64) for ConfigMgr.
 
 .DESCRIPTION
     Queries the GitHub releases API for the latest Git for Windows release,
     downloads the 64-bit EXE installer, stages content to a versioned local
-    folder with script-based detection metadata, and creates an MECM Application
+    folder with script-based detection metadata, and creates a ConfigMgr Application
     with a PowerShell script detection method.
     Detection checks HKLM:\SOFTWARE\GitForWindows CurrentVersion >= packaged
     version (stripping the .windows.N suffix before comparison).
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -40,11 +40,11 @@ IconSource: Installer
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -53,11 +53,11 @@ IconSource: Installer
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with script-based detection.
+    create ConfigMgr application with script-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Queries the GitHub API for the latest Git for Windows version, outputs the
-    version string, and exits. No download or MECM changes are made.
+    version string, and exits. No download or ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1
@@ -328,7 +328,7 @@ function Invoke-PackageGit {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

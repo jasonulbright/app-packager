@@ -9,16 +9,16 @@ DownloadPageUrl: https://www.webex.com/downloads.html
 IconSource: Installer
 
 .SYNOPSIS
-    Packages Cisco Webex (x64) MSI for MECM.
+    Packages Cisco Webex (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Downloads the Cisco Webex Gold MSI from Cisco's distribution server, stages
     content to a versioned local folder with ARP detection metadata, and creates
-    an MECM Application with registry-based detection.
+    a ConfigMgr Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     Running with -GetLatestVersionOnly scrapes the Webex release notes page
     for the latest version number (no MSI download required). The main run
@@ -42,11 +42,11 @@ IconSource: Installer
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -55,7 +55,7 @@ IconSource: Installer
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Scrapes the Webex release notes page for the latest version string and exits.
@@ -70,7 +70,7 @@ IconSource: Installer
 .KNOWN ISSUES
     The release notes page (help.webex.com/en-us/article/mqkve8) reports the highest version
     across all channels. The Gold MSI may trail by a build if Cisco hasn't promoted yet --
-    the version packaged in MECM is always the authoritative ProductVersion from the MSI itself.
+    the version packaged in ConfigMgr is always the authoritative ProductVersion from the MSI itself.
     The download URL is sourced from help.webex.com/en-us/article/nw5p67g. Uses Webex_en.msi
     (non-localized English) per Cisco recommendation for enterprise bulk deployments to avoid
     uninstall complications. ALLUSERS=1 for per-machine install to Program Files.
@@ -304,7 +304,7 @@ function Invoke-PackageWebex {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

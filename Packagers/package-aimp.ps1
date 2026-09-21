@@ -10,16 +10,16 @@ IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS
-    Packages AIMP (x64) for MECM.
+    Packages AIMP (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the current stable x64 installer through the vendor's download
     redirector, stages content to a versioned local folder, and creates an
-    MECM Application with file-existence detection on the installed AIMP.exe.
+    ConfigMgr Application with file-existence detection on the installed AIMP.exe.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The version is read from the filename the redirector resolves to; builds
     whose filename is marked as a pre-release are rejected rather than staged.
@@ -41,11 +41,11 @@ UpdateCadenceDays: 180
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -54,7 +54,7 @@ UpdateCadenceDays: 180
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with file-based detection.
+    create ConfigMgr application with file-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available AIMP version string and exits.
@@ -344,7 +344,7 @@ function Invoke-PackageAimp {
     # its payload in a subfolder) ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

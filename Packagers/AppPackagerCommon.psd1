@@ -61,7 +61,7 @@
         'New-ExeWrapperContent'
         'New-MsixWrapperContent'
 
-        # MECM
+        # ConfigMgr
         'New-MECMApplicationFromManifest'
         'Remove-CMApplicationRevisionHistoryByCIId'
         'Get-NextPatchVersion'

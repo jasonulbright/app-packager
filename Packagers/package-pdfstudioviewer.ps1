@@ -9,12 +9,12 @@ IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS
-    Packages PDF Studio Viewer (x64) for MECM.
+    Packages PDF Studio Viewer (x64) for ConfigMgr.
 
 .DESCRIPTION
     Downloads the vendor's unversioned win64 installer, reads the product
     version from the installer's own version resource, stages content to a
-    versioned local folder, and creates an MECM Application with file-based
+    versioned local folder, and creates a ConfigMgr Application with file-based
     detection.
 
     The installer is an install4j package. -q runs it unattended and -dir pins
@@ -22,7 +22,7 @@ UpdateCadenceDays: 180
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

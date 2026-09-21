@@ -16,8 +16,8 @@ UpdateCadenceDays: 7
 
     House complications:
       - Squirrel installs to %LOCALAPPDATA%\<app>, strictly per-user.
-        MECM deploys under SYSTEM by default -> installs go nowhere.
-      - Vendor-supplied auto-update is baked in; for MECM-managed
+        ConfigMgr deploys under SYSTEM by default -> installs go nowhere.
+      - Vendor-supplied auto-update is baked in; for ConfigMgr-managed
         fleets, disable it via a config file drop or registry key
         vendor-specifically.
       - Detection needs an all-users-safe strategy: Script detection

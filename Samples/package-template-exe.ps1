@@ -9,7 +9,7 @@ DownloadPageUrl: https://TODO
 UpdateCadenceDays: 30
 
 .SYNOPSIS
-    Packages TODO (x64) EXE for MECM.
+    Packages TODO (x64) EXE for ConfigMgr.
 
 .DESCRIPTION
     Starter template for an EXE-based packager. EXE installers do not
@@ -191,7 +191,7 @@ exit `$proc.ExitCode
     # Stage manifest
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
     Write-StageManifest -Path $manifestPath -ManifestData @{
-        AppName          = "TODO"                     # display name used for MECM app
+        AppName          = "TODO"                     # display name used for ConfigMgr app
         Publisher        = "TODO"
         SoftwareVersion  = $version
         InstallerFile    = $installerName
@@ -199,7 +199,7 @@ exit `$proc.ExitCode
         InstallArgs      = $installArgs
         UninstallCommand = $uninstallCmd
         UninstallArgs    = $uninstallArgs
-        RunningProcess   = @()                        # TODO: exe names so MECM can close them before upgrade
+        RunningProcess   = @()                        # TODO: exe names so ConfigMgr can close them before upgrade
         InstallationBehaviorType = "InstallForSystem" # InstallForUser when the installer writes under %LOCALAPPDATA% / HKCU
         LogonRequirementType     = "WhetherOrNotUserLoggedOn" # OnlyWhenUserLoggedOn for a per-user installer
         Detection        = @{

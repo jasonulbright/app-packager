@@ -10,17 +10,17 @@ IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS
-    Packages Graphviz (win64) for MECM.
+    Packages Graphviz (win64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the newest stable release from the Graphviz GitLab releases API,
     downloads the matching win64 NSIS installer, stages content to a versioned
-    local folder with ARP detection metadata, and creates an MECM Application
+    local folder with ARP detection metadata, and creates a ConfigMgr Application
     with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     NOTE: The release feed also carries Debug builds and development snapshots;
     only the Release win64 asset of a three-part stable tag is staged.
@@ -42,11 +42,11 @@ UpdateCadenceDays: 60
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -55,7 +55,7 @@ UpdateCadenceDays: 60
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available Graphviz version string and exits.
@@ -346,7 +346,7 @@ function Invoke-PackageGraphviz {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

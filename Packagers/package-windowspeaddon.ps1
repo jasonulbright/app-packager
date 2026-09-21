@@ -10,7 +10,7 @@ IconSource: External
 UpdateCadenceDays: 180
 
 .SYNOPSIS
-    Packages the Windows PE add-on for the Windows ADK for MECM as an
+    Packages the Windows PE add-on for the Windows ADK for ConfigMgr as an
     offline layout.
 
 .DESCRIPTION
@@ -35,7 +35,7 @@ UpdateCadenceDays: 180
 
     Supports two-phase operation:
       -StageOnly    Download bootstrapper, build offline layout, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -58,11 +58,11 @@ UpdateCadenceDays: 180
     Default: C:\Program Files (x86)\Windows Kits\10
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 20
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 60
 
 .PARAMETER StageOnly
@@ -71,7 +71,7 @@ UpdateCadenceDays: 180
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the current add-on version string and exits.
@@ -383,7 +383,7 @@ function Invoke-PackageWinPeAddon {
     # --- Copy staged content to network (the layout is a tree) ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

@@ -9,17 +9,17 @@ IconSource: Installer
 UpdateCadenceDays: 30
 
 .SYNOPSIS
-    Packages PDF24 Creator (x64) MSI for MECM.
+    Packages PDF24 Creator (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Resolves the newest release from the vendor version list at
     creator.pdf24.org, downloads the matching x64 MSI, stages content to a
-    versioned local folder with ARP detection metadata, and creates an MECM
+    versioned local folder with ARP detection metadata, and creates a ConfigMgr
     Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

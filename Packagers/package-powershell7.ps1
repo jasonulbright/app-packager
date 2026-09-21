@@ -9,16 +9,16 @@ DownloadPageUrl: https://github.com/PowerShell/PowerShell/releases
 IconSource: Installer
 
 .SYNOPSIS
-    Packages PowerShell 7 (x64) MSI for MECM.
+    Packages PowerShell 7 (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest PowerShell 7 x64 MSI from GitHub releases, stages
     content to a versioned local folder with ARP detection metadata, and
-    creates an MECM Application with registry-based detection.
+    creates a ConfigMgr Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The install wrapper passes additional MSI properties to enable PATH
     registration, Explorer context menu, and PS Remoting.
@@ -40,11 +40,11 @@ IconSource: Installer
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -53,11 +53,11 @@ IconSource: Installer
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Queries the GitHub releases API for the latest PowerShell 7 version, outputs
-    the version string, and exits. No download or MECM changes are made.
+    the version string, and exits. No download or ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1
@@ -303,7 +303,7 @@ function Invoke-PackagePowerShell7 {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

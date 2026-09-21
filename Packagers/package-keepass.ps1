@@ -9,11 +9,11 @@ DownloadPageUrl: https://keepass.info/download.html
 IconSource: Installer
 
 .SYNOPSIS
-    Packages KeePass 2.x MSI for MECM.
+    Packages KeePass 2.x MSI for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest KeePass 2.x MSI from SourceForge, stages content to a
-    versioned local folder with ARP detection metadata, and creates an MECM
+    versioned local folder with ARP detection metadata, and creates a ConfigMgr
     Application with registry-based detection.
 
     Version detection uses the official KeePass update check file at
@@ -26,7 +26,7 @@ IconSource: Installer
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -45,11 +45,11 @@ IconSource: Installer
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -58,7 +58,7 @@ IconSource: Installer
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available KeePass version string and exits.
@@ -218,7 +218,7 @@ function Invoke-StageKeePass {
 
     # --- Derive ARP detection from MSI properties ---
     # KeePass is a .NET Framework app; the MSI is 32-bit (installs to Program Files (x86)).
-    # ARP entry goes to WOW6432Node on 64-bit Windows; Is64Bit = false tells MECM to
+    # ARP entry goes to WOW6432Node on 64-bit Windows; Is64Bit = false tells ConfigMgr to
     # look in the 32-bit registry view.
     $arpRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\" + $productCode
 
@@ -318,7 +318,7 @@ function Invoke-PackageKeePass {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

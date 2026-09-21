@@ -10,19 +10,19 @@ IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS
-    Packages KeePassXC (x64) MSI for MECM.
+    Packages KeePassXC (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Resolves the newest release from the GitHub releases API, downloads the
     Win64 MSI, stages content to a versioned local folder with ARP detection
-    metadata, and creates an MECM Application with registry-based detection.
+    metadata, and creates a ConfigMgr Application with registry-based detection.
 
     ARP detection is derived from MSI properties (ProductCode becomes registry
     key, ProductVersion becomes DisplayVersion). No temp install needed.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -41,11 +41,11 @@ UpdateCadenceDays: 90
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -54,7 +54,7 @@ UpdateCadenceDays: 90
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available KeePassXC version string and exits.

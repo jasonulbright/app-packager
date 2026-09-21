@@ -10,17 +10,17 @@ IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS
-    Packages BellSoft Liberica JDK 21 (x64) MSI for MECM.
+    Packages BellSoft Liberica JDK 21 (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Queries the BellSoft Liberica releases API for the current JDK 21 LTS
     Windows amd64 MSI, downloads it, stages content to a versioned local
-    folder with ARP detection metadata, and creates an MECM Application with
+    folder with ARP detection metadata, and creates a ConfigMgr Application with
     registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -36,10 +36,10 @@ UpdateCadenceDays: 90
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type. Default: 15
+    Estimated runtime in minutes for the ConfigMgr deployment type. Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type. Default: 30
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type. Default: 30
 
 .PARAMETER StageOnly
     Runs only the Stage phase.
@@ -191,7 +191,7 @@ function Invoke-StageLibericaJDK21 {
     $downloadUrl = $release.DownloadUrl
 
     # The API version carries the OpenJDK build suffix (21.0.12.1+1). '+' is
-    # legal in a path but not in an MECM software version, so the folder and
+    # legal in a path but not in a ConfigMgr software version, so the folder and
     # manifest version use a dotted form.
     $displayVersion = $release.Version -replace '\+', '.'
 
@@ -262,7 +262,7 @@ function Invoke-StageLibericaJDK21 {
         -UninstallPs1Content $wrapperContent.Uninstall
 
     # --- Write stage manifest ---
-    # The MSI ProductName omits the feature version, which collides in MECM
+    # The MSI ProductName omits the feature version, which collides in ConfigMgr
     # across JDK 17/21/25; the AppName carries it explicitly.
     $appName = "Liberica JDK $FeatureVersion (x64)"
 
@@ -345,7 +345,7 @@ function Invoke-PackageLibericaJDK21 {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

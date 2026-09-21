@@ -9,16 +9,16 @@ DownloadPageUrl: https://www.win-rar.com/download.html
 IconSource: Installer
 
 .SYNOPSIS
-    Packages WinRAR (x64) for MECM.
+    Packages WinRAR (x64) for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest WinRAR x64 EXE from rarlab.com, stages content to a
     versioned local folder with ARP-based detection metadata, and creates an
-    MECM Application.
+    ConfigMgr Application.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The latest version is resolved by scraping the rarlab.com download page for
     the x64 installer filename (which encodes the version number).
@@ -55,7 +55,7 @@ IconSource: Installer
 
 .PARAMETER GetLatestVersionOnly
     Scrapes the rarlab.com download page for the latest version, outputs the
-    version string, and exits. No MECM changes are made.
+    version string, and exits. No ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1

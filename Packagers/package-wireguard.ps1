@@ -10,12 +10,12 @@ IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS
-    Packages WireGuard for Windows (amd64) MSI for MECM.
+    Packages WireGuard for Windows (amd64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Resolves the newest amd64 MSI from the official windows-client download
     index, stages content to a versioned local folder with ARP detection derived
-    from the MSI properties, and creates an MECM Application with registry-based
+    from the MSI properties, and creates a ConfigMgr Application with registry-based
     detection.
 
     The index also carries wireguard-installer.exe (a downloader stub) and the
@@ -26,7 +26,7 @@ UpdateCadenceDays: 90
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -45,11 +45,11 @@ UpdateCadenceDays: 90
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 5
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER StageOnly
@@ -58,7 +58,7 @@ UpdateCadenceDays: 90
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available WireGuard version string and exits.
@@ -340,7 +340,7 @@ function Invoke-PackageWireGuard {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

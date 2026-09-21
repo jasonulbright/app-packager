@@ -10,17 +10,17 @@ IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS
-    Packages Nagstamon (x64) for MECM.
+    Packages Nagstamon (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the latest release from the Nagstamon GitHub releases API,
     downloads the win64 Inno Setup installer, stages content to a versioned
-    local folder, and creates an MECM Application with registry-based detection
+    local folder, and creates a ConfigMgr Application with registry-based detection
     on the Inno Setup uninstall key.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

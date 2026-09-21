@@ -10,13 +10,13 @@ IconSource: Installer
 RequiresTools: 7-Zip
 
 .SYNOPSIS
-    Packages the latest Adobe Acrobat Reader for MECM.
+    Packages the latest Adobe Acrobat Reader for ConfigMgr.
 
 .DESCRIPTION
     Parses Adobe's official release notes page to determine the current Acrobat
     version, constructs the enterprise installer URL, downloads the x86 en_US EXE
     from the enterprise distribution CDN, stages content to a versioned local folder
-    with file-based detection metadata, and creates an MECM Application with file
+    with file-based detection metadata, and creates a ConfigMgr Application with file
     version-based detection.
     Detection uses AcroRd32.exe file version >= packaged version in the Program
     Files (x86) install path.
@@ -30,7 +30,7 @@ RequiresTools: 7-Zip
 
     Supports two-phase operation:
       -StageOnly    Download, read FileVersion, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -49,11 +49,11 @@ RequiresTools: 7-Zip
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -62,11 +62,11 @@ RequiresTools: 7-Zip
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with file-based detection.
+    create ConfigMgr application with file-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Parses Adobe's release notes page for the current version, outputs the version
-    string, and exits. No download or MECM changes are made.
+    string, and exits. No download or ConfigMgr changes are made.
 
 .PARAMETER VerboseLog
     Enables DEBUG-level diagnostic logging (CM module/drive state, manifest
@@ -317,7 +317,7 @@ function Invoke-StageAdobeReader {
         $sevenZip = Join-Path $env:ProgramFiles "7-Zip\7z.exe"
     }
     if (-not (Test-Path -LiteralPath $sevenZip)) {
-        throw "7-Zip not found at $sevenZip - required to extract Adobe enterprise installer. Install 7-Zip or verify detection in MECM Preferences."
+        throw "7-Zip not found at $sevenZip - required to extract Adobe enterprise installer. Install 7-Zip or verify detection in ConfigMgr Preferences."
     }
     $extractProc = $null
     try {
@@ -504,7 +504,7 @@ function Invoke-PackageAdobeReader {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

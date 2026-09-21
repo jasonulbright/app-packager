@@ -10,12 +10,12 @@ IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS
-    Packages Gpg4win for MECM.
+    Packages Gpg4win for ConfigMgr.
 
 .DESCRIPTION
     Resolves the latest Gpg4win release from the vendor file index, downloads the
     NSIS installer, stages content to a versioned local folder, and creates an
-    MECM Application with registry-value detection.
+    ConfigMgr Application with registry-value detection.
 
     Gpg4win is the publicly downloadable GnuPG distribution for Windows. It is
     the substitute for GnuPG VS-Desktop, which g10 Code distributes only under a
@@ -28,7 +28,7 @@ UpdateCadenceDays: 90
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

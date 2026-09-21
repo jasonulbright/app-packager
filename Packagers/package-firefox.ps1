@@ -10,19 +10,19 @@ DownloadPageUrl: https://www.mozilla.org/en-US/firefox/enterprise/
 IconSource: External
 
 .SYNOPSIS
-    Packages Mozilla Firefox (x64) MSI for MECM.
+    Packages Mozilla Firefox (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest Mozilla Firefox x64 MSI from the official Mozilla
     release servers, stages content to a versioned local folder with file-based
-    detection metadata, and creates an MECM Application with file-version-based
+    detection metadata, and creates a ConfigMgr Application with file-version-based
     detection.
     Detection uses firefox.exe version >= packaged version in the Program Files
     install path.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -41,11 +41,11 @@ IconSource: External
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -54,7 +54,7 @@ IconSource: External
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with file-based detection.
+    create ConfigMgr application with file-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available Firefox version string and exits.
@@ -395,7 +395,7 @@ function Invoke-PackageFirefox {
     # its payload in a subfolder) ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

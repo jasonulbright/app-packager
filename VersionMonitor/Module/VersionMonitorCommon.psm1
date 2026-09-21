@@ -125,7 +125,7 @@ function Get-PackagerScripts {
 }
 
 # ---------------------------------------------------------------------------
-# MECM Queries
+# ConfigMgr Queries
 # ---------------------------------------------------------------------------
 
 function Get-MecmApplicationVersions {
@@ -205,7 +205,7 @@ function Get-MecmApplicationVersions {
             }
         }
         catch {
-            Write-Log ("MECM query failed for '{0}': {1}" -f $cmName, $_.Exception.Message) -Level WARN
+            Write-Log ("ConfigMgr query failed for '{0}': {1}" -f $cmName, $_.Exception.Message) -Level WARN
             $results[$cmName] = [pscustomobject]@{ Found = $false; DisplayName = $null; SoftwareVersion = $null; MatchCount = 0 }
         }
     }
@@ -497,7 +497,7 @@ function Export-VersionMonitorHtml {
     $currentCount = @($Results | Where-Object { $_.Status -eq 'Current' }).Count
     $staleCount   = @($Results | Where-Object { $_.Status -eq 'Stale' }).Count
     $errorCount   = @($Results | Where-Object { $_.Status -eq 'Error' -or $_.Status -like 'Error*' }).Count
-    $unknownCount = @($Results | Where-Object { $_.Status -eq 'Unknown' -or $_.Status -eq 'Not in MECM' }).Count
+    $unknownCount = @($Results | Where-Object { $_.Status -eq 'Unknown' -or $_.Status -eq 'Not in ConfigMgr' }).Count
     $totalCount   = $Results.Count
 
     $css = @(
@@ -542,11 +542,11 @@ function Export-VersionMonitorHtml {
         "Error: <span class='count error-count'>{5}</span></div>"
     ) -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $totalCount, $currentCount, $staleCount, $unknownCount, $errorCount
 
-    $headerRow = '<tr><th>Application</th><th>Publisher</th><th>MECM Version</th><th>Vendor Version</th><th>Status</th><th>CVEs</th><th>Max CVSS</th><th>Links</th></tr>'
+    $headerRow = '<tr><th>Application</th><th>Publisher</th><th>ConfigMgr Version</th><th>Vendor Version</th><th>Status</th><th>CVEs</th><th>Max CVSS</th><th>Links</th></tr>'
 
     $rows = @()
     foreach ($r in ($Results | Sort-Object @{Expression={
-        switch ($_.Status) { 'Stale' { 0 } 'Error' { 1 } 'Unknown' { 2 } 'Not in MECM' { 3 } default { 4 } }
+        switch ($_.Status) { 'Stale' { 0 } 'Error' { 1 } 'Unknown' { 2 } 'Not in ConfigMgr' { 3 } default { 4 } }
     }}, @{Expression='Application'})) {
         $rowClass = switch -Wildcard ($r.Status) {
             'Stale'  { ' class="stale"' }
@@ -557,7 +557,7 @@ function Export-VersionMonitorHtml {
         $badgeClass = switch -Wildcard ($r.Status) {
             'Current'      { 'badge-current' }
             'Stale'        { 'badge-stale' }
-            'Not in MECM'  { 'badge-notinmecm' }
+            'Not in ConfigMgr'  { 'badge-notinmecm' }
             'Error*'       { 'badge-error' }
             default        { 'badge-unknown' }
         }

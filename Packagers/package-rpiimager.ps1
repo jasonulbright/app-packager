@@ -9,19 +9,19 @@ IconSource: External
 UpdateCadenceDays: 60
 
 .SYNOPSIS
-    Packages Raspberry Pi Imager (x64) for MECM.
+    Packages Raspberry Pi Imager (x64) for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest Raspberry Pi Imager Windows installer from GitHub
     releases, stages content to a versioned local folder with ARP detection
-    metadata, and creates an MECM Application with registry-based detection.
+    metadata, and creates a ConfigMgr Application with registry-based detection.
 
     The installer is an Inno Setup package that requires elevation and always
     installs per-machine into Program Files.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

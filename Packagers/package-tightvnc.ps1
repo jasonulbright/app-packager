@@ -10,12 +10,12 @@ IconSource: External
 UpdateCadenceDays: 180
 
 .SYNOPSIS
-    Packages TightVNC (x64) MSI for MECM.
+    Packages TightVNC (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Resolves the newest release from the vendor download page, downloads the
     64-bit MSI, stages content to a versioned local folder with ARP detection
-    metadata, and creates an MECM Application with registry-based detection.
+    metadata, and creates a ConfigMgr Application with registry-based detection.
 
     The install covers both features the MSI ships (Server and Viewer), registers
     the server as a service and adds the firewall exception, which are the MSI's
@@ -24,11 +24,11 @@ UpdateCadenceDays: 180
     (SET_USEVNCAUTHENTICATION / VALUE_OF_USEVNCAUTHENTICATION / SET_PASSWORD /
     VALUE_OF_PASSWORD, or a post-install configuration step). A password must
     never be baked into the packaged command line, because deployment content
-    and the MECM command line are readable by anyone with content access.
+    and the ConfigMgr command line are readable by anyone with content access.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -47,11 +47,11 @@ UpdateCadenceDays: 180
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -60,7 +60,7 @@ UpdateCadenceDays: 180
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available TightVNC version string and exits.
@@ -346,7 +346,7 @@ function Invoke-PackageTightVNC {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

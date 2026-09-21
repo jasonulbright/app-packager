@@ -9,7 +9,7 @@ DownloadPageUrl: https://TODO
 UpdateCadenceDays: 30
 
 .SYNOPSIS
-    Packages TODO (x64) MSI for MECM.
+    Packages TODO (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Starter template for an MSI-based packager. Duplicate this file into
@@ -193,7 +193,7 @@ function Invoke-StageApp {
         -InstallPs1Content $wrapperContent.Install `
         -UninstallPs1Content $wrapperContent.Uninstall
 
-    # Stage manifest: everything Package needs to create the MECM app.
+    # Stage manifest: everything Package needs to create the ConfigMgr app.
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
     Write-StageManifest -Path $manifestPath -ManifestData @{
         AppName         = $productName
@@ -204,7 +204,7 @@ function Invoke-StageApp {
         InstallArgs     = "/qn /norestart"
         UninstallArgs   = "/qn /norestart"
         ProductCode     = $productCode
-        RunningProcess  = @()   # TODO: list exe names so MECM can close them before upgrade
+        RunningProcess  = @()   # TODO: list exe names so ConfigMgr can close them before upgrade
         Detection       = @{
             Type                = "RegistryKeyValue"
             RegistryKeyRelative = $arpRegistryKey

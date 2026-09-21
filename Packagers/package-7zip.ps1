@@ -11,16 +11,16 @@ UpdateCadenceDays: 90
 SupportsVariants: Architecture
 
 .SYNOPSIS
-    Packages 7-Zip (x64) MSI for MECM, optionally with an ARM64 variant.
+    Packages 7-Zip (x64) MSI for ConfigMgr, optionally with an ARM64 variant.
 
 .DESCRIPTION
     Downloads the latest 7-Zip x64 MSI from the official 7-zip.org download page,
     stages content to a versioned local folder with ARP detection metadata, and
-    creates an MECM Application with registry-based detection.
+    creates a ConfigMgr Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -39,11 +39,11 @@ SupportsVariants: Architecture
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -52,7 +52,7 @@ SupportsVariants: Architecture
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available 7-Zip version string and exits.
@@ -424,7 +424,7 @@ function Invoke-Package7Zip {
     # its payload in a subfolder) ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

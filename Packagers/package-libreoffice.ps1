@@ -9,16 +9,16 @@ DownloadPageUrl: https://www.libreoffice.org/download/download-libreoffice/
 IconSource: Installer
 
 .SYNOPSIS
-    Packages LibreOffice (x64) MSI for MECM.
+    Packages LibreOffice (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest LibreOffice x64 MSI from the Document Foundation CDN,
     stages content to a versioned local folder with ARP detection metadata,
-    and creates an MECM Application with registry-based detection.
+    and creates a ConfigMgr Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The latest version is resolved from the endoflife.date API. The MSI is
     approximately 350MB so staging takes longer than most packagers.
@@ -43,11 +43,11 @@ IconSource: Installer
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 60
 
 .PARAMETER StageOnly
@@ -56,11 +56,11 @@ IconSource: Installer
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Queries the endoflife.date API for the latest LibreOffice version, outputs
-    the version string, and exits. No download or MECM changes are made.
+    the version string, and exits. No download or ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1
@@ -315,7 +315,7 @@ function Invoke-PackageLibreOffice {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

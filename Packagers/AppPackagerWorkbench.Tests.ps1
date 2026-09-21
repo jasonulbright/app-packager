@@ -6,7 +6,7 @@
 
 .DESCRIPTION
     Uses a temporary data root via APP_PACKAGER_WORKBENCH_ROOT. Touches no
-    network, no MECM, no certificate store, and no real installer.
+    network, no ConfigMgr, no certificate store, and no real installer.
 
 .EXAMPLE
     Invoke-Pester .\AppPackagerWorkbench.Tests.ps1

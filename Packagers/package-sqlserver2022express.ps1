@@ -10,11 +10,11 @@ IconSource: External
 UpdateCadenceDays: 180
 
 .SYNOPSIS
-    Packages Microsoft SQL Server 2022 Express (x64) for MECM.
+    Packages Microsoft SQL Server 2022 Express (x64) for ConfigMgr.
 
 .DESCRIPTION
     Downloads the SQLEXPR_x64_ENU.exe Express Core media box, stages content to
-    a versioned local folder, and creates an MECM Application with
+    a versioned local folder, and creates a ConfigMgr Application with
     registry-based detection on the instance Setup key.
 
     Two installers exist for Express. SQL2022-SSEI-Expr.exe is a small
@@ -32,7 +32,7 @@ UpdateCadenceDays: 180
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -59,11 +59,11 @@ UpdateCadenceDays: 180
     Default: BUILTIN\Administrators
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 90
 
 .PARAMETER StageOnly
@@ -72,7 +72,7 @@ UpdateCadenceDays: 180
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the available SQL Server 2022 Express media version and exits.

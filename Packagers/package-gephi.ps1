@@ -10,12 +10,12 @@ IconSource: Installer
 UpdateCadenceDays: 180
 
 .SYNOPSIS
-    Packages Gephi (x64) for MECM.
+    Packages Gephi (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the latest gephi/gephi GitHub release, downloads the
     gephi-<version>-windows-x64.exe asset, stages content to a versioned local
-    folder, and creates an MECM Application with file-existence detection.
+    folder, and creates a ConfigMgr Application with file-existence detection.
 
     The installer is an Inno Setup package installed silently with /VERYSILENT.
     Its install directory is pinned per version on the command line so detection
@@ -24,7 +24,7 @@ UpdateCadenceDays: 180
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

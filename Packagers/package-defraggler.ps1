@@ -10,16 +10,16 @@ IconSource: Installer
 UpdateCadenceDays: 365
 
 .SYNOPSIS
-    Packages Defraggler (x64-capable installer) for MECM.
+    Packages Defraggler (x64-capable installer) for ConfigMgr.
 
 .DESCRIPTION
     Reads the current build from the vendor builds page and the version from the
     installer file version resource, stages content to a versioned local folder,
-    and creates an MECM Application with file-version detection.
+    and creates a ConfigMgr Application with file-version detection.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The installer is an NSIS package: /S installs silently for all users and
     lays down both the 32-bit and 64-bit binaries under %ProgramFiles%\Defraggler.

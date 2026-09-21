@@ -10,11 +10,11 @@ IconSource: External
 UpdateCadenceDays: 14
 
 .SYNOPSIS
-    Packages SQL Server Management Studio 22 for MECM.
+    Packages SQL Server Management Studio 22 for ConfigMgr.
 
 .DESCRIPTION
     Downloads the official SSMS 22 release-channel bootstrapper, stages it to
-    a versioned local folder, and creates an MECM Application with file-version
+    a versioned local folder, and creates a ConfigMgr Application with file-version
     detection against Ssms.exe.
 
     SSMS 22 uses the Visual Studio Installer bootstrapper model. Silent switch
@@ -23,7 +23,7 @@ UpdateCadenceDays: 14
 
     Supports two-phase operation:
       -StageOnly    Download bootstrapper, write wrappers and manifest
-      -PackageOnly  Read manifest, copy to network, create MECM app
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr app
 
 .REQUIREMENTS
     - PowerShell 5.1

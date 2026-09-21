@@ -9,13 +9,13 @@ DownloadPageUrl: https://learn.microsoft.com/en-us/cpp/windows/latest-supported-
 IconSource: None
 
 .SYNOPSIS
-    Packages Microsoft Visual C++ v14 Redistributable (x86+x64) for MECM.
+    Packages Microsoft Visual C++ v14 Redistributable (x86+x64) for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest vc_redist.x86.exe and vc_redist.x64.exe from Microsoft's
     permalink URLs, reads the version from VersionInfo on the x64 installer, stages
     both to a versioned local folder with dual-registry detection metadata, and
-    creates an MECM Application with compound registry detection (AND logic).
+    creates a ConfigMgr Application with compound registry detection (AND logic).
     Detection uses HKLM registry Version string under both X86 and X64
     VC\Runtimes keys must equal the expected value (vMAJOR.MINOR.BUILD.00).
 
@@ -32,7 +32,7 @@ IconSource: None
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -51,11 +51,11 @@ IconSource: None
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -64,11 +64,11 @@ IconSource: None
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with compound registry detection.
+    create ConfigMgr application with compound registry detection.
 
 .PARAMETER GetLatestVersionOnly
     Downloads the x64 installer, reads the version from VersionInfo, outputs the
-    short version string, and exits. No MECM changes are made.
+    short version string, and exits. No ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1
@@ -351,7 +351,7 @@ function Invoke-PackageMsvcRedist {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

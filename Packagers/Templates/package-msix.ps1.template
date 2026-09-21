@@ -11,9 +11,9 @@ UpdateCadenceDays: 30
 
 .DESCRIPTION
     Framework for packaging MSIX / APPX / MSIXBUNDLE applications into
-    MECM via the Script deployment-type pattern (install.bat +
+    ConfigMgr via the Script deployment-type pattern (install.bat +
     install.ps1 calling Add-AppxProvisionedPackage). The alternative
-    native MECM path is Add-CMWindowsAppxDeploymentType; it's TODO on
+    native ConfigMgr path is Add-CMWindowsAppxDeploymentType; it's TODO on
     this skeleton. The Script path works today and fits the house rule
     "all deployments ship as Script deployment type".
 

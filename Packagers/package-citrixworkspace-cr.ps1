@@ -10,16 +10,16 @@ IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS
-    Packages Citrix Workspace app for Windows, Current Release (x64), for MECM.
+    Packages Citrix Workspace app for Windows, Current Release (x64), for ConfigMgr.
 
 .DESCRIPTION
     Reads the Current stream version from the vendor's update catalog, downloads
     the matching CitrixWorkspaceApp.exe, stages content to a versioned local
-    folder, and creates an MECM Application with registry-based detection.
+    folder, and creates a ConfigMgr Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     Scope: Current Release only. The LTSR build is served from an account-gated
     download page and cannot be fetched unattended, so this packager does not
@@ -50,11 +50,11 @@ UpdateCadenceDays: 60
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -63,7 +63,7 @@ UpdateCadenceDays: 60
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available Current Release version string and exits.
@@ -112,7 +112,7 @@ $AppFolder    = "Citrix Workspace CR"
 $BaseDownloadRoot = Join-Path $DownloadRoot "CitrixWorkspaceCR"
 $SwitchesFile     = Join-Path $PSScriptRoot "citrix-workspace-switches.json"
 
-# The installer writes its ARP entry to the 32-bit registry view; MECM adds
+# The installer writes its ARP entry to the 32-bit registry view; ConfigMgr adds
 # the WOW6432Node segment itself when the clause is not marked 64-bit.
 $DetectionRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CitrixOnlinePluginPackWeb"
 
@@ -400,7 +400,7 @@ function Invoke-PackageCitrixWorkspaceCR {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

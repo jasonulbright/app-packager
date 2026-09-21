@@ -1,15 +1,15 @@
 <#
 .SYNOPSIS
-    Vendor Version Monitor - compares MECM-packaged versions against vendor releases.
+    Vendor Version Monitor - compares ConfigMgr-packaged versions against vendor releases.
 
 .DESCRIPTION
     Discovers packager scripts from the sibling Packagers folder, reads CPE and
-    URL metadata from their headers, queries MECM for deployed versions, checks
+    URL metadata from their headers, queries ConfigMgr for deployed versions, checks
     each vendor for the latest available version, flags stale applications,
     optionally queries the NIST NVD for known CVEs, and produces a self-contained
     HTML report.
 
-    Designed for headless/scheduled execution. No GUI, no MECM changes.
+    Designed for headless/scheduled execution. No GUI, no ConfigMgr changes.
 
 .PARAMETER ConfigPath
     Path to monitor-config.json. Defaults to $PSScriptRoot\monitor-config.json.
@@ -18,13 +18,13 @@
     Skip NVD CVE lookups. Useful for faster runs or when NVD is unreachable.
 
 .PARAMETER SkipMECM
-    Skip MECM queries. Vendor version checks still run. Useful for testing
+    Skip ConfigMgr queries. Vendor version checks still run. Useful for testing
     without a ConfigMgr connection.
 
 .PARAMETER SimulateStale
-    Load simulated MECM versions from simulate-overrides.json. Forces apps in
+    Load simulated ConfigMgr versions from simulate-overrides.json. Forces apps in
     the overrides file to appear stale so you can test CVE lookups and report
-    rendering without a real MECM environment or genuinely stale apps.
+    rendering without a real ConfigMgr environment or genuinely stale apps.
 
 .PARAMETER OverridesPath
     Path to simulate-overrides.json. Defaults to $PSScriptRoot\simulate-overrides.json.
@@ -34,11 +34,11 @@
 
 .EXAMPLE
     .\Start-VersionMonitor.ps1
-    Full run: MECM + vendor checks + NVD CVE lookups.
+    Full run: ConfigMgr + vendor checks + NVD CVE lookups.
 
 .EXAMPLE
     .\Start-VersionMonitor.ps1 -SkipMECM -SkipNVD
-    Vendor version checks only. No MECM or NVD dependency.
+    Vendor version checks only. No ConfigMgr or NVD dependency.
 
 .EXAMPLE
     .\Start-VersionMonitor.ps1 -SimulateStale
@@ -104,7 +104,7 @@ Initialize-Logging -LogPath $logPath
 Write-Log "=== Vendor Version Monitor started ==="
 Write-Log ("Packagers root: {0}" -f $packagersDir)
 if ($SimulateStale) { Write-Log "SIMULATE MODE: Using overrides from $OverridesPath" -Level WARN }
-if ($SkipMECM)      { Write-Log "Skipping MECM queries (-SkipMECM)" }
+if ($SkipMECM)      { Write-Log "Skipping ConfigMgr queries (-SkipMECM)" }
 if ($SkipNVD)       { Write-Log "Skipping NVD lookups (-SkipNVD)" }
 
 # ---------------------------------------------------------------------------
@@ -159,26 +159,26 @@ foreach ($pkg in $packagers) {
 Write-Log ("{0} applications to scan" -f $appsToScan.Count)
 
 # ---------------------------------------------------------------------------
-# Query MECM
+# Query ConfigMgr
 # ---------------------------------------------------------------------------
 
 $mecmResults = @{}
 if (-not $SkipMECM -and -not $SimulateStale) {
-    Write-Log "Querying MECM for application versions..."
+    Write-Log "Querying ConfigMgr for application versions..."
     try {
         $cmNames = @($appsToScan | ForEach-Object { $_.CMName } | Where-Object { $_ })
         $providerMachineName = if ($config.MECM.ProviderMachineName) { [string]$config.MECM.ProviderMachineName } else { [string]$config.MECM.ServerFQDN }
         $mecmResults = Get-MecmApplicationVersions -SiteCode $config.MECM.SiteCode -ProviderMachineName $providerMachineName -CMNames $cmNames
         $foundCount = @($mecmResults.Values | Where-Object { $_.Found }).Count
-        Write-Log ("MECM: {0} of {1} applications found" -f $foundCount, $cmNames.Count)
+        Write-Log ("ConfigMgr: {0} of {1} applications found" -f $foundCount, $cmNames.Count)
     }
     catch {
-        Write-Log ("MECM connection failed: {0}" -f $_.Exception.Message) -Level ERROR
+        Write-Log ("ConfigMgr connection failed: {0}" -f $_.Exception.Message) -Level ERROR
         Write-Log "Continuing with vendor checks only"
     }
 }
 
-# Apply MECM versions (or simulation overrides)
+# Apply ConfigMgr versions (or simulation overrides)
 foreach ($app in $appsToScan) {
     if ($SimulateStale -and $simOverrides.ContainsKey($app.Script)) {
         $app.MecmVersion = $simOverrides[$app.Script]
@@ -187,7 +187,7 @@ foreach ($app in $appsToScan) {
         $app.MecmVersion = $mecmResults[$app.CMName].SoftwareVersion
     }
     elseif (-not $SkipMECM -and -not $SimulateStale) {
-        $app.Status = 'Not in MECM'
+        $app.Status = 'Not in ConfigMgr'
     }
 }
 
@@ -230,7 +230,7 @@ foreach ($app in $appsToScan) {
     if ($app.Status -ne 'Pending') { continue }
 
     if ($SimulateStale -and -not $simOverrides.ContainsKey($app.Script)) {
-        # In simulate mode, apps without overrides use vendor version as MECM version (appear current)
+        # In simulate mode, apps without overrides use vendor version as ConfigMgr version (appear current)
         $app.MecmVersion = $app.VendorVersion
     }
 

@@ -9,17 +9,17 @@ IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS
-    Packages RenderDoc (x64) MSI for MECM.
+    Packages RenderDoc (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Resolves the newest stable release from the vendor builds page, downloads
     the matching 64-bit MSI, stages content to a versioned local folder with
-    ARP detection metadata, and creates an MECM Application with
+    ARP detection metadata, and creates a ConfigMgr Application with
     registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

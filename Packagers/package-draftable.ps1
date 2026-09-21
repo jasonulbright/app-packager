@@ -10,16 +10,16 @@ IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS
-    Packages Draftable Desktop (x64, system-wide MSI) for MECM.
+    Packages Draftable Desktop (x64, system-wide MSI) for ConfigMgr.
 
 .DESCRIPTION
     Downloads the vendor's evergreen system-wide MSI, stages content to a
-    versioned local folder with ARP detection metadata, and creates an MECM
+    versioned local folder with ARP detection metadata, and creates a ConfigMgr
     Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -41,10 +41,10 @@ UpdateCadenceDays: 60
     Any of WordAddin, ExcelAddin, PowerPointAddin, OutlookAddin. None by default.
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type. Default: 20
+    Estimated runtime in minutes for the ConfigMgr deployment type. Default: 20
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type. Default: 45
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type. Default: 45
 
 .PARAMETER StageOnly
     Runs only the Stage phase.

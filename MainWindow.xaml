@@ -185,12 +185,12 @@
                         <Button x:Name="btnCheckLatest" Content="Check Latest"    Style="{StaticResource WorkflowButtonStyle}"
                                 Margin="8,16,8,3"
                                 ToolTip="Query each checked app's vendor source for the latest available version"/>
-                        <Button x:Name="btnCheckMECM"   Content="Check MECM"      Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="Query MECM for the currently deployed version of each checked app"/>
+                        <Button x:Name="btnCheckMECM"   Content="Check ConfigMgr" Style="{StaticResource WorkflowButtonStyle}"
+                                ToolTip="Query ConfigMgr for the currently deployed version of each checked app"/>
                         <Button x:Name="btnStage"       Content="Stage Packages"  Style="{StaticResource WorkflowButtonStyle}"
                                 ToolTip="Download and extract each checked app into the local staging root"/>
                         <Button x:Name="btnPackage"     Content="Package Apps"    Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="Build MECM Application + Deployment Type for every checked app"/>
+                                ToolTip="Build ConfigMgr Application + Deployment Type for every checked app"/>
 
                         <Button x:Name="btnWorkbench"   Content="Application Workbench" Style="{StaticResource WorkflowButtonStyle}"
                                 ToolTip="Edit one application's commands, scripts, detection, requirements, timing, icon and extra source files, then save it as a named profile. Opening or saving deploys nothing."/>
@@ -201,7 +201,7 @@
                         <!-- Unified OPTIONS button (replaces the OPTIONS section header + 4 individual buttons) -->
                         <Button x:Name="btnOptions"       Content="Options"                Style="{StaticResource OptionsButtonStyle}"
                                 Margin="8,16,8,3"
-                                ToolTip="MECM Preferences, Packager Preferences, One Click Settings, Product Filter - all in one window"/>
+                                ToolTip="ConfigMgr Preferences, Packager Preferences, One Click Settings, Product Filter - all in one window"/>
 
                         <!-- ADMINISTRATIVE COMMENT -->
                         <TextBlock Text="COMMENT" Style="{StaticResource SectionHeaderStyle}"/>
@@ -212,7 +212,7 @@
                                  AcceptsReturn="True"
                                  TextWrapping="Wrap"
                                  VerticalScrollBarVisibility="Auto"
-                                 Controls:TextBoxHelper.Watermark="Optional note for MECM app description (e.g. ticket number)"
+                                 Controls:TextBoxHelper.Watermark="Optional note for ConfigMgr app description (e.g. ticket number)"
                                  FontSize="12"/>
 
                     </StackPanel>
@@ -303,9 +303,9 @@
                          star width also fails to recover when they hide. -->
                     <DataGridTextColumn Header="Application" Width="*" MinWidth="160" Binding="{Binding Application}" IsReadOnly="True"/>
                     <DataGridTextColumn Header="Vendor" Width="150" Binding="{Binding Vendor}" IsReadOnly="True"/>
-                    <DataGridTextColumn Header="Current (MECM)" Width="130" Binding="{Binding CurrentVersion}" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Current (ConfigMgr)" Width="170" Binding="{Binding CurrentVersion}" IsReadOnly="True"/>
                     <DataGridTextColumn Header="Latest" Width="130" Binding="{Binding LatestVersion}" IsReadOnly="True"/>
-                    <DataGridTextColumn Header="Status" Width="130" Binding="{Binding Status}" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Status" Width="170" Binding="{Binding Status}" IsReadOnly="True"/>
                     <DataGridTextColumn x:Name="colCMName" Header="CMName" Width="140" Binding="{Binding CMName}" IsReadOnly="True" Visibility="Collapsed"/>
                     <DataGridTextColumn x:Name="colScript" Header="Script" Width="180" Binding="{Binding Script}" IsReadOnly="True" Visibility="Collapsed"/>
                     <DataGridTextColumn x:Name="colVendorURL" Header="Vendor URL" Width="200" Binding="{Binding VendorURL}" IsReadOnly="True" Visibility="Collapsed"/>

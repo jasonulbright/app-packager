@@ -10,17 +10,17 @@ IconSource: None
 UpdateCadenceDays: 90
 
 .SYNOPSIS
-    Packages MariaDB Server (x64) MSI for MECM.
+    Packages MariaDB Server (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Queries the MariaDB downloads REST API for the newest stable long-term
     support series, resolves the highest release in that series, downloads the
     winx64 MSI, stages content to a versioned local folder with ARP detection
-    metadata, and creates an MECM Application with registry-based detection.
+    metadata, and creates a ConfigMgr Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER ServiceName
     Windows service name created by the install. The MSI creates no service at
@@ -52,10 +52,10 @@ UpdateCadenceDays: 90
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type. Default: 15
+    Estimated runtime in minutes for the ConfigMgr deployment type. Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type. Default: 45
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type. Default: 45
 
 .PARAMETER StageOnly
     Runs only the Stage phase.
@@ -395,7 +395,7 @@ function Invoke-PackageMariaDB {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

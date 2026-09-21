@@ -9,19 +9,19 @@ DownloadPageUrl: https://www.microsoft.com/en-us/edge/business/download
 IconSource: Installer
 
 .SYNOPSIS
-    Packages Microsoft Edge MSI for MECM.
+    Packages Microsoft Edge MSI for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest Microsoft Edge MSI from the official
     Microsoft link, stages content to a versioned local folder with compound
-    file-based detection metadata, and creates an MECM Application with
+    file-based detection metadata, and creates a ConfigMgr Application with
     file-version detection (OR connector).
     Detection uses msedge.exe version in the primary install path OR the staged
     EdgeUpdate path (OR connector).
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -40,11 +40,11 @@ IconSource: Installer
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -53,7 +53,7 @@ IconSource: Installer
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with compound file-based detection.
+    create ConfigMgr application with compound file-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available Edge version string and exits.
@@ -286,7 +286,7 @@ function Invoke-PackageEdge {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

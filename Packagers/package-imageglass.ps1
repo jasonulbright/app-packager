@@ -10,17 +10,17 @@ IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS
-    Packages ImageGlass (x64) MSI for MECM.
+    Packages ImageGlass (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Resolves the newest stable release from the d2phap/ImageGlass GitHub
     repository, downloads the win-x64 MSI, stages content to a versioned local
-    folder with ARP detection metadata, and creates an MECM Application with
+    folder with ARP detection metadata, and creates a ConfigMgr Application with
     registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -36,10 +36,10 @@ UpdateCadenceDays: 60
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type. Default: 15
+    Estimated runtime in minutes for the ConfigMgr deployment type. Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type. Default: 30
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type. Default: 30
 
 .PARAMETER StageOnly
     Runs only the Stage phase.
@@ -320,7 +320,7 @@ function Invoke-PackageImageGlass {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

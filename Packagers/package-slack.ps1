@@ -10,19 +10,19 @@ IconSource: External
 UpdateCadenceDays: 14
 
 .SYNOPSIS
-    Packages Slack (x64) MSIX for MECM.
+    Packages Slack (x64) MSIX for ConfigMgr.
 
 .DESCRIPTION
     Queries the Slack desktop release API for the current Windows x64 MSIX
     version, downloads the signed package, stages content to a versioned
-    local folder, and creates an MECM Application that provisions the
+    local folder, and creates a ConfigMgr Application that provisions the
     package for every user (Add-AppxProvisionedPackage) with file-existence
     detection on the provisioned package folder. Slack no longer publishes
     the machine-wide MSI; the MSIX is its documented enterprise install.
 
     Supports two-phase operation:
       -StageOnly    Download, verify identity and signature, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -41,11 +41,11 @@ UpdateCadenceDays: 14
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -54,7 +54,7 @@ UpdateCadenceDays: 14
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with file-based detection.
+    create ConfigMgr application with file-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available Slack version string and exits.
@@ -416,7 +416,7 @@ function Invoke-PackageSlack {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

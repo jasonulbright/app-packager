@@ -8,16 +8,16 @@ DownloadPageUrl: https://github.com/jgraph/drawio-desktop/releases
 IconSource: Installer
 
 .SYNOPSIS
-    Packages draw.io Desktop for MECM.
+    Packages draw.io Desktop for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest draw.io Desktop MSI from GitHub releases, stages
     content to a versioned local folder with ARP detection metadata, and
-    creates an MECM Application with registry-based detection.
+    creates a ConfigMgr Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

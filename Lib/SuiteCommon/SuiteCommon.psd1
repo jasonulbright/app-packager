@@ -1,9 +1,9 @@
 @{
     RootModule        = 'SuiteCommon.psm1'
-    ModuleVersion = '0.4.3'
+    ModuleVersion = '2026.09.21.0031'
     GUID              = '7c1f2a9e-4b3d-4f8a-9c6e-2d5b8e1a7f40'
     Author            = 'Jason Ulbright'
-    Description       = 'Shared core for the MECM tool suite: logging, CM site connection, settings persistence, window chrome, theming, dialogs.'
+    Description       = 'Shared core for the Configuration Manager tool suite: logging, CM site connection, settings persistence, window chrome, theming, dialogs.'
     PowerShellVersion = '5.1'
 
     FunctionsToExport = @(

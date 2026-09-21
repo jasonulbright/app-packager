@@ -8,20 +8,20 @@ DownloadPageUrl: https://github.com/posit-dev/positron/releases
 IconSource: Installer
 
 .SYNOPSIS
-    Packages Positron IDE (x64) for MECM.
+    Packages Positron IDE (x64) for ConfigMgr.
 
 .DESCRIPTION
     Queries the GitHub releases API for the latest Positron release, downloads
     the system-level EXE installer from the Posit CDN, stages content to a
     versioned local folder with file-existence detection metadata, and creates
-    an MECM Application.
+    a ConfigMgr Application.
 
     Positron is an InnoSetup-based installer. Detection checks for
     Positron.exe in Program Files.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -40,11 +40,11 @@ IconSource: Installer
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -53,7 +53,7 @@ IconSource: Installer
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with file-based detection.
+    create ConfigMgr application with file-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available Positron version string and exits.
@@ -292,7 +292,7 @@ function Invoke-PackagePositron {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

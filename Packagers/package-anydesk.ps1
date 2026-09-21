@@ -10,12 +10,12 @@ IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS
-    Packages AnyDesk (x86 payload, 64-bit capable host) for MECM.
+    Packages AnyDesk (x86 payload, 64-bit capable host) for ConfigMgr.
 
 .DESCRIPTION
     Downloads the current AnyDesk.exe from the vendor download endpoint, reads
     the version from the binary's FileVersion resource, stages content to a
-    versioned local folder, and creates an MECM Application with file-version
+    versioned local folder, and creates a ConfigMgr Application with file-version
     detection on the installed AnyDesk.exe.
 
     AnyDesk ships a single self-contained EXE that acts as both the installer
@@ -23,7 +23,7 @@ UpdateCadenceDays: 60
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -42,11 +42,11 @@ UpdateCadenceDays: 60
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -55,7 +55,7 @@ UpdateCadenceDays: 60
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with file-based detection.
+    create ConfigMgr application with file-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available AnyDesk version string and exits.
@@ -280,7 +280,7 @@ function Invoke-PackageAnyDesk {
     # its payload in a subfolder) ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

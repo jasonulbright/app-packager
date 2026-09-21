@@ -10,17 +10,17 @@ IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS
-    Packages IBM Semeru Runtime Open Edition JRE 11 (x64) MSI for MECM.
+    Packages IBM Semeru Runtime Open Edition JRE 11 (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
     Resolves the newest stable release from the ibmruntimes/semeru11-binaries
     GitHub repository, downloads the x64 Windows jre MSI, stages content to a
-    versioned local folder with ARP detection metadata, and creates an MECM
+    versioned local folder with ARP detection metadata, and creates a ConfigMgr
     Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -36,10 +36,10 @@ UpdateCadenceDays: 90
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type. Default: 15
+    Estimated runtime in minutes for the ConfigMgr deployment type. Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type. Default: 30
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type. Default: 30
 
 .PARAMETER StageOnly
     Runs only the Stage phase.
@@ -254,7 +254,7 @@ function Invoke-StageSemeru {
 
     # --- Write stage manifest ---
     # The MSI ProductName carries the full build string, which changes on every
-    # update and would create a new MECM app each time. AppName is built from
+    # update and would create a new ConfigMgr app each time. AppName is built from
     # the constants above so the app identity stays stable across updates.
     $appName = "IBM Semeru Runtime Open Edition JRE $FeatureVersion ($Architecture)"
 
@@ -334,7 +334,7 @@ function Invoke-PackageSemeru {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

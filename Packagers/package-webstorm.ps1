@@ -9,12 +9,12 @@ DownloadPageUrl: https://www.jetbrains.com/webstorm/download/?section=windows
 UpdateCadenceDays: 60
 
 .SYNOPSIS
-    Packages WebStorm (x64) for MECM.
+    Packages WebStorm (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the latest WebStorm release from the JetBrains product releases API,
     downloads the Windows installer, stages content to a versioned local folder,
-    and creates an MECM Application with registry-key detection.
+    and creates a ConfigMgr Application with registry-key detection.
 
     The installer is an NSIS package installed silently with /S. Detection is the
     presence of the versioned ARP uninstall key ("WebStorm <version>").
@@ -24,7 +24,7 @@ UpdateCadenceDays: 60
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

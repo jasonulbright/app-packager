@@ -10,7 +10,7 @@ IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS
-    Packages Tableau Prep Builder (x64) for MECM.
+    Packages Tableau Prep Builder (x64) for ConfigMgr.
 
 .DESCRIPTION
     Reads the latest release from the Tableau release page and downloads the
@@ -28,7 +28,7 @@ UpdateCadenceDays: 90
 
     Supports two-phase operation:
       -StageOnly    Download the installer, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -47,11 +47,11 @@ UpdateCadenceDays: 90
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 60
 
 .PARAMETER SourceFolder

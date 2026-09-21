@@ -11,7 +11,7 @@ UpdateCadenceDays: 90
 LocalSource: Required
 
 .SYNOPSIS
-    Packages Citrix Workspace app for Windows, LTSR (x64), for MECM.
+    Packages Citrix Workspace app for Windows, LTSR (x64), for ConfigMgr.
 
 .DESCRIPTION
     Reads the latest LTSR version from the vendor's update catalog and stages
@@ -20,12 +20,12 @@ LocalSource: Required
     local source folder. The catalog serves only the x86 build, so the x86
     packager downloads it, verified against the catalog SHA-256, when no
     folder is set; the x64 and ARM64 builds are behind the LTSR download page
-    sign-in and always come from the folder. Creates an MECM Application with
+    sign-in and always come from the folder. Creates a ConfigMgr Application with
     registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Resolve the installer, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     Install switches come from Packagers\citrix-workspace-switches.json, the
     same file the GUI edits. Keys with no documented installer switch are
@@ -52,11 +52,11 @@ LocalSource: Required
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER SourceFolder
@@ -69,7 +69,7 @@ LocalSource: Required
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available LTSR version string and exits.
@@ -127,7 +127,7 @@ $BaseDownloadRoot = Join-Path $DownloadRoot "CitrixWorkspaceLTSRx64"
 $SwitchesFile     = Join-Path $PSScriptRoot "citrix-workspace-switches.json"
 
 # The x86 build writes its ARP entry to the 32-bit registry view and the x64
-# and ARM64 builds to the 64-bit view; MECM adds the WOW6432Node segment
+# and ARM64 builds to the 64-bit view; ConfigMgr adds the WOW6432Node segment
 # itself when the clause is not marked 64-bit.
 $DetectionRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CitrixOnlinePluginPackWeb"
 
@@ -477,7 +477,7 @@ function Invoke-PackageCitrixWorkspaceLTSR {
     # --- Copy staged content to network ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

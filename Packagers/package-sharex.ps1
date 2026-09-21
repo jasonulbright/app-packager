@@ -8,16 +8,16 @@ DownloadPageUrl: https://getsharex.com/downloads
 IconSource: Installer
 
 .SYNOPSIS
-    Packages ShareX for MECM.
+    Packages ShareX for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest ShareX EXE from GitHub releases, stages content to a
     versioned local folder with file-based version detection metadata, and
-    creates an MECM Application with file-based detection.
+    creates a ConfigMgr Application with file-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The installer is an InnoSetup package. The /SP- flag suppresses the initial
     "Setup will install..." prompt, and /NORUN prevents auto-launch after install.

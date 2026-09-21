@@ -10,17 +10,17 @@ IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS
-    Packages NoMachine (x64) for MECM.
+    Packages NoMachine (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the current Windows x64 package from the vendor download page,
     downloads the Inno Setup installer, stages content to a versioned local
-    folder with ARP detection metadata, and creates an MECM Application with
+    folder with ARP detection metadata, and creates a ConfigMgr Application with
     registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

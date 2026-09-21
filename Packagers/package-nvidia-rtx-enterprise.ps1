@@ -10,14 +10,14 @@ IconSource: Installer
 UpdateCadenceDays: 60
 
 .SYNOPSIS
-    Packages the latest NVIDIA RTX Enterprise (Quadro Certified) DCH driver (x64) for MECM.
+    Packages the latest NVIDIA RTX Enterprise (Quadro Certified) DCH driver (x64) for ConfigMgr.
 
 .DESCRIPTION
     Queries NVIDIA's AjaxDriverService.php JSON endpoint with pinned psid/pfid
     for the NVIDIA RTX PRO Series flagship (covers all current RTX PRO /
     RTX A-series workstation cards via the unified Quadro Certified DCH
     driver), downloads the latest WHQL Enterprise installer, stages content
-    to a versioned local folder, and creates an MECM Application with ARP
+    to a versioned local folder, and creates a ConfigMgr Application with ARP
     registry-based detection on the constant NVIDIA Display.Driver
     uninstall GUID.
 
@@ -28,7 +28,7 @@ UpdateCadenceDays: 60
 
     Sibling packager: package-nvidia-geforce.ps1 (Game Ready branch for
     consumer GeForce GTX/RTX cards). Both packagers detect on the same
-    NVIDIA Display.Driver ARP GUID but install into separately named MECM
+    NVIDIA Display.Driver ARP GUID but install into separately named ConfigMgr
     applications so a fleet with mixed Quadro/GeForce hardware can target
     each appropriately.
 
@@ -51,11 +51,11 @@ UpdateCadenceDays: 60
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -123,7 +123,7 @@ $NvidiaUpCrd      = 0        # See NOTE above
 
 # Constant ARP uninstall GUID for the NVIDIA Display.Driver component on
 # DCH installs. Same GUID for Game Ready and RTX Enterprise -- the package
-# name differs only by AppFolder/AppName, so the two MECM apps coexist on
+# name differs only by AppFolder/AppName, so the two ConfigMgr apps coexist on
 # the share without colliding.
 $NvidiaDisplayDriverArpKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}_Display.Driver"
 
@@ -232,7 +232,7 @@ function Invoke-StageNvidiaRTXEnterprise {
     # --- Generate content wrappers ---
     # NVIDIA DCH installer silent switches:
     #   -s         silent
-    #   -noreboot  do not auto-reboot (let MECM handle)
+    #   -noreboot  do not auto-reboot (let ConfigMgr handle)
     #   -clean     clean install: removes prior driver settings + profiles
     # Uninstall:
     #   -uninstall -s -noreboot

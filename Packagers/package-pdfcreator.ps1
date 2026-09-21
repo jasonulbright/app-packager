@@ -10,12 +10,12 @@ IconSource: External
 UpdateCadenceDays: 60
 
 .SYNOPSIS
-    Packages PDFCreator Free (x64) for MECM.
+    Packages PDFCreator Free (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the current stable build from the vendor's download redirect,
     downloads the setup executable, stages content to a versioned local folder,
-    and creates an MECM Application with file-version detection.
+    and creates a ConfigMgr Application with file-version detection.
 
     The free edition ships only as a setup executable; the vendor's MSI is
     restricted to the Professional and Terminal Server editions. The setup
@@ -25,7 +25,7 @@ UpdateCadenceDays: 60
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

@@ -1,6 +1,6 @@
 # Authoring a new packager
 
-A packager is a single `package-<app>.ps1` file in `Packagers/`. It has two phases: **Stage** (downloads installer, extracts metadata, writes wrappers + manifest locally) and **Package** (reads manifest, copies to network, creates MECM Application). The GUI and the One Click workflow call the same two functions.
+A packager is a single `package-<app>.ps1` file in `Packagers/`. It has two phases: **Stage** (downloads installer, extracts metadata, writes wrappers + manifest locally) and **Package** (reads manifest, copies to network, creates ConfigMgr Application). The GUI and the One Click workflow call the same two functions.
 
 Every packager follows the same skeleton. Copy one of the templates from this folder and swap in the app-specific bits.
 
@@ -45,7 +45,7 @@ The GUI parses these tags with `Get-PackagerMetadata`:
 |---|---|---|
 | `Vendor` | Yes | Main grid Vendor column; network content path (`\\share\Applications\<Vendor>\<App>\<Version>`) |
 | `App` | Yes | Main grid Application column; network content path `<App>` segment |
-| `CMName` | No (defaults to App) | Name used when querying MECM for the currently-deployed version. Some apps have MECM names that differ from their product names |
+| `CMName` | No (defaults to App) | Name used when querying ConfigMgr for the currently-deployed version. Some apps have ConfigMgr names that differ from their product names |
 | `VendorUrl` | No | Ctrl+Click in main grid opens this URL |
 | `CPE` | No | NVD Common Platform Enumeration string used by Version Monitor for CVE lookups |
 | `ReleaseNotesUrl` | No | Shown in Version Monitor HTML report Links column |
@@ -86,7 +86,7 @@ The GUI uses `-GetLatestVersionOnly` to populate the Latest column in the grid a
 
 ## Stage phase
 
-Stage does everything that can be done locally, without the MECM console and without touching the network share. In order:
+Stage does everything that can be done locally, without the ConfigMgr console and without touching the network share. In order:
 
 1. Resolve the current version (scrape the vendor page, hit a release API, or read a known-stable URL).
 2. Download the installer to `<DownloadRoot>\<AppSubfolder>\<installer>`.
@@ -99,19 +99,19 @@ The stage manifest is the contract between Stage and Package. Package reads it a
 
 ## Package phase
 
-Package does everything that requires the MECM console and the network share:
+Package does everything that requires the ConfigMgr console and the network share:
 
 1. Read the stage manifest.
 2. Verify `FileServerPath` is reachable and writable (`Test-NetworkShareAccess`).
 3. Compute the network content path via `Get-NetworkAppRoot`: `<FileServerPath>\Applications\<Vendor>\<App>\<Version>\`.
 4. Copy the staged content folder to the network path (skip `stage-manifest.json` - it stays local).
-5. Call `New-MECMApplicationFromManifest` with the manifest. The shared module creates the CM Application, adds the Script deployment type with the right detection method, applies the right runtime limits, and (if Auto-distribute is configured in MECM Preferences) kicks off content distribution to the DP group.
+5. Call `New-MECMApplicationFromManifest` with the manifest. The shared module creates the CM Application, adds the Script deployment type with the right detection method, applies the right runtime limits, and (if Auto-distribute is configured in ConfigMgr Preferences) kicks off content distribution to the DP group.
 
-`New-MECMApplicationFromManifest` is idempotent but fail-closed: if an application with the same name exists in MECM, it validates that the expected deployment type also exists and returns the existing CI_ID. If the application exists without the expected deployment type, it throws because that usually means a prior package run partially created the app. Fix or remove the partial application before re-running Package.
+`New-MECMApplicationFromManifest` is idempotent but fail-closed: if an application with the same name exists in ConfigMgr, it validates that the expected deployment type also exists and returns the existing CI_ID. If the application exists without the expected deployment type, it throws because that usually means a prior package run partially created the app. Fix or remove the partial application before re-running Package.
 
 ## Detection types
 
-The stage manifest's `Detection` block tells the shared module which MECM detection method to create. Five types are supported:
+The stage manifest's `Detection` block tells the shared module which ConfigMgr detection method to create. Five types are supported:
 
 | Type | Used when | Fields |
 |---|---|---|
@@ -186,7 +186,7 @@ Before submitting a new packager:
 
 1. Run `.\Packagers\package-<app>.ps1 -GetLatestVersionOnly`. Confirm the output is the current version in a clean format.
 2. Run `.\Packagers\package-<app>.ps1 -StageOnly`. Confirm `<DownloadRoot>\<AppSubfolder>\<Version>\` has: the installer, `install.bat`, `install.ps1`, `uninstall.bat`, `uninstall.ps1`, `stage-manifest.json`.
-3. Run `.\Packagers\package-<app>.ps1 -PackageOnly -SiteCode <yourcode> -FileServerPath <yourshare>`. Confirm the network content landed and the MECM app was created with the right detection and deployment type.
+3. Run `.\Packagers\package-<app>.ps1 -PackageOnly -SiteCode <yourcode> -FileServerPath <yourshare>`. Confirm the network content landed and the ConfigMgr app was created with the right detection and deployment type.
 4. Deploy to a lab VM. Install, detect, uninstall, confirm ARP entry is gone. Re-install, re-detect, re-uninstall. Reboot. Re-detect.
 5. Drop the packager into the main grid and Ctrl+Click its vendor URL; confirm the link opens the right page.
 

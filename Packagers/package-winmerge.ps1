@@ -9,16 +9,16 @@ DownloadPageUrl: https://winmerge.org/downloads/
 IconSource: External
 
 .SYNOPSIS
-    Packages WinMerge (x64) for MECM.
+    Packages WinMerge (x64) for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest WinMerge x64 EXE from GitHub releases, stages content
     to a versioned local folder with file-based version detection metadata, and
-    creates an MECM Application with file-based detection.
+    creates a ConfigMgr Application with file-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     The installer is an InnoSetup package supporting /VERYSILENT flags.
 
@@ -37,10 +37,10 @@ IconSource: External
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type. Default: 15
+    Estimated runtime in minutes for the ConfigMgr deployment type. Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type. Default: 30
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type. Default: 30
 
 .PARAMETER StageOnly
     Runs only the Stage phase.
@@ -50,7 +50,7 @@ IconSource: External
 
 .PARAMETER GetLatestVersionOnly
     Queries the GitHub releases API for the latest WinMerge version, outputs the
-    version string, and exits. No download or MECM changes are made.
+    version string, and exits. No download or ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1

@@ -5800,7 +5800,7 @@ function New-AnalysisSummaryText {
     # vendor base-MSI + cumulative-MSP shipments). The MSP's
     # MsiPatchMetadata.DisplayName carries the post-patch DisplayVersion the
     # ARP key will hold once the patch applies; the inner MSI's ProductCode
-    # is the ARP key name. Together they give a MECM-ready detection rule
+    # is the ARP key name. Together they give a ConfigMgr-ready detection rule
     # WITHOUT installing the product.
     $primaryMsp = $null
     if ($MspMetadata) {
@@ -6175,7 +6175,7 @@ function New-AnalysisSummaryText {
 function ConvertTo-DeploymentJson {
     <#
     .SYNOPSIS
-        Builds a MECM-packaging-friendly JSON digest of the analysis result.
+        Builds a ConfigMgr-packaging-friendly JSON digest of the analysis result.
     .DESCRIPTION
         Returns a single JSON string suitable for pasting into packaging scripts or
         the clipboard. Shape is a flat digest of the fields a packager needs:

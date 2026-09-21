@@ -132,7 +132,7 @@ try {
         $isolated = Get-WorkbenchChipState -Validated $true -Findings @(
             [pscustomobject]@{ Severity = 'Blocking'; Code = 'VARIANT-INTUNE'; Message = 'x' })
         & $assert ($isolated.Intune -eq 'Unsupported') 'an Intune blocker marks Intune unsupported'
-        & $assert ($isolated.Mecm -eq 'Ready') 'an Intune blocker never blocks MECM'
+        & $assert ($isolated.Mecm -eq 'Ready') 'an Intune blocker never blocks ConfigMgr'
         & $assert ($isolated.Content -eq 'Ready') 'an Intune blocker never blocks the content build'
         & $ok 'three independent status chips'
     }

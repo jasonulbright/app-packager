@@ -11,16 +11,16 @@ SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 180
 
 .SYNOPSIS
-    Packages KDiff3 (x64) for MECM.
+    Packages KDiff3 (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the newest release that ships a Windows x86_64 installer from the
     KDE stable archive, downloads it, stages content to a versioned local
-    folder, and creates an MECM Application with registry-based detection.
+    folder, and creates a ConfigMgr Application with registry-based detection.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers and stage manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -39,11 +39,11 @@ UpdateCadenceDays: 180
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -52,7 +52,7 @@ UpdateCadenceDays: 180
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with registry-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available KDiff3 Windows version string and exits.

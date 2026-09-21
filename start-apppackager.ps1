@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-    MahApps.Metro WPF front-end for application packager scripts (metadata-driven, no network on launch).
+    Main window of AppPackager, which packages applications for ConfigMgr and Intune.
 
 .DESCRIPTION
-    MahApps.Metro 2.4.10 WPF front-end for application packager scripts.
-    Modern sidebar layout with dark/light theme toggle.
+    Front-end for the application packager scripts in the Packagers folder.
+    Sidebar layout with a dark and light theme toggle.
 
     On launch, the tool performs LOCAL-ONLY operations:
       - Enumerates packager scripts in the PackagersRoot folder
@@ -34,9 +34,9 @@
       - Local administrator (required by some packagers)
 
     ScriptName : start-apppackager.ps1
-    Purpose    : MahApps WPF front-end for packager scripts
+    Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.09.18.0090
+    Version    : 2026.09.21.0091
     Updated    : 2026-09-09
 #>
 
@@ -193,7 +193,7 @@ function Read-Preferences {
         }
         Intune               = [pscustomobject]@{
             CreateIntuneWin       = $false
-            # MECM = today's flow; MECMAndIntune = MECM app + Graph publish;
+            # ConfigMgr = today's flow; MECMAndIntune = ConfigMgr app + Graph publish;
             # IntuneOnly = stage + .intunewin + Graph publish, no site touch.
             DeploymentTarget      = 'MECM'
             PublishToIntune       = $false
@@ -1277,7 +1277,7 @@ function Invoke-PackagerIntuneWinPostStep {
     # copies it beside the network content version folder. The artifact
     # lands in the parent of both version folders, never inside them:
     # stage hash verification fails on any file added to verified content.
-    # Failures never fail the package run - the MECM application already
+    # Failures never fail the package run - the ConfigMgr application already
     # exists when this executes - so the returned note carries Ok/Message
     # for the caller to surface.
     param(
@@ -1299,7 +1299,7 @@ function Invoke-PackagerIntuneWinPostStep {
 
     try {
         if ([string]::IsNullOrWhiteSpace($ToolPath) -or -not (Test-Path -LiteralPath $ToolPath)) {
-            $note.Message = 'IntuneWinAppUtil.exe not available; skipped. Configure it in MECM Preferences.'
+            $note.Message = 'IntuneWinAppUtil.exe not available; skipped. Configure it in ConfigMgr Preferences.'
             return $note
         }
 
@@ -1508,7 +1508,7 @@ function Get-MecmCurrentVersionByCMName {
 
         if ([string]::IsNullOrWhiteSpace($providerRoot)) {
             Set-Location $savedLocation -ErrorAction SilentlyContinue
-            throw ("Failed to connect to CM site PSDrive '{0}:'. Open the ConfigMgr console once on this machine, or set Provider Machine in Options > MECM Preferences (the ProviderMachineName value from the AdminUI connect script)." -f $SiteCode)
+            throw ("Failed to connect to CM site PSDrive '{0}:'. Open the ConfigMgr console once on this machine, or set Provider Machine in Options > ConfigMgr Preferences (the ProviderMachineName value from the AdminUI connect script)." -f $SiteCode)
         }
 
         try {
@@ -1763,7 +1763,7 @@ function Invoke-PackagerPackage {
     $psi.FileName = "powershell.exe"
     $psi.WorkingDirectory = Split-Path -Parent $PackagerPath
     # Intune-only runs stop at Stage: no site connection, no share copy,
-    # no MECM application. The .intunewin build and Graph publish below
+    # no ConfigMgr application. The .intunewin build and Graph publish below
     # work entirely from the local staged content.
     $phaseSwitch = if ($DeploymentTarget -eq 'IntuneOnly') { '-StageOnly' } else { '-PackageOnly' }
     $argsBase = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PackagerPath, $phaseSwitch, '-SiteCode', $SiteCode, '-Comment', $Comment, '-LogPath', $structuredLog)
@@ -1795,13 +1795,13 @@ function Invoke-PackagerPackage {
 
     # Optional post-step: produce a .intunewin beside the network content.
     # Runs only after integrity passes; failures ride on the result for the
-    # caller to surface, never thrown - the MECM application already exists
+    # caller to surface, never thrown - the ConfigMgr application already exists
     # by this point.
     $intuneOnly = ($DeploymentTarget -eq 'IntuneOnly')
     if (($CreateIntuneWin -or $intuneOnly) -and $result.ExitCode -eq 0) {
         $intuneNote = Invoke-PackagerIntuneWinPostStep -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -ToolPath $IntuneWinToolPath -ContentLayout $ContentLayout -SkipNetworkCopy:$intuneOnly
         if ($intuneOnly -and -not $IntunePublishConfig -and $intuneNote.Ok) {
-            $result | Add-Member -NotePropertyName IntunePublish -NotePropertyValue ([pscustomobject]@{ Ok = $false; Message = 'Intune credentials not configured; set Tenant ID, Client ID, and Client Secret in MECM Preferences.' }) -Force
+            $result | Add-Member -NotePropertyName IntunePublish -NotePropertyValue ([pscustomobject]@{ Ok = $false; Message = 'Intune credentials not configured; set Tenant ID, Client ID, and Client Secret in ConfigMgr Preferences.' }) -Force
         }
         if ($IntunePublishConfig -and $intuneNote.Ok) {
             $pubNote = [pscustomobject]@{ Ok = $false; Message = '' }
@@ -3766,7 +3766,7 @@ function Get-SidebarTargetState {
     if ($DeploymentTarget -eq 'IntuneOnly') {
         return @{
             CheckMecmEnabled  = $false
-            CheckMecmToolTip  = "Check MECM needs a ConfigMgr site. The Deployment Target is Intune only - change it in Options, MECM Preferences, to use this."
+            CheckMecmToolTip  = "Check ConfigMgr needs a ConfigMgr site. The Deployment Target is Intune only - change it in Options, ConfigMgr Preferences, to use this."
             PackageContent    = 'Publish Apps'
             PackageToolTip    = 'Stage each checked app, build the .intunewin, and publish it to Intune'
             SkipMecmPreflight = $true
@@ -3775,9 +3775,9 @@ function Get-SidebarTargetState {
 
     return @{
         CheckMecmEnabled  = $true
-        CheckMecmToolTip  = 'Query MECM for the currently deployed version of each checked app'
+        CheckMecmToolTip  = 'Query ConfigMgr for the currently deployed version of each checked app'
         PackageContent    = 'Package Apps'
-        PackageToolTip    = 'Build MECM Application + Deployment Type for every checked app'
+        PackageToolTip    = 'Build ConfigMgr Application + Deployment Type for every checked app'
         SkipMecmPreflight = $false
     }
 }
@@ -4069,7 +4069,7 @@ function New-MecmPreferencesPanel {
         <TextBlock Text=" mins" FontSize="13" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray5}"/>
     </StackPanel>
 
-    <TextBlock Grid.Row="7" Grid.Column="0" Text="Auto-distribute:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, the Package phase calls Start-CMContentDistribution after creating each MECM Application."/>
+    <TextBlock Grid.Row="7" Grid.Column="0" Text="Auto-distribute:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, the Package phase calls Start-CMContentDistribution after creating each ConfigMgr Application."/>
     <CheckBox  Grid.Row="7" Grid.Column="1" x:Name="chkAutoDist" Content="Start-CMContentDistribution after Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
     <TextBlock Grid.Row="8" Grid.Column="0" Text="DP Group:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact name of the Distribution Point Group to target."/>
@@ -4085,7 +4085,7 @@ function New-MecmPreferencesPanel {
     <CheckBox  Grid.Row="11" Grid.Column="1" x:Name="chkCreateTestColl" Content="Create collection if it does not exist" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Creates an empty direct-membership device collection limited to All Systems when the named collection is missing."/>
 
     <TextBlock Grid.Row="12" Grid.Column="0" Text="Application title:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Default application naming for every Package run."/>
-    <CheckBox  Grid.Row="12" Grid.Column="1" x:Name="chkTitleVersion" Content="Include version in application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Adds the version to every application name, creating one MECM application per release. A per-application choice in the Application Workbench overrides this. Existing applications are not renamed."/>
+    <CheckBox  Grid.Row="12" Grid.Column="1" x:Name="chkTitleVersion" Content="Include version in application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Adds the version to every application name, creating one ConfigMgr application per release. A per-application choice in the Application Workbench overrides this. Existing applications are not renamed."/>
 
     <TextBlock Grid.Row="13" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
     <Grid Grid.Row="13" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
@@ -4127,10 +4127,10 @@ function New-MecmPreferencesPanel {
     <TextBox   Grid.Row="20" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,0,0,8"/>
     <TextBlock Grid.Row="21" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
     <PasswordBox Grid.Row="21" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="22" Grid.Column="0" Text="Deployment Target:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Where Package creates applications. MECM only: today's flow. MECM + Intune: MECM app plus a Graph publish of the .intunewin. Intune only: stage, build the .intunewin, and publish via Graph - no ConfigMgr console, site, or file share needed. Repeat publishes update the existing Intune app."/>
+    <TextBlock Grid.Row="22" Grid.Column="0" Text="Deployment Target:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Where Package creates applications. ConfigMgr only: today's flow. ConfigMgr + Intune: ConfigMgr app plus a Graph publish of the .intunewin. Intune only: stage, build the .intunewin, and publish via Graph - no ConfigMgr console, site, or file share needed. Repeat publishes update the existing Intune app."/>
     <ComboBox  Grid.Row="22" Grid.Column="1" x:Name="cboDeployTarget" FontSize="13" Margin="0,0,0,8" Width="260" HorizontalAlignment="Left">
-        <ComboBoxItem Content="MECM only" Tag="MECM"/>
-        <ComboBoxItem Content="MECM + Intune" Tag="MECMAndIntune"/>
+        <ComboBoxItem Content="ConfigMgr only" Tag="MECM"/>
+        <ComboBoxItem Content="ConfigMgr + Intune" Tag="MECMAndIntune"/>
         <ComboBoxItem Content="Intune only" Tag="IntuneOnly"/>
     </ComboBox>
 </Grid>
@@ -4350,7 +4350,7 @@ function New-MecmPreferencesPanel {
         }
     }.GetNewClosure()
 
-    return @{ Name = 'MECM Preferences'; Element = $element; Commit = $commit }
+    return @{ Name = 'ConfigMgr Preferences'; Element = $element; Commit = $commit }
 }
 
 function New-AppFlowPanel {
@@ -4828,7 +4828,7 @@ function New-PackagerPreferencesPanel {
     $cmbSsmsUiMode.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
     foreach ($val in @("Quiet", "Passive")) { [void]$cmbSsmsUiMode.Items.Add($val) }
     $cmbSsmsUiMode.SelectedItem = if ($ssms.UIMode -in @('Quiet','Passive')) { $ssms.UIMode } else { 'Quiet' }
-    & $addLabelRow "UI Mode:" $cmbSsmsUiMode "Quiet adds --quiet for a fully hidden install. Passive adds --passive for progress-only UI and is less suitable for required MECM deployments."
+    & $addLabelRow "UI Mode:" $cmbSsmsUiMode "Quiet adds --quiet for a fully hidden install. Passive adds --passive for progress-only UI and is less suitable for required ConfigMgr deployments."
 
     $txtSsmsInstallPath = New-Object System.Windows.Controls.TextBox
     $txtSsmsInstallPath.Text = [string]$ssms.InstallPath
@@ -5463,7 +5463,7 @@ function New-AboutPanel {
         <TextBlock x:Name="txtAboutVersion" FontSize="13" Margin="0,0,0,14"
                    Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
         <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,14"
-                   Text="Automated application packaging for MECM and Intune, built entirely in in-box PowerShell 5.1."/>
+                   Text="Automated application packaging for ConfigMgr and Intune, built entirely in in-box PowerShell 5.1."/>
         <Grid Margin="0,0,0,14">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="130"/>
@@ -5554,7 +5554,7 @@ function New-AboutPanel {
 function Show-OptionsDialog {
     param(
         [Parameter(Mandatory)]$Owner,
-        [string]$InitialSection = 'MECM Preferences'
+        [string]$InitialSection = 'ConfigMgr Preferences'
     )
 
     $dlgXaml = @'
@@ -5724,13 +5724,13 @@ function Show-FirstRunWizard {
             <StackPanel>
                 <TextBlock Text="Welcome to AppPackager" FontSize="18" FontWeight="Bold" Margin="0,0,0,6"/>
                 <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,16"
-                           Text="Pick where packaged applications should land, then fill in the settings that target needs. Everything here can be changed later in Options - MECM Preferences."/>
+                           Text="Pick where packaged applications should land, then fill in the settings that target needs. Everything here can be changed later in Options - ConfigMgr Preferences."/>
 
                 <TextBlock Text="Environment" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
                 <ComboBox x:Name="cboTarget" FontSize="13" Width="280" HorizontalAlignment="Left" Margin="0,0,0,16"
-                          ToolTip="Where Package creates applications. MECM only: today's flow. MECM + Intune: MECM app plus a Graph publish of the .intunewin. Intune only: stage, build the .intunewin, and publish via Graph - no ConfigMgr console, site, or file share needed. Repeat publishes update the existing Intune app.">
-                    <ComboBoxItem Content="MECM only" Tag="MECM"/>
-                    <ComboBoxItem Content="MECM + Intune" Tag="MECMAndIntune"/>
+                          ToolTip="Where Package creates applications. ConfigMgr only: today's flow. ConfigMgr + Intune: ConfigMgr app plus a Graph publish of the .intunewin. Intune only: stage, build the .intunewin, and publish via Graph - no ConfigMgr console, site, or file share needed. Repeat publishes update the existing Intune app.">
+                    <ComboBoxItem Content="ConfigMgr only" Tag="MECM"/>
+                    <ComboBoxItem Content="ConfigMgr + Intune" Tag="MECMAndIntune"/>
                     <ComboBoxItem Content="Intune only" Tag="IntuneOnly"/>
                 </ComboBox>
 
@@ -5905,7 +5905,7 @@ function Show-FirstRunWizard {
 # Grid refresh helper
 # =============================================================================
 function Invoke-RefreshGrid {
-    # MECM versions and compare results describe one site; a site change
+    # ConfigMgr versions and compare results describe one site; a site change
     # must not carry them onto rows that now point elsewhere.
     param([switch]$DiscardSiteResults)
 
@@ -6354,7 +6354,7 @@ function Invoke-MultiAppPipeline {
                     }
 
                     'FullRun' {
-                        # Cadence gate (Report only), MECM pre-flight, then Stage + optional Package.
+                        # Cadence gate (Report only), ConfigMgr pre-flight, then Stage + optional Package.
                         # Mirrors the UI-thread handler behavior 1:1 so a Full Run here lands the
                         # same history entries and row.Status flips as the old path did.
                         $State.Step = ('One Click {0}/{1}: {2}' -f $i, $n, $app)
@@ -6432,11 +6432,11 @@ function Invoke-MultiAppPipeline {
                             continue
                         }
 
-                        # 1a. MECM pre-flight for Stage/StageAndPackage.
+                        # 1a. ConfigMgr pre-flight for Stage/StageAndPackage.
                         # IntuneOnly has no site to query; the query would open a
                         # provider connection, so it is skipped before that.
                         if ($Ctx.Action -in @('Stage','StageAndPackage') -and [string]$Ctx.DeploymentTarget -eq 'IntuneOnly') {
-                            [void]$State.LogQueue.Enqueue(('MECM pre-flight skipped for {0}: deployment target is Intune only.' -f $app))
+                            [void]$State.LogQueue.Enqueue(('ConfigMgr pre-flight skipped for {0}: deployment target is Intune only.' -f $app))
                         }
                         elseif ($Ctx.Action -in @('Stage','StageAndPackage')) {
                             $cmName = [string]$row.CMName
@@ -6447,15 +6447,15 @@ function Invoke-MultiAppPipeline {
                                         $row.CurrentVersion = [string]$mecmRes.SoftwareVersion
                                         $cmp = Compare-SemVer -A ([string]$mecmRes.SoftwareVersion) -B $latest
                                         if ($cmp -eq 0) {
-                                            $row.Status = 'Up to date (MECM)'
-                                            [void]$State.LogQueue.Enqueue(('MECM already has {0} at {1} - skipping' -f $app, $latest))
+                                            $row.Status = 'Up to date (ConfigMgr)'
+                                            [void]$State.LogQueue.Enqueue(('ConfigMgr already has {0} at {1} - skipping' -f $app, $latest))
                                             try { Update-PackagerHistory -PackagerName $baseName -Event Checked -Version $latest -Result NoChange } catch { }
                                             $counts['NoChange']++
                                             continue
                                         }
                                     }
                                 } catch {
-                                    [void]$State.LogQueue.Enqueue(('MECM pre-flight for {0} failed: {1}' -f $app, $_.Exception.Message))
+                                    [void]$State.LogQueue.Enqueue(('ConfigMgr pre-flight for {0} failed: {1}' -f $app, $_.Exception.Message))
                                 }
                             }
                         }
@@ -7265,7 +7265,7 @@ function Invoke-DropIntake {
 
     if ([string]::IsNullOrWhiteSpace($script:Prefs.DownloadRoot)) {
         [void](Show-ThemedMessage -Owner $window -Title 'Download Root Required' `
-            -Message 'Staging a dropped installer needs a Download Root. Open OPTIONS -> MECM Preferences to configure it.' `
+            -Message 'Staging a dropped installer needs a Download Root. Open OPTIONS -> ConfigMgr Preferences to configure it.' `
             -Buttons OK -Icon Warning)
         return
     }
@@ -7277,10 +7277,10 @@ function Invoke-DropIntake {
         $packageAvailable = $false; $packageReason = 'The Configuration Manager Console is not detected on this workstation.'
     }
     elseif ([string]::IsNullOrWhiteSpace($script:Prefs.SiteCode)) {
-        $packageAvailable = $false; $packageReason = 'SiteCode is not configured (OPTIONS -> MECM Preferences).'
+        $packageAvailable = $false; $packageReason = 'SiteCode is not configured (OPTIONS -> ConfigMgr Preferences).'
     }
     elseif ([string]::IsNullOrWhiteSpace($script:Prefs.FileShareRoot)) {
-        $packageAvailable = $false; $packageReason = 'File Share Root is not configured (OPTIONS -> MECM Preferences).'
+        $packageAvailable = $false; $packageReason = 'File Share Root is not configured (OPTIONS -> ConfigMgr Preferences).'
     }
 
     $jobs = @()
@@ -7417,13 +7417,13 @@ $btnCheckLatest.Add_Click({
     }
 })
 
-# --- 2. Check MECM ---
+# --- 2. Check ConfigMgr ---
 $btnCheckMECM.Add_Click({
     if (-not $script:Prefs.DetectedTools.ConfigMgrConsole.Found) {
-        Add-LogLine -Message "Check MECM requires the ConfigMgr Console. Not detected on this workstation."
+        Add-LogLine -Message "Check ConfigMgr requires the ConfigMgr Console. Not detected on this workstation."
         $txtStatus.Text = "ConfigMgr Console not installed."
         [void](Show-ThemedMessage -Owner $window -Title 'Console Required' `
-            -Message "The Configuration Manager Console (AdminUI) is not detected on this workstation. Install it (and reboot if you just installed) before running Check MECM." `
+            -Message "The Configuration Manager Console (AdminUI) is not detected on this workstation. Install it (and reboot if you just installed) before running Check ConfigMgr." `
             -Buttons OK -Icon Warning)
         return
     }
@@ -7445,7 +7445,7 @@ $btnCheckMECM.Add_Click({
     $window.Cursor = [System.Windows.Input.Cursors]::Wait
 
     try {
-        $txtStatus.Text = "Querying MECM for selected products..."
+        $txtStatus.Text = "Querying ConfigMgr for selected products..."
 
         foreach ($row in $selectedRows) {
             [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke(
@@ -7456,8 +7456,8 @@ $btnCheckMECM.Add_Click({
             $app    = [string]$row.Application
             $cmName = [string]$row.CMName
 
-            Add-LogLine -Message ("MECM: {0}" -f $app)
-            $row.Status = "Querying MECM..."
+            Add-LogLine -Message ("ConfigMgr: {0}" -f $app)
+            $row.Status = "Querying ConfigMgr..."
             $dataGrid.Items.Refresh()
 
             try {
@@ -7465,7 +7465,7 @@ $btnCheckMECM.Add_Click({
 
                 if (-not $res.Found) {
                     $row.CurrentVersion = ""
-                    $row.Status = "Not found in MECM"
+                    $row.Status = "Not found in ConfigMgr"
                     Add-LogLine -Message "Not found."
                     continue
                 }
@@ -7480,7 +7480,7 @@ $btnCheckMECM.Add_Click({
                     else                 { $row.Status = "Current newer" }
                 }
                 else {
-                    $row.Status = "MECM version retrieved"
+                    $row.Status = "ConfigMgr version retrieved"
                 }
 
                 if ($res.MatchCount -gt 1) {
@@ -7499,17 +7499,17 @@ $btnCheckMECM.Add_Click({
         Select-OnlyUpdateAvailable
         $dataGrid.Items.Refresh()
 
-        # Auto-discovery: offer to hide apps not found in MECM
+        # Auto-discovery: offer to hide apps not found in ConfigMgr
         if (@($script:Prefs.HiddenApplications).Count -eq 0) {
             $notFound = @()
             foreach ($item in $script:PackagerData) {
-                if ([string]$item.Status -eq "Not found in MECM") {
+                if ([string]$item.Status -eq "Not found in ConfigMgr") {
                     $notFound += [string]$item.Script
                 }
             }
             if ($notFound.Count -gt 0 -and $notFound.Count -lt $script:PackagerData.Count) {
                 $answer = Show-ThemedMessage -Owner $window -Title "Hide Unused Applications" `
-                    -Message ("{0} application(s) were not found in MECM.`n`nHide them from the grid? You can change this later via Product Filter." -f $notFound.Count) `
+                    -Message ("{0} application(s) were not found in ConfigMgr.`n`nHide them from the grid? You can change this later via Product Filter." -f $notFound.Count) `
                     -Buttons YesNo -Icon Question
                 if ($answer -eq 'Yes') {
                     $script:Prefs.HiddenApplications = $notFound
@@ -7520,7 +7520,7 @@ $btnCheckMECM.Add_Click({
             }
         }
 
-        $txtStatus.Text = "MECM query complete."
+        $txtStatus.Text = "ConfigMgr query complete."
     }
     finally {
         $window.Cursor = $null
@@ -7564,7 +7564,7 @@ $btnStage.Add_Click({
 # --- 4. Package Apps ---
 $btnPackage.Add_Click({
     # Intune-only runs never touch the site or the share, so the console,
-    # SiteCode, and File Share Root gates apply only to MECM targets.
+    # SiteCode, and File Share Root gates apply only to ConfigMgr targets.
     $intuneOnlyRun = ([string]$script:Prefs.Intune.DeploymentTarget -eq 'IntuneOnly')
     if (-not $intuneOnlyRun -and -not $script:Prefs.DetectedTools.ConfigMgrConsole.Found) {
         Add-LogLine -Message "Package requires the ConfigMgr Console. Not detected on this workstation."
@@ -7590,7 +7590,7 @@ $btnPackage.Add_Click({
     }
 
     if ($intuneOnlyRun -and -not (Get-IntunePublishConfigForContext)) {
-        Add-LogLine -Message "Publish requires Intune credentials. Open MECM Preferences to configure Tenant ID, Client ID, and Client Secret."
+        Add-LogLine -Message "Publish requires Intune credentials. Open ConfigMgr Preferences to configure Tenant ID, Client ID, and Client Secret."
         $txtStatus.Text = "Intune credentials required."
         return
     }
@@ -7635,15 +7635,15 @@ $btnPackage.Add_Click({
 # --- 5. Full Run (one-click tracked-apps flow) ---
 # Thin dispatch: validates prefs + ConfigMgr availability + tracked set, then
 # routes to Invoke-MultiAppPipeline -Operation FullRun. The bg scriptblock
-# there mirrors the original per-row cadence / MECM pre-flight / Stage /
+# there mirrors the original per-row cadence / ConfigMgr pre-flight / Stage /
 # Package logic so history entries and row.Status flips stay identical.
 $btnFullRun.Add_Click({
     # Intune-only runs never touch the site, so the SiteCode and console
-    # gates apply only to MECM targets.
+    # gates apply only to ConfigMgr targets.
     $intuneOnlyRun = ([string]$script:Prefs.Intune.DeploymentTarget -eq 'IntuneOnly')
     $siteCodeValue = $script:Prefs.SiteCode
     if (-not $intuneOnlyRun -and [string]::IsNullOrWhiteSpace($siteCodeValue)) {
-        Add-LogLine -Message "SiteCode is required. Open MECM Preferences to configure."
+        Add-LogLine -Message "SiteCode is required. Open ConfigMgr Preferences to configure."
         $txtStatus.Text = "SiteCode is required."
         return
     }
@@ -7674,12 +7674,12 @@ $btnFullRun.Add_Click({
     $dlRootValue  = $script:Prefs.DownloadRoot
 
     if ($action -eq 'StageAndPackage' -and [string]::IsNullOrWhiteSpace($fsPathValue)) {
-        Add-LogLine -Message ("File Share Root is required for action '{0}'. Open MECM Preferences." -f $action)
+        Add-LogLine -Message ("File Share Root is required for action '{0}'. Open ConfigMgr Preferences." -f $action)
         $txtStatus.Text = "File Share Root is required."
         return
     }
     if ($action -in @('Stage','StageAndPackage') -and [string]::IsNullOrWhiteSpace($dlRootValue)) {
-        Add-LogLine -Message ("Download Root is required for action '{0}'. Open MECM Preferences." -f $action)
+        Add-LogLine -Message ("Download Root is required for action '{0}'. Open ConfigMgr Preferences." -f $action)
         $txtStatus.Text = "Download Root is required."
         return
     }
@@ -8171,12 +8171,12 @@ function Get-WorkbenchLocalFindings {
         $logic = if ($rule -is [System.Collections.IDictionary] -and $rule.Contains('Logic')) { [string]$rule['Logic'] } else { '' }
         $conv = [bool](Get-WorkbenchOverrideValue -Profile $Profile -Path 'Detection.IntuneScriptConversion')
         if ($logic -in @('Or', 'TwoGroup') -and -not $conv) {
-            & $add 'Blocking' 'DETECT-INTUNE-COMPOUND' 'Intune cannot express this grouped or OR detection; choose script conversion explicitly, or publish to MECM only.'
+            & $add 'Blocking' 'DETECT-INTUNE-COMPOUND' 'Intune cannot express this grouped or OR detection; choose script conversion explicitly, or publish to ConfigMgr only.'
         }
     }
 
     if (@(Get-WorkbenchOverrideValue -Profile $Profile -Path 'Requirements.Operations').Count -gt 0) {
-        & $add 'Review' 'REQ-INTUNE' 'Requirement rules are not translated by the Intune publisher; the MECM deployment type carries them.'
+        & $add 'Review' 'REQ-INTUNE' 'Requirement rules are not translated by the Intune publisher; the ConfigMgr deployment type carries them.'
     }
 
     if (@(Get-WorkbenchOverrideValue -Profile $Profile -Path 'Variants.Split').Count -gt 0) {
@@ -8195,7 +8195,7 @@ function Get-WorkbenchLocalFindings {
 }
 
 function Get-WorkbenchChipState {
-    # Three independent results: an Intune finding never changes the MECM
+    # Three independent results: an Intune finding never changes the ConfigMgr
     # or content-build verdict.
     param([Parameter(Mandatory)]$Findings, [bool]$Validated)
 
@@ -8621,7 +8621,7 @@ function Show-ApplicationWorkbench {
     foreach ($v in @('x64', 'x86')) { [void]$cboExecScriptHost.Items.Add($v) }
     $txtIntuneContract.Text = 'Intune reads the detection result from the script: exit code 0 plus output on STDOUT means installed. Any output on STDERR is a negative result, and exit 0 with no output means not installed. A detector that only exits successfully is rejected here.'
     $txtSourceNote.Text = 'Bundling a file places it inside the package content. Copying it onto the endpoint is the install script''s job; a detector must not depend on package cache content.'
-    $txtTimingTargets.Text = 'MECM receives both values on the deployment type. The Intune publisher sends neither; the values stay in the definition and the review pane reports the gap.'
+    $txtTimingTargets.Text = 'ConfigMgr receives both values on the deployment type. The Intune publisher sends neither; the values stay in the definition and the review pane reports the gap.'
 
     # Session state. Handlers read and write it rather than closing over
     # a dozen separate variables.
@@ -8672,7 +8672,7 @@ function Show-ApplicationWorkbench {
         $wb.Validated = $false
         $txtSaveState.Text = 'Unsaved changes. Save writes the profile; nothing is deployed.'
         $chipContent.Text = 'Content build: Not validated'
-        $chipMecm.Text = 'MECM: Not validated'
+        $chipMecm.Text = 'ConfigMgr: Not validated'
         $chipIntune.Text = 'Intune: Not validated'
         if ($wb.ProfileId -ne 'default') {
             try { [void](Save-Draft -ApplicationId ([string]$wb.Application.ApplicationId) -ProfileId $wb.ProfileId -Draft ([pscustomobject]$wb.Profile)) } catch { }
@@ -9038,7 +9038,7 @@ function Show-ApplicationWorkbench {
             $wb.Dirty = $false
             $wb.Validated = $false
             $chipContent.Text = 'Content build: Not validated'
-            $chipMecm.Text = 'MECM: Not validated'
+            $chipMecm.Text = 'ConfigMgr: Not validated'
             $chipIntune.Text = 'Intune: Not validated'
             & $setStatus 'No unsaved changes.'
         }
@@ -9238,7 +9238,7 @@ function Show-ApplicationWorkbench {
         $dgFindings.ItemsSource = $rows
         $chips = Get-WorkbenchChipState -Findings $findings -Validated $true
         $chipContent.Text = 'Content build: ' + $chips.Content
-        $chipMecm.Text = 'MECM: ' + $chips.Mecm
+        $chipMecm.Text = 'ConfigMgr: ' + $chips.Mecm
         $chipIntune.Text = 'Intune: ' + $chips.Intune
         & $refreshReview
         return $findings

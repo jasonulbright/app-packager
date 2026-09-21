@@ -10,18 +10,18 @@ IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS
-    Packages DAX Studio (x64) for MECM.
+    Packages DAX Studio (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the latest DAX Studio installer from the GitHub releases API, stages
-    content to a versioned local folder, and creates an MECM Application with
+    content to a versioned local folder, and creates a ConfigMgr Application with
     file-existence detection.
 
     The installer is an InnoSetup package installed silently for all users.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

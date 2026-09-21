@@ -10,12 +10,12 @@ IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS
-    Packages Cyberduck (x64) for MECM.
+    Packages Cyberduck (x64) for ConfigMgr.
 
 .DESCRIPTION
     Resolves the latest Cyberduck release from the vendor Sparkle changelog feed,
     downloads the Windows installer, stages content to a versioned local folder,
-    and creates an MECM Application with file-existence detection.
+    and creates a ConfigMgr Application with file-existence detection.
 
     The installer is a WiX burn bundle installed silently with /quiet. Bonjour is
     suppressed because it installs a separate machine-wide service that most
@@ -23,7 +23,7 @@ UpdateCadenceDays: 90
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").

@@ -11,17 +11,17 @@ UpdateCadenceDays: 90
 SupportsInstallModes: CurrentUser, AllUsers
 
 .SYNOPSIS
-    Packages TreeSize Free (x64) for MECM.
+    Packages TreeSize Free (x64) for ConfigMgr.
 
 .DESCRIPTION
     Reads the current version from the vendor change log, downloads the
     TreeSize Free setup from the vendor download endpoint, stages content to a
-    versioned local folder, and creates an MECM Application with file-version
+    versioned local folder, and creates a ConfigMgr Application with file-version
     detection on the installed TreeSizeFree.exe.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (e.g., "MCM").
@@ -40,11 +40,11 @@ SupportsInstallModes: CurrentUser, AllUsers
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
-    Estimated runtime in minutes for the MECM deployment type.
+    Estimated runtime in minutes for the ConfigMgr deployment type.
     Default: 15
 
 .PARAMETER MaximumRuntimeMins
-    Maximum allowed runtime in minutes for the MECM deployment type.
+    Maximum allowed runtime in minutes for the ConfigMgr deployment type.
     Default: 30
 
 .PARAMETER StageOnly
@@ -53,7 +53,7 @@ SupportsInstallModes: CurrentUser, AllUsers
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create MECM application with file-based detection.
+    create ConfigMgr application with file-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available TreeSize Free version string and exits.
@@ -328,7 +328,7 @@ function Invoke-PackageTreeSizeFree {
     # its payload in a subfolder) ---
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
-    # --- MECM application ---
+    # --- ConfigMgr application ---
     New-MECMApplicationFromManifest `
         -Manifest $manifest `
         -SiteCode $SiteCode `

@@ -8,16 +8,16 @@ DownloadPageUrl: https://learn.microsoft.com/en-us/sysinternals/downloads/
 IconSource: External
 
 .SYNOPSIS
-    Packages Sysinternals Suite for MECM.
+    Packages Sysinternals Suite for ConfigMgr.
 
 .DESCRIPTION
     Downloads the latest Sysinternals Suite ZIP from Microsoft, stages content to
     a versioned local folder with file-existence detection metadata, and creates
-    an MECM Application.
+    a ConfigMgr Application.
 
     Supports two-phase operation:
       -StageOnly    Download ZIP, resolve version from Last-Modified header, write manifest
-      -PackageOnly  Read manifest, copy to network, create MECM application
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     Sysinternals Suite is a ZIP archive of standalone tools -- there is no
     traditional installer. The install wrapper extracts the ZIP to
@@ -59,7 +59,7 @@ IconSource: External
 
 .PARAMETER GetLatestVersionOnly
     Queries the Sysinternals download headers for the latest date-based
-    version, outputs the version string, and exits. No MECM changes are made.
+    version, outputs the version string, and exits. No ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1

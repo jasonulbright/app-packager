@@ -10,7 +10,7 @@ IconSource: Installer
 UpdateCadenceDays: 90
 
 .SYNOPSIS
-    Packages Spectra PDF (first-party, x64) for MECM.
+    Packages Spectra PDF (first-party, x64) for ConfigMgr.
 
 .DESCRIPTION
     First-party Tauri/NSIS application released through GitHub releases on
@@ -22,7 +22,7 @@ UpdateCadenceDays: 90
 
     Supports the standard two-phase contract:
       -StageOnly    Download release asset via gh, write wrappers + manifest
-      -PackageOnly  Copy to network, create MECM application
+      -PackageOnly  Copy to network, create ConfigMgr application
 
 .REQUIREMENTS
     - GitHub CLI (gh) authenticated with access to jasonulbright/spectra-pdf
