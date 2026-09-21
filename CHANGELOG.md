@@ -1,5 +1,15 @@
 # Changelog
 
+## [2026.09.21.0092] - 2026-09-21
+
+### Fixed
+
+- Use the site code and provider from the suite launcher when none is saved.
+
+### Changed
+
+- Update the README screenshots.
+
 ## [2026.09.21.0091] - 2026-09-21
 
 ### Changed
