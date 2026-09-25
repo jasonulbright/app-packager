@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](#prerequisites)
 [![License](https://img.shields.io/github/license/jasonulbright/app-packager)](LICENSE)
 
-Automated application packaging for Microsoft Configuration Manager (ConfigMgr) and Intune: 295 enterprise applications, each one click from vendor download to deployed app. AppPackager checks the vendor for the latest version, downloads and verifies the installer, generates silent install/uninstall wrappers and detection rules, and creates the ConfigMgr Application — or builds the `.intunewin` and publishes it to Intune via Graph, no ConfigMgr site required. Drag any unknown `.msi`/`.exe` onto the window and it analyzes and packages that too. A companion version monitor flags stale deployments and looks up their CVEs. Built entirely in PowerShell 5.1 — the version that ships in the box on every supported Windows release, oldest to newest. Nothing to install, no add-ons, no agents, no subscription.
+Automated application packaging for Microsoft Configuration Manager (ConfigMgr) and Intune: 307 enterprise applications, each one click from vendor download to deployed app. AppPackager checks the vendor for the latest version, downloads and verifies the installer, generates silent install/uninstall wrappers and detection rules, and creates the ConfigMgr Application — or builds the `.intunewin` and publishes it to Intune via Graph, no ConfigMgr site required. Drag any unknown `.msi`/`.exe` onto the window and it analyzes and packages that too. A companion version monitor flags stale deployments and looks up their CVEs. Built entirely in PowerShell 5.1 — the version that ships in the box on every supported Windows release, oldest to newest. Nothing to install, no add-ons, no agents, no subscription.
 
 This is the class of work commercial third-party patching catalogs sell as a subscription. AppPackager covers a comparable application set — the coverage decision for each of 933 reviewed catalog entries is documented in [CATALOG-PARITY.csv](CATALOG-PARITY.csv) — runs entirely inside your environment, and is MIT-licensed.
 
@@ -28,7 +28,7 @@ Installs the latest release into `%LOCALAPPDATA%\AppPackager`. Only a zip crosse
 On an unrestricted network, the installer can do the whole flow itself — resolve the release from the GitHub API, download, verify SHA-256, extract:
 
 ```powershell
-curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.09.25.0093
+curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.09.25.0094
 ```
 
 Omitting `-ZipPath` makes it download and checksum-verify the requested release; `-InstallPath` picks the folder and `-Version` pins a release. `-Force` is required to replace a non-empty folder that holds no existing AppPackager install. If even the curl download is blocked, fetch the zip in a browser and run the same `-ZipPath` command against it.
@@ -277,9 +277,9 @@ All packager scripts accept the same core parameters:
 | `-OnExisting` | Passed through to `New-MECMApplicationFromManifest`: `Skip` / `Overwrite` / `Fail`. Outranks `APP_PACKAGER_ON_EXISTING`; unset falls through to that variable and then to `Skip` |
 | `-LogPath` | Path to a structured log file (timestamps + severity levels) |
 
-## Supported Applications (295)
+## Supported Applications (307)
 
-All 295 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same ConfigMgr Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op.
+All 307 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same ConfigMgr Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op.
 
 The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting every viable entry from a 933-application enterprise catalog review. [CATALOG-PARITY.csv](CATALOG-PARITY.csv) records the disposition and reasoning for all 933 entries — what was added, what was already covered, and why each skipped application was skipped (licensed suites, managed agents, end-of-life products, download walls, component libraries, and niche tools, each with evidence). Every packager is verified at stage level with installer magic-byte checks before content is accepted; a core set is additionally end-to-end validated against a live ConfigMgr site.
 
@@ -414,6 +414,18 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-mattermost.ps1 | Mattermost | Mattermost Desktop | RegistryKeyValue |
 | package-mongodbcompass.ps1 | MongoDB | MongoDB Compass | RegistryKeyValue |
 | package-mremoteng.ps1 | mRemoteNG | mRemoteNG | RegistryKeyValue |
+| package-ms-openjdk17-exe.ps1 | Microsoft | Microsoft Build of OpenJDK 17 (x64, EXE) | RegistryKeyValue |
+| package-ms-openjdk17-exe-user.ps1 | Microsoft | Microsoft Build of OpenJDK 17 (x64, EXE, per user) | RegistryKeyValue (user context) |
+| package-ms-openjdk17-msi.ps1 | Microsoft | Microsoft Build of OpenJDK 17 (x64, MSI) | RegistryKeyValue |
+| package-ms-openjdk17-msi-user.ps1 | Microsoft | Microsoft Build of OpenJDK 17 (x64, MSI, per user) | RegistryKeyValue (user context) |
+| package-ms-openjdk21-exe.ps1 | Microsoft | Microsoft Build of OpenJDK 21 (x64, EXE) | RegistryKeyValue |
+| package-ms-openjdk21-exe-user.ps1 | Microsoft | Microsoft Build of OpenJDK 21 (x64, EXE, per user) | RegistryKeyValue (user context) |
+| package-ms-openjdk21-msi.ps1 | Microsoft | Microsoft Build of OpenJDK 21 (x64, MSI) | RegistryKeyValue |
+| package-ms-openjdk21-msi-user.ps1 | Microsoft | Microsoft Build of OpenJDK 21 (x64, MSI, per user) | RegistryKeyValue (user context) |
+| package-ms-openjdk25-exe.ps1 | Microsoft | Microsoft Build of OpenJDK 25 (x64, EXE) | RegistryKeyValue |
+| package-ms-openjdk25-exe-user.ps1 | Microsoft | Microsoft Build of OpenJDK 25 (x64, EXE, per user) | RegistryKeyValue (user context) |
+| package-ms-openjdk25-msi.ps1 | Microsoft | Microsoft Build of OpenJDK 25 (x64, MSI) | RegistryKeyValue |
+| package-ms-openjdk25-msi-user.ps1 | Microsoft | Microsoft Build of OpenJDK 25 (x64, MSI, per user) | RegistryKeyValue (user context) |
 | package-msodbcsql18.ps1 | Microsoft | ODBC Driver 18 for SQL Server | RegistryKeyValue |
 | package-msoledb.ps1 | Microsoft | OLE DB Driver for SQL Server | RegistryKeyValue |
 | package-msvcruntimes.ps1 | Microsoft | VC++ 2015-2022 Redistributable (x86+x64) | Compound (AND, 2x RegistryKeyValue) |
@@ -600,7 +612,7 @@ The monitor discovers all `package-*.ps1` scripts in the sibling `Packagers/` fo
 
 | Feature | Details |
 |---|---|
-| **Packager discovery** | Auto-discovers every `package-*.ps1` script (295 today) via relative path |
+| **Packager discovery** | Auto-discovers every `package-*.ps1` script (307 today) via relative path |
 | **Version checking** | Calls each packager with `-GetLatestVersionOnly` |
 | **ConfigMgr comparison** | Queries ConfigMgr for deployed versions |
 | **NVD CVE lookup** | Queries NIST NVD API for stale apps with CPE headers |
@@ -803,7 +815,7 @@ app-packager/
     AppPackagerWorkbench.psd1        # Module manifest
     AppPackagerSigning.psm1          # Authenticode signing of staged scripts and launchers
     AppPackagerSigning.psd1          # Module manifest
-    package-7zip.ps1                 # One script per application (295 total)
+    package-7zip.ps1                 # One script per application (307 total)
     package-chrome.ps1
     ...
     Templates/                       # Skeleton packagers for non-standard installer formats

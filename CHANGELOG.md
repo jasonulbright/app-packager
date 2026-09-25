@@ -1,5 +1,15 @@
 # Changelog
 
+## [2026.09.25.0094] - 2026-09-25
+
+## 307 packagers
+
+### Added
+
+- Add Microsoft Build of OpenJDK 17: MSI and EXE, per machine and per user.
+- Add Microsoft Build of OpenJDK 21: MSI and EXE, per machine and per user.
+- Add Microsoft Build of OpenJDK 25: MSI and EXE, per machine and per user.
+
 ## [2026.09.25.0093] - 2026-09-25
 
 ## 295 packagers

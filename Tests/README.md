@@ -37,7 +37,7 @@ Stage-sweep caveats:
 - `package-windowsadk.ps1` and `package-windowspeaddon.ps1` build their layouts through Windows Installer and cannot run at the same time; they retry on exit 1618, but a sweep with `-ThrottleLimit` above 1 should skip one of them or run them separately.
 - A timed-out packager is killed with its process tree, so a stalled download does not leave curl.exe or setup.exe behind.
 
-A green offline run reports `295 script(s), 1475 check(s), 1475 passed, 0 failed, 0 skipped`.
+A green offline run reports `307 script(s), 1535 check(s), 1535 passed, 0 failed, 0 skipped`.
 
 ## Catalog matrix
 
