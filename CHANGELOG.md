@@ -1,5 +1,16 @@
 # Changelog
 
+## [2026.09.25.0093] - 2026-09-25
+
+## 295 packagers
+
+### Added
+
+- Update the shared SuiteCommon module to 2026.09.25.0033.
+- Add Signing Suite.
+- Add AppPackager Suite for per-user installs.
+- Add Jabra Direct.
+
 ## [2026.09.21.0092] - 2026-09-21
 
 ### Fixed

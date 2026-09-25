@@ -1,6 +1,6 @@
 @{
     RootModule        = 'SuiteCommon.psm1'
-    ModuleVersion = '2026.09.21.0031'
+    ModuleVersion = '2026.09.25.0033'
     GUID              = '7c1f2a9e-4b3d-4f8a-9c6e-2d5b8e1a7f40'
     Author            = 'Jason Ulbright'
     Description       = 'Shared core for the Configuration Manager tool suite: logging, CM site connection, settings persistence, window chrome, theming, dialogs.'

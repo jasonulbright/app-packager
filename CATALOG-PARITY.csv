@@ -370,7 +370,7 @@
 "IronPython 2.7","Skip-EOL","Python 2 era"
 "IsoBuster","Skip-Licensed","licensed disc utilities"
 "iZotope RX Advanced 10","Skip-Licensed","licensed creative software"
-"Jabra Direct","Skip-Component","peripheral vendor utilities; low packaging value, frequent bundled updaters"
+"Jabra Direct","Added-Unreleased","vendor fixed download URL, WiX Burn bundle; version read from the vendor release-notes page"
 "JAM Software TreeSize Free","Supported","existing packager: treesizefree"
 "JAWS 2025","Skip-Licensed","licensed assistive tech"
 "JetBrains dotUltimate 2022","Skip-Licensed","paid JetBrains .NET tooling; license-gated activation"
