@@ -15,8 +15,10 @@ IconSource: Installer
     Resolves the latest Microsoft Build of OpenJDK 21 release from the
     major-version download alias, downloads the x64 MSI, verifies it against
     the published .sha256sum.txt, stages content to a versioned local folder,
-    and creates a user-context ConfigMgr Application with HKCU ARP
-    DisplayVersion detection.
+    and creates a user-context ConfigMgr Application.
+
+    The per-user MSI registers its Add/Remove entry under HKLM, not HKCU, so
+    detection checks for java.exe in the versioned per-user install folder.
 
     The per-user mode relies on the Windows Installer per-user properties
     ALLUSERS=2 and MSIINSTALLPERUSER=1, not on a documented OpenJDK switch.
@@ -28,7 +30,7 @@ IconSource: Installer
     device. Uninstall the other method before you deploy this application.
 
     Supports two-phase operation:
-      -StageOnly    Download, verify SHA-256, derive ARP detection, write manifest
+      -StageOnly    Download, verify SHA-256, derive file detection, write manifest
       -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
@@ -270,7 +272,7 @@ function Invoke-StageMsOpenJdk21MsiUser {
     Write-Log "MSI ProductCode              : $productCode"
     Write-Log ""
 
-    # --- Derive ARP detection from MSI properties ---
+    # --- Derive the ARP key from MSI properties ---
     # ProductCode changes with every release and the package performs a major
     # upgrade, so an older release never carries the new key.
     $arpRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\" + $productCode
@@ -297,6 +299,7 @@ function Invoke-StageMsOpenJdk21MsiUser {
     # package conditions its PATH and JAVA_HOME components on that context.
     # INSTALLDIR is required with FeatureMain and must point into the profile.
     $installDirDisplay  = "%LOCALAPPDATA%\Programs\Microsoft\$installFolder"
+    $detectionPath      = "$installDirDisplay\bin"
     $installArgsDisplay = "ALLUSERS=2 MSIINSTALLPERUSER=1 ADDLOCAL=FeatureMain,FeatureEnvironment,FeatureJarFileRunWith INSTALLDIR=`"$installDirDisplay`" /qn /norestart"
     $installContent = @(
         ('$msiPath = Join-Path $PSScriptRoot ''{0}''' -f $msiEscaped),
@@ -311,8 +314,8 @@ function Invoke-StageMsOpenJdk21MsiUser {
         -InstallPs1Content $installContent `
         -UninstallPs1Content $wrapperContent.Uninstall
 
-    Write-Log "ARP RegistryKey              : HKCU\$arpRegistryKey"
-    Write-Log "ARP DisplayVersion           : $productVersionRaw"
+    Write-Log "ARP RegistryKey              : HKLM\$arpRegistryKey"
+    Write-Log "Detection file               : $detectionPath\java.exe"
     Write-Log "Install directory            : $installDirDisplay"
     Write-Log ""
 
@@ -330,15 +333,14 @@ function Invoke-StageMsOpenJdk21MsiUser {
         RunningProcess  = @("java", "javaw")
         InstallationBehaviorType = "InstallForUser"
         LogonRequirementType     = "OnlyWhenUserLoggedOn"
+        # Windows Installer writes the per-user Add/Remove entry under HKLM;
+        # the install folder name carries ProductVersion, so existence is version-specific.
         Detection       = @{
-            Type                = "RegistryKeyValue"
-            Hive                = "CurrentUser"
-            RegistryKeyRelative = $arpRegistryKey
-            ValueName           = "DisplayVersion"
-            PropertyType        = "Version"
-            Operator            = "GreaterEquals"
-            ExpectedValue       = $productVersionRaw
-            Is64Bit             = $true
+            Type         = "File"
+            FilePath     = $detectionPath
+            FileName     = "java.exe"
+            PropertyType = "Existence"
+            Is64Bit      = $true
         }
     }
 
@@ -381,8 +383,7 @@ function Invoke-PackageMsOpenJdk21MsiUser {
     Write-Log "AppName                      : $($manifest.AppName)"
     Write-Log "Publisher                    : $($manifest.Publisher)"
     Write-Log "SoftwareVersion              : $($manifest.SoftwareVersion)"
-    Write-Log "Detection Key                : $($manifest.Detection.RegistryKeyRelative)"
-    Write-Log "Detection Value              : $($manifest.Detection.ExpectedValue)"
+    Write-Log "Detection file               : $($manifest.Detection.FilePath)\$($manifest.Detection.FileName)"
     Write-Log ""
 
     # --- Network share ---
