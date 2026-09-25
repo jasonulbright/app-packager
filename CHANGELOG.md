@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026.09.25.0095] - 2026-09-25
+
+## 12 OpenJDK packagers verified on a device
+
+### Fixed
+
+- Detect the per-user OpenJDK MSI by its java.exe; its Add/Remove entry lands under HKLM.
+
 ## [2026.09.25.0094] - 2026-09-25
 
 ## 307 packagers

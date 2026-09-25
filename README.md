@@ -28,7 +28,7 @@ Installs the latest release into `%LOCALAPPDATA%\AppPackager`. Only a zip crosse
 On an unrestricted network, the installer can do the whole flow itself — resolve the release from the GitHub API, download, verify SHA-256, extract:
 
 ```powershell
-curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.09.25.0094
+curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.09.25.0095
 ```
 
 Omitting `-ZipPath` makes it download and checksum-verify the requested release; `-InstallPath` picks the folder and `-Version` pins a release. `-Force` is required to replace a non-empty folder that holds no existing AppPackager install. If even the curl download is blocked, fetch the zip in a browser and run the same `-ZipPath` command against it.
@@ -417,15 +417,15 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-ms-openjdk17-exe.ps1 | Microsoft | Microsoft Build of OpenJDK 17 (x64, EXE) | RegistryKeyValue |
 | package-ms-openjdk17-exe-user.ps1 | Microsoft | Microsoft Build of OpenJDK 17 (x64, EXE, per user) | RegistryKeyValue (user context) |
 | package-ms-openjdk17-msi.ps1 | Microsoft | Microsoft Build of OpenJDK 17 (x64, MSI) | RegistryKeyValue |
-| package-ms-openjdk17-msi-user.ps1 | Microsoft | Microsoft Build of OpenJDK 17 (x64, MSI, per user) | RegistryKeyValue (user context) |
+| package-ms-openjdk17-msi-user.ps1 | Microsoft | Microsoft Build of OpenJDK 17 (x64, MSI, per user) | File (user context) |
 | package-ms-openjdk21-exe.ps1 | Microsoft | Microsoft Build of OpenJDK 21 (x64, EXE) | RegistryKeyValue |
 | package-ms-openjdk21-exe-user.ps1 | Microsoft | Microsoft Build of OpenJDK 21 (x64, EXE, per user) | RegistryKeyValue (user context) |
 | package-ms-openjdk21-msi.ps1 | Microsoft | Microsoft Build of OpenJDK 21 (x64, MSI) | RegistryKeyValue |
-| package-ms-openjdk21-msi-user.ps1 | Microsoft | Microsoft Build of OpenJDK 21 (x64, MSI, per user) | RegistryKeyValue (user context) |
+| package-ms-openjdk21-msi-user.ps1 | Microsoft | Microsoft Build of OpenJDK 21 (x64, MSI, per user) | File (user context) |
 | package-ms-openjdk25-exe.ps1 | Microsoft | Microsoft Build of OpenJDK 25 (x64, EXE) | RegistryKeyValue |
 | package-ms-openjdk25-exe-user.ps1 | Microsoft | Microsoft Build of OpenJDK 25 (x64, EXE, per user) | RegistryKeyValue (user context) |
 | package-ms-openjdk25-msi.ps1 | Microsoft | Microsoft Build of OpenJDK 25 (x64, MSI) | RegistryKeyValue |
-| package-ms-openjdk25-msi-user.ps1 | Microsoft | Microsoft Build of OpenJDK 25 (x64, MSI, per user) | RegistryKeyValue (user context) |
+| package-ms-openjdk25-msi-user.ps1 | Microsoft | Microsoft Build of OpenJDK 25 (x64, MSI, per user) | File (user context) |
 | package-msodbcsql18.ps1 | Microsoft | ODBC Driver 18 for SQL Server | RegistryKeyValue |
 | package-msoledb.ps1 | Microsoft | OLE DB Driver for SQL Server | RegistryKeyValue |
 | package-msvcruntimes.ps1 | Microsoft | VC++ 2015-2022 Redistributable (x86+x64) | Compound (AND, 2x RegistryKeyValue) |
