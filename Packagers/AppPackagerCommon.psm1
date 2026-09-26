@@ -3865,6 +3865,8 @@ function New-MECMApplicationFromManifest {
 
         $step = 'Deployment type spec resolution'
         $dtSpecs = @(Get-ManifestDeploymentTypeSpecs -Manifest $Manifest -NetworkContentPath $NetworkContentPath -AppName $appName)
+        $contentOptions = Get-DeploymentTypeContentOptions
+        Write-Log ("Deployment type content      : fallback={0}, slow network={1}" -f $(if ($contentOptions.ContentFallback) { 'Allow' } else { 'Deny' }), $contentOptions.SlowNetworkDeploymentMode)
         # AutoInstall is application-wide. Every resolved DT must run as
         # system without needing a logged-on user or desktop interaction.
         # Missing overrides use the same defaults as dtParams below.
@@ -4063,8 +4065,8 @@ function New-MECMApplicationFromManifest {
                 LogonRequirementType      = 'WhetherOrNotUserLoggedOn'
                 EstimatedRuntimeMins      = $timing.EstimatedRuntimeMins
                 MaximumRuntimeMins        = $timing.MaximumRuntimeMins
-                ContentFallback           = $true
-                SlowNetworkDeploymentMode = 'Download'
+                ContentFallback           = [bool]$contentOptions.ContentFallback
+                SlowNetworkDeploymentMode = [string]$contentOptions.SlowNetworkDeploymentMode
                 UserInteractionMode       = 'Hidden'
                 ErrorAction               = 'Stop'
             }
@@ -5857,6 +5859,38 @@ function Resolve-OnExistingBehavior {
 }
 
 Export-ModuleMember -Function Resolve-OnExistingBehavior, Get-OnExistingConflictMarker
+
+function Get-DeploymentTypeContentOptions {
+    <#
+    .SYNOPSIS
+        Resolves the content options applied to each ConfigMgr deployment type.
+    .DESCRIPTION
+        APP_PACKAGER_DT_CONTENT_FALLBACK ('Allow' or 'Deny') maps to
+        -ContentFallback. APP_PACKAGER_DT_SLOW_NETWORK_MODE ('Download' or
+        'DoNothing') maps to -SlowNetworkDeploymentMode. A missing or
+        unrecognized value resolves to Allow and Download.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $fallback = $true
+    $fallbackRaw = ([string]$env:APP_PACKAGER_DT_CONTENT_FALLBACK).Trim()
+    if ($fallbackRaw -ieq 'Deny') { $fallback = $false }
+    elseif ($fallbackRaw -and $fallbackRaw -ine 'Allow') {
+        Write-Log ("APP_PACKAGER_DT_CONTENT_FALLBACK '{0}' is not Allow or Deny; using Allow." -f $fallbackRaw) -Level WARN
+    }
+
+    $mode = 'Download'
+    $modeRaw = ([string]$env:APP_PACKAGER_DT_SLOW_NETWORK_MODE).Trim()
+    if ($modeRaw -ieq 'DoNothing') { $mode = 'DoNothing' }
+    elseif ($modeRaw -and $modeRaw -ine 'Download') {
+        Write-Log ("APP_PACKAGER_DT_SLOW_NETWORK_MODE '{0}' is not Download or DoNothing; using Download." -f $modeRaw) -Level WARN
+    }
+
+    return [pscustomobject]@{ ContentFallback = $fallback; SlowNetworkDeploymentMode = $mode }
+}
+
+Export-ModuleMember -Function Get-DeploymentTypeContentOptions
 
 # ---------------------------------------------------------------------------
 # Intune Win32 publishing (Graph)

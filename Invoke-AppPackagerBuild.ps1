@@ -303,6 +303,8 @@ function Invoke-CliPackagerPhase {
     foreach ($key in $legacy.Keys) { $startInfo.EnvironmentVariables[$key] = [string]$legacy[$key] }
     if ($ProviderMachineName) { $startInfo.EnvironmentVariables['APP_PACKAGER_CM_PROVIDER'] = $ProviderMachineName }
     elseif ($preferences -and $preferences.ProviderMachineName) { $startInfo.EnvironmentVariables['APP_PACKAGER_CM_PROVIDER'] = [string]$preferences.ProviderMachineName }
+    if ($preferences -and [string]$preferences.ContentFallback) { $startInfo.EnvironmentVariables['APP_PACKAGER_DT_CONTENT_FALLBACK'] = [string]$preferences.ContentFallback }
+    if ($preferences -and [string]$preferences.SlowNetworkDeploymentMode) { $startInfo.EnvironmentVariables['APP_PACKAGER_DT_SLOW_NETWORK_MODE'] = [string]$preferences.SlowNetworkDeploymentMode }
 
     $process = [System.Diagnostics.Process]::Start($startInfo)
     $process.WaitForExit()

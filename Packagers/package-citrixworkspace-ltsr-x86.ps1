@@ -125,6 +125,7 @@ $AppFolder    = "Citrix Workspace LTSR x86"
 
 $BaseDownloadRoot = Join-Path $DownloadRoot "CitrixWorkspaceLTSRx86"
 $SwitchesFile     = Join-Path $PSScriptRoot "citrix-workspace-switches.json"
+$CwaStream        = 'LTSR'
 
 # The x86 build writes its ARP entry to the 32-bit registry view and the x64
 # and ARM64 builds to the 64-bit view; ConfigMgr adds the WOW6432Node segment
@@ -179,102 +180,170 @@ function Get-CitrixWorkspaceLtsrRelease {
 }
 
 
-function Get-CwaBoolText {
-    param([Parameter(Mandatory)][AllowNull()][object]$Value, [Parameter(Mandatory)][string]$TrueText, [Parameter(Mandatory)][string]$FalseText)
-    if ([bool]$Value) { return $TrueText } else { return $FalseText }
+function ConvertTo-CwaInstallArguments {
+    <#
+    .SYNOPSIS
+        Builds the CitrixWorkspaceApp.exe argument list from a parsed
+        citrix-workspace-switches.json object.
+
+    .DESCRIPTION
+        Returns an object with Arguments (ordered string array) and Warnings
+        (settings skipped because their value is invalid or the vendor install
+        page for the stream documents no switch for them). A missing or empty
+        setting emits no switch, so the installer default applies.
+    #>
+    param(
+        [AllowNull()][object]$Config,
+        [Parameter(Mandatory)][ValidateSet('Current','LTSR')][string]$Stream
+    )
+
+    $arguments = [System.Collections.Generic.List[string]]::new()
+    $warnings  = [System.Collections.Generic.List[string]]::new()
+    $arguments.Add('/silent')
+
+    if ($null -ne $Config) {
+        $install = $Config.Installation
+        if ($null -ne $install) {
+            if ([bool]$install.CleanInstall) { $arguments.Add('/CleanInstall') }
+            # ENABLE_SSON takes effect only together with /includeSSON.
+            if ([bool]$install.IncludeSSON) {
+                $arguments.Add('/includeSSON')
+                if ($null -ne $install.EnableSSON) {
+                    $arguments.Add('ENABLE_SSON=' + $(if ([bool]$install.EnableSSON) { 'Yes' } else { 'No' }))
+                }
+            }
+            if ([bool]$install.AppProtection) { $arguments.Add('startAppProtection') }
+            if ($null -ne $install.SessionPreLaunch) {
+                $arguments.Add('ENABLEPRELAUNCH=' + $(if ([bool]$install.SessionPreLaunch) { 'True' } else { 'False' }))
+            }
+            if ($null -ne $install.SelfServiceMode) {
+                $arguments.Add('SELFSERVICEMODE=' + $(if ([bool]$install.SelfServiceMode) { 'True' } else { 'False' }))
+            }
+        }
+
+        $plugins = $Config.Plugins
+        if ($null -ne $plugins) {
+            $addons = [System.Collections.Generic.List[string]]::new()
+            if ($Stream -eq 'Current') {
+                if ($null -ne $plugins.MSTeamsPlugin) {
+                    $arguments.Add('/InstallMSTeamsPlugin=' + $(if ([bool]$plugins.MSTeamsPlugin) { 'Y' } else { 'N' }))
+                }
+                if ($null -ne $plugins.ZoomPlugin -and -not [bool]$plugins.ZoomPlugin) { $arguments.Add('Installzoomplugin=N') }
+            }
+            else {
+                if ($null -ne $plugins.MSTeamsPlugin) {
+                    $warnings.Add('Plugins.MSTeamsPlugin has no documented LTSR installer switch; ignored.')
+                }
+                if ([bool]$plugins.ZoomPlugin) { $addons.Add('ZoomVDIPlugin') }
+            }
+            if ($null -ne $plugins.EPAClient -and -not [bool]$plugins.EPAClient) { $arguments.Add('InstallEPAClient=N') }
+            if ([bool]$plugins.WebExPlugin) { $addons.Add('WebexVDIPlugin') }
+            if ($addons.Count -gt 0) { $arguments.Add('ADDONS=' + ($addons -join ',')) }
+
+            if ([bool]$plugins.UberAgent) {
+                $arguments.Add('/InstallUberAgent')
+                if ([bool]$plugins.UberAgentSkipUpgrade) { $arguments.Add('/SkipUberAgentUpgrade') }
+            }
+            elseif ([bool]$plugins.UberAgentSkipUpgrade) {
+                $warnings.Add('Plugins.UberAgentSkipUpgrade applies only with Plugins.UberAgent; ignored.')
+            }
+
+            if ([bool]$plugins.SessionRecording) {
+                if ($Stream -eq 'Current') { $arguments.Add('/InstallSRAgent') }
+                else { $warnings.Add('Plugins.SessionRecording has no documented LTSR installer switch; ignored.') }
+            }
+        }
+
+        $update = $Config.UpdateAndTelemetry
+        if ($null -ne $update) {
+            $autoUpdate = ([string]$update.AutoUpdateCheck).Trim().ToLowerInvariant()
+            if ($autoUpdate) {
+                if ($autoUpdate -in @('auto','manual','disabled')) { $arguments.Add('AutoUpdateCheck=' + $autoUpdate) }
+                else { $warnings.Add(("UpdateAndTelemetry.AutoUpdateCheck '{0}' is not auto, manual or disabled; ignored." -f $update.AutoUpdateCheck)) }
+            }
+            if ($null -ne $update.EnableCEIP) {
+                $arguments.Add('EnableCEIP=' + $(if ([bool]$update.EnableCEIP) { 'True' } else { 'False' }))
+            }
+            if ($null -ne $update.EnableTracing) {
+                $arguments.Add('EnableTracing=' + $(if ([bool]$update.EnableTracing) { 'true' } else { 'false' }))
+            }
+        }
+
+        $policy = $Config.StorePolicy
+        if ($null -ne $policy) {
+            foreach ($pair in @(@('AllowAddStore','ALLOWADDSTORE'), @('AllowSavePwd','ALLOWSAVEPWD'))) {
+                $value = ([string]$policy.($pair[0])).Trim().ToUpperInvariant()
+                if (-not $value) { continue }
+                if ($value -in @('S','A','N')) { $arguments.Add($pair[1] + '=' + $value) }
+                else { $warnings.Add(("StorePolicy.{0} '{1}' is not S, A or N; ignored." -f $pair[0], $policy.($pair[0]))) }
+            }
+        }
+
+        $store = $Config.Store
+        if ($null -ne $store) {
+            $storeName = ([string]$store.Name).Trim()
+            $storeUrl  = ([string]$store.Url).Trim()
+            if ($storeName -or $storeUrl) {
+                $parsedUrl = $null
+                if (-not $storeName -or -not $storeUrl) {
+                    $warnings.Add('Store needs both Name and Url; STORE0 omitted.')
+                }
+                elseif ($storeName -match '[;"]') {
+                    $warnings.Add('Store.Name contains a semicolon or double quote; STORE0 omitted.')
+                }
+                elseif (-not [uri]::TryCreate($storeUrl, [System.UriKind]::Absolute, [ref]$parsedUrl) -or $parsedUrl.Scheme -notin @('https','http') -or $storeUrl -match '[;"\s]') {
+                    $warnings.Add(("Store.Url '{0}' is not an absolute http or https URL; STORE0 omitted." -f $storeUrl))
+                }
+                else {
+                    $storeValue = '{0};{1};On;{0}' -f $storeName, $storeUrl
+                    # Start-Process joins ArgumentList elements with spaces and adds no quotes.
+                    if ($storeValue -match '\s') { $storeValue = '"' + $storeValue + '"' }
+                    $arguments.Add('STORE0=' + $storeValue)
+                }
+            }
+        }
+
+        # ADDLOCAL restricts the install to the listed components, so it is
+        # emitted only when the operator opted in.
+        if ($null -ne $Config.Components -and [bool]$Config.Components.Customize) {
+            $componentNames = @('ReceiverInside','ICA_Client','AM','SelfService','DesktopViewer','WebHelper','BCR_Client','USB','SSON')
+            $selected = @($componentNames | Where-Object { [bool]$Config.Components.$_ })
+            if ($selected.Count -gt 0) { $arguments.Add('ADDLOCAL=' + ($selected -join ',')) }
+            else { $warnings.Add('Components.Customize is set but no component is enabled; ADDLOCAL omitted.') }
+        }
+    }
+
+    return [pscustomobject]@{
+        Arguments = $arguments.ToArray()
+        Warnings  = $warnings.ToArray()
+    }
 }
 
 
 function Get-CwaInstallArguments {
     <#
     .SYNOPSIS
-        Builds the CitrixWorkspaceApp.exe argument list from
-        citrix-workspace-switches.json.
-
-    .DESCRIPTION
-        Returns an ordered string array of installer arguments. Missing file or
-        unreadable JSON yields the silent baseline only. Configuration keys with
-        no documented installer switch are logged at WARN and skipped.
+        Reads citrix-workspace-switches.json and returns the installer
+        arguments for this packager's stream. Missing file or unreadable JSON
+        yields /silent only.
     #>
-    $arguments = [System.Collections.Generic.List[string]]::new()
-    $arguments.Add('/silent')
-    $arguments.Add('/noreboot')
-
+    $cfg = $null
     if (-not (Test-Path -LiteralPath $SwitchesFile)) {
         Write-Log "Switch config not found      : $SwitchesFile (using the silent baseline)" -Level WARN
-        return $arguments.ToArray()
     }
-
-    try {
-        $cfg = Get-Content -LiteralPath $SwitchesFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-    }
-    catch {
-        Write-Log "Switch config unreadable     : $($_.Exception.Message) (using the silent baseline)" -Level WARN
-        return $arguments.ToArray()
-    }
-
-    Write-Log "Switch config                : $SwitchesFile"
-
-    if ($null -ne $cfg.Installation) {
-        if ([bool]$cfg.Installation.CleanInstall) { $arguments.Add('/CleanInstall') }
-        if ([bool]$cfg.Installation.IncludeSSON)  { $arguments.Add('/includeSSON') }
-        $arguments.Add('ENABLE_SSON=' + (Get-CwaBoolText -Value $cfg.Installation.EnableSSON -TrueText 'Yes' -FalseText 'No'))
-        if ([bool]$cfg.Installation.AppProtection) { $arguments.Add('startAppProtection') }
-        $arguments.Add('ENABLEPRELAUNCH=' + (Get-CwaBoolText -Value $cfg.Installation.SessionPreLaunch -TrueText 'True' -FalseText 'False'))
-        $arguments.Add('SELFSERVICEMODE=' + (Get-CwaBoolText -Value $cfg.Installation.SelfServiceMode -TrueText 'True' -FalseText 'False'))
-    }
-
-    if ($null -ne $cfg.Plugins) {
-        $arguments.Add('/InstallMSTeamsPlugin=' + (Get-CwaBoolText -Value $cfg.Plugins.MSTeamsPlugin -TrueText 'Y' -FalseText 'N'))
-        $arguments.Add('Installzoomplugin=' + (Get-CwaBoolText -Value $cfg.Plugins.ZoomPlugin -TrueText 'Y' -FalseText 'N'))
-        $arguments.Add('InstallEPAClient=' + (Get-CwaBoolText -Value $cfg.Plugins.EPAClient -TrueText 'Y' -FalseText 'N'))
-        if ([bool]$cfg.Plugins.WebExPlugin)      { $arguments.Add('ADDONS=WebexVDIPlugin') }
-        if ([bool]$cfg.Plugins.UberAgent)        { $arguments.Add('/InstallUberAgent') }
-        if ([bool]$cfg.Plugins.SessionRecording) { $arguments.Add('/InstallSRAgent') }
-        if ([bool]$cfg.Plugins.UberAgentSkipUpgrade) {
-            Write-Log "Plugins.UberAgentSkipUpgrade has no documented installer switch; ignored." -Level WARN
+    else {
+        try {
+            $cfg = Get-Content -LiteralPath $SwitchesFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            Write-Log "Switch config                : $SwitchesFile"
+        }
+        catch {
+            Write-Log "Switch config unreadable     : $($_.Exception.Message) (using the silent baseline)" -Level WARN
         }
     }
 
-    if ($null -ne $cfg.UpdateAndTelemetry) {
-        if (-not [string]::IsNullOrWhiteSpace($cfg.UpdateAndTelemetry.AutoUpdateCheck)) {
-            $arguments.Add('AutoUpdateCheck=' + [string]$cfg.UpdateAndTelemetry.AutoUpdateCheck)
-        }
-        $arguments.Add('EnableCEIP=' + (Get-CwaBoolText -Value $cfg.UpdateAndTelemetry.EnableCEIP -TrueText 'True' -FalseText 'False'))
-        $arguments.Add('EnableTracing=' + (Get-CwaBoolText -Value $cfg.UpdateAndTelemetry.EnableTracing -TrueText 'true' -FalseText 'false'))
-    }
-
-    if ($null -ne $cfg.StorePolicy) {
-        if (-not [string]::IsNullOrWhiteSpace($cfg.StorePolicy.AllowAddStore)) {
-            $arguments.Add('ALLOWADDSTORE=' + [string]$cfg.StorePolicy.AllowAddStore)
-        }
-        if (-not [string]::IsNullOrWhiteSpace($cfg.StorePolicy.AllowSavePwd)) {
-            $arguments.Add('ALLOWSAVEPWD=' + [string]$cfg.StorePolicy.AllowSavePwd)
-        }
-    }
-
-    if ($null -ne $cfg.Store -and
-        -not [string]::IsNullOrWhiteSpace($cfg.Store.Name) -and
-        -not [string]::IsNullOrWhiteSpace($cfg.Store.Url)) {
-        $storeName = ([string]$cfg.Store.Name).Trim()
-        $storeUrl  = ([string]$cfg.Store.Url).Trim()
-        $arguments.Add(('STORE0={0};{1};On;{0}' -f $storeName, $storeUrl))
-    }
-
-    # ADDLOCAL is all-or-nothing: naming it at all restricts the install to the
-    # listed components, so it is emitted only when the operator opted in.
-    if ($null -ne $cfg.Components -and [bool]$cfg.Components.Customize) {
-        $componentNames = @('ReceiverInside','ICA_Client','AM','SelfService','DesktopViewer','WebHelper','BCR_Client','USB','SSON')
-        $selected = @($componentNames | Where-Object { [bool]$cfg.Components.$_ })
-        if ($selected.Count -gt 0) {
-            $arguments.Add('ADDLOCAL=' + ($selected -join ','))
-        }
-        else {
-            Write-Log "Components.Customize is set but no component is enabled; ADDLOCAL omitted." -Level WARN
-        }
-    }
-
-    return $arguments.ToArray()
+    $result = ConvertTo-CwaInstallArguments -Config $cfg -Stream $CwaStream
+    foreach ($warning in $result.Warnings) { Write-Log $warning -Level WARN }
+    return $result.Arguments
 }
 
 

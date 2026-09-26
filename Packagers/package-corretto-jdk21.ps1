@@ -1,7 +1,7 @@
 ﻿<#
 Vendor: Amazon
 App: Amazon Corretto JDK 21 (x64)
-CMName: Amazon Corretto JDK 21
+CMName: Amazon Corretto 21 (x64)
 VendorUrl: https://aws.amazon.com/corretto/
 CPE: cpe:2.3:a:amazon:corretto:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/corretto/corretto-21/releases

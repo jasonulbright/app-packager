@@ -1,7 +1,7 @@
 <#
 Vendor: Mozilla
 App: Thunderbird
-CMName: Thunderbird
+CMName: Mozilla Thunderbird (x64 en-US)
 VendorUrl: https://www.thunderbird.net/
 CPE: cpe:2.3:a:mozilla:thunderbird:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.thunderbird.net/en-US/thunderbird/releases/
