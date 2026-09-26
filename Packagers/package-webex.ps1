@@ -1,7 +1,7 @@
 <#
 Vendor: Cisco
 App: Cisco Webex (x64)
-CMName: Cisco Webex
+CMName: Webex
 VendorUrl: https://www.webex.com/downloads.html
 CPE: cpe:2.3:a:cisco:webex_meetings:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.webex.com/whatsnew.html

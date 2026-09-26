@@ -1,7 +1,7 @@
 ﻿<#
 Vendor: Amazon
 App: Amazon Corretto JDK 25 (x64)
-CMName: Amazon Corretto JDK 25
+CMName: Amazon Corretto 25 (x64)
 VendorUrl: https://aws.amazon.com/corretto/
 CPE: cpe:2.3:a:amazon:corretto:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/corretto/corretto-25/releases

@@ -1,5 +1,22 @@
 # Changelog
 
+## [2026.09.25.0096] - 2026-09-25
+
+## 6 user reports closed
+
+### Fixed
+
+- Clear a packager's checkbox after a successful Stage or Package.
+- Keep ConfigMgr and online version results through Options, filters, and grid rebuilds.
+- Find RStudio, Git, Thunderbird, Node.js, Webex, and Corretto applications in the console lookup.
+- Stop the console lookup from matching a longer application name.
+- Validate every Citrix Workspace switch against the 2603.11 and 2607 vendor pages.
+- Let the Citrix store policy and auto-update options stay unset.
+
+### Added
+
+- Choose deployment type content fallback and slow-network behavior in Options.
+
 ## [2026.09.25.0095] - 2026-09-25
 
 ## 12 OpenJDK packagers verified on a device

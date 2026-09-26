@@ -1,7 +1,7 @@
 <#
 Vendor: OpenJS Foundation
 App: Node.js LTS
-CMName: Node.js LTS
+CMName: Node.js
 VendorUrl: https://nodejs.org/
 CPE: cpe:2.3:a:nodejs:node.js:*:*:*:*:lts:*:*:*
 ReleaseNotesUrl: https://nodejs.org/en/blog/release

@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.09.25.0095
+    Version    : 2026.09.25.0096
     Updated    : 2026-09-09
 #>
 
@@ -131,6 +131,8 @@ function Read-Preferences {
         DownloadRoot         = "C:\temp\ap"
         EstimatedRuntimeMins = 15
         MaximumRuntimeMins   = 30
+        ContentFallback      = "Allow"
+        SlowNetworkDeploymentMode = "Download"
         CompanyName          = ""
         M365Channel          = "MonthlyEnterprise"
         M365DeployMode       = "Managed"
@@ -246,6 +248,8 @@ function Read-Preferences {
         if ($null -ne $data.DownloadRoot)          { $defaults.DownloadRoot         = [string]$data.DownloadRoot }
         if ($null -ne $data.EstimatedRuntimeMins)  { $defaults.EstimatedRuntimeMins = [int]$data.EstimatedRuntimeMins }
         if ($null -ne $data.MaximumRuntimeMins)    { $defaults.MaximumRuntimeMins   = [int]$data.MaximumRuntimeMins }
+        if ([string]$data.ContentFallback -in @('Allow','Deny')) { $defaults.ContentFallback = [string]$data.ContentFallback }
+        if ([string]$data.SlowNetworkDeploymentMode -in @('Download','DoNothing')) { $defaults.SlowNetworkDeploymentMode = [string]$data.SlowNetworkDeploymentMode }
         if ($null -ne $data.CompanyName)            { $defaults.CompanyName          = [string]$data.CompanyName }
 
         # M365Channel: validate against current set; migrate legacy SemiAnnual
@@ -517,12 +521,22 @@ function Read-Preferences {
     return $defaults
 }
 
+function Set-DeploymentTypeContentEnvironment {
+    # Packager child processes and the background runspace inherit this
+    # process environment; the module reads these two values when it adds a
+    # ConfigMgr deployment type.
+    param([Parameter(Mandatory)]$Prefs)
+    $env:APP_PACKAGER_DT_CONTENT_FALLBACK  = $(if ([string]$Prefs.ContentFallback -eq 'Deny') { 'Deny' } else { 'Allow' })
+    $env:APP_PACKAGER_DT_SLOW_NETWORK_MODE = $(if ([string]$Prefs.SlowNetworkDeploymentMode -eq 'DoNothing') { 'DoNothing' } else { 'Download' })
+}
+
 function Save-Preferences {
     param([Parameter(Mandatory)][pscustomobject]$Prefs)
 
     $path = Get-PreferencesPath
     $json = $Prefs | ConvertTo-Json -Depth 5
     Set-Content -LiteralPath $path -Value $json -Encoding UTF8
+    Set-DeploymentTypeContentEnvironment -Prefs $Prefs
 
     $pkgPrefsPath = Join-Path (Join-Path $PSScriptRoot "Packagers") "packager-preferences.json"
     try {
@@ -817,6 +831,7 @@ function Set-LauncherConnectionDefault {
 }
 
 Set-LauncherConnectionDefault -Prefs $script:Prefs
+Set-DeploymentTypeContentEnvironment -Prefs $script:Prefs
 
 function Get-PackagerMetadata {
     param([Parameter(Mandatory)][string]$Path)
@@ -1546,8 +1561,11 @@ function Get-MecmCurrentVersionByCMName {
             return [pscustomobject]@{ Found = $true; DisplayName = $CMName; SoftwareVersion = [string]$apps[0].SoftwareVersion; MatchCount = 1 }
         }
         $apps = @(Get-CMApplication -Name $CMName -ErrorAction SilentlyContinue)
+        # A titled name is "<CMName> - <version>". The wildcard keeps that
+        # separator: a bare "<CMName>*" makes "Git" match "GitHub Desktop" and
+        # "Microsoft Edge" match "Microsoft Edge WebView2 Runtime".
         if (-not $apps -or $apps.Count -eq 0) {
-            $apps = @(Get-CMApplication -Name ("{0}*" -f $CMName) -ErrorAction SilentlyContinue)
+            $apps = @(Get-CMApplication -Name ("{0} - *" -f $CMName) -ErrorAction SilentlyContinue)
         }
 
         if (-not $apps -or $apps.Count -eq 0) {
@@ -2891,8 +2909,8 @@ function Read-CwaSwitches {
             EnableTracing   = $false
         }
         StorePolicy = [pscustomobject]@{
-            AllowAddStore = "S"
-            AllowSavePwd  = "S"
+            AllowAddStore = ""
+            AllowSavePwd  = ""
         }
         Components = [pscustomobject]@{
             Customize      = $false
@@ -4049,6 +4067,8 @@ function New-MecmPreferencesPanel {
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
     <Grid.ColumnDefinitions>
         <ColumnDefinition Width="140"/>
@@ -4085,36 +4105,48 @@ function New-MecmPreferencesPanel {
         <TextBlock Text=" mins" FontSize="13" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray5}"/>
     </StackPanel>
 
-    <TextBlock Grid.Row="7" Grid.Column="0" Text="Auto-distribute:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, the Package phase calls Start-CMContentDistribution after creating each ConfigMgr Application."/>
-    <CheckBox  Grid.Row="7" Grid.Column="1" x:Name="chkAutoDist" Content="Start-CMContentDistribution after Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+    <TextBlock Grid.Row="7" Grid.Column="0" Text="Fallback DPs:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Deployment type content option. Applies to deployment types created by future Package runs."/>
+    <ComboBox  Grid.Row="7" Grid.Column="1" x:Name="cboContentFallback" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Allow: when no distribution point in the current or neighbor boundary groups has the content, the client can use the site default boundary group.">
+        <ComboBoxItem Content="Allow - use the site default boundary group" Tag="Allow"/>
+        <ComboBoxItem Content="Deny - current and neighbor groups only" Tag="Deny"/>
+    </ComboBox>
 
-    <TextBlock Grid.Row="8" Grid.Column="0" Text="DP Group:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact name of the Distribution Point Group to target."/>
-    <TextBox   Grid.Row="8" Grid.Column="1" x:Name="txtDPGroup" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Distribution Point Group display name (e.g. 'All DPs')"/>
+    <TextBlock Grid.Row="8" Grid.Column="0" Text="Neighbor/default DP:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Deployment type content option. Applies to deployment types created by future Package runs."/>
+    <ComboBox  Grid.Row="8" Grid.Column="1" x:Name="cboSlowNetwork" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Deployment option when the client uses a distribution point in a neighbor boundary group or the site default boundary group.">
+        <ComboBoxItem Content="Download content and install" Tag="Download"/>
+        <ComboBoxItem Content="Do not download content" Tag="DoNothing"/>
+    </ComboBox>
 
-    <TextBlock Grid.Row="9" Grid.Column="0" Text="Test deployment:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Requires Auto-distribute enabled and a DP Group name. After content distribution, deploys the application (Available, immediately, default options) to the test collection."/>
-    <CheckBox  Grid.Row="9" Grid.Column="1" x:Name="chkTestDeploy" Content="Deploy to test collection after distribution" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+    <TextBlock Grid.Row="9" Grid.Column="0" Text="Auto-distribute:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, the Package phase calls Start-CMContentDistribution after creating each ConfigMgr Application."/>
+    <CheckBox  Grid.Row="9" Grid.Column="1" x:Name="chkAutoDist" Content="Start-CMContentDistribution after Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
-    <TextBlock Grid.Row="10" Grid.Column="0" Text="Test collection:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact device collection name that receives the Available test deployment."/>
-    <TextBox   Grid.Row="10" Grid.Column="1" x:Name="txtTestCollection" FontSize="13" MaxLength="255" Margin="0,0,0,8" ToolTip="Device collection display name (e.g. 'App Test Devices')"/>
+    <TextBlock Grid.Row="10" Grid.Column="0" Text="DP Group:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact name of the Distribution Point Group to target."/>
+    <TextBox   Grid.Row="10" Grid.Column="1" x:Name="txtDPGroup" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Distribution Point Group display name (e.g. 'All DPs')"/>
 
-    <TextBlock Grid.Row="11" Grid.Column="0" Text="" Margin="0,0,0,8"/>
-    <CheckBox  Grid.Row="11" Grid.Column="1" x:Name="chkCreateTestColl" Content="Create collection if it does not exist" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Creates an empty direct-membership device collection limited to All Systems when the named collection is missing."/>
+    <TextBlock Grid.Row="11" Grid.Column="0" Text="Test deployment:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Requires Auto-distribute enabled and a DP Group name. After content distribution, deploys the application (Available, immediately, default options) to the test collection."/>
+    <CheckBox  Grid.Row="11" Grid.Column="1" x:Name="chkTestDeploy" Content="Deploy to test collection after distribution" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
-    <TextBlock Grid.Row="12" Grid.Column="0" Text="Application title:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Default application naming for every Package run."/>
-    <CheckBox  Grid.Row="12" Grid.Column="1" x:Name="chkTitleVersion" Content="Include version in application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Adds the version to every application name, creating one ConfigMgr application per release. A per-application choice in the Application Workbench overrides this. Existing applications are not renamed."/>
+    <TextBlock Grid.Row="12" Grid.Column="0" Text="Test collection:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact device collection name that receives the Available test deployment."/>
+    <TextBox   Grid.Row="12" Grid.Column="1" x:Name="txtTestCollection" FontSize="13" MaxLength="255" Margin="0,0,0,8" ToolTip="Device collection display name (e.g. 'App Test Devices')"/>
 
-    <TextBlock Grid.Row="13" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
-    <Grid Grid.Row="13" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
+    <TextBlock Grid.Row="13" Grid.Column="0" Text="" Margin="0,0,0,8"/>
+    <CheckBox  Grid.Row="13" Grid.Column="1" x:Name="chkCreateTestColl" Content="Create collection if it does not exist" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Creates an empty direct-membership device collection limited to All Systems when the named collection is missing."/>
 
-    <TextBlock Grid.Row="14" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="7-Zip command-line (7z.exe) detection status. Required by the Adobe Reader packager."/>
-    <Grid Grid.Row="14" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
-    <TextBlock Grid.Row="15" Grid.Column="0" Text="GitHub API:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="How the 90 packagers that read GitHub releases authenticate. Anonymous calls are limited to 60 per hour per address; a token raises that to 5000. Resolved from GITHUB_TOKEN, then GH_TOKEN, then the GitHub CLI login (gh auth login)."/>
-    <Grid Grid.Row="15" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtGitHubStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
+    <TextBlock Grid.Row="14" Grid.Column="0" Text="Application title:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Default application naming for every Package run."/>
+    <CheckBox  Grid.Row="14" Grid.Column="1" x:Name="chkTitleVersion" Content="Include version in application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Adds the version to every application name, creating one ConfigMgr application per release. A per-application choice in the Application Workbench overrides this. Existing applications are not renamed."/>
 
-    <TextBlock Grid.Row="16" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe) detection status. Downloaded on first use, or place the exe on PATH."/>
+    <TextBlock Grid.Row="15" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
+    <Grid Grid.Row="15" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
+
+    <TextBlock Grid.Row="16" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="7-Zip command-line (7z.exe) detection status. Required by the Adobe Reader packager."/>
+    <Grid Grid.Row="16" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
+    <TextBlock Grid.Row="17" Grid.Column="0" Text="GitHub API:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="How the 90 packagers that read GitHub releases authenticate. Anonymous calls are limited to 60 per hour per address; a token raises that to 5000. Resolved from GITHUB_TOKEN, then GH_TOKEN, then the GitHub CLI login (gh auth login)."/>
+    <Grid Grid.Row="17" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtGitHubStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
+
+    <TextBlock Grid.Row="18" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe) detection status. Downloaded on first use, or place the exe on PATH."/>
     <!-- Status text in a star column so a long message wraps instead of
          pushing the buttons past the panel edge, where they clip out of view. -->
-    <Grid Grid.Row="16" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
+    <Grid Grid.Row="18" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="Auto"/>
@@ -4123,8 +4155,8 @@ function New-MecmPreferencesPanel {
         <Button Grid.Column="1" x:Name="btnIntuneWinDownload" Content="Download" FontSize="11" Margin="10,0,0,0" Padding="10,2" VerticalAlignment="Center" Visibility="Collapsed"/>
     </Grid>
 
-    <TextBlock Grid.Row="17" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Packager icon pack for IconSource External packagers. Installs into Packagers\Icons and is read at stage time."/>
-    <Grid Grid.Row="17" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
+    <TextBlock Grid.Row="19" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Packager icon pack for IconSource External packagers. Installs into Packagers\Icons and is read at stage time."/>
+    <Grid Grid.Row="19" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="Auto"/>
@@ -4135,16 +4167,16 @@ function New-MecmPreferencesPanel {
         <Button Grid.Column="2" x:Name="btnIconPackFromFile" Content="Install from file..." FontSize="11" Margin="6,0,0,0" Padding="10,2" VerticalAlignment="Center" ToolTip="Installs an icon pack from a local or UNC icon-pack.zip when the release download is blocked (proxy/SSL inspection). A checksums.txt beside the zip is verified when present."/>
     </Grid>
 
-    <TextBlock Grid.Row="18" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, a successful Package also produces an .intunewin from the staged content and stores it beside the network content version folder."/>
-    <CheckBox  Grid.Row="18" Grid.Column="1" x:Name="chkIntuneWin" Content="Create .intunewin during Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-    <TextBlock Grid.Row="19" Grid.Column="0" Text="Intune Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
-    <TextBox   Grid.Row="19" Grid.Column="1" x:Name="txtIntuneTenant" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="20" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
-    <TextBox   Grid.Row="20" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="21" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
-    <PasswordBox Grid.Row="21" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="22" Grid.Column="0" Text="Deployment Target:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Where Package creates applications. ConfigMgr only: today's flow. ConfigMgr + Intune: ConfigMgr app plus a Graph publish of the .intunewin. Intune only: stage, build the .intunewin, and publish via Graph - no ConfigMgr console, site, or file share needed. Repeat publishes update the existing Intune app."/>
-    <ComboBox  Grid.Row="22" Grid.Column="1" x:Name="cboDeployTarget" FontSize="13" Margin="0,0,0,8" Width="260" HorizontalAlignment="Left">
+    <TextBlock Grid.Row="20" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, a successful Package also produces an .intunewin from the staged content and stores it beside the network content version folder."/>
+    <CheckBox  Grid.Row="20" Grid.Column="1" x:Name="chkIntuneWin" Content="Create .intunewin during Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+    <TextBlock Grid.Row="21" Grid.Column="0" Text="Intune Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
+    <TextBox   Grid.Row="21" Grid.Column="1" x:Name="txtIntuneTenant" FontSize="13" Margin="0,0,0,8"/>
+    <TextBlock Grid.Row="22" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
+    <TextBox   Grid.Row="22" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,0,0,8"/>
+    <TextBlock Grid.Row="23" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
+    <PasswordBox Grid.Row="23" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,0,0,8"/>
+    <TextBlock Grid.Row="24" Grid.Column="0" Text="Deployment Target:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Where Package creates applications. ConfigMgr only: today's flow. ConfigMgr + Intune: ConfigMgr app plus a Graph publish of the .intunewin. Intune only: stage, build the .intunewin, and publish via Graph - no ConfigMgr console, site, or file share needed. Repeat publishes update the existing Intune app."/>
+    <ComboBox  Grid.Row="24" Grid.Column="1" x:Name="cboDeployTarget" FontSize="13" Margin="0,0,0,8" Width="260" HorizontalAlignment="Left">
         <ComboBoxItem Content="ConfigMgr only" Tag="MECM"/>
         <ComboBoxItem Content="ConfigMgr + Intune" Tag="MECMAndIntune"/>
         <ComboBoxItem Content="Intune only" Tag="IntuneOnly"/>
@@ -4161,6 +4193,8 @@ function New-MecmPreferencesPanel {
     $txtProvider = $element.FindName('txtProvider')
     $txtFS  = $element.FindName('txtFS')
     $cboLayout = $element.FindName('cboLayout')
+    $cboContentFallback = $element.FindName('cboContentFallback')
+    $cboSlowNetwork = $element.FindName('cboSlowNetwork')
     $txtDL  = $element.FindName('txtDL')
     $txtEst = $element.FindName('txtEst')
     $txtMax = $element.FindName('txtMax')
@@ -4188,6 +4222,8 @@ function New-MecmPreferencesPanel {
     $txtProvider.Text = [string]$script:Prefs.ProviderMachineName
     $txtFS.Text  = [string]$script:Prefs.FileShareRoot
     $cboLayout.SelectedIndex = if ([string]$script:Prefs.ContentLayout -eq 'Flat') { 1 } else { 0 }
+    $cboContentFallback.SelectedIndex = if ([string]$script:Prefs.ContentFallback -eq 'Deny') { 1 } else { 0 }
+    $cboSlowNetwork.SelectedIndex = if ([string]$script:Prefs.SlowNetworkDeploymentMode -eq 'DoNothing') { 1 } else { 0 }
     $txtDL.Text  = [string]$script:Prefs.DownloadRoot
     $txtEst.Text = [string]$script:Prefs.EstimatedRuntimeMins
     $txtMax.Text = [string]$script:Prefs.MaximumRuntimeMins
@@ -4345,6 +4381,8 @@ function New-MecmPreferencesPanel {
         $prefsRef.ProviderMachineName  = $txtProvider.Text.Trim()
         $prefsRef.FileShareRoot        = $txtFS.Text.Trim()
         $prefsRef.ContentLayout        = if ($cboLayout.SelectedIndex -eq 1) { 'Flat' } else { 'Nested' }
+        $prefsRef.ContentFallback      = if ($cboContentFallback.SelectedIndex -eq 1) { 'Deny' } else { 'Allow' }
+        $prefsRef.SlowNetworkDeploymentMode = if ($cboSlowNetwork.SelectedIndex -eq 1) { 'DoNothing' } else { 'Download' }
         $prefsRef.DownloadRoot         = $txtDL.Text.Trim()
         $prefsRef.EstimatedRuntimeMins = $estVal
         $prefsRef.MaximumRuntimeMins   = $maxVal
@@ -4988,7 +5026,7 @@ function New-PackagerPreferencesPanel {
     $txtStoreUrl.FontSize = 13
     $txtStoreUrl.Width = 350
     $txtStoreUrl.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    & $addLabelRow "Store URL:" $txtStoreUrl "StoreFront base URL (e.g. https://storefront.company.com/Citrix/Store). /discovery is appended automatically."
+    & $addLabelRow "Store URL:" $txtStoreUrl "Store URL passed to STORE0 as typed. StoreFront: https://storefront.company.com/Citrix/Store/discovery. Citrix Gateway: https://gateway.company.com#StoreName. Leave Name and URL blank to add no store."
 
     # =============================================
     # CWA: INSTALLATION OPTIONS
@@ -4997,7 +5035,7 @@ function New-PackagerPreferencesPanel {
 
     $chkClean     = & $addCheckBox "Clean Install (/CleanInstall)" ([bool]$sw.Installation.CleanInstall) "Removes leftover configuration and registry data from any prior installation before installing."
     $chkSSOn      = & $addCheckBox "Single Sign-On (/includeSSON + ENABLE_SSON)" ([bool]$sw.Installation.IncludeSSON) "Installs the SSO component and activates domain pass-through authentication."
-    $chkAppProt   = & $addCheckBox "App Protection (/includeappprotection)" ([bool]$sw.Installation.AppProtection) "Installs anti-keylogging and anti-screen capture protection for Citrix sessions."
+    $chkAppProt   = & $addCheckBox "App Protection (startAppProtection)" ([bool]$sw.Installation.AppProtection) "Installs anti-keylogging and anti-screen capture protection for Citrix sessions."
     $chkPreLaunch = & $addCheckBox "Session Pre-Launch (ENABLEPRELAUNCH)" ([bool]$sw.Installation.SessionPreLaunch) "Pre-launches a Citrix session at logon for faster application startup."
     $chkSelfSvc   = & $addCheckBox "Self-Service Mode (SELFSERVICEMODE)" ([bool]$sw.Installation.SelfServiceMode) "Shows the Citrix Workspace self-service app window."
 
@@ -5006,8 +5044,8 @@ function New-PackagerPreferencesPanel {
     # =============================================
     & $addHeader "CWA: Plugins and Add-ons"
 
-    $chkTeams    = & $addCheckBox "MS Teams VDI Plugin (default on 2508+)" ([bool]$sw.Plugins.MSTeamsPlugin) "Installs MsTeamsPluginCitrix for Teams VDI optimization."
-    $chkZoom     = & $addCheckBox "Zoom VDI Plugin (default on 2511+)" ([bool]$sw.Plugins.ZoomPlugin) "Installs 64-bit Zoom VDI plugin."
+    $chkTeams    = & $addCheckBox "MS Teams VDI Plugin (default on 2508+)" ([bool]$sw.Plugins.MSTeamsPlugin) "Current Release: /InstallMSTeamsPlugin=Y or N. The LTSR packagers ignore this setting."
+    $chkZoom     = & $addCheckBox "Zoom VDI Plugin (default on 2511+)" ([bool]$sw.Plugins.ZoomPlugin) "Current Release: cleared adds Installzoomplugin=N. LTSR: checked adds ADDONS=ZoomVDIPlugin."
     $chkWebEx    = & $addCheckBox "WebEx VDI Plugin (ADDONS=WebexVDIPlugin)" ([bool]$sw.Plugins.WebExPlugin) "Installs the WebEx VDI plugin engine."
     $chkUber     = & $addCheckBox "uberAgent Monitoring (/InstallUberAgent)" ([bool]$sw.Plugins.UberAgent) "Installs or upgrades the uberAgent monitoring/diagnostics plugin."
     $chkUberSkip = & $addCheckBox "Skip upgrade if present (/SkipUberAgentUpgrade)" ([bool]$sw.Plugins.UberAgentSkipUpgrade) "Installs uberAgent only if not already present; skips upgrade." 20
@@ -5015,7 +5053,7 @@ function New-PackagerPreferencesPanel {
     $chkUber.Add_Checked({   $chkUberSkip.IsEnabled = $true }.GetNewClosure())
     $chkUber.Add_Unchecked({ $chkUberSkip.IsEnabled = $false }.GetNewClosure())
     $chkEPA = & $addCheckBox "EPA Client (default on 2508+)" ([bool]$sw.Plugins.EPAClient) "Endpoint Analysis client for Device Posture checks."
-    $chkSR  = & $addCheckBox "Session Recording (/InstallSRAgent, 2511+)" ([bool]$sw.Plugins.SessionRecording) "Installs the Session Recording agent for endpoint device session monitoring."
+    $chkSR  = & $addCheckBox "Session Recording (/InstallSRAgent, Current Release only)" ([bool]$sw.Plugins.SessionRecording) "Installs the Session Recording agent for endpoint device session monitoring. The LTSR packagers ignore this setting."
 
     # =============================================
     # CWA: UPDATE AND TELEMETRY
@@ -5026,10 +5064,11 @@ function New-PackagerPreferencesPanel {
     $cmbAutoUpd.FontSize = 13
     $cmbAutoUpd.Width = 120
     $cmbAutoUpd.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    foreach ($val in @("auto", "manual", "disabled")) { [void]$cmbAutoUpd.Items.Add($val) }
-    $cmbAutoUpd.SelectedItem = $sw.UpdateAndTelemetry.AutoUpdateCheck
-    if ($cmbAutoUpd.SelectedIndex -lt 0) { $cmbAutoUpd.SelectedIndex = 2 }
-    & $addLabelRow "Auto-Update:" $cmbAutoUpd "Controls automatic update checking: auto, manual, disabled."
+    $cwaNotSet = '(not set)'
+    foreach ($val in @($cwaNotSet, "auto", "manual", "disabled")) { [void]$cmbAutoUpd.Items.Add($val) }
+    $cmbAutoUpd.SelectedItem = ([string]$sw.UpdateAndTelemetry.AutoUpdateCheck).Trim().ToLowerInvariant()
+    if ($cmbAutoUpd.SelectedIndex -lt 0) { $cmbAutoUpd.SelectedIndex = 0 }
+    & $addLabelRow "Auto-Update:" $cmbAutoUpd "AutoUpdateCheck: auto, manual, disabled. (not set) omits the switch; the installer default is auto. Stored in citrix-workspace-switches.json as an empty value."
 
     $chkCEIP  = & $addCheckBox "CEIP / Telemetry (EnableCEIP)" ([bool]$sw.UpdateAndTelemetry.EnableCEIP) "Citrix Customer Experience Improvement Program."
     $chkTrace = & $addCheckBox "Always-On Tracing (EnableTracing)" ([bool]$sw.UpdateAndTelemetry.EnableTracing) "Enables always-on diagnostic tracing."
@@ -5041,21 +5080,21 @@ function New-PackagerPreferencesPanel {
 
     $cmbAddStore = New-Object System.Windows.Controls.ComboBox
     $cmbAddStore.FontSize = 13
-    $cmbAddStore.Width = 60
+    $cmbAddStore.Width = 110
     $cmbAddStore.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    foreach ($val in @("S", "A", "N")) { [void]$cmbAddStore.Items.Add($val) }
-    $cmbAddStore.SelectedItem = $sw.StorePolicy.AllowAddStore
+    foreach ($val in @($cwaNotSet, "S", "A", "N")) { [void]$cmbAddStore.Items.Add($val) }
+    $cmbAddStore.SelectedItem = ([string]$sw.StorePolicy.AllowAddStore).Trim().ToUpperInvariant()
     if ($cmbAddStore.SelectedIndex -lt 0) { $cmbAddStore.SelectedIndex = 0 }
-    & $addLabelRow "Allow Add Store:" $cmbAddStore "S = Secure/HTTPS only, A = All protocols, N = None."
+    & $addLabelRow "Allow Add Store:" $cmbAddStore "ALLOWADDSTORE. S = add or remove HTTPS stores only, A = HTTPS and HTTP stores, N = users cannot add or remove stores. (not set) omits the switch; the installer default is S."
 
     $cmbSavePwd = New-Object System.Windows.Controls.ComboBox
     $cmbSavePwd.FontSize = 13
-    $cmbSavePwd.Width = 60
+    $cmbSavePwd.Width = 110
     $cmbSavePwd.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    foreach ($val in @("S", "A", "N")) { [void]$cmbSavePwd.Items.Add($val) }
-    $cmbSavePwd.SelectedItem = $sw.StorePolicy.AllowSavePwd
+    foreach ($val in @($cwaNotSet, "S", "A", "N")) { [void]$cmbSavePwd.Items.Add($val) }
+    $cmbSavePwd.SelectedItem = ([string]$sw.StorePolicy.AllowSavePwd).Trim().ToUpperInvariant()
     if ($cmbSavePwd.SelectedIndex -lt 0) { $cmbSavePwd.SelectedIndex = 0 }
-    & $addLabelRow "Allow Save Pwd:" $cmbSavePwd "S = Secure only, A = All, N = Never cache credentials."
+    & $addLabelRow "Allow Save Pwd:" $cmbSavePwd "ALLOWSAVEPWD. S = save passwords for HTTPS stores only, A = HTTPS and HTTP stores, N = never save passwords. (not set) omits the switch; the installer default is S."
 
     # =============================================
     # CWA: COMPONENTS (ADDLOCAL)
@@ -5104,44 +5143,63 @@ function New-PackagerPreferencesPanel {
     # =============================================
     # Preview buttons
     # =============================================
+    $cwaPackagerPath = Join-Path (Join-Path $PSScriptRoot "Packagers") "package-citrixworkspace-cr.ps1"
     $btnCwaPreview.Add_Click({
-        $previewArgs = @('/silent', '/noreboot')
-        if ($chkClean.IsChecked)    { $previewArgs += '/CleanInstall' }
-        if ($chkSSOn.IsChecked)     { $previewArgs += '/includeSSON'; $previewArgs += 'ENABLE_SSON=Yes' }
-        if ($chkAppProt.IsChecked)  { $previewArgs += '/includeappprotection' }
-        if ($chkPreLaunch.IsChecked){ $previewArgs += 'ENABLEPRELAUNCH=True' }
-        if ($chkSelfSvc.IsChecked)  { $previewArgs += 'SELFSERVICEMODE=True' } else { $previewArgs += 'SELFSERVICEMODE=False' }
-
-        if (-not [string]::IsNullOrWhiteSpace($txtStoreUrl.Text)) {
-            $sn = if ([string]::IsNullOrWhiteSpace($txtStoreName.Text)) { 'Store' } else { $txtStoreName.Text.Trim() }
-            $su = $txtStoreUrl.Text.Trim().TrimEnd('/')
-            if ($su -notlike '*/discovery') { $su = "$su/discovery" }
-            $previewArgs += ('STORE0="{0};{1};On;{0}"' -f $sn, $su)
-        }
-
-        if (-not $chkTeams.IsChecked)  { $previewArgs += 'InstallMSTeamsPlugin=N' }
-        if (-not $chkZoom.IsChecked)   { $previewArgs += 'Installzoomplugin=N' }
-        if ($chkWebEx.IsChecked)       { $previewArgs += 'ADDONS=WebexVDIPlugin' }
-        if ($chkUber.IsChecked)        { $previewArgs += '/InstallUberAgent'; if ($chkUberSkip.IsChecked) { $previewArgs += '/SkipUberAgentUpgrade' } }
-        if (-not $chkEPA.IsChecked)    { $previewArgs += 'InstallEPAClient=N' }
-        if ($chkSR.IsChecked)          { $previewArgs += '/InstallSRAgent' }
-
-        $previewArgs += ('AutoUpdateCheck={0}' -f $cmbAutoUpd.SelectedItem)
-        if (-not $chkCEIP.IsChecked)   { $previewArgs += 'EnableCEIP=False' }
-        if (-not $chkTrace.IsChecked)  { $previewArgs += 'EnableTracing=false' }
-
-        $previewArgs += ('ALLOWADDSTORE={0}' -f $cmbAddStore.SelectedItem)
-        $previewArgs += ('ALLOWSAVEPWD={0}' -f $cmbSavePwd.SelectedItem)
-
-        if ($chkCustomize.IsChecked) {
-            $cl = @()
-            foreach ($kv in $compCBs.GetEnumerator()) { if ($kv.Value.IsChecked) { $cl += $kv.Key } }
-            if ($cl.Count -gt 0) { $previewArgs += ('ADDLOCAL={0}' -f ($cl -join ',')) }
-        }
-
-        $cmdLine = "CitrixWorkspaceApp.exe " + ($previewArgs -join " ")
         $ownerWin = [System.Windows.Window]::GetWindow($element)
-        Show-PreviewDialog -Owner $ownerWin -Title "CWA Preview" -Content $cmdLine -Width 820 -Height 360
+        try {
+            # The preview runs the packager's own argument builder so the two cannot drift.
+            $pt = $null; $pe = $null
+            $pAst = [System.Management.Automation.Language.Parser]::ParseFile($cwaPackagerPath, [ref]$pt, [ref]$pe)
+            $fnAst = $pAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'ConvertTo-CwaInstallArguments' }, $false)
+            if ($null -eq $fnAst) { throw "ConvertTo-CwaInstallArguments not found in $cwaPackagerPath" }
+            . ([scriptblock]::Create($fnAst.Extent.Text))
+
+            $components = [ordered]@{ Customize = ($chkCustomize.IsChecked -eq $true) }
+            foreach ($kv in $compCBs.GetEnumerator()) { $components[$kv.Key] = ($kv.Value.IsChecked -eq $true) }
+            $previewCfg = [pscustomobject]@{
+                Store = [pscustomobject]@{ Name = $txtStoreName.Text; Url = $txtStoreUrl.Text }
+                Installation = [pscustomobject]@{
+                    CleanInstall     = ($chkClean.IsChecked -eq $true)
+                    IncludeSSON      = ($chkSSOn.IsChecked -eq $true)
+                    EnableSSON       = ($chkSSOn.IsChecked -eq $true)
+                    AppProtection    = ($chkAppProt.IsChecked -eq $true)
+                    SessionPreLaunch = ($chkPreLaunch.IsChecked -eq $true)
+                    SelfServiceMode  = ($chkSelfSvc.IsChecked -eq $true)
+                }
+                Plugins = [pscustomobject]@{
+                    MSTeamsPlugin        = ($chkTeams.IsChecked -eq $true)
+                    ZoomPlugin           = ($chkZoom.IsChecked -eq $true)
+                    WebExPlugin          = ($chkWebEx.IsChecked -eq $true)
+                    UberAgent            = ($chkUber.IsChecked -eq $true)
+                    UberAgentSkipUpgrade = ($chkUberSkip.IsChecked -eq $true)
+                    EPAClient            = ($chkEPA.IsChecked -eq $true)
+                    SessionRecording     = ($chkSR.IsChecked -eq $true)
+                }
+                UpdateAndTelemetry = [pscustomobject]@{
+                    AutoUpdateCheck = $(if ([string]$cmbAutoUpd.SelectedItem -eq $cwaNotSet) { '' } else { [string]$cmbAutoUpd.SelectedItem })
+                    EnableCEIP      = ($chkCEIP.IsChecked -eq $true)
+                    EnableTracing   = ($chkTrace.IsChecked -eq $true)
+                }
+                StorePolicy = [pscustomobject]@{
+                    AllowAddStore = $(if ([string]$cmbAddStore.SelectedItem -eq $cwaNotSet) { '' } else { [string]$cmbAddStore.SelectedItem })
+                    AllowSavePwd  = $(if ([string]$cmbSavePwd.SelectedItem -eq $cwaNotSet) { '' } else { [string]$cmbSavePwd.SelectedItem })
+                }
+                Components = [pscustomobject]$components
+            }
+
+            $sb = [System.Text.StringBuilder]::new()
+            foreach ($stream in @('Current','LTSR')) {
+                $built = ConvertTo-CwaInstallArguments -Config $previewCfg -Stream $stream
+                [void]$sb.AppendLine(('# {0}' -f $(if ($stream -eq 'Current') { 'Current Release' } else { 'LTSR (x86, x64, ARM64)' })))
+                [void]$sb.AppendLine('CitrixWorkspaceApp.exe ' + ($built.Arguments -join ' '))
+                foreach ($w in $built.Warnings) { [void]$sb.AppendLine('WARN: ' + $w) }
+                [void]$sb.AppendLine('')
+            }
+            Show-PreviewDialog -Owner $ownerWin -Title "CWA Preview" -Content $sb.ToString() -Width 820 -Height 360
+        }
+        catch {
+            Show-PreviewDialog -Owner $ownerWin -Title "CWA Preview (error)" -Content ("Failed to build preview:`r`n{0}" -f $_.Exception.Message) -Width 600 -Height 260
+        }
     }.GetNewClosure())
 
     $btnM365Preview.Add_Click({
@@ -5276,12 +5334,12 @@ function New-PackagerPreferencesPanel {
         $sw.Plugins.EPAClient            = ($chkEPA.IsChecked -eq $true)
         $sw.Plugins.SessionRecording     = ($chkSR.IsChecked -eq $true)
 
-        $sw.UpdateAndTelemetry.AutoUpdateCheck = [string]$cmbAutoUpd.SelectedItem
+        $sw.UpdateAndTelemetry.AutoUpdateCheck = $(if ([string]$cmbAutoUpd.SelectedItem -eq $cwaNotSet) { '' } else { [string]$cmbAutoUpd.SelectedItem })
         $sw.UpdateAndTelemetry.EnableCEIP      = ($chkCEIP.IsChecked -eq $true)
         $sw.UpdateAndTelemetry.EnableTracing   = ($chkTrace.IsChecked -eq $true)
 
-        $sw.StorePolicy.AllowAddStore = [string]$cmbAddStore.SelectedItem
-        $sw.StorePolicy.AllowSavePwd  = [string]$cmbSavePwd.SelectedItem
+        $sw.StorePolicy.AllowAddStore = $(if ([string]$cmbAddStore.SelectedItem -eq $cwaNotSet) { '' } else { [string]$cmbAddStore.SelectedItem })
+        $sw.StorePolicy.AllowSavePwd  = $(if ([string]$cmbSavePwd.SelectedItem -eq $cwaNotSet) { '' } else { [string]$cmbSavePwd.SelectedItem })
 
         $sw.Components.Customize = ($chkCustomize.IsChecked -eq $true)
         foreach ($kv in $compCBs.GetEnumerator()) {
@@ -5669,9 +5727,9 @@ function Show-OptionsDialog {
     $script:OptionsDlgResult = $false
     $btnOK.Add_Click({
         try {
-            $siteBefore = '{0}|{1}' -f $script:Prefs.SiteCode, $script:Prefs.ProviderMachineName
+            $siteBefore = Get-SiteIdentityKey -SiteCode $script:Prefs.SiteCode -ProviderMachineName $script:Prefs.ProviderMachineName
             foreach ($p in $panels) { if ($p.Commit) { & $p.Commit } }
-            $siteChanged = ('{0}|{1}' -f $script:Prefs.SiteCode, $script:Prefs.ProviderMachineName) -ne $siteBefore
+            $siteChanged = (Get-SiteIdentityKey -SiteCode $script:Prefs.SiteCode -ProviderMachineName $script:Prefs.ProviderMachineName) -cne $siteBefore
             Save-Preferences -Prefs $script:Prefs
             # Panels that mutate sibling JSON configs expose the refs on
             # the panel hash; master persists them here so panel commits
@@ -5920,13 +5978,23 @@ function Show-FirstRunWizard {
 # =============================================================================
 # Grid refresh helper
 # =============================================================================
+function Get-SiteIdentityKey {
+    param([AllowNull()][string]$SiteCode, [AllowNull()][string]$ProviderMachineName)
+    # Whitespace or case differences in saved values name the same site; a
+    # raw string compare reports a site change and discards ConfigMgr results.
+    return ('{0}|{1}' -f ([string]$SiteCode).Trim(), ([string]$ProviderMachineName).Trim()).ToUpperInvariant()
+}
+
 function Invoke-RefreshGrid {
     # ConfigMgr versions and compare results describe one site; a site change
     # must not carry them onto rows that now point elsewhere.
     param([switch]$DiscardSiteResults)
 
-    $session = @{}
-    foreach ($row in @($script:PackagerData)) { $session[[string]$row.Script] = $row }
+    # Row objects are reused across rebuilds: a background pipeline holds
+    # references to them, and a replaced row loses the results written later.
+    # The cache also keeps results for rows hidden by the product filter.
+    if ($null -eq $script:GridSessionRows) { $script:GridSessionRows = @{} }
+    foreach ($row in @($script:PackagerData)) { $script:GridSessionRows[[string]$row.Script] = $row }
     $script:PackagerData.Clear()
 
     $items = Get-Packagers -Root $PackagersRoot
@@ -5940,9 +6008,10 @@ function Invoke-RefreshGrid {
     $history = @{}
     try { $history = Read-PackagerHistory } catch { }
 
+    $present = @{}
     $hiddenCount = 0
     foreach ($m in $items) {
-        if ($hidden.Contains($m.Script)) { $hiddenCount++; continue }
+        $present[[string]$m.Script] = $true
 
         $baseName     = [System.IO.Path]::GetFileNameWithoutExtension($m.Script)
         $latestStored = ""
@@ -5958,31 +6027,49 @@ function Invoke-RefreshGrid {
             }
         }
 
-        $newRow = [pscustomobject]@{
-            Selected       = $false
-            Vendor         = $m.Vendor
-            Application    = $m.Application
-            CurrentVersion = ""
-            LatestVersion  = $latestStored
-            Status         = $m.Status
-            CMName         = $m.CMName
-            Script         = $m.Script
-            FullPath       = $m.FullPath
-            VendorURL      = $m.VendorUrl
-            Description    = $m.Description
-            LastChecked    = $lastChecked
-        }
-        $prior = $session[[string]$m.Script]
-        if ($prior) {
-            $newRow.Selected = [bool]$prior.Selected
-            if ([string]$prior.LatestVersion) { $newRow.LatestVersion = [string]$prior.LatestVersion }
-            if ([string]$prior.LastChecked)   { $newRow.LastChecked   = [string]$prior.LastChecked }
-            if (-not $DiscardSiteResults -and -not ([string]$m.Status).StartsWith('Read error')) {
-                $newRow.CurrentVersion = [string]$prior.CurrentVersion
-                $newRow.Status         = $prior.Status
+        $row = $script:GridSessionRows[[string]$m.Script]
+        if ($row) {
+            $row.Vendor      = $m.Vendor
+            $row.Application = $m.Application
+            $row.CMName      = $m.CMName
+            $row.FullPath    = $m.FullPath
+            $row.VendorURL   = $m.VendorUrl
+            $row.Description = $m.Description
+            if (-not [string]$row.LatestVersion) { $row.LatestVersion = $latestStored }
+            if (-not [string]$row.LastChecked)   { $row.LastChecked   = $lastChecked }
+            if ($DiscardSiteResults -or ([string]$m.Status).StartsWith('Read error')) {
+                $row.CurrentVersion = ""
+                $row.Status         = $m.Status
             }
         }
-        $script:PackagerData.Add($newRow)
+        else {
+            $row = [pscustomobject]@{
+                Selected       = $false
+                Vendor         = $m.Vendor
+                Application    = $m.Application
+                CurrentVersion = ""
+                LatestVersion  = $latestStored
+                Status         = $m.Status
+                CMName         = $m.CMName
+                Script         = $m.Script
+                FullPath       = $m.FullPath
+                VendorURL      = $m.VendorUrl
+                Description    = $m.Description
+                LastChecked    = $lastChecked
+            }
+            $script:GridSessionRows[[string]$m.Script] = $row
+        }
+
+        if ($hidden.Contains($m.Script)) {
+            $row.Selected = $false
+            $hiddenCount++
+            continue
+        }
+        $script:PackagerData.Add($row)
+    }
+
+    foreach ($key in @($script:GridSessionRows.Keys)) {
+        if (-not $present.ContainsKey($key)) { $script:GridSessionRows.Remove($key) }
     }
 
     if ($hiddenCount -gt 0) {
@@ -5992,9 +6079,23 @@ function Invoke-RefreshGrid {
         $txtStatus.Text = ("Loaded {0} packager(s). Ready." -f $script:PackagerData.Count)
     }
 
-    # A rebuild replaces every row object; a filtered grid would otherwise
-    # keep showing the orphaned old rows.
+    # A filtered ItemsSource is a snapshot array; it must be recomputed after
+    # the collection is repopulated.
     Update-GridFilter
+}
+
+function Clear-SucceededSelection {
+    # Rows whose Stage or Package step succeeded are unchecked; failed and
+    # skipped rows keep their check so a rerun targets only the remainder.
+    param(
+        [AllowNull()][object[]]$Rows,
+        [AllowNull()][string[]]$Scripts
+    )
+    if (-not $Rows -or -not $Scripts) { return }
+    $done = [System.Collections.Generic.HashSet[string]]::new([string[]]@($Scripts), [System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($row in @($Rows)) {
+        if ($row -and $done.Contains([string]$row.Script)) { $row.Selected = $false }
+    }
 }
 
 # =============================================================================
@@ -6111,6 +6212,7 @@ function Invoke-MultiAppPipeline {
         CancelRequested = $false
         Canceled        = $false
         LogQueue        = New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]'
+        Succeeded       = New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]'
         Counts          = $null
         # Existing-application overwrite handshake. ConflictDecisionForAll
         # lives for this run only; nothing about it is persisted.
@@ -6264,6 +6366,7 @@ function Invoke-MultiAppPipeline {
                                     if ($ver) { Update-PackagerHistory -PackagerName $baseName -Event Staged -Version $ver -Result Updated }
                                     else      { Update-PackagerHistory -PackagerName $baseName -Event Staged -Result Updated }
                                 } catch { }
+                                [void]$State.Succeeded.Enqueue($scrName)
                                 $counts['Staged']++
                             } else {
                                 $row.Status = 'Stage error'
@@ -6347,6 +6450,7 @@ function Invoke-MultiAppPipeline {
                                     if ($ver) { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Version $ver -Result Updated }
                                     else      { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Result Updated }
                                 } catch { }
+                                [void]$State.Succeeded.Enqueue($scrName)
                                 $counts['Packaged']++
                             } else {
                                 $row.Status = 'Package error'
@@ -6563,6 +6667,7 @@ function Invoke-MultiAppPipeline {
                         }
 
                         if ($Ctx.Action -eq 'Stage') {
+                            [void]$State.Succeeded.Enqueue($scrName)
                             $counts['Staged']++
                             continue
                         }
@@ -6628,6 +6733,7 @@ function Invoke-MultiAppPipeline {
                                     if ($latest) { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Version $latest -Result Updated }
                                     else         { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Result Updated }
                                 } catch { }
+                                [void]$State.Succeeded.Enqueue($scrName)
                                 $counts['StageAndPackage']++
                             } else {
                                 $row.Status = 'Package error'
@@ -6762,6 +6868,9 @@ function Invoke-MultiAppPipeline {
                 }
             }
 
+            if ($doneState.Succeeded) {
+                Clear-SucceededSelection -Rows $script:PackagerData -Scripts $doneState.Succeeded.ToArray()
+            }
             try { $dataGrid.Items.Refresh() } catch { }
             $progressOverlay.Visibility = [System.Windows.Visibility]::Collapsed
             $window.Cursor = $null

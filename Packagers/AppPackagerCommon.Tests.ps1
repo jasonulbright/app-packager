@@ -1579,6 +1579,34 @@ Describe 'New-MECMApplicationFromManifest existing application validation' {
             $connectors[0].Connector | Should -Be 'OR'
         }
 
+        It 'applies deployment type content options (<Fallback>, <Mode>)' -ForEach @(
+            @{ Fallback = '';      Mode = '';          ExpectFallback = $true;  ExpectMode = 'Download' }
+            @{ Fallback = 'Deny';  Mode = 'DoNothing'; ExpectFallback = $false; ExpectMode = 'DoNothing' }
+            @{ Fallback = 'Bogus'; Mode = 'Bogus';     ExpectFallback = $true;  ExpectMode = 'Download' }
+        ) {
+            $savedFallback = $env:APP_PACKAGER_DT_CONTENT_FALLBACK
+            $savedMode = $env:APP_PACKAGER_DT_SLOW_NETWORK_MODE
+            try {
+                $env:APP_PACKAGER_DT_CONTENT_FALLBACK = $Fallback
+                $env:APP_PACKAGER_DT_SLOW_NETWORK_MODE = $Mode
+                Mock Get-CMApplication { $null }
+                Mock New-CMApplication { [pscustomobject]@{ CI_ID = 4321 } }
+                $script:capturedDtParams = $null
+                Mock Add-CMScriptDeploymentType { $script:capturedDtParams = $PesterBoundParameters }
+                Mock Remove-CMApplicationRevisionHistoryByCIId { }
+
+                New-MECMApplicationFromManifest -Manifest $script:testManifest -SiteCode 'MCM' `
+                    -NetworkContentPath '\\server\share\Applications\Test' | Out-Null
+
+                [bool]$script:capturedDtParams.ContentFallback | Should -Be $ExpectFallback
+                $script:capturedDtParams.SlowNetworkDeploymentMode | Should -Be $ExpectMode
+            }
+            finally {
+                $env:APP_PACKAGER_DT_CONTENT_FALLBACK = $savedFallback
+                $env:APP_PACKAGER_DT_SLOW_NETWORK_MODE = $savedMode
+            }
+        }
+
         It 'sends no clause group when the second run holds one clause (<Sizes>)' -ForEach @(
             @{ Sizes = '1,1'; GroupSizes = @(1, 1); Paths = @('C:\a', 'C:\b') }
             @{ Sizes = '2,1'; GroupSizes = @(2, 1); Paths = @('C:\a', 'C:\b', 'C:\c') }

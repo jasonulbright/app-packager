@@ -1,7 +1,7 @@
 <#
 Vendor: Posit Software, PBC
 App: RStudio Desktop
-CMName: RStudio Desktop
+CMName: RStudio
 VendorUrl: https://posit.co/download/rstudio-desktop/
 CPE: cpe:2.3:a:posit:rstudio:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://docs.posit.co/ide/news/
