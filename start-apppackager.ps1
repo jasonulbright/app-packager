@@ -71,7 +71,7 @@ Import-Module (Join-Path $PSScriptRoot 'Packagers\AppPackagerCommon.psm1') -Forc
 # second import of an already-loaded module is a no-op. The WSUS publisher
 # loads only here and in the background runspace: packager children never
 # publish.
-foreach ($workbenchModule in @('AppPackagerWorkbench.psm1', 'AppPackagerSigning.psm1', 'AppPackagerWsus.psm1')) {
+foreach ($workbenchModule in @('AppPackagerWorkbench.psm1', 'AppPackagerSigning.psm1', 'AppPackagerWsus.psm1', 'AppPackagerOneClick.psm1')) {
     $modulePath = Join-Path $PSScriptRoot ('Packagers\' + $workbenchModule)
     if (Test-Path -LiteralPath $modulePath) {
         Import-Module $modulePath -Force -Global -DisableNameChecking -ErrorAction SilentlyContinue
@@ -104,6 +104,20 @@ function Get-PreferencesPath {
 
 function Get-DeploymentTargetNames {
     return @('MECM', 'MECMAndIntune', 'IntuneOnly', 'MECMAndWSUS', 'WSUSOnly')
+}
+
+function ConvertTo-DeploymentTargetName {
+    # The nearest single target for the code paths that still read one; a
+    # set of all three or WSUS+Intune has no name and maps to its ConfigMgr
+    # or WSUS part.
+    param([Parameter(Mandatory)]$Destinations)
+    $cm = [bool]$Destinations.ConfigMgr; $wsus = [bool]$Destinations.WSUS; $intune = [bool]$Destinations.Intune
+    if ($cm -and $wsus) { return 'MECMAndWSUS' }
+    if ($cm -and $intune) { return 'MECMAndIntune' }
+    if ($cm) { return 'MECM' }
+    if ($wsus) { return 'WSUSOnly' }
+    if ($intune) { return 'IntuneOnly' }
+    return 'MECM'
 }
 
 function Test-DeploymentTargetSkipsSite {
@@ -232,6 +246,12 @@ function Read-Preferences {
             Action           = 'Report'
             CadenceOverrides = [pscustomobject]@{}
             ForceOnLaunch    = $false
+            # Destinations per tracked application; a row without an entry
+            # uses DefaultDestinations. OnExisting decides a ConfigMgr
+            # application that already exists without a prompt.
+            Destinations        = [pscustomobject]@{}
+            DefaultDestinations = [pscustomobject]@{ ConfigMgr = $true; WSUS = $false; Intune = $false }
+            OnExisting          = 'Skip'
         }
         DetectedTools        = [pscustomobject]@{
             ConfigMgrConsole = [pscustomobject]@{
@@ -433,6 +453,33 @@ function Read-Preferences {
             if ($null -ne $af.ForceOnLaunch) {
                 try { $defaults.AppFlow.ForceOnLaunch = [bool]$af.ForceOnLaunch } catch { }
             }
+
+            if ($null -ne $af.Destinations) {
+                $destProps = [ordered]@{}
+                foreach ($prop in $af.Destinations.PSObject.Properties) {
+                    if ($prop.Name -notmatch '^package-' -or $null -eq $prop.Value) { continue }
+                    $destProps[$prop.Name] = [pscustomobject]@{
+                        ConfigMgr = [bool]($prop.Value.PSObject.Properties['ConfigMgr'] -and $prop.Value.ConfigMgr)
+                        WSUS      = [bool]($prop.Value.PSObject.Properties['WSUS'] -and $prop.Value.WSUS)
+                        Intune    = [bool]($prop.Value.PSObject.Properties['Intune'] -and $prop.Value.Intune)
+                    }
+                }
+                $defaults.AppFlow.Destinations = [pscustomobject]$destProps
+            }
+            if ($null -ne $af.DefaultDestinations) {
+                foreach ($name in @('ConfigMgr', 'WSUS', 'Intune')) {
+                    if ($null -ne $af.DefaultDestinations.PSObject.Properties[$name]) { try { $defaults.AppFlow.DefaultDestinations.$name = [bool]$af.DefaultDestinations.$name } catch { } }
+                }
+            }
+            elseif ($null -ne $data.Intune -and $null -ne $data.Intune.DeploymentTarget) {
+                # A preferences file from before the per-row destinations
+                # carries one saved target.
+                $target = [string]$data.Intune.DeploymentTarget
+                $defaults.AppFlow.DefaultDestinations.ConfigMgr = ($target -notin @('IntuneOnly', 'WSUSOnly'))
+                $defaults.AppFlow.DefaultDestinations.WSUS      = ($target -in @('MECMAndWSUS', 'WSUSOnly'))
+                $defaults.AppFlow.DefaultDestinations.Intune    = ($target -in @('MECMAndIntune', 'IntuneOnly'))
+            }
+            if ([string]$af.OnExisting -in @('Skip', 'Overwrite')) { $defaults.AppFlow.OnExisting = [string]$af.OnExisting }
         }
 
         # ContentDistribution: auto-distribute-to-DP-group settings.
@@ -2000,28 +2047,7 @@ function Invoke-PackagerPackage {
             $result | Add-Member -NotePropertyName IntunePublish -NotePropertyValue ([pscustomobject]@{ Ok = $false; Message = 'Intune credentials not configured; set Tenant ID, Client ID, and Client Secret in ConfigMgr Preferences.' }) -Force
         }
         if ($IntunePublishConfig -and $intuneNote.Ok) {
-            $pubNote = [pscustomobject]@{ Ok = $false; Message = '' }
-            try {
-                $manifest = Read-StageManifest -Path $intuneNote.ManifestPath
-                if ($manifest.PSObject.Properties['DeploymentTypes'] -and $manifest.DeploymentTypes) {
-                    $pubNote.Message = 'variant-split app; Intune publish skipped (single-payload apps only for now).'
-                }
-                else {
-                    # The staged icon lives in the content version folder next
-                    # to the manifest, not beside the .intunewin.
-                    $iconArg = @{}
-                    if ($manifest.PSObject.Properties['Icon'] -and $manifest.Icon) {
-                        $iconFile = Join-Path (Split-Path -Parent $intuneNote.ManifestPath) ([string]$manifest.Icon)
-                        if (Test-Path -LiteralPath $iconFile) { $iconArg.IconPath = $iconFile }
-                    }
-                    $pubId = Publish-IntuneWin32App -TenantId $IntunePublishConfig.TenantId -ClientId $IntunePublishConfig.ClientId -ClientSecret $IntunePublishConfig.ClientSecret -IntuneWinPath $intuneNote.LocalPath -Manifest $manifest -Description $Comment @iconArg
-                    $pubNote.Ok = $true
-                    $pubNote.Message = ('published (app id {0})' -f $pubId)
-                }
-            }
-            catch {
-                $pubNote.Message = ('publish failed: {0}' -f $_.Exception.Message)
-            }
+            $pubNote = Invoke-PackagerIntunePublish -IntuneNote $intuneNote -Config $IntunePublishConfig -Comment $Comment
             $result | Add-Member -NotePropertyName IntunePublish -NotePropertyValue $pubNote -Force
         }
         if ($intuneNote) {
@@ -2037,6 +2063,51 @@ function Invoke-PackagerPackage {
         $result | Add-Member -NotePropertyName WsusPublish -NotePropertyValue $wsusNote -Force
     }
     return $result
+}
+
+function Invoke-PackagerIntunePublish {
+    # Publishes a built .intunewin through Graph. The note carries the
+    # outcome and the app id; nothing here throws.
+    param(
+        [Parameter(Mandatory)]$IntuneNote,
+        [Parameter(Mandatory)][hashtable]$Config,
+        [AllowEmptyString()][string]$Comment = ''
+    )
+    $pubNote = [pscustomobject]@{ Ok = $false; Message = ''; AppId = '' }
+    try {
+        $manifest = Read-StageManifest -Path $IntuneNote.ManifestPath
+        if ($manifest.PSObject.Properties['DeploymentTypes'] -and $manifest.DeploymentTypes) {
+            $pubNote.Message = 'variant-split app; Intune publish skipped (single-payload apps only for now).'
+        }
+        else {
+            # The staged icon lives in the content version folder next
+            # to the manifest, not beside the .intunewin.
+            $iconArg = @{}
+            if ($manifest.PSObject.Properties['Icon'] -and $manifest.Icon) {
+                $iconFile = Join-Path (Split-Path -Parent $IntuneNote.ManifestPath) ([string]$manifest.Icon)
+                if (Test-Path -LiteralPath $iconFile) { $iconArg.IconPath = $iconFile }
+            }
+            $pubId = Publish-IntuneWin32App -TenantId $Config.TenantId -ClientId $Config.ClientId -ClientSecret $Config.ClientSecret -IntuneWinPath $IntuneNote.LocalPath -Manifest $manifest -Description $Comment @iconArg
+            $pubNote.Ok = $true
+            $pubNote.AppId = [string]$pubId
+            $pubNote.Message = ('published (app id {0})' -f $pubId)
+        }
+    }
+    catch {
+        $pubNote.Message = ('publish failed: {0}' -f $_.Exception.Message)
+    }
+    return $pubNote
+}
+
+function Get-PackagerConfigMgrApplicationName {
+    # The application name the package child logged: on creation, or on a
+    # skip of an existing application.
+    param([AllowEmptyString()][string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return '' }
+    $m = [regex]::Match($Text, '(?m)^.*Created ConfigMgr application\s*:\s*(.+?)\s*$')
+    if (-not $m.Success) { $m = [regex]::Match($Text, '(?m)^.*Application already exists\s*:\s*(.+?)\s+\(v') }
+    if ($m.Success) { return $m.Groups[1].Value.Trim() }
+    return ''
 }
 
 function Invoke-PackagerWsusPostStep {
@@ -4708,7 +4779,7 @@ function New-AppFlowPanel {
            xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro">
     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" FontSize="12"
                Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,12"
-               Text="One Click runs a Check (and optionally Stage / Publish) against the apps you track here. Apps are skipped when the last check is still within their cadence unless you enable Force on launch. One Click runs without you, so it publishes to the destination set here; the sidebar publish buttons choose their own destination."/>
+               Text="One Click opens a plan of the apps you track here, then runs Check (and optionally Stage / Publish) without further prompts. Each row publishes to its own destinations; a row with no box checked is skipped. Rows that keep the default follow it when the default changes. The sidebar publish buttons choose their own destination per run."/>
     <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto"/>
@@ -4717,6 +4788,7 @@ function New-AppFlowPanel {
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
@@ -4730,14 +4802,18 @@ function New-AppFlowPanel {
                                 Header="Force on launch (ignore cadence)"
                                 OnContent="" OffContent="" MinWidth="0"
                                 VerticalAlignment="Center"/>
-        <TextBlock Grid.Row="1" Grid.Column="0" Text="Publish to:" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
-        <ComboBox Grid.Row="1" Grid.Column="1" x:Name="cboOneClickTarget" Width="190" VerticalAlignment="Center" Margin="0,8,0,0"
-                  ToolTip="Where Stage and Publish sends each tracked app. ConfigMgr + Intune and ConfigMgr + WSUS publish to both.">
-            <ComboBoxItem Content="ConfigMgr" Tag="MECM"/>
-            <ComboBoxItem Content="ConfigMgr + Intune" Tag="MECMAndIntune"/>
-            <ComboBoxItem Content="Intune" Tag="IntuneOnly"/>
-            <ComboBoxItem Content="ConfigMgr + WSUS" Tag="MECMAndWSUS"/>
-            <ComboBoxItem Content="WSUS" Tag="WSUSOnly"/>
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="Default destinations:" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
+        <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,8,0,0"
+                    ToolTip="The destinations of every tracked app that has no selection of its own in the grid.">
+            <CheckBox x:Name="chkOneClickMecm" Content="ConfigMgr" FontSize="12" Margin="0,0,16,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <CheckBox x:Name="chkOneClickWsus" Content="WSUS" FontSize="12" Margin="0,0,16,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <CheckBox x:Name="chkOneClickIntune" Content="Intune" FontSize="12" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+        </StackPanel>
+        <TextBlock Grid.Row="2" Grid.Column="0" Text="Existing ConfigMgr app:" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
+        <ComboBox Grid.Row="2" Grid.Column="1" x:Name="cboOneClickOnExisting" Width="190" VerticalAlignment="Center" Margin="0,8,0,0"
+                  ToolTip="What a run does when the ConfigMgr application already exists with another version. One Click never asks during the run.">
+            <ComboBoxItem Content="Skip the application" Tag="Skip"/>
+            <ComboBoxItem Content="Overwrite it" Tag="Overwrite"/>
         </ComboBox>
     </Grid>
     <DataGrid x:Name="dgApps" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
@@ -4753,8 +4829,29 @@ function New-AppFlowPanel {
                 </DataGridTemplateColumn.CellTemplate>
             </DataGridTemplateColumn>
             <DataGridTextColumn Header="Application" Width="*" Binding="{Binding Application}" IsReadOnly="True"/>
-            <DataGridTextColumn Header="Vendor" Width="160" Binding="{Binding Vendor}" IsReadOnly="True"/>
-            <DataGridTextColumn Header="Cadence (days)" Width="120" Binding="{Binding CadenceDisplay, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"/>
+            <DataGridTextColumn Header="Vendor" Width="150" Binding="{Binding Vendor}" IsReadOnly="True"/>
+            <DataGridTemplateColumn Header="ConfigMgr" Width="80" CanUserSort="True" SortMemberPath="ConfigMgr">
+                <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                        <CheckBox IsChecked="{Binding ConfigMgr, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTemplateColumn Header="WSUS" Width="60" CanUserSort="True" SortMemberPath="WSUS">
+                <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                        <CheckBox IsChecked="{Binding WSUS, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTemplateColumn Header="Intune" Width="60" CanUserSort="True" SortMemberPath="Intune">
+                <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                        <CheckBox IsChecked="{Binding Intune, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTextColumn Header="Cadence (days)" Width="110" Binding="{Binding CadenceDisplay, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"/>
         </DataGrid.Columns>
     </DataGrid>
 </DockPanel>
@@ -4767,13 +4864,17 @@ function New-AppFlowPanel {
     $cboAction   = $element.FindName('cboAction')
     $toggleForce = $element.FindName('toggleForce')
     $dgApps      = $element.FindName('dgApps')
-    $cboOneClickTarget = $element.FindName('cboOneClickTarget')
-    foreach ($item in $cboOneClickTarget.Items) {
-        if ([string]$item.Tag -eq [string]$script:Prefs.Intune.DeploymentTarget) { $cboOneClickTarget.SelectedItem = $item; break }
-    }
-    if (-not $cboOneClickTarget.SelectedItem) { $cboOneClickTarget.SelectedIndex = 0 }
+    $chkOneClickMecm   = $element.FindName('chkOneClickMecm')
+    $chkOneClickWsus   = $element.FindName('chkOneClickWsus')
+    $chkOneClickIntune = $element.FindName('chkOneClickIntune')
+    $cboOneClickOnExisting = $element.FindName('cboOneClickOnExisting')
 
     $currentPrefs = $script:Prefs.AppFlow
+    $defaultSet = ConvertTo-OneClickDestinationSet -Value $currentPrefs.DefaultDestinations
+    $chkOneClickMecm.IsChecked   = [bool]$defaultSet.ConfigMgr
+    $chkOneClickWsus.IsChecked   = [bool]$defaultSet.WSUS
+    $chkOneClickIntune.IsChecked = [bool]$defaultSet.Intune
+    $cboOneClickOnExisting.SelectedIndex = $(if ([string]$currentPrefs.OnExisting -eq 'Overwrite') { 1 } else { 0 })
     $trackedSet = [System.Collections.Generic.HashSet[string]]::new(
         [string[]]@($currentPrefs.Tracked),
         [System.StringComparer]::OrdinalIgnoreCase)
@@ -4792,11 +4893,15 @@ function New-AppFlowPanel {
         }
         if ($overrideProp) { $effective = [int]$overrideProp.Value }
 
+        $rowSet = Get-OneClickDestinations -Prefs $script:Prefs -PackagerName $base
         $rows.Add([pscustomobject]@{
             Packager       = $base
             Application    = $p.Application
             Vendor         = $p.Vendor
             Tracked        = $trackedSet.Contains($base)
+            ConfigMgr      = [bool]$rowSet.ConfigMgr
+            WSUS           = [bool]$rowSet.WSUS
+            Intune         = [bool]$rowSet.Intune
             CadenceDisplay = [string]$effective
             HeaderDays     = $headerDays
         })
@@ -4833,12 +4938,24 @@ function New-AppFlowPanel {
             if ($parsed -ne $headerDefault) { $overrideProps[$row.Packager] = $parsed }
         }
 
-        $prefsRef.AppFlow.Tracked          = $newTracked
-        $prefsRef.AppFlow.Action           = $newAction
-        $prefsRef.AppFlow.CadenceOverrides = [pscustomobject]$overrideProps
-        $prefsRef.AppFlow.ForceOnLaunch    = [bool]$toggleForce.IsOn
-        $prefsRef.Intune.DeploymentTarget  = [string]$cboOneClickTarget.SelectedItem.Tag
-        $prefsRef.Intune.PublishToIntune   = ($prefsRef.Intune.DeploymentTarget -in @('MECMAndIntune', 'IntuneOnly'))
+        # A row that matches the default stores nothing, so it follows the
+        # default when that changes later.
+        $newDefault = [pscustomobject]@{ ConfigMgr = [bool]$chkOneClickMecm.IsChecked; WSUS = [bool]$chkOneClickWsus.IsChecked; Intune = [bool]$chkOneClickIntune.IsChecked }
+        $destProps = [ordered]@{}
+        foreach ($row in $rows) {
+            if ([bool]$row.ConfigMgr -eq $newDefault.ConfigMgr -and [bool]$row.WSUS -eq $newDefault.WSUS -and [bool]$row.Intune -eq $newDefault.Intune) { continue }
+            $destProps[$row.Packager] = [pscustomobject]@{ ConfigMgr = [bool]$row.ConfigMgr; WSUS = [bool]$row.WSUS; Intune = [bool]$row.Intune }
+        }
+
+        $prefsRef.AppFlow.Tracked             = $newTracked
+        $prefsRef.AppFlow.Action              = $newAction
+        $prefsRef.AppFlow.CadenceOverrides    = [pscustomobject]$overrideProps
+        $prefsRef.AppFlow.ForceOnLaunch       = [bool]$toggleForce.IsOn
+        $prefsRef.AppFlow.Destinations        = [pscustomobject]$destProps
+        $prefsRef.AppFlow.DefaultDestinations = $newDefault
+        $prefsRef.AppFlow.OnExisting          = [string]$cboOneClickOnExisting.SelectedItem.Tag
+        $prefsRef.Intune.DeploymentTarget     = ConvertTo-DeploymentTargetName -Destinations $newDefault
+        $prefsRef.Intune.PublishToIntune      = [bool]$newDefault.Intune
     }.GetNewClosure()
 
     return @{ Name = 'One Click Settings'; Element = $element; Commit = $commit }
@@ -6314,11 +6431,12 @@ function Show-FirstRunWizard {
                 }
                 $prefsRef.Wsus.UseSsl = [bool]$chkWizWsusSsl.IsChecked
             }
-            # One Click runs unattended and needs one saved destination; the
-            # sidebar buttons choose per run.
-            $target = if ($useMecm) { 'MECM' } elseif ($useIntune) { 'IntuneOnly' } elseif ($useWsus) { 'WSUSOnly' } else { 'MECM' }
+            # One Click runs unattended: every selected system becomes a default
+            # destination; the sidebar buttons choose per run.
+            $prefsRef.AppFlow.DefaultDestinations = [pscustomobject]@{ ConfigMgr = $useMecm; WSUS = $useWsus; Intune = $useIntune }
+            $target = ConvertTo-DeploymentTargetName -Destinations $prefsRef.AppFlow.DefaultDestinations
             $prefsRef.Intune.DeploymentTarget = $target
-            $prefsRef.Intune.PublishToIntune  = ($target -eq 'IntuneOnly')
+            $prefsRef.Intune.PublishToIntune  = $useIntune
             $prefsRef.FirstRunCompleted       = $true
             Save-Preferences -Prefs $prefsRef
             Invoke-RefreshGrid
@@ -6506,6 +6624,7 @@ function Initialize-BackgroundWorker {
         (Join-Path $PSScriptRoot 'Packagers\AppPackagerWorkbench.psm1')
         (Join-Path $PSScriptRoot 'Packagers\AppPackagerSigning.psm1')
         (Join-Path $PSScriptRoot 'Packagers\AppPackagerWsus.psm1')
+        (Join-Path $PSScriptRoot 'Packagers\AppPackagerOneClick.psm1')
     )
     $initPS = [powershell]::Create()
     $initPS.Runspace = $script:BgRunspace
@@ -6557,7 +6676,7 @@ function Initialize-BackgroundWorker {
 function Invoke-MultiAppPipeline {
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('CheckLatest','Stage','Package','FullRun')]
+        [ValidateSet('CheckLatest','Stage','Package','FullRun','OneClick')]
         [string]$Operation,
         [Parameter(Mandatory)]
         [array]$Rows,
@@ -6594,6 +6713,8 @@ function Invoke-MultiAppPipeline {
         ConflictRequest        = $null
         ConflictResponse       = $null
         ConflictDecisionForAll = ''
+        # One Click progress per application, read by the plan window.
+        PlanRows               = $(if ($Context.ContainsKey('OneClickRows')) { $Context.OneClickRows } else { $null })
     })
     $script:ConflictPromptOpen = $false
 
@@ -6605,6 +6726,7 @@ function Invoke-MultiAppPipeline {
         Stage       = 'Staging packages'
         Package     = 'Packaging applications'
         FullRun     = 'One Click flow'
+        OneClick    = 'One Click'
     }
     $txtProgressTitle.Text = $titleMap[$Operation]
     $txtProgressStep.Text  = 'Starting...'
@@ -6862,6 +6984,269 @@ function Invoke-MultiAppPipeline {
                         }
                     }
 
+                    'OneClick' {
+                        # The plan window decided the rows and their
+                        # destinations; nothing here prompts. Each step writes
+                        # the row's progress record for the plan grid and the
+                        # run report.
+                        $pr = $State.PlanRows[$baseName]
+                        $setStep = { param($text) $State.Step = ('One Click {0}/{1}: {2}' -f $i, $n, $text); if ($pr) { $pr.Step = $text } }
+                        $finish = { param($outcome, $reason) if ($pr) { $pr.Outcome = $outcome; if ($reason) { $pr.Reason = $reason }; $pr.Step = $outcome } }
+                        $wanted = @()
+                        if ($Ctx.OneClickPlan -and $Ctx.OneClickPlan.ContainsKey($baseName)) { $wanted = @($Ctx.OneClickPlan[$baseName].Destinations) }
+                        $onExisting = $(if ([string]$Ctx.OnExisting -eq 'Overwrite') { 'Overwrite' } else { 'Skip' })
+
+                        $hist = @{}
+                        try { $hist = Read-PackagerHistory } catch { }
+                        $entry = $null
+                        if ($hist.ContainsKey($baseName)) { $entry = $hist[$baseName] }
+                        $lastKnown = $null; $lastStaged = $null
+                        if ($entry) {
+                            if ($entry -is [hashtable]) { $lastKnown = $entry['LastKnownVersion']; $lastStaged = $entry['LastStaged'] }
+                            else { $lastKnown = $entry.LastKnownVersion; $lastStaged = $entry.LastStaged }
+                        }
+
+                        # 1. Check latest
+                        & $setStep ('checking ' + $app)
+                        $row.Status = 'Checking latest...'
+                        [void]$State.LogQueue.Enqueue(('One Click: {0} ({1})' -f $app, $scrName))
+                        $latest = $null
+                        try {
+                            $latest = Invoke-PackagerGetLatestVersion `
+                                -PackagerPath $path `
+                                -SiteCode $Ctx.SiteCode `
+                                -FileServerPath $Ctx.FileShareRoot `
+                                -DownloadRoot $Ctx.DownloadRoot `
+                                -M365Channel $Ctx.M365Channel `
+                                -M365DeployMode $Ctx.M365DeployMode
+                            $row.LatestVersion = $latest
+                            if ($pr) { $pr.Version = [string]$latest }
+                            [void]$State.LogQueue.Enqueue(('Latest: ' + $latest))
+                        } catch {
+                            $row.Status = 'Check error'
+                            [void]$State.LogQueue.Enqueue(('Latest check failed: ' + $_.Exception.Message))
+                            $counts['CheckFailed']++
+                            & $finish 'Failed' ('check failed: ' + $_.Exception.Message)
+                            continue
+                        }
+
+                        $versionChanged = (-not $lastKnown) -or ($lastKnown -ne $latest)
+                        try {
+                            Update-PackagerHistory -PackagerName $baseName -Event Checked -Version $latest -Result $(if ($versionChanged) { 'Updated' } else { 'NoChange' })
+                            $row.LastChecked = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+                        } catch { }
+
+                        if ($Ctx.Action -eq 'Report') {
+                            $row.Status = if ($versionChanged) { 'Update available' } else { 'Up to date' }
+                            if ($versionChanged) { $counts['Reported']++ } else { $counts['NoChange']++ }
+                            & $finish 'Checked' $(if ($versionChanged) { 'update available' } else { 'up to date' })
+                            continue
+                        }
+
+                        # 2. Which destinations still need this version. The
+                        # guard reads the history again: the check above may
+                        # have found a version the plan did not know.
+                        $publishTo = @()
+                        $skipReasons = @()
+                        if ($Ctx.Action -eq 'StageAndPackage') {
+                            foreach ($d in $wanted) {
+                                $rec = Get-OneClickPublishedVersion -HistoryEntry $entry -Destination $d
+                                if (-not $Ctx.ForceFlag -and $rec -and $rec.Version -eq [string]$latest) {
+                                    $skipReasons += ('{0}: {1} already published' -f $d, $latest)
+                                    if ($pr) { $pr.('Result' + $d) = ('already published ' + $latest) }
+                                    continue
+                                }
+                                $publishTo += $d
+                            }
+                        }
+
+                        $buildStale = $false
+                        if ($planApplicationId) {
+                            $current = Test-WorkbenchBuildIsCurrent -ApplicationId $planApplicationId -ProfileId $planProfileId `
+                                -Version $latest -ProfileRevision $planRevision -PolicyDigest ([string]$Ctx.SigningDigest)
+                            if ($null -ne $current -and -not $current) { $buildStale = $true }
+                        }
+                        $needStage = $Ctx.ForceFlag -or $buildStale -or $versionChanged -or (-not $lastStaged) -or ($publishTo.Count -gt 0)
+                        if (-not $needStage) {
+                            $row.Status = 'Up to date'
+                            [void]$State.LogQueue.Enqueue(('No change - skipping: ' + $app))
+                            $counts['NoChange']++
+                            & $finish 'Skipped' 'up to date'
+                            continue
+                        }
+                        if ($Ctx.Action -eq 'StageAndPackage' -and $publishTo.Count -eq 0 -and -not $versionChanged -and -not $buildStale -and -not $Ctx.ForceFlag) {
+                            $row.Status = 'Up to date'
+                            $counts['NoChange']++
+                            & $finish 'Skipped' ($skipReasons -join '; ')
+                            continue
+                        }
+
+                        # 3. Stage
+                        & $setStep ('staging ' + $app)
+                        $row.Status = 'Staging...'
+                        [void]$State.LogQueue.Enqueue(('Stage: ' + $app))
+                        $stg = $null
+                        $stageOk = $false
+                        try {
+                            $stg = Invoke-PackagerStage `
+                                -PackagerPath $path `
+                                -LogFolder $Ctx.LogFolder `
+                                -DownloadRoot $planDownloadRoot `
+                                -M365Channel $Ctx.M365Channel `
+                                -M365DeployMode $Ctx.M365DeployMode `
+                                -SevenZipPath $Ctx.SevenZipPath `
+                                -VariantsJson $(if ($Ctx.VariantsByApp) { [string]$Ctx.VariantsByApp[$baseName] } else { '' }) `
+                                -InstallMode $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' }) `
+                                -RunSnapshotPath $planSnapshot -SigningJson $planSigning -WorkbenchDataRoot $planDataRoot
+                            if ($stg.ExitCode -eq 0) {
+                                $stageOk = $true
+                                $row.Status = 'Staged'
+                                [void]$State.LogQueue.Enqueue(('Staged. Logs: ' + (Split-Path -Leaf $stg.OutLog)))
+                                try { Update-PackagerHistory -PackagerName $baseName -Event Staged -Version $latest -Result Updated } catch { }
+                            } else {
+                                $row.Status = 'Stage error'
+                                $stderrLines = @($stg.StdErr -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+                                foreach ($line in ($stderrLines | Select-Object -First 10)) { [void]$State.LogQueue.Enqueue(('  stderr: ' + $line)) }
+                                [void]$State.LogQueue.Enqueue(('Logs: ' + (Split-Path -Leaf $stg.OutLog)))
+                            }
+                        } catch {
+                            $row.Status = 'Stage error'
+                            [void]$State.LogQueue.Enqueue(('Stage exception: ' + $_.Exception.Message))
+                        }
+                        if (-not $stageOk) {
+                            $counts['Failed']++
+                            & $finish 'Failed' 'stage failed'
+                            continue
+                        }
+                        if ($Ctx.Action -eq 'Stage' -or $publishTo.Count -eq 0) {
+                            [void]$State.Succeeded.Enqueue($scrName)
+                            $counts['Staged']++
+                            & $finish 'Staged' $(if ($skipReasons.Count) { $skipReasons -join '; ' } else { '' })
+                            continue
+                        }
+
+                        # 4. Publish per destination, ConfigMgr first: it is the
+                        # only destination that reads the network copy.
+                        $published = 0; $failed = 0; $notSupported = 0
+                        $intuneWinNote = $null
+                        foreach ($d in $publishTo) {
+                            & $setStep ('publishing {0} to {1}' -f $app, $d)
+                            $row.Status = ('Publishing to {0}...' -f $d)
+                            $resultText = ''
+                            $id = ''
+                            $ok = $false
+                            try {
+                                switch ($d) {
+                                    'ConfigMgr' {
+                                        $reqJson = ''; if ($Ctx.RequirementsByApp) { $reqJson = [string]$Ctx.RequirementsByApp[$baseName] }
+                                        $varJson = ''; if ($Ctx.VariantsByApp) { $varJson = [string]$Ctx.VariantsByApp[$baseName] }
+                                        $cmdJson = ''; if ($Ctx.CommandsByApp) { $cmdJson = [string]$Ctx.CommandsByApp[$baseName] }
+                                        $packageArgs = @{
+                                            PackagerPath         = $path
+                                            SiteCode             = $Ctx.SiteCode
+                                            ProviderMachineName  = $Ctx.ProviderMachineName
+                                            Comment              = $Ctx.Comment
+                                            FileServerPath       = $Ctx.FileShareRoot
+                                            LogFolder            = $Ctx.LogFolder
+                                            DownloadRoot         = $planDownloadRoot
+                                            RunSnapshotPath      = $planSnapshot
+                                            SigningJson          = $planSigning
+                                            WorkbenchDataRoot    = $planDataRoot
+                                            M365Channel          = $Ctx.M365Channel
+                                            M365DeployMode       = $Ctx.M365DeployMode
+                                            EstimatedRuntimeMins = $Ctx.EstimatedRuntimeMins
+                                            MaximumRuntimeMins   = $Ctx.MaximumRuntimeMins
+                                            SevenZipPath         = $Ctx.SevenZipPath
+                                            CreateIntuneWin      = [bool]$Ctx.IntuneWinCreate
+                                            IntuneWinToolPath    = [string]$Ctx.IntuneWinToolPath
+                                            DeploymentTarget     = 'MECM'
+                                            ContentLayout        = [string]$Ctx.ContentLayout
+                                            RequirementsJson     = $reqJson
+                                            VariantsJson         = $varJson
+                                            CommandsJson         = $cmdJson
+                                            OnExisting           = $onExisting
+                                            InstallMode          = $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' })
+                                            TitleMode            = $(if ($Ctx.TitleModesByApp -and [string]$Ctx.TitleModesByApp[$baseName]) { [string]$Ctx.TitleModesByApp[$baseName] } else { [string]$Ctx.DefaultTitleMode })
+                                        }
+                                        $pkg = Invoke-PackagerPackage @packageArgs
+                                        $id = Get-PackagerConfigMgrApplicationName -Text $pkg.StdOut
+                                        if ($pkg.ExitCode -ne 0) {
+                                            $stderrLines = @($pkg.StdErr -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+                                            foreach ($line in ($stderrLines | Select-Object -First 10)) { [void]$State.LogQueue.Enqueue(('  stderr: ' + $line)) }
+                                            $resultText = ('failed: exit code {0}; logs {1}' -f $pkg.ExitCode, (Split-Path -Leaf $pkg.OutLog))
+                                        }
+                                        elseif ($pkg.StdOut -match [regex]::Escape((Get-OnExistingConflictMarker))) {
+                                            $resultText = ('skipped: application {0} already exists' -f $id)
+                                            $skipReasons += ('ConfigMgr: application exists, policy ' + $onExisting)
+                                        }
+                                        else {
+                                            $ok = $true
+                                            $resultText = ('published ' + $id)
+                                            if ($pkg.PSObject.Properties['IntuneWin'] -and $pkg.IntuneWin) { $intuneWinNote = $pkg.IntuneWin }
+                                        }
+                                    }
+                                    'WSUS' {
+                                        $note = Invoke-PackagerWsusPostStep -Result $stg -PackagerPath $path -DownloadRoot $planDownloadRoot -Config $Ctx.WsusPublishConfig -SkipsSite
+                                        [void]$State.LogQueue.Enqueue(('WSUS publish: ' + $note.Message))
+                                        if ($note.Ok) { $ok = $true; $id = [string]$note.PackageId; $resultText = ('published ' + $id) }
+                                        elseif ($note.Refused) { $notSupported++; $resultText = [string]$note.Message; $skipReasons += 'WSUS: not supported' }
+                                        else { $resultText = [string]$note.Message }
+                                    }
+                                    'Intune' {
+                                        if (-not $intuneWinNote -or -not $intuneWinNote.Ok) {
+                                            $intuneWinNote = Invoke-PackagerIntuneWinPostStep -Result $stg -PackagerPath $path -DownloadRoot $planDownloadRoot -ToolPath ([string]$Ctx.IntuneWinToolPath) -SkipNetworkCopy
+                                            [void]$State.LogQueue.Enqueue(('Intunewin: ' + $intuneWinNote.Message))
+                                        }
+                                        if (-not $intuneWinNote.Ok) { $resultText = ('intunewin failed: ' + $intuneWinNote.Message) }
+                                        elseif (-not $Ctx.IntunePublishConfig) { $resultText = 'Intune credentials not configured' }
+                                        else {
+                                            $note = Invoke-PackagerIntunePublish -IntuneNote $intuneWinNote -Config $Ctx.IntunePublishConfig -Comment $Ctx.Comment
+                                            [void]$State.LogQueue.Enqueue(('Intune publish: ' + $note.Message))
+                                            if ($note.Ok) { $ok = $true; $id = [string]$note.AppId; $resultText = ('published ' + $id) }
+                                            else { $resultText = [string]$note.Message }
+                                        }
+                                    }
+                                }
+                            } catch {
+                                $resultText = ('failed: ' + $_.Exception.Message)
+                            }
+                            if ($pr) { $pr.('Result' + $d) = $resultText; $pr.('Id' + $d) = $id }
+                            if ($ok) {
+                                $published++
+                                try {
+                                    $h = Read-PackagerHistory
+                                    [void](Set-OneClickPublishedVersion -History $h -PackagerName $baseName -Destination $d -Version ([string]$latest) -Id $id)
+                                    Save-PackagerHistory -History $h
+                                } catch { [void]$State.LogQueue.Enqueue(('History write failed: ' + $_.Exception.Message)) }
+                            }
+                            elseif ($resultText -notmatch '^(skipped|not supported)') { $failed++ }
+                        }
+
+                        if ($published -gt 0) {
+                            try { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Version $latest -Result Updated } catch { }
+                            [void]$State.Succeeded.Enqueue($scrName)
+                        }
+                        if ($failed -gt 0) {
+                            $row.Status = $(if ($published -gt 0) { 'Published, partial' } else { 'Publish error' })
+                            $counts['Failed']++
+                            & $finish 'Failed' ($skipReasons -join '; ')
+                        }
+                        elseif ($published -gt 0) {
+                            $row.Status = 'Published'
+                            $counts['Published']++
+                            & $finish 'Published' ($skipReasons -join '; ')
+                        }
+                        elseif ($notSupported -gt 0) {
+                            $row.Status = 'WSUS: not supported'
+                            $counts['NotSupported']++
+                            & $finish 'Not supported' ($skipReasons -join '; ')
+                        }
+                        else {
+                            $row.Status = 'Skipped'
+                            $counts['Skipped']++
+                            & $finish 'Skipped' ($skipReasons -join '; ')
+                        }
+                    }
                     'FullRun' {
                         # Cadence gate (Report only), ConfigMgr pre-flight, then Stage + optional Package.
                         # Mirrors the UI-thread handler behavior 1:1 so a Full Run here lands the
@@ -7225,6 +7610,7 @@ function Invoke-MultiAppPipeline {
 
         # Re-render the grid so row.Status flips done in the bg are visible.
         try { $dataGrid.Items.Refresh() } catch { }
+        if ($Context.ContainsKey('OneClickTick')) { try { & $Context.OneClickTick } catch { } }
 
         if ($script:BgState -and $script:BgState.Done) {
             $doneState = $script:BgState
@@ -7254,6 +7640,7 @@ function Invoke-MultiAppPipeline {
                             'Stage'       { 'Stage summary:'; break }
                             'Package'     { 'Package summary:'; break }
                             'FullRun'     { 'One Click summary:'; break }
+                            'OneClick'    { 'One Click summary:'; break }
                             default       { 'Operation summary:'; break }
                         }
                         Add-LogSeparator
@@ -7283,6 +7670,7 @@ function Invoke-MultiAppPipeline {
             $btnCancelPipeline.IsEnabled = $true
             $script:BgTimer = $null
             $script:BgState = $null
+            if ($Context.ContainsKey('OneClickDone')) { try { & $Context.OneClickDone $doneState } catch { Add-LogLine -Message ('One Click report failed: ' + $_.Exception.Message) } }
         }
     })
     $script:BgTimer.Start()
@@ -8226,119 +8614,431 @@ $btnWsusUpdates.Add_Click({
     Show-WsusPublishedUpdatesDialog -Owner $window -Settings $settings
 })
 
-# --- 5. Full Run (one-click tracked-apps flow) ---
-# Thin dispatch: validates prefs + ConfigMgr availability + tracked set, then
-# routes to Invoke-MultiAppPipeline -Operation FullRun. The bg scriptblock
-# there mirrors the original per-row cadence / ConfigMgr pre-flight / Stage /
-# Package logic so history entries and row.Status flips stay identical.
+# --- 5. One Click ---
+# The button opens the plan window; the window starts the run through
+# Invoke-MultiAppPipeline -Operation OneClick and writes the report.
+
+function Get-AppLogFolder {
+    param([string]$AppRoot = $PSScriptRoot)
+    Join-Path $AppRoot 'Logs'
+}
+
+function Get-OneClickPlanApps {
+    # The tracked applications as the plan module reads them, from the
+    # visible grid rows.
+    param([Parameter(Mandatory)][array]$Rows)
+    $apps = foreach ($row in $Rows) {
+        $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script)
+        $cadence = 0
+        try { $meta = Get-PackagerMetadata -Path ([string]$row.FullPath); if ($meta.UpdateCadenceDays) { $cadence = [int]$meta.UpdateCadenceDays } } catch { }
+        [pscustomobject]@{
+            Packager        = $base
+            Application     = [string]$row.Application
+            Vendor          = [string]$row.Vendor
+            LatestVersion   = [string]$row.LatestVersion
+            CurrentVersion  = [string]$row.CurrentVersion
+            CadenceDays     = $cadence
+            WsusUnsupported = $false
+            Row             = $row
+        }
+    }
+    return @($apps)
+}
+
+function Show-OneClickPlanDialog {
+    # The plan before the run, the progress grid during it, and the report
+    # after it. Modeless: the pipeline timer on the main window drives the
+    # progress through the OneClickTick and OneClickDone hooks.
+    param(
+        [Parameter(Mandatory)]$Owner,
+        [Parameter(Mandatory)][array]$Rows,
+        [Parameter(Mandatory)][string]$Action,
+        [bool]$Force = $false,
+        # Test hook: receives the window internals instead of showing the window.
+        [scriptblock]$Probe = $null
+    )
+
+    $dlgXaml = @'
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="One Click" Width="1280" Height="720" MinWidth="1100" MinHeight="480"
+    WindowStartupLocation="CenterOwner" TitleCharacterCasing="Normal"
+    ShowIconOnTitleBar="False" GlowBrush="{DynamicResource MahApps.Brushes.Accent}" BorderThickness="1">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <StackPanel Grid.Row="0" Margin="16,12,16,8">
+            <TextBlock x:Name="txtPlanSummary" FontSize="14" FontWeight="Bold" TextWrapping="Wrap"/>
+            <TextBlock x:Name="txtPlanAction" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
+            <TextBlock x:Name="txtPlanScope" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
+            <TextBlock x:Name="txtPlanBlocking" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="#FFE07A5F" Visibility="Collapsed"/>
+            <TextBlock x:Name="txtPlanHint" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
+                       Text="Include and the destination boxes apply to this run only; One Click Settings holds the saved values. Run asks nothing after it starts."/>
+        </StackPanel>
+        <DataGrid Grid.Row="1" x:Name="gridPlan" AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
+                  SelectionMode="Single" RowHeaderWidth="0">
+            <DataGrid.Columns>
+                <DataGridTemplateColumn x:Name="colInclude" Header="Include" Width="64">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <CheckBox IsChecked="{Binding Include, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" Tag="Include" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Application" Binding="{Binding Application}" Width="*" MinWidth="200" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Version" Binding="{Binding Version}" Width="110" IsReadOnly="True"/>
+                <DataGridTemplateColumn x:Name="colMecm" Header="ConfigMgr" Width="80">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <CheckBox IsChecked="{Binding ConfigMgr, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" Tag="ConfigMgr" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn x:Name="colWsus" Header="WSUS" Width="60">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <CheckBox IsChecked="{Binding WSUS, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" Tag="WSUS" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn x:Name="colIntune" Header="Intune" Width="60">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <CheckBox IsChecked="{Binding Intune, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" Tag="Intune" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn x:Name="colLast" Header="Last published" Binding="{Binding LastPublished}" Width="200" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="colPlanned" Header="Planned" Binding="{Binding Planned}" Width="220" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="colStep" Header="Step" Binding="{Binding Step}" Width="150" IsReadOnly="True" Visibility="Collapsed"/>
+                <DataGridTextColumn x:Name="colResultMecm" Header="ConfigMgr result" Binding="{Binding ResultConfigMgr}" Width="200" IsReadOnly="True" Visibility="Collapsed"/>
+                <DataGridTextColumn x:Name="colResultWsus" Header="WSUS result" Binding="{Binding ResultWSUS}" Width="200" IsReadOnly="True" Visibility="Collapsed"/>
+                <DataGridTextColumn x:Name="colResultIntune" Header="Intune result" Binding="{Binding ResultIntune}" Width="200" IsReadOnly="True" Visibility="Collapsed"/>
+                <DataGridTextColumn Header="Reason" Binding="{Binding Reason}" Width="260" IsReadOnly="True"/>
+            </DataGrid.Columns>
+        </DataGrid>
+        <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
+            <DockPanel Margin="16,10,16,10">
+                <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" MinWidth="90" Height="32"
+                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <Button x:Name="btnOpenReport" DockPanel.Dock="Right" Content="Open report" MinWidth="110" Height="32" Margin="0,0,8,0" IsEnabled="False"
+                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <Button x:Name="btnHistory" DockPanel.Dock="Right" Content="Run history" MinWidth="110" Height="32" Margin="0,0,8,0"
+                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        ToolTip="Opens the folder with the reports of earlier runs."/>
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="btnRun" Content="Run" MinWidth="110" Height="32" Margin="0,0,8,0"
+                            Style="{DynamicResource MahApps.Styles.Button.Square.Accent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    <Button x:Name="btnPlanOnly" Content="Plan only" MinWidth="110" Height="32" Margin="0,0,16,0"
+                            Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            ToolTip="Writes the plan as a report without running anything."/>
+                    <CheckBox x:Name="chkForce" Content="Force: ignore the cadence and publish again" FontSize="12" VerticalAlignment="Center"
+                              Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Controls:MetroWindow>
+'@
+    [xml]$xml = $dlgXaml
+    $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
+    Install-TitleBarDragFallback -Window $dlg
+    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
+
+    $gridPlan = $dlg.FindName('gridPlan')
+    $txtSummary = $dlg.FindName('txtPlanSummary')
+    $txtAction = $dlg.FindName('txtPlanAction')
+    $txtScope = $dlg.FindName('txtPlanScope')
+    $txtBlocking = $dlg.FindName('txtPlanBlocking')
+    $chkForce = $dlg.FindName('chkForce')
+    $btnRun = $dlg.FindName('btnRun')
+    $btnPlanOnly = $dlg.FindName('btnPlanOnly')
+    $btnOpenReport = $dlg.FindName('btnOpenReport')
+    $btnHistory = $dlg.FindName('btnHistory')
+    $btnClose = $dlg.FindName('btnClose')
+    $chkForce.IsChecked = $Force
+
+    # Closures made with GetNewClosure resolve $script: in their own module
+    # scope, so the preferences object is captured here.
+    $prefsRef = $script:Prefs
+    $apps = Get-OneClickPlanApps -Rows $Rows
+    $appByName = @{}
+    foreach ($a in $apps) { $appByName[$a.Packager] = $a }
+    $history = @{}
+    try { $history = Read-PackagerHistory } catch { }
+    $logFolder = Get-AppLogFolder
+    $reportFolder = Get-OneClickReportFolder -LogFolder $logFolder
+    $state = @{ Running = $false; ReportPath = ''; Started = $null }
+
+    $planRows = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
+    $gridPlan.ItemsSource = $planRows
+
+    # The plan is recomputed from the boxes in the grid, on a copy of the
+    # preferences that carries this run's selections only.
+    $prefsForRun = {
+        $copy = [pscustomobject]@{}
+        foreach ($prop in $prefsRef.PSObject.Properties) { $copy | Add-Member -NotePropertyName $prop.Name -NotePropertyValue $prop.Value -Force }
+        $appFlow = [pscustomobject]@{}
+        foreach ($prop in $prefsRef.AppFlow.PSObject.Properties) { $appFlow | Add-Member -NotePropertyName $prop.Name -NotePropertyValue $prop.Value -Force }
+        $dest = [ordered]@{}
+        foreach ($r in $planRows) { $dest[$r.Packager] = [pscustomobject]@{ ConfigMgr = [bool]$r.ConfigMgr; WSUS = [bool]$r.WSUS; Intune = [bool]$r.Intune } }
+        $appFlow.Destinations = [pscustomobject]$dest
+        $copy.AppFlow = $appFlow
+        return $copy
+    }.GetNewClosure()
+
+    $refresh = {
+        $prefs = $(if ($planRows.Count -gt 0) { & $prefsForRun } else { $prefsRef })
+        $plan = @(Get-OneClickPlan -Apps $apps -Prefs $prefs -History $history -Action $Action -Force:($chkForce.IsChecked -eq $true))
+        $existing = @{}
+        foreach ($r in $planRows) { $existing[$r.Packager] = $r }
+        foreach ($p in $plan) {
+            $last = @()
+            if ($p.LastConfigMgr) { $last += ('ConfigMgr ' + $p.LastConfigMgr) }
+            if ($p.LastWSUS) { $last += ('WSUS ' + $p.LastWSUS) }
+            if ($p.LastIntune) { $last += ('Intune ' + $p.LastIntune) }
+            if ($existing.ContainsKey($p.Packager)) {
+                # A box the operator cleared stays cleared; Include follows
+                # the plan until the operator changes it.
+                $r = $existing[$p.Packager]
+                $r.Version = $p.Version; $r.Planned = $p.Planned; $r.Reason = $p.Reason; $r.LastPublished = ($last -join ', ')
+                $r.PublishTo = @($p.PublishTo)
+                if (-not $r.IncludeTouched) { $r.Include = [bool]$p.Include }
+            }
+            else {
+                $planRows.Add([pscustomobject]@{
+                    Packager = $p.Packager; Application = $p.Application; Version = $p.Version
+                    ConfigMgr = [bool]$p.ConfigMgr; WSUS = [bool]$p.WSUS; Intune = [bool]$p.Intune
+                    LastPublished = ($last -join ', '); Planned = $p.Planned; Reason = $p.Reason
+                    PublishTo = @($p.PublishTo); Include = [bool]$p.Include; IncludeTouched = $false
+                    Step = ''; Outcome = ''; ResultConfigMgr = ''; ResultWSUS = ''; ResultIntune = ''; IdConfigMgr = ''; IdWSUS = ''; IdIntune = ''
+                })
+            }
+        }
+        $includedPlan = @($plan | Where-Object { $existing.ContainsKey($_.Packager) -and $existing[$_.Packager].Include -or (-not $existing.ContainsKey($_.Packager) -and $_.Include) })
+        $summary = Get-OneClickPlanSummary -Plan $plan -Prefs $prefs -Action $Action
+        $txtSummary.Text = $summary.Line
+        $txtAction.Text = ('Action: {0}. Existing ConfigMgr application: {1}.' -f $(switch ($Action) { 'Report' { 'check only' } 'Stage' { 'check and stage' } default { 'check, stage and publish' } }), $(if ([string]$prefsRef.AppFlow.OnExisting -eq 'Overwrite') { 'overwrite' } else { 'skip' }))
+        $scopeParts = @(foreach ($d in (Get-OneClickDestinationNames)) { if (@($plan | Where-Object { $_.PublishTo -contains $d }).Count -gt 0) { '{0}: {1}' -f $d, (Get-OneClickDestinationScope -Prefs $prefs -Destination $d) } })
+        $txtScope.Text = $(if ($scopeParts.Count) { 'Scope. ' + ($scopeParts -join '. ') + '.' } else { '' })
+        $txtScope.Visibility = $(if ($scopeParts.Count) { 'Visible' } else { 'Collapsed' })
+        if ($summary.Blocking.Count -gt 0) { $txtBlocking.Text = 'Not ready: ' + ($summary.Blocking -join '; '); $txtBlocking.Visibility = 'Visible' } else { $txtBlocking.Visibility = 'Collapsed' }
+        $btnRun.IsEnabled = (@($planRows | Where-Object { $_.Include }).Count -gt 0 -and -not $state.Running)
+        try { $gridPlan.Items.Refresh() } catch { }
+    }.GetNewClosure()
+
+    # A destination box or Include changed: recompute the plan.
+    $boxChanged = [System.Windows.RoutedEventHandler]{
+        param($sender, $e)
+        if ($state.Running) { return }
+        $box = $e.OriginalSource
+        if ($box -is [System.Windows.Controls.CheckBox] -and $box.DataContext -and $box.DataContext.PSObject.Properties['Packager']) {
+            if ([string]$box.Tag -eq 'Include') { $box.DataContext.IncludeTouched = $true }
+            & $refresh
+        }
+    }.GetNewClosure()
+    $gridPlan.AddHandler([System.Windows.Controls.Primitives.ToggleButton]::CheckedEvent, $boxChanged)
+    $gridPlan.AddHandler([System.Windows.Controls.Primitives.ToggleButton]::UncheckedEvent, $boxChanged)
+    $chkForce.Add_Click({ & $refresh }.GetNewClosure())
+
+    $writeReport = {
+        param($Ended, $Canceled)
+        $runInfo = [pscustomobject]@{
+            Started  = $state.Started
+            Ended    = $Ended
+            Operator = ('{0}\{1}' -f $env:USERDOMAIN, $env:USERNAME)
+            Computer = $env:COMPUTERNAME
+            Action   = $Action
+            Force    = ($chkForce.IsChecked -eq $true)
+            Canceled = [bool]$Canceled
+            Scope    = [pscustomobject]@{
+                ConfigMgr = Get-OneClickDestinationScope -Prefs $prefsRef -Destination 'ConfigMgr'
+                WSUS      = Get-OneClickDestinationScope -Prefs $prefsRef -Destination 'WSUS'
+                Intune    = Get-OneClickDestinationScope -Prefs $prefsRef -Destination 'Intune'
+            }
+        }
+        $reportRows = @($planRows | Where-Object { $_.Include } | ForEach-Object {
+            $r = $_
+            [pscustomobject]@{
+                Packager = $r.Packager; Application = $r.Application; Version = $r.Version
+                Outcome = $(if ($r.Outcome) { $r.Outcome } elseif ($Canceled) { 'Skipped' } else { 'Planned' })
+                Reason = $(if ($r.Outcome -or -not $Canceled) { $r.Reason } else { 'run canceled before this application' })
+                ResultConfigMgr = $r.ResultConfigMgr; IdConfigMgr = $r.IdConfigMgr
+                ResultWSUS = $r.ResultWSUS; IdWSUS = $r.IdWSUS
+                ResultIntune = $r.ResultIntune; IdIntune = $r.IdIntune
+            }
+        })
+        $paths = Write-OneClickReport -Run $runInfo -Rows $reportRows -Folder $reportFolder
+        $state.ReportPath = $paths.MarkdownPath
+        $btnOpenReport.IsEnabled = $true
+        Add-LogLine -Message ('One Click report: ' + $paths.MarkdownPath)
+        return $paths
+    }.GetNewClosure()
+
+    $btnPlanOnly.Add_Click({
+        $state.Started = Get-Date
+        $paths = & $writeReport (Get-Date) $false
+        $txtSummary.Text = 'Plan written: ' + $paths.MarkdownPath
+    }.GetNewClosure())
+
+    $btnRun.Add_Click({
+        $included = @($planRows | Where-Object { $_.Include })
+        if ($included.Count -eq 0) { return }
+        $rowsToRun = @($included | ForEach-Object { $appByName[$_.Packager].Row })
+        if ($Action -in @('Stage', 'StageAndPackage')) {
+            $rowsToRun = @(Confirm-LocalSourceFolders -Rows $rowsToRun)
+            $kept = [System.Collections.Generic.HashSet[string]]::new([string[]]@($rowsToRun | ForEach-Object { [System.IO.Path]::GetFileNameWithoutExtension([string]$_.Script) }), [System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($r in $included) { if (-not $kept.Contains($r.Packager)) { $r.Include = $false; $r.IncludeTouched = $true; $r.Reason = 'no local source folder' } }
+            $included = @($planRows | Where-Object { $_.Include })
+            if ($included.Count -eq 0) { $txtSummary.Text = 'Nothing to run.'; return }
+        }
+
+        $state.Running = $true
+        $state.Started = Get-Date
+        $btnRun.IsEnabled = $false; $btnPlanOnly.IsEnabled = $false; $chkForce.IsEnabled = $false; $btnClose.IsEnabled = $false
+        foreach ($name in 'colInclude', 'colMecm', 'colWsus', 'colIntune') { $dlg.FindName($name).IsReadOnly = $true }
+        foreach ($name in 'colStep', 'colResultMecm', 'colResultWsus', 'colResultIntune') { $dlg.FindName($name).Visibility = 'Visible' }
+        $dlg.FindName('colPlanned').Visibility = 'Collapsed'
+        $dlg.FindName('colLast').Visibility = 'Collapsed'
+        $txtSummary.Text = ('Running: {0} application(s)' -f $included.Count)
+
+        # Progress records the background loop writes and the tick copies
+        # back into the grid rows.
+        $progress = [hashtable]::Synchronized(@{})
+        $planByApp = @{}
+        foreach ($r in $included) {
+            $progress[$r.Packager] = [hashtable]::Synchronized(@{ Step = ''; Outcome = ''; Reason = ''; Version = ''; ResultConfigMgr = ''; ResultWSUS = ''; ResultIntune = ''; IdConfigMgr = ''; IdWSUS = ''; IdIntune = '' })
+            $selected = @()
+            if ($r.ConfigMgr) { $selected += 'ConfigMgr' }
+            if ($r.WSUS) { $selected += 'WSUS' }
+            if ($r.Intune) { $selected += 'Intune' }
+            $planByApp[$r.Packager] = @{ Destinations = $selected }
+            $r.Step = 'Pending'
+        }
+
+        $tick = {
+            foreach ($r in $planRows) {
+                if (-not $progress.ContainsKey($r.Packager)) { continue }
+                $pr = $progress[$r.Packager]
+                foreach ($f in 'Step', 'Outcome', 'Reason', 'ResultConfigMgr', 'ResultWSUS', 'ResultIntune', 'IdConfigMgr', 'IdWSUS', 'IdIntune') {
+                    if ($pr[$f] -and $r.$f -ne $pr[$f]) { $r.$f = $pr[$f] }
+                }
+                if ($pr['Version'] -and $r.Version -ne $pr['Version']) { $r.Version = $pr['Version'] }
+            }
+            try { $gridPlan.Items.Refresh() } catch { }
+        }.GetNewClosure()
+
+        $done = {
+            param($DoneState)
+            & $tick
+            $state.Running = $false
+            $canceled = [bool]($DoneState -and $DoneState.Canceled)
+            $paths = & $writeReport (Get-Date) $canceled
+            $published = @($planRows | Where-Object { $_.Outcome -eq 'Published' }).Count
+            $failed = @($planRows | Where-Object { $_.Outcome -eq 'Failed' }).Count
+            $txtSummary.Text = ('{0}: {1} published, {2} failed. Report: {3}' -f $(if ($canceled) { 'Canceled' } else { 'Complete' }), $published, $failed, (Split-Path -Leaf $paths.MarkdownPath))
+            $btnClose.IsEnabled = $true
+        }.GetNewClosure()
+
+        $siteCodeValue = [string]$prefsRef.SiteCode
+        if ([string]::IsNullOrWhiteSpace($siteCodeValue)) { $siteCodeValue = 'MCM' }
+        $wantsMecm = @($included | Where-Object { $_.ConfigMgr }).Count -gt 0
+        Add-LogSeparator
+        Add-LogLine -Message ("One Click: {0} app(s), action={1}{2}" -f $included.Count, $Action, $(if ($chkForce.IsChecked) { ', force=on' } else { '' }))
+        $txtStatus.Text = ("One Click: {0} app(s)..." -f $included.Count)
+        Invoke-MultiAppPipeline -Operation OneClick -Rows $rowsToRun -Context @{
+            SiteCode             = $siteCodeValue
+            ProviderMachineName  = $prefsRef.ProviderMachineName
+            Action               = $Action
+            ForceFlag            = ($chkForce.IsChecked -eq $true)
+            OnExisting           = [string]$prefsRef.AppFlow.OnExisting
+            Comment              = $txtComment.Text.Trim()
+            FileShareRoot        = $prefsRef.FileShareRoot
+            ContentLayout        = $prefsRef.ContentLayout
+            DownloadRoot         = $prefsRef.DownloadRoot
+            M365Channel          = $prefsRef.M365Channel
+            M365DeployMode       = $prefsRef.M365DeployMode
+            EstimatedRuntimeMins = $prefsRef.EstimatedRuntimeMins
+            MaximumRuntimeMins   = $prefsRef.MaximumRuntimeMins
+            AdminUiFound         = $prefsRef.DetectedTools.ConfigMgrConsole.Found
+            LogFolder            = $logFolder
+            SevenZipPath         = Get-SevenZipPathForContext
+            IntuneWinCreate      = ($wantsMecm -and -not [string]::IsNullOrWhiteSpace((Get-IntuneWinToolPathForContext)))
+            IntuneWinToolPath    = Get-IntuneWinToolPathForContext
+            RequirementsByApp    = Get-RequirementsMapForContext
+            VariantsByApp        = Get-VariantsMapForContext
+            CommandsByApp        = Get-CommandsMapForContext
+            InstallModesByApp    = Get-InstallModesMapForContext
+            TitleModesByApp      = Get-TitleModesMapForContext
+            DefaultTitleMode     = Get-DefaultTitleModeForContext
+            IntunePublishConfig  = Get-IntunePublishConfigForContext -Target 'IntuneOnly'
+            WsusPublishConfig    = Get-WsusPublishConfigForContext -Target 'WSUSOnly'
+            DeploymentTarget     = 'MECM'
+            RunPlanByApp         = Get-WorkbenchRunPlanForContext -Rows $rowsToRun -Target 'MECM'
+            SigningJson          = Get-WorkbenchSigningPolicyJson
+            SigningDigest        = Get-WorkbenchSigningPolicyDigest
+            OneClickPlan         = $planByApp
+            OneClickRows         = $progress
+            OneClickTick         = $tick
+            OneClickDone         = $done
+        }
+    }.GetNewClosure())
+
+    $btnOpenReport.Add_Click({ if ($state.ReportPath -and (Test-Path -LiteralPath $state.ReportPath)) { try { Start-Process $state.ReportPath } catch { } } }.GetNewClosure())
+    $btnHistory.Add_Click({
+        if (-not (Test-Path -LiteralPath $reportFolder)) { [void](New-Item -ItemType Directory -Path $reportFolder -Force) }
+        try { Start-Process explorer.exe -ArgumentList ('"' + $reportFolder + '"') } catch { }
+    }.GetNewClosure())
+    $btnClose.Add_Click({ if (-not $state.Running) { $dlg.Close() } }.GetNewClosure())
+    $dlg.Add_Closing({ param($sender, $e) if ($state.Running) { $e.Cancel = $true } }.GetNewClosure())
+
+    & $refresh
+    if ($Probe) {
+        & $Probe ([pscustomobject]@{ Dialog = $dlg; Rows = $planRows; Refresh = $refresh; Summary = $txtSummary; Blocking = $txtBlocking; Scope = $txtScope; Run = $btnRun; Force = $chkForce; WriteReport = $writeReport; State = $state })
+        return
+    }
+    $dlg.Owner = $Owner
+    $dlg.Show()
+}
+
 $btnFullRun.Add_Click({
-    # Intune-only and WSUS-only runs never touch the site or the share, so
-    # the SiteCode, console, and File Share Root gates apply only to
-    # ConfigMgr targets.
-    $siteFreeRun = Test-DeploymentTargetSkipsSite -DeploymentTarget ([string]$script:Prefs.Intune.DeploymentTarget)
-    $siteCodeValue = $script:Prefs.SiteCode
-    if (-not $siteFreeRun -and [string]::IsNullOrWhiteSpace($siteCodeValue)) {
-        Add-LogLine -Message "SiteCode is required. Open ConfigMgr Preferences to configure."
-        $txtStatus.Text = "SiteCode is required."
-        return
-    }
-    if ([string]::IsNullOrWhiteSpace($siteCodeValue)) { $siteCodeValue = 'MCM' }
-
-    $actionPlanned = $script:Prefs.AppFlow.Action
-    if ($actionPlanned -eq 'StageAndPackage' -and -not (Confirm-WsusPublishPrerequisites)) { return }
-    if (-not $siteFreeRun -and $actionPlanned -eq 'StageAndPackage' -and -not $script:Prefs.DetectedTools.ConfigMgrConsole.Found) {
-        Add-LogLine -Message "One Click with Stage and Publish to ConfigMgr requires the ConfigMgr Console. Not detected on this workstation."
-        $txtStatus.Text = "ConfigMgr Console not installed."
-        [void](Show-ThemedMessage -Owner $window -Title 'Console Required' `
-            -Message "The Configuration Manager Console (AdminUI) is not detected on this workstation. Install it (and reboot if you just installed) before running Stage and Publish to ConfigMgr, or change the One Click Settings action or destination." `
-            -Buttons OK -Icon Warning)
-        return
-    }
-
+    $action = [string]$script:Prefs.AppFlow.Action
     $trackedBases = @($script:Prefs.AppFlow.Tracked)
     if ($trackedBases.Count -eq 0) {
         Add-LogLine -Message "No apps are tracked for One Click. Open OPTIONS -> One Click Settings to configure."
         $txtStatus.Text = "No apps tracked."
         [void](Show-ThemedMessage -Owner $window -Title 'One Click Not Configured' `
-            -Message "No apps are tracked yet.`n`nOpen OPTIONS (sidebar) and select One Click Settings, then choose which packagers to include, pick an action (Report / Stage / Stage and Publish) and a destination, and click OK." `
+            -Message "No apps are tracked yet.`n`nOpen OPTIONS (sidebar) and select One Click Settings, then choose which packagers to include, pick an action (Report / Stage / Stage and Publish) and the destinations, and click OK." `
             -Buttons OK -Icon Info)
         return
     }
-
-    $action       = $script:Prefs.AppFlow.Action
-    $forceFlag    = [bool]$script:Prefs.AppFlow.ForceOnLaunch
-    $fsPathValue  = $script:Prefs.FileShareRoot
-    $dlRootValue  = $script:Prefs.DownloadRoot
-
-    if (-not $siteFreeRun -and $action -eq 'StageAndPackage' -and [string]::IsNullOrWhiteSpace($fsPathValue)) {
-        Add-LogLine -Message ("File Share Root is required for action '{0}'. Open ConfigMgr Preferences." -f $action)
-        $txtStatus.Text = "File Share Root is required."
-        return
-    }
-    if ($action -in @('Stage','StageAndPackage') -and [string]::IsNullOrWhiteSpace($dlRootValue)) {
+    if ($action -in @('Stage','StageAndPackage') -and [string]::IsNullOrWhiteSpace([string]$script:Prefs.DownloadRoot)) {
         Add-LogLine -Message ("Download Root is required for action '{0}'. Open ConfigMgr Preferences." -f $action)
         $txtStatus.Text = "Download Root is required."
         return
     }
-
-    # Match tracked base names to currently-visible grid rows
-    $trackedSet = [System.Collections.Generic.HashSet[string]]::new(
-        [string[]]$trackedBases,
-        [System.StringComparer]::OrdinalIgnoreCase
-    )
-    $rows = @($script:PackagerData | Where-Object {
-        $trackedSet.Contains([System.IO.Path]::GetFileNameWithoutExtension([string]$_.Script))
-    })
+    $trackedSet = [System.Collections.Generic.HashSet[string]]::new([string[]]$trackedBases, [System.StringComparer]::OrdinalIgnoreCase)
+    $rows = @($script:PackagerData | Where-Object { $trackedSet.Contains([System.IO.Path]::GetFileNameWithoutExtension([string]$_.Script)) })
     if ($rows.Count -eq 0) {
         Add-LogLine -Message ("No tracked apps are visible in the grid. Check Product Filter.")
         $txtStatus.Text = "No visible tracked apps."
         return
     }
-    if ($action -in @('Stage','StageAndPackage')) {
-        $rows = @(Confirm-LocalSourceFolders -Rows $rows)
-        if ($rows.Count -eq 0) {
-            $txtStatus.Text = "Nothing to run."
-            return
-        }
-    }
-
-    Add-LogSeparator
-    Add-LogLine -Message ("One Click: {0} app(s), action={1}{2}" -f $rows.Count, $action, $(if ($forceFlag) { ', force=on' } else { '' }))
-    $txtStatus.Text = ("One Click: {0} app(s)..." -f $rows.Count)
-
-    $rowsForPlan = $rows
-    Invoke-MultiAppPipeline -Operation FullRun -Rows $rows -Context @{
-        SiteCode             = $siteCodeValue
-        ProviderMachineName  = $script:Prefs.ProviderMachineName
-        Action               = $action
-        ForceFlag            = $forceFlag
-        Overrides            = $script:Prefs.AppFlow.CadenceOverrides
-        Comment              = $txtComment.Text.Trim()
-        FileShareRoot        = $fsPathValue
-        ContentLayout        = $script:Prefs.ContentLayout
-        DownloadRoot         = $dlRootValue
-        M365Channel          = $script:Prefs.M365Channel
-        M365DeployMode       = $script:Prefs.M365DeployMode
-        EstimatedRuntimeMins = $script:Prefs.EstimatedRuntimeMins
-        MaximumRuntimeMins   = $script:Prefs.MaximumRuntimeMins
-        AdminUiFound         = $script:Prefs.DetectedTools.ConfigMgrConsole.Found
-        LogFolder            = Join-Path $PSScriptRoot 'Logs'
-        SevenZipPath         = Get-SevenZipPathForContext
-        IntuneWinCreate      = (-not $siteFreeRun -and -not [string]::IsNullOrWhiteSpace((Get-IntuneWinToolPathForContext)))
-        IntuneWinToolPath    = Get-IntuneWinToolPathForContext
-        RequirementsByApp    = Get-RequirementsMapForContext
-        VariantsByApp        = Get-VariantsMapForContext
-        CommandsByApp        = Get-CommandsMapForContext
-        InstallModesByApp    = Get-InstallModesMapForContext
-        TitleModesByApp      = Get-TitleModesMapForContext
-        DefaultTitleMode     = Get-DefaultTitleModeForContext
-        IntunePublishConfig  = Get-IntunePublishConfigForContext
-        WsusPublishConfig    = Get-WsusPublishConfigForContext
-        DeploymentTarget     = [string]$script:Prefs.Intune.DeploymentTarget
-        RunPlanByApp         = Get-WorkbenchRunPlanForContext -Rows $rowsForPlan -Target ([string]$script:Prefs.Intune.DeploymentTarget)
-        SigningJson          = Get-WorkbenchSigningPolicyJson
-        SigningDigest        = Get-WorkbenchSigningPolicyDigest
-    }
+    Show-OneClickPlanDialog -Owner $window -Rows $rows -Action $action -Force ([bool]$script:Prefs.AppFlow.ForceOnLaunch)
 })
 
 # =============================================================================

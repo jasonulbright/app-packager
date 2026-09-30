@@ -60,7 +60,7 @@ The Pester suite covers the shared modules (`AppPackagerCommon`, `AppPackagerWor
 Import-Module Pester -RequiredVersion 5.7.1 -Force
 Invoke-Pester -Path `
     .\Packagers\AppPackagerCommon.Tests.ps1, .\Packagers\AppPackagerWorkbench.Tests.ps1, .\Packagers\AppPackagerSigning.Tests.ps1, `
-    .\Packagers\AppPackagerWsus.Tests.ps1, `
+    .\Packagers\AppPackagerWsus.Tests.ps1, .\Packagers\AppPackagerOneClick.Tests.ps1, `
     .\Tests\PackagerSmoke.Tests.ps1, .\Tests\PackageWorkflow.Tests.ps1, .\Tests\ProcessStreaming.Tests.ps1, .\Tests\UserDetection.Tests.ps1, `
     .\Tests\SigningCombinations.Tests.ps1, .\Tests\UpdatePreservation.Tests.ps1
 ```
@@ -102,6 +102,7 @@ No test writes to a certificate trust store in any scope. `AppPackagerWsus.Tests
 - `Invoke-TeamViewerHostVersionSmoke.ps1` - TeamViewer Host version read from the version resource fixed block when the string table is empty.
 - `Invoke-WorkbenchSmoke.ps1` - Application Workbench window build, population, validation and unsaved-switch paths.
 - `Invoke-SigningOptionsSmoke.ps1` - the Options script-signing panel, its certificate picker and its test button.
+- `Invoke-OneClickPlanSmoke.ps1` - the One Click plan window headless: plan rows from stubbed preferences and history, the count and scope lines, a destination change in the window, Force, the plan-only report, and the blocking line.
 - `Invoke-WsusOptionsSmoke.ps1` - the Options WSUS Publishing panel round trip, the settings each publish destination hands to a run, update management kept out of Options, the XAML of the WSUS dialogs, the WSUS Updates button row at the window's minimum width, and the panel on a host where the WSUS module did not load.
 - `Invoke-TitleOptionsSmoke.ps1` - stored title-mode choices reach the background context map.
 - `Invoke-FullRegression.ps1` - runs every offline stage on both hosts and prints one summary table.
@@ -115,3 +116,4 @@ No test writes to a certificate trust store in any scope. `AppPackagerWsus.Tests
 - `..\Packagers\AppPackagerWorkbench.Tests.ps1` - unit tests for the build model.
 - `..\Packagers\AppPackagerSigning.Tests.ps1` - unit tests for the signing service.
 - `..\Packagers\AppPackagerWsus.Tests.ps1` - unit tests for the WSUS publisher: settings, package ids, version order, payload selection, the install.ps1 check, applicability rules, compatibility findings, certificate import checks, and the publish, listing and catalog-import flows against a mocked server.
+- `..\Packagers\AppPackagerOneClick.Tests.ps1` - unit tests for the One Click planner: destination sets and defaults, readiness per system, the publish history per destination, the plan rows (cadence, duplicate guard, newly selected destinations, unsupported WSUS rows), the count line, and the run report files.
