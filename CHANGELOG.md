@@ -1,5 +1,25 @@
 # Changelog
 
+## [2026.09.30.0099] - 2026-09-30
+
+## 3 destinations planned, run and reported per application
+
+### Added
+
+- Open a One Click plan before the run: one row per tracked application.
+- Choose One Click destinations per application: ConfigMgr, WSUS, Intune.
+- Show One Click progress per destination in the plan window.
+- Write a One Click report per run with identifiers and rollback steps.
+- Skip a version a destination already has; Force publishes it again.
+- Decide an existing ConfigMgr application by policy instead of a prompt.
+- Remove the version from an application name when the vendor puts it there.
+
+### Fixed
+
+- Keep staged applications checked for the publish step.
+- Stop One Click from staging unchanged applications again.
+- Name every default destination in the Setup log line.
+- Widen the selection column.
 ## [2026.09.30.0098] - 2026-09-30
 
 ## 5 screenshots show the three publish destinations
