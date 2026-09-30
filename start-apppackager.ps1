@@ -5396,7 +5396,7 @@ function New-PackagerPreferencesPanel {
 
     $adobeLocales = @('ca_ES','cs_CZ','da_DK','de_DE','es_ES','eu_ES','fi_FI','fr_FR','hr_HR','hu_HU','it_IT','ja_JP','ko_KR','nb_NO','nl_NL','pl_PL','pt_BR','ro_RO','ru_RU','sk_SK','sl_SI','sv_SE','tr_TR','uk_UA','zh_CN','zh_TW')
     $storedLanguages = @($adobe.Languages | ForEach-Object { [string]$_ })
-    $chkAdobeAllLanguages = & $addCheckBox "All languages" ($storedLanguages -contains 'All') "Installs every language the MUI installer carries (LANG_LIST=All)."
+    $chkAdobeAllLanguages = & $addCheckBox "All languages" ($storedLanguages -contains 'All') "Installs every language the MUI installer carries (LANG_LIST=ALL)."
     $wrapAdobeLanguages = New-Object System.Windows.Controls.WrapPanel
     $wrapAdobeLanguages.Margin = New-Object System.Windows.Thickness(16, 2, 0, 4)
     $wrapAdobeLanguages.Width = 620
@@ -5404,7 +5404,10 @@ function New-PackagerPreferencesPanel {
     $chkAdobeLanguages = @{}
     foreach ($code in $adobeLocales) {
         $cb = New-Object System.Windows.Controls.CheckBox
-        $cb.Content = $code
+        # String content reads '_' as an access-key marker and hides it (de_DE shows as deDE).
+        $label = New-Object System.Windows.Controls.TextBlock
+        $label.Text = $code
+        $cb.Content = $label
         $cb.FontSize = 12
         $cb.Width = 76
         $cb.Margin = New-Object System.Windows.Thickness(0, 2, 0, 2)

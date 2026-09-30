@@ -45,9 +45,11 @@ try {
     & $assert ($null -ne $edition -and $null -ne $all -and $null -ne $wrap) 'the Adobe block builds its edition list, All box and language list'
     & $ok 'block present'
     & $assert ($edition.SelectedIndex -eq 1 -and $wrap.IsEnabled -and $all.IsEnabled) 'a stored MUI selection enables the language list'
-    $de = @($wrap.Children | Where-Object { $_.Content -eq 'de_DE' })[0]
-    $fr = @($wrap.Children | Where-Object { $_.Content -eq 'fr_FR' })[0]
-    $ja = @($wrap.Children | Where-Object { $_.Content -eq 'ja_JP' })[0]
+    # A string Content renders de_DE as deDE (access-key underscore).
+    & $assert (@($wrap.Children | Where-Object { $_.Content -isnot [System.Windows.Controls.TextBlock] }).Count -eq 0) 'every language box shows its code through a TextBlock'
+    $de = @($wrap.Children | Where-Object { $_.Content.Text -eq 'de_DE' })[0]
+    $fr = @($wrap.Children | Where-Object { $_.Content.Text -eq 'fr_FR' })[0]
+    $ja = @($wrap.Children | Where-Object { $_.Content.Text -eq 'ja_JP' })[0]
     & $assert ($de.IsChecked -and $fr.IsChecked -and -not $ja.IsChecked) 'the stored languages are checked'
     & $ok 'stored languages shown'
 

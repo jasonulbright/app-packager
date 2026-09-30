@@ -108,7 +108,7 @@ No test writes to a certificate trust store in any scope. `AppPackagerWsus.Tests
 - `Invoke-TitleOptionsSmoke.ps1` - stored title-mode choices reach the background context map.
 - `Invoke-FullRegression.ps1` - runs every offline stage on both hosts and prints one summary table.
 - `PackagerSmoke.Tests.ps1` - Pester wrapper around the smoke harness.
-- `AdobeReader.Tests.ps1` - the Adobe Reader packager: English and MUI installer and patch names, the LANG_LIST normalization, the stored install options, the setup.ini command line, and the preferences round trip.
+- `AdobeReader.Tests.ps1` - the Adobe Reader packager: English and MUI installer and patch names, the LANG_LIST normalization, the stored install options, the MUI command line, the stage folder cleanup between editions, the setup.ini command line, and the preferences round trip.
 - `ProcessStreaming.Tests.ps1` - the packager child runner returns one result object, including after an idle-timeout kill, so post-step notes attach to it.
 - `PackageWorkflow.Tests.ps1` - title policy, package conflict preflight, the row status after a publish run, the WSUS refusal note, profile precedence, legacy migration, per-profile stage isolation, build selection, run overrides, One Click freshness, and a CLI stage of an offline fixture packager compared against a GUI-equivalent run snapshot.
 - `SigningCombinations.Tests.ps1` - all eight signing switch combinations through `Write-StageManifest`, strict-requirement refusals, post-sign mutation detection, non-ASCII content and a stage path containing a space.
