@@ -14,6 +14,8 @@
         'Get-OneClickDestinationScope'
         'Get-OneClickPublishedVersion'
         'Set-OneClickPublishedVersion'
+        'Get-OneClickNotSupportedVersion'
+        'Set-OneClickNotSupported'
         'Get-OneClickCadenceDays'
         'Get-OneClickPlan'
         'Get-OneClickPlanSummary'

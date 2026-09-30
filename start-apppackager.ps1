@@ -3369,9 +3369,14 @@ function Get-WorkbenchSigningPolicyJson {
 }
 
 function Get-WorkbenchSigningPolicyDigest {
+    # Build records seal the Get-SigningPolicy digest and the freshness check
+    # compares against it; any other digest marks every build stale.
     param($Prefs = $script:Prefs)
     $json = Get-WorkbenchSigningPolicyJson -Prefs $Prefs
     if (-not $json) { return '' }
+    if (Get-Command -Name 'Get-SigningPolicy' -ErrorAction SilentlyContinue) {
+        return [string](Get-SigningPolicy -Json $json).PolicyDigest
+    }
     $sha = [System.Security.Cryptography.SHA256]::Create()
     try {
         $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($json))
@@ -6717,6 +6722,10 @@ function Invoke-MultiAppPipeline {
         PlanRows               = $(if ($Context.ContainsKey('OneClickRows')) { $Context.OneClickRows } else { $null })
     })
     $script:ConflictPromptOpen = $false
+    # The timer tick runs after this function returns; its parameters are out
+    # of scope there.
+    $script:BgContext   = $Context
+    $script:BgOperation = $Operation
 
     Set-ActionButtonsEnabled -Enabled $false
     $window.Cursor = [System.Windows.Input.Cursors]::Wait
@@ -7056,6 +7065,12 @@ function Invoke-MultiAppPipeline {
                                     if ($pr) { $pr.('Result' + $d) = ('already published ' + $latest) }
                                     continue
                                 }
+                                $refused = Get-OneClickNotSupportedVersion -HistoryEntry $entry -Destination $d
+                                if (-not $Ctx.ForceFlag -and $refused -and $refused -eq [string]$latest) {
+                                    $skipReasons += ('{0}: not supported' -f $d)
+                                    if ($pr) { $pr.('Result' + $d) = ('not supported ' + $latest) }
+                                    continue
+                                }
                                 $publishTo += $d
                             }
                         }
@@ -7135,6 +7150,7 @@ function Invoke-MultiAppPipeline {
                             $resultText = ''
                             $id = ''
                             $ok = $false
+                            $present = $false
                             try {
                                 switch ($d) {
                                     'ConfigMgr' {
@@ -7188,8 +7204,24 @@ function Invoke-MultiAppPipeline {
                                     'WSUS' {
                                         $note = Invoke-PackagerWsusPostStep -Result $stg -PackagerPath $path -DownloadRoot $planDownloadRoot -Config $Ctx.WsusPublishConfig -SkipsSite
                                         [void]$State.LogQueue.Enqueue(('WSUS publish: ' + $note.Message))
-                                        if ($note.Ok) { $ok = $true; $id = [string]$note.PackageId; $resultText = ('published ' + $id) }
-                                        elseif ($note.Refused) { $notSupported++; $resultText = [string]$note.Message; $skipReasons += 'WSUS: not supported' }
+                                        if ($note.Ok) {
+                                            $ok = $true; $id = [string]$note.PackageId
+                                            # A repeat publish of the same version reuses the update
+                                            # that is not expired; nothing new reaches WSUS.
+                                            if ([string]$note.Outcome -eq 'AlreadyPublished') {
+                                                $present = $true; $resultText = ('already on the server ' + $id)
+                                                $skipReasons += ('WSUS: {0} already on the server' -f $latest)
+                                            }
+                                            else { $resultText = ('published ' + $id) }
+                                        }
+                                        elseif ($note.Refused) {
+                                            $notSupported++; $resultText = [string]$note.Message; $skipReasons += 'WSUS: not supported'
+                                            try {
+                                                $h = Read-PackagerHistory
+                                                [void](Set-OneClickNotSupported -History $h -PackagerName $baseName -Destination 'WSUS' -Version ([string]$latest) -Reason $resultText)
+                                                Save-PackagerHistory -History $h
+                                            } catch { [void]$State.LogQueue.Enqueue(('History write failed: ' + $_.Exception.Message)) }
+                                        }
                                         else { $resultText = [string]$note.Message }
                                     }
                                     'Intune' {
@@ -7212,7 +7244,7 @@ function Invoke-MultiAppPipeline {
                             }
                             if ($pr) { $pr.('Result' + $d) = $resultText; $pr.('Id' + $d) = $id }
                             if ($ok) {
-                                $published++
+                                if (-not $present) { $published++ }
                                 try {
                                     $h = Read-PackagerHistory
                                     [void](Set-OneClickPublishedVersion -History $h -PackagerName $baseName -Destination $d -Version ([string]$latest) -Id $id)
@@ -7610,7 +7642,7 @@ function Invoke-MultiAppPipeline {
 
         # Re-render the grid so row.Status flips done in the bg are visible.
         try { $dataGrid.Items.Refresh() } catch { }
-        if ($Context.ContainsKey('OneClickTick')) { try { & $Context.OneClickTick } catch { } }
+        if ($script:BgContext -and $script:BgContext.ContainsKey('OneClickTick')) { try { & $script:BgContext.OneClickTick } catch { } }
 
         if ($script:BgState -and $script:BgState.Done) {
             $doneState = $script:BgState
@@ -7635,7 +7667,7 @@ function Invoke-MultiAppPipeline {
                 if ($doneState.Counts) {
                     $summaryEntries = @($doneState.Counts.GetEnumerator() | Where-Object { $_.Value -gt 0 })
                     if ($summaryEntries.Count -gt 0) {
-                        $summaryLabel = switch ($Operation) {
+                        $summaryLabel = switch ($script:BgOperation) {
                             'CheckLatest' { 'Check Latest summary:'; break }
                             'Stage'       { 'Stage summary:'; break }
                             'Package'     { 'Package summary:'; break }
@@ -7670,7 +7702,7 @@ function Invoke-MultiAppPipeline {
             $btnCancelPipeline.IsEnabled = $true
             $script:BgTimer = $null
             $script:BgState = $null
-            if ($Context.ContainsKey('OneClickDone')) { try { & $Context.OneClickDone $doneState } catch { Add-LogLine -Message ('One Click report failed: ' + $_.Exception.Message) } }
+            if ($script:BgContext -and $script:BgContext.ContainsKey('OneClickDone')) { try { & $script:BgContext.OneClickDone $doneState } catch { Add-LogLine -Message ('One Click report failed: ' + $_.Exception.Message) } }
         }
     })
     $script:BgTimer.Start()
@@ -8692,16 +8724,16 @@ function Show-OneClickPlanDialog {
         <DataGrid Grid.Row="1" x:Name="gridPlan" AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
                   SelectionMode="Single" RowHeaderWidth="0">
             <DataGrid.Columns>
-                <DataGridTemplateColumn x:Name="colInclude" Header="Include" Width="64">
+                <DataGridTemplateColumn x:Name="colInclude" Header="Include" Width="72">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <CheckBox IsChecked="{Binding Include, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" Tag="Include" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn Header="Application" Binding="{Binding Application}" Width="*" MinWidth="200" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Version" Binding="{Binding Version}" Width="110" IsReadOnly="True"/>
-                <DataGridTemplateColumn x:Name="colMecm" Header="ConfigMgr" Width="80">
+                <DataGridTextColumn Header="Application" Binding="{Binding Application}" Width="*" MinWidth="160" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Version" Binding="{Binding Version}" Width="90" IsReadOnly="True"/>
+                <DataGridTemplateColumn x:Name="colMecm" Header="ConfigMgr" Width="96">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <CheckBox IsChecked="{Binding ConfigMgr, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" Tag="ConfigMgr" HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -8715,20 +8747,20 @@ function Show-OneClickPlanDialog {
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTemplateColumn x:Name="colIntune" Header="Intune" Width="60">
+                <DataGridTemplateColumn x:Name="colIntune" Header="Intune" Width="72">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <CheckBox IsChecked="{Binding Intune, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" Tag="Intune" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn x:Name="colLast" Header="Last published" Binding="{Binding LastPublished}" Width="200" IsReadOnly="True"/>
-                <DataGridTextColumn x:Name="colPlanned" Header="Planned" Binding="{Binding Planned}" Width="220" IsReadOnly="True"/>
-                <DataGridTextColumn x:Name="colStep" Header="Step" Binding="{Binding Step}" Width="150" IsReadOnly="True" Visibility="Collapsed"/>
-                <DataGridTextColumn x:Name="colResultMecm" Header="ConfigMgr result" Binding="{Binding ResultConfigMgr}" Width="200" IsReadOnly="True" Visibility="Collapsed"/>
-                <DataGridTextColumn x:Name="colResultWsus" Header="WSUS result" Binding="{Binding ResultWSUS}" Width="200" IsReadOnly="True" Visibility="Collapsed"/>
-                <DataGridTextColumn x:Name="colResultIntune" Header="Intune result" Binding="{Binding ResultIntune}" Width="200" IsReadOnly="True" Visibility="Collapsed"/>
-                <DataGridTextColumn Header="Reason" Binding="{Binding Reason}" Width="260" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="colLast" Header="Last published" Binding="{Binding LastPublished}" Width="150" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="colPlanned" Header="Planned" Binding="{Binding Planned}" Width="280" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="colStep" Header="Step" Binding="{Binding Step}" Width="130" IsReadOnly="True" Visibility="Collapsed"/>
+                <DataGridTextColumn x:Name="colResultMecm" Header="ConfigMgr result" Binding="{Binding ResultConfigMgr}" Width="1.2*" MinWidth="180" IsReadOnly="True" Visibility="Collapsed"/>
+                <DataGridTextColumn x:Name="colResultWsus" Header="WSUS result" Binding="{Binding ResultWSUS}" Width="1.2*" MinWidth="180" IsReadOnly="True" Visibility="Collapsed"/>
+                <DataGridTextColumn x:Name="colResultIntune" Header="Intune result" Binding="{Binding ResultIntune}" Width="1.2*" MinWidth="180" IsReadOnly="True" Visibility="Collapsed"/>
+                <DataGridTextColumn x:Name="colReason" Header="Reason" Binding="{Binding Reason}" Width="230" IsReadOnly="True"/>
             </DataGrid.Columns>
         </DataGrid>
         <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
@@ -8829,11 +8861,11 @@ function Show-OneClickPlanDialog {
                 })
             }
         }
-        $includedPlan = @($plan | Where-Object { $existing.ContainsKey($_.Packager) -and $existing[$_.Packager].Include -or (-not $existing.ContainsKey($_.Packager) -and $_.Include) })
+        foreach ($p in $plan) { if ($existing.ContainsKey($p.Packager)) { $p.Include = [bool]$existing[$p.Packager].Include } }
         $summary = Get-OneClickPlanSummary -Plan $plan -Prefs $prefs -Action $Action
         $txtSummary.Text = $summary.Line
         $txtAction.Text = ('Action: {0}. Existing ConfigMgr application: {1}.' -f $(switch ($Action) { 'Report' { 'check only' } 'Stage' { 'check and stage' } default { 'check, stage and publish' } }), $(if ([string]$prefsRef.AppFlow.OnExisting -eq 'Overwrite') { 'overwrite' } else { 'skip' }))
-        $scopeParts = @(foreach ($d in (Get-OneClickDestinationNames)) { if (@($plan | Where-Object { $_.PublishTo -contains $d }).Count -gt 0) { '{0}: {1}' -f $d, (Get-OneClickDestinationScope -Prefs $prefs -Destination $d) } })
+        $scopeParts = @(foreach ($d in (Get-OneClickDestinationNames)) { if (@($plan | Where-Object { $_.Include -and $_.PublishTo -contains $d }).Count -gt 0) { '{0}: {1}' -f $d, (Get-OneClickDestinationScope -Prefs $prefs -Destination $d) } })
         $txtScope.Text = $(if ($scopeParts.Count) { 'Scope. ' + ($scopeParts -join '. ') + '.' } else { '' })
         $txtScope.Visibility = $(if ($scopeParts.Count) { 'Visible' } else { 'Collapsed' })
         if ($summary.Blocking.Count -gt 0) { $txtBlocking.Text = 'Not ready: ' + ($summary.Blocking -join '; '); $txtBlocking.Visibility = 'Visible' } else { $txtBlocking.Visibility = 'Collapsed' }
@@ -8841,7 +8873,9 @@ function Show-OneClickPlanDialog {
         try { $gridPlan.Items.Refresh() } catch { }
     }.GetNewClosure()
 
-    # A destination box or Include changed: recompute the plan.
+    # A destination box or Include changed: recompute the plan. Click fires
+    # only for the operator; Checked also fires for every box that
+    # Items.Refresh regenerates, and a refresh from it never ends.
     $boxChanged = [System.Windows.RoutedEventHandler]{
         param($sender, $e)
         if ($state.Running) { return }
@@ -8851,25 +8885,25 @@ function Show-OneClickPlanDialog {
             & $refresh
         }
     }.GetNewClosure()
-    $gridPlan.AddHandler([System.Windows.Controls.Primitives.ToggleButton]::CheckedEvent, $boxChanged)
-    $gridPlan.AddHandler([System.Windows.Controls.Primitives.ToggleButton]::UncheckedEvent, $boxChanged)
+    $gridPlan.AddHandler([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent, $boxChanged)
     $chkForce.Add_Click({ & $refresh }.GetNewClosure())
 
     $writeReport = {
-        param($Ended, $Canceled)
+        param($Ended, $Canceled, [string]$Label = 'One Click report')
+        $used = @($planRows | Where-Object { $_.Include })
+        $scope = [ordered]@{}
+        if (@($used | Where-Object { $_.ConfigMgr }).Count) { $scope.ConfigMgr = Get-OneClickDestinationScope -Prefs $prefsRef -Destination 'ConfigMgr' }
+        if (@($used | Where-Object { $_.WSUS }).Count) { $scope.WSUS = Get-OneClickDestinationScope -Prefs $prefsRef -Destination 'WSUS' }
+        if (@($used | Where-Object { $_.Intune }).Count) { $scope.Intune = Get-OneClickDestinationScope -Prefs $prefsRef -Destination 'Intune' }
         $runInfo = [pscustomobject]@{
             Started  = $state.Started
             Ended    = $Ended
             Operator = ('{0}\{1}' -f $env:USERDOMAIN, $env:USERNAME)
             Computer = $env:COMPUTERNAME
-            Action   = $Action
+            Action   = $(switch ($Action) { 'Report' { 'Report only' } 'Stage' { 'Stage' } default { 'Stage and Publish' } })
             Force    = ($chkForce.IsChecked -eq $true)
             Canceled = [bool]$Canceled
-            Scope    = [pscustomobject]@{
-                ConfigMgr = Get-OneClickDestinationScope -Prefs $prefsRef -Destination 'ConfigMgr'
-                WSUS      = Get-OneClickDestinationScope -Prefs $prefsRef -Destination 'WSUS'
-                Intune    = Get-OneClickDestinationScope -Prefs $prefsRef -Destination 'Intune'
-            }
+            Scope    = [pscustomobject]$scope
         }
         $reportRows = @($planRows | Where-Object { $_.Include } | ForEach-Object {
             $r = $_
@@ -8885,13 +8919,13 @@ function Show-OneClickPlanDialog {
         $paths = Write-OneClickReport -Run $runInfo -Rows $reportRows -Folder $reportFolder
         $state.ReportPath = $paths.MarkdownPath
         $btnOpenReport.IsEnabled = $true
-        Add-LogLine -Message ('One Click report: ' + $paths.MarkdownPath)
+        Add-LogLine -Message ($Label + ': ' + $paths.MarkdownPath)
         return $paths
     }.GetNewClosure()
 
     $btnPlanOnly.Add_Click({
         $state.Started = Get-Date
-        $paths = & $writeReport (Get-Date) $false
+        $paths = & $writeReport (Get-Date) $false 'One Click plan'
         $txtSummary.Text = 'Plan written: ' + $paths.MarkdownPath
     }.GetNewClosure())
 
@@ -8911,10 +8945,19 @@ function Show-OneClickPlanDialog {
         $state.Started = Get-Date
         $btnRun.IsEnabled = $false; $btnPlanOnly.IsEnabled = $false; $chkForce.IsEnabled = $false; $btnClose.IsEnabled = $false
         foreach ($name in 'colInclude', 'colMecm', 'colWsus', 'colIntune') { $dlg.FindName($name).IsReadOnly = $true }
-        foreach ($name in 'colStep', 'colResultMecm', 'colResultWsus', 'colResultIntune') { $dlg.FindName($name).Visibility = 'Visible' }
+        $dlg.FindName('colStep').Visibility = 'Visible'
+        $dlg.FindName('colResultMecm').Visibility = $(if (@($included | Where-Object { $_.ConfigMgr }).Count) { 'Visible' } else { 'Collapsed' })
+        $dlg.FindName('colResultWsus').Visibility = $(if (@($included | Where-Object { $_.WSUS }).Count) { 'Visible' } else { 'Collapsed' })
+        $dlg.FindName('colResultIntune').Visibility = $(if (@($included | Where-Object { $_.Intune }).Count) { 'Visible' } else { 'Collapsed' })
         $dlg.FindName('colPlanned').Visibility = 'Collapsed'
         $dlg.FindName('colLast').Visibility = 'Collapsed'
         $txtSummary.Text = ('Running: {0} application(s)' -f $included.Count)
+
+        # GetNewClosure captures local variables only; the references this
+        # handler's own closure holds are copied into locals so that the tick
+        # and done hooks below see them.
+        $state = $state; $planRows = $planRows; $gridPlan = $gridPlan
+        $writeReport = $writeReport; $txtSummary = $txtSummary; $btnClose = $btnClose
 
         # Progress records the background loop writes and the tick copies
         # back into the grid rows.

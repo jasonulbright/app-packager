@@ -179,6 +179,26 @@ Describe 'Get-OneClickPlan' {
         $row.Reason | Should -Be 'WSUS: not supported'
         $row.Planned | Should -Be 'Check, Stage'
     }
+    It 'drops a destination that refused the same version unless forced, and tries a newer version' {
+        $history = @{ 'package-a' = [pscustomobject]@{ LastKnownVersion = '2.0' } }
+        Set-OneClickNotSupported -History $history -PackagerName 'package-a' -Destination 'WSUS' -Version '2.0' -Reason 'not supported: DetectionNotMappable' | Out-Null
+        $back = ($history | ConvertTo-Json -Depth 6) | ConvertFrom-Json
+        $entries = @{ 'package-a' = $back.'package-a' }
+        Get-OneClickNotSupportedVersion -HistoryEntry $entries['package-a'] -Destination 'WSUS' | Should -Be '2.0'
+        $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECMAndWSUS') -History $entries -Action 'StageAndPackage')[0]
+        $row.PublishTo | Should -Be @('ConfigMgr')
+        $row.Reason | Should -Be 'WSUS: not supported'
+        $forced = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECMAndWSUS') -History $entries -Action 'StageAndPackage' -Force)[0]
+        $forced.PublishTo | Should -Be @('ConfigMgr', 'WSUS')
+        $newer = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.1') -Prefs (New-TestPrefs -Target 'MECMAndWSUS') -History $entries -Action 'StageAndPackage')[0]
+        $newer.PublishTo | Should -Be @('ConfigMgr', 'WSUS')
+    }
+    It 'clears a refusal when the destination later publishes' {
+        $history = @{}
+        Set-OneClickNotSupported -History $history -PackagerName 'package-a' -Destination 'WSUS' -Version '2.0' | Out-Null
+        Set-OneClickPublishedVersion -History $history -PackagerName 'package-a' -Destination 'WSUS' -Version '2.0' | Out-Null
+        Get-OneClickNotSupportedVersion -HistoryEntry $history['package-a'] -Destination 'WSUS' | Should -Be ''
+    }
     It 'waits for the check when the version is unknown and a destination is already published' {
         $history = @{}
         Set-OneClickPublishedVersion -History $history -PackagerName 'package-a' -Destination 'ConfigMgr' -Version '1.0' | Out-Null
