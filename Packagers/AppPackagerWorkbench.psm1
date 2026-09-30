@@ -1221,7 +1221,7 @@ function New-RunSnapshot {
     param(
         [Parameter(Mandatory)][string]$ApplicationId,
         [string]$ProfileId = 'default',
-        [ValidateSet('ContentOnly', 'MECM', 'MECMAndIntune', 'IntuneOnly')][string]$Target = 'MECM',
+        [ValidateSet('ContentOnly', 'MECM', 'MECMAndIntune', 'IntuneOnly', 'MECMAndWSUS', 'WSUSOnly')][string]$Target = 'MECM',
         [AllowNull()]$RunOverrides,
         [AllowNull()]$SigningPolicy,
         [string]$PackagerScriptPath,

@@ -47,7 +47,7 @@ function Save-Preferences {
     $script:SaveCount++
 }
 function Invoke-RefreshGrid { $script:RefreshCount++ }
-function Update-SidebarForDeploymentTarget { $script:SidebarCount++ }
+function Update-SidebarForSystems { $script:SidebarCount++ }
 function Show-ThemedMessage {
     param($Owner, $Title, $Message, $Buttons, $Icon)
     $script:SaveError = $Message
@@ -58,14 +58,16 @@ function Assert-True {
 }
 
 function Test-WizardCallback {
-    param([string]$Action, [bool]$Suppress, [string]$Target = 'MECM')
+    param([string]$Action, [bool]$Suppress, [string[]]$Systems = @('ConfigMgr'))
     $script:Prefs = [pscustomobject]@{
         SiteCode = ''; ProviderMachineName = ''; FileShareRoot = ''; DownloadRoot = ''
         FirstRunCompleted = $false
+        Systems = [pscustomobject]@{ ConfigMgr = $true; Intune = $false; Wsus = $false }
         Intune = [pscustomobject]@{
             TenantId = ''; ClientId = ''; ClientSecretProtected = ''
             DeploymentTarget = 'MECM'; PublishToIntune = $false
         }
+        Wsus = [pscustomobject]@{ ServerName = ''; PortNumber = 8530; UseSsl = $false }
     }
     $script:SaveCount = 0
     $script:RefreshCount = 0
@@ -76,7 +78,10 @@ function Test-WizardCallback {
     $dlg = New-Object FirstRunTestDialog
     $btnWizSave = New-Object FirstRunTestButton
     $btnWizSkip = New-Object FirstRunTestButton
-    $cboTarget = [pscustomobject]@{ SelectedItem = [pscustomobject]@{ Tag = $Target } }
+    $chkWizMecm = [pscustomobject]@{ IsChecked = ($Systems -contains 'ConfigMgr') }
+    $chkWizIntune = [pscustomobject]@{ IsChecked = ($Systems -contains 'Intune') }
+    $chkWizWsus = [pscustomobject]@{ IsChecked = ($Systems -contains 'WSUS') }
+    $Target = if ($Systems -contains 'ConfigMgr') { 'MECM' } elseif ($Systems -contains 'Intune') { 'IntuneOnly' } elseif ($Systems -contains 'WSUS') { 'WSUSOnly' } else { 'MECM' }
     $txtWizSC = [pscustomobject]@{ Text = ' TEST ' }
     $txtWizProvider = [pscustomobject]@{ Text = ' provider.example ' }
     $txtWizFS = [pscustomobject]@{ Text = ' \\server\content ' }
@@ -84,6 +89,9 @@ function Test-WizardCallback {
     $txtWizTenant = [pscustomobject]@{ Text = ' tenant ' }
     $txtWizClient = [pscustomobject]@{ Text = ' client ' }
     $pwdWizSecret = [pscustomobject]@{ SecurePassword = (New-Object Security.SecureString) }
+    $txtWizWsusServer = [pscustomobject]@{ Text = ' wsus.example ' }
+    $txtWizWsusPort = [pscustomobject]@{ Text = ' 8531 ' }
+    $chkWizWsusSsl = [pscustomobject]@{ IsChecked = $true }
     $chkWizDontAsk = [pscustomobject]@{ IsChecked = $Suppress }
 
     . $registrations
@@ -106,22 +114,34 @@ function Test-WizardCallback {
         Assert-True ($script:RefreshCount -eq 1 -and $script:SidebarCount -eq 1) 'Post-save UI helpers were not called.'
         $saved = $script:SavedJson | ConvertFrom-Json
         Assert-True $saved.FirstRunCompleted 'Saved preferences did not suppress setup.'
-        Assert-True ($saved.Intune.DeploymentTarget -eq $Target) 'Deployment target was not saved.'
-        if ($Target -ne 'IntuneOnly') { Assert-True ($saved.SiteCode -eq 'TEST') 'ConfigMgr fields were not trimmed and saved.' }
-        if ($Target -ne 'MECM') { Assert-True ($saved.Intune.TenantId -eq 'tenant' -and $saved.Intune.PublishToIntune) 'Intune fields were not saved.' }
+        Assert-True ($saved.Intune.DeploymentTarget -eq $Target) 'The One Click destination was not derived from the selected systems.'
+        Assert-True (($saved.Systems.ConfigMgr -eq ($Systems -contains 'ConfigMgr')) -and ($saved.Systems.Intune -eq ($Systems -contains 'Intune')) -and ($saved.Systems.Wsus -eq ($Systems -contains 'WSUS'))) 'The selected systems were not saved.'
+        Assert-True ([bool]$saved.Intune.PublishToIntune -eq ($Target -eq 'IntuneOnly')) 'The Intune publish toggle does not match the One Click destination.'
+        if ($Systems -contains 'ConfigMgr') { Assert-True ($saved.SiteCode -eq 'TEST') 'ConfigMgr fields were not trimmed and saved.' }
+        else { Assert-True ($saved.SiteCode -eq '') 'Setup without ConfigMgr saved ConfigMgr fields.' }
+        if ($Systems -contains 'Intune') { Assert-True ($saved.Intune.TenantId -eq 'tenant' -and $saved.Intune.ClientId -eq 'client') 'Intune fields were not saved.' }
+        else { Assert-True ($saved.Intune.TenantId -eq '') 'Setup without Intune saved Intune fields.' }
+        if ($Systems -contains 'WSUS') {
+            Assert-True ($saved.Wsus.ServerName -eq 'wsus.example' -and $saved.Wsus.PortNumber -eq 8531 -and $saved.Wsus.UseSsl) 'WSUS fields were not trimmed and saved.'
+        }
+        else { Assert-True ($saved.Wsus.ServerName -eq '') 'Setup without WSUS saved WSUS fields.' }
     } else {
         Assert-True ($script:SaveCount -eq [int]$Suppress) 'Skip/close suppression was not persisted correctly.'
         Assert-True (-not $script:FirstRunDlgSaved) 'Skipping incorrectly marked setup as saved.'
         Assert-True ($script:RefreshCount -eq 0 -and $script:SidebarCount -eq 0) 'Skipping unexpectedly refreshed the UI.'
     }
-    Write-Output "PASS: $Action / suppress=$Suppress / target=$Target"
+    Write-Output ("PASS: {0} / suppress={1} / systems={2}" -f $Action, $Suppress, ($Systems -join ' + '))
 }
 
 $failed = 0
 foreach ($scenario in @(
-    @{ Action = 'Save'; Suppress = $false; Target = 'MECM' },
-    @{ Action = 'Save'; Suppress = $true; Target = 'MECMAndIntune' },
-    @{ Action = 'Save'; Suppress = $false; Target = 'IntuneOnly' },
+    @{ Action = 'Save'; Suppress = $false; Systems = @('ConfigMgr') },
+    @{ Action = 'Save'; Suppress = $true; Systems = @('ConfigMgr', 'Intune') },
+    @{ Action = 'Save'; Suppress = $false; Systems = @('Intune') },
+    @{ Action = 'Save'; Suppress = $false; Systems = @('ConfigMgr', 'WSUS') },
+    @{ Action = 'Save'; Suppress = $true; Systems = @('WSUS') },
+    @{ Action = 'Save'; Suppress = $false; Systems = @('ConfigMgr', 'Intune', 'WSUS') },
+    @{ Action = 'Save'; Suppress = $false; Systems = @('Intune', 'WSUS') },
     @{ Action = 'Skip'; Suppress = $false },
     @{ Action = 'Skip'; Suppress = $true },
     @{ Action = 'Close'; Suppress = $true },
@@ -130,4 +150,33 @@ foreach ($scenario in @(
     try { Test-WizardCallback @scenario }
     catch { $failed++; Write-Output "FAIL: $($scenario.Action): $($_.Exception.Message)" }
 }
+
+# The wizard's WSUS port follows its SSL box until the operator types a port,
+# on real WPF controls. Setting IsChecked without a click is what a keyboard
+# or UI Automation toggle does.
+try {
+    Add-Type -AssemblyName PresentationFramework
+    $portStart = $source.IndexOf('$wizPortFollowsSsl')
+    $portEnd = $source.IndexOf('$currentTarget', [Math]::Max(0, $portStart))
+    if ($portStart -lt 0 -or $portEnd -lt 0) { throw 'Cannot locate the wizard port-follow registrations.' }
+    $portFollow = [scriptblock]::Create($source.Substring($portStart, $portEnd - $portStart))
+    $script:Prefs = [pscustomobject]@{ Wsus = [pscustomobject]@{ PortNumber = 8530 } }
+    $txtWizWsusPort = New-Object System.Windows.Controls.TextBox
+    $txtWizWsusPort.Text = '8530'
+    $chkWizWsusSsl = New-Object System.Windows.Controls.CheckBox
+    . $portFollow
+    $chkWizWsusSsl.IsChecked = $true
+    Assert-True ($txtWizWsusPort.Text -eq '8531') 'Ticking Use SSL did not move the default port to 8531.'
+    $chkWizWsusSsl.IsChecked = $false
+    Assert-True ($txtWizWsusPort.Text -eq '8530') 'Clearing Use SSL did not move the port back to 8530.'
+    $script:Prefs.Wsus.PortNumber = 443
+    $txtWizWsusPort = New-Object System.Windows.Controls.TextBox
+    $txtWizWsusPort.Text = '443'
+    $chkWizWsusSsl = New-Object System.Windows.Controls.CheckBox
+    . $portFollow
+    $chkWizWsusSsl.IsChecked = $true
+    Assert-True ($txtWizWsusPort.Text -eq '443') 'Use SSL replaced a port the operator chose.'
+    Write-Output 'PASS: WSUS port follows Use SSL'
+}
+catch { $failed++; Write-Output "FAIL: WSUS port follow: $($_.Exception.Message)" }
 if ($failed) { throw "$failed first-run callback scenario(s) failed." }

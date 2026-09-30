@@ -780,7 +780,13 @@
                 <Button x:Name="btnSaveAs" Content="Save as..." Style="{StaticResource WbButton}"/>
                 <Button x:Name="btnValidate" Content="Validate" Style="{StaticResource WbButton}"/>
                 <Button x:Name="btnStage" Content="Stage" Style="{StaticResource WbButton}"/>
-                <Button x:Name="btnPackage" Content="Package" Style="{StaticResource WbAccentButton}" Margin="0"/>
+                <TextBlock Text="Publish to:" FontSize="12" VerticalAlignment="Center" Margin="8,0,8,0"/>
+                <Button x:Name="btnPublishMecm" Content="ConfigMgr" Style="{StaticResource WbAccentButton}" MinWidth="90"
+                        ToolTip="Build a ConfigMgr Application from the selected build"/>
+                <Button x:Name="btnPublishIntune" Content="Intune" Style="{StaticResource WbAccentButton}" MinWidth="80"
+                        ToolTip="Stage this profile, build its .intunewin, and publish it to Intune"/>
+                <Button x:Name="btnPublishWsus" Content="WSUS" Style="{StaticResource WbAccentButton}" MinWidth="80" Margin="0"
+                        ToolTip="Stage this profile and publish its installer to WSUS"/>
             </StackPanel>
         </Grid>
     </Grid>

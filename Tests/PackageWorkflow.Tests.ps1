@@ -3,12 +3,14 @@ BeforeAll {
     $t = $null; $e = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\start-apppackager.ps1'), [ref]$t, [ref]$e)
     if ($e) { throw ($e.Message -join '; ') }
-    foreach ($name in @('Invoke-PackagerPackageWithConflictPrompt', 'Get-TitleModesMapForContext', 'Get-DefaultTitleModeForContext')) {
+    foreach ($name in @('Invoke-PackagerPackageWithConflictPrompt', 'Get-TitleModesMapForContext', 'Get-DefaultTitleModeForContext',
+                        'Test-DeploymentTargetSkipsSite', 'Test-DeploymentTargetPublishesToWsus', 'Get-PublishRowOutcome')) {
         $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
         . ([scriptblock]::Create($fn.Extent.Text))
     }
     function Invoke-PackagerPackage { param($Preflight, $OnExisting, $DeploymentTarget, $TitleMode, $SiteCode, $ProviderMachineName) }
     function Get-MecmCurrentVersionByCMName { param($SiteCode, $ProviderMachineName, $CMName, [switch]$ExactMatch) }
+    function Invoke-PackagerWsusPostStep { param($Result, $PackagerPath, $DownloadRoot, $Config, $SelectedManifestPath, [switch]$SkipsSite) }
 }
 
 Describe 'Application title policy' {
@@ -131,6 +133,105 @@ Describe 'Package conflict preflight' {
         $r = Invoke-PackagerPackageWithConflictPrompt -State $script:state -AppLabel Browser -PackageArgs $script:packageTestArgs
         $r.PackageOutcome | Should -Be 'Canceled'
         Should -Invoke Invoke-PackagerPackage -Times 0 -Exactly -ParameterFilter { -not $Preflight }
+    }
+
+    It 'leaves WSUS-only packaging on the site-free path' {
+        $script:packageTestArgs.DeploymentTarget = 'WSUSOnly'
+        Invoke-PackagerPackageWithConflictPrompt -State $script:state -AppLabel Browser -PackageArgs $script:packageTestArgs | Out-Null
+        Should -Invoke Get-MecmCurrentVersionByCMName -Times 0 -Exactly
+        Should -Invoke Invoke-PackagerPackage -Times 1 -Exactly -ParameterFilter { -not $Preflight }
+    }
+
+    It 'still publishes to WSUS when a ConfigMgr + WSUS collision is skipped' {
+        Mock Invoke-PackagerWsusPostStep { [pscustomobject]@{ Ok = $true; Message = 'published'; PackageId = 'x'; Outcome = 'Published' } }
+        $script:packageTestArgs.DeploymentTarget = 'MECMAndWSUS'
+        $script:packageTestArgs.WsusPublishConfig = @{ ServerName = 'wsus01' }
+        $r = Invoke-PackagerPackageWithConflictPrompt -State $script:state -AppLabel Browser -PackageArgs $script:packageTestArgs
+        $r.PackageOutcome | Should -Be 'Skipped'
+        $r.WsusPublish.Ok | Should -BeTrue
+        Should -Invoke Invoke-PackagerWsusPostStep -Times 1 -Exactly -ParameterFilter { $Config.ServerName -eq 'wsus01' -and $Result.StdOut -like '*APP_PACKAGER_PREFLIGHT*' }
+        Should -Invoke Invoke-PackagerPackage -Times 0 -Exactly -ParameterFilter { -not $Preflight }
+    }
+
+    It 'does not publish to WSUS when a ConfigMgr-only collision is skipped or a run is canceled' {
+        Mock Invoke-PackagerWsusPostStep { throw 'must not run' }
+        $r = Invoke-PackagerPackageWithConflictPrompt -State $script:state -AppLabel Browser -PackageArgs $script:packageTestArgs
+        $r.PackageOutcome | Should -Be 'Skipped'
+        $script:state.ConflictDecisionForAll = 'Cancel'
+        $script:packageTestArgs.DeploymentTarget = 'MECMAndWSUS'
+        (Invoke-PackagerPackageWithConflictPrompt -State $script:state -AppLabel Browser -PackageArgs $script:packageTestArgs).PackageOutcome | Should -Be 'Canceled'
+        Should -Invoke Invoke-PackagerWsusPostStep -Times 0 -Exactly
+    }
+}
+
+Describe 'Publish row outcome' {
+    BeforeAll {
+        function New-RunResult {
+            param([int]$ExitCode = 0, $Wsus = $null, $Intune = $null, [string]$Outcome = '')
+            $r = [pscustomobject]@{ ExitCode = $ExitCode; StdOut = ''; StdErr = '' }
+            if ($Wsus) { $r | Add-Member -NotePropertyName WsusPublish -NotePropertyValue ([pscustomobject]$Wsus) }
+            if ($Intune) { $r | Add-Member -NotePropertyName IntunePublish -NotePropertyValue ([pscustomobject]$Intune) }
+            if ($Outcome) { $r | Add-Member -NotePropertyName PackageOutcome -NotePropertyValue $Outcome }
+            return $r
+        }
+    }
+
+    It 'reports <Name> as <Status>' -TestCases @(
+        @{ Name = 'a WSUS publish';                   Target = 'WSUSOnly';    Result = @{ Wsus = @{ Ok = $true; Refused = $false; Warnings = @() } };                  Kind = 'Success';      Status = 'Published' }
+        @{ Name = 'a WSUS publish with a warning';    Target = 'WSUSOnly';    Result = @{ Wsus = @{ Ok = $true; Refused = $false; Warnings = @('decline failed') } }; Kind = 'Success';      Status = 'Published, warning' }
+        @{ Name = 'an app WSUS cannot carry';         Target = 'WSUSOnly';    Result = @{ Wsus = @{ Ok = $false; Refused = $true; Warnings = @() } };                 Kind = 'NotSupported'; Status = 'WSUS: not supported' }
+        @{ Name = 'a failed WSUS server call';        Target = 'WSUSOnly';    Result = @{ Wsus = @{ Ok = $false; Refused = $false; Warnings = @() } };                Kind = 'Failed';       Status = 'Publish error' }
+        @{ Name = 'a failed stage before WSUS';       Target = 'WSUSOnly';    Result = @{ ExitCode = 1 };                                                               Kind = 'Failed';       Status = 'Publish error' }
+        @{ Name = 'an Intune publish';                Target = 'IntuneOnly';  Result = @{ Intune = @{ Ok = $true } };                                                   Kind = 'Success';      Status = 'Published' }
+        @{ Name = 'a failed Intune publish';          Target = 'IntuneOnly';  Result = @{ Intune = @{ Ok = $false } };                                                  Kind = 'Failed';       Status = 'Publish error' }
+        @{ Name = 'an Intune run without a package';  Target = 'IntuneOnly';  Result = @{};                                                                             Kind = 'Failed';       Status = 'Publish error' }
+        @{ Name = 'a ConfigMgr application';          Target = 'MECM';        Result = @{};                                                                             Kind = 'Success';      Status = 'Packaged' }
+        @{ Name = 'a failed ConfigMgr package';       Target = 'MECM';        Result = @{ ExitCode = 1 };                                                               Kind = 'Failed';       Status = 'Package error' }
+        @{ Name = 'ConfigMgr + WSUS with a refusal';  Target = 'MECMAndWSUS'; Result = @{ Wsus = @{ Ok = $false; Refused = $true; Warnings = @() } };                 Kind = 'Success';      Status = 'Packaged, WSUS not supported' }
+        @{ Name = 'ConfigMgr + WSUS with a failure';  Target = 'MECMAndWSUS'; Result = @{ Wsus = @{ Ok = $false; Refused = $false; Warnings = @() } };                Kind = 'Success';      Status = 'Packaged, WSUS failed' }
+        @{ Name = 'a skipped ConfigMgr + WSUS app';   Target = 'MECMAndWSUS'; Result = @{ Outcome = 'Skipped'; Wsus = @{ Ok = $true; Refused = $false; Warnings = @() } }; Kind = 'Skipped'; Status = 'Skipped' }
+    ) {
+        param($Name, $Target, $Result, $Kind, $Status)
+        $outcome = Get-PublishRowOutcome -Result (New-RunResult @Result) -DeploymentTarget $Target
+        $outcome.Kind | Should -Be $Kind
+        $outcome.Status | Should -Be $Status
+        $outcome.Published | Should -Be ($Kind -eq 'Success' -and $Target -in @('WSUSOnly', 'IntuneOnly'))
+    }
+}
+
+Describe 'WSUS refusal note' {
+    BeforeAll {
+        $t2 = $null; $e2 = $null
+        $scriptAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\start-apppackager.ps1'), [ref]$t2, [ref]$e2)
+        foreach ($name in @('Invoke-PackagerWsusPostStep', 'Get-PackagerLoggedPath')) {
+            $fn = $scriptAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
+            . ([scriptblock]::Create($fn.Extent.Text))
+        }
+        $script:StageFolder = Join-Path $TestDrive 'stage'
+        [void](New-Item -ItemType Directory -Path $script:StageFolder -Force)
+        @{ SchemaVersion = 2; AppName = 'Contoso Tool'; SoftwareVersion = '5.4.2'; InstallerFile = 'setup.exe'; InstallerType = 'EXE' } |
+            ConvertTo-Json | Set-Content -LiteralPath (Join-Path $script:StageFolder 'stage-manifest.json') -Encoding ASCII
+        $script:StageResult = [pscustomobject]@{ ExitCode = 0; StdOut = ('[2026-09-30 00:00:00] [INFO ] Stage complete               : ' + $script:StageFolder) }
+    }
+
+    It 'marks an application WSUS cannot carry as refused, not failed' {
+        function Publish-WsusSoftwareUpdate {
+            param($Manifest, $ContentFolder, $Settings)
+            $ex = New-Object System.InvalidOperationException('This application cannot be published to WSUS: CustomInstall: This build installs through a custom command or script.')
+            $ex.Data['WsusRefusal'] = 'CustomInstall'
+            throw $ex
+        }
+        $note = Invoke-PackagerWsusPostStep -Result $script:StageResult -PackagerPath 'package-contoso.ps1' -Config @{ ServerName = 'wsus01' } -SkipsSite
+        $note.Ok | Should -BeFalse
+        $note.Refused | Should -BeTrue
+        $note.Message | Should -Be 'not supported: CustomInstall: This build installs through a custom command or script.'
+    }
+
+    It 'reports a server fault as a failed publish' {
+        function Publish-WsusSoftwareUpdate { param($Manifest, $ContentFolder, $Settings) throw 'The remote server returned an error: (503) Server Unavailable.' }
+        $note = Invoke-PackagerWsusPostStep -Result $script:StageResult -PackagerPath 'package-contoso.ps1' -Config @{ ServerName = 'wsus01' } -SkipsSite
+        $note.Refused | Should -BeFalse
+        $note.Message | Should -BeLike 'publish failed:*503*'
     }
 }
 
