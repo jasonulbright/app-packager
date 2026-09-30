@@ -7088,7 +7088,8 @@ function Invoke-MultiAppPipeline {
                                 $refused = Get-OneClickNotSupportedVersion -HistoryEntry $entry -Destination $d
                                 if (-not $Ctx.ForceFlag -and $refused -and $refused -eq [string]$latest) {
                                     $skipReasons += ('{0}: not supported' -f $d)
-                                    if ($pr) { $pr.('Result' + $d) = ('not supported ' + $latest) }
+                                    $refusedReason = Get-OneClickNotSupportedReason -HistoryEntry $entry -Destination $d
+                                    if ($pr) { $pr.('Result' + $d) = $(if ($refusedReason -match '^not supported: ') { $refusedReason } else { 'not supported ' + $latest }) }
                                     continue
                                 }
                                 $publishTo += $d
@@ -7168,6 +7169,7 @@ function Invoke-MultiAppPipeline {
                             & $setStep ('publishing {0} to {1}' -f $app, $d)
                             $row.Status = ('Publishing to {0}...' -f $d)
                             $resultText = ''
+                            $detail = ''
                             $id = ''
                             $ok = $false
                             $present = $false
@@ -7238,6 +7240,7 @@ function Invoke-MultiAppPipeline {
                                             # The cell carries the code; the log and the report carry the text.
                                             $notSupported++; $skipReasons += 'WSUS: not supported'
                                             $resultText = $(if ($note.Message -match '^(not supported: [A-Za-z]+)') { $Matches[1] } else { [string]$note.Message })
+                                            $detail = [string]$note.Message
                                             try {
                                                 $h = Read-PackagerHistory
                                                 [void](Set-OneClickNotSupported -History $h -PackagerName $baseName -Destination 'WSUS' -Version ([string]$latest) -Reason $resultText)
@@ -7264,7 +7267,7 @@ function Invoke-MultiAppPipeline {
                             } catch {
                                 $resultText = ('failed: ' + $_.Exception.Message)
                             }
-                            if ($pr) { $pr.('Result' + $d) = $resultText; $pr.('Id' + $d) = $id }
+                            if ($pr) { $pr.('Result' + $d) = $resultText; $pr.('Id' + $d) = $id; $pr.('Detail' + $d) = $detail }
                             if ($ok) {
                                 if (-not $present) { $published++ }
                                 try {
@@ -8891,6 +8894,7 @@ function Show-OneClickPlanDialog {
                     LastPublished = ($last -join ', '); Planned = $p.Planned; Reason = $p.Reason
                     PublishTo = @($p.PublishTo); Include = [bool]$p.Include; IncludeTouched = $false
                     Step = ''; Outcome = ''; ResultConfigMgr = ''; ResultWSUS = ''; ResultIntune = ''; IdConfigMgr = ''; IdWSUS = ''; IdIntune = ''
+                    DetailConfigMgr = ''; DetailWSUS = ''; DetailIntune = ''
                 })
             }
         }
@@ -8947,6 +8951,7 @@ function Show-OneClickPlanDialog {
                 ResultConfigMgr = $r.ResultConfigMgr; IdConfigMgr = $r.IdConfigMgr
                 ResultWSUS = $r.ResultWSUS; IdWSUS = $r.IdWSUS
                 ResultIntune = $r.ResultIntune; IdIntune = $r.IdIntune
+                DetailConfigMgr = $r.DetailConfigMgr; DetailWSUS = $r.DetailWSUS; DetailIntune = $r.DetailIntune
             }
         })
         $paths = Write-OneClickReport -Run $runInfo -Rows $reportRows -Folder $reportFolder
@@ -9001,7 +9006,7 @@ function Show-OneClickPlanDialog {
         $progress = [hashtable]::Synchronized(@{})
         $planByApp = @{}
         foreach ($r in $included) {
-            $progress[$r.Packager] = [hashtable]::Synchronized(@{ Step = ''; Outcome = ''; Reason = ''; Version = ''; ResultConfigMgr = ''; ResultWSUS = ''; ResultIntune = ''; IdConfigMgr = ''; IdWSUS = ''; IdIntune = '' })
+            $progress[$r.Packager] = [hashtable]::Synchronized(@{ Step = ''; Outcome = ''; Reason = ''; Version = ''; ResultConfigMgr = ''; ResultWSUS = ''; ResultIntune = ''; IdConfigMgr = ''; IdWSUS = ''; IdIntune = ''; DetailConfigMgr = ''; DetailWSUS = ''; DetailIntune = '' })
             $selected = @()
             if ($r.ConfigMgr) { $selected += 'ConfigMgr' }
             if ($r.WSUS) { $selected += 'WSUS' }
@@ -9014,7 +9019,7 @@ function Show-OneClickPlanDialog {
             foreach ($r in $planRows) {
                 if (-not $progress.ContainsKey($r.Packager)) { continue }
                 $pr = $progress[$r.Packager]
-                foreach ($f in 'Step', 'Outcome', 'Reason', 'ResultConfigMgr', 'ResultWSUS', 'ResultIntune', 'IdConfigMgr', 'IdWSUS', 'IdIntune') {
+                foreach ($f in 'Step', 'Outcome', 'Reason', 'ResultConfigMgr', 'ResultWSUS', 'ResultIntune', 'IdConfigMgr', 'IdWSUS', 'IdIntune', 'DetailConfigMgr', 'DetailWSUS', 'DetailIntune') {
                     if ($pr[$f] -and $r.$f -ne $pr[$f]) { $r.$f = $pr[$f] }
                 }
                 if ($pr['Version'] -and $r.Version -ne $pr['Version']) { $r.Version = $pr['Version'] }

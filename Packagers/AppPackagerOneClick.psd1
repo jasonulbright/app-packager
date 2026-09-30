@@ -15,6 +15,7 @@
         'Get-OneClickPublishedVersion'
         'Set-OneClickPublishedVersion'
         'Get-OneClickNotSupportedVersion'
+        'Get-OneClickNotSupportedReason'
         'Set-OneClickNotSupported'
         'Get-OneClickCadenceDays'
         'Get-OneClickPlan'

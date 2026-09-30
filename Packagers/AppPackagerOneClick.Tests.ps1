@@ -185,6 +185,8 @@ Describe 'Get-OneClickPlan' {
         $back = ($history | ConvertTo-Json -Depth 6) | ConvertFrom-Json
         $entries = @{ 'package-a' = $back.'package-a' }
         Get-OneClickNotSupportedVersion -HistoryEntry $entries['package-a'] -Destination 'WSUS' | Should -Be '2.0'
+        Get-OneClickNotSupportedReason -HistoryEntry $entries['package-a'] -Destination 'WSUS' | Should -Be 'not supported: DetectionNotMappable'
+        Get-OneClickNotSupportedReason -HistoryEntry $entries['package-a'] -Destination 'ConfigMgr' | Should -Be ''
         $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECMAndWSUS') -History $entries -Action 'StageAndPackage')[0]
         $row.PublishTo | Should -Be @('ConfigMgr')
         $row.Reason | Should -Be 'WSUS: not supported'
@@ -287,6 +289,29 @@ Describe 'Write-OneClickReport and Get-OneClickReportList' {
         $list[0].Failed | Should -Be 1
         $list[0].Applications | Should -Be 3
         $list[0].MarkdownPath | Should -Be $paths.MarkdownPath
+    }
+    It 'carries the full refusal text that the result cell shortens to its code' {
+        $run = [pscustomobject]@{ Started = [datetime]'2026-04-04T10:00:00'; Ended = [datetime]'2026-04-04T10:01:00'; Operator = 'o'; Computer = 'c'; Action = 'Stage and Publish' }
+        $full = 'not supported: DetectionNotMappable: The detection only checks that a file or registry key exists.'
+        $rows = @(
+            [pscustomobject]@{ Packager = 'package-b'; Application = 'App B'; Version = '1.0'; Outcome = 'Not supported'; ResultWSUS = 'not supported: DetectionNotMappable'; IdWSUS = ''; DetailWSUS = $full; Reason = 'WSUS: not supported' }
+            [pscustomobject]@{ Packager = 'package-a'; Application = 'App A'; Version = '2.0'; Outcome = 'Published'; ResultWSUS = 'published 1111-2222'; IdWSUS = '1111-2222'; DetailWSUS = ''; Reason = '' }
+        )
+        $paths = Write-OneClickReport -Run $run -Rows $rows -Folder (Join-Path $TestDrive 'r4')
+        $md = Get-Content $paths.MarkdownPath -Raw
+        $md | Should -Match '\| App B \| 1\.0 \| Not supported \|  \| not supported: DetectionNotMappable \|'
+        $md | Should -Match ([regex]::Escape('## Details'))
+        $md | Should -Match ([regex]::Escape('- App B, WSUS: ' + $full))
+        $md | Should -Not -Match 'App A, WSUS'
+        $json = Get-Content $paths.JsonPath -Raw | ConvertFrom-Json
+        $json.Applications[0].WSUS.Detail | Should -Be $full
+        $json.Applications[1].WSUS.Detail | Should -Be ''
+    }
+    It 'writes no Details section when no result has a longer message' {
+        $run = [pscustomobject]@{ Started = [datetime]'2026-04-05T10:00:00'; Ended = [datetime]'2026-04-05T10:01:00'; Operator = 'o'; Computer = 'c'; Action = 'Stage and Publish' }
+        $rows = @([pscustomobject]@{ Packager = 'package-a'; Application = 'App A'; Version = '2.0'; Outcome = 'Published'; ResultWSUS = 'published 1111-2222'; IdWSUS = '1111-2222'; Reason = '' })
+        $paths = Write-OneClickReport -Run $run -Rows $rows -Folder (Join-Path $TestDrive 'r5')
+        Get-Content $paths.MarkdownPath -Raw | Should -Not -Match '## Details'
     }
     It 'lists rollback steps only for the destinations in the scope' {
         $run = [pscustomobject]@{
