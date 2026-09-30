@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026.09.30.0098] - 2026-09-30
+
+## 5 screenshots show the three publish destinations
+
+### Changed
+
+- Name the three publish destinations in About.
+- Show Setup, the WSUS options, and the WSUS Updates window in the README.
 ## [2026.09.30.0097] - 2026-09-30
 
 ## 3 publish destinations chosen per run

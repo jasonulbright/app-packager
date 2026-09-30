@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.09.30.0097
+    Version    : 2026.09.30.0098
     Updated    : 2026-09-09
 #>
 
@@ -5851,7 +5851,7 @@ function New-AboutPanel {
         <TextBlock x:Name="txtAboutVersion" FontSize="13" Margin="0,0,0,14"
                    Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
         <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,14"
-                   Text="Automated application packaging for ConfigMgr and Intune, built entirely in in-box PowerShell 5.1."/>
+                   Text="Automated application packaging for ConfigMgr, Intune and WSUS: vendor version checks, silent install wrappers, detection rules, and a publish button per destination. Built entirely in in-box PowerShell 5.1."/>
         <Grid Margin="0,0,0,14">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="130"/>
