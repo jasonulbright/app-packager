@@ -46,6 +46,7 @@ function Save-Preferences {
     $script:SavedJson = $Prefs | ConvertTo-Json -Depth 5
     $script:SaveCount++
 }
+function ConvertTo-DeploymentTargetName { param($Destinations) if ($Destinations.ConfigMgr) { 'MECM' } elseif ($Destinations.Intune) { 'IntuneOnly' } elseif ($Destinations.WSUS) { 'WSUSOnly' } else { 'MECM' } }
 function Invoke-RefreshGrid { $script:RefreshCount++ }
 function Update-SidebarForSystems { $script:SidebarCount++ }
 function Show-ThemedMessage {
@@ -63,6 +64,7 @@ function Test-WizardCallback {
         SiteCode = ''; ProviderMachineName = ''; FileShareRoot = ''; DownloadRoot = ''
         FirstRunCompleted = $false
         Systems = [pscustomobject]@{ ConfigMgr = $true; Intune = $false; Wsus = $false }
+        AppFlow = [pscustomobject]@{ DefaultDestinations = [pscustomobject]@{ ConfigMgr = $true; WSUS = $false; Intune = $false } }
         Intune = [pscustomobject]@{
             TenantId = ''; ClientId = ''; ClientSecretProtected = ''
             DeploymentTarget = 'MECM'; PublishToIntune = $false
@@ -115,8 +117,9 @@ function Test-WizardCallback {
         $saved = $script:SavedJson | ConvertFrom-Json
         Assert-True $saved.FirstRunCompleted 'Saved preferences did not suppress setup.'
         Assert-True ($saved.Intune.DeploymentTarget -eq $Target) 'The One Click destination was not derived from the selected systems.'
+        Assert-True (($saved.AppFlow.DefaultDestinations.ConfigMgr -eq ($Systems -contains 'ConfigMgr')) -and ($saved.AppFlow.DefaultDestinations.WSUS -eq ($Systems -contains 'WSUS')) -and ($saved.AppFlow.DefaultDestinations.Intune -eq ($Systems -contains 'Intune'))) 'The default One Click destinations were not derived from the selected systems.'
         Assert-True (($saved.Systems.ConfigMgr -eq ($Systems -contains 'ConfigMgr')) -and ($saved.Systems.Intune -eq ($Systems -contains 'Intune')) -and ($saved.Systems.Wsus -eq ($Systems -contains 'WSUS'))) 'The selected systems were not saved.'
-        Assert-True ([bool]$saved.Intune.PublishToIntune -eq ($Target -eq 'IntuneOnly')) 'The Intune publish toggle does not match the One Click destination.'
+        Assert-True ([bool]$saved.Intune.PublishToIntune -eq ($Systems -contains 'Intune')) 'The Intune publish toggle does not follow the Intune box.'
         if ($Systems -contains 'ConfigMgr') { Assert-True ($saved.SiteCode -eq 'TEST') 'ConfigMgr fields were not trimmed and saved.' }
         else { Assert-True ($saved.SiteCode -eq '') 'Setup without ConfigMgr saved ConfigMgr fields.' }
         if ($Systems -contains 'Intune') { Assert-True ($saved.Intune.TenantId -eq 'tenant' -and $saved.Intune.ClientId -eq 'client') 'Intune fields were not saved.' }
