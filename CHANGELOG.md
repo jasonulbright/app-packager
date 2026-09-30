@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026.09.30.0100] - 2026-09-30
+
+## 27 Adobe Acrobat Reader languages selectable
+
+### Added
+
+- Package the multilingual Adobe Acrobat Reader edition with chosen languages.
+- Choose the Adobe Acrobat Reader edition and languages in Packager Preferences.
+
 ## [2026.09.30.0099] - 2026-09-30
 
 ## 3 destinations planned, run and reported per application
