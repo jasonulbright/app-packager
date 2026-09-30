@@ -1,5 +1,29 @@
 # Changelog
 
+## [2026.09.30.0097] - 2026-09-30
+
+## 3 publish destinations chosen per run
+
+### Added
+
+- Publish to ConfigMgr, Intune, or WSUS from three sidebar buttons.
+- Publish installers to WSUS as updates for computers with an older version.
+- Manage published WSUS updates: approve, decline, expire, remove.
+- Import Microsoft Update Catalog updates by ID or link.
+- Choose the systems in use in Setup and Options.
+- Build the .intunewin at Stage when the tool is present.
+- Add Visual C++ x64 and x86 runtime packagers, RTools, and Slido.
+- Run WSUS publishing from the command line.
+
+### Fixed
+
+- Detect ASP.NET Core hosting bundles by their own entry, not a shared runtime key.
+- Enable sidebar buttons after Setup or Options saves the missing setting.
+- Keep the publish note in the log after a run.
+- Follow the SSL choice with the WSUS port without a click.
+- Open Setup after the main window has rendered.
+- Run version checks and publishes without a site code when ConfigMgr is not in use.
+- Find DBeaver and Nextcloud in the console lookup.
 ## [2026.09.25.0096] - 2026-09-25
 
 ## 6 user reports closed
