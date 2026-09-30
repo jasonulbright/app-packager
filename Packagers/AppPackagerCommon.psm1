@@ -2724,6 +2724,103 @@ function Get-NextPatchVersion {
     return ($parts -join '.')
 }
 
+function New-ArpEntryDetectionScript {
+    <#
+    .SYNOPSIS
+        Returns a PowerShell detection script that finds a product by its own
+        Add/Remove Programs entry and compares its DisplayVersion.
+    .DESCRIPTION
+        Entry has the shape of a WsusDetection block of type ArpEntry: View
+        (32, 64 or Both), DisplayName, or DisplayNamePrefix with an optional
+        DisplayNameSuffix, an optional Publisher, WindowsInstaller (true
+        keeps to entries that Windows Installer wrote), and Version. The script
+        opens each registry view explicitly, so a 32-bit and a 64-bit host
+        read the same keys. It writes 'Installed' when an entry matches with a
+        DisplayVersion at or above Version, writes nothing otherwise, and
+        exits 0. A subkey that cannot be read is skipped; an Uninstall key
+        that cannot be listed stops the script with an error, which ConfigMgr
+        and Intune report as a failed detection, not as a missing product.
+        Versions compare as four numbers, a missing part as zero; a
+        DisplayVersion that is not up to four numbers never matches. Names
+        and the publisher compare without case.
+    #>
+    param([Parameter(Mandatory)]$Entry)
+
+    $read = {
+        param([string]$Name)
+        if ($Entry -is [System.Collections.IDictionary]) {
+            if ($Entry.Contains($Name)) { return [string]$Entry[$Name] }
+            return ''
+        }
+        $property = $Entry.PSObject.Properties[$Name]
+        if ($property) { return [string]$property.Value }
+        return ''
+    }
+    $quote = { param([string]$Text) "'" + [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent($Text) + "'" }
+
+    $type = & $read 'Type'
+    if ($type -and $type -ne 'ArpEntry') { throw ("The entry type '{0}' is not ArpEntry." -f $type) }
+    $exactName = & $read 'DisplayName'
+    $prefix = & $read 'DisplayNamePrefix'
+    $suffix = & $read 'DisplayNameSuffix'
+    $publisher = & $read 'Publisher'
+    $windowsInstaller = ((& $read 'WindowsInstaller') -match '^(true|1)$')
+    if (-not $exactName -and -not $prefix) { throw 'The entry names no DisplayName or DisplayNamePrefix, so the script cannot find the Add/Remove Programs entry.' }
+    $version = (& $read 'Version').Trim()
+    $parts = @($version.Split('.'))
+    $number = 0
+    if ($version -notmatch '^\d+(\.\d+){0,3}$' -or @($parts | Where-Object { -not [int]::TryParse($_, [ref]$number) }).Count -gt 0) {
+        throw ("The entry compares DisplayVersion with '{0}', which is not a version of up to four numbers." -f $version)
+    }
+    while ($parts.Count -lt 4) { $parts += '0' }
+    $viewText = & $read 'View'
+    $views = switch -Regex ($viewText) {
+        '^32$' { @('Registry32') }
+        '^64$' { @('Registry64') }
+        '^Both$' { @('Registry32', 'Registry64') }
+        default { throw ("The entry view '{0}' is not 32, 64 or Both." -f $viewText) }
+    }
+
+    $lines = New-Object System.Collections.Generic.List[string]
+    $lines.Add(('$minimum = [version]''{0}''' -f ($parts -join '.')))
+    $lines.Add(('foreach ($view in @({0})) {{' -f (($views | ForEach-Object { '[Microsoft.Win32.RegistryView]::' + $_ }) -join ', ')))
+    $lines.Add('    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $view)')
+    $lines.Add('    $uninstall = $base.OpenSubKey(''SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'')')
+    $lines.Add('    if (-not $uninstall) { continue }')
+    $lines.Add('    foreach ($name in $uninstall.GetSubKeyNames()) {')
+    $lines.Add('        $key = $null')
+    $lines.Add('        try {')
+    $lines.Add('            $key = $uninstall.OpenSubKey($name)')
+    $lines.Add('            if (-not $key) { continue }')
+    $lines.Add('            $displayName = [string]$key.GetValue(''DisplayName'')')
+    $lines.Add('            $publisher = [string]$key.GetValue(''Publisher'')')
+    $lines.Add('            $displayVersion = [string]$key.GetValue(''DisplayVersion'')')
+    $lines.Add('            $windowsInstaller = $key.GetValue(''WindowsInstaller'')')
+    $lines.Add('        }')
+    $lines.Add('        catch { continue }')
+    $lines.Add('        finally { if ($key) { $key.Close() } }')
+    if ($exactName) {
+        $lines.Add(('        if (-not [string]::Equals($displayName, {0}, [StringComparison]::OrdinalIgnoreCase)) {{ continue }}' -f (& $quote $exactName)))
+    }
+    else {
+        $lines.Add(('        if (-not $displayName.StartsWith({0}, [StringComparison]::OrdinalIgnoreCase)) {{ continue }}' -f (& $quote $prefix)))
+        if ($suffix) { $lines.Add(('        if (-not $displayName.EndsWith({0}, [StringComparison]::OrdinalIgnoreCase)) {{ continue }}' -f (& $quote $suffix))) }
+    }
+    if ($publisher) { $lines.Add(('        if (-not [string]::Equals($publisher, {0}, [StringComparison]::OrdinalIgnoreCase)) {{ continue }}' -f (& $quote $publisher))) }
+    if ($windowsInstaller) { $lines.Add('        if ([string]$windowsInstaller -ne ''1'') { continue }') }
+    $lines.Add('        $parts = @($displayVersion.Trim().Split(''.''))')
+    $lines.Add('        if ($parts.Count -gt 4) { continue }')
+    $lines.Add('        $numbers = @(foreach ($part in $parts) { $n = 0; if ([int]::TryParse($part, [ref]$n) -and $n -ge 0) { $n } })')
+    $lines.Add('        if ($numbers.Count -ne $parts.Count) { continue }')
+    $lines.Add('        while ($numbers.Count -lt 4) { $numbers += 0 }')
+    $lines.Add('        if ((New-Object System.Version $numbers[0], $numbers[1], $numbers[2], $numbers[3]) -ge $minimum) { Write-Output ''Installed''; exit 0 }')
+    $lines.Add('    }')
+    $lines.Add('    $uninstall.Close()')
+    $lines.Add('}')
+    $lines.Add('exit 0')
+    return ($lines -join "`r`n")
+}
+
 function Test-MECMApplicationHasDeploymentType {
     param(
         [Parameter(Mandatory)][string]$ApplicationName,

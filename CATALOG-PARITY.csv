@@ -720,7 +720,7 @@
 "Sketchup Pro 2024","Skip-Licensed","licensed CAD"
 "Sketchup Pro 2025","Skip-Licensed","licensed CAD"
 "Skillbrains LightShot","Skip-Niche","consumer screenshot tools; ShareX/Greenshot supported"
-"Slido","Skip-Component","PowerPoint add-in tied to accounts"
+"Slido","Supported","existing packager: slido (admin MSI, per machine)"
 "SMath Studio","Added-1.4.0.22","free direct download, enterprise-relevant; port target [ported, stage-verified 2026-08-31]"
 "SmartFTP Client","Skip-Licensed","licensed sync/FTP tools; free WinSCP/FileZilla-class covered"
 "Smartsheet desktop app","Skip-Niche","SaaS wrapper"

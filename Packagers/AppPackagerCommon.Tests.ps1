@@ -1341,6 +1341,186 @@ Describe 'Get-NextPatchVersion' {
 }
 
 # ============================================================================
+# New-ArpEntryDetectionScript
+# ============================================================================
+
+Describe 'New-ArpEntryDetectionScript' {
+    BeforeAll {
+        function New-TestRegistryKey {
+            param([hashtable]$Values = @{}, [System.Collections.IDictionary]$SubKeys = @{}, [switch]$Unreadable)
+            $key = [pscustomobject]@{ Values = $Values; SubKeys = $SubKeys; Unreadable = [bool]$Unreadable }
+            $key | Add-Member -MemberType ScriptMethod -Name GetValue -Value { param($Name) if ($this.Unreadable) { throw [System.Security.SecurityException]'Requested registry access is not allowed.' }; $this.Values[$Name] }
+            $key | Add-Member -MemberType ScriptMethod -Name GetSubKeyNames -Value { [string[]]@($this.SubKeys.Keys) }
+            $key | Add-Member -MemberType ScriptMethod -Name OpenSubKey -Value { param($Name) $this.SubKeys[$Name] }
+            $key | Add-Member -MemberType ScriptMethod -Name Close -Value { }
+            return $key
+        }
+
+        # Entries: DisplayName, Publisher, DisplayVersion, View 32 (default) or
+        # 64, and Unreadable for a subkey whose values throw on read.
+        function New-TestRegistry {
+            param([object[]]$Entries = @())
+            $views = @{}
+            foreach ($view in 'Registry32', 'Registry64') {
+                $subKeys = [ordered]@{}
+                $i = 0
+                foreach ($entry in $Entries) {
+                    if ($(if ($entry.View -eq '64') { 'Registry64' } else { 'Registry32' }) -ne $view) { continue }
+                    $values = @{}
+                    foreach ($name in 'DisplayName', 'Publisher', 'DisplayVersion', 'WindowsInstaller') { if ($entry.ContainsKey($name)) { $values[$name] = $entry[$name] } }
+                    $subKeys['entry' + $i] = New-TestRegistryKey -Values $values -Unreadable:([bool]$entry.Unreadable)
+                    $i++
+                }
+                $views[$view] = New-TestRegistryKey -SubKeys @{ 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' = (New-TestRegistryKey -SubKeys $subKeys) }
+            }
+            $registry = [pscustomobject]@{ Views = $views; Opened = (New-Object System.Collections.Generic.List[string]) }
+            $registry | Add-Member -MemberType ScriptMethod -Name OpenBaseKey -Value {
+                param($Hive, $View)
+                if ([string]$Hive -ne 'LocalMachine') { throw ("The script opened hive {0}." -f $Hive) }
+                $this.Opened.Add([string]$View)
+                $this.Views[[string]$View]
+            }
+            return $registry
+        }
+
+        # Runs the script in process against the fake registry. Every exit in
+        # the script must be exit 0, so return keeps its outcome.
+        function Invoke-TestDetection {
+            param([Parameter(Mandatory)][string]$ScriptText, [Parameter(Mandatory)]$Registry)
+            $call = '[Microsoft.Win32.RegistryKey]::OpenBaseKey('
+            ([regex]::Matches($ScriptText, [regex]::Escape($call))).Count | Should -Be 1
+            ([regex]::Matches($ScriptText, '\bexit\b(?!\s+0\b)')).Count | Should -Be 0
+            $FakeRegistry = $Registry
+            $text = $ScriptText.Replace($call, '$FakeRegistry.OpenBaseKey(') -replace '\bexit 0\b', 'return'
+            return @(& ([scriptblock]::Create($text)))
+        }
+
+        $script:ContosoEntry = @{ Type = 'ArpEntry'; View = '64'; DisplayName = 'Contoso Tool'; Publisher = 'Contoso'; Version = '5.4.2' }
+        $script:BundleEntry = @{ Type = 'ArpEntry'; View = '32'; DisplayNamePrefix = 'Microsoft .NET 8.0.'; DisplayNameSuffix = ' - Windows Server Hosting'; Publisher = 'Microsoft Corporation'; Version = '8.0.31' }
+    }
+
+    It 'finds an entry at or above the version: <Name>' -TestCases @(
+        @{ Name = 'same version'; Version = '5.4.2' }
+        @{ Name = 'newer version'; Version = '5.4.10' }
+        @{ Name = 'same version with a build part'; Version = '5.4.2.1180' }
+        @{ Name = 'same version with a zero build part'; Version = '5.4.2.0' }
+    ) {
+        param($Name, $Version)
+        $registry = New-TestRegistry -Entries @(@{ DisplayName = 'Contoso Tool'; Publisher = 'Contoso'; DisplayVersion = $Version; View = '64' })
+        Invoke-TestDetection -ScriptText (New-ArpEntryDetectionScript -Entry $script:ContosoEntry) -Registry $registry | Should -Be @('Installed')
+    }
+
+    It 'finds nothing for: <Name>' -TestCases @(
+        @{ Name = 'an older version'; Entry = @{ DisplayName = 'Contoso Tool'; Publisher = 'Contoso'; DisplayVersion = '5.4.1'; View = '64' } }
+        @{ Name = 'another name'; Entry = @{ DisplayName = 'Contoso Tool Helper'; Publisher = 'Contoso'; DisplayVersion = '9.0'; View = '64' } }
+        @{ Name = 'another publisher'; Entry = @{ DisplayName = 'Contoso Tool'; Publisher = 'Fabrikam'; DisplayVersion = '9.0'; View = '64' } }
+        @{ Name = 'no publisher'; Entry = @{ DisplayName = 'Contoso Tool'; DisplayVersion = '9.0'; View = '64' } }
+        @{ Name = 'no DisplayVersion'; Entry = @{ DisplayName = 'Contoso Tool'; Publisher = 'Contoso'; View = '64' } }
+        @{ Name = 'a DisplayVersion with text'; Entry = @{ DisplayName = 'Contoso Tool'; Publisher = 'Contoso'; DisplayVersion = '9.0-beta'; View = '64' } }
+        @{ Name = 'a DisplayVersion of five parts'; Entry = @{ DisplayName = 'Contoso Tool'; Publisher = 'Contoso'; DisplayVersion = '9.0.0.0.1'; View = '64' } }
+        @{ Name = 'the entry in the other view'; Entry = @{ DisplayName = 'Contoso Tool'; Publisher = 'Contoso'; DisplayVersion = '9.0'; View = '32' } }
+    ) {
+        param($Name, $Entry)
+        $registry = New-TestRegistry -Entries @($Entry)
+        Invoke-TestDetection -ScriptText (New-ArpEntryDetectionScript -Entry $script:ContosoEntry) -Registry $registry | Should -BeNullOrEmpty
+    }
+
+    It 'opens only the views that the entry names: <View>' -TestCases @(
+        @{ View = '32'; Opened = @('Registry32'); Found = $false }
+        @{ View = '64'; Opened = @('Registry64'); Found = $true }
+        @{ View = 'Both'; Opened = @('Registry32', 'Registry64'); Found = $true }
+    ) {
+        param($View, $Opened, $Found)
+        $registry = New-TestRegistry -Entries @(@{ DisplayName = 'Contoso Tool'; Publisher = 'Contoso'; DisplayVersion = '5.4.2'; View = '64' })
+        $entry = @{} + $script:ContosoEntry
+        $entry.View = $View
+        $output = Invoke-TestDetection -ScriptText (New-ArpEntryDetectionScript -Entry $entry) -Registry $registry
+        (@($output) -contains 'Installed') | Should -Be $Found
+        @($registry.Opened) | Should -Be $Opened
+    }
+
+    It 'finds the hosting bundle and ignores the runtimes that share its host: <Name>' -TestCases @(
+        @{ Name = 'bundle 8.0.30 beside Desktop Runtime 8.0.31'; Found = $false; Entries = @(
+                @{ DisplayName = 'Microsoft .NET 8.0.30 - Windows Server Hosting'; Publisher = 'Microsoft Corporation'; DisplayVersion = '8.0.30.26373' }
+                @{ DisplayName = 'Microsoft ASP.NET Core 8.0.30 Hosting Bundle Options'; Publisher = 'Microsoft Corporation'; DisplayVersion = '8.0.30.26373' }
+                @{ DisplayName = 'Microsoft Windows Desktop Runtime - 8.0.31 (x64)'; Publisher = 'Microsoft Corporation'; DisplayVersion = '8.0.31.26420' }
+                @{ DisplayName = 'Microsoft .NET Host - 8.0.31 (x64)'; Publisher = 'Microsoft Corporation'; DisplayVersion = '64.124.58447'; View = '64' }
+                @{ DisplayName = 'Microsoft .NET Runtime - 8.0.31 (x64)'; Publisher = 'Microsoft Corporation'; DisplayVersion = '64.124.58447'; View = '64' }) }
+        @{ Name = 'bundle 8.0.31'; Found = $true; Entries = @(
+                @{ DisplayName = 'Microsoft .NET 8.0.31 - Windows Server Hosting'; Publisher = 'Microsoft Corporation'; DisplayVersion = '8.0.31.26421' }) }
+        @{ Name = 'bundle 8.0.32'; Found = $true; Entries = @(
+                @{ DisplayName = 'Microsoft .NET 8.0.32 - Windows Server Hosting'; Publisher = 'Microsoft Corporation'; DisplayVersion = '8.0.32.26501' }) }
+        @{ Name = 'only the 10.0 bundle'; Found = $false; Entries = @(
+                @{ DisplayName = 'Microsoft .NET 10.0.12 - Windows Server Hosting'; Publisher = 'Microsoft Corporation'; DisplayVersion = '10.0.12.26422' }) }
+        @{ Name = 'only the options entry of bundle 8.0.31'; Found = $false; Entries = @(
+                @{ DisplayName = 'Microsoft ASP.NET Core 8.0.31 Hosting Bundle Options'; Publisher = 'Microsoft Corporation'; DisplayVersion = '8.0.31.26421' }) }
+        @{ Name = 'another product with the same name prefix'; Found = $false; Entries = @(
+                @{ DisplayName = 'Microsoft .NET 8.0.31 Templates (x64)'; Publisher = 'Microsoft Corporation'; DisplayVersion = '8.0.31.26421' }) }
+        @{ Name = 'the bundle name in the 64-bit view'; Found = $false; Entries = @(
+                @{ DisplayName = 'Microsoft .NET 8.0.31 - Windows Server Hosting'; Publisher = 'Microsoft Corporation'; DisplayVersion = '8.0.31.26421'; View = '64' }) }
+    ) {
+        param($Name, $Found, $Entries)
+        $output = Invoke-TestDetection -ScriptText (New-ArpEntryDetectionScript -Entry $script:BundleEntry) -Registry (New-TestRegistry -Entries $Entries)
+        (@($output) -contains 'Installed') | Should -Be $Found
+    }
+
+    It 'requires the Windows Installer flag when the entry asks for it' {
+        $entry = @{} + $script:ContosoEntry
+        $entry.WindowsInstaller = $true
+        $text = New-ArpEntryDetectionScript -Entry $entry
+        $msi = @{ DisplayName = 'Contoso Tool'; Publisher = 'Contoso'; DisplayVersion = '5.4.2'; WindowsInstaller = 1; View = '64' }
+        $exe = @{ DisplayName = 'Contoso Tool'; Publisher = 'Contoso'; DisplayVersion = '5.4.2'; View = '64' }
+        Invoke-TestDetection -ScriptText $text -Registry (New-TestRegistry -Entries @($msi)) | Should -Be @('Installed')
+        Invoke-TestDetection -ScriptText $text -Registry (New-TestRegistry -Entries @($exe)) | Should -BeNullOrEmpty
+    }
+
+    It 'keeps quotes in names and the publisher literal' {
+        $name = 'Contoso ' + [char]0x2019 + 'Tool' + [char]0x2019 + ' and O''Brien'
+        $entry = @{ Type = 'ArpEntry'; View = '32'; DisplayName = $name; Publisher = 'O''Brien'; Version = '1.0' }
+        $text = New-ArpEntryDetectionScript -Entry $entry
+        $registry = New-TestRegistry -Entries @(@{ DisplayName = $name; Publisher = 'O''Brien'; DisplayVersion = '1.0' })
+        Invoke-TestDetection -ScriptText $text -Registry $registry | Should -Be @('Installed')
+    }
+
+    It 'skips a subkey that cannot be read and still finds the entry' {
+        $registry = New-TestRegistry -Entries @(
+            @{ DisplayName = 'Locked'; Unreadable = $true; View = '64' }
+            @{ DisplayName = 'Contoso Tool'; Publisher = 'Contoso'; DisplayVersion = '5.4.2'; View = '64' })
+        Invoke-TestDetection -ScriptText (New-ArpEntryDetectionScript -Entry $script:ContosoEntry) -Registry $registry | Should -Be @('Installed')
+    }
+
+    It 'reads an entry given as an object' {
+        $registry = New-TestRegistry -Entries @(@{ DisplayName = 'Contoso Tool'; Publisher = 'Contoso'; DisplayVersion = '5.4.2'; View = '64' })
+        Invoke-TestDetection -ScriptText (New-ArpEntryDetectionScript -Entry ([pscustomobject]$script:ContosoEntry)) -Registry $registry | Should -Be @('Installed')
+    }
+
+    It 'refuses an entry it cannot search for: <Name>' -TestCases @(
+        @{ Name = 'no name'; Change = @{ DisplayName = '' }; Message = '*no DisplayName or DisplayNamePrefix*' }
+        @{ Name = 'a version with text'; Change = @{ Version = '5.4.x' }; Message = '*not a version of up to four numbers*' }
+        @{ Name = 'a version of five parts'; Change = @{ Version = '5.4.2.0.1' }; Message = '*not a version of up to four numbers*' }
+        @{ Name = 'a version part above Int32'; Change = @{ Version = '5.4.3000000000' }; Message = '*not a version of up to four numbers*' }
+        @{ Name = 'no version'; Change = @{ Version = '' }; Message = '*not a version of up to four numbers*' }
+        @{ Name = 'an unknown view'; Change = @{ View = 'x86' }; Message = '*not 32, 64 or Both*' }
+        @{ Name = 'no view'; Change = @{ View = '' }; Message = '*not 32, 64 or Both*' }
+        @{ Name = 'another type'; Change = @{ Type = 'File' }; Message = '*not ArpEntry*' }
+    ) {
+        param($Name, $Change, $Message)
+        $entry = @{} + $script:ContosoEntry
+        foreach ($key in $Change.Keys) { $entry[$key] = $Change[$key] }
+        { New-ArpEntryDetectionScript -Entry $entry } | Should -Throw $Message
+    }
+
+    It 'runs in Windows PowerShell with no output, no error and exit code 0 when no entry matches' {
+        $entry = @{ Type = 'ArpEntry'; View = 'Both'; DisplayName = ('AppPackager test product ' + [guid]::NewGuid()); Version = '1.0' }
+        $path = Join-Path $TestDrive 'detect.ps1'
+        [System.IO.File]::WriteAllText($path, (New-ArpEntryDetectionScript -Entry $entry))
+        $output = @(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $path 2>&1)
+        $LASTEXITCODE | Should -Be 0
+        $output | Should -BeNullOrEmpty
+    }
+}
+
+# ============================================================================
 # New-MECMApplicationFromManifest - existing application validation
 # ============================================================================
 
@@ -3335,6 +3515,23 @@ Describe 'ConvertTo-IntuneWin32Rules operators' {
             [pscustomobject]@{ Type = 'RegistryKeyValue'; RegistryKeyRelative = 'K'; ExpectedValue = '1'; Operator = 'BeginsWith'; Is64Bit = $true },
             [pscustomobject]@{ Type = 'RegistryKey'; RegistryKeyRelative = 'K2'; Is64Bit = $true }) }
         { ConvertTo-IntuneWin32Rules -Manifest (New-RuleManifest $det) } | Should -Throw '*script rule*'
+    }
+
+    It 'maps the hosting bundle script detection to one PowerShell script rule that carries the script' {
+        $text = New-ArpEntryDetectionScript -Entry @{ Type = 'ArpEntry'; View = '32'; DisplayNamePrefix = 'Microsoft .NET 8.0.'; DisplayNameSuffix = ' - Windows Server Hosting'; Publisher = 'Microsoft Corporation'; Version = '8.0.31' }
+        $r = @(ConvertTo-IntuneWin32Rules -Manifest (New-RuleManifest @{ Type = 'Script'; ScriptLanguage = 'PowerShell'; ScriptText = $text }))
+        $r.Count | Should -Be 1
+        $r[0].'@odata.type' | Should -Be '#microsoft.graph.win32LobAppPowerShellScriptRule'
+        $r[0].ruleType | Should -Be 'detection'
+        [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($r[0].scriptContent)) | Should -Be $text
+    }
+
+    It 'maps the Visual C++ runtime detection to a 64-bit file version rule' {
+        $r = @(ConvertTo-IntuneWin32Rules -Manifest (New-RuleManifest @{ Type = 'File'; FilePath = '%SystemRoot%\SysWOW64'; FileName = 'vcruntime140.dll'; PropertyType = 'Version'; Operator = 'GreaterEquals'; ExpectedValue = '14.51.36247.0'; Is64Bit = $true }))
+        $r[0].path | Should -Be '%SystemRoot%\SysWOW64'
+        $r[0].check32BitOn64System | Should -BeFalse
+        $r[0].operationType | Should -Be 'version'
+        $r[0].comparisonValue | Should -Be '14.51.36247.0'
     }
 }
 

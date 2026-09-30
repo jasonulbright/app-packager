@@ -14,10 +14,12 @@ IconSource: None
 .DESCRIPTION
     Downloads the latest .NET 8 ASP.NET Core Windows Server Hosting Bundle
     installer from the official Microsoft CDN, stages content to a versioned
-    local folder with registry-based detection metadata, and creates a ConfigMgr
-    Application with registry key existence detection.
-    Detection uses the existence of the ASP.NET Core Shared Framework v8.0
-    registry key for the specific version.
+    local folder, and creates a ConfigMgr Application with script detection.
+    The detection script, the Intune detection and the WSUS rules read the
+    hosting bundle's own Add/Remove Programs entry: its name, publisher and
+    version. A separate .NET 8 runtime (for example the Windows Desktop
+    Runtime) raises the shared .NET host, but it never makes an older
+    bundle look current.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
@@ -53,7 +55,7 @@ IconSource: None
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create ConfigMgr application with registry key existence detection.
+    create ConfigMgr application with script detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available .NET 8 runtime version string and exits.
@@ -203,13 +205,25 @@ function Invoke-StageASPNETHostingBundle8 {
         -UninstallPs1Content $uninstallContent
 
     # --- Write stage manifest ---
-    $registryKey = "SOFTWARE\WOW6432Node\Microsoft\ASP.NET Core\Shared Framework\v8.0\${version}"
+    # Burn registers each bundle version under its own 32-bit Uninstall key.
+    # The .NET host, runtime and ASP.NET Core shared framework that the bundle
+    # carries also come from standalone .NET 8 installers, so only this entry
+    # tells the bundle and its version apart. ConfigMgr, Intune and WSUS all
+    # read it.
+    $bundleEntry = @{
+        Type              = "ArpEntry"
+        View              = "32"
+        DisplayNamePrefix = "Microsoft .NET 8.0."
+        DisplayNameSuffix = " - Windows Server Hosting"
+        Publisher         = "Microsoft Corporation"
+        Version           = $version
+    }
 
     $appName   = "Microsoft .NET ${version} - Windows Server Hosting"
     $publisher = "Microsoft Corporation"
 
     Write-Log ""
-    Write-Log "Detection registry key       : $registryKey"
+    Write-Log "Detection                    : 32-bit Add/Remove Programs entry 'Microsoft .NET 8.0.* - Windows Server Hosting' by $publisher, DisplayVersion >= $version"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -223,9 +237,11 @@ function Invoke-StageASPNETHostingBundle8 {
         UninstallArgs   = "/uninstall /quiet /norestart"
         RunningProcess  = @()
         Detection       = @{
-            Type                = "RegistryKey"
-            RegistryKeyRelative = $registryKey
+            Type           = "Script"
+            ScriptLanguage = "PowerShell"
+            ScriptText     = (New-ArpEntryDetectionScript -Entry $bundleEntry)
         }
+        WsusDetection   = $bundleEntry
     }
 
     # Save version marker for Package phase
@@ -267,7 +283,7 @@ function Invoke-PackageASPNETHostingBundle8 {
     Write-Log "AppName                      : $($manifest.AppName)"
     Write-Log "Publisher                    : $($manifest.Publisher)"
     Write-Log "SoftwareVersion              : $($manifest.SoftwareVersion)"
-    Write-Log "Detection Key                : $($manifest.Detection.RegistryKeyRelative)"
+    Write-Log "Detection Type               : $($manifest.Detection.Type)"
     Write-Log ""
 
     # --- Network share ---

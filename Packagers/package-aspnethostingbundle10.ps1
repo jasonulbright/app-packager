@@ -14,11 +14,12 @@ IconSource: None
 .DESCRIPTION
     Downloads the latest .NET 10 ASP.NET Core Windows Server Hosting Bundle
     installer from the official Microsoft CDN, stages content to a versioned
-    local folder, and creates a ConfigMgr Application with file existence
-    detection.
-    Detection uses the versioned shared framework file that the runtime
-    installs, because .NET 10 no longer writes a per-version ASP.NET Core
-    Shared Framework registry key.
+    local folder, and creates a ConfigMgr Application with script detection.
+    The detection script, the Intune detection and the WSUS rules read the
+    hosting bundle's own Add/Remove Programs entry: its name, publisher and
+    version. A separate .NET 10 runtime (for example the Windows Desktop
+    Runtime) raises the shared .NET host, but it never makes an older
+    bundle look current.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
@@ -54,7 +55,7 @@ IconSource: None
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create ConfigMgr application with file existence detection.
+    create ConfigMgr application with script detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available .NET 10 runtime version string and exits.
@@ -204,54 +205,25 @@ function Invoke-StageASPNETHostingBundle10 {
         -UninstallPs1Content $uninstallContent
 
     # --- Write stage manifest ---
-    # .NET 10 does not write the per-version "ASP.NET Core\Shared Framework"
-    # key that 8.0 registers, and the dotnet InstalledVersions values outlive
-    # the runtime they name; the versioned shared-framework folder does not.
-    $sharedFrameworkPath = "C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\${version}"
-    $sharedFrameworkFile = "Microsoft.AspNetCore.dll"
+    # Burn registers each bundle version under its own 32-bit Uninstall key.
+    # The .NET host, runtime and ASP.NET Core shared framework that the bundle
+    # carries also come from standalone .NET 10 installers, so only this
+    # entry tells the bundle and its version apart. ConfigMgr, Intune and
+    # WSUS all read it.
+    $bundleEntry = @{
+        Type              = "ArpEntry"
+        View              = "32"
+        DisplayNamePrefix = "Microsoft .NET 10.0."
+        DisplayNameSuffix = " - Windows Server Hosting"
+        Publisher         = "Microsoft Corporation"
+        Version           = $version
+    }
 
     $appName   = "Microsoft .NET ${version} - Windows Server Hosting"
     $publisher = "Microsoft Corporation"
 
     Write-Log ""
-    Write-Log "Detection file               : $sharedFrameworkPath\$sharedFrameworkFile"
-
-    # A client that already took the next patch still counts as installed:
-    # the runtime folder is replaced, not kept beside the old one.
-    $detection = @{
-        Type         = "File"
-        FilePath     = $sharedFrameworkPath
-        FileName     = $sharedFrameworkFile
-        PropertyType = "Existence"
-        Is64Bit      = $true
-    }
-    $nextVersion = Get-NextPatchVersion -Version $version
-    if ($nextVersion) {
-        Write-Log "Detection also accepts       : $nextVersion (successor patch)"
-        $detection = @{
-            Type      = "Compound"
-            Connector = "Or"
-            Clauses   = @(
-                @{
-                    Type         = "File"
-                    FilePath     = $sharedFrameworkPath
-                    FileName     = $sharedFrameworkFile
-                    PropertyType = "Existence"
-                    Is64Bit      = $true
-                },
-                @{
-                    Type         = "File"
-                    FilePath     = "C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\${nextVersion}"
-                    FileName     = $sharedFrameworkFile
-                    PropertyType = "Existence"
-                    Is64Bit      = $true
-                }
-            )
-        }
-    }
-    else {
-        Write-Log "Non-numeric patch component in '$version'; single-version detection only." -Level WARN
-    }
+    Write-Log "Detection                    : 32-bit Add/Remove Programs entry 'Microsoft .NET 10.0.* - Windows Server Hosting' by $publisher, DisplayVersion >= $version"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -264,7 +236,12 @@ function Invoke-StageASPNETHostingBundle10 {
         InstallArgs     = "/install /quiet /norestart"
         UninstallArgs   = "/uninstall /quiet /norestart"
         RunningProcess  = @()
-        Detection       = $detection
+        Detection       = @{
+            Type           = "Script"
+            ScriptLanguage = "PowerShell"
+            ScriptText     = (New-ArpEntryDetectionScript -Entry $bundleEntry)
+        }
+        WsusDetection   = $bundleEntry
     }
 
     # Save version marker for Package phase
