@@ -566,6 +566,35 @@ Describe 'One Click freshness' {
         # The sealed record and the freshness check read the same version field.
         Test-WorkbenchBuildIsCurrent -ApplicationId $script:AppId -ProfileId 'p1' -Version '2.5.0' -ProfileRevision 4 -PolicyDigest 'POLICY1' | Should -BeTrue
     }
+
+    It 'passes the policy digest that a build record seals' {
+        Import-Module "$PSScriptRoot\..\Packagers\AppPackagerSigning.psd1" -Force
+        foreach ($name in @('Get-WorkbenchSigningPolicy', 'Get-WorkbenchSigningPolicyJson', 'Get-WorkbenchSigningPolicyDigest')) {
+            $fn = $guiAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
+            . ([scriptblock]::Create($fn.Extent.Text))
+        }
+        $prefs = [pscustomobject]@{ ScriptSigning = [pscustomobject]@{ SignDeployment = $true; StoreLocation = 'CurrentUser'; HashAlgorithm = 'SHA256' } }
+        $sealed = (Get-SigningPolicy -Json (Get-WorkbenchSigningPolicyJson -Prefs $prefs)).PolicyDigest
+        Get-WorkbenchSigningPolicyDigest -Prefs $prefs | Should -Be $sealed
+    }
+}
+
+Describe 'Pipeline timer scope' {
+    # The tick runs on the dispatcher after Invoke-MultiAppPipeline returns.
+    # A parameter read there is $null; a method call on it throws out of
+    # ShowDialog and closes the application.
+    It 'reads no parameter of Invoke-MultiAppPipeline in the timer tick' {
+        $t = $null; $e = $null
+        $guiAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\start-apppackager.ps1'), [ref]$t, [ref]$e)
+        $fn = $guiAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-MultiAppPipeline' }, $false)
+        $fn | Should -Not -BeNullOrEmpty
+        $params = @($fn.Body.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
+        $tick = $fn.Find({ param($n) $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $n.Member.Value -eq 'Add_Tick' }, $true)
+        $tick | Should -Not -BeNullOrEmpty
+        $reads = @($tick.Arguments[0].FindAll({ param($n) $n -is [System.Management.Automation.Language.VariableExpressionAst] -and -not $n.VariablePath.IsScript }, $true) |
+            ForEach-Object { $_.VariablePath.UserPath } | Where-Object { $params -contains $_ } | Sort-Object -Unique)
+        $reads | Should -BeNullOrEmpty
+    }
 }
 
 Describe 'CLI stage of a fixture packager' {

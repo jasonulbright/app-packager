@@ -270,6 +270,77 @@ function Set-OneClickPublishedVersion {
         Id      = $Id
     }
     $entry['Published'] = $published
+    if ($entry.ContainsKey('NotSupported') -and $null -ne $entry['NotSupported']) {
+        $refusals = ConvertTo-OneClickHashtable -Value $entry['NotSupported']
+        $refusals.Remove($Destination)
+        $entry['NotSupported'] = $refusals
+    }
+    return $History
+}
+
+function ConvertTo-OneClickHashtable {
+    param($Value)
+    if ($null -eq $Value) { return @{} }
+    if ($Value -is [hashtable]) { return $Value }
+    $h = @{}
+    foreach ($p in $Value.PSObject.Properties) { $h[$p.Name] = $p.Value }
+    return $h
+}
+
+function Get-OneClickNotSupportedVersion {
+    <#
+    .SYNOPSIS
+        The version a destination last refused, from a history entry.
+    .OUTPUTS
+        [string] The version; empty when the destination never refused.
+    #>
+    param(
+        $HistoryEntry,
+        [Parameter(Mandatory)][ValidateSet('ConfigMgr', 'WSUS', 'Intune')][string]$Destination
+    )
+    if ($null -eq $HistoryEntry) { return '' }
+    $refusals = $null
+    if ($HistoryEntry -is [System.Collections.IDictionary]) { if ($HistoryEntry.Contains('NotSupported')) { $refusals = $HistoryEntry['NotSupported'] } }
+    elseif ($HistoryEntry.PSObject.Properties['NotSupported']) { $refusals = $HistoryEntry.NotSupported }
+    if ($null -eq $refusals) { return '' }
+    $record = $null
+    if ($refusals -is [System.Collections.IDictionary]) { if ($refusals.Contains($Destination)) { $record = $refusals[$Destination] } }
+    elseif ($refusals.PSObject.Properties[$Destination]) { $record = $refusals.PSObject.Properties[$Destination].Value }
+    if ($null -eq $record) { return '' }
+    if ($record -is [System.Collections.IDictionary]) { return [string]$record['Version'] }
+    return [string]$record.Version
+}
+
+function Set-OneClickNotSupported {
+    <#
+    .SYNOPSIS
+        Records that a destination refused one version of an application.
+    .DESCRIPTION
+        The plan and the run skip that destination for the same version
+        until Force is set; a newer version is tried again. Mutates the
+        hashtable that Read-PackagerHistory returns; the caller saves it.
+    #>
+    param(
+        [Parameter(Mandatory)][hashtable]$History,
+        [Parameter(Mandatory)][string]$PackagerName,
+        [Parameter(Mandatory)][ValidateSet('ConfigMgr', 'WSUS', 'Intune')][string]$Destination,
+        [Parameter(Mandatory)][string]$Version,
+        [string]$Reason = '',
+        [datetime]$At = (Get-Date)
+    )
+    if (-not $History.ContainsKey($PackagerName) -or $null -eq $History[$PackagerName]) {
+        $History[$PackagerName] = @{ LastChecked = $null; LastStaged = $null; LastPackaged = $null; LastKnownVersion = $null; LastResult = $null }
+    }
+    $entry = ConvertTo-OneClickHashtable -Value $History[$PackagerName]
+    $History[$PackagerName] = $entry
+    $refusals = @{}
+    if ($entry.ContainsKey('NotSupported')) { $refusals = ConvertTo-OneClickHashtable -Value $entry['NotSupported'] }
+    $refusals[$Destination] = @{
+        Version = $Version
+        At      = $At.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+        Reason  = $Reason
+    }
+    $entry['NotSupported'] = $refusals
     return $History
 }
 
@@ -351,9 +422,11 @@ function Get-OneClickPlan {
 
         $destinations = Get-OneClickDestinations -Prefs $Prefs -PackagerName $name
         $lastPublished = [ordered]@{}
+        $lastRefused = @{}
         foreach ($d in $script:OneClickDestinations) {
             $rec = Get-OneClickPublishedVersion -HistoryEntry $entry -Destination $d
             $lastPublished[$d] = $(if ($rec) { $rec.Version } else { '' })
+            $lastRefused[$d] = Get-OneClickNotSupportedVersion -HistoryEntry $entry -Destination $d
         }
 
         $reasons = New-Object System.Collections.Generic.List[string]
@@ -391,6 +464,9 @@ function Get-OneClickPlan {
                     foreach ($d in $selected) {
                         if (-not $readiness[$d].Ready) { $reasons.Add(('{0}: {1}' -f $d, $readiness[$d].Reason)); continue }
                         if ($d -eq 'WSUS' -and $wsusUnsupported) { $reasons.Add('WSUS: not supported'); continue }
+                        if (-not $Force -and -not [string]::IsNullOrWhiteSpace($latest) -and $lastRefused[$d] -eq $latest) {
+                            $reasons.Add(('{0}: not supported' -f $d)); continue
+                        }
                         if (-not $Force -and -not [string]::IsNullOrWhiteSpace($latest) -and $lastPublished[$d] -eq $latest) {
                             $reasons.Add(('{0}: {1} already published' -f $d, $latest)); continue
                         }
@@ -624,6 +700,7 @@ Export-ModuleMember -Function @(
     'Get-OneClickDestinationNames', 'ConvertTo-OneClickDestinationSet', 'Get-OneClickDestinations',
     'Test-OneClickDestinationInUse', 'Get-OneClickDestinationScope',
     'Get-OneClickPublishedVersion', 'Set-OneClickPublishedVersion',
+    'Get-OneClickNotSupportedVersion', 'Set-OneClickNotSupported',
     'Get-OneClickCadenceDays', 'Get-OneClickPlan', 'Get-OneClickPlanSummary',
     'Get-OneClickReportFolder', 'Write-OneClickReport', 'Get-OneClickReportList'
 )

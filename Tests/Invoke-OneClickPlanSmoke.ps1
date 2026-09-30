@@ -100,6 +100,14 @@ try {
         & $assert ($null -eq $script:Prefs.AppFlow.Destinations.PSObject.Properties['package-alpha']) 'the saved preferences are untouched'
         & $ok 'preferences untouched'
 
+        # The operator clears Include of one row.
+        $gamma.Include = $false; $gamma.IncludeTouched = $true
+        & $p.Refresh
+        & $assert ($p.Summary.Text -eq '2 application(s), 1 skipped: 2 to ConfigMgr, 1 to WSUS, 0 to Intune') ('the count line follows Include: ' + $p.Summary.Text)
+        & $ok 'count line follows Include'
+        $gamma.Include = $true
+        & $p.Refresh
+
         # Force publishes the version WSUS already has.
         $p.Force.IsChecked = $true
         & $p.Refresh
@@ -124,6 +132,69 @@ try {
         & $p.Refresh
         & $assert ($p.Blocking.Visibility -eq 'Visible' -and $p.Blocking.Text -match 'WSUS: WSUS server not set') 'the blocking line names the destination and the reason'
         & $ok 'blocking line'
+
+        # Shown, the window replans only on an operator change: the check
+        # boxes that a refresh regenerates must not start another refresh.
+        # A refresh loop starves the dispatcher, so the counter itself ends
+        # the loop (State.Running stops the box handler) and the frame.
+        $script:SummaryCalls = 0
+        $script:SummaryModule = Get-Module AppPackagerOneClick
+        $script:ProbeState = $p.State
+        $script:ProbeFrame = New-Object System.Windows.Threading.DispatcherFrame
+        function global:Get-OneClickPlanSummary {
+            param($Plan, $Prefs, $Action)
+            $script:SummaryCalls++
+            if ($script:SummaryCalls -gt 20) { $script:ProbeState.Running = $true; $script:ProbeFrame.Continue = $false }
+            & $script:SummaryModule { param($a, $b, $c) Get-OneClickPlanSummary -Plan $a -Prefs $b -Action $c } $Plan $Prefs $Action
+        }
+        try {
+            $p.Dialog.Left = -32000; $p.Dialog.Top = -32000; $p.Dialog.WindowStartupLocation = 'Manual'
+            $p.Dialog.Show()
+            $timer = New-Object System.Windows.Threading.DispatcherTimer
+            $timer.Interval = [TimeSpan]::FromSeconds(2)
+            $frame = $script:ProbeFrame
+            $timer.Add_Tick({ $timer.Stop(); $frame.Continue = $false }.GetNewClosure())
+            $timer.Start()
+            [System.Windows.Threading.Dispatcher]::PushFrame($script:ProbeFrame)
+            $timer.Stop()
+            $p.State.Running = $false
+            $p.Dialog.Close()
+        }
+        finally { Remove-Item -Path function:global:Get-OneClickPlanSummary -ErrorAction SilentlyContinue }
+        & $assert ($script:SummaryCalls -le 2) ('the shown window replans without an operator change: {0} refreshes in 2 s' -f $script:SummaryCalls)
+        & $ok 'shown window is idle'
+    }
+
+    # --- Run: the progress and done hooks reach the window ----------------
+    # The pipeline is stubbed; it keeps the context the window hands it. The
+    # hooks are then called the way the pipeline timer calls them.
+    $script:Prefs.Wsus.ServerName = 'wsus01'
+    $global:txtComment = New-Object System.Windows.Controls.TextBox
+    $global:txtStatus = New-Object System.Windows.Controls.TextBlock
+    foreach ($stub in 'Get-SevenZipPathForContext', 'Get-IntuneWinToolPathForContext', 'Get-RequirementsMapForContext', 'Get-VariantsMapForContext',
+        'Get-CommandsMapForContext', 'Get-InstallModesMapForContext', 'Get-TitleModesMapForContext', 'Get-DefaultTitleModeForContext',
+        'Get-IntunePublishConfigForContext', 'Get-WsusPublishConfigForContext', 'Get-WorkbenchRunPlanForContext',
+        'Get-WorkbenchSigningPolicyJson', 'Get-WorkbenchSigningPolicyDigest') {
+        Set-Item -Path ('function:global:' + $stub) -Value { param($Rows, $Target) $null }
+    }
+    function global:Confirm-LocalSourceFolders { param($Rows) $Rows }
+    function global:Invoke-MultiAppPipeline { param($Operation, $Rows, $Context) $script:RunContext = $Context }
+    $script:RunContext = $null
+    Show-OneClickPlanDialog -Owner $probeOwner -Rows $rows -Action 'StageAndPackage' -Probe {
+        param($p)
+        $btnRun = $p.Run
+        $btnRun.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent, $btnRun)))
+        & $assert ($null -ne $script:RunContext -and $p.State.Running) 'Run starts the pipeline'
+        $alpha = $p.Rows | Where-Object { $_.Packager -eq 'package-alpha' }
+        $record = $script:RunContext.OneClickRows['package-alpha']
+        $record.Step = 'publishing'; $record.Outcome = 'Published'; $record.ResultWSUS = 'published guid-alpha'; $record.IdWSUS = 'guid-alpha'
+        & $script:RunContext.OneClickTick
+        & $assert ($alpha.Step -eq 'publishing' -and $alpha.ResultWSUS -eq 'published guid-alpha') ('the tick copies progress into the grid: step {0}' -f $alpha.Step)
+        & $ok 'progress reaches the grid'
+        & $script:RunContext.OneClickDone ([pscustomobject]@{ Canceled = $false })
+        & $assert (-not $p.State.Running -and $p.Summary.Text -like 'Complete: 1 published*') ('the done hook ends the run: ' + $p.Summary.Text)
+        & $assert ($p.State.ReportPath -and (Get-Content -LiteralPath $p.State.ReportPath -Raw) -match '\| Alpha \| 1\.0 \| Published \|') 'the run report lists the outcome'
+        & $ok 'run report written'
     }
 
     # --- One Click Settings panel: per-row boxes round trip ---------------
