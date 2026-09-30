@@ -234,6 +234,9 @@ function Read-Preferences {
         HiddenApplications   = @()
         FirstRunCompleted    = $false
         IncludeVersionInTitle = $false
+        # Strips the release version from a vendor product name; applies only
+        # while IncludeVersionInTitle is off.
+        RemoveVersionFromTitle = $false
         # The systems the sidebar publishes to. Setup and Options set them;
         # a button of a system not in use stays disabled whatever else is set.
         Systems              = [pscustomobject]@{
@@ -416,6 +419,9 @@ function Read-Preferences {
         $defaults.FirstRunCompleted = Resolve-FirstRunCompleted -StoredValue $data.FirstRunCompleted -PreferencesFileExisted $true
         if ($null -ne $data.IncludeVersionInTitle) {
             try { $defaults.IncludeVersionInTitle = [bool]$data.IncludeVersionInTitle } catch { }
+        }
+        if ($null -ne $data.RemoveVersionFromTitle) {
+            try { $defaults.RemoveVersionFromTitle = [bool]$data.RemoveVersionFromTitle } catch { }
         }
 
         # AppFlow: 1-click Full Run settings. Schema is additive; missing key
@@ -2335,7 +2341,10 @@ function Get-TitleModesMapForContext {
 }
 
 function Get-DefaultTitleModeForContext {
-    if ($script:Prefs -and [bool]$script:Prefs.IncludeVersionInTitle) { return 'IncludeVersion' }
+    param($Prefs = $script:Prefs)
+    if (-not $Prefs) { return '' }
+    if ([bool]$Prefs.IncludeVersionInTitle) { return 'IncludeVersion' }
+    if ($Prefs.PSObject.Properties['RemoveVersionFromTitle'] -and [bool]$Prefs.RemoveVersionFromTitle) { return 'NoVersion' }
     return ''
 }
 
@@ -3803,7 +3812,7 @@ if ($BatchMode) {
         -CadenceOverrides  $cadenceOverrides `
         -ConditionApps     $conditionApps `
         -CommandApps       $commandApps `
-        -DefaultTitleMode  $(if ($prefs -and [bool]$prefs.IncludeVersionInTitle) { 'IncludeVersion' } else { '' }) `
+        -DefaultTitleMode  (Get-DefaultTitleModeForContext -Prefs $prefs) `
         -SigningJson       (Get-WorkbenchSigningPolicyJson) `
         -Force:$Force
 
@@ -4441,6 +4450,7 @@ function New-MecmPreferencesPanel {
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
     <Grid.ColumnDefinitions>
         <ColumnDefinition Width="140"/>
@@ -4513,19 +4523,20 @@ function New-MecmPreferencesPanel {
 
     <TextBlock Grid.Row="15" Grid.Column="0" Text="Application title:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Default application naming for every Package run."/>
     <CheckBox  Grid.Row="15" Grid.Column="1" x:Name="chkTitleVersion" Content="Include version in application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Adds the version to every application name, creating one ConfigMgr application per release. A per-application choice in the Application Workbench overrides this. Existing applications are not renamed."/>
+    <CheckBox  Grid.Row="16" Grid.Column="1" x:Name="chkTitleNoVersion" Content="Remove version from application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Strips the release version from a vendor product name that carries it (7-Zip 26.03, Slido 2.3.1, Tableau 2026.2). Available while the version is not added to the name. A per-application choice in the Application Workbench overrides this."/>
 
-    <TextBlock Grid.Row="16" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
-    <Grid Grid.Row="16" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
+    <TextBlock Grid.Row="17" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
+    <Grid Grid.Row="17" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
 
-    <TextBlock Grid.Row="17" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="7-Zip command-line (7z.exe) detection status. Required by the Adobe Reader packager."/>
-    <Grid Grid.Row="17" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
-    <TextBlock Grid.Row="18" Grid.Column="0" Text="GitHub API:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="How the 90 packagers that read GitHub releases authenticate. Anonymous calls are limited to 60 per hour per address; a token raises that to 5000. Resolved from GITHUB_TOKEN, then GH_TOKEN, then the GitHub CLI login (gh auth login)."/>
-    <Grid Grid.Row="18" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtGitHubStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
+    <TextBlock Grid.Row="18" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="7-Zip command-line (7z.exe) detection status. Required by the Adobe Reader packager."/>
+    <Grid Grid.Row="18" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
+    <TextBlock Grid.Row="19" Grid.Column="0" Text="GitHub API:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="How the 90 packagers that read GitHub releases authenticate. Anonymous calls are limited to 60 per hour per address; a token raises that to 5000. Resolved from GITHUB_TOKEN, then GH_TOKEN, then the GitHub CLI login (gh auth login)."/>
+    <Grid Grid.Row="19" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtGitHubStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
 
-    <TextBlock Grid.Row="19" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe) detection status. Downloaded on first use, or place the exe on PATH."/>
+    <TextBlock Grid.Row="20" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe) detection status. Downloaded on first use, or place the exe on PATH."/>
     <!-- Status text in a star column so a long message wraps instead of
          pushing the buttons past the panel edge, where they clip out of view. -->
-    <Grid Grid.Row="19" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
+    <Grid Grid.Row="20" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="Auto"/>
@@ -4534,8 +4545,8 @@ function New-MecmPreferencesPanel {
         <Button Grid.Column="1" x:Name="btnIntuneWinDownload" Content="Download" FontSize="11" Margin="10,0,0,0" Padding="10,2" VerticalAlignment="Center" Visibility="Collapsed"/>
     </Grid>
 
-    <TextBlock Grid.Row="20" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Packager icon pack for IconSource External packagers. Installs into Packagers\Icons and is read at stage time."/>
-    <Grid Grid.Row="20" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
+    <TextBlock Grid.Row="21" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Packager icon pack for IconSource External packagers. Installs into Packagers\Icons and is read at stage time."/>
+    <Grid Grid.Row="21" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="Auto"/>
@@ -4546,15 +4557,15 @@ function New-MecmPreferencesPanel {
         <Button Grid.Column="2" x:Name="btnIconPackFromFile" Content="Install from file..." FontSize="11" Margin="6,0,0,0" Padding="10,2" VerticalAlignment="Center" ToolTip="Installs an icon pack from a local or UNC icon-pack.zip when the release download is blocked (proxy/SSL inspection). A checksums.txt beside the zip is verified when present."/>
     </Grid>
 
-    <TextBlock Grid.Row="21" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="21" Grid.Column="1" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,0,8" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
+    <TextBlock Grid.Row="22" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <TextBlock Grid.Row="22" Grid.Column="1" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,0,8" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
                Text="Stage builds an .intunewin beside the content when IntuneWinAppUtil is detected. Publish to ConfigMgr copies it beside the network content."/>
-    <TextBlock Grid.Row="22" Grid.Column="0" Text="Intune Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
-    <TextBox   Grid.Row="22" Grid.Column="1" x:Name="txtIntuneTenant" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="23" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
-    <TextBox   Grid.Row="23" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="24" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
-    <PasswordBox Grid.Row="24" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,0,0,8"/>
+    <TextBlock Grid.Row="23" Grid.Column="0" Text="Intune Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
+    <TextBox   Grid.Row="23" Grid.Column="1" x:Name="txtIntuneTenant" FontSize="13" Margin="0,0,0,8"/>
+    <TextBlock Grid.Row="24" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
+    <TextBox   Grid.Row="24" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,0,0,8"/>
+    <TextBlock Grid.Row="25" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
+    <PasswordBox Grid.Row="25" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,0,0,8"/>
 </Grid>
 </ScrollViewer>
 '@
@@ -4578,6 +4589,7 @@ function New-MecmPreferencesPanel {
     $txtTestCollection = $element.FindName('txtTestCollection')
     $chkCreateTestColl = $element.FindName('chkCreateTestColl')
     $chkTitleVersion   = $element.FindName('chkTitleVersion')
+    $chkTitleNoVersion = $element.FindName('chkTitleNoVersion')
     $txtConsoleStatus  = $element.FindName('txtConsoleStatus')
     $txtSevenZipStatus = $element.FindName('txtSevenZipStatus')
     $txtGitHubStatus   = $element.FindName('txtGitHubStatus')
@@ -4611,6 +4623,11 @@ function New-MecmPreferencesPanel {
     $txtTestCollection.Text      = [string]$script:Prefs.ContentDistribution.TestCollectionName
     $chkCreateTestColl.IsChecked = [bool]$script:Prefs.ContentDistribution.CreateTestCollectionIfMissing
     $chkTitleVersion.IsChecked   = [bool]$script:Prefs.IncludeVersionInTitle
+    $chkTitleNoVersion.IsChecked = [bool]$script:Prefs.RemoveVersionFromTitle
+    $chkTitleNoVersion.IsEnabled = ($chkTitleVersion.IsChecked -ne $true)
+    $titleModeExclusive = { $chkTitleNoVersion.IsEnabled = ($chkTitleVersion.IsChecked -ne $true); if ($chkTitleVersion.IsChecked -eq $true) { $chkTitleNoVersion.IsChecked = $false } }.GetNewClosure()
+    $chkTitleVersion.Add_Checked($titleModeExclusive)
+    $chkTitleVersion.Add_Unchecked($titleModeExclusive)
 
     # Test-deployment controls require auto-distribute + DP group: the
     # deployment only runs after successful content distribution.
@@ -4765,6 +4782,7 @@ function New-MecmPreferencesPanel {
         $prefsRef.ContentDistribution.TestCollectionName            = $txtTestCollection.Text.Trim()
         $prefsRef.ContentDistribution.CreateTestCollectionIfMissing = [bool]$chkCreateTestColl.IsChecked
         $prefsRef.IncludeVersionInTitle = [bool]$chkTitleVersion.IsChecked
+        $prefsRef.RemoveVersionFromTitle = ([bool]$chkTitleNoVersion.IsChecked -and -not [bool]$chkTitleVersion.IsChecked)
         $prefsRef.Intune.TenantId = $txtIntuneTenant.Text.Trim()
         $prefsRef.Intune.ClientId = $txtIntuneClient.Text.Trim()
         # An empty box keeps the stored secret; a typed value replaces it,
@@ -7217,7 +7235,9 @@ function Invoke-MultiAppPipeline {
                                             else { $resultText = ('published ' + $id) }
                                         }
                                         elseif ($note.Refused) {
-                                            $notSupported++; $resultText = [string]$note.Message; $skipReasons += 'WSUS: not supported'
+                                            # The cell carries the code; the log and the report carry the text.
+                                            $notSupported++; $skipReasons += 'WSUS: not supported'
+                                            $resultText = $(if ($note.Message -match '^(not supported: [A-Za-z]+)') { $Matches[1] } else { [string]$note.Message })
                                             try {
                                                 $h = Read-PackagerHistory
                                                 [void](Set-OneClickNotSupported -History $h -PackagerName $baseName -Destination 'WSUS' -Version ([string]$latest) -Reason $resultText)
