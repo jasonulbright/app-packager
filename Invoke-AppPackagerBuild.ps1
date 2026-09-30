@@ -297,6 +297,7 @@ if ($installModeValue) { $legacy['APP_PACKAGER_INSTALL_MODE'] = [string]$install
 $titleModeValue = [string](Get-CliProfileField (Get-CliProfileField $profileObject 'Application') 'TitleMode')
 $titleModeValue = switch ($titleModeValue) { 'Include version' { 'IncludeVersion' } 'No version' { 'NoVersion' } default { $titleModeValue } }
 if (-not $titleModeValue -and [bool](Get-CliProfileField $preferences 'IncludeVersionInTitle')) { $titleModeValue = 'IncludeVersion' }
+if (-not $titleModeValue -and [bool](Get-CliProfileField $preferences 'RemoveVersionFromTitle')) { $titleModeValue = 'NoVersion' }
 if ($titleModeValue) { $legacy['APP_PACKAGER_TITLE_MODE'] = $titleModeValue }
 
 function Invoke-CliPackagerPhase {

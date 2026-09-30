@@ -51,6 +51,40 @@ try {
         throw 'A preferences file without the setting did not default to off'
     }
 
+    # Remove version from title maps to the NoVersion mode, and only while
+    # the version is not added to the name.
+    Set-Content -LiteralPath $script:fixturePath -Value '{ "RemoveVersionFromTitle": true }' -Encoding UTF8
+    $script:Prefs = Read-Preferences
+    if ((Get-DefaultTitleModeForContext) -ne 'NoVersion') { throw 'Remove version from title did not become the NoVersion mode' }
+    Set-Content -LiteralPath $script:fixturePath -Value '{ "RemoveVersionFromTitle": true, "IncludeVersionInTitle": true }' -Encoding UTF8
+    $script:Prefs = Read-Preferences
+    if ((Get-DefaultTitleModeForContext) -ne 'IncludeVersion') { throw 'Include version must win over Remove version' }
+
+    # The Options panel keeps the two boxes exclusive and saves the pair.
+    Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+    Add-Type -Path (Join-Path $root 'Lib\ControlzEx.dll'); Add-Type -Path (Join-Path $root 'Lib\MahApps.Metro.dll')
+    foreach ($name in @('New-MecmPreferencesPanel', 'Get-IconPackManifestPath', 'Get-IconPackStatusText', 'Read-IconPackManifest', 'Get-IntuneWinToolCachePath', 'Invoke-DetectIntuneWinAppUtil')) {
+        $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
+        # Global: the panel's closures resolve helpers in their own module scope.
+        if ($fn) { Set-Item -Path ('function:global:' + $name) -Value ([scriptblock]::Create($fn.Body.Extent.Text.Trim('{', '}'))) }
+    }
+    # The reflected Get-IconPackRoot defaults its root to $PSScriptRoot, which is empty here.
+    function global:Get-IconPackRoot { param([string]$AppRoot) Join-Path (Join-Path $root 'Packagers') 'Icons' }
+    function global:Get-GitHubApiAuthStatus { [pscustomobject]@{ Authenticated = $false; Source = ''; Message = '' } }
+    foreach ($stub in 'Add-LogLine', 'Install-IconPack', 'Install-IconPackFromFile', 'Install-IntuneWinAppUtil', 'Save-Preferences') { Set-Item -Path ('function:global:' + $stub) -Value { } }
+    Set-Content -LiteralPath $script:fixturePath -Value '{}' -Encoding UTF8
+    $script:Prefs = Read-Preferences
+    $panel = New-MecmPreferencesPanel
+    $inc = $panel.Element.FindName('chkTitleVersion'); $rem = $panel.Element.FindName('chkTitleNoVersion')
+    if (-not $rem.IsEnabled) { throw 'Remove version must be available while Include version is off' }
+    $rem.IsChecked = $true
+    $inc.IsChecked = $true
+    if ($rem.IsEnabled -or $rem.IsChecked) { throw 'Include version must disable and clear Remove version' }
+    $inc.IsChecked = $false
+    if (-not $rem.IsEnabled) { throw 'Clearing Include version must enable Remove version again' }
+    $rem.IsChecked = $true
+    & $panel.Commit
+    if ($script:Prefs.IncludeVersionInTitle -or -not $script:Prefs.RemoveVersionFromTitle) { throw 'The panel did not save Remove version from title' }
     'PASS: the stored title policy reaches the background context'
 }
 finally {
