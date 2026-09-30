@@ -189,8 +189,14 @@
                                 ToolTip="Query ConfigMgr for the currently deployed version of each checked app"/>
                         <Button x:Name="btnStage"       Content="Stage Packages"  Style="{StaticResource WorkflowButtonStyle}"
                                 ToolTip="Download and extract each checked app into the local staging root"/>
-                        <Button x:Name="btnPackage"     Content="Package Apps"    Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="Build ConfigMgr Application + Deployment Type for every checked app"/>
+                        <Button x:Name="btnPackage"     Content="Publish to ConfigMgr" Style="{StaticResource WorkflowButtonStyle}"
+                                ToolTip="Build a ConfigMgr Application and Deployment Type for every checked app"/>
+                        <Button x:Name="btnPublishIntune" Content="Publish to Intune" Style="{StaticResource WorkflowButtonStyle}"
+                                ToolTip="Stage every checked app, build its .intunewin, and publish it to Intune"/>
+                        <Button x:Name="btnPublishWsus" Content="Publish to WSUS"  Style="{StaticResource WorkflowButtonStyle}"
+                                ToolTip="Stage every checked app and publish its installer to WSUS as an update for computers that have an older version"/>
+                        <Button x:Name="btnWsusUpdates" Content="WSUS Updates"     Style="{StaticResource WorkflowButtonStyle}"
+                                ToolTip="List the updates AppPackager published to WSUS; approve, decline, expire or remove them, or import from the Microsoft Update Catalog"/>
 
                         <Button x:Name="btnWorkbench"   Content="Application Workbench" Style="{StaticResource WorkflowButtonStyle}"
                                 ToolTip="Edit one application's commands, scripts, detection, requirements, timing, icon and extra source files, then save it as a named profile. Opening or saving deploys nothing."/>

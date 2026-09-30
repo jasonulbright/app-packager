@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](#prerequisites)
 [![License](https://img.shields.io/github/license/jasonulbright/app-packager)](LICENSE)
 
-Automated application packaging for Microsoft Configuration Manager (ConfigMgr) and Intune: 307 enterprise applications, each one click from vendor download to deployed app. AppPackager checks the vendor for the latest version, downloads and verifies the installer, generates silent install/uninstall wrappers and detection rules, and creates the ConfigMgr Application — or builds the `.intunewin` and publishes it to Intune via Graph, no ConfigMgr site required. Drag any unknown `.msi`/`.exe` onto the window and it analyzes and packages that too. A companion version monitor flags stale deployments and looks up their CVEs. Built entirely in PowerShell 5.1 — the version that ships in the box on every supported Windows release, oldest to newest. Nothing to install, no add-ons, no agents, no subscription.
+Automated application packaging for Microsoft Configuration Manager (ConfigMgr) and Intune: 311 enterprise applications, each one click from vendor download to deployed app. AppPackager checks the vendor for the latest version, downloads and verifies the installer, generates silent install/uninstall wrappers and detection rules, and creates the ConfigMgr Application — or builds the `.intunewin` and publishes it to Intune via Graph, or publishes the installer to WSUS as a locally published update, no ConfigMgr site required. Drag any unknown `.msi`/`.exe` onto the window and it analyzes and packages that too. A companion version monitor flags stale deployments and looks up their CVEs. Built entirely in PowerShell 5.1 — the version that ships in the box on every supported Windows release, oldest to newest. Nothing to install, no add-ons, no agents, no subscription.
 
 This is the class of work commercial third-party patching catalogs sell as a subscription. AppPackager covers a comparable application set — the coverage decision for each of 933 reviewed catalog entries is documented in [CATALOG-PARITY.csv](CATALOG-PARITY.csv) — runs entirely inside your environment, and is MIT-licensed.
 
@@ -45,11 +45,11 @@ The GUI checks for updates itself: once per day, in the background, at launch. W
 
 Each packager script operates in two phases:
 
-**Stage** — Downloads the latest installer from the vendor's official source, extracts metadata (version, publisher, detection info), generates install/uninstall wrapper scripts, and writes a `stage-manifest.json`. Everything is built locally under a configurable download root. No network share or ConfigMgr site required.
+**Stage** — Downloads the latest installer from the vendor's official source, extracts metadata (version, publisher, detection info), generates install/uninstall wrapper scripts, and writes a `stage-manifest.json`. Everything is built locally under a configurable download root. No network share or ConfigMgr site required. When IntuneWinAppUtil is detected, Stage also builds a `.intunewin` beside the content.
 
-**Package** — Reads the stage manifest, copies the content folder to a versioned UNC network share, and creates a ConfigMgr Application with the appropriate deployment type and detection method. Depending on the configured Deployment Target, a Package run can also (or instead) build a `.intunewin` from the staged content and publish it to Intune as a Win32 app via Microsoft Graph — in Intune-only mode no site connection, file share, or ConfigMgr console is involved at all.
+**Package** — Reads the stage manifest, copies the content folder to a versioned UNC network share, and creates a ConfigMgr Application with the appropriate deployment type and detection method. In the GUI, **Publish to ConfigMgr** runs this phase. **Publish to Intune** builds a `.intunewin` from the staged content and publishes it to Intune as a Win32 app via Microsoft Graph. **Publish to WSUS** publishes the staged vendor installer to WSUS as a locally published update. Neither of those two needs a site connection, a file share, or the ConfigMgr console. See [WSUS Publishing](#wsus-publishing).
 
-The GUI (`start-apppackager.ps1`) provides a visual front-end that discovers packager scripts automatically, lets you check latest versions, query ConfigMgr for current versions, and stage or package selected applications.
+The GUI (`start-apppackager.ps1`) provides a visual front-end that discovers packager scripts automatically, lets you check latest versions, query ConfigMgr for current versions, and stage or publish selected applications.
 
 **Drop to package** — Drag an `.msi` or `.exe` installer onto the window (or use the sidebar **Add Installer...** button — a drag from Explorer is silently blocked when the two processes run at different elevation levels) and the app analyzes it (engine detection, MSI property tables, silent-switch prediction), opens an editable manifest preview, and stages or packages it through the same manifest pipeline the packager scripts use. MSI identity is authoritative; for other installers the predicted values must be explicitly confirmed before Stage + Package enables. A dropped installer that turns out to be a recurring need can be saved as a starter packager script generated from the matching template, with identity, folders, and filename pre-filled and the download source left as the one remaining TODO.
 
@@ -57,7 +57,9 @@ For an NSIS installer the analysis reads the compiled script inside the file rat
 
 **Application Workbench** — fine-tune any packager from a window instead of its script: commands, hook scripts, detection, requirements, runtime, icon and extra files, saved as named profiles that survive updates. See [Application Workbench](#application-workbench).
 
-**Script signing** — sign the detection, requirement and install/uninstall scripts AppPackager stages with your own certificate, and refuse to publish anything that fails verification. See [Script Signing](#options-window).
+**Script signing** — sign the detection, requirement and install/uninstall scripts AppPackager stages with your own certificate, and refuse to publish anything that fails verification. See [Script Signing](#options-window) and [Code Signing Certificates](#code-signing-certificates).
+
+**WSUS publishing** — publish the vendor installer to WSUS as a locally published update for computers that have an older version, with applicability rules mapped from its detection; approve, decline, expire or remove published updates; and import Microsoft Update Catalog updates by ID. See [WSUS Publishing](#wsus-publishing).
 
 ![AppPackager](screenshots/main-dark.png)
 
@@ -75,6 +77,57 @@ For an NSIS installer the analysis reads the compiled script inside the file rat
 | **Local Admin** | Required for packager script execution |
 | **7-Zip CLI** | Required by Adobe Reader for installer extraction. Detected at launch and shown in ConfigMgr Preferences; the detected `7z.exe` path is forwarded automatically to packagers, including non-default install locations. |
 | **Network Share** | Write access to the SCCM content share, e.g., `\\fileserver\sccm$` (Package phase only) |
+| **WSUS console** | WSUS targets only: the WSUS console or RSAT WSUS tools at the server's version (`Add-WindowsCapability -Online -Name Rsat.WSUS.Tools~~~~0.0.1.0` on Windows 10/11) |
+| **WSUS permissions** | WSUS targets only: membership in the WSUS Administrators group on the WSUS server |
+
+## Code Signing Certificates
+
+AppPackager uses a code-signing certificate in two places, and each place has its own requirements. Both features are off until you configure them.
+
+### Script signing certificate
+
+Options > Script Signing signs the detection, requirement, and install/uninstall scripts that AppPackager stages. Signing runs on the computer that runs AppPackager.
+
+| Requirement | Details |
+|---|---|
+| Enhanced key usage | Code Signing (`1.3.6.1.5.5.7.3.3`) |
+| Store | `Cert:\CurrentUser\My` (default) or `Cert:\LocalMachine\My` on the packaging computer. AppPackager selects the certificate by thumbprint only. |
+| Private key | Present and usable by the account that runs AppPackager. The key never leaves the store. A key that needs a PIN or a hardware token can stop an unattended run. |
+| Validity | Current. An expired or not-yet-valid certificate stops a signed build. |
+| Hash | SHA-256 |
+| Time stamp | Optional. A time-stamped signature stays valid after the certificate expires. **Timestamp required** stops the build when no time stamp is produced. |
+| Client trust | Clients need the certificate in **Trusted Publishers** and its issuing root in **Trusted Root Certification Authorities**, both in the local computer store. The client's PowerShell execution policy decides whether a signed script runs. |
+
+### WSUS signing certificate
+
+WSUS signs every update that AppPackager publishes. The WSUS server signs with the certificate in its own **WSUS** certificate store. Set that certificate in Options > WSUS Publishing with **Import PFX** or **Create self-signed**.
+
+| Requirement | Details |
+|---|---|
+| Usage | Code Signing enhanced key usage (`1.3.6.1.5.5.7.3.3`) and the Digital Signature key usage |
+| Key | RSA, 2048 bits or more. AppPackager refuses a smaller key. Clients reject update signatures from keys under 1024 bits (error `0x80096004`). |
+| Private key | Exportable. **Import PFX** reads a PFX file that holds the private key and sends it to the server. A key on a smart card, a hardware token, an HSM, or a cloud signing service cannot be used. |
+| Import connection | The PFX and its password travel inside the WSUS API call. AppPackager imports a PFX only when the WSUS API reports a secure connection, for example an SSL connection. |
+| Validity | Current. Publishing stops when the certificate has expired. |
+| Self-signed | **Create self-signed** asks the server to create the certificate. WSUS on Windows Server 2012 R2 and later does this only when `HKLM\SOFTWARE\Microsoft\Update Services\Server\Setup\EnableSelfSignedCertificates` = 1 (DWORD). Microsoft treats this path as deprecated. Use a certificate from your PKI in production. |
+| Client trust | Clients need the certificate in **Trusted Publishers**, and also in **Trusted Root Certification Authorities** when it is self-signed (local computer stores). Clients also need the policy **Allow signed updates from an intranet Microsoft update service location**: `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate`, `AcceptTrustedPublisherCerts` = 1 (DWORD). |
+| Publishing computer | When AppPackager does not run on the WSUS server, that computer must trust the certificate the same way. Without that trust, publishing fails with "Verification of file signature failed". |
+| Configuration Manager | When Configuration Manager manages the certificate for third-party updates, keep it in charge. A certificate set from AppPackager replaces it. |
+
+**Export certificate** saves the public certificate (`.cer`). Distribute it by Group Policy (Computer Configuration > Policies > Windows Settings > Security Settings > Public Key Policies), or run these commands elevated on each client:
+
+```powershell
+Import-Certificate -FilePath .\wsus-signing.cer -CertStoreLocation Cert:\LocalMachine\TrustedPublisher
+Import-Certificate -FilePath .\wsus-signing.cer -CertStoreLocation Cert:\LocalMachine\Root   # self-signed only
+```
+
+### One certificate for both
+
+One certificate can do both jobs when it meets both tables: Code Signing usage, RSA 2048 bits or more, and an exportable private key. A client that already trusts it for scripts then also accepts the WSUS updates, once the policy above is set.
+
+A separate certificate for WSUS is safer. **Import PFX** puts the private key on the WSUS server. Every WSUS administrator can then publish content that clients run as SYSTEM, and a compromised WSUS server exposes a key that also signs scripts for every client. Issue a second certificate from the same template instead.
+
+Updates imported from the Microsoft Update Catalog need no certificate from you: Microsoft signs them.
 
 ## Usage
 
@@ -94,19 +147,22 @@ Or with custom parameters:
 
 **No network or ConfigMgr actions occur on launch.** The GUI loads packager scripts locally (pre-populating the Latest and Last Checked columns from any persistent history) and waits for you to act.
 
-**First-run setup** — on a machine with no `AppPackager.preferences.json` yet, a themed Setup window opens over the main window once the grid has loaded. It asks for the environment first (ConfigMgr only, ConfigMgr + Intune, or Intune only) and then shows only the settings that choice needs: Site Code, Provider Machine, File Share Root, and Download Root for ConfigMgr targets, Tenant ID, Client ID, and Client Secret for Intune targets. Saving writes the same preference keys the Options window writes — the client secret DPAPI-protected for the current Windows user, an empty secret box keeping any saved one — and the main window picks the settings up without a restart. A "Don't show this again" checkbox lets you dismiss the wizard permanently without configuring anything; skipping or closing it without that box ticked brings it back on the next launch. Existing installs are unaffected: a preferences file from an earlier version counts as already set up.
+**First-run setup** — on a machine with no `AppPackager.preferences.json` yet, a themed Setup window opens over the main window once the grid has loaded. It asks which systems you publish to (ConfigMgr, Intune, WSUS, in any combination) and then shows only the settings those systems need: Site Code, Provider Machine, File Share Root, and Download Root for ConfigMgr, Tenant ID, Client ID, and Client Secret for Intune, and the WSUS server, port and SSL choice for WSUS. The selection is saved as **Systems in use** (Options, ConfigMgr Preferences): the sidebar buttons of a system that is not in use stay disabled, whatever else is set, and a version check runs without a site code when ConfigMgr is not in use. One Click publishes to the first selected system (ConfigMgr, then Intune, then WSUS); change that in One Click Settings. Saving writes the same preference keys the Options window writes — the client secret DPAPI-protected for the current Windows user, an empty secret box keeping any saved one — and the main window picks the settings up without a restart. A "Don't show this again" checkbox lets you dismiss the wizard permanently without configuring anything; skipping or closing it without that box ticked brings it back on the next launch. Existing installs are unaffected: a preferences file from an earlier version counts as already set up.
 
-The sidebar has five workflow actions at the top, an **Add Installer...** button that feeds the drop-to-package intake, a single **Options** button below them, a sidebar comment field, and Debug Columns / theme toggles plus the installed version at the bottom:
+The sidebar has the workflow actions at the top, an **Add Installer...** button that feeds the drop-to-package intake, a single **Options** button below them, a sidebar comment field, and Debug Columns / theme toggles plus the installed version at the bottom:
 
-- **One Click** — iterates the apps you've marked as tracked in One Click Settings and runs Check Latest → Stage → Package per the action you've chosen. Cadence gating throttles Report-only runs; Stage and Stage-and-Package always run. Before staging, a ConfigMgr pre-flight query skips any tracked app whose version is already in ConfigMgr, avoiding wasted downloads. Multi-app loops (Check Latest, Stage, Package, One Click) run on a background STA runspace with an animated progress overlay so the window stays responsive instead of freezing during long downloads / extracts / ConfigMgr round-trips
+- **One Click** — iterates the apps you've marked as tracked in One Click Settings and runs Check Latest → Stage → Publish per the action and destination you've chosen. Cadence gating throttles Report-only runs; Stage and Stage-and-Package always run. Before staging, a ConfigMgr pre-flight query skips any tracked app whose version is already in ConfigMgr, avoiding wasted downloads. Multi-app loops (Check Latest, Stage, Package, One Click) run on a background STA runspace with an animated progress overlay so the window stays responsive instead of freezing during long downloads / extracts / ConfigMgr round-trips
 - **Check Latest** — queries vendor sources for the latest version of selected applications
 - **Check ConfigMgr** — queries your ConfigMgr site for the currently deployed version
-- **Stage Packages** — downloads installers, extracts metadata, generates wrappers and manifests locally
-- **Package Apps** — reads manifests, copies content to network share, creates ConfigMgr applications
+- **Stage Packages** — downloads installers, extracts metadata, generates wrappers and manifests locally, and builds a `.intunewin` when IntuneWinAppUtil is detected
+- **Publish to ConfigMgr** — reads manifests, copies content to network share, creates ConfigMgr applications
+- **Publish to Intune** — stages each checked app, builds its `.intunewin`, and publishes a Win32 app through Microsoft Graph
+- **Publish to WSUS** — stages each checked app and publishes its installer to WSUS as an update for computers that have an older version
+- **WSUS Updates** — lists the updates AppPackager published to WSUS; approve, decline, expire or remove them, or import from the Microsoft Update Catalog
 
-The sidebar adapts to the Deployment Target set in ConfigMgr Preferences: with **Intune only**, Check ConfigMgr is disabled with a tooltip explaining why and Package Apps reads **Publish Apps**.
+Each publish button sends the checked apps to its own destination, so the destination is chosen per run. A button whose system is not configured is disabled, and its tooltip says what to set: the ConfigMgr console and a site code for ConfigMgr, Tenant ID, Client ID and Client Secret for Intune, and a WSUS server for WSUS.
 
-All five actions share the same persistent history file at `%LOCALAPPDATA%\AppPackager\app-history.json`, so Latest Version and Last Checked survive across sessions.
+All workflow actions share the same persistent history file at `%LOCALAPPDATA%\AppPackager\app-history.json`, so Latest Version and Last Checked survive across sessions.
 
 ### Options window
 
@@ -114,7 +170,7 @@ Clicking **Options** opens a unified settings window with a left-nav list and a 
 
 ![Options window](screenshots/options-mecm.png)
 
-**ConfigMgr Preferences** — Site Code, Provider Machine, File Share Root, Content Layout, Download Root, estimated/maximum deployment runtime, an Auto-distribute-to-DP checkbox + DP Group Name, a test-deployment group (Deploy to test collection, Test collection name, Create collection if it does not exist), and a "Create .intunewin during Package" option. Content Layout selects the share folder shape for packaged content: **Nested** (`Applications\Vendor\App\Version`, the default — an app's versions sit adjacent, so retention pruning is deleting old version folders in place) or **Flat** (`Applications\Vendor-App-Version`, one folder per package, for org conventions that mandate it). It applies to future Package runs; existing content stays where it is, so pick one and stay with it — mixing layouts splits content across two trees. Provider Machine is the `$ProviderMachineName` value from the ConfigMgr AdminUI-generated connect script. The bottom of the panel shows detected-tools status: ConfigMgr Console (name, version, install path in tooltip), 7-Zip CLI (display name, version, exe path), GitHub API (Authenticated with the token source and remaining hourly quota, or Anonymous at 60 requests/hour; see [Vendor Version Monitor](#vendor-version-monitor)), Content Prep (IntuneWinAppUtil.exe version and path, with a Download button when missing), and Icon Pack (installed pack version and icon count, with a Download packager icon pack button — see [Application Icons](#application-icons)). Each row shows a checkmark + version when found or an `X` + guidance when missing.
+**ConfigMgr Preferences** — Site Code, Provider Machine, File Share Root, Content Layout, Download Root, estimated/maximum deployment runtime, an Auto-distribute-to-DP checkbox + DP Group Name, and a test-deployment group (Deploy to test collection, Test collection name, Create collection if it does not exist). Content Layout selects the share folder shape for packaged content: **Nested** (`Applications\Vendor\App\Version`, the default — an app's versions sit adjacent, so retention pruning is deleting old version folders in place) or **Flat** (`Applications\Vendor-App-Version`, one folder per package, for org conventions that mandate it). It applies to future Package runs; existing content stays where it is, so pick one and stay with it — mixing layouts splits content across two trees. Provider Machine is the `$ProviderMachineName` value from the ConfigMgr AdminUI-generated connect script. The bottom of the panel shows detected-tools status: ConfigMgr Console (name, version, install path in tooltip), 7-Zip CLI (display name, version, exe path), GitHub API (Authenticated with the token source and remaining hourly quota, or Anonymous at 60 requests/hour; see [Vendor Version Monitor](#vendor-version-monitor)), Content Prep (IntuneWinAppUtil.exe version and path, with a Download button when missing), and Icon Pack (installed pack version and icon count, with a Download packager icon pack button — see [Application Icons](#application-icons)). Each row shows a checkmark + version when found or an `X` + guidance when missing.
 
 Two settings control the content options of each ConfigMgr deployment type that a Package run creates. **Fallback DPs** maps to `-ContentFallback`: **Allow** (the default) lets a client use distribution points in the site default boundary group when no distribution point in its current or neighbor boundary groups has the content; **Deny** keeps the client on its current and neighbor boundary groups. **Neighbor/default DP** maps to `-SlowNetworkDeploymentMode` and sets the deployment option when the client uses a distribution point in a neighbor boundary group or the site default boundary group: **Download content and install** (`Download`, the default) or **Do not download content** (`DoNothing`). Both settings apply to future Package runs; existing deployment types keep their settings. Intune publishing does not use them.
 
@@ -122,11 +178,11 @@ When Auto-distribute is enabled and DP Group Name is populated, every Package ph
 
 The test-deployment controls unlock only when Auto-distribute is on and a DP Group is set (the gating lives in the GUI — without content on a DP a test deployment could never install). When enabled with a collection name, the Package phase follows content distribution with `New-CMApplicationDeployment -Name <app> -CollectionName <collection> -DeployAction Install -DeployPurpose Available -AvailableDateTime (Get-Date)` — Available, immediately, default options. With "Create collection if it does not exist" checked, a missing collection is created as an empty direct-membership device collection limited to All Systems; otherwise a missing collection logs a warning and the deployment is skipped. An already-existing deployment is treated as success so re-packaging stays idempotent.
 
-**Deployment Target** selects where a Package run lands: **ConfigMgr only** (the default flow above), **ConfigMgr + Intune** (the ConfigMgr Application plus a Graph publish of the same content), or **Intune only** (Stage, build `.intunewin`, publish via Graph — no site connection, no file share, no console requirement; ConfigMgr-specific features like deployment conditions, variant splits, auto-distribute, and test deployment do not apply). Intune publishing needs an Entra app registration with `DeviceManagementApps.ReadWrite.All`; Tenant ID, Client ID, and Client Secret live in ConfigMgr Preferences with the secret DPAPI-protected for the current Windows user. Repeat publishes update the existing Intune app (new content version on the same identity) instead of creating duplicates; detection rules are mapped from the stage manifest, and assignment stays with the operator in the Intune console.
+**Publish to Intune** stages the app, builds the `.intunewin`, and publishes it through Graph, with no site connection, file share, or console requirement; ConfigMgr-specific features like deployment conditions, variant splits, auto-distribute, and test deployment do not apply. Intune publishing needs an Entra app registration with `DeviceManagementApps.ReadWrite.All`; Tenant ID, Client ID, and Client Secret live in ConfigMgr Preferences with the secret DPAPI-protected for the current Windows user. Repeat publishes update the existing Intune app (new content version on the same identity) instead of creating duplicates; detection rules are mapped from the stage manifest, and assignment stays with the operator in the Intune console.
 
-With "Create .intunewin during Package" enabled, a successful Package run also produces `<app>-<version>.intunewin` from the staged content (setup reference: `install.bat`) and stores it beside the network content version folder, with a copy beside the local staged version folder. The artifact is written beside the version folders, never inside them, so stage hash verification is unaffected. Prep failures log a warning and never fail the package run — the ConfigMgr application is already created by the time the post-step executes. The option unlocks once IntuneWinAppUtil.exe is detected: the Content Prep row checks the stored preferences path, `%LOCALAPPDATA%\AppPackager\Tools`, and PATH once per launch, and its Download button fetches the Microsoft Win32 Content Prep Tool from Microsoft's repository, keeping the file only after its Authenticode signature verifies as Valid and Microsoft-signed. The tool is never redistributed with AppPackager.
+Stage builds `<app>-<version>.intunewin` from the staged content (setup reference: `install.bat`) beside the local staged version folder. **Publish to ConfigMgr** copies that file beside the network content version folder, and builds it first when the stage has none. The artifact is written beside the version folders, never inside them, so stage hash verification is unaffected. Prep failures log a warning and never fail the run. The step runs once IntuneWinAppUtil.exe is detected: the Content Prep row checks the stored preferences path, `%LOCALAPPDATA%\AppPackager\Tools`, and PATH once per launch, and its Download button fetches the Microsoft Win32 Content Prep Tool from Microsoft's repository, keeping the file only after its Authenticode signature verifies as Valid and Microsoft-signed. The tool is never redistributed with AppPackager.
 
-ConfigMgr Console detection runs once per launch. It scans the registry ARP entries for "Configuration Manager Console", then falls back to `$env:SMS_ADMIN_UI_PATH` and known install paths to locate `ConfigurationManager.psd1`. Check ConfigMgr, Package Apps, and One Click with Stage-and-Package create the missing `CMSite` PSDrive with `New-PSDrive -PSProvider CMSite -Root <Provider Machine>`, matching the AdminUI connect prompt, then show a themed "Console Required" warning and bail when the module can't be found on the workstation.
+ConfigMgr Console detection runs once per launch. It scans the registry ARP entries for "Configuration Manager Console", then falls back to `$env:SMS_ADMIN_UI_PATH` and known install paths to locate `ConfigurationManager.psd1`. Check ConfigMgr, Publish to ConfigMgr, and One Click with Stage and Publish to ConfigMgr create the missing `CMSite` PSDrive with `New-PSDrive -PSProvider CMSite -Root <Provider Machine>`, matching the AdminUI connect prompt, then show a themed "Console Required" warning and bail when the module can't be found on the workstation.
 
 **Packager Preferences** — grouped settings that packagers read at Stage time:
 
@@ -148,7 +204,7 @@ M365 Deploy Mode controls how Office 365 products are staged and detected:
 
 CWA switches persist to `Packagers/citrix-workspace-switches.json`; TeamViewer Host config persists to `Packagers/teamviewer-host-config.json`; packager-facing M365, CompanyName, SSMS, DBeaver, and Beyond Compare 5 values are mirrored to `Packagers/packager-preferences.json`. GUI preferences persist to `AppPackager.preferences.json`.
 
-**One Click Settings** — configures the **One Click** sidebar button. Pick which packagers the tracked set includes (checkbox column), choose the action (Report only / Stage / Stage and Package), toggle Force on launch (bypasses cadence), and set per-app cadence overrides in the grid. Tracked apps and their settings persist to `AppPackager.preferences.json`. Default cadence for each packager is read from its `UpdateCadenceDays:` header tag (falling back to 7 days); per-app overrides in this dialog take precedence.
+**One Click Settings** — configures the **One Click** sidebar button. Pick which packagers the tracked set includes (checkbox column), choose the action (Report only / Stage / Stage and Publish) and where Stage and Publish sends each app (ConfigMgr, ConfigMgr + Intune, Intune, ConfigMgr + WSUS, or WSUS; One Click runs without you, so it keeps its own destination), toggle Force on launch (bypasses cadence), and set per-app cadence overrides in the grid. Tracked apps and their settings persist to `AppPackager.preferences.json`. Default cadence for each packager is read from its `UpdateCadenceDays:` header tag (falling back to 7 days); per-app overrides in this dialog take precedence.
 
 **Product Filter** — show or hide individual packager scripts in the main grid, grouped by vendor in a checkbox TreeView with Select All / Select None helpers. Hidden applications persist to `AppPackager.preferences.json`. On the first Check ConfigMgr run, the tool offers to auto-hide applications not found in your ConfigMgr environment.
 
@@ -158,7 +214,7 @@ CWA switches persist to `Packagers/citrix-workspace-switches.json`; TeamViewer H
 - **OS languages** — comma-separated culture codes (e.g. `de-DE, en-US`) mapped onto the site's built-in Operating System Language condition with a OneOf rule. Useful when a packaged build is single-language and MUI or English builds are deployed separately.
 - **Network** — `Any` / `VPN only` / `On-site only`, backed by a Boolean script global condition that reports whether an IP-enabled adapter description matches a configurable VPN client pattern list (or an interface alias contains `vpn`). `VPN only` suits a small CDN-sourced deployment that should avoid pulling large content over the tunnel; `On-site only` suits its full-content counterpart.
 
-Before copying content or changing ConfigMgr, Package and One Click Stage-and-Package check the exact application title and ask **Overwrite**, **Skip**, or **Cancel run** if it already exists, even at a different version. Overwrite replaces deployment types while keeping the application and its deployments. Skip leaves it unchanged; Cancel stops the remaining run. **Do this for all remaining conflicts** applies only to the current run.
+Before copying content or changing ConfigMgr, Publish to ConfigMgr and One Click Stage and Publish check the exact application title and ask **Overwrite**, **Skip**, or **Cancel run** if it already exists, even at a different version. Overwrite replaces deployment types while keeping the application and its deployments. Skip leaves it unchanged; Cancel stops the remaining run. **Do this for all remaining conflicts** applies only to the current run.
 
 **Script Signing** — Authenticode signing for the scripts AppPackager stages.
 
@@ -168,8 +224,90 @@ Before copying content or changing ConfigMgr, Package and One Click Stage-and-Pa
 - Certificate by thumbprint from `CurrentUser\My` or `LocalMachine\My`, optional timestamp server, and a test button that signs and verifies a temporary file.
 - Signed launchers drop `-ExecutionPolicy Bypass`. The client's execution policy and Trusted Publishers store decide whether a script runs, so the certificate has to reach the clients.
 - Vendor scripts that already carry an intact signature are left alone; unsigned ones are signed with your certificate. A PSADT package enters through its `.ps1`, not its `.exe`.
+- Certificate requirements: see [Code Signing Certificates](#code-signing-certificates).
+
+**WSUS Publishing** — the WSUS server, the signing certificate, and publish defaults. The published updates and the catalog import are in **WSUS Updates** in the sidebar. See [WSUS Publishing](#wsus-publishing).
 
 **About** — application name, installed version (parsed from the script header, the single source of truth), MIT license, a clickable link to the GitHub repository, the timestamp of the last update check, and the latest known release. The same **Update now** action offered in the sidebar is repeated here, enabled only once a check has actually found a newer release; a **Release notes** button opens the releases page.
+
+### WSUS Publishing
+
+Configure **Options > WSUS Publishing**, check the apps, and click **Publish to WSUS**. Each app is staged, and its vendor installer is published to WSUS as a locally published update. An app that WSUS cannot carry shows **WSUS: not supported** in the Status column, and the log names the reason. One Click publishes to WSUS when its destination in One Click Settings is **ConfigMgr + WSUS** or **WSUS**; with **ConfigMgr + WSUS**, an application that already exists in ConfigMgr and gets the answer **Skip** is still published to WSUS.
+
+WSUS publishing updates installed applications only. WSUS offers an update only to a computer where the detection finds the application with an older version. A computer without the application never gets the update. Use a ConfigMgr or Intune deployment for a first installation.
+
+Microsoft runtimes:
+
+| Packager | WSUS result |
+|---|---|
+| package-aspnethostingbundle8.ps1, package-aspnethostingbundle10.ps1 | Publishes. The update reads the hosting bundle's own Add/Remove Programs entry: its name and its version. |
+| package-msvcruntimesx64.ps1, package-msvcruntimesx86.ps1 | Publishes. The update compares the file version of `vcruntime140.dll` in `System32` (x64) or `SysWOW64` (x86). |
+| package-msvcruntimes.ps1 | Stops: its `install.ps1` starts two installers. Use the x64 and x86 packagers for WSUS. |
+
+A newer .NET runtime of the same major, for example the Windows Desktop Runtime, raises the shared .NET host, but it does not hide an older hosting bundle. The ConfigMgr and Intune detection script and the WSUS rules read the same entry: the hosting bundle's own Add/Remove Programs entry.
+
+Requirements on the computer that runs AppPackager:
+
+- Windows PowerShell 5.1. The WSUS administration API does not load in PowerShell 7.
+- The WSUS console at the server's version: the optional feature **RSAT: Windows Server Update Services Tools** on Windows 10 or 11, or `Install-WindowsFeature UpdateServices-UI` on Windows Server.
+- An account in the **WSUS Administrators** group on the server.
+- Network access to the server's API port (8530 for HTTP, 8531 for HTTPS by default) and to its `UpdateServicesPackages` and `WSUSTemp` shares.
+- A WSUS signing certificate that this computer trusts when it is not the WSUS server. See [Code Signing Certificates](#code-signing-certificates).
+- A patched WSUS server. CVE-2025-59287 is a critical remote code execution vulnerability in WSUS; install the October 2025 WSUS security update or later before you expose ports 8530 and 8531.
+
+Requirements on clients: they get updates from the WSUS server, they trust the signing certificate, and they have the **Allow signed updates from an intranet Microsoft update service location** policy (see [WSUS signing certificate](#wsus-signing-certificate)). If clients use **Specify source service for specific classes of Windows Updates**, confirm that the source for Other Updates is Windows Server Update Services.
+
+| Setting | Effect |
+|---|---|
+| WSUS server, Port, Use SSL | The API endpoint of the server. The port follows Use SSL (8530 or 8531) until you type another one. SSL is recommended, and a PFX import requires a secure connection. |
+| Classification | The WSUS classification of every published update. |
+| Approve for group | Approves each new update for this computer group. Leave it empty to approve later from **WSUS Updates**: the WSUS console does not list locally published updates. |
+| Decline earlier versions | Declines the AppPackager updates of the same application that have a lower version. |
+
+**Test connection** shows the server version, the account role, whether the connection is secure, and the signing certificate. **Create self-signed**, **Import PFX**, and **Export certificate** manage the signing certificate. **Load groups** reads the computer groups for the approval box.
+
+A publish runs these steps:
+
+1. It checks the manifest before it contacts the server. It stops, with the reason, for a variant set, an MSIX or Office Deployment Tool package, a per-user or interactive install, a custom install command or script, an `install.ps1` that does more than start the installer, staged files in a subfolder, a detection that step 4 cannot map to rules, or a payload larger than 2047 MB. The row then shows **WSUS: not supported**.
+2. It verifies every payload file against the SHA-256 that Stage recorded.
+3. It builds the update from the staged files and the manifest's silent arguments. The update carries every file that Stage recorded, except the files that AppPackager generates: the install and uninstall scripts, the icon, and the detection and requirement scripts. An MSI receives only its `PROPERTY=value` arguments, and `/norestart` becomes `REBOOT=ReallySuppress`. An EXE maps exit codes 0 and 1707 to success, and 3010 and 1641 to success with a restart.
+4. It maps the detection to applicability rules. The update counts as installed when the rules find this version or a newer one. WSUS offers the update only when the rules find the application with an older version. The rules come from the first source that applies:
+   - A WsusDetection block in the packager. It names the product's Add/Remove Programs entry (publisher, name, version) for WSUS only. ConfigMgr and Intune keep the detection.
+   - The detection, when it compares a version: a file version, or a registry value under a key that every version uses.
+   - For an MSI installer, the Add/Remove Programs entry that the MSI registers: its name, publisher, version, and the Windows Installer flag, so that a copy of the product installed by another installer does not match. The `WSUS publish:` line in the log names this entry.
+
+   When no source applies, the publish stops. Examples: an EXE whose detection only checks that a file or key exists, compares text, reads a per-version Windows Installer product key, runs a script, or reads a per-user location.
+5. Each new update gets its own ID. A repeat publish of the same version finds the existing update by its identity line (application, profile, version), unless that update is expired. It then applies the approval and the decline of earlier versions again, unless the update is declined on the server.
+6. It lists the AppPackager updates of the same application that have a lower version as superseded. An update with a higher version stays as it is.
+7. A failed approval or decline does not undo the publish. The row shows **Published, warning** (**Packaged, WSUS warning** after a One Click ConfigMgr + WSUS run), and the log names the failure.
+
+Every update goes under the vendor **AppPackager** and the product **AppPackager Applications**. One category keeps the server under its limit of locally published categories. With Configuration Manager, select that product in the software update point's Products list and the chosen classification in its Classifications list, then synchronize software updates. WSUS removes the category with the last AppPackager update and creates it again, with the same ID, at the next publish. Configuration Manager keeps the product selected. Until the next publish, each synchronization writes `Requested category not found` for the product to `wsyncmgr.log`.
+
+**WSUS Updates** in the sidebar lists the updates AppPackager published, with their approvals and state, and acts on the selected updates. **Show updates from other publishers** also lists locally published updates from other tools. An update with the **Type** `Application` comes from an earlier build that could install on computers without the application. A new publish does not supersede or decline it, and the publish log names it. Expire and remove it.
+
+| Action | Effect |
+|---|---|
+| Approve for group | Approves the update for installation by one computer group. |
+| Decline | Removes all approvals; clients are no longer offered the update. Approving again reverses it. |
+| Expire | Marks the update expired. Clients stop seeing it, and it cannot be approved again. It cannot be undone. |
+| Remove | Declines the update and deletes it from the WSUS database. It cannot be undone. Computers that installed the update keep the software. |
+
+The same actions run from Windows PowerShell 5.1, for example to retire every superseded AppPackager update:
+
+```powershell
+Import-Module .\Packagers\AppPackagerWsus.psd1
+$wsus = @{ ServerName = 'wsus01.contoso.com'; PortNumber = 8531; UseSsl = $true }
+$ids = Get-WsusPublishedUpdates -Settings $wsus | Where-Object { $_.Superseded -and -not $_.Expired } | ForEach-Object { [guid]$_.PackageId }
+Set-WsusPublishedUpdateState -Settings $wsus -PackageId $ids -Action Expire
+```
+
+Each call returns one result per update, with `Ok` and `Message`.
+
+To retire an update, expire it. To clean up, remove it after that. To publish the same version again, for example after a rules change, expire its update first: the next publish creates a new update with a new ID. With Configuration Manager, let the software update point synchronize between the two steps, so that Configuration Manager also shows the update as expired. WSUS refuses to remove an update that another update still references. Expire such an update instead. After removals, the WSUS Server Cleanup Wizard deletes the update files that are no longer needed.
+
+**Catalog Import**, a button in the WSUS Updates window, imports Microsoft updates that do not synchronize automatically, from update IDs or catalog links. The WSUS server downloads the metadata itself, so it needs internet access.
+
+WSUS publishes the install only. Removal stays with ConfigMgr, Intune, or the vendor uninstaller.
 
 ### Application Workbench
 
@@ -181,7 +319,7 @@ Fine-tune any packager without editing its script. Open it from the sidebar, or 
 - Install & uninstall: keep the generated command, add before/after scripts, or replace it with your own.
 - Detection, requirements, variant overrides, runtime, install context, icon and extra source files.
 - Changes save to a named profile per application. **Save** updates the active profile, **Save as** copies it, `default` is the packager as shipped.
-- The review pane lists ConfigMgr and Intune findings before you build; Stage and Package run from the window.
+- The review pane lists ConfigMgr and Intune findings before you build; Stage and the three Publish buttons run from the window.
 - Profiles live under `%LOCALAPPDATA%\AppPackagerData\Workbench`, outside the install folder, so updates never touch them.
 - One Click rebuilds an application when its vendor version, profile or signing policy changed.
 - The same build runs from the command line through `Invoke-AppPackagerBuild.ps1`, see [Command Line](#command-line).
@@ -236,6 +374,9 @@ Or drive one application through a workbench profile without the GUI:
 
 # Stage and package with runtime run overrides for this build only
 .\Invoke-AppPackagerBuild.ps1 -Application package-git.ps1 -Profile default -Target MECM -Stage -Package -EstimatedMinutes 10 -MaximumMinutes 25
+
+# Stage 7-Zip and publish it to WSUS, approved for the Pilot group
+.\Invoke-AppPackagerBuild.ps1 -Application package-7zip.ps1 -Target WSUSOnly -Package -WsusServer wsus01.contoso.com -WsusPort 8531 -WsusUseSsl -WsusApprovalGroup Pilot
 ```
 
 | Parameter | Description |
@@ -243,7 +384,10 @@ Or drive one application through a workbench profile without the GUI:
 | `-Application` | `catalog:package-7zip`, `custom:<script>`, `byo:<id>`, or a packager file name |
 | `-Profile` | Profile name or id; `default` (the packager's own behavior) when omitted |
 | `-Version` | Package this version instead of the latest |
-| `-Target` | `ContentOnly`, `MECM` (default), `MECMAndIntune`, `IntuneOnly` |
+| `-Target` | `ContentOnly`, `MECM` (default), `MECMAndIntune`, `IntuneOnly`, `MECMAndWSUS`, `WSUSOnly` |
+| `-WsusServer` / `-WsusPort` / `-WsusUseSsl` | WSUS server for the WSUS targets. Each value not given comes from the Wsus section of the preferences file. |
+| `-WsusClassification` | The WSUS classification of the published update |
+| `-WsusApprovalGroup` / `-WsusDeclineSuperseded` | Approve each new update for a computer group; decline the AppPackager updates of the same application that have a lower version |
 | `-Stage` / `-Package` | One or both phases; at least one is required |
 | `-DownloadRoot` | Local staging root; a non-default profile stages under its own subfolder |
 | `-EstimatedMinutes` / `-MaximumMinutes` | Run overrides for this build; never written back to the profile |
@@ -251,7 +395,7 @@ Or drive one application through a workbench profile without the GUI:
 | `-SiteCode` / `-ProviderMachineName` / `-FileServerPath` | ConfigMgr connection and share, as the packagers take them |
 | `-Comment` | Administrative comment stored on the application |
 
-It creates the run snapshot, sets the child environment and launches the packager exactly as the GUI does, so a scheduled build and a button click produce the same content. A `custom:` script lives under `<workbench data root>\scripts`, outside the install folder, and must import `AppPackagerCommon.psd1` by its full path; it builds from the command line only, since the main grid lists the `Packagers` folder.
+It creates the run snapshot, sets the child environment and launches the packager exactly as the GUI does, so a scheduled build and a button click produce the same content. A WSUS target publishes the manifest staged in the same run, so `MECMAndWSUS` needs `-Stage` and `-Package` together. The result object carries a `Wsus` block. A failed publish sets exit code 1. A failed approval or decline after a successful publish also sets exit code 1, and `Wsus.Warnings` names it. A `custom:` script lives under `<workbench data root>\scripts`, outside the install folder, and must import `AppPackagerCommon.psd1` by its full path; it builds from the command line only, since the main grid lists the `Packagers` folder.
 
 All packager scripts accept the same core parameters:
 
@@ -279,9 +423,9 @@ All packager scripts accept the same core parameters:
 | `-OnExisting` | Passed through to `New-MECMApplicationFromManifest`: `Skip` / `Overwrite` / `Fail`. Outranks `APP_PACKAGER_ON_EXISTING`; unset falls through to that variable and then to `Skip` |
 | `-LogPath` | Path to a structured log file (timestamps + severity levels) |
 
-## Supported Applications (307)
+## Supported Applications (311)
 
-All 307 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same ConfigMgr Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op.
+All 311 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same ConfigMgr Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed — a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op.
 
 The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting every viable entry from a 933-application enterprise catalog review. [CATALOG-PARITY.csv](CATALOG-PARITY.csv) records the disposition and reasoning for all 933 entries — what was added, what was already covered, and why each skipped application was skipped (licensed suites, managed agents, end-of-life products, download walls, component libraries, and niche tools, each with evidence). Every packager is verified at stage level with installer magic-byte checks before content is accepted; a core set is additionally end-to-end validated against a live ConfigMgr site.
 
@@ -300,8 +444,8 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-apppackagersuite.ps1 | Jason Ulbright | AppPackager Suite (User) | RegistryKeyValue |
 | package-arduinoide.ps1 | Arduino | Arduino IDE | RegistryKeyValue |
 | package-asperaconnect.ps1 | IBM | IBM Aspera Connect | RegistryKeyValue |
-| package-aspnethostingbundle8.ps1 | Microsoft | ASP.NET Core Hosting Bundle 8 | RegistryKey existence |
-| package-aspnethostingbundle10.ps1 | Microsoft | ASP.NET Core Hosting Bundle 10 | File existence |
+| package-aspnethostingbundle8.ps1 | Microsoft | ASP.NET Core Hosting Bundle 8 | Script (ARP entry, version) |
+| package-aspnethostingbundle10.ps1 | Microsoft | ASP.NET Core Hosting Bundle 10 | Script (ARP entry, version) |
 | package-audacity.ps1 | Audacity Team | Audacity (x64) | RegistryKeyValue |
 | package-awscli.ps1 | Amazon | AWS Command Line Interface | RegistryKeyValue |
 | package-awssamcli.ps1 | Amazon Web Services | AWS SAM CLI | RegistryKeyValue |
@@ -431,6 +575,8 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-msodbcsql18.ps1 | Microsoft | ODBC Driver 18 for SQL Server | RegistryKeyValue |
 | package-msoledb.ps1 | Microsoft | OLE DB Driver for SQL Server | RegistryKeyValue |
 | package-msvcruntimes.ps1 | Microsoft | VC++ 2015-2022 Redistributable (x86+x64) | Compound (AND, 2x RegistryKeyValue) |
+| package-msvcruntimesx64.ps1 | Microsoft | VC++ v14 Redistributable (x64) | File version |
+| package-msvcruntimesx86.ps1 | Microsoft | VC++ v14 Redistributable (x86) | File version |
 | package-musescore.ps1 | MuseScore | MuseScore Studio | RegistryKeyValue |
 | package-mysqlconnectornet.ps1 | Oracle | MySQL Connector/NET | RegistryKeyValue |
 | package-nagstamon.ps1 | Henri Wahl | Nagstamon | RegistryKeyValue |
@@ -496,6 +642,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-rocketchat.ps1 | Rocket.Chat | Rocket.Chat | RegistryKeyValue |
 | package-rpiimager.ps1 | Raspberry Pi Ltd | Raspberry Pi Imager | RegistryKeyValue |
 | package-rstudio.ps1 | Posit Software, PBC | RStudio Desktop (x64) | RegistryKeyValue |
+| package-rtools.ps1 | The R Foundation | Rtools (x64) | RegistryKeyValue |
 | package-rustdesk.ps1 | Purslane Tech Pte. Ltd. | RustDesk | RegistryKeyValue |
 | package-rvtools.ps1 | Dell | RVTools | RegistryKeyValue |
 | package-salesforcecli.ps1 | Salesforce | Salesforce CLI | RegistryKeyValue |
@@ -512,6 +659,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-signingsuite.ps1 | Jason Ulbright | Signing Suite | RegistryKeyValue |
 | package-simplenote.ps1 | Automattic | Simplenote | File version |
 | package-slack.ps1 | Slack Technologies | Slack | File existence |
+| package-slido.ps1 | Slido | Slido for Windows (admin MSI, x64) | File version |
 | package-smartty.ps1 | Sysprogs | SmarTTY | RegistryKeyValue |
 | package-smathstudio.ps1 | SMath | SMath Studio | RegistryKey existence |
 | package-soapui.ps1 | SmartBear Software | SoapUI | File existence |
@@ -614,7 +762,7 @@ The monitor discovers all `package-*.ps1` scripts in the sibling `Packagers/` fo
 
 | Feature | Details |
 |---|---|
-| **Packager discovery** | Auto-discovers every `package-*.ps1` script (307 today) via relative path |
+| **Packager discovery** | Auto-discovers every `package-*.ps1` script (311 today) via relative path |
 | **Version checking** | Calls each packager with `-GetLatestVersionOnly` |
 | **ConfigMgr comparison** | Queries ConfigMgr for deployed versions |
 | **NVD CVE lookup** | Queries NIST NVD API for stale apps with CPE headers |
@@ -817,7 +965,9 @@ app-packager/
     AppPackagerWorkbench.psd1        # Module manifest
     AppPackagerSigning.psm1          # Authenticode signing of staged scripts and launchers
     AppPackagerSigning.psd1          # Module manifest
-    package-7zip.ps1                 # One script per application (307 total)
+    AppPackagerWsus.psm1             # WSUS local publishing, WSUS Updates list, catalog import
+    AppPackagerWsus.psd1             # Module manifest
+    package-7zip.ps1                 # One script per application (311 total)
     package-chrome.ps1
     ...
     Templates/                       # Skeleton packagers for non-standard installer formats
@@ -971,6 +1121,8 @@ Common loads two further modules at import, so packagers get them without any ch
 **`AppPackagerWorkbench.psm1`** — applications, profiles and their revisions, effective-value resolution (global, packager, profile, variant, target, run), migration of the legacy per-app preference maps, the run snapshot, the stage finalization hook that applies a profile to the manifest, build records, and portable profile bundles.
 
 **`AppPackagerSigning.psm1`** — the signing policy, code-signing certificate candidates and selection by thumbprint, signing and verification per category (detection, requirements, deployment), the exact launcher command strings for signed and unsigned mode, a check that no staged launcher carries an execution-policy override in signed mode, and signature verification of script bytes read back from the site.
+
+**`AppPackagerWsus.psm1`** loads only in the GUI, its background runspace, and the command-line build; packager scripts never publish. It holds the WSUS settings validation, the manifest-to-applicability-rule mapping, the compatibility findings, the publish flow, the signing-certificate operations, the published-update management, and the catalog import. Every WSUS API call sits in one adapter section, so the module imports on a computer without the WSUS console.
 
 ## License
 

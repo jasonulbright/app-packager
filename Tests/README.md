@@ -37,7 +37,7 @@ Stage-sweep caveats:
 - `package-windowsadk.ps1` and `package-windowspeaddon.ps1` build their layouts through Windows Installer and cannot run at the same time; they retry on exit 1618, but a sweep with `-ThrottleLimit` above 1 should skip one of them or run them separately.
 - A timed-out packager is killed with its process tree, so a stalled download does not leave curl.exe or setup.exe behind.
 
-A green offline run reports `307 script(s), 1535 check(s), 1535 passed, 0 failed, 0 skipped`.
+A green offline run reports `311 script(s), 1555 check(s), 1555 passed, 0 failed, 0 skipped`.
 
 ## Catalog matrix
 
@@ -54,21 +54,24 @@ The detector shape is read out of the packager source by AST, including the case
 
 ## Pester
 
-The Pester suite covers the shared modules (`AppPackagerCommon`, `AppPackagerWorkbench`, `AppPackagerSigning`), the packaging workflow, user detection, script signing, update preservation, and a thin wrapper around the offline smoke harness.
+The Pester suite covers the shared modules (`AppPackagerCommon`, `AppPackagerWorkbench`, `AppPackagerSigning`, `AppPackagerWsus`), the packaging workflow, user detection, script signing, update preservation, and a thin wrapper around the offline smoke harness.
 
 ```powershell
 Import-Module Pester -RequiredVersion 5.7.1 -Force
 Invoke-Pester -Path `
     .\Packagers\AppPackagerCommon.Tests.ps1, .\Packagers\AppPackagerWorkbench.Tests.ps1, .\Packagers\AppPackagerSigning.Tests.ps1, `
-    .\Tests\PackagerSmoke.Tests.ps1, .\Tests\PackageWorkflow.Tests.ps1, .\Tests\UserDetection.Tests.ps1, `
+    .\Packagers\AppPackagerWsus.Tests.ps1, `
+    .\Tests\PackagerSmoke.Tests.ps1, .\Tests\PackageWorkflow.Tests.ps1, .\Tests\ProcessStreaming.Tests.ps1, .\Tests\UserDetection.Tests.ps1, `
     .\Tests\SigningCombinations.Tests.ps1, .\Tests\UpdatePreservation.Tests.ps1
 ```
+
+The WSUS tests need no WSUS server and no WSUS API. Every server call goes through the module's adapter functions, and the tests replace those with mocks. A live publish is not part of any test.
 
 `Invoke-FullRegression.ps1` runs that set on both hosts and prints the counts.
 
 ### Certificate rule
 
-No test writes to a certificate trust store in any scope. `SigningCombinations.Tests.ps1` creates a throwaway code-signing certificate in `Cert:\CurrentUser\My`, removes it in `AfterAll`, and asserts signature intactness (the hash and the signature block agree), never host trust: the build host is not required to trust the signer, and trusting it there would prove nothing about an endpoint. Adding a certificate to `Root` or `TrustedPublisher` raises an interactive Windows confirmation, which a test must never do.
+No test writes to a certificate trust store in any scope. `AppPackagerWsus.Tests.ps1` creates throwaway certificates in `Cert:\CurrentUser\My` only to export test PFX files, and removes each one with its key right after the export. `SigningCombinations.Tests.ps1` creates a throwaway code-signing certificate in `Cert:\CurrentUser\My`, removes it in `AfterAll`, and asserts signature intactness (the hash and the signature block agree), never host trust: the build host is not required to trust the signer, and trusting it there would prove nothing about an endpoint. Adding a certificate to `Root` or `TrustedPublisher` raises an interactive Windows confirmation, which a test must never do.
 
 ## Full regression
 
@@ -90,7 +93,8 @@ No test writes to a certificate trust store in any scope. `SigningCombinations.T
 
 - `Invoke-PackagerSmoke.ps1` - offline smoke harness, runnable directly.
 - `Invoke-OnExistingSmoke.ps1` - existing-application overwrite decision and the GUI's conflict-marker parse.
-- `Invoke-FirstRunCallbackSmoke.ps1` - first-run Setup save/skip/close handlers driven through .NET events in a script scope.
+- `Invoke-FirstRunCallbackSmoke.ps1` - first-run Setup save/skip/close handlers driven through .NET events in a script scope, and the WSUS port that follows Use SSL on real WPF controls.
+- `Invoke-SidebarTargetSmoke.ps1` - which sidebar publish buttons are available, and what their tooltips say, for each combination of configured systems.
 - `Invoke-ConflictDialogSmoke.ps1` - existing-application dialog buttons return Skip, Overwrite and Cancel.
 - `Invoke-ScopeProbeSmoke.ps1` - launch-scope block exposes script functions to closures; run it with `& <path>`, not `-File`.
 - `Invoke-IntuneUploadReview.ps1` - block-blob upload against a loopback receiver, byte-for-byte.
@@ -98,13 +102,16 @@ No test writes to a certificate trust store in any scope. `SigningCombinations.T
 - `Invoke-TeamViewerHostVersionSmoke.ps1` - TeamViewer Host version read from the version resource fixed block when the string table is empty.
 - `Invoke-WorkbenchSmoke.ps1` - Application Workbench window build, population, validation and unsaved-switch paths.
 - `Invoke-SigningOptionsSmoke.ps1` - the Options script-signing panel, its certificate picker and its test button.
+- `Invoke-WsusOptionsSmoke.ps1` - the Options WSUS Publishing panel round trip, the settings each publish destination hands to a run, update management kept out of Options, the XAML of the WSUS dialogs, the WSUS Updates button row at the window's minimum width, and the panel on a host where the WSUS module did not load.
 - `Invoke-TitleOptionsSmoke.ps1` - stored title-mode choices reach the background context map.
 - `Invoke-FullRegression.ps1` - runs every offline stage on both hosts and prints one summary table.
 - `PackagerSmoke.Tests.ps1` - Pester wrapper around the smoke harness.
-- `PackageWorkflow.Tests.ps1` - title policy, package conflict preflight, profile precedence, legacy migration, per-profile stage isolation, build selection, run overrides, One Click freshness, and a CLI stage of an offline fixture packager compared against a GUI-equivalent run snapshot.
+- `ProcessStreaming.Tests.ps1` - the packager child runner returns one result object, including after an idle-timeout kill, so post-step notes attach to it.
+- `PackageWorkflow.Tests.ps1` - title policy, package conflict preflight, the row status after a publish run, the WSUS refusal note, profile precedence, legacy migration, per-profile stage isolation, build selection, run overrides, One Click freshness, and a CLI stage of an offline fixture packager compared against a GUI-equivalent run snapshot.
 - `SigningCombinations.Tests.ps1` - all eight signing switch combinations through `Write-StageManifest`, strict-requirement refusals, post-sign mutation detection, non-ASCII content and a stage path containing a space.
 - `UpdatePreservation.Tests.ps1` - what an install-root replacement keeps, and that the workbench data root outside the install folder is untouched.
 - `UserDetection.Tests.ps1` - the shipped per-user detection rules.
 - `..\Packagers\AppPackagerCommon.Tests.ps1` - unit tests for the shared module.
 - `..\Packagers\AppPackagerWorkbench.Tests.ps1` - unit tests for the build model.
 - `..\Packagers\AppPackagerSigning.Tests.ps1` - unit tests for the signing service.
+- `..\Packagers\AppPackagerWsus.Tests.ps1` - unit tests for the WSUS publisher: settings, package ids, version order, payload selection, the install.ps1 check, applicability rules, compatibility findings, certificate import checks, and the publish, listing and catalog-import flows against a mocked server.

@@ -10,6 +10,9 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, Sys
 Add-Type -Path (Join-Path $root 'Lib\ControlzEx.dll')
 Add-Type -Path (Join-Path $root 'Lib\MahApps.Metro.dll')
 Import-Module (Join-Path $root 'Lib\SuiteCommon\SuiteCommon.psd1') -Force -DisableNameChecking
+# The inherited-icon lookup falls through to Get-PackagerIconSource when the
+# icon pack is not installed.
+Import-Module (Join-Path $root 'Packagers\AppPackagerCommon.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $root 'Packagers\AppPackagerWorkbench.psm1') -Force -DisableNameChecking
 
 $dataRoot = Join-Path $env:TEMP ('ap-workbench-' + [guid]::NewGuid().ToString('N'))
@@ -46,6 +49,9 @@ try {
         }
     }
     function Add-LogLine { param([string]$Message) }
+    # The reflected Get-IconPackRoot defaults its root to $PSScriptRoot, which
+    # is empty inside a scriptblock created from text.
+    function Get-IconPackRoot { param([string]$AppRoot) Join-Path (Join-Path $root 'Packagers') 'Icons' }
     function Show-ThemedMessage { param($Owner, $Title, $Message, $Buttons, $Icon) return $script:StubMessageAnswer }
     function Set-DialogChromeFromOwner { param($Dialog, $Owner) }
     function Install-TitleBarDragFallback { param($Window) }

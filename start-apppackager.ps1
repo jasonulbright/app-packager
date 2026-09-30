@@ -68,8 +68,10 @@ Import-Module (Join-Path $PSScriptRoot 'Packagers\AppPackagerCommon.psm1') -Forc
 # The workbench definition model and the signing service. Common imports
 # them for the packager children; the GUI imports them here so the editor
 # and the Options signing panel work before any child process starts. A
-# second import of an already-loaded module is a no-op.
-foreach ($workbenchModule in @('AppPackagerWorkbench.psm1', 'AppPackagerSigning.psm1')) {
+# second import of an already-loaded module is a no-op. The WSUS publisher
+# loads only here and in the background runspace: packager children never
+# publish.
+foreach ($workbenchModule in @('AppPackagerWorkbench.psm1', 'AppPackagerSigning.psm1', 'AppPackagerWsus.psm1')) {
     $modulePath = Join-Path $PSScriptRoot ('Packagers\' + $workbenchModule)
     if (Test-Path -LiteralPath $modulePath) {
         Import-Module $modulePath -Force -Global -DisableNameChecking -ErrorAction SilentlyContinue
@@ -98,6 +100,68 @@ if (-not $BatchMode) {
 # =============================================================================
 function Get-PreferencesPath {
     Join-Path $PSScriptRoot "AppPackager.preferences.json"
+}
+
+function Get-DeploymentTargetNames {
+    return @('MECM', 'MECMAndIntune', 'IntuneOnly', 'MECMAndWSUS', 'WSUSOnly')
+}
+
+function Test-DeploymentTargetSkipsSite {
+    # Intune-only and WSUS-only runs stop at Stage: no site connection, no
+    # share copy, no ConfigMgr application.
+    param([AllowEmptyString()][string]$DeploymentTarget)
+    return ([string]$DeploymentTarget -in @('IntuneOnly', 'WSUSOnly'))
+}
+
+function Test-DeploymentTargetPublishesToWsus {
+    param([AllowEmptyString()][string]$DeploymentTarget)
+    return ([string]$DeploymentTarget -in @('MECMAndWSUS', 'WSUSOnly'))
+}
+
+function Get-PublishRowOutcome {
+    # Row status after one application's publish run. Kind is Success,
+    # Skipped, NotSupported or Failed. An Intune or WSUS run succeeds only
+    # when its publish succeeds; a ConfigMgr run that also publishes to WSUS
+    # carries the WSUS result as a status suffix.
+    param([Parameter(Mandatory)]$Result, [AllowEmptyString()][string]$DeploymentTarget)
+
+    $wsus = if ($Result.PSObject.Properties['WsusPublish']) { $Result.WsusPublish } else { $null }
+    $intune = if ($Result.PSObject.Properties['IntunePublish']) { $Result.IntunePublish } else { $null }
+    $wsusRefused = [bool]($wsus -and $wsus.PSObject.Properties['Refused'] -and $wsus.Refused)
+    $wsusWarned = [bool]($wsus -and $wsus.Ok -and $wsus.PSObject.Properties['Warnings'] -and @($wsus.Warnings).Count -gt 0)
+    $wsusSuffix = ''
+    if ($wsusRefused) { $wsusSuffix = ', WSUS not supported' }
+    elseif ($wsus -and -not $wsus.Ok) { $wsusSuffix = ', WSUS failed' }
+    elseif ($wsusWarned) { $wsusSuffix = ', WSUS warning' }
+
+    $siteFree = Test-DeploymentTargetSkipsSite -DeploymentTarget $DeploymentTarget
+    $make = { param($Kind, $Status, $Published) [pscustomobject]@{ Kind = $Kind; Status = $Status; Published = [bool]$Published } }
+
+    if ($Result.PSObject.Properties['PackageOutcome'] -and $Result.PackageOutcome -in @('Skipped', 'Canceled')) {
+        return (& $make 'Skipped' (([string]$Result.PackageOutcome) + $wsusSuffix) $false)
+    }
+    if ($Result.ExitCode -ne 0) {
+        return (& $make 'Failed' $(if ($siteFree) { 'Publish error' } else { 'Package error' }) $false)
+    }
+    if ($DeploymentTarget -eq 'WSUSOnly') {
+        if ($wsus -and $wsus.Ok) { return (& $make 'Success' $(if ($wsusWarned) { 'Published, warning' } else { 'Published' }) $true) }
+        if ($wsusRefused) { return (& $make 'NotSupported' 'WSUS: not supported' $false) }
+        return (& $make 'Failed' 'Publish error' $false)
+    }
+    if ($DeploymentTarget -eq 'IntuneOnly') {
+        if ($intune -and $intune.Ok) { return (& $make 'Success' 'Published' $true) }
+        return (& $make 'Failed' 'Publish error' $false)
+    }
+    return (& $make 'Success' ('Packaged' + $wsusSuffix) $false)
+}
+
+function Get-WsusClassificationNameList {
+    # The WSUS module owns the classification names; a host where it failed
+    # to load still reads every other preference section.
+    if (Get-Command -Name Get-WsusClassificationNames -ErrorAction SilentlyContinue) {
+        return @(Get-WsusClassificationNames)
+    }
+    return @('Updates')
 }
 
 function Resolve-FirstRunCompleted {
@@ -156,6 +220,13 @@ function Read-Preferences {
         HiddenApplications   = @()
         FirstRunCompleted    = $false
         IncludeVersionInTitle = $false
+        # The systems the sidebar publishes to. Setup and Options set them;
+        # a button of a system not in use stays disabled whatever else is set.
+        Systems              = [pscustomobject]@{
+            ConfigMgr = $true
+            Intune    = $false
+            Wsus      = $false
+        }
         AppFlow              = [pscustomobject]@{
             Tracked          = @()
             Action           = 'Report'
@@ -194,15 +265,25 @@ function Read-Preferences {
             CreateTestCollectionIfMissing = $false
         }
         Intune               = [pscustomobject]@{
-            CreateIntuneWin       = $false
-            # ConfigMgr = today's flow; MECMAndIntune = ConfigMgr app + Graph publish;
-            # IntuneOnly = stage + .intunewin + Graph publish, no site touch.
+            # One Click destination. MECM = ConfigMgr app; MECMAndIntune =
+            # ConfigMgr app + Graph publish; IntuneOnly = stage + .intunewin +
+            # Graph publish, no site touch; MECMAndWSUS = ConfigMgr app + WSUS
+            # publish; WSUSOnly = stage + WSUS publish, no site touch. The
+            # sidebar publish buttons set their own destination per run.
             DeploymentTarget      = 'MECM'
             PublishToIntune       = $false
             TenantId              = ''
             ClientId              = ''
             # DPAPI-protected (ConvertFrom-SecureString); never plaintext.
             ClientSecretProtected = ''
+        }
+        Wsus                 = [pscustomobject]@{
+            ServerName        = ''
+            PortNumber        = 8530
+            UseSsl            = $false
+            Classification    = 'Updates'
+            ApprovalGroup     = ''
+            DeclineSuperseded = $false
         }
         DeploymentConditions = [pscustomobject]@{
             Apps = [pscustomobject]@{}
@@ -376,9 +457,8 @@ function Read-Preferences {
 
         # Intune: .intunewin production and Graph publishing during Package.
         if ($null -ne $data.Intune) {
-            if ($null -ne $data.Intune.CreateIntuneWin) { try { $defaults.Intune.CreateIntuneWin = [bool]$data.Intune.CreateIntuneWin } catch { } }
             if ($null -ne $data.Intune.PublishToIntune) { try { $defaults.Intune.PublishToIntune = [bool]$data.Intune.PublishToIntune } catch { } }
-            if ([string]$data.Intune.DeploymentTarget -in @('MECM', 'MECMAndIntune', 'IntuneOnly')) {
+            if ([string]$data.Intune.DeploymentTarget -in @('MECM', 'MECMAndIntune', 'IntuneOnly', 'MECMAndWSUS', 'WSUSOnly')) {
                 $defaults.Intune.DeploymentTarget = [string]$data.Intune.DeploymentTarget
             }
             elseif ($defaults.Intune.PublishToIntune) {
@@ -388,6 +468,10 @@ function Read-Preferences {
             if ($null -ne $data.Intune.TenantId)              { $defaults.Intune.TenantId              = [string]$data.Intune.TenantId }
             if ($null -ne $data.Intune.ClientId)              { $defaults.Intune.ClientId              = [string]$data.Intune.ClientId }
             if ($null -ne $data.Intune.ClientSecretProtected) { $defaults.Intune.ClientSecretProtected = [string]$data.Intune.ClientSecretProtected }
+            # A stale Intune toggle must not publish to Intune from a WSUS target.
+            if ([string]$defaults.Intune.DeploymentTarget -in @('MECMAndWSUS', 'WSUSOnly')) {
+                $defaults.Intune.PublishToIntune = $false
+            }
         }
 
         # DeploymentConditions: per-app requirement rule selections applied
@@ -514,6 +598,33 @@ function Read-Preferences {
             if ($null -ne $iw.ExePath)        { $stored.ExePath        = [string]$iw.ExePath }
             if ($null -ne $iw.DetectedAt)     { $stored.DetectedAt     = [string]$iw.DetectedAt }
             $defaults.DetectedTools.IntuneWinAppUtil = $stored
+        }
+
+        # Systems: a preferences file from before this key infers the
+        # systems from the settings it holds.
+        if ($null -ne $data.Systems) {
+            foreach ($system in @('ConfigMgr', 'Intune', 'Wsus')) {
+                if ($null -ne $data.Systems.$system) { try { $defaults.Systems.$system = [bool]$data.Systems.$system } catch { } }
+            }
+        } else {
+            $defaults.Systems.Intune = -not [string]::IsNullOrWhiteSpace([string]$defaults.Intune.TenantId)
+            $defaults.Systems.Wsus   = ($null -ne $data.Wsus -and -not [string]::IsNullOrWhiteSpace([string]$data.Wsus.ServerName))
+        }
+
+        # Wsus: local publishing to a WSUS server during Package. Unknown or
+        # out-of-range values keep the defaults above. Parsed last: a failure
+        # here must not discard the sections before it.
+        if ($null -ne $data.Wsus) {
+            $ws = $data.Wsus
+            if ($null -ne $ws.ServerName) { $defaults.Wsus.ServerName = ([string]$ws.ServerName).Trim() }
+            $port = 0
+            if ([int]::TryParse([string]$ws.PortNumber, [ref]$port) -and $port -ge 1 -and $port -le 65535) { $defaults.Wsus.PortNumber = $port }
+            if ($null -ne $ws.UseSsl) { try { $defaults.Wsus.UseSsl = [bool]$ws.UseSsl } catch { } }
+            $classNames = @('Updates')
+            if (Get-Command -Name Get-WsusClassificationNames -ErrorAction SilentlyContinue) { $classNames = @(Get-WsusClassificationNames) }
+            if ([string]$ws.Classification -in $classNames) { $defaults.Wsus.Classification = [string]$ws.Classification }
+            if ($null -ne $ws.ApprovalGroup) { $defaults.Wsus.ApprovalGroup = ([string]$ws.ApprovalGroup).Trim() }
+            if ($null -ne $ws.DeclineSuperseded) { try { $defaults.Wsus.DeclineSuperseded = [bool]$ws.DeclineSuperseded } catch { } }
         }
     }
     catch { }
@@ -1234,7 +1345,7 @@ function Invoke-PackagerPackageWithConflictPrompt {
         [Parameter(Mandatory)][hashtable]$PackageArgs
     )
 
-    if ([string]$PackageArgs.DeploymentTarget -eq 'IntuneOnly') {
+    if (Test-DeploymentTargetSkipsSite -DeploymentTarget ([string]$PackageArgs.DeploymentTarget)) {
         return (Invoke-PackagerPackage @PackageArgs)
     }
     $probeArgs = @{} + $PackageArgs
@@ -1298,6 +1409,12 @@ function Invoke-PackagerPackageWithConflictPrompt {
         }
         default {
             [void]$State.LogQueue.Enqueue(('Existing {0} v{1}: left unchanged.' -f $conflict.AppName, $conflict.Version))
+            # The WSUS destination does not depend on the ConfigMgr application,
+            # so a skipped application still publishes the manifest the probe read.
+            if (Test-DeploymentTargetPublishesToWsus -DeploymentTarget ([string]$PackageArgs.DeploymentTarget)) {
+                $wsusNote = Invoke-PackagerWsusPostStep -Result $res -PackagerPath ([string]$PackageArgs.PackagerPath) -DownloadRoot ([string]$PackageArgs.DownloadRoot) -Config $PackageArgs.WsusPublishConfig
+                $res | Add-Member -NotePropertyName WsusPublish -NotePropertyValue $wsusNote -Force
+            }
             return $res
         }
     }
@@ -1308,13 +1425,14 @@ function Invoke-PackagerIntuneWinPostStep {
     # copies it beside the network content version folder. The artifact
     # lands in the parent of both version folders, never inside them:
     # stage hash verification fails on any file added to verified content.
-    # Failures never fail the package run - the ConfigMgr application already
-    # exists when this executes - so the returned note carries Ok/Message
-    # for the caller to surface.
+    # An .intunewin written after the stage manifest is reused, so a package
+    # run copies the file its stage built. Failures never fail the run - the
+    # ConfigMgr application already exists when this executes - so the
+    # returned note carries Ok/Message for the caller to surface.
     param(
         [Parameter(Mandatory)]$Result,
         [Parameter(Mandatory)][string]$PackagerPath,
-        [Parameter(Mandatory)][string]$FileServerPath,
+        [AllowEmptyString()][string]$FileServerPath = '',
         [string]$DownloadRoot = $null,
         [string]$ToolPath = '',
         [ValidateSet('Nested','Flat')][string]$ContentLayout = 'Nested',
@@ -1336,6 +1454,10 @@ function Invoke-PackagerIntuneWinPostStep {
 
         $manifestPath = Get-PackagerLoggedPath -Text $Result.StdOut -Label 'Read stage manifest'
         if ([string]::IsNullOrWhiteSpace($manifestPath) -or -not (Test-Path -LiteralPath $manifestPath)) {
+            $stagedFolder = Get-PackagerLoggedPath -Text $Result.StdOut -Label 'Stage complete'
+            if (-not [string]::IsNullOrWhiteSpace($stagedFolder)) { $manifestPath = Join-Path $stagedFolder 'stage-manifest.json' }
+        }
+        if ([string]::IsNullOrWhiteSpace($manifestPath) -or -not (Test-Path -LiteralPath $manifestPath)) {
             $manifestPath = Find-NewestStageManifestForPackager -PackagerPath $PackagerPath -DownloadRoot $DownloadRoot
         }
         if ([string]::IsNullOrWhiteSpace($manifestPath) -or -not (Test-Path -LiteralPath $manifestPath)) {
@@ -1353,12 +1475,26 @@ function Invoke-PackagerIntuneWinPostStep {
         }
         $outputName = ((('{0}-{1}' -f $baseName, $version) -replace '[\\/:*?"<>|]', '_') + '.intunewin')
 
-        $pkg = New-IntuneWinPackage `
-            -ToolPath $ToolPath `
-            -ContentFolder $contentFolder `
-            -SetupFile 'install.bat' `
-            -OutputFolder (Split-Path -Path $contentFolder -Parent) `
-            -OutputName $outputName
+        $existingPath = Join-Path (Split-Path -Path $contentFolder -Parent) $outputName
+        $reused = $false
+        if ((Test-Path -LiteralPath $existingPath) -and
+            (Get-Item -LiteralPath $existingPath).LastWriteTimeUtc -ge (Get-Item -LiteralPath $manifestPath).LastWriteTimeUtc) {
+            $existing = Get-Item -LiteralPath $existingPath
+            $pkg = [pscustomobject]@{
+                IntuneWinPath = $existing.FullName
+                SizeBytes     = $existing.Length
+                Sha256        = (Get-FileHash -LiteralPath $existing.FullName -Algorithm SHA256).Hash
+            }
+            $reused = $true
+        }
+        else {
+            $pkg = New-IntuneWinPackage `
+                -ToolPath $ToolPath `
+                -ContentFolder $contentFolder `
+                -SetupFile 'install.bat' `
+                -OutputFolder (Split-Path -Path $contentFolder -Parent) `
+                -OutputName $outputName
+        }
         $note.LocalPath = [string]$pkg.IntuneWinPath
 
         $networkContentPath = if ($SkipNetworkCopy) { '' } else { Get-PackagerLoggedPath -Text $Result.StdOut -Label 'Network content path' }
@@ -1379,7 +1515,7 @@ function Invoke-PackagerIntuneWinPostStep {
 
         $note | Add-Member -NotePropertyName ManifestPath -NotePropertyValue $manifestPath -Force
         $note.Ok = $true
-        $note.Message = ('created {0} ({1:N1} MB, SHA256 {2})' -f $outputName, ($pkg.SizeBytes / 1MB), $pkg.Sha256.Substring(0, 12))
+        $note.Message = ('{0} {1} ({2:N1} MB, SHA256 {3})' -f $(if ($reused) { 'reused' } else { 'created' }), $outputName, ($pkg.SizeBytes / 1MB), $pkg.Sha256.Substring(0, 12))
         return $note
     }
     catch {
@@ -1486,6 +1622,24 @@ function Invoke-PackagerGetLatestVersion {
     }
 }
 
+function Test-MecmApplicationTitle {
+    # A packaged title is CMName followed only by release details: a version
+    # that continues a trailing major (".0.31") or stands alone ("3.7.5"),
+    # qualifiers in parentheses, an architecture, and optionally
+    # " - <anything>". Any other word after CMName names a different product:
+    # "Git" must not find "Git Extensions" or "GitHub Desktop", and
+    # "Mozilla Firefox" must not find "Mozilla Firefox ESR".
+    param(
+        [Parameter(Mandatory)][string]$CMName,
+        [AllowEmptyString()][string]$Title
+    )
+    if ([string]::IsNullOrEmpty($Title) -or -not $Title.StartsWith($CMName, [System.StringComparison]::OrdinalIgnoreCase)) { return $false }
+    $rest = $Title.Substring($CMName.Length)
+    $continuation = if ($CMName -match '\d$') { '(\.\d[\w.+-]*)?' } else { '' }
+    $detail = '\s+(\([^)]*\)|v?\d[\w.+-]*|x64|x86|arm64)'
+    return ($rest -match ('^' + $continuation + '(' + $detail + ')*(\s+-\s+.*)?$'))
+}
+
 function Get-MecmCurrentVersionByCMName {
     param(
         [Parameter(Mandatory)][string]$SiteCode,
@@ -1561,11 +1715,13 @@ function Get-MecmCurrentVersionByCMName {
             return [pscustomobject]@{ Found = $true; DisplayName = $CMName; SoftwareVersion = [string]$apps[0].SoftwareVersion; MatchCount = 1 }
         }
         $apps = @(Get-CMApplication -Name $CMName -ErrorAction SilentlyContinue)
-        # A titled name is "<CMName> - <version>". The wildcard keeps that
-        # separator: a bare "<CMName>*" makes "Git" match "GitHub Desktop" and
-        # "Microsoft Edge" match "Microsoft Edge WebView2 Runtime".
+        # "<CMName>*" alone also returns longer product names ("Git" and
+        # "GitHub Desktop"); the title filter keeps release details only.
         if (-not $apps -or $apps.Count -eq 0) {
-            $apps = @(Get-CMApplication -Name ("{0} - *" -f $CMName) -ErrorAction SilentlyContinue)
+            $apps = @(Get-CMApplication -Name ("{0}*" -f $CMName) -ErrorAction SilentlyContinue | Where-Object {
+                    $title = if ($_.LocalizedDisplayName) { [string]$_.LocalizedDisplayName } else { [string]$_.Name }
+                    Test-MecmApplicationTitle -CMName $CMName -Title $title
+                })
         }
 
         if (-not $apps -or $apps.Count -eq 0) {
@@ -1652,8 +1808,10 @@ function Invoke-ProcessWithStreaming {
                 break
             }
 
-            # WPF dispatcher pump
-            [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke(
+            # WPF dispatcher pump. Invoke returns a value on every pass; left in
+            # the output, it turns the result into an array, and post-step notes
+            # (WsusPublish, IntunePublish) cannot attach to it.
+            [void][System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke(
                 [System.Windows.Threading.DispatcherPriority]::Background,
                 [Action]{ }
             )
@@ -1662,12 +1820,12 @@ function Invoke-ProcessWithStreaming {
 
         if ($timedOut) {
             try { $p.Kill() } catch { }
-            $p.WaitForExit(5000)
+            [void]$p.WaitForExit(5000)
             $outLines.Add("[ERROR] Packager idle for $IdleTimeoutSeconds seconds; killed by Invoke-ProcessWithStreaming.")
         }
         elseif (-not $p.WaitForExit(15000)) {
             try { $p.Kill() } catch { }
-            $p.WaitForExit(5000)
+            [void]$p.WaitForExit(5000)
         }
 
         $stdout = ($outLines -join "`r`n")
@@ -1757,7 +1915,8 @@ function Invoke-PackagerPackage {
         [switch]$CreateIntuneWin,
         [string]$IntuneWinToolPath = '',
         [hashtable]$IntunePublishConfig = $null,
-        [ValidateSet('MECM', 'MECMAndIntune', 'IntuneOnly')][string]$DeploymentTarget = 'MECM',
+        [hashtable]$WsusPublishConfig = $null,
+        [ValidateSet('MECM', 'MECMAndIntune', 'IntuneOnly', 'MECMAndWSUS', 'WSUSOnly')][string]$DeploymentTarget = 'MECM',
         [ValidateSet('Nested','Flat')][string]$ContentLayout = 'Nested',
         [string]$RequirementsJson = '',
         [string]$VariantsJson = '',
@@ -1796,10 +1955,12 @@ function Invoke-PackagerPackage {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "powershell.exe"
     $psi.WorkingDirectory = Split-Path -Parent $PackagerPath
-    # Intune-only runs stop at Stage: no site connection, no share copy,
-    # no ConfigMgr application. The .intunewin build and Graph publish below
-    # work entirely from the local staged content.
-    $phaseSwitch = if ($DeploymentTarget -eq 'IntuneOnly') { '-StageOnly' } else { '-PackageOnly' }
+    # Intune-only and WSUS-only runs stop at Stage: no site connection, no
+    # share copy, no ConfigMgr application. The .intunewin build, the Graph
+    # publish and the WSUS publish below work entirely from the local staged
+    # content.
+    $skipsSite = Test-DeploymentTargetSkipsSite -DeploymentTarget $DeploymentTarget
+    $phaseSwitch = if ($skipsSite) { '-StageOnly' } else { '-PackageOnly' }
     $argsBase = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PackagerPath, $phaseSwitch, '-SiteCode', $SiteCode, '-Comment', $Comment, '-LogPath', $structuredLog)
     if (Test-PackagerSupportsFileServerPath -PackagerPath $PackagerPath) {
         $argsBase += @('-FileServerPath', $FileServerPath)
@@ -1821,18 +1982,19 @@ function Invoke-PackagerPackage {
 
     $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -StructuredLog $structuredLog -LogTextBox $LogTextBox
     if ($Preflight) { return $result }
-    if ($DeploymentTarget -ne 'IntuneOnly') {
-        # Network-copy verification; an Intune-only run never copies to the
-        # share (stage integrity is verified when the manifest is written).
+    if (-not $skipsSite) {
+        # Network-copy verification; an Intune-only or WSUS-only run never
+        # copies to the share (stage integrity is verified when the manifest
+        # is written).
         Assert-PackagerPackageIntegrity -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -ContentLayout $ContentLayout
     }
 
     # Optional post-step: produce a .intunewin beside the network content.
     # Runs only after integrity passes; failures ride on the result for the
     # caller to surface, never thrown - the ConfigMgr application already exists
-    # by this point.
+    # by this point. A WSUS-only run has no network content to place it beside.
     $intuneOnly = ($DeploymentTarget -eq 'IntuneOnly')
-    if (($CreateIntuneWin -or $intuneOnly) -and $result.ExitCode -eq 0) {
+    if ((($CreateIntuneWin -and -not $skipsSite) -or $intuneOnly) -and $result.ExitCode -eq 0) {
         $intuneNote = Invoke-PackagerIntuneWinPostStep -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -ToolPath $IntuneWinToolPath -ContentLayout $ContentLayout -SkipNetworkCopy:$intuneOnly
         if ($intuneOnly -and -not $IntunePublishConfig -and $intuneNote.Ok) {
             $result | Add-Member -NotePropertyName IntunePublish -NotePropertyValue ([pscustomobject]@{ Ok = $false; Message = 'Intune credentials not configured; set Tenant ID, Client ID, and Client Secret in ConfigMgr Preferences.' }) -Force
@@ -1866,7 +2028,85 @@ function Invoke-PackagerPackage {
             $result | Add-Member -NotePropertyName IntuneWin -NotePropertyValue $intuneNote -Force
         }
     }
+
+    # WSUS post-step: publish the staged installer as a locally published
+    # update. Same contract as the Intune publish: the note carries the
+    # outcome and nothing here throws past the ConfigMgr application.
+    if ((Test-DeploymentTargetPublishesToWsus -DeploymentTarget $DeploymentTarget) -and $result.ExitCode -eq 0) {
+        $wsusNote = Invoke-PackagerWsusPostStep -Result $result -PackagerPath $PackagerPath -DownloadRoot $DownloadRoot -Config $WsusPublishConfig -SelectedManifestPath $selectedManifestPath -SkipsSite:$skipsSite
+        $result | Add-Member -NotePropertyName WsusPublish -NotePropertyValue $wsusNote -Force
+    }
     return $result
+}
+
+function Invoke-PackagerWsusPostStep {
+    # Resolves the manifest this run staged or packaged and publishes its
+    # installer to WSUS. A stage-only run names its folder in the "Stage
+    # complete" line; a package run names the manifest it read.
+    param(
+        [Parameter(Mandatory)]$Result,
+        [Parameter(Mandatory)][string]$PackagerPath,
+        [string]$DownloadRoot = $null,
+        [hashtable]$Config = $null,
+        [string]$SelectedManifestPath = '',
+        [switch]$SkipsSite
+    )
+
+    $note = [pscustomobject]@{
+        Ok        = $false
+        Refused   = $false
+        Message   = ''
+        PackageId = ''
+        Outcome   = ''
+        Warnings  = @()
+    }
+    try {
+        if (-not $Config -or [string]::IsNullOrWhiteSpace([string]$Config.ServerName)) {
+            $note.Message = 'WSUS server not configured; set it in Options, WSUS Publishing.'
+            return $note
+        }
+        if (-not (Get-Command -Name Publish-WsusSoftwareUpdate -ErrorAction SilentlyContinue)) {
+            $note.Message = 'the WSUS publishing module is not loaded; reinstall AppPackager.'
+            return $note
+        }
+
+        $manifestPath = ''
+        if ($SkipsSite) {
+            $stagePath = Get-PackagerLoggedPath -Text $Result.StdOut -Label 'Stage complete'
+            if (-not [string]::IsNullOrWhiteSpace($stagePath)) { $manifestPath = Join-Path $stagePath 'stage-manifest.json' }
+        }
+        else {
+            $manifestPath = Get-PackagerLoggedPath -Text $Result.StdOut -Label 'Read stage manifest'
+            if ([string]::IsNullOrWhiteSpace($manifestPath) -and -not [string]::IsNullOrWhiteSpace($SelectedManifestPath)) {
+                $manifestPath = $SelectedManifestPath
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace($manifestPath) -or -not (Test-Path -LiteralPath $manifestPath)) {
+            $manifestPath = Find-NewestStageManifestForPackager -PackagerPath $PackagerPath -DownloadRoot $DownloadRoot
+        }
+        if ([string]::IsNullOrWhiteSpace($manifestPath) -or -not (Test-Path -LiteralPath $manifestPath)) {
+            $note.Message = 'stage-manifest.json not found; skipped.'
+            return $note
+        }
+
+        $manifest = Read-StageManifest -Path $manifestPath
+        $publish = Publish-WsusSoftwareUpdate -Manifest $manifest -ContentFolder (Split-Path -Parent $manifestPath) -Settings $Config
+        $note.Ok = $true
+        $note.PackageId = [string]$publish.PackageId
+        $note.Outcome = [string]$publish.Outcome
+        $note.Message = [string]$publish.Message
+        if ($publish.PSObject.Properties['Warnings']) { $note.Warnings = @($publish.Warnings) }
+        return $note
+    }
+    catch {
+        if ($_.Exception.Data -and $_.Exception.Data.Contains('WsusRefusal')) {
+            $note.Refused = $true
+            $note.Message = ('not supported: {0}' -f ($_.Exception.Message -replace '^This application cannot be published to WSUS: ', ''))
+            return $note
+        }
+        $note.Message = ('publish failed: {0}' -f $_.Exception.Message)
+        return $note
+    }
 }
 
 function Set-PackagerEnvironment {
@@ -2147,12 +2387,14 @@ function Get-SevenZipPathForContext {
 function Get-IntunePublishConfigForContext {
     # Decrypts the stored client secret (DPAPI, current Windows user)
     # just-in-time. Returns $null when publishing is off or incomplete,
-    # so callers can pass the result straight through.
-    param($Prefs = $script:Prefs)
+    # so callers can pass the result straight through. Target is the run's
+    # destination; empty means the One Click destination.
+    param($Prefs = $script:Prefs, [AllowEmptyString()][string]$Target = '')
     try {
         $i = $Prefs.Intune
         if (-not $i) { return $null }
-        $target = [string]$i.DeploymentTarget
+        $target = if ($Target) { $Target } else { [string]$i.DeploymentTarget }
+        if (Test-DeploymentTargetPublishesToWsus -DeploymentTarget $target) { return $null }
         if ($target -notin @('MECMAndIntune', 'IntuneOnly') -and -not [bool]$i.PublishToIntune) { return $null }
         if ([string]::IsNullOrWhiteSpace([string]$i.TenantId) -or
             [string]::IsNullOrWhiteSpace([string]$i.ClientId) -or
@@ -2162,6 +2404,28 @@ function Get-IntunePublishConfigForContext {
         try { $plain = [Runtime.InteropServices.Marshal]::PtrToStringUni($ptr) }
         finally { [Runtime.InteropServices.Marshal]::ZeroFreeGlobalAllocUnicode($ptr) }
         return @{ TenantId = [string]$i.TenantId; ClientId = [string]$i.ClientId; ClientSecret = $plain }
+    } catch { return $null }
+}
+
+function Get-WsusPublishConfigForContext {
+    # Plain values only: the background runspace receives a copy and cannot
+    # read the preferences object. Returns $null when the run's destination
+    # does not publish to WSUS or no server is set. Target is the run's
+    # destination; empty means the One Click destination.
+    param($Prefs = $script:Prefs, [AllowEmptyString()][string]$Target = '')
+    try {
+        $destination = if ($Target) { $Target } else { [string]$Prefs.Intune.DeploymentTarget }
+        if (-not (Test-DeploymentTargetPublishesToWsus -DeploymentTarget $destination)) { return $null }
+        $w = $Prefs.Wsus
+        if (-not $w -or [string]::IsNullOrWhiteSpace([string]$w.ServerName)) { return $null }
+        return @{
+            ServerName        = [string]$w.ServerName
+            PortNumber        = [int]$w.PortNumber
+            UseSsl            = [bool]$w.UseSsl
+            Classification    = [string]$w.Classification
+            ApprovalGroup     = [string]$w.ApprovalGroup
+            DeclineSuperseded = [bool]$w.DeclineSuperseded
+        }
     } catch { return $null }
 }
 
@@ -3517,6 +3781,9 @@ $btnCheckLatest  = $window.FindName('btnCheckLatest')
 $btnCheckMECM    = $window.FindName('btnCheckMECM')
 $btnStage        = $window.FindName('btnStage')
 $btnPackage      = $window.FindName('btnPackage')
+$btnPublishIntune = $window.FindName('btnPublishIntune')
+$btnPublishWsus  = $window.FindName('btnPublishWsus')
+$btnWsusUpdates  = $window.FindName('btnWsusUpdates')
 $btnAddInstaller = $window.FindName('btnAddInstaller')
 $btnWorkbench    = $window.FindName('btnWorkbench')
 $btnFullRun      = $window.FindName('btnFullRun')
@@ -3548,7 +3815,7 @@ $btnCancelPipeline = $window.FindName('btnCancelPipeline')
 [ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($window, "Dark.Steel")
 
 # Palette and button/label theming come from SuiteCommon.
-$script:WorkflowButtons = @($btnFullRun, $btnCheckLatest, $btnCheckMECM, $btnStage, $btnPackage)
+$script:WorkflowButtons = @($btnFullRun, $btnCheckLatest, $btnCheckMECM, $btnStage, $btnPackage, $btnPublishIntune, $btnPublishWsus, $btnWsusUpdates)
 $script:OptionsButtons  = @($btnOptions)
 
 Initialize-SuiteTheme -Window $window `
@@ -3775,58 +4042,86 @@ $menuCopyLatestVersion.Add_Click({
 # =============================================================================
 # Helper: enable/disable all action buttons
 # =============================================================================
+$script:ActionButtonsEnabled = $true
 function Set-ActionButtonsEnabled {
     param([bool]$Enabled)
-    $btnCheckLatest.IsEnabled = $Enabled
-    $btnCheckMECM.IsEnabled   = $Enabled
-    $btnStage.IsEnabled       = $Enabled
-    $btnPackage.IsEnabled     = $Enabled
-    $btnFullRun.IsEnabled     = $Enabled
-    $btnOptions.IsEnabled     = $Enabled
-    Update-SidebarForDeploymentTarget
+    $script:ActionButtonsEnabled = $Enabled
+    $btnCheckLatest.IsEnabled   = $Enabled
+    $btnCheckMECM.IsEnabled     = $Enabled
+    $btnStage.IsEnabled         = $Enabled
+    $btnPackage.IsEnabled       = $Enabled
+    $btnPublishIntune.IsEnabled = $Enabled
+    $btnPublishWsus.IsEnabled   = $Enabled
+    $btnWsusUpdates.IsEnabled   = $Enabled
+    $btnFullRun.IsEnabled       = $Enabled
+    $btnOptions.IsEnabled       = $Enabled
+    Update-SidebarForSystems
 }
 
 # =============================================================================
-# Sidebar state for the Deployment Target preference
+# Sidebar state for the configured systems
 # -----------------------------------------------------------------------------
-# Get-SidebarTargetState holds the decision and touches no WPF types, so it is
-# exercised headlessly. Update-SidebarForDeploymentTarget applies it and is the
-# only writer of these two buttons' label and tooltips; it runs at launch and
-# after every path that can change Prefs.Intune.DeploymentTarget.
+# Get-SidebarSystemState holds the decision and touches no WPF types, so it is
+# exercised headlessly. Update-SidebarForSystems applies it and is the only
+# writer of the publish buttons' tooltips; it runs at launch and after every
+# path that can change the ConfigMgr, Intune or WSUS settings.
 # =============================================================================
-function Get-SidebarTargetState {
-    param([string]$DeploymentTarget)
+function Get-SidebarSystemState {
+    param($Prefs)
 
-    if ($DeploymentTarget -eq 'IntuneOnly') {
-        return @{
-            CheckMecmEnabled  = $false
-            CheckMecmToolTip  = "Check ConfigMgr needs a ConfigMgr site. The Deployment Target is Intune only - change it in Options, ConfigMgr Preferences, to use this."
-            PackageContent    = 'Publish Apps'
-            PackageToolTip    = 'Stage each checked app, build the .intunewin, and publish it to Intune'
-            SkipMecmPreflight = $true
-        }
-    }
+    $systems = $Prefs.Systems
+    $mecmInUse   = [bool](-not $systems -or $systems.ConfigMgr)
+    $intuneInUse = [bool]($systems -and $systems.Intune)
+    $wsusInUse   = [bool]($systems -and $systems.Wsus)
+    $notInUse = 'not in use. Select it under Systems in use in Options, ConfigMgr Preferences.'
+
+    $consoleFound = [bool]($Prefs.DetectedTools -and $Prefs.DetectedTools.ConfigMgrConsole -and $Prefs.DetectedTools.ConfigMgrConsole.Found)
+    $siteCode = [string]$Prefs.SiteCode
+    $mecmReason = ''
+    if (-not $mecmInUse) { $mecmReason = 'ConfigMgr is ' + $notInUse }
+    elseif (-not $consoleFound) { $mecmReason = 'Needs the ConfigMgr console on this computer.' }
+    elseif ([string]::IsNullOrWhiteSpace($siteCode)) { $mecmReason = 'Set the site code in Options, ConfigMgr Preferences.' }
+
+    $intune = $Prefs.Intune
+    $intuneReady = [bool]($intuneInUse -and $intune -and -not [string]::IsNullOrWhiteSpace([string]$intune.TenantId) -and
+        -not [string]::IsNullOrWhiteSpace([string]$intune.ClientId) -and -not [string]::IsNullOrWhiteSpace([string]$intune.ClientSecretProtected))
+    $intuneReason = $(if ($intuneInUse) { 'set Tenant ID, Client ID and Client Secret in Options, ConfigMgr Preferences.' } else { 'Intune is ' + $notInUse })
+    $wsusReady = [bool]($wsusInUse -and $Prefs.Wsus -and -not [string]::IsNullOrWhiteSpace([string]$Prefs.Wsus.ServerName))
+    $wsusReason = $(if ($wsusInUse) { 'Set the WSUS server in Options, WSUS Publishing.' } else { 'WSUS is ' + $notInUse })
 
     return @{
-        CheckMecmEnabled  = $true
-        CheckMecmToolTip  = 'Query ConfigMgr for the currently deployed version of each checked app'
-        PackageContent    = 'Package Apps'
-        PackageToolTip    = 'Build ConfigMgr Application + Deployment Type for every checked app'
-        SkipMecmPreflight = $false
+        CheckMecmEnabled     = (-not $mecmReason)
+        CheckMecmToolTip     = $(if ($mecmReason) { 'Check ConfigMgr: ' + $mecmReason } else { 'Query ConfigMgr for the currently deployed version of each checked app' })
+        MecmEnabled          = (-not $mecmReason)
+        MecmToolTip          = $(if ($mecmReason) { 'Publish to ConfigMgr: ' + $mecmReason } else { 'Build a ConfigMgr Application and Deployment Type for every checked app' })
+        IntuneEnabled        = $intuneReady
+        IntuneToolTip        = $(if ($intuneReady) { 'Stage every checked app, build its .intunewin, and publish it to Intune' } else { 'Publish to Intune: ' + $intuneReason })
+        WsusEnabled          = $wsusReady
+        WsusToolTip          = $(if ($wsusReady) { 'Stage every checked app and publish its installer to WSUS as an update for computers that have an older version' } else { 'Publish to WSUS: ' + $wsusReason })
+        WsusUpdatesEnabled   = $wsusReady
+        WsusUpdatesToolTip   = $(if ($wsusReady) { 'List the updates AppPackager published to WSUS; approve, decline, expire or remove them, or import from the Microsoft Update Catalog' } else { 'WSUS Updates: ' + $wsusReason })
     }
 }
 
-function Update-SidebarForDeploymentTarget {
-    $state = Get-SidebarTargetState -DeploymentTarget ([string]$script:Prefs.Intune.DeploymentTarget)
+function Update-SidebarForSystems {
+    $state = Get-SidebarSystemState -Prefs $script:Prefs
 
     # Disabled rather than hidden: the button stays discoverable and its
-    # tooltip states why it cannot run.
-    # Only the disable is forced here; enablement otherwise stays with
-    # Set-ActionButtonsEnabled, which calls back into this function.
-    if (-not $state.CheckMecmEnabled) { $btnCheckMECM.IsEnabled = $false }
-    $btnCheckMECM.ToolTip = $state.CheckMecmToolTip
-    $btnPackage.Content     = $state.PackageContent
-    $btnPackage.ToolTip     = $state.PackageToolTip
+    # tooltip states what to configure. A button disabled at launch for a
+    # missing setting stays disabled after Setup or Options saves that
+    # setting unless this assignment also enables it; a running pipeline
+    # keeps every button disabled through $script:ActionButtonsEnabled.
+    $pairs = @(
+        @($btnCheckMECM, 'CheckMecm'), @($btnPackage, 'Mecm'), @($btnPublishIntune, 'Intune'),
+        @($btnPublishWsus, 'Wsus'), @($btnWsusUpdates, 'WsusUpdates')
+    )
+    foreach ($pair in $pairs) {
+        $button = $pair[0]
+        $button.IsEnabled = ([bool]$script:ActionButtonsEnabled -and [bool]$state[$pair[1] + 'Enabled'])
+        $button.ToolTip = $state[$pair[1] + 'ToolTip']
+        # A disabled WPF button shows no tooltip unless told to.
+        [System.Windows.Controls.ToolTipService]::SetShowOnDisabled($button, $true)
+    }
 }
 
 $btnPausePipeline.Add_Click({
@@ -4069,84 +4364,92 @@ function New-MecmPreferencesPanel {
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
     <Grid.ColumnDefinitions>
         <ColumnDefinition Width="140"/>
         <ColumnDefinition Width="*"/>
     </Grid.ColumnDefinitions>
 
-    <TextBlock Grid.Row="0" Grid.Column="0" Text="Site Code:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtSC" Width="80" FontSize="13" HorizontalAlignment="Left" MaxLength="5" Margin="0,0,0,8" ToolTip="ConfigMgr site code PSDrive name (e.g., MCM)"/>
+    <TextBlock Grid.Row="0" Grid.Column="0" Text="Systems in use:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The sidebar has a publish button for each system. A system that is not in use keeps its buttons disabled."/>
+    <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
+        <CheckBox x:Name="chkSysMecm" Content="ConfigMgr" FontSize="13" Margin="0,0,20,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+        <CheckBox x:Name="chkSysIntune" Content="Intune" FontSize="13" Margin="0,0,20,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+        <CheckBox x:Name="chkSysWsus" Content="WSUS" FontSize="13" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Server, certificate and publish defaults are under WSUS Publishing."/>
+    </StackPanel>
 
-    <TextBlock Grid.Row="1" Grid.Column="0" Text="Provider Machine:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtProvider" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="SMS Provider server from the ConfigMgr AdminUI connect script's ProviderMachineName value"/>
+    <TextBlock Grid.Row="1" Grid.Column="0" Text="Site Code:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtSC" Width="80" FontSize="13" HorizontalAlignment="Left" MaxLength="5" Margin="0,0,0,8" ToolTip="ConfigMgr site code PSDrive name (e.g., MCM)"/>
 
-    <TextBlock Grid.Row="2" Grid.Column="0" Text="File Share Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtFS" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="UNC path to the SCCM content file share"/>
+    <TextBlock Grid.Row="2" Grid.Column="0" Text="Provider Machine:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtProvider" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="SMS Provider server from the ConfigMgr AdminUI connect script's ProviderMachineName value"/>
 
-    <TextBlock Grid.Row="3" Grid.Column="0" Text="Content Layout:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Share folder layout for packaged content. Applies to future Package runs; existing content stays where it is."/>
-    <ComboBox  Grid.Row="3" Grid.Column="1" x:Name="cboLayout" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Nested keeps an app's versions adjacent for easy retention pruning; Flat is one folder per package.">
+    <TextBlock Grid.Row="3" Grid.Column="0" Text="File Share Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtFS" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="UNC path to the SCCM content file share"/>
+
+    <TextBlock Grid.Row="4" Grid.Column="0" Text="Content Layout:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Share folder layout for packaged content. Applies to future Package runs; existing content stays where it is."/>
+    <ComboBox  Grid.Row="4" Grid.Column="1" x:Name="cboLayout" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Nested keeps an app's versions adjacent for easy retention pruning; Flat is one folder per package.">
         <ComboBoxItem Content="Nested - Applications\Vendor\App\Version"/>
         <ComboBoxItem Content="Flat - Applications\Vendor-App-Version"/>
     </ComboBox>
 
-    <TextBlock Grid.Row="4" Grid.Column="0" Text="Download Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="4" Grid.Column="1" x:Name="txtDL" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Local folder where installers are downloaded during staging"/>
+    <TextBlock Grid.Row="5" Grid.Column="0" Text="Download Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <TextBox   Grid.Row="5" Grid.Column="1" x:Name="txtDL" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Local folder where installers are downloaded during staging"/>
 
-    <TextBlock Grid.Row="5" Grid.Column="0" Text="Est. Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
+    <TextBlock Grid.Row="6" Grid.Column="0" Text="Est. Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
         <TextBox x:Name="txtEst" Width="60" FontSize="13" MaxLength="4" ToolTip="Estimated install runtime in minutes"/>
         <TextBlock Text=" mins" FontSize="13" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray5}"/>
     </StackPanel>
 
-    <TextBlock Grid.Row="6" Grid.Column="0" Text="Max Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
+    <TextBlock Grid.Row="7" Grid.Column="0" Text="Max Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <StackPanel Grid.Row="7" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
         <TextBox x:Name="txtMax" Width="60" FontSize="13" MaxLength="4" ToolTip="Maximum allowed install runtime in minutes"/>
         <TextBlock Text=" mins" FontSize="13" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray5}"/>
     </StackPanel>
 
-    <TextBlock Grid.Row="7" Grid.Column="0" Text="Fallback DPs:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Deployment type content option. Applies to deployment types created by future Package runs."/>
-    <ComboBox  Grid.Row="7" Grid.Column="1" x:Name="cboContentFallback" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Allow: when no distribution point in the current or neighbor boundary groups has the content, the client can use the site default boundary group.">
+    <TextBlock Grid.Row="8" Grid.Column="0" Text="Fallback DPs:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Deployment type content option. Applies to deployment types created by future Package runs."/>
+    <ComboBox  Grid.Row="8" Grid.Column="1" x:Name="cboContentFallback" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Allow: when no distribution point in the current or neighbor boundary groups has the content, the client can use the site default boundary group.">
         <ComboBoxItem Content="Allow - use the site default boundary group" Tag="Allow"/>
         <ComboBoxItem Content="Deny - current and neighbor groups only" Tag="Deny"/>
     </ComboBox>
 
-    <TextBlock Grid.Row="8" Grid.Column="0" Text="Neighbor/default DP:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Deployment type content option. Applies to deployment types created by future Package runs."/>
-    <ComboBox  Grid.Row="8" Grid.Column="1" x:Name="cboSlowNetwork" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Deployment option when the client uses a distribution point in a neighbor boundary group or the site default boundary group.">
+    <TextBlock Grid.Row="9" Grid.Column="0" Text="Neighbor/default DP:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Deployment type content option. Applies to deployment types created by future Package runs."/>
+    <ComboBox  Grid.Row="9" Grid.Column="1" x:Name="cboSlowNetwork" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Deployment option when the client uses a distribution point in a neighbor boundary group or the site default boundary group.">
         <ComboBoxItem Content="Download content and install" Tag="Download"/>
         <ComboBoxItem Content="Do not download content" Tag="DoNothing"/>
     </ComboBox>
 
-    <TextBlock Grid.Row="9" Grid.Column="0" Text="Auto-distribute:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, the Package phase calls Start-CMContentDistribution after creating each ConfigMgr Application."/>
-    <CheckBox  Grid.Row="9" Grid.Column="1" x:Name="chkAutoDist" Content="Start-CMContentDistribution after Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+    <TextBlock Grid.Row="10" Grid.Column="0" Text="Auto-distribute:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, the Package phase calls Start-CMContentDistribution after creating each ConfigMgr Application."/>
+    <CheckBox  Grid.Row="10" Grid.Column="1" x:Name="chkAutoDist" Content="Start-CMContentDistribution after Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
-    <TextBlock Grid.Row="10" Grid.Column="0" Text="DP Group:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact name of the Distribution Point Group to target."/>
-    <TextBox   Grid.Row="10" Grid.Column="1" x:Name="txtDPGroup" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Distribution Point Group display name (e.g. 'All DPs')"/>
+    <TextBlock Grid.Row="11" Grid.Column="0" Text="DP Group:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact name of the Distribution Point Group to target."/>
+    <TextBox   Grid.Row="11" Grid.Column="1" x:Name="txtDPGroup" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Distribution Point Group display name (e.g. 'All DPs')"/>
 
-    <TextBlock Grid.Row="11" Grid.Column="0" Text="Test deployment:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Requires Auto-distribute enabled and a DP Group name. After content distribution, deploys the application (Available, immediately, default options) to the test collection."/>
-    <CheckBox  Grid.Row="11" Grid.Column="1" x:Name="chkTestDeploy" Content="Deploy to test collection after distribution" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+    <TextBlock Grid.Row="12" Grid.Column="0" Text="Test deployment:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Requires Auto-distribute enabled and a DP Group name. After content distribution, deploys the application (Available, immediately, default options) to the test collection."/>
+    <CheckBox  Grid.Row="12" Grid.Column="1" x:Name="chkTestDeploy" Content="Deploy to test collection after distribution" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
-    <TextBlock Grid.Row="12" Grid.Column="0" Text="Test collection:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact device collection name that receives the Available test deployment."/>
-    <TextBox   Grid.Row="12" Grid.Column="1" x:Name="txtTestCollection" FontSize="13" MaxLength="255" Margin="0,0,0,8" ToolTip="Device collection display name (e.g. 'App Test Devices')"/>
+    <TextBlock Grid.Row="13" Grid.Column="0" Text="Test collection:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact device collection name that receives the Available test deployment."/>
+    <TextBox   Grid.Row="13" Grid.Column="1" x:Name="txtTestCollection" FontSize="13" MaxLength="255" Margin="0,0,0,8" ToolTip="Device collection display name (e.g. 'App Test Devices')"/>
 
-    <TextBlock Grid.Row="13" Grid.Column="0" Text="" Margin="0,0,0,8"/>
-    <CheckBox  Grid.Row="13" Grid.Column="1" x:Name="chkCreateTestColl" Content="Create collection if it does not exist" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Creates an empty direct-membership device collection limited to All Systems when the named collection is missing."/>
+    <TextBlock Grid.Row="14" Grid.Column="0" Text="" Margin="0,0,0,8"/>
+    <CheckBox  Grid.Row="14" Grid.Column="1" x:Name="chkCreateTestColl" Content="Create collection if it does not exist" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Creates an empty direct-membership device collection limited to All Systems when the named collection is missing."/>
 
-    <TextBlock Grid.Row="14" Grid.Column="0" Text="Application title:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Default application naming for every Package run."/>
-    <CheckBox  Grid.Row="14" Grid.Column="1" x:Name="chkTitleVersion" Content="Include version in application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Adds the version to every application name, creating one ConfigMgr application per release. A per-application choice in the Application Workbench overrides this. Existing applications are not renamed."/>
+    <TextBlock Grid.Row="15" Grid.Column="0" Text="Application title:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Default application naming for every Package run."/>
+    <CheckBox  Grid.Row="15" Grid.Column="1" x:Name="chkTitleVersion" Content="Include version in application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Adds the version to every application name, creating one ConfigMgr application per release. A per-application choice in the Application Workbench overrides this. Existing applications are not renamed."/>
 
-    <TextBlock Grid.Row="15" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
-    <Grid Grid.Row="15" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
+    <TextBlock Grid.Row="16" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
+    <Grid Grid.Row="16" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
 
-    <TextBlock Grid.Row="16" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="7-Zip command-line (7z.exe) detection status. Required by the Adobe Reader packager."/>
-    <Grid Grid.Row="16" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
-    <TextBlock Grid.Row="17" Grid.Column="0" Text="GitHub API:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="How the 90 packagers that read GitHub releases authenticate. Anonymous calls are limited to 60 per hour per address; a token raises that to 5000. Resolved from GITHUB_TOKEN, then GH_TOKEN, then the GitHub CLI login (gh auth login)."/>
-    <Grid Grid.Row="17" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtGitHubStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
+    <TextBlock Grid.Row="17" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="7-Zip command-line (7z.exe) detection status. Required by the Adobe Reader packager."/>
+    <Grid Grid.Row="17" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
+    <TextBlock Grid.Row="18" Grid.Column="0" Text="GitHub API:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="How the 90 packagers that read GitHub releases authenticate. Anonymous calls are limited to 60 per hour per address; a token raises that to 5000. Resolved from GITHUB_TOKEN, then GH_TOKEN, then the GitHub CLI login (gh auth login)."/>
+    <Grid Grid.Row="18" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtGitHubStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
 
-    <TextBlock Grid.Row="18" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe) detection status. Downloaded on first use, or place the exe on PATH."/>
+    <TextBlock Grid.Row="19" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe) detection status. Downloaded on first use, or place the exe on PATH."/>
     <!-- Status text in a star column so a long message wraps instead of
          pushing the buttons past the panel edge, where they clip out of view. -->
-    <Grid Grid.Row="18" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
+    <Grid Grid.Row="19" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="Auto"/>
@@ -4155,8 +4458,8 @@ function New-MecmPreferencesPanel {
         <Button Grid.Column="1" x:Name="btnIntuneWinDownload" Content="Download" FontSize="11" Margin="10,0,0,0" Padding="10,2" VerticalAlignment="Center" Visibility="Collapsed"/>
     </Grid>
 
-    <TextBlock Grid.Row="19" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Packager icon pack for IconSource External packagers. Installs into Packagers\Icons and is read at stage time."/>
-    <Grid Grid.Row="19" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
+    <TextBlock Grid.Row="20" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Packager icon pack for IconSource External packagers. Installs into Packagers\Icons and is read at stage time."/>
+    <Grid Grid.Row="20" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="Auto"/>
@@ -4167,20 +4470,15 @@ function New-MecmPreferencesPanel {
         <Button Grid.Column="2" x:Name="btnIconPackFromFile" Content="Install from file..." FontSize="11" Margin="6,0,0,0" Padding="10,2" VerticalAlignment="Center" ToolTip="Installs an icon pack from a local or UNC icon-pack.zip when the release download is blocked (proxy/SSL inspection). A checksums.txt beside the zip is verified when present."/>
     </Grid>
 
-    <TextBlock Grid.Row="20" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, a successful Package also produces an .intunewin from the staged content and stores it beside the network content version folder."/>
-    <CheckBox  Grid.Row="20" Grid.Column="1" x:Name="chkIntuneWin" Content="Create .intunewin during Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-    <TextBlock Grid.Row="21" Grid.Column="0" Text="Intune Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
-    <TextBox   Grid.Row="21" Grid.Column="1" x:Name="txtIntuneTenant" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="22" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
-    <TextBox   Grid.Row="22" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="23" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
-    <PasswordBox Grid.Row="23" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="24" Grid.Column="0" Text="Deployment Target:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Where Package creates applications. ConfigMgr only: today's flow. ConfigMgr + Intune: ConfigMgr app plus a Graph publish of the .intunewin. Intune only: stage, build the .intunewin, and publish via Graph - no ConfigMgr console, site, or file share needed. Repeat publishes update the existing Intune app."/>
-    <ComboBox  Grid.Row="24" Grid.Column="1" x:Name="cboDeployTarget" FontSize="13" Margin="0,0,0,8" Width="260" HorizontalAlignment="Left">
-        <ComboBoxItem Content="ConfigMgr only" Tag="MECM"/>
-        <ComboBoxItem Content="ConfigMgr + Intune" Tag="MECMAndIntune"/>
-        <ComboBoxItem Content="Intune only" Tag="IntuneOnly"/>
-    </ComboBox>
+    <TextBlock Grid.Row="21" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <TextBlock Grid.Row="21" Grid.Column="1" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,0,8" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
+               Text="Stage builds an .intunewin beside the content when IntuneWinAppUtil is detected. Publish to ConfigMgr copies it beside the network content."/>
+    <TextBlock Grid.Row="22" Grid.Column="0" Text="Intune Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
+    <TextBox   Grid.Row="22" Grid.Column="1" x:Name="txtIntuneTenant" FontSize="13" Margin="0,0,0,8"/>
+    <TextBlock Grid.Row="23" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
+    <TextBox   Grid.Row="23" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,0,0,8"/>
+    <TextBlock Grid.Row="24" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
+    <PasswordBox Grid.Row="24" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,0,0,8"/>
 </Grid>
 </ScrollViewer>
 '@
@@ -4212,12 +4510,16 @@ function New-MecmPreferencesPanel {
     $txtIconPackStatus    = $element.FindName('txtIconPackStatus')
     $btnIconPackDownload  = $element.FindName('btnIconPackDownload')
     $btnIconPackFromFile  = $element.FindName('btnIconPackFromFile')
-    $chkIntuneWin         = $element.FindName('chkIntuneWin')
     $txtIntuneTenant      = $element.FindName('txtIntuneTenant')
     $txtIntuneClient      = $element.FindName('txtIntuneClient')
     $pwdIntuneSecret      = $element.FindName('pwdIntuneSecret')
-    $cboDeployTarget      = $element.FindName('cboDeployTarget')
+    $chkSysMecm   = $element.FindName('chkSysMecm')
+    $chkSysIntune = $element.FindName('chkSysIntune')
+    $chkSysWsus   = $element.FindName('chkSysWsus')
 
+    $chkSysMecm.IsChecked   = [bool]$script:Prefs.Systems.ConfigMgr
+    $chkSysIntune.IsChecked = [bool]$script:Prefs.Systems.Intune
+    $chkSysWsus.IsChecked   = [bool]$script:Prefs.Systems.Wsus
     $txtSC.Text  = [string]$script:Prefs.SiteCode
     $txtProvider.Text = [string]$script:Prefs.ProviderMachineName
     $txtFS.Text  = [string]$script:Prefs.FileShareRoot
@@ -4281,14 +4583,8 @@ function New-MecmPreferencesPanel {
         $txtGitHubStatus.Text = ([char]0x2717 + ' Anonymous  -  60 requests/hour per address' + $anonRemaining + '; set GITHUB_TOKEN or run gh auth login')
         $txtGitHubStatus.ToolTip = 'A version check across the 90 GitHub-backed packagers exceeds the anonymous limit. A personal access token with no scopes is enough.'
     }
-    $chkIntuneWin.IsChecked = [bool]$script:Prefs.Intune.CreateIntuneWin
     $txtIntuneTenant.Text = [string]$script:Prefs.Intune.TenantId
     $txtIntuneClient.Text = [string]$script:Prefs.Intune.ClientId
-    $currentTarget = [string]$script:Prefs.Intune.DeploymentTarget
-    foreach ($item in $cboDeployTarget.Items) {
-        if ([string]$item.Tag -eq $currentTarget) { $cboDeployTarget.SelectedItem = $item; break }
-    }
-    if (-not $cboDeployTarget.SelectedItem) { $cboDeployTarget.SelectedIndex = 0 }
     $prefsRefIw = $script:Prefs
     $updateIntuneWinState = {
         $iw = $prefsRefIw.DetectedTools.IntuneWinAppUtil
@@ -4297,12 +4593,10 @@ function New-MecmPreferencesPanel {
             $txtIntuneWinStatus.Text = ([char]0x2713 + " Detected  -  IntuneWinAppUtil{0}" -f $verText)
             $txtIntuneWinStatus.ToolTip = ("IntuneWinAppUtil.exe: {0}" -f $iw.ExePath)
             $btnIntuneWinDownload.Visibility = 'Collapsed'
-            $chkIntuneWin.IsEnabled = $true
         } else {
             $txtIntuneWinStatus.Text = ([char]0x2717 + " Not detected  -  download it here or place IntuneWinAppUtil.exe on PATH")
             $txtIntuneWinStatus.ToolTip = "Checked once per launch: preferences path, LOCALAPPDATA tool cache, PATH"
             $btnIntuneWinDownload.Visibility = 'Visible'
-            $chkIntuneWin.IsEnabled = $false
         }
     }.GetNewClosure()
     & $updateIntuneWinState
@@ -4377,6 +4671,9 @@ function New-MecmPreferencesPanel {
         if (-not [int]::TryParse($txtEst.Text.Trim(), [ref]$estVal)) { $estVal = 15 }
         if (-not [int]::TryParse($txtMax.Text.Trim(), [ref]$maxVal)) { $maxVal = 30 }
 
+        $prefsRef.Systems.ConfigMgr    = [bool]$chkSysMecm.IsChecked
+        $prefsRef.Systems.Intune       = [bool]$chkSysIntune.IsChecked
+        $prefsRef.Systems.Wsus         = [bool]$chkSysWsus.IsChecked
         $prefsRef.SiteCode             = $txtSC.Text.Trim()
         $prefsRef.ProviderMachineName  = $txtProvider.Text.Trim()
         $prefsRef.FileShareRoot        = $txtFS.Text.Trim()
@@ -4392,9 +4689,6 @@ function New-MecmPreferencesPanel {
         $prefsRef.ContentDistribution.TestCollectionName            = $txtTestCollection.Text.Trim()
         $prefsRef.ContentDistribution.CreateTestCollectionIfMissing = [bool]$chkCreateTestColl.IsChecked
         $prefsRef.IncludeVersionInTitle = [bool]$chkTitleVersion.IsChecked
-        $prefsRef.Intune.CreateIntuneWin = [bool]$chkIntuneWin.IsChecked
-        $prefsRef.Intune.DeploymentTarget = [string]$cboDeployTarget.SelectedItem.Tag
-        $prefsRef.Intune.PublishToIntune = ($prefsRef.Intune.DeploymentTarget -ne 'MECM')
         $prefsRef.Intune.TenantId = $txtIntuneTenant.Text.Trim()
         $prefsRef.Intune.ClientId = $txtIntuneClient.Text.Trim()
         # An empty box keeps the stored secret; a typed value replaces it,
@@ -4414,7 +4708,7 @@ function New-AppFlowPanel {
            xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro">
     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" FontSize="12"
                Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,12"
-               Text="One Click runs a Check (and optionally Stage / Package) against the apps you track here. Apps are skipped when the last check is still within their cadence unless you enable Force on launch."/>
+               Text="One Click runs a Check (and optionally Stage / Publish) against the apps you track here. Apps are skipped when the last check is still within their cadence unless you enable Force on launch. One Click runs without you, so it publishes to the destination set here; the sidebar publish buttons choose their own destination."/>
     <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto"/>
@@ -4422,16 +4716,29 @@ function New-AppFlowPanel {
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
-        <TextBlock Grid.Column="0" Text="Action on update:" VerticalAlignment="Center" FontSize="12" Margin="0,0,8,0"/>
-        <ComboBox Grid.Column="1" x:Name="cboAction" Width="190" VerticalAlignment="Center">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Action on update:" VerticalAlignment="Center" FontSize="12" Margin="0,0,8,0"/>
+        <ComboBox Grid.Row="0" Grid.Column="1" x:Name="cboAction" Width="190" VerticalAlignment="Center">
             <ComboBoxItem Content="Report only"/>
             <ComboBoxItem Content="Stage"/>
-            <ComboBoxItem Content="Stage and Package"/>
+            <ComboBoxItem Content="Stage and Publish"/>
         </ComboBox>
-        <Controls:ToggleSwitch Grid.Column="3" x:Name="toggleForce" IsOn="False"
+        <Controls:ToggleSwitch Grid.Row="0" Grid.Column="3" x:Name="toggleForce" IsOn="False"
                                 Header="Force on launch (ignore cadence)"
                                 OnContent="" OffContent="" MinWidth="0"
                                 VerticalAlignment="Center"/>
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="Publish to:" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
+        <ComboBox Grid.Row="1" Grid.Column="1" x:Name="cboOneClickTarget" Width="190" VerticalAlignment="Center" Margin="0,8,0,0"
+                  ToolTip="Where Stage and Publish sends each tracked app. ConfigMgr + Intune and ConfigMgr + WSUS publish to both.">
+            <ComboBoxItem Content="ConfigMgr" Tag="MECM"/>
+            <ComboBoxItem Content="ConfigMgr + Intune" Tag="MECMAndIntune"/>
+            <ComboBoxItem Content="Intune" Tag="IntuneOnly"/>
+            <ComboBoxItem Content="ConfigMgr + WSUS" Tag="MECMAndWSUS"/>
+            <ComboBoxItem Content="WSUS" Tag="WSUSOnly"/>
+        </ComboBox>
     </Grid>
     <DataGrid x:Name="dgApps" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
               GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0" BorderThickness="0"
@@ -4460,6 +4767,11 @@ function New-AppFlowPanel {
     $cboAction   = $element.FindName('cboAction')
     $toggleForce = $element.FindName('toggleForce')
     $dgApps      = $element.FindName('dgApps')
+    $cboOneClickTarget = $element.FindName('cboOneClickTarget')
+    foreach ($item in $cboOneClickTarget.Items) {
+        if ([string]$item.Tag -eq [string]$script:Prefs.Intune.DeploymentTarget) { $cboOneClickTarget.SelectedItem = $item; break }
+    }
+    if (-not $cboOneClickTarget.SelectedItem) { $cboOneClickTarget.SelectedIndex = 0 }
 
     $currentPrefs = $script:Prefs.AppFlow
     $trackedSet = [System.Collections.Generic.HashSet[string]]::new(
@@ -4525,6 +4837,8 @@ function New-AppFlowPanel {
         $prefsRef.AppFlow.Action           = $newAction
         $prefsRef.AppFlow.CadenceOverrides = [pscustomobject]$overrideProps
         $prefsRef.AppFlow.ForceOnLaunch    = [bool]$toggleForce.IsOn
+        $prefsRef.Intune.DeploymentTarget  = [string]$cboOneClickTarget.SelectedItem.Tag
+        $prefsRef.Intune.PublishToIntune   = ($prefsRef.Intune.DeploymentTarget -in @('MECMAndIntune', 'IntuneOnly'))
     }.GetNewClosure()
 
     return @{ Name = 'One Click Settings'; Element = $element; Commit = $commit }
@@ -5706,6 +6020,7 @@ function Show-OptionsDialog {
         (New-AppFlowPanel),
         (New-ProductFilterPanel),
         (New-ScriptSigningPanel),
+        (New-WsusPanel),
         (New-AboutPanel)
     )
 
@@ -5739,7 +6054,7 @@ function Show-OptionsDialog {
                 if ($p.TvConfig)    { Save-TvHostConfig -Config $p.TvConfig }
             }
             Invoke-RefreshGrid -DiscardSiteResults:$siteChanged
-            Update-SidebarForDeploymentTarget
+            Update-SidebarForSystems
             $script:OptionsDlgResult = $true
             $dlg.Close()
         } catch {
@@ -5798,15 +6113,17 @@ function Show-FirstRunWizard {
             <StackPanel>
                 <TextBlock Text="Welcome to AppPackager" FontSize="18" FontWeight="Bold" Margin="0,0,0,6"/>
                 <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,16"
-                           Text="Pick where packaged applications should land, then fill in the settings that target needs. Everything here can be changed later in Options - ConfigMgr Preferences."/>
+                           Text="Select the systems you publish to, then fill in their settings. The sidebar has a publish button for each system. Everything here can be changed later in Options."/>
 
-                <TextBlock Text="Environment" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
-                <ComboBox x:Name="cboTarget" FontSize="13" Width="280" HorizontalAlignment="Left" Margin="0,0,0,16"
-                          ToolTip="Where Package creates applications. ConfigMgr only: today's flow. ConfigMgr + Intune: ConfigMgr app plus a Graph publish of the .intunewin. Intune only: stage, build the .intunewin, and publish via Graph - no ConfigMgr console, site, or file share needed. Repeat publishes update the existing Intune app.">
-                    <ComboBoxItem Content="ConfigMgr only" Tag="MECM"/>
-                    <ComboBoxItem Content="ConfigMgr + Intune" Tag="MECMAndIntune"/>
-                    <ComboBoxItem Content="Intune only" Tag="IntuneOnly"/>
-                </ComboBox>
+                <TextBlock Text="Systems" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                    <CheckBox x:Name="chkWizMecm" Content="ConfigMgr" FontSize="13" Margin="0,0,20,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                              ToolTip="ConfigMgr applications. Needs the ConfigMgr console, a site and a content share."/>
+                    <CheckBox x:Name="chkWizIntune" Content="Intune" FontSize="13" Margin="0,0,20,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                              ToolTip="Intune Win32 apps published through Microsoft Graph. Needs an app registration."/>
+                    <CheckBox x:Name="chkWizWsus" Content="WSUS" FontSize="13" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                              ToolTip="Locally published WSUS updates for computers that have an older version. Needs a WSUS server."/>
+                </StackPanel>
 
                 <GroupBox x:Name="grpMecm" Header="ConfigMgr" Margin="0,0,0,14">
                     <Grid Margin="0,8,0,4">
@@ -5857,6 +6174,29 @@ function Show-FirstRunWizard {
                         <PasswordBox Grid.Row="2" Grid.Column="1" x:Name="pwdWizSecret" FontSize="13" Margin="0,0,0,4" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
                     </Grid>
                 </GroupBox>
+
+                <GroupBox x:Name="grpWsus" Header="WSUS" Margin="0,0,0,4">
+                    <Grid Margin="0,8,0,4">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Server:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="WSUS server name. For ConfigMgr, the top-level software update point."/>
+                        <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWizWsusServer" FontSize="13" MaxLength="255" Margin="0,0,0,8" ToolTip="WSUS server name. For ConfigMgr, the top-level software update point."/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Port:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="8530 for HTTP, 8531 for HTTPS on a default WSUS install."/>
+                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtWizWsusPort" Width="80" FontSize="13" MaxLength="5" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="8530 for HTTP, 8531 for HTTPS on a default WSUS install."/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="" Margin="0,0,0,4"/>
+                        <CheckBox  Grid.Row="2" Grid.Column="1" x:Name="chkWizWsusSsl" Content="Use SSL" FontSize="13" Margin="0,0,0,4" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Connect to the WSUS administration API over HTTPS."/>
+                    </Grid>
+                </GroupBox>
             </StackPanel>
         </ScrollViewer>
 
@@ -5885,9 +6225,15 @@ function Show-FirstRunWizard {
     Install-TitleBarDragFallback -Window $dlg
     Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
 
-    $cboTarget      = $dlg.FindName('cboTarget')
+    $chkWizMecm     = $dlg.FindName('chkWizMecm')
+    $chkWizIntune   = $dlg.FindName('chkWizIntune')
+    $chkWizWsus     = $dlg.FindName('chkWizWsus')
     $grpMecm        = $dlg.FindName('grpMecm')
     $grpIntune      = $dlg.FindName('grpIntune')
+    $grpWsus        = $dlg.FindName('grpWsus')
+    $txtWizWsusServer = $dlg.FindName('txtWizWsusServer')
+    $txtWizWsusPort   = $dlg.FindName('txtWizWsusPort')
+    $chkWizWsusSsl    = $dlg.FindName('chkWizWsusSsl')
     $txtWizSC       = $dlg.FindName('txtWizSC')
     $txtWizProvider = $dlg.FindName('txtWizProvider')
     $txtWizFS       = $dlg.FindName('txtWizFS')
@@ -5905,20 +6251,28 @@ function Show-FirstRunWizard {
     $txtWizDL.Text       = [string]$script:Prefs.DownloadRoot
     $txtWizTenant.Text   = [string]$script:Prefs.Intune.TenantId
     $txtWizClient.Text   = [string]$script:Prefs.Intune.ClientId
+    $txtWizWsusServer.Text  = [string]$script:Prefs.Wsus.ServerName
+    $txtWizWsusPort.Text    = [string]$script:Prefs.Wsus.PortNumber
+    $chkWizWsusSsl.IsChecked = [bool]$script:Prefs.Wsus.UseSsl
+    $wizPortFollowsSsl = @{ Value = ([string]$script:Prefs.Wsus.PortNumber -in @('', '8530', '8531')) }
+    $txtWizWsusPort.Add_TextChanged({ if ($txtWizWsusPort.IsKeyboardFocusWithin) { $wizPortFollowsSsl.Value = ($txtWizWsusPort.Text.Trim() -in @('', '8530', '8531')) } }.GetNewClosure())
+    # Checked and Unchecked also fire for a keyboard, UI Automation, or code change, not only a mouse click.
+    $wizSslChanged = { if ($wizPortFollowsSsl.Value) { $txtWizWsusPort.Text = $(if ($chkWizWsusSsl.IsChecked -eq $true) { '8531' } else { '8530' }) } }.GetNewClosure()
+    $chkWizWsusSsl.Add_Checked($wizSslChanged)
+    $chkWizWsusSsl.Add_Unchecked($wizSslChanged)
 
     $currentTarget = [string]$script:Prefs.Intune.DeploymentTarget
-    foreach ($item in $cboTarget.Items) {
-        if ([string]$item.Tag -eq $currentTarget) { $cboTarget.SelectedItem = $item; break }
-    }
-    if (-not $cboTarget.SelectedItem) { $cboTarget.SelectedIndex = 0 }
+    $chkWizMecm.IsChecked   = [bool]$script:Prefs.Systems.ConfigMgr
+    $chkWizIntune.IsChecked = [bool]$script:Prefs.Systems.Intune
+    $chkWizWsus.IsChecked   = [bool]$script:Prefs.Systems.Wsus
 
     $updateGroupState = {
-        $tag = if ($cboTarget.SelectedItem) { [string]$cboTarget.SelectedItem.Tag } else { 'MECM' }
-        $grpMecm.Visibility   = if ($tag -eq 'IntuneOnly') { 'Collapsed' } else { 'Visible' }
-        $grpIntune.Visibility = if ($tag -eq 'MECM') { 'Collapsed' } else { 'Visible' }
+        $grpMecm.Visibility   = if ($chkWizMecm.IsChecked -eq $true) { 'Visible' } else { 'Collapsed' }
+        $grpIntune.Visibility = if ($chkWizIntune.IsChecked -eq $true) { 'Visible' } else { 'Collapsed' }
+        $grpWsus.Visibility   = if ($chkWizWsus.IsChecked -eq $true) { 'Visible' } else { 'Collapsed' }
     }.GetNewClosure()
     & $updateGroupState
-    $cboTarget.Add_SelectionChanged($updateGroupState)
+    foreach ($box in @($chkWizMecm, $chkWizIntune, $chkWizWsus)) { $box.Add_Click($updateGroupState) }
 
     $script:FirstRunDlgSaved = $false
     $prefsRef = $script:Prefs
@@ -5927,14 +6281,23 @@ function Show-FirstRunWizard {
     # helpers and give each handler a separate $script:FirstRunDlgSaved flag.
     $btnWizSave.Add_Click({
         try {
-            $target = [string]$cboTarget.SelectedItem.Tag
-            if ($target -ne 'IntuneOnly') {
+            $useMecm   = ($chkWizMecm.IsChecked -eq $true)
+            $useIntune = ($chkWizIntune.IsChecked -eq $true)
+            $useWsus   = ($chkWizWsus.IsChecked -eq $true)
+            $prefsRef.Systems.ConfigMgr = $useMecm
+            $prefsRef.Systems.Intune    = $useIntune
+            $prefsRef.Systems.Wsus      = $useWsus
+            if ($useMecm) {
                 $prefsRef.SiteCode            = $txtWizSC.Text.Trim()
                 $prefsRef.ProviderMachineName = $txtWizProvider.Text.Trim()
                 $prefsRef.FileShareRoot       = $txtWizFS.Text.Trim()
                 $prefsRef.DownloadRoot        = $txtWizDL.Text.Trim()
+            } else {
+                # The built-in default would otherwise persist as a site code
+                # the operator never entered.
+                $prefsRef.SiteCode = ''
             }
-            if ($target -ne 'MECM') {
+            if ($useIntune) {
                 $prefsRef.Intune.TenantId = $txtWizTenant.Text.Trim()
                 $prefsRef.Intune.ClientId = $txtWizClient.Text.Trim()
                 # An empty box keeps the stored secret; a typed value replaces it,
@@ -5943,12 +6306,23 @@ function Show-FirstRunWizard {
                     $prefsRef.Intune.ClientSecretProtected = ($pwdWizSecret.SecurePassword | ConvertFrom-SecureString)
                 }
             }
+            if ($useWsus) {
+                $prefsRef.Wsus.ServerName = $txtWizWsusServer.Text.Trim()
+                $wizPort = 0
+                if ([int]::TryParse($txtWizWsusPort.Text.Trim(), [ref]$wizPort) -and $wizPort -ge 1 -and $wizPort -le 65535) {
+                    $prefsRef.Wsus.PortNumber = $wizPort
+                }
+                $prefsRef.Wsus.UseSsl = [bool]$chkWizWsusSsl.IsChecked
+            }
+            # One Click runs unattended and needs one saved destination; the
+            # sidebar buttons choose per run.
+            $target = if ($useMecm) { 'MECM' } elseif ($useIntune) { 'IntuneOnly' } elseif ($useWsus) { 'WSUSOnly' } else { 'MECM' }
             $prefsRef.Intune.DeploymentTarget = $target
-            $prefsRef.Intune.PublishToIntune  = ($target -ne 'MECM')
+            $prefsRef.Intune.PublishToIntune  = ($target -eq 'IntuneOnly')
             $prefsRef.FirstRunCompleted       = $true
             Save-Preferences -Prefs $prefsRef
             Invoke-RefreshGrid
-            Update-SidebarForDeploymentTarget
+            Update-SidebarForSystems
             $script:FirstRunDlgSaved = $true
             $dlg.Close()
         } catch {
@@ -5971,7 +6345,7 @@ function Show-FirstRunWizard {
     [void]$dlg.ShowDialog()
 
     if ($script:FirstRunDlgSaved) {
-        Add-LogLine -Message ("Setup complete: deployment target = {0}." -f [string]$script:Prefs.Intune.DeploymentTarget)
+        Add-LogLine -Message ("Setup complete. One Click publishes to {0}; change it in Options, One Click Settings." -f $(switch ([string]$script:Prefs.Intune.DeploymentTarget) { 'IntuneOnly' { 'Intune' } 'WSUSOnly' { 'WSUS' } default { 'ConfigMgr' } }))
     }
 }
 
@@ -6131,6 +6505,7 @@ function Initialize-BackgroundWorker {
         (Join-Path $PSScriptRoot 'Packagers\AppPackagerCommon.psm1')
         (Join-Path $PSScriptRoot 'Packagers\AppPackagerWorkbench.psm1')
         (Join-Path $PSScriptRoot 'Packagers\AppPackagerSigning.psm1')
+        (Join-Path $PSScriptRoot 'Packagers\AppPackagerWsus.psm1')
     )
     $initPS = [powershell]::Create()
     $initPS.Runspace = $script:BgRunspace
@@ -6246,8 +6621,8 @@ function Invoke-MultiAppPipeline {
         param($Op, $RowsIn, $Ctx, $State)
 
         $counts = [ordered]@{
-            Checked = 0; Updated = 0; Reported = 0; Staged = 0; Packaged = 0; StageAndPackage = 0
-            NoChange = 0; Skipped = 0; Failed = 0; CheckFailed = 0
+            Checked = 0; Updated = 0; Reported = 0; Staged = 0; Packaged = 0; StageAndPackage = 0; Published = 0
+            NoChange = 0; Skipped = 0; NotSupported = 0; Failed = 0; CheckFailed = 0
         }
 
         try {
@@ -6361,6 +6736,10 @@ function Invoke-MultiAppPipeline {
                             if ($res.ExitCode -eq 0) {
                                 $row.Status = 'Staged'
                                 [void]$State.LogQueue.Enqueue(('Staged. Logs: ' + (Split-Path -Leaf $res.OutLog)))
+                                if (-not [string]::IsNullOrWhiteSpace([string]$Ctx.IntuneWinToolPath)) {
+                                    $stageIntuneWin = Invoke-PackagerIntuneWinPostStep -Result $res -PackagerPath $path -DownloadRoot $planDownloadRoot -ToolPath ([string]$Ctx.IntuneWinToolPath) -SkipNetworkCopy
+                                    [void]$State.LogQueue.Enqueue(('Intunewin: ' + $stageIntuneWin.Message))
+                                }
                                 $ver = [string]$row.LatestVersion
                                 try {
                                     if ($ver) { Update-PackagerHistory -PackagerName $baseName -Event Staged -Version $ver -Result Updated }
@@ -6420,7 +6799,8 @@ function Invoke-MultiAppPipeline {
                                 CreateIntuneWin      = [bool]$Ctx.IntuneWinCreate
                                 IntuneWinToolPath    = [string]$Ctx.IntuneWinToolPath
                                 IntunePublishConfig  = $Ctx.IntunePublishConfig
-                                DeploymentTarget     = $(if ([string]$Ctx.DeploymentTarget -in @('MECM','MECMAndIntune','IntuneOnly')) { [string]$Ctx.DeploymentTarget } else { 'MECM' })
+                                WsusPublishConfig    = $Ctx.WsusPublishConfig
+                                DeploymentTarget     = $(if ([string]$Ctx.DeploymentTarget -in (Get-DeploymentTargetNames)) { [string]$Ctx.DeploymentTarget } else { 'MECM' })
                                 ContentLayout        = [string]$Ctx.ContentLayout
                                 RequirementsJson     = $reqJson
                                 VariantsJson         = $varJson
@@ -6429,13 +6809,10 @@ function Invoke-MultiAppPipeline {
                             }
                             $packageArgs['TitleMode'] = $(if ($Ctx.TitleModesByApp -and [string]$Ctx.TitleModesByApp[$baseName]) { [string]$Ctx.TitleModesByApp[$baseName] } else { [string]$Ctx.DefaultTitleMode })
                             $res = Invoke-PackagerPackageWithConflictPrompt -State $State -AppLabel $app -PackageArgs $packageArgs
-
-                            if ($res.PSObject.Properties['PackageOutcome'] -and $res.PackageOutcome -in @('Skipped', 'Canceled')) {
-                                $row.Status = [string]$res.PackageOutcome
-                                $counts['Skipped']++
-                            } elseif ($res.ExitCode -eq 0) {
-                                $row.Status = 'Packaged'
-                                [void]$State.LogQueue.Enqueue(('Packaged. Logs: ' + (Split-Path -Leaf $res.OutLog)))
+                            if ($res.PSObject.Properties['WsusPublish'] -and $res.WsusPublish) {
+                                [void]$State.LogQueue.Enqueue(('WSUS publish: ' + $res.WsusPublish.Message))
+                            }
+                            if ($res.ExitCode -eq 0) {
                                 if ($res.PSObject.Properties['IntunePublish'] -and $res.IntunePublish) {
                                     [void]$State.LogQueue.Enqueue(('Intune publish: ' + $res.IntunePublish.Message))
                                 }
@@ -6445,15 +6822,27 @@ function Invoke-MultiAppPipeline {
                                         [void]$State.LogQueue.Enqueue(('Intunewin on network: ' + $res.IntuneWin.NetworkPath))
                                     }
                                 }
+                            }
+                            $outcome = Get-PublishRowOutcome -Result $res -DeploymentTarget ([string]$packageArgs.DeploymentTarget)
+                            $row.Status = $outcome.Status
+
+                            if ($outcome.Kind -eq 'Skipped') {
+                                $counts['Skipped']++
+                            } elseif ($outcome.Kind -eq 'NotSupported') {
+                                $counts['NotSupported']++
+                            } elseif ($outcome.Kind -eq 'Success') {
+                                [void]$State.LogQueue.Enqueue(('{0}. Logs: {1}' -f $outcome.Status, (Split-Path -Leaf $res.OutLog)))
                                 $ver = [string]$row.LatestVersion
                                 try {
                                     if ($ver) { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Version $ver -Result Updated }
                                     else      { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Result Updated }
                                 } catch { }
                                 [void]$State.Succeeded.Enqueue($scrName)
-                                $counts['Packaged']++
+                                $counts[$(if ($outcome.Published) { 'Published' } else { 'Packaged' })]++
+                            } elseif ($res.ExitCode -eq 0) {
+                                [void]$State.LogQueue.Enqueue(('Logs: ' + (Split-Path -Leaf $res.OutLog)))
+                                $counts['Failed']++
                             } else {
-                                $row.Status = 'Package error'
                                 $stderrLines = @($res.StdErr -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
                                 if ($stderrLines.Count -gt 0) {
                                     $linesToShow = [Math]::Min($stderrLines.Count, 10)
@@ -6553,10 +6942,10 @@ function Invoke-MultiAppPipeline {
                         }
 
                         # 1a. ConfigMgr pre-flight for Stage/StageAndPackage.
-                        # IntuneOnly has no site to query; the query would open a
-                        # provider connection, so it is skipped before that.
-                        if ($Ctx.Action -in @('Stage','StageAndPackage') -and [string]$Ctx.DeploymentTarget -eq 'IntuneOnly') {
-                            [void]$State.LogQueue.Enqueue(('ConfigMgr pre-flight skipped for {0}: deployment target is Intune only.' -f $app))
+                        # IntuneOnly and WSUSOnly have no site to query; the query
+                        # would open a provider connection, so it is skipped before that.
+                        if ($Ctx.Action -in @('Stage','StageAndPackage') -and (Test-DeploymentTargetSkipsSite -DeploymentTarget ([string]$Ctx.DeploymentTarget))) {
+                            [void]$State.LogQueue.Enqueue(('ConfigMgr pre-flight skipped for {0}: deployment target is {1}.' -f $app, $(if ([string]$Ctx.DeploymentTarget -eq 'WSUSOnly') { 'WSUS only' } else { 'Intune only' })))
                         }
                         elseif ($Ctx.Action -in @('Stage','StageAndPackage')) {
                             $cmName = [string]$row.CMName
@@ -6639,6 +7028,10 @@ function Invoke-MultiAppPipeline {
                                 $stageOk = $true
                                 $row.Status = 'Staged'
                                 [void]$State.LogQueue.Enqueue(('Staged. Logs: ' + (Split-Path -Leaf $stg.OutLog)))
+                                if (-not [string]::IsNullOrWhiteSpace([string]$Ctx.IntuneWinToolPath)) {
+                                    $stageIntuneWin = Invoke-PackagerIntuneWinPostStep -Result $stg -PackagerPath $path -DownloadRoot $planDownloadRoot -ToolPath ([string]$Ctx.IntuneWinToolPath) -SkipNetworkCopy
+                                    [void]$State.LogQueue.Enqueue(('Intunewin: ' + $stageIntuneWin.Message))
+                                }
                                 try {
                                     if ($latest) { Update-PackagerHistory -PackagerName $baseName -Event Staged -Version $latest -Result Updated }
                                     else         { Update-PackagerHistory -PackagerName $baseName -Event Staged -Result Updated }
@@ -6704,7 +7097,8 @@ function Invoke-MultiAppPipeline {
                                 CreateIntuneWin      = [bool]$Ctx.IntuneWinCreate
                                 IntuneWinToolPath    = [string]$Ctx.IntuneWinToolPath
                                 IntunePublishConfig  = $Ctx.IntunePublishConfig
-                                DeploymentTarget     = $(if ([string]$Ctx.DeploymentTarget -in @('MECM','MECMAndIntune','IntuneOnly')) { [string]$Ctx.DeploymentTarget } else { 'MECM' })
+                                WsusPublishConfig    = $Ctx.WsusPublishConfig
+                                DeploymentTarget     = $(if ([string]$Ctx.DeploymentTarget -in (Get-DeploymentTargetNames)) { [string]$Ctx.DeploymentTarget } else { 'MECM' })
                                 ContentLayout        = [string]$Ctx.ContentLayout
                                 RequirementsJson     = $reqJson
                                 VariantsJson         = $varJson
@@ -6713,13 +7107,10 @@ function Invoke-MultiAppPipeline {
                             }
                             $packageArgs['TitleMode'] = $(if ($Ctx.TitleModesByApp -and [string]$Ctx.TitleModesByApp[$baseName]) { [string]$Ctx.TitleModesByApp[$baseName] } else { [string]$Ctx.DefaultTitleMode })
                             $pkg = Invoke-PackagerPackageWithConflictPrompt -State $State -AppLabel $app -PackageArgs $packageArgs
-
-                            if ($pkg.PSObject.Properties['PackageOutcome'] -and $pkg.PackageOutcome -in @('Skipped', 'Canceled')) {
-                                $row.Status = [string]$pkg.PackageOutcome
-                                $counts['Skipped']++
-                            } elseif ($pkg.ExitCode -eq 0) {
-                                $row.Status = 'Packaged'
-                                [void]$State.LogQueue.Enqueue(('Packaged. Logs: ' + (Split-Path -Leaf $pkg.OutLog)))
+                            if ($pkg.PSObject.Properties['WsusPublish'] -and $pkg.WsusPublish) {
+                                [void]$State.LogQueue.Enqueue(('WSUS publish: ' + $pkg.WsusPublish.Message))
+                            }
+                            if ($pkg.ExitCode -eq 0) {
                                 if ($pkg.PSObject.Properties['IntunePublish'] -and $pkg.IntunePublish) {
                                     [void]$State.LogQueue.Enqueue(('Intune publish: ' + $pkg.IntunePublish.Message))
                                 }
@@ -6729,14 +7120,26 @@ function Invoke-MultiAppPipeline {
                                         [void]$State.LogQueue.Enqueue(('Intunewin on network: ' + $pkg.IntuneWin.NetworkPath))
                                     }
                                 }
+                            }
+                            $outcome = Get-PublishRowOutcome -Result $pkg -DeploymentTarget ([string]$packageArgs.DeploymentTarget)
+                            $row.Status = $outcome.Status
+
+                            if ($outcome.Kind -eq 'Skipped') {
+                                $counts['Skipped']++
+                            } elseif ($outcome.Kind -eq 'NotSupported') {
+                                $counts['NotSupported']++
+                            } elseif ($outcome.Kind -eq 'Success') {
+                                [void]$State.LogQueue.Enqueue(('{0}. Logs: {1}' -f $outcome.Status, (Split-Path -Leaf $pkg.OutLog)))
                                 try {
                                     if ($latest) { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Version $latest -Result Updated }
                                     else         { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Result Updated }
                                 } catch { }
                                 [void]$State.Succeeded.Enqueue($scrName)
-                                $counts['StageAndPackage']++
+                                $counts[$(if ($outcome.Published) { 'Published' } else { 'StageAndPackage' })]++
+                            } elseif ($pkg.ExitCode -eq 0) {
+                                [void]$State.LogQueue.Enqueue(('Logs: ' + (Split-Path -Leaf $pkg.OutLog)))
+                                $counts['Failed']++
                             } else {
-                                $row.Status = 'Package error'
                                 $stderrLines = @($pkg.StdErr -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
                                 if ($stderrLines.Count -gt 0) {
                                     $linesToShow = [Math]::Min($stderrLines.Count, 10)
@@ -7518,11 +7921,16 @@ $window.Add_PreviewDrop({
 
 # --- 1. Check Latest ---
 $btnCheckLatest.Add_Click({
+    # Packagers take a site code parameter that a version check never reads;
+    # without ConfigMgr in use the packager default stands in.
     $siteCodeValue = $script:Prefs.SiteCode
     if ([string]::IsNullOrWhiteSpace($siteCodeValue)) {
-        Add-LogLine -Message "SiteCode is required. Open Preferences to configure."
-        $txtStatus.Text = "SiteCode is required."
-        return
+        if ($script:Prefs.Systems.ConfigMgr) {
+            Add-LogLine -Message "SiteCode is required. Open Preferences to configure."
+            $txtStatus.Text = "SiteCode is required."
+            return
+        }
+        $siteCodeValue = 'MCM'
     }
 
     $selectedRows = Get-SelectedRows
@@ -7675,50 +8083,83 @@ $btnStage.Add_Click({
 
     $txtStatus.Text = "Staging selected packages..."
     Invoke-MultiAppPipeline -Operation Stage -Rows $selectedRows -Context @{
-        DownloadRoot   = $dlRootValue
-        M365Channel    = $script:Prefs.M365Channel
-        M365DeployMode = $script:Prefs.M365DeployMode
-        LogFolder      = Join-Path $PSScriptRoot 'Logs'
-        SevenZipPath   = Get-SevenZipPathForContext
-        RunPlanByApp   = Get-WorkbenchRunPlanForContext -Rows $selectedRows -Target ([string]$script:Prefs.Intune.DeploymentTarget)
-        SigningJson    = Get-WorkbenchSigningPolicyJson
-        SigningDigest  = Get-WorkbenchSigningPolicyDigest
+        DownloadRoot      = $dlRootValue
+        M365Channel       = $script:Prefs.M365Channel
+        M365DeployMode    = $script:Prefs.M365DeployMode
+        LogFolder         = Join-Path $PSScriptRoot 'Logs'
+        SevenZipPath      = Get-SevenZipPathForContext
+        IntuneWinToolPath = Get-IntuneWinToolPathForContext
+        RunPlanByApp      = Get-WorkbenchRunPlanForContext -Rows $selectedRows -Target ([string]$script:Prefs.Intune.DeploymentTarget)
+        SigningJson       = Get-WorkbenchSigningPolicyJson
+        SigningDigest     = Get-WorkbenchSigningPolicyDigest
     }
 })
 
-# --- 4. Package Apps ---
-$btnPackage.Add_Click({
-    # Intune-only runs never touch the site or the share, so the console,
-    # SiteCode, and File Share Root gates apply only to ConfigMgr targets.
-    $intuneOnlyRun = ([string]$script:Prefs.Intune.DeploymentTarget -eq 'IntuneOnly')
-    if (-not $intuneOnlyRun -and -not $script:Prefs.DetectedTools.ConfigMgrConsole.Found) {
-        Add-LogLine -Message "Package requires the ConfigMgr Console. Not detected on this workstation."
+function Confirm-WsusPublishPrerequisites {
+    # Runs on the UI thread before a WSUS-bound run: a missing server or a
+    # missing administration API would otherwise fail every app after its
+    # stage completes.
+    param([AllowEmptyString()][string]$Target = '')
+    $destination = if ($Target) { $Target } else { [string]$script:Prefs.Intune.DeploymentTarget }
+    if (-not (Test-DeploymentTargetPublishesToWsus -DeploymentTarget $destination)) { return $true }
+    if (-not (Get-WsusPublishConfigForContext -Target $destination)) {
+        Add-LogLine -Message "Publish requires a WSUS server. Open Options, WSUS Publishing, to configure it."
+        $txtStatus.Text = "WSUS server required."
+        return $false
+    }
+    $api = Test-WsusAdministrationApi
+    if (-not $api.Available) {
+        Add-LogLine -Message ("WSUS publishing is unavailable: {0}" -f $api.Reason)
+        $txtStatus.Text = "WSUS administration API not installed."
+        [void](Show-ThemedMessage -Owner $window -Title 'WSUS API Required' -Message $api.Reason -Buttons OK -Icon Warning)
+        return $false
+    }
+    return $true
+}
+
+# --- 4. Publish to ConfigMgr, Intune or WSUS ---
+# Each sidebar button names its own destination for this run; One Click keeps
+# the destination saved in One Click Settings.
+function Start-PublishRun {
+    param([Parameter(Mandatory)][ValidateSet('MECM', 'IntuneOnly', 'WSUSOnly')][string]$Target)
+
+    # Intune and WSUS runs never touch the site or the share, so the console,
+    # SiteCode, and File Share Root gates apply only to ConfigMgr runs.
+    $intuneOnlyRun = ($Target -eq 'IntuneOnly')
+    $siteFreeRun = Test-DeploymentTargetSkipsSite -DeploymentTarget $Target
+    if (-not $siteFreeRun -and -not $script:Prefs.DetectedTools.ConfigMgrConsole.Found) {
+        Add-LogLine -Message "Publish to ConfigMgr requires the ConfigMgr Console. Not detected on this workstation."
         $txtStatus.Text = "ConfigMgr Console not installed."
         [void](Show-ThemedMessage -Owner $window -Title 'Console Required' `
-            -Message "The Configuration Manager Console (AdminUI) is not detected on this workstation. Install it (and reboot if you just installed) before packaging." `
+            -Message "The Configuration Manager Console (AdminUI) is not detected on this workstation. Install it (and reboot if you just installed) before publishing to ConfigMgr." `
             -Buttons OK -Icon Warning)
         return
     }
 
     $siteCodeValue = $script:Prefs.SiteCode
-    if (-not $intuneOnlyRun -and [string]::IsNullOrWhiteSpace($siteCodeValue)) {
+    if (-not $siteFreeRun -and [string]::IsNullOrWhiteSpace($siteCodeValue)) {
         Add-LogLine -Message "SiteCode is required. Open Preferences to configure."
         $txtStatus.Text = "SiteCode is required."
         return
     }
+    # Invoke-PackagerPackage binds SiteCode as a mandatory string, which
+    # refuses an empty value; a site-free run never reads it.
+    if ([string]::IsNullOrWhiteSpace($siteCodeValue)) { $siteCodeValue = 'MCM' }
 
     $fsPathValue = $script:Prefs.FileShareRoot
-    if (-not $intuneOnlyRun -and [string]::IsNullOrWhiteSpace($fsPathValue)) {
+    if (-not $siteFreeRun -and [string]::IsNullOrWhiteSpace($fsPathValue)) {
         Add-LogLine -Message "File Share Root is required. Open Preferences to configure."
         $txtStatus.Text = "File Share Root is required."
         return
     }
 
-    if ($intuneOnlyRun -and -not (Get-IntunePublishConfigForContext)) {
+    if ($intuneOnlyRun -and -not (Get-IntunePublishConfigForContext -Target $Target)) {
         Add-LogLine -Message "Publish requires Intune credentials. Open ConfigMgr Preferences to configure Tenant ID, Client ID, and Client Secret."
         $txtStatus.Text = "Intune credentials required."
         return
     }
+
+    if (-not (Confirm-WsusPublishPrerequisites -Target $Target)) { return }
 
     $selectedRows = Get-SelectedRows
     if ($selectedRows.Count -eq 0) {
@@ -7726,7 +8167,12 @@ $btnPackage.Add_Click({
         return
     }
 
-    $txtStatus.Text = "Packaging selected applications..."
+    $txtStatus.Text = switch ($Target) {
+        'IntuneOnly' { 'Publishing selected applications to Intune...' }
+        'WSUSOnly'   { 'Publishing selected applications to WSUS...' }
+        default      { 'Publishing selected applications to ConfigMgr...' }
+    }
+    $toolPath = Get-IntuneWinToolPathForContext
     $rowsForPlan = $selectedRows
     Invoke-MultiAppPipeline -Operation Package -Rows $selectedRows -Context @{
         SiteCode             = $siteCodeValue
@@ -7741,20 +8187,43 @@ $btnPackage.Add_Click({
         MaximumRuntimeMins   = $script:Prefs.MaximumRuntimeMins
         LogFolder            = Join-Path $PSScriptRoot 'Logs'
         SevenZipPath         = Get-SevenZipPathForContext
-        IntuneWinCreate      = ([bool]$script:Prefs.Intune.CreateIntuneWin -and -not [string]::IsNullOrWhiteSpace((Get-IntuneWinToolPathForContext)))
-        IntuneWinToolPath    = Get-IntuneWinToolPathForContext
+        # A ConfigMgr run places the .intunewin that Stage built beside the
+        # network content.
+        IntuneWinCreate      = (-not $siteFreeRun -and -not [string]::IsNullOrWhiteSpace($toolPath))
+        IntuneWinToolPath    = $toolPath
         RequirementsByApp    = Get-RequirementsMapForContext
         VariantsByApp        = Get-VariantsMapForContext
         CommandsByApp        = Get-CommandsMapForContext
         InstallModesByApp    = Get-InstallModesMapForContext
         TitleModesByApp      = Get-TitleModesMapForContext
         DefaultTitleMode     = Get-DefaultTitleModeForContext
-        IntunePublishConfig  = Get-IntunePublishConfigForContext
-        DeploymentTarget     = [string]$script:Prefs.Intune.DeploymentTarget
-        RunPlanByApp         = Get-WorkbenchRunPlanForContext -Rows $rowsForPlan -Target ([string]$script:Prefs.Intune.DeploymentTarget)
+        IntunePublishConfig  = $(if ($intuneOnlyRun) { Get-IntunePublishConfigForContext -Target $Target } else { $null })
+        WsusPublishConfig    = Get-WsusPublishConfigForContext -Target $Target
+        DeploymentTarget     = $Target
+        RunPlanByApp         = Get-WorkbenchRunPlanForContext -Rows $rowsForPlan -Target $Target
         SigningJson          = Get-WorkbenchSigningPolicyJson
         SigningDigest        = Get-WorkbenchSigningPolicyDigest
     }
+}
+
+$btnPackage.Add_Click({ Start-PublishRun -Target 'MECM' })
+$btnPublishIntune.Add_Click({ Start-PublishRun -Target 'IntuneOnly' })
+$btnPublishWsus.Add_Click({ Start-PublishRun -Target 'WSUSOnly' })
+
+$btnWsusUpdates.Add_Click({
+    $settings = Get-WsusPublishConfigForContext -Target 'WSUSOnly'
+    if (-not $settings) {
+        Add-LogLine -Message "WSUS Updates needs a WSUS server. Open Options, WSUS Publishing, to configure it."
+        $txtStatus.Text = "WSUS server required."
+        return
+    }
+    $api = Test-WsusAdministrationApi
+    if (-not $api.Available) {
+        Add-LogLine -Message ("WSUS Updates is unavailable: {0}" -f $api.Reason)
+        [void](Show-ThemedMessage -Owner $window -Title 'WSUS API Required' -Message $api.Reason -Buttons OK -Icon Warning)
+        return
+    }
+    Show-WsusPublishedUpdatesDialog -Owner $window -Settings $settings
 })
 
 # --- 5. Full Run (one-click tracked-apps flow) ---
@@ -7763,22 +8232,25 @@ $btnPackage.Add_Click({
 # there mirrors the original per-row cadence / ConfigMgr pre-flight / Stage /
 # Package logic so history entries and row.Status flips stay identical.
 $btnFullRun.Add_Click({
-    # Intune-only runs never touch the site, so the SiteCode and console
-    # gates apply only to ConfigMgr targets.
-    $intuneOnlyRun = ([string]$script:Prefs.Intune.DeploymentTarget -eq 'IntuneOnly')
+    # Intune-only and WSUS-only runs never touch the site or the share, so
+    # the SiteCode, console, and File Share Root gates apply only to
+    # ConfigMgr targets.
+    $siteFreeRun = Test-DeploymentTargetSkipsSite -DeploymentTarget ([string]$script:Prefs.Intune.DeploymentTarget)
     $siteCodeValue = $script:Prefs.SiteCode
-    if (-not $intuneOnlyRun -and [string]::IsNullOrWhiteSpace($siteCodeValue)) {
+    if (-not $siteFreeRun -and [string]::IsNullOrWhiteSpace($siteCodeValue)) {
         Add-LogLine -Message "SiteCode is required. Open ConfigMgr Preferences to configure."
         $txtStatus.Text = "SiteCode is required."
         return
     }
+    if ([string]::IsNullOrWhiteSpace($siteCodeValue)) { $siteCodeValue = 'MCM' }
 
     $actionPlanned = $script:Prefs.AppFlow.Action
-    if (-not $intuneOnlyRun -and $actionPlanned -eq 'StageAndPackage' -and -not $script:Prefs.DetectedTools.ConfigMgrConsole.Found) {
-        Add-LogLine -Message "One Click with Stage and Package requires the ConfigMgr Console. Not detected on this workstation."
+    if ($actionPlanned -eq 'StageAndPackage' -and -not (Confirm-WsusPublishPrerequisites)) { return }
+    if (-not $siteFreeRun -and $actionPlanned -eq 'StageAndPackage' -and -not $script:Prefs.DetectedTools.ConfigMgrConsole.Found) {
+        Add-LogLine -Message "One Click with Stage and Publish to ConfigMgr requires the ConfigMgr Console. Not detected on this workstation."
         $txtStatus.Text = "ConfigMgr Console not installed."
         [void](Show-ThemedMessage -Owner $window -Title 'Console Required' `
-            -Message "The Configuration Manager Console (AdminUI) is not detected on this workstation. Install it (and reboot if you just installed) before running Stage and Package, or switch One Click Settings action to Report or Stage." `
+            -Message "The Configuration Manager Console (AdminUI) is not detected on this workstation. Install it (and reboot if you just installed) before running Stage and Publish to ConfigMgr, or change the One Click Settings action or destination." `
             -Buttons OK -Icon Warning)
         return
     }
@@ -7788,7 +8260,7 @@ $btnFullRun.Add_Click({
         Add-LogLine -Message "No apps are tracked for One Click. Open OPTIONS -> One Click Settings to configure."
         $txtStatus.Text = "No apps tracked."
         [void](Show-ThemedMessage -Owner $window -Title 'One Click Not Configured' `
-            -Message "No apps are tracked yet.`n`nOpen OPTIONS (sidebar) and select One Click Settings, then choose which packagers to include, pick an action (Report / Stage / Stage and Package), and click OK." `
+            -Message "No apps are tracked yet.`n`nOpen OPTIONS (sidebar) and select One Click Settings, then choose which packagers to include, pick an action (Report / Stage / Stage and Publish) and a destination, and click OK." `
             -Buttons OK -Icon Info)
         return
     }
@@ -7798,7 +8270,7 @@ $btnFullRun.Add_Click({
     $fsPathValue  = $script:Prefs.FileShareRoot
     $dlRootValue  = $script:Prefs.DownloadRoot
 
-    if ($action -eq 'StageAndPackage' -and [string]::IsNullOrWhiteSpace($fsPathValue)) {
+    if (-not $siteFreeRun -and $action -eq 'StageAndPackage' -and [string]::IsNullOrWhiteSpace($fsPathValue)) {
         Add-LogLine -Message ("File Share Root is required for action '{0}'. Open ConfigMgr Preferences." -f $action)
         $txtStatus.Text = "File Share Root is required."
         return
@@ -7852,7 +8324,7 @@ $btnFullRun.Add_Click({
         AdminUiFound         = $script:Prefs.DetectedTools.ConfigMgrConsole.Found
         LogFolder            = Join-Path $PSScriptRoot 'Logs'
         SevenZipPath         = Get-SevenZipPathForContext
-        IntuneWinCreate      = ([bool]$script:Prefs.Intune.CreateIntuneWin -and -not [string]::IsNullOrWhiteSpace((Get-IntuneWinToolPathForContext)))
+        IntuneWinCreate      = (-not $siteFreeRun -and -not [string]::IsNullOrWhiteSpace((Get-IntuneWinToolPathForContext)))
         IntuneWinToolPath    = Get-IntuneWinToolPathForContext
         RequirementsByApp    = Get-RequirementsMapForContext
         VariantsByApp        = Get-VariantsMapForContext
@@ -7861,6 +8333,7 @@ $btnFullRun.Add_Click({
         TitleModesByApp      = Get-TitleModesMapForContext
         DefaultTitleMode     = Get-DefaultTitleModeForContext
         IntunePublishConfig  = Get-IntunePublishConfigForContext
+        WsusPublishConfig    = Get-WsusPublishConfigForContext
         DeploymentTarget     = [string]$script:Prefs.Intune.DeploymentTarget
         RunPlanByApp         = Get-WorkbenchRunPlanForContext -Rows $rowsForPlan -Target ([string]$script:Prefs.Intune.DeploymentTarget)
         SigningJson          = Get-WorkbenchSigningPolicyJson
@@ -8348,7 +8821,7 @@ function Get-WorkbenchRunPlanForContext {
 
     $plan = @{}
     if (-not (Test-WorkbenchModuleAvailable)) { return $plan }
-    if ([string]$Target -notin @('ContentOnly', 'MECM', 'MECMAndIntune', 'IntuneOnly')) { $Target = 'MECM' }
+    if ([string]$Target -notin (@('ContentOnly') + (Get-DeploymentTargetNames))) { $Target = 'MECM' }
     $signing = Get-WorkbenchSigningPolicy
     $downloadRoot = [string]$script:Prefs.DownloadRoot
     $dataRoot = Get-WorkbenchDataRoot
@@ -8724,7 +9197,9 @@ function Show-ApplicationWorkbench {
     $btnSaveAs     = & $ctl 'btnSaveAs'
     $btnValidate   = & $ctl 'btnValidate'
     $btnStage      = & $ctl 'btnStage'
-    $btnPackage    = & $ctl 'btnPackage'
+    $btnPublishMecm   = & $ctl 'btnPublishMecm'
+    $btnPublishIntune = & $ctl 'btnPublishIntune'
+    $btnPublishWsus   = & $ctl 'btnPublishWsus'
 
     # Static option lists.
     foreach ($n in $sectionNames) { [void]$lstSections.Items.Add($n) }
@@ -9802,12 +10277,12 @@ function Show-ApplicationWorkbench {
     })
 
     $runFromWorkbench = {
-        param([string]$operation)
+        param([string]$operation, [string]$target = '')
         if ($wb.Dirty) {
             if (-not (& $confirmDiscard 'Save the profile before this run? A run uses the saved profile revision.')) { return }
         }
         $findings = @(& $validateProfile)
-        $blocking = @($findings | Where-Object { $_.Severity -eq 'Blocking' -and [string]$_.Code -notlike '*INTUNE*' })
+        $blocking = @($findings | Where-Object { $_.Severity -eq 'Blocking' -and ($target -eq 'IntuneOnly' -or [string]$_.Code -notlike '*INTUNE*') })
         if ($blocking.Count -gt 0) {
             [void](Show-ThemedMessage -Owner $win -Title 'Blocked' -Message ('This profile has blocking findings: ' + [string]$blocking[0].Message) -Buttons OK -Icon Warning)
             return
@@ -9826,17 +10301,19 @@ function Show-ApplicationWorkbench {
         $win.Close()
         $row = @($script:PackagerData | Where-Object { [string]$_.FullPath -eq [string]$wb.Application.ScriptPath })
         if ($row.Count -eq 0) {
-            $cliHint = ('.\Invoke-AppPackagerBuild.ps1 -Application {0} -Profile {1} -{2}' -f [string]$wb.Application.ApplicationId, [string]$wb.ProfileId, $operation)
+            $cliHint = ('.\Invoke-AppPackagerBuild.ps1 -Application {0} -Profile {1} -{2}{3}' -f [string]$wb.Application.ApplicationId, [string]$wb.ProfileId, $operation, $(if ($target -and $target -ne 'MECM') { ' -Stage -Target ' + $target } else { '' }))
             Add-LogLine -Message ('Workbench run skipped: {0} is not in the current grid. Build it from the command line: {1}' -f [string]$wb.Application.DisplayName, $cliHint)
             [void](Show-ThemedMessage -Owner $win -Title $operation `
                 -Message ('This application is not in the main grid, so it cannot run through the grid pipeline. Build it from the command line:' + "`r`n`r`n" + $cliHint) -Buttons OK -Icon Info)
             return
         }
         Add-LogLine -Message ('Workbench {0}: {1} (profile {2}, revision {3})' -f $operation, [string]$wb.Application.DisplayName, [string]$wb.Profile.Name, [string]$wb.Profile.Revision)
-        Invoke-WorkbenchRun -Operation $operation -Rows $row -BuildId $(if ($operation -eq 'Package') { $selectedBuild } else { '' })
+        Invoke-WorkbenchRun -Operation $operation -Rows $row -BuildId $(if ($operation -eq 'Package') { $selectedBuild } else { '' }) -Target $target
     }
     $btnStage.Add_Click({ & $runFromWorkbench 'Stage' })
-    $btnPackage.Add_Click({ & $runFromWorkbench 'Package' })
+    $btnPublishMecm.Add_Click({ & $runFromWorkbench 'Package' 'MECM' })
+    $btnPublishIntune.Add_Click({ & $runFromWorkbench 'Package' 'IntuneOnly' })
+    $btnPublishWsus.Add_Click({ & $runFromWorkbench 'Package' 'WSUSOnly' })
 
     $win.Add_Closing({
         param($s, $e)
@@ -9907,18 +10384,21 @@ function New-WorkbenchPipelineContext {
     param(
         [Parameter(Mandatory)][ValidateSet('Stage', 'Package')][string]$Operation,
         [array]$Rows = @(),
-        [AllowEmptyString()][string]$BuildId = ''
+        [AllowEmptyString()][string]$BuildId = '',
+        [AllowEmptyString()][string]$Target = ''
     )
-    $target = [string]$script:Prefs.Intune.DeploymentTarget
+    $target = if ($Target) { $Target } else { [string]$script:Prefs.Intune.DeploymentTarget }
+    $toolPath = Get-IntuneWinToolPathForContext
     $context = @{
-        DownloadRoot   = $script:Prefs.DownloadRoot
-        M365Channel    = $script:Prefs.M365Channel
-        M365DeployMode = $script:Prefs.M365DeployMode
-        LogFolder      = Join-Path $PSScriptRoot 'Logs'
-        SevenZipPath   = Get-SevenZipPathForContext
-        RunPlanByApp   = Get-WorkbenchRunPlanForContext -Rows $Rows -Target $target
-        SigningJson    = Get-WorkbenchSigningPolicyJson
-        SigningDigest  = Get-WorkbenchSigningPolicyDigest
+        DownloadRoot      = $script:Prefs.DownloadRoot
+        M365Channel       = $script:Prefs.M365Channel
+        M365DeployMode    = $script:Prefs.M365DeployMode
+        LogFolder         = Join-Path $PSScriptRoot 'Logs'
+        SevenZipPath      = Get-SevenZipPathForContext
+        IntuneWinToolPath = $toolPath
+        RunPlanByApp      = Get-WorkbenchRunPlanForContext -Rows $Rows -Target $target
+        SigningJson       = Get-WorkbenchSigningPolicyJson
+        SigningDigest     = Get-WorkbenchSigningPolicyDigest
     }
     if ($Operation -eq 'Package') {
         $context['SiteCode']             = $script:Prefs.SiteCode
@@ -9928,15 +10408,15 @@ function New-WorkbenchPipelineContext {
         $context['ContentLayout']        = $script:Prefs.ContentLayout
         $context['EstimatedRuntimeMins'] = $script:Prefs.EstimatedRuntimeMins
         $context['MaximumRuntimeMins']   = $script:Prefs.MaximumRuntimeMins
-        $context['IntuneWinCreate']      = ([bool]$script:Prefs.Intune.CreateIntuneWin -and -not [string]::IsNullOrWhiteSpace((Get-IntuneWinToolPathForContext)))
-        $context['IntuneWinToolPath']    = Get-IntuneWinToolPathForContext
+        $context['IntuneWinCreate']      = (-not (Test-DeploymentTargetSkipsSite -DeploymentTarget $target) -and -not [string]::IsNullOrWhiteSpace($toolPath))
         $context['RequirementsByApp']    = Get-RequirementsMapForContext
         $context['VariantsByApp']        = Get-VariantsMapForContext
         $context['CommandsByApp']        = Get-CommandsMapForContext
         $context['InstallModesByApp']    = Get-InstallModesMapForContext
         $context['TitleModesByApp']      = Get-TitleModesMapForContext
         $context['DefaultTitleMode']     = Get-DefaultTitleModeForContext
-        $context['IntunePublishConfig']  = Get-IntunePublishConfigForContext
+        $context['IntunePublishConfig']  = Get-IntunePublishConfigForContext -Target $target
+        $context['WsusPublishConfig']    = Get-WsusPublishConfigForContext -Target $target
         $context['DeploymentTarget']     = $target
         $context['BuildId']                = $BuildId
     }
@@ -9949,13 +10429,21 @@ function Invoke-WorkbenchRun {
     param(
         [Parameter(Mandatory)][ValidateSet('Stage', 'Package')][string]$Operation,
         [Parameter(Mandatory)][array]$Rows,
-        [AllowEmptyString()][string]$BuildId = ''
+        [AllowEmptyString()][string]$BuildId = '',
+        [AllowEmptyString()][string]$Target = ''
     )
     if ($Operation -eq 'Stage') {
         $Rows = @(Confirm-LocalSourceFolders -Rows $Rows)
         if ($Rows.Count -eq 0) { return }
     }
-    $context = New-WorkbenchPipelineContext -Operation $Operation -Rows $Rows -BuildId $BuildId
+    if ($Operation -eq 'Package') {
+        if ($Target -eq 'IntuneOnly' -and -not (Get-IntunePublishConfigForContext -Target $Target)) {
+            Add-LogLine -Message "Publish requires Intune credentials. Open ConfigMgr Preferences to configure Tenant ID, Client ID, and Client Secret."
+            return
+        }
+        if (-not (Confirm-WsusPublishPrerequisites -Target $Target)) { return }
+    }
+    $context = New-WorkbenchPipelineContext -Operation $Operation -Rows $Rows -BuildId $BuildId -Target $Target
     Invoke-MultiAppPipeline -Operation $Operation -Rows $Rows -Context $context
 }
 
@@ -10194,6 +10682,592 @@ function New-ScriptSigningPanel {
     return @{ Name = 'Script Signing'; Element = $element; Commit = $commit }
 }
 
+function Get-WsusClassificationLabel {
+    param([Parameter(Mandatory)][string]$Name)
+    switch ($Name) {
+        'SecurityUpdates' { return 'Security Updates' }
+        'CriticalUpdates' { return 'Critical Updates' }
+        'FeaturePacks'    { return 'Feature Packs' }
+        'ServicePacks'    { return 'Service Packs' }
+        'UpdateRollups'   { return 'Update Rollups' }
+        default           { return $Name }
+    }
+}
+
+function Show-WsusPasswordPrompt {
+    # Returns the SecureString typed by the operator, or $null on cancel.
+    param([Parameter(Mandatory)]$Owner, [Parameter(Mandatory)][string]$Prompt)
+
+    $dlgXaml = @'
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="Certificate Password" Width="440" SizeToContent="Height"
+    WindowStartupLocation="CenterOwner" TitleCharacterCasing="Normal" ResizeMode="NoResize"
+    ShowIconOnTitleBar="False" GlowBrush="{DynamicResource MahApps.Brushes.Accent}" BorderThickness="1">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+    <StackPanel Margin="20,16,20,16">
+        <TextBlock x:Name="txtPrompt" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,10"/>
+        <PasswordBox x:Name="pwdValue" FontSize="13" Margin="0,0,0,14"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="btnOk" Content="OK" MinWidth="90" Height="32" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource MahApps.Styles.Button.Square.Accent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnCancel" Content="Cancel" MinWidth="90" Height="32" IsCancel="True" Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+        </StackPanel>
+    </StackPanel>
+</Controls:MetroWindow>
+'@
+    [xml]$xml = $dlgXaml
+    $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
+    Install-TitleBarDragFallback -Window $dlg
+    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
+    $dlg.FindName('txtPrompt').Text = $Prompt
+    $pwdValue = $dlg.FindName('pwdValue')
+    $state = @{ Value = $null }
+    $dlg.FindName('btnOk').Add_Click({ $state.Value = $pwdValue.SecurePassword.Copy(); $dlg.Close() }.GetNewClosure())
+    $dlg.FindName('btnCancel').Add_Click({ $dlg.Close() }.GetNewClosure())
+    [void]$pwdValue.Focus()
+    [void]$dlg.ShowDialog()
+    return $state.Value
+}
+
+function Show-WsusPublishedUpdatesDialog {
+    # Lists locally published updates on the server and applies approval,
+    # decline and expiry to the selection.
+    param([Parameter(Mandatory)]$Owner, [Parameter(Mandatory)][hashtable]$Settings)
+
+    $dlgXaml = @'
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="WSUS Updates" Width="1240" Height="620" MinWidth="1040" MinHeight="420"
+    WindowStartupLocation="CenterOwner" TitleCharacterCasing="Normal"
+    ShowIconOnTitleBar="False" GlowBrush="{DynamicResource MahApps.Brushes.Accent}" BorderThickness="1">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <DockPanel Grid.Row="0" Margin="16,12,16,8">
+            <CheckBox x:Name="chkOtherPublishers" DockPanel.Dock="Right" Content="Show updates from other publishers" FontSize="12"
+                      Controls:ControlsHelper.ContentCharacterCasing="Normal" VerticalAlignment="Center"
+                      ToolTip="Lists every locally published update on the server, not only the ones AppPackager published."/>
+            <TextBlock x:Name="txtSummary" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
+        </DockPanel>
+        <DataGrid Grid.Row="1" x:Name="gridUpdates" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended"
+                  CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Title" Binding="{Binding Title}" Width="*" MinWidth="280"/>
+                <DataGridTextColumn Header="Type" Binding="{Binding PackageType}" Width="80"/>
+                <DataGridTextColumn Header="Created" Binding="{Binding CreatedText}" Width="125"/>
+                <DataGridTextColumn Header="Approved for" Binding="{Binding ApprovedGroups}" Width="150"/>
+                <DataGridTextColumn Header="Declined" Binding="{Binding Declined}" Width="95"/>
+                <DataGridTextColumn Header="Superseded" Binding="{Binding Superseded}" Width="115"/>
+                <DataGridTextColumn Header="Expired" Binding="{Binding Expired}" Width="85"/>
+                <DataGridTextColumn Header="Package ID" Binding="{Binding PackageId}" Width="240"/>
+            </DataGrid.Columns>
+        </DataGrid>
+        <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
+            <DockPanel Margin="16,10,16,10">
+                <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" MinWidth="90" Height="32" IsCancel="True"
+                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <Button x:Name="btnCatalog" DockPanel.Dock="Right" Content="Catalog Import" MinWidth="120" Height="32" Margin="0,0,8,0"
+                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        ToolTip="Import Microsoft updates that do not synchronize automatically, by catalog update ID or link."/>
+                <StackPanel Orientation="Horizontal">
+                    <ComboBox x:Name="cboGroup" IsEditable="True" Width="200" Height="30" FontSize="12" Margin="0,0,8,0"
+                              ToolTip="Computer group for Approve. The list loads from the server."/>
+                    <Button x:Name="btnApprove" Content="Approve for group" MinWidth="130" Height="32" Margin="0,0,8,0"
+                            Style="{DynamicResource MahApps.Styles.Button.Square.Accent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    <Button x:Name="btnDecline" Content="Decline" MinWidth="90" Height="32" Margin="0,0,8,0"
+                            Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            ToolTip="Declined updates are not offered to any client. Approving again reverses it."/>
+                    <Button x:Name="btnExpire" Content="Expire" MinWidth="90" Height="32" Margin="0,0,8,0"
+                            Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            ToolTip="Expires the update on the server permanently. Clients stop seeing it; it cannot be approved again."/>
+                    <Button x:Name="btnRemove" Content="Remove" MinWidth="90" Height="32" Margin="0,0,8,0"
+                            Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            ToolTip="Declines the update and deletes it from the WSUS database. It cannot be undone."/>
+                    <Button x:Name="btnRefresh" Content="Refresh" MinWidth="90" Height="32"
+                            Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Controls:MetroWindow>
+'@
+    [xml]$xml = $dlgXaml
+    $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
+    Install-TitleBarDragFallback -Window $dlg
+    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
+
+    $gridUpdates = $dlg.FindName('gridUpdates')
+    $txtSummary  = $dlg.FindName('txtSummary')
+    $chkOther    = $dlg.FindName('chkOtherPublishers')
+    $cboGroup    = $dlg.FindName('cboGroup')
+    $cboGroup.Text = [string]$Settings.ApprovalGroup
+
+    $load = {
+        $dlg.Cursor = [System.Windows.Input.Cursors]::Wait
+        try {
+            $rows = @(Get-WsusPublishedUpdates -Settings $Settings -IncludeOtherPublishers:($chkOther.IsChecked -eq $true))
+            $gridUpdates.ItemsSource = $rows
+            $txtSummary.Text = ('{0} update(s) on {1}.' -f $rows.Count, [string]$Settings.ServerName)
+            if ($cboGroup.Items.Count -eq 0) {
+                try { foreach ($name in @(Get-WsusComputerGroupNames -Settings $Settings)) { [void]$cboGroup.Items.Add($name) } }
+                catch { $txtSummary.Text += ' Computer groups could not be listed: ' + $_.Exception.Message }
+            }
+        }
+        catch {
+            $gridUpdates.ItemsSource = @()
+            $txtSummary.Text = 'Listing failed: ' + $_.Exception.Message
+        }
+        finally { $dlg.Cursor = $null }
+    }.GetNewClosure()
+
+    $apply = {
+        param([string]$Action)
+        $selected = @($gridUpdates.SelectedItems)
+        if ($selected.Count -eq 0) { $txtSummary.Text = 'Select one or more updates first.'; return }
+        $group = ([string]$cboGroup.Text).Trim()
+        if ($Action -eq 'Approve' -and -not $group) { $txtSummary.Text = 'Enter or choose a computer group to approve for.'; return }
+        if ($Action -eq 'Expire') {
+            $answer = Show-ThemedMessage -Owner $dlg -Title 'Expire Updates' -Buttons YesNo -Icon Warning `
+                -Message ("Expire {0} update(s) on {1}?`n`nExpiry is permanent: clients stop seeing the update and it cannot be approved again. Declining is the reversible alternative." -f $selected.Count, [string]$Settings.ServerName)
+            if ($answer -ne 'Yes') { return }
+        }
+        if ($Action -eq 'Remove') {
+            $answer = Show-ThemedMessage -Owner $dlg -Title 'Remove Updates' -Buttons YesNo -Icon Warning `
+                -Message ("Remove {0} update(s) from {1}?`n`nRemoval declines each update and deletes it from the WSUS database. It cannot be undone. Computers that installed an update keep the software.`n`nWith ConfigMgr, expire the update first and let the software update point synchronize, then remove it. WSUS refuses to remove an update that another update still references." -f $selected.Count, [string]$Settings.ServerName)
+            if ($answer -ne 'Yes') { return }
+        }
+        $ids = [guid[]]@($selected | ForEach-Object { [guid][string]$_.PackageId })
+        $outcomes = @()
+        $dlg.Cursor = [System.Windows.Input.Cursors]::Wait
+        try { $outcomes = @(Set-WsusPublishedUpdateState -Settings $Settings -PackageId $ids -Action $Action -GroupName $group) }
+        catch { $outcomes = @([pscustomobject]@{ Title = ''; Ok = $false; Message = $_.Exception.Message }) }
+        finally { $dlg.Cursor = $null }
+        & $load
+        $failed = @($outcomes | Where-Object { -not $_.Ok } | ForEach-Object { if ($_.Title) { '{0}: {1}' -f $_.Title, $_.Message } else { [string]$_.Message } })
+        $done = @($outcomes | Where-Object { $_.Ok }).Count
+        $txtSummary.Text = ('{0}: {1} of {2} update(s) done.{3}' -f $Action, $done, $selected.Count, $(if ($failed.Count) { ' ' + ($failed -join ' | ') } else { '' }))
+    }.GetNewClosure()
+
+    $dlg.FindName('btnApprove').Add_Click({ & $apply 'Approve' }.GetNewClosure())
+    $dlg.FindName('btnDecline').Add_Click({ & $apply 'Decline' }.GetNewClosure())
+    $dlg.FindName('btnExpire').Add_Click({ & $apply 'Expire' }.GetNewClosure())
+    $dlg.FindName('btnRemove').Add_Click({ & $apply 'Remove' }.GetNewClosure())
+    $dlg.FindName('btnRefresh').Add_Click({ & $load }.GetNewClosure())
+    $dlg.FindName('btnCatalog').Add_Click({ Show-WsusCatalogImportDialog -Owner $dlg -Settings $Settings }.GetNewClosure())
+    $chkOther.Add_Click({ & $load }.GetNewClosure())
+    $dlg.FindName('btnClose').Add_Click({ $dlg.Close() }.GetNewClosure())
+    $dlg.Add_ContentRendered({ & $load }.GetNewClosure())
+    [void]$dlg.ShowDialog()
+}
+
+function Show-WsusCatalogImportDialog {
+    # Imports Microsoft Update Catalog updates into WSUS by update ID. The
+    # server downloads the metadata itself; the import runs off the UI thread
+    # because each ID waits on that download.
+    param([Parameter(Mandatory)]$Owner, [Parameter(Mandatory)][hashtable]$Settings)
+
+    $dlgXaml = @'
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="Catalog Import" Width="780" Height="600" MinWidth="620" MinHeight="460"
+    WindowStartupLocation="CenterOwner" TitleCharacterCasing="Normal"
+    ShowIconOnTitleBar="False" GlowBrush="{DynamicResource MahApps.Brushes.Accent}" BorderThickness="1">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+    <Grid Margin="16,12,16,12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,8"
+                   Text="Paste update IDs or catalog links, one or more per line. The Copy button on a catalog update details page copies its update ID. The WSUS server downloads the update metadata itself, so it needs internet access; update files follow the server's Update files setting."/>
+        <TextBox Grid.Row="1" x:Name="txtInput" AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" FontSize="12"
+                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                 Controls:TextBoxHelper.Watermark="12345678-90ab-cdef-1234-567890abcdef"/>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,8">
+            <Button x:Name="btnImport" Content="Import" MinWidth="110" Height="32" Margin="0,0,8,0"
+                    Style="{DynamicResource MahApps.Styles.Button.Square.Accent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnLoadFile" Content="Load IDs from file..." MinWidth="150" Height="32" Margin="0,0,8,0"
+                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnOpenCatalog" Content="Open the catalog" MinWidth="130" Height="32"
+                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+        </StackPanel>
+        <TextBox Grid.Row="3" x:Name="txtResults" IsReadOnly="True" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"
+                 VerticalScrollBarVisibility="Auto"/>
+        <DockPanel Grid.Row="4" Margin="0,10,0,0">
+            <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" MinWidth="90" Height="32" IsCancel="True"
+                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <TextBlock x:Name="txtStatus" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap"/>
+        </DockPanel>
+    </Grid>
+</Controls:MetroWindow>
+'@
+    [xml]$xml = $dlgXaml
+    $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
+    Install-TitleBarDragFallback -Window $dlg
+    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
+
+    $txtInput   = $dlg.FindName('txtInput')
+    $txtResults = $dlg.FindName('txtResults')
+    $txtStatus  = $dlg.FindName('txtStatus')
+    $btnImport  = $dlg.FindName('btnImport')
+    $modulePath = Join-Path $PSScriptRoot 'Packagers\AppPackagerWsus.psd1'
+    $work = @{ Runspace = $null; PowerShell = $null; Timer = $null; Graveyard = @() }
+    $queue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
+
+    $dlg.FindName('btnOpenCatalog').Add_Click({ Start-Process 'https://catalog.update.microsoft.com' }.GetNewClosure())
+    $dlg.FindName('btnLoadFile').Add_Click({
+        $open = New-Object Microsoft.Win32.OpenFileDialog
+        $open.Title = 'Select a text file of update IDs'
+        $open.Filter = 'Text files (*.txt)|*.txt|All files (*.*)|*.*'
+        if ($open.ShowDialog()) { $txtInput.Text = [System.IO.File]::ReadAllText($open.FileName) }
+    }.GetNewClosure())
+
+    $btnImport.Add_Click({
+        $ids = @(ConvertFrom-WsusCatalogInput -Text ([string]$txtInput.Text))
+        if ($ids.Count -eq 0) { $txtStatus.Text = 'No update IDs found in the text.'; return }
+        $btnImport.IsEnabled = $false
+        $txtStatus.Text = ('Importing {0} update(s) into {1}...' -f $ids.Count, [string]$Settings.ServerName)
+        try {
+            if (-not $work.Runspace) { $work.Runspace = New-SuiteBgRunspace -ModulePath $modulePath }
+            $ps = [powershell]::Create()
+            $ps.Runspace = $work.Runspace
+            [void]$ps.AddScript({
+                param($Settings, $Ids, $Queue)
+                foreach ($id in $Ids) {
+                    $outcome = Import-WsusCatalogUpdate -Settings $Settings -UpdateId $id
+                    $Queue.Enqueue(('{0}  {1}  {2}' -f $id, $(if ($outcome.Ok) { 'imported' } else { 'FAILED' }), [string]$outcome.Message))
+                }
+                $Queue.Enqueue('__done__')
+            }).AddArgument($Settings).AddArgument([string[]]($ids | ForEach-Object { [string]$_ })).AddArgument($queue)
+            $work.PowerShell = $ps
+            [void]$ps.BeginInvoke()
+        }
+        catch {
+            $txtStatus.Text = 'Import could not start: ' + $_.Exception.Message
+            $btnImport.IsEnabled = $true
+        }
+    }.GetNewClosure())
+
+    $work.Timer = New-Object System.Windows.Threading.DispatcherTimer
+    $work.Timer.Interval = [TimeSpan]::FromMilliseconds(200)
+    $work.Timer.Add_Tick({
+        $line = $null
+        while ($queue.TryDequeue([ref]$line)) {
+            if ($line -eq '__done__') {
+                $txtStatus.Text = 'Import finished. Server-side details: %ProgramFiles%\Update Services\LogFiles\SoftwareDistribution.log on the WSUS server.'
+                $btnImport.IsEnabled = $true
+                continue
+            }
+            $txtResults.AppendText($line + [Environment]::NewLine)
+            $txtResults.ScrollToEnd()
+        }
+    }.GetNewClosure())
+    $work.Timer.Start()
+
+    $dlg.FindName('btnClose').Add_Click({ $dlg.Close() }.GetNewClosure())
+    $dlg.Add_Closed({
+        $work.Graveyard = @(Stop-SuiteBgWork -PowerShell $work.PowerShell -Timer $work.Timer -Graveyard $work.Graveyard)
+        Close-SuiteBgRunspace -Runspace $work.Runspace
+    }.GetNewClosure())
+    [void]$dlg.ShowDialog()
+}
+
+function New-WsusPanel {
+    # Server connection, signing certificate and publish defaults for the
+    # WSUS destination. Buttons act on the values currently in the boxes,
+    # before OK saves them.
+    $xaml = @'
+<ScrollViewer xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+      VerticalScrollBarVisibility="Auto">
+    <StackPanel>
+        <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,12"
+                   Text="Publish to WSUS publishes the installer of each checked app as a locally published update. WSUS Updates in the sidebar lists and manages the published updates. This computer needs the WSUS console or RSAT WSUS tools at the server's version, an account in the WSUS Administrators group, and file-share access to the server. When this computer is not the WSUS server, it must also trust the signing certificate."/>
+
+        <TextBlock Text="Server" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
+        <Grid Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="150"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="WSUS server" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
+            <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWsusServer" FontSize="12" Height="28" VerticalContentAlignment="Center" Margin="0,0,0,6"
+                       Controls:TextBoxHelper.Watermark="wsus01.contoso.com"
+                       ToolTip="Host name of the WSUS server. With ConfigMgr, the WSUS server of the top-level software update point."/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Port" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
+            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,6">
+                <TextBox x:Name="txtWsusPort" Width="80" FontSize="12" Height="28" VerticalContentAlignment="Center" MaxLength="5"
+                         ToolTip="8530 for HTTP and 8531 for HTTPS on a default WSUS install."/>
+                <CheckBox x:Name="chkWsusSsl" Content="Use SSL" FontSize="12" Margin="14,0,0,0" VerticalAlignment="Center"
+                          Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                          ToolTip="Connect to the WSUS administration API over HTTPS."/>
+            </StackPanel>
+            <Button Grid.Row="1" Grid.Column="2" x:Name="btnWsusTest" Content="Test connection" MinWidth="130" Height="28" Margin="8,0,0,6"
+                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" x:Name="txtWsusStatus" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"/>
+        </Grid>
+
+        <TextBlock Text="Signing certificate" FontSize="13" FontWeight="Bold" Margin="0,4,0,6"/>
+        <TextBlock x:Name="txtWsusCert" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,6"
+                   Text="Test the connection to read the server's signing certificate."/>
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+            <Button x:Name="btnWsusCertCreate" Content="Create self-signed..." MinWidth="150" Height="28" Margin="0,0,8,0"
+                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    ToolTip="Has the WSUS server create and use a self-signed signing certificate."/>
+            <Button x:Name="btnWsusCertImport" Content="Import PFX..." MinWidth="120" Height="28" Margin="0,0,8,0"
+                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    ToolTip="Sets a code-signing certificate with its private key from a PFX file, for example one issued by your PKI."/>
+            <Button x:Name="btnWsusCertExport" Content="Export certificate..." MinWidth="150" Height="28"
+                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    ToolTip="Saves the public signing certificate (.cer) for distribution to clients by Group Policy."/>
+        </StackPanel>
+        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,12"
+                   Text="Clients install locally published updates only when the signing certificate is in their Trusted Publishers store (and Trusted Root Certification Authorities when it is self-signed) and the policy Allow signed updates from an intranet Microsoft update service location is enabled: HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate, AcceptTrustedPublisherCerts = 1 (DWORD)."/>
+
+        <TextBlock Text="Publishing" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
+        <Grid Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="150"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" x:Name="txtWsusPolicy" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,8"
+                       Text="Each update installs only where an older version of the application is installed. A computer without the application does not get the update."/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Classification" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
+            <ComboBox  Grid.Row="1" Grid.Column="1" x:Name="cboWsusClassification" FontSize="12" Height="28" Margin="0,0,0,6"
+                       ToolTip="WSUS classification of every published update. With ConfigMgr, the software update point must synchronize it."/>
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Approve for group" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
+            <ComboBox  Grid.Row="2" Grid.Column="1" x:Name="cboWsusGroup" IsEditable="True" FontSize="12" Height="28" Margin="0,0,0,6"
+                       ToolTip="Computer group the update is approved for right after it publishes. Leave empty to approve later from WSUS Updates in the sidebar: the WSUS console does not list locally published updates."/>
+            <Button    Grid.Row="2" Grid.Column="2" x:Name="btnWsusGroups" Content="Load groups" MinWidth="110" Height="28" Margin="8,0,0,6"
+                       Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <CheckBox  Grid.Row="3" Grid.Column="1" x:Name="chkWsusDecline" FontSize="12" Margin="0,0,0,6"
+                       Content="Decline earlier versions of the same application after publishing" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                       ToolTip="Declines the AppPackager updates of the same application that have a lower version. Approving one again reverses it."/>
+        </Grid>
+
+    </StackPanel>
+</ScrollViewer>
+'@
+
+    [xml]$xml = $xaml
+    $element = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
+
+    $txtWsusServer = $element.FindName('txtWsusServer')
+    $txtWsusPort   = $element.FindName('txtWsusPort')
+    $chkWsusSsl    = $element.FindName('chkWsusSsl')
+    $btnWsusTest   = $element.FindName('btnWsusTest')
+    $txtWsusStatus = $element.FindName('txtWsusStatus')
+    $txtWsusCert   = $element.FindName('txtWsusCert')
+    $btnCertCreate = $element.FindName('btnWsusCertCreate')
+    $btnCertImport = $element.FindName('btnWsusCertImport')
+    $btnCertExport = $element.FindName('btnWsusCertExport')
+    $cboClassification = $element.FindName('cboWsusClassification')
+    $cboGroup      = $element.FindName('cboWsusGroup')
+    $btnGroups     = $element.FindName('btnWsusGroups')
+    $chkDecline    = $element.FindName('chkWsusDecline')
+
+    $wsus = $script:Prefs.Wsus
+    $txtWsusServer.Text = [string]$wsus.ServerName
+    $txtWsusPort.Text = [string]$wsus.PortNumber
+    $chkWsusSsl.IsChecked = [bool]$wsus.UseSsl
+    $classNames = @(Get-WsusClassificationNameList)
+    foreach ($name in $classNames) { [void]$cboClassification.Items.Add((Get-WsusClassificationLabel -Name $name)) }
+    $cboClassification.SelectedIndex = [Math]::Max(0, [array]::IndexOf($classNames, [string]$wsus.Classification))
+    $cboGroup.Text = [string]$wsus.ApprovalGroup
+    $chkDecline.IsChecked = [bool]$wsus.DeclineSuperseded
+
+    # Port follows the SSL box until the operator types a port of their own.
+    $portState = @{ Auto = ([string]$wsus.PortNumber -in @('8530', '8531')) }
+    $txtWsusPort.Add_TextChanged({ if ($txtWsusPort.IsKeyboardFocusWithin) { $portState.Auto = ($txtWsusPort.Text.Trim() -in @('', '8530', '8531')) } }.GetNewClosure())
+    # Checked and Unchecked also fire for a keyboard, UI Automation, or code change, not only a mouse click.
+    $sslChanged = { if ($portState.Auto) { $txtWsusPort.Text = $(if ($chkWsusSsl.IsChecked -eq $true) { '8531' } else { '8530' }) } }.GetNewClosure()
+    $chkWsusSsl.Add_Checked($sslChanged)
+    $chkWsusSsl.Add_Unchecked($sslChanged)
+
+    $readSettings = {
+        return (ConvertTo-WsusPublishSettings -InputObject @{
+                ServerName        = ([string]$txtWsusServer.Text).Trim()
+                PortNumber        = ([string]$txtWsusPort.Text).Trim()
+                UseSsl            = ($chkWsusSsl.IsChecked -eq $true)
+                Classification    = [string]@($classNames)[[Math]::Max(0, $cboClassification.SelectedIndex)]
+                ApprovalGroup     = ([string]$cboGroup.Text).Trim()
+                DeclineSuperseded = ($chkDecline.IsChecked -eq $true)
+            })
+    }.GetNewClosure()
+
+    $serverButtons = @($btnWsusTest, $btnCertCreate, $btnCertImport, $btnCertExport, $btnGroups)
+    $api = if (Get-Command -Name Test-WsusAdministrationApi -ErrorAction SilentlyContinue) { Test-WsusAdministrationApi }
+    else { [pscustomobject]@{ Available = $false; Version = ''; Reason = 'The WSUS publishing module did not load; reinstall AppPackager.' } }
+    if (-not $api.Available) {
+        foreach ($b in $serverButtons) { $b.IsEnabled = $false }
+        $txtWsusStatus.Text = ([char]0x2717 + ' ' + [string]$api.Reason)
+    }
+    else {
+        $txtWsusStatus.Text = ('WSUS administration API {0} found.' -f [string]$api.Version)
+    }
+
+    $showStatus = {
+        param($Status)
+        if (-not $Status.Connected) {
+            $txtWsusStatus.Text = ([char]0x2717 + ' ' + [string]$Status.Message)
+            $txtWsusCert.Text = 'Not connected.'
+            return
+        }
+        $txtWsusStatus.Text = ([char]0x2713 + (' Connected  -  {0}, WSUS {1}, role {2}, {3} connection. {4}' -f [string]$Status.ServerName, [string]$Status.Version,
+                [string]$Status.Role, $(if ($Status.SecureConnection) { 'secure' } else { 'unencrypted' }), [string]$Status.Message)).Trim()
+        $cert = $Status.SigningCertificate
+        if (-not $cert) {
+            $txtWsusCert.Text = $(if ([string]$Status.Message -match 'could not be read') { 'The signing certificate could not be read; see the status line.' }
+                else { [char]0x2717 + ' No signing certificate is set on this server. Publishing fails until one is created or imported.' })
+            return
+        }
+        $flags = @()
+        if ($cert.SelfSigned) { $flags += 'self-signed' }
+        if ($cert.Expired) { $flags += 'EXPIRED' }
+        $txtWsusCert.Text = ('Subject: {0}   Thumbprint: {1}   Valid to: {2}   Key: {3} bits{4}' -f [string]$cert.Subject, [string]$cert.Thumbprint,
+            ([datetime]$cert.NotAfter).ToString('yyyy-MM-dd'), [string]$cert.KeyLength, $(if ($flags) { '   (' + ($flags -join ', ') + ')' } else { '' }))
+    }.GetNewClosure()
+
+    # Every server action reads and validates the boxes first, then receives
+    # the settings as an argument; a validation or server error lands in
+    # the status line instead of an unhandled dispatcher exception.
+    $runOnServer = {
+        param([scriptblock]$Action, $Extra)
+        $window = [System.Windows.Window]::GetWindow($element)
+        if ($window) { $window.Cursor = [System.Windows.Input.Cursors]::Wait }
+        try {
+            $settings = & $readSettings
+            if ([string]::IsNullOrWhiteSpace([string]$settings.ServerName)) { throw 'Enter the WSUS server first.' }
+            return (& $Action $settings $Extra)
+        }
+        catch { $txtWsusStatus.Text = ([char]0x2717 + ' ' + $_.Exception.Message); return $null }
+        finally { if ($window) { $window.Cursor = $null } }
+    }.GetNewClosure()
+
+    $btnWsusTest.Add_Click({
+        $status = & $runOnServer { param($s) Get-WsusServerStatus -Settings $s }
+        if ($status) { & $showStatus $status }
+    }.GetNewClosure())
+
+    $btnCertCreate.Add_Click({
+        $settings = & $runOnServer { param($s) $s }
+        if (-not $settings) { return }
+        $window = [System.Windows.Window]::GetWindow($element)
+        $answer = Show-ThemedMessage -Owner $window -Title 'Create Signing Certificate' -Buttons YesNo -Icon Warning `
+            -Message ("Have {0} create a self-signed signing certificate and use it for every update published from now on?`n`nThis replaces any certificate the server uses today. Clients that trust only the current certificate reject updates signed with the new one until the new certificate reaches their Trusted Publishers and Trusted Root Certification Authorities stores. With ConfigMgr, keep ConfigMgr in charge of the certificate if it already manages it." -f [string]$settings.ServerName)
+        if ($answer -ne 'Yes') { return }
+        $status = & $runOnServer { param($s) New-WsusSelfSignedSigningCertificate -Settings $s }
+        if ($status) { & $showStatus $status }
+    }.GetNewClosure())
+
+    $btnCertImport.Add_Click({
+        $settings = & $runOnServer { param($s) $s }
+        if (-not $settings) { return }
+        $window = [System.Windows.Window]::GetWindow($element)
+        $open = New-Object Microsoft.Win32.OpenFileDialog
+        $open.Title = 'Select the signing certificate PFX'
+        $open.Filter = 'PFX files (*.pfx;*.p12)|*.pfx;*.p12'
+        if (-not $open.ShowDialog()) { return }
+        $password = Show-WsusPasswordPrompt -Owner $window -Prompt ('Password for {0}' -f [System.IO.Path]::GetFileName($open.FileName))
+        if ($null -eq $password) { return }
+        try {
+            $answer = Show-ThemedMessage -Owner $window -Title 'Import Signing Certificate' -Buttons YesNo -Icon Warning `
+                -Message ("Make this certificate the signing certificate of {0}?`n`nIt replaces any certificate the server uses today. Clients must trust the new certificate before they install updates signed with it." -f [string]$settings.ServerName)
+            if ($answer -ne 'Yes') { return }
+            $status = & $runOnServer { param($s, $x) Set-WsusSigningCertificate -Settings $s -PfxPath $x.Path -Password $x.Password } @{ Path = $open.FileName; Password = $password }
+            if ($status) { & $showStatus $status }
+        }
+        finally { $password.Dispose() }
+    }.GetNewClosure())
+
+    $btnCertExport.Add_Click({
+        $settings = & $runOnServer { param($s) $s }
+        if (-not $settings) { return }
+        $save = New-Object Microsoft.Win32.SaveFileDialog
+        $save.Title = 'Save the public signing certificate'
+        $save.Filter = 'Certificate (*.cer)|*.cer'
+        $save.FileName = ('WSUS-signing-{0}.cer' -f [string]$settings.ServerName)
+        if (-not $save.ShowDialog()) { return }
+        $written = & $runOnServer { param($s, $x) Export-WsusSigningCertificate -Settings $s -Path $x } $save.FileName
+        if ($written) { $txtWsusStatus.Text = ([char]0x2713 + ' Saved ' + [string]$written) }
+    }.GetNewClosure())
+
+    $btnGroups.Add_Click({
+        $result = & $runOnServer { param($s) [pscustomobject]@{ Names = @(Get-WsusComputerGroupNames -Settings $s) } }
+        if ($null -eq $result) { return }
+        $typed = [string]$cboGroup.Text
+        $cboGroup.Items.Clear()
+        foreach ($name in @($result.Names)) { [void]$cboGroup.Items.Add($name) }
+        $cboGroup.Text = $typed
+        $txtWsusStatus.Text = ('{0} computer group(s) loaded.' -f @($result.Names).Count)
+    }.GetNewClosure())
+
+
+    $prefsRef = $script:Prefs
+    $commit = {
+        $prefsRef.Wsus.ServerName = ([string]$txtWsusServer.Text).Trim()
+        $port = 0
+        if ([int]::TryParse(([string]$txtWsusPort.Text).Trim(), [ref]$port) -and $port -ge 1 -and $port -le 65535) { $prefsRef.Wsus.PortNumber = $port }
+        $prefsRef.Wsus.UseSsl = ($chkWsusSsl.IsChecked -eq $true)
+        $prefsRef.Wsus.Classification = [string]@($classNames)[[Math]::Max(0, $cboClassification.SelectedIndex)]
+        $prefsRef.Wsus.ApprovalGroup = ([string]$cboGroup.Text).Trim()
+        $prefsRef.Wsus.DeclineSuperseded = ($chkDecline.IsChecked -eq $true)
+    }.GetNewClosure()
+
+    return @{ Name = 'WSUS Publishing'; Element = $element; Commit = $commit }
+}
+
 
 # =============================================================================
 # Window lifecycle
@@ -10232,8 +11306,14 @@ $window.Add_Loaded({
     Add-LogLine -Message ("Loading packagers from: {0}" -f $PackagersRoot)
     Invoke-RefreshGrid
     Add-LogLine -Message ("{0} packager(s) loaded. Ready." -f $script:PackagerData.Count)
-    Update-SidebarForDeploymentTarget
+    Update-SidebarForSystems
+    Start-UpdateCheck
+})
 
+# Loaded runs before the first render, so a modal dialog opened there keeps
+# the main window from painting until the dialog closes. The launch prompts
+# wait for ContentRendered, which fires once, after the first render.
+$window.Add_ContentRendered({
     # A zip extracted through Explorer stamps every file with the
     # Mark-of-the-Web; module imports in child processes then fail while
     # the caller keeps running, surfacing as unknown-command errors
@@ -10257,8 +11337,6 @@ $window.Add_Loaded({
     if (Test-FirstRunWizardNeeded -Prefs $script:Prefs) {
         Show-FirstRunWizard -Owner $window
     }
-
-    Start-UpdateCheck
 })
 
 $window.Add_Closing({

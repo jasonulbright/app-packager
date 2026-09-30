@@ -38,9 +38,9 @@ param(
 
     [switch]$SkipUiProbes,
 
-    # Needs a local copy of the vendor installer and re-runs itself elevated,
-    # so it is not part of an unattended regression run.
-    [string[]]$SkipProbe = @('Invoke-AdobeExtractSmoke.ps1'),
+    # Each needs a local copy of the vendor installer (the Adobe probe also
+    # re-runs itself elevated), so neither is part of an unattended run.
+    [string[]]$SkipProbe = @('Invoke-AdobeExtractSmoke.ps1', 'Invoke-TeamViewerHostVersionSmoke.ps1'),
 
     [int]$ProbeTimeoutSec = 300,
 
@@ -148,8 +148,10 @@ $paths = @(
     '.\Packagers\AppPackagerCommon.Tests.ps1'
     '.\Packagers\AppPackagerWorkbench.Tests.ps1'
     '.\Packagers\AppPackagerSigning.Tests.ps1'
+    '.\Packagers\AppPackagerWsus.Tests.ps1'
     '.\Tests\PackagerSmoke.Tests.ps1'
     '.\Tests\PackageWorkflow.Tests.ps1'
+    '.\Tests\ProcessStreaming.Tests.ps1'
     '.\Tests\UserDetection.Tests.ps1'
     '.\Tests\SigningCombinations.Tests.ps1'
     '.\Tests\UpdatePreservation.Tests.ps1'
