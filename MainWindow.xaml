@@ -279,7 +279,7 @@
                 </DataGrid.CellStyle>
 
                 <DataGrid.Columns>
-                    <DataGridTemplateColumn x:Name="colSelected" Width="36" CanUserSort="False">
+                    <DataGridTemplateColumn x:Name="colSelected" Width="44" MinWidth="44" CanUserSort="False">
                         <DataGridTemplateColumn.HeaderStyle>
                             <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource MahApps.Styles.DataGridColumnHeader}">
                                 <Setter Property="HorizontalContentAlignment" Value="Center"/>

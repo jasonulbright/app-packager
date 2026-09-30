@@ -110,6 +110,11 @@ Describe 'Selection after a Stage or Package run' {
         $rows[1].Selected | Should -BeTrue
         $rows[2].Selected | Should -BeFalse
     }
+    It 'is not applied after a Stage run, so Stage then Publish keeps the selection' {
+        $source = Get-Content (Join-Path $PSScriptRoot '..\start-apppackager.ps1') -Raw
+        $source | Should -Match 'if \(\$doneState\.Succeeded -and \$script:BgOperation -ne ''Stage''\) \{\s+Clear-SucceededSelection'
+    }
+
     It 'accepts an observable collection and an empty success list' {
         $data = New-Object System.Collections.ObjectModel.ObservableCollection[object]
         $data.Add([pscustomobject]@{ Script = 'package-a.ps1'; Selected = $true })
