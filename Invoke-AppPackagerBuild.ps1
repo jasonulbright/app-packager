@@ -33,8 +33,22 @@
 .EXAMPLE
     .\Invoke-AppPackagerBuild.ps1 -Application catalog:package-7zip -Profile Managed -Stage
 
+    WSUS targets:
+      WSUSOnly     Package stages the application and publishes its
+                   installer to WSUS; no site, share, or console.
+      MECMAndWSUS  Package creates the ConfigMgr application, then
+                   publishes the installer to WSUS.
+    The WSUS publish reads the manifest staged in this run, so a MECMAndWSUS
+    publish needs -Stage and -Package together. -Wsus* parameters outrank
+    the Wsus section of the preferences file. When the approval or a decline
+    fails after a successful publish, the update stays published, Wsus.Warnings
+    names the failure, and the exit code is 1.
+
 .EXAMPLE
     .\Invoke-AppPackagerBuild.ps1 -Application package-git.ps1 -Profile default -Target MECM -Package -EstimatedMinutes 10 -MaximumMinutes 25
+
+.EXAMPLE
+    .\Invoke-AppPackagerBuild.ps1 -Application package-7zip.ps1 -Target WSUSOnly -Package -WsusServer wsus01.contoso.com -WsusPort 8531 -WsusUseSsl -WsusApprovalGroup Pilot
 #>
 
 [CmdletBinding()]
@@ -45,7 +59,7 @@ param(
 
     [string]$Version,
 
-    [ValidateSet('ContentOnly', 'MECM', 'MECMAndIntune', 'IntuneOnly')]
+    [ValidateSet('ContentOnly', 'MECM', 'MECMAndIntune', 'IntuneOnly', 'MECMAndWSUS', 'WSUSOnly')]
     [string]$Target = 'MECM',
 
     [switch]$Stage,
@@ -68,7 +82,20 @@ param(
 
     [string]$FileServerPath,
 
-    [AllowEmptyString()][string]$Comment = ''
+    [AllowEmptyString()][string]$Comment = '',
+
+    [string]$WsusServer,
+
+    [ValidateRange(1, 65535)]
+    [int]$WsusPort,
+
+    [switch]$WsusUseSsl,
+
+    [string]$WsusClassification,
+
+    [string]$WsusApprovalGroup,
+
+    [switch]$WsusDeclineSuperseded
 )
 
 Set-StrictMode -Version Latest
@@ -76,6 +103,11 @@ $ErrorActionPreference = 'Stop'
 
 if (-not $Stage -and -not $Package) {
     throw 'Specify -Stage, -Package, or both.'
+}
+$publishesToWsus = ($Target -in @('MECMAndWSUS', 'WSUSOnly'))
+$cliBoundParameters = @{} + $PSBoundParameters
+if ($Target -eq 'MECMAndWSUS' -and $Package -and -not $Stage) {
+    throw 'A MECMAndWSUS package publishes the build staged in the same run; pass -Stage together with -Package.'
 }
 if ([string]::IsNullOrWhiteSpace($PackagersRoot)) { $PackagersRoot = Join-Path $PSScriptRoot 'Packagers' }
 
@@ -277,10 +309,11 @@ function Invoke-CliPackagerPhase {
     $startInfo = New-Object System.Diagnostics.ProcessStartInfo
     $startInfo.FileName = 'powershell.exe'
     $startInfo.WorkingDirectory = Split-Path -Parent $packagerPath
-    $phaseSwitch = if ($Phase -eq 'Stage' -or $Target -eq 'IntuneOnly') { '-StageOnly' } else { '-PackageOnly' }
+    $siteFree = ($Target -in @('IntuneOnly', 'WSUSOnly'))
+    $phaseSwitch = if ($Phase -eq 'Stage' -or $siteFree) { '-StageOnly' } else { '-PackageOnly' }
     $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $packagerPath, $phaseSwitch, '-LogPath', $structuredLog)
 
-    if ($Phase -eq 'Package' -and $Target -ne 'IntuneOnly') {
+    if ($Phase -eq 'Package' -and -not $siteFree) {
         $resolvedSite = if ($SiteCode) { $SiteCode } elseif ($preferences -and $preferences.SiteCode) { [string]$preferences.SiteCode } else { 'MCM' }
         $arguments += @('-SiteCode', $resolvedSite, '-Comment', $Comment)
         $resolvedShare = if ($FileServerPath) { $FileServerPath } elseif ($preferences -and $preferences.FileShareRoot) { [string]$preferences.FileShareRoot } else { '' }
@@ -327,9 +360,11 @@ function Invoke-CliAdHocPhases {
     try {
         $analysis = Get-InstallerAnalysis -Path ([string]$byoSource.Path)
         $stageResult = $null
-        if ($Package -and -not $Stage) {
+        if ($Package -and -not $Stage -and -not $publishesToWsus) {
             # Package alone consumes the build the last -Stage left behind; the
-            # folder shape mirrors the ad-hoc stage so nothing is re-staged.
+            # folder shape mirrors the ad-hoc stage so nothing is re-staged. A
+            # WSUS target stages again, because its publish accepts only a
+            # manifest that carries this run's BuildId.
             $sanitize = { param($s) (($s -replace '[\\/:*?"<>|]', '') -replace '\s+', ' ').Trim() }
             $vendorFolder = & $sanitize ([string]$byoDefinition.Publisher)
             if ([string]::IsNullOrWhiteSpace($vendorFolder)) { $vendorFolder = 'Unknown' }
@@ -354,7 +389,7 @@ function Invoke-CliAdHocPhases {
             $stageResult = @(New-AdHocStage @stageArguments | Where-Object { $_ -and $_.PSObject.Properties['StagedPath'] })[-1]
             [void]$phases.Add([pscustomobject]@{ Phase = 'Stage'; ExitCode = 0; StagedPath = $stageResult.StagedPath })
         }
-        if ($Package -and $Target -ne 'ContentOnly') {
+        if ($Package -and $Target -notin @('ContentOnly', 'IntuneOnly', 'WSUSOnly')) {
             $resolvedSite = if ($SiteCode) { $SiteCode } elseif ($preferences -and $preferences.SiteCode) { [string]$preferences.SiteCode } else { 'MCM' }
             $resolvedProvider = if ($ProviderMachineName) { $ProviderMachineName } elseif ($preferences -and $preferences.ProviderMachineName) { [string]$preferences.ProviderMachineName } else { '' }
             $resolvedShare = if ($FileServerPath) { $FileServerPath } elseif ($preferences -and $preferences.FileShareRoot) { [string]$preferences.FileShareRoot } else { '' }
@@ -400,6 +435,59 @@ else {
 $exitCode = 0
 foreach ($result in $results) { if ($result.ExitCode -ne 0) { $exitCode = $result.ExitCode } }
 
+function Resolve-CliWsusSettings {
+    # Explicit parameters outrank the preferences file; the publisher
+    # validates every value again before it connects. A stored port belongs
+    # to the stored SSL choice, so an SSL change without a port takes the
+    # default port of the new scheme.
+    param([Parameter(Mandatory)][hashtable]$Bound)
+
+    $stored = @{}
+    if ($preferences -and $preferences.PSObject.Properties['Wsus'] -and $preferences.Wsus) {
+        foreach ($property in $preferences.Wsus.PSObject.Properties) { $stored[$property.Name] = $property.Value }
+    }
+    $settings = @{
+        ServerName        = [string]$stored['ServerName']
+        UseSsl            = [bool]$stored['UseSsl']
+        Classification    = $(if ($stored['Classification']) { [string]$stored['Classification'] } else { 'Updates' })
+        ApprovalGroup     = [string]$stored['ApprovalGroup']
+        DeclineSuperseded = [bool]$stored['DeclineSuperseded']
+    }
+    if ($Bound.ContainsKey('WsusServer'))            { $settings.ServerName = [string]$Bound['WsusServer'] }
+    if ($Bound.ContainsKey('WsusUseSsl'))            { $settings.UseSsl = [bool]$Bound['WsusUseSsl'] }
+    if ($Bound.ContainsKey('WsusClassification'))    { $settings.Classification = [string]$Bound['WsusClassification'] }
+    if ($Bound.ContainsKey('WsusApprovalGroup'))     { $settings.ApprovalGroup = [string]$Bound['WsusApprovalGroup'] }
+    if ($Bound.ContainsKey('WsusDeclineSuperseded')) { $settings.DeclineSuperseded = [bool]$Bound['WsusDeclineSuperseded'] }
+
+    $storedPort = 0
+    [void][int]::TryParse([string]$stored['PortNumber'], [ref]$storedPort)
+    if ($Bound.ContainsKey('WsusPort')) { $settings['PortNumber'] = [int]$Bound['WsusPort'] }
+    elseif ($storedPort -ge 1 -and [bool]$stored['UseSsl'] -eq $settings.UseSsl) { $settings['PortNumber'] = $storedPort }
+    else { $settings['PortNumber'] = $(if ($settings.UseSsl) { 8531 } else { 8530 }) }
+    return $settings
+}
+
+$wsusOutcome = $null
+if ($publishesToWsus -and $Package -and $exitCode -eq 0) {
+    try {
+        Import-Module (Join-Path $PackagersRoot 'AppPackagerCommon.psd1') -ErrorAction Stop
+        Import-Module (Join-Path $PackagersRoot 'AppPackagerWsus.psd1') -Force -ErrorAction Stop
+        $wsusSettings = Resolve-CliWsusSettings -Bound $cliBoundParameters
+        if ([string]::IsNullOrWhiteSpace([string]$wsusSettings.ServerName)) {
+            throw 'No WSUS server: pass -WsusServer or set the server in Options, WSUS Publishing.'
+        }
+        $staged = Resolve-StageManifestForBuild -BuildId ([string]$snapshot.BuildId) -SearchRoot $effectiveDownloadRoot
+        $stagedManifest = Read-StageManifest -Path ([string]$staged.Path)
+        $published = Publish-WsusSoftwareUpdate -Manifest $stagedManifest -ContentFolder ([string]$staged.StageRoot) -Settings $wsusSettings
+        $wsusOutcome = [pscustomobject]@{ Ok = $true; PackageId = [string]$published.PackageId; Outcome = [string]$published.Outcome; Warnings = @($published.Warnings); Message = [string]$published.Message }
+        if (@($published.Warnings).Count -gt 0) { $exitCode = 1 }
+    }
+    catch {
+        $wsusOutcome = [pscustomobject]@{ Ok = $false; PackageId = ''; Outcome = 'Failed'; Warnings = @(); Message = $_.Exception.Message }
+        $exitCode = 1
+    }
+}
+
 [pscustomobject]@{
     ApplicationId = $applicationId
     ProfileId     = $profileId
@@ -408,6 +496,7 @@ foreach ($result in $results) { if ($result.ExitCode -ne 0) { $exitCode = $resul
     Target        = $Target
     DownloadRoot  = $effectiveDownloadRoot
     Phases        = @($results)
+    Wsus          = $wsusOutcome
     ExitCode      = $exitCode
 }
 
