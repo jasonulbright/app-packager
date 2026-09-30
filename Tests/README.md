@@ -102,11 +102,13 @@ No test writes to a certificate trust store in any scope. `AppPackagerWsus.Tests
 - `Invoke-TeamViewerHostVersionSmoke.ps1` - TeamViewer Host version read from the version resource fixed block when the string table is empty.
 - `Invoke-WorkbenchSmoke.ps1` - Application Workbench window build, population, validation and unsaved-switch paths.
 - `Invoke-SigningOptionsSmoke.ps1` - the Options script-signing panel, its certificate picker and its test button.
+- `Invoke-PackagerPrefsSmoke.ps1` - the Options Packager Preferences panel headless: the Adobe Acrobat Reader block, its edition and language rules, and the saved pair.
 - `Invoke-OneClickPlanSmoke.ps1` - the One Click plan window headless: plan rows from stubbed preferences and history, the count and scope lines, a destination change in the window, Force, the plan-only report, and the blocking line.
 - `Invoke-WsusOptionsSmoke.ps1` - the Options WSUS Publishing panel round trip, the settings each publish destination hands to a run, update management kept out of Options, the XAML of the WSUS dialogs, the WSUS Updates button row at the window's minimum width, and the panel on a host where the WSUS module did not load.
 - `Invoke-TitleOptionsSmoke.ps1` - stored title-mode choices reach the background context map.
 - `Invoke-FullRegression.ps1` - runs every offline stage on both hosts and prints one summary table.
 - `PackagerSmoke.Tests.ps1` - Pester wrapper around the smoke harness.
+- `AdobeReader.Tests.ps1` - the Adobe Reader packager: English and MUI installer and patch names, the LANG_LIST normalization, the stored install options, the setup.ini command line, and the preferences round trip.
 - `ProcessStreaming.Tests.ps1` - the packager child runner returns one result object, including after an idle-timeout kill, so post-step notes attach to it.
 - `PackageWorkflow.Tests.ps1` - title policy, package conflict preflight, the row status after a publish run, the WSUS refusal note, profile precedence, legacy migration, per-profile stage isolation, build selection, run overrides, One Click freshness, and a CLI stage of an offline fixture packager compared against a GUI-equivalent run snapshot.
 - `SigningCombinations.Tests.ps1` - all eight signing switch combinations through `Write-StageManifest`, strict-requirement refusals, post-sign mutation detection, non-ASCII content and a stage path containing a space.

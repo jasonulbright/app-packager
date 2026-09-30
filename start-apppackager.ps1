@@ -229,6 +229,10 @@ function Read-Preferences {
             InstallScope = "System"
             DisableAI    = $false
         }
+        AdobeReaderInstallOptions = [pscustomobject]@{
+            Edition   = 'English'
+            Languages = @()
+        }
         BeyondCompareKeyFile = ""
         LocalSourceFolders   = [pscustomobject]@{}
         HiddenApplications   = @()
@@ -403,6 +407,12 @@ function Read-Preferences {
             if ($null -ne $dbv.DisableAI) {
                 try { $defaults.DBeaverInstallOptions.DisableAI = [bool]$dbv.DisableAI } catch { }
             }
+        }
+
+        if ($null -ne $data.AdobeReaderInstallOptions) {
+            $ar = $data.AdobeReaderInstallOptions
+            if ([string]$ar.Edition -in @('English', 'MUI')) { $defaults.AdobeReaderInstallOptions.Edition = [string]$ar.Edition }
+            if ($null -ne $ar.Languages) { $defaults.AdobeReaderInstallOptions.Languages = @($ar.Languages | ForEach-Object { [string]$_ } | Where-Object { $_ -match '^([a-z]{2}_[A-Z]{2}|All)$' }) }
         }
 
         if ($null -ne $data.BeyondCompareKeyFile)  { $defaults.BeyondCompareKeyFile = [string]$data.BeyondCompareKeyFile }
@@ -715,6 +725,7 @@ function Save-Preferences {
         $pkgPrefs["M365ExcludeApps"] = @($Prefs.M365ExcludeApps)
         $pkgPrefs["SSMSInstallOptions"] = $Prefs.SSMSInstallOptions
         $pkgPrefs["DBeaverInstallOptions"] = $Prefs.DBeaverInstallOptions
+        $pkgPrefs["AdobeReaderInstallOptions"] = $Prefs.AdobeReaderInstallOptions
         $pkgPrefs["BeyondCompareKeyFile"] = [string]$Prefs.BeyondCompareKeyFile
         $pkgPrefs["LocalSourceFolders"] = $Prefs.LocalSourceFolders
         $pkgPrefs | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $pkgPrefsPath -Encoding UTF8
@@ -5157,6 +5168,7 @@ function New-PackagerPreferencesPanel {
     $tv = Read-TvHostConfig
     $ssms = $script:Prefs.SSMSInstallOptions
     $dbv  = $script:Prefs.DBeaverInstallOptions
+    $adobe = $script:Prefs.AdobeReaderInstallOptions
 
     $xaml = @'
 <DockPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -5367,6 +5379,49 @@ function New-PackagerPreferencesPanel {
     & $addLabelRow "Install Scope:" $cmbDbvScope "System installs machine-wide to C:\Program Files\DBeaver with /allusers. User installs to %LOCALAPPDATA%\DBeaver with /currentuser and needs no elevation; deploy that one in user context so detection resolves the right profile."
 
     $chkDbvDisableAI = & $addCheckBox "Disable AI features (-Dai.disabled=true)" ([bool]$dbv.DisableAI) "Appends -Dai.disabled=true to the installed dbeaver.ini after a successful install, which is DBeaver's documented way to turn off AI assistant features. The line is added once and re-applied after every reinstall."
+
+    # =============================================
+    # ADOBE ACROBAT READER
+    # =============================================
+    & $addDivider
+    & $addHeader "Adobe Acrobat Reader"
+
+    $cmbAdobeEdition = New-Object System.Windows.Controls.ComboBox
+    $cmbAdobeEdition.FontSize = 13
+    $cmbAdobeEdition.Width = 160
+    $cmbAdobeEdition.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+    foreach ($val in @("English", "Multilingual (MUI)")) { [void]$cmbAdobeEdition.Items.Add($val) }
+    $cmbAdobeEdition.SelectedIndex = $(if ([string]$adobe.Edition -eq 'MUI') { 1 } else { 0 })
+    & $addLabelRow "Edition:" $cmbAdobeEdition "English downloads the en_US installer. Multilingual downloads Adobe's MUI installer and installs the languages checked below; English is always included, and the Reader UI follows the language of the operating system."
+
+    $adobeLocales = @('ca_ES','cs_CZ','da_DK','de_DE','es_ES','eu_ES','fi_FI','fr_FR','hr_HR','hu_HU','it_IT','ja_JP','ko_KR','nb_NO','nl_NL','pl_PL','pt_BR','ro_RO','ru_RU','sk_SK','sl_SI','sv_SE','tr_TR','uk_UA','zh_CN','zh_TW')
+    $storedLanguages = @($adobe.Languages | ForEach-Object { [string]$_ })
+    $chkAdobeAllLanguages = & $addCheckBox "All languages" ($storedLanguages -contains 'All') "Installs every language the MUI installer carries (LANG_LIST=All)."
+    $wrapAdobeLanguages = New-Object System.Windows.Controls.WrapPanel
+    $wrapAdobeLanguages.Margin = New-Object System.Windows.Thickness(16, 2, 0, 4)
+    $wrapAdobeLanguages.Width = 620
+    $wrapAdobeLanguages.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+    $chkAdobeLanguages = @{}
+    foreach ($code in $adobeLocales) {
+        $cb = New-Object System.Windows.Controls.CheckBox
+        $cb.Content = $code
+        $cb.FontSize = 12
+        $cb.Width = 76
+        $cb.Margin = New-Object System.Windows.Thickness(0, 2, 0, 2)
+        $cb.IsChecked = ($storedLanguages -contains $code)
+        [void]$wrapAdobeLanguages.Children.Add($cb)
+        $chkAdobeLanguages[$code] = $cb
+    }
+    [void]$panelContent.Children.Add($wrapAdobeLanguages)
+    $updateAdobeLanguageState = {
+        $mui = ($cmbAdobeEdition.SelectedIndex -eq 1)
+        $chkAdobeAllLanguages.IsEnabled = $mui
+        $wrapAdobeLanguages.IsEnabled = ($mui -and $chkAdobeAllLanguages.IsChecked -ne $true)
+    }.GetNewClosure()
+    $cmbAdobeEdition.Add_SelectionChanged($updateAdobeLanguageState)
+    $chkAdobeAllLanguages.Add_Checked($updateAdobeLanguageState)
+    $chkAdobeAllLanguages.Add_Unchecked($updateAdobeLanguageState)
+    & $updateAdobeLanguageState
 
     # =============================================
     # BEYOND COMPARE 5
@@ -5597,7 +5652,7 @@ function New-PackagerPreferencesPanel {
     # =============================================
     # Preview buttons
     # =============================================
-    $cwaPackagerPath = Join-Path (Join-Path $PSScriptRoot "Packagers") "package-citrixworkspace-cr.ps1"
+    $cwaPackagerPath = Join-Path $PackagersRoot "package-citrixworkspace-cr.ps1"
     $btnCwaPreview.Add_Click({
         $ownerWin = [System.Windows.Window]::GetWindow($element)
         try {
@@ -5754,6 +5809,12 @@ function New-PackagerPreferencesPanel {
         if ($selectedDbvScope -notin @('System','User')) { $selectedDbvScope = 'System' }
         $prefsRef.DBeaverInstallOptions.InstallScope = $selectedDbvScope
         $prefsRef.DBeaverInstallOptions.DisableAI    = ($chkDbvDisableAI.IsChecked -eq $true)
+
+        if (-not $prefsRef.PSObject.Properties['AdobeReaderInstallOptions'] -or -not $prefsRef.AdobeReaderInstallOptions) {
+            $prefsRef | Add-Member -NotePropertyName AdobeReaderInstallOptions -NotePropertyValue ([pscustomobject]@{ Edition = 'English'; Languages = @() }) -Force
+        }
+        $prefsRef.AdobeReaderInstallOptions.Edition = $(if ($cmbAdobeEdition.SelectedIndex -eq 1) { 'MUI' } else { 'English' })
+        $prefsRef.AdobeReaderInstallOptions.Languages = @($(if ($chkAdobeAllLanguages.IsChecked -eq $true) { 'All' } else { $adobeLocales | Where-Object { $chkAdobeLanguages[$_].IsChecked -eq $true } }))
 
         $prefsRef.BeyondCompareKeyFile = [string]$txtBc5KeyFile.Text.Trim()
 
