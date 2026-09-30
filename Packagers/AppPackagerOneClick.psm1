@@ -287,6 +287,22 @@ function ConvertTo-OneClickHashtable {
     return $h
 }
 
+function Get-OneClickNotSupportedField {
+    param($HistoryEntry, [string]$Destination, [string]$Field)
+    if ($null -eq $HistoryEntry) { return '' }
+    $refusals = $null
+    if ($HistoryEntry -is [System.Collections.IDictionary]) { if ($HistoryEntry.Contains('NotSupported')) { $refusals = $HistoryEntry['NotSupported'] } }
+    elseif ($HistoryEntry.PSObject.Properties['NotSupported']) { $refusals = $HistoryEntry.NotSupported }
+    if ($null -eq $refusals) { return '' }
+    $record = $null
+    if ($refusals -is [System.Collections.IDictionary]) { if ($refusals.Contains($Destination)) { $record = $refusals[$Destination] } }
+    elseif ($refusals.PSObject.Properties[$Destination]) { $record = $refusals.PSObject.Properties[$Destination].Value }
+    if ($null -eq $record) { return '' }
+    if ($record -is [System.Collections.IDictionary]) { return [string]$record[$Field] }
+    if ($record.PSObject.Properties[$Field]) { return [string]$record.$Field }
+    return ''
+}
+
 function Get-OneClickNotSupportedVersion {
     <#
     .SYNOPSIS
@@ -298,17 +314,22 @@ function Get-OneClickNotSupportedVersion {
         $HistoryEntry,
         [Parameter(Mandatory)][ValidateSet('ConfigMgr', 'WSUS', 'Intune')][string]$Destination
     )
-    if ($null -eq $HistoryEntry) { return '' }
-    $refusals = $null
-    if ($HistoryEntry -is [System.Collections.IDictionary]) { if ($HistoryEntry.Contains('NotSupported')) { $refusals = $HistoryEntry['NotSupported'] } }
-    elseif ($HistoryEntry.PSObject.Properties['NotSupported']) { $refusals = $HistoryEntry.NotSupported }
-    if ($null -eq $refusals) { return '' }
-    $record = $null
-    if ($refusals -is [System.Collections.IDictionary]) { if ($refusals.Contains($Destination)) { $record = $refusals[$Destination] } }
-    elseif ($refusals.PSObject.Properties[$Destination]) { $record = $refusals.PSObject.Properties[$Destination].Value }
-    if ($null -eq $record) { return '' }
-    if ($record -is [System.Collections.IDictionary]) { return [string]$record['Version'] }
-    return [string]$record.Version
+    return (Get-OneClickNotSupportedField -HistoryEntry $HistoryEntry -Destination $Destination -Field 'Version')
+}
+
+function Get-OneClickNotSupportedReason {
+    <#
+    .SYNOPSIS
+        The reason a destination gave for its last refusal, from a history entry.
+    .OUTPUTS
+        [string] The reason (for WSUS, "not supported: <code>"); empty when
+        the destination never refused or recorded no reason.
+    #>
+    param(
+        $HistoryEntry,
+        [Parameter(Mandatory)][ValidateSet('ConfigMgr', 'WSUS', 'Intune')][string]$Destination
+    )
+    return (Get-OneClickNotSupportedField -HistoryEntry $HistoryEntry -Destination $Destination -Field 'Reason')
 }
 
 function Set-OneClickNotSupported {
@@ -568,7 +589,8 @@ function Write-OneClickReport {
         Plan rows extended by the run: Outcome (Published, Staged, Checked,
         Skipped, Not supported, Failed), Result per destination in
         ResultConfigMgr / ResultWSUS / ResultIntune (text with the identifier),
-        IdConfigMgr / IdWSUS / IdIntune, and Reason.
+        IdConfigMgr / IdWSUS / IdIntune, DetailConfigMgr / DetailWSUS /
+        DetailIntune (the full message behind a short result), and Reason.
     .OUTPUTS
         [pscustomobject] MarkdownPath, JsonPath.
     #>
@@ -633,6 +655,18 @@ function Write-OneClickReport {
         $lines.Add('| ' + ($cells -join ' | ') + ' |')
     }
     $lines.Add('')
+    $details = @(foreach ($row in $Rows) {
+        foreach ($d in $script:OneClickDestinations) {
+            $text = & $get $row ('Detail' + $d)
+            if ($text) { '- {0}, {1}: {2}' -f (& $esc (& $get $row 'Application')), $d, (& $esc $text) }
+        }
+    })
+    if ($details.Count) {
+        $lines.Add('## Details')
+        $lines.Add('')
+        foreach ($line in $details) { $lines.Add($line) }
+        $lines.Add('')
+    }
     $lines.Add('## Rollback')
     $lines.Add('')
     $rollback = [ordered]@{
@@ -663,9 +697,9 @@ function Write-OneClickReport {
                 Version         = (& $get $_ 'Version')
                 Outcome         = (& $get $_ 'Outcome')
                 Reason          = (& $get $_ 'Reason')
-                ConfigMgr       = [pscustomobject]@{ Result = (& $get $_ 'ResultConfigMgr'); Id = (& $get $_ 'IdConfigMgr') }
-                WSUS            = [pscustomobject]@{ Result = (& $get $_ 'ResultWSUS'); Id = (& $get $_ 'IdWSUS') }
-                Intune          = [pscustomobject]@{ Result = (& $get $_ 'ResultIntune'); Id = (& $get $_ 'IdIntune') }
+                ConfigMgr       = [pscustomobject]@{ Result = (& $get $_ 'ResultConfigMgr'); Id = (& $get $_ 'IdConfigMgr'); Detail = (& $get $_ 'DetailConfigMgr') }
+                WSUS            = [pscustomobject]@{ Result = (& $get $_ 'ResultWSUS'); Id = (& $get $_ 'IdWSUS'); Detail = (& $get $_ 'DetailWSUS') }
+                Intune          = [pscustomobject]@{ Result = (& $get $_ 'ResultIntune'); Id = (& $get $_ 'IdIntune'); Detail = (& $get $_ 'DetailIntune') }
             }
         })
     }
@@ -706,7 +740,7 @@ Export-ModuleMember -Function @(
     'Get-OneClickDestinationNames', 'ConvertTo-OneClickDestinationSet', 'Get-OneClickDestinations',
     'Test-OneClickDestinationInUse', 'Get-OneClickDestinationScope',
     'Get-OneClickPublishedVersion', 'Set-OneClickPublishedVersion',
-    'Get-OneClickNotSupportedVersion', 'Set-OneClickNotSupported',
+    'Get-OneClickNotSupportedVersion', 'Get-OneClickNotSupportedReason', 'Set-OneClickNotSupported',
     'Get-OneClickCadenceDays', 'Get-OneClickPlan', 'Get-OneClickPlanSummary',
     'Get-OneClickReportFolder', 'Write-OneClickReport', 'Get-OneClickReportList'
 )
