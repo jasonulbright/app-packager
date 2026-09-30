@@ -182,4 +182,24 @@ try {
     Write-Output 'PASS: WSUS port follows Use SSL'
 }
 catch { $failed++; Write-Output "FAIL: WSUS port follow: $($_.Exception.Message)" }
+
+# The log line after a saved setup names every default One Click destination.
+try {
+    Import-Module (Join-Path (Split-Path (Resolve-Path -LiteralPath $ScriptPath).Path -Parent) 'Packagers\AppPackagerOneClick.psd1') -Force
+    $doneStart = $source.IndexOf('[void]$dlg.ShowDialog()')
+    $completion = [scriptblock]::Create($source.Substring($doneStart, $source.LastIndexOf('}') - $doneStart).Replace('[void]$dlg.ShowDialog()', ''))
+    function Add-LogLine { param([string]$Message) $script:SetupLog = $Message }
+    foreach ($case in @(
+        @{ Defaults = [pscustomobject]@{ ConfigMgr = $true; WSUS = $true; Intune = $false }; Expected = 'ConfigMgr and WSUS' },
+        @{ Defaults = [pscustomobject]@{ ConfigMgr = $false; WSUS = $false; Intune = $true }; Expected = 'Intune' }
+    )) {
+        $script:Prefs = [pscustomobject]@{ AppFlow = [pscustomobject]@{ DefaultDestinations = $case.Defaults }; Intune = [pscustomobject]@{ DeploymentTarget = 'MECMAndWSUS' } }
+        $script:FirstRunDlgSaved = $true
+        $script:SetupLog = ''
+        . $completion
+        Assert-True ($script:SetupLog -like ('Setup complete. One Click publishes to {0};*' -f $case.Expected)) ('The setup log line reads: ' + $script:SetupLog)
+    }
+    Write-Output 'PASS: setup log names the default destinations'
+}
+catch { $failed++; Write-Output "FAIL: setup log line: $($_.Exception.Message)" }
 if ($failed) { throw "$failed first-run callback scenario(s) failed." }

@@ -185,6 +185,12 @@ try {
         $btnRun = $p.Run
         $btnRun.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent, $btnRun)))
         & $assert ($null -ne $script:RunContext -and $p.State.Running) 'Run starts the pipeline'
+        $col = { param($n) $p.Dialog.FindName($n) }
+        & $assert ((& $col 'colResultMecm').Visibility -eq 'Visible' -and (& $col 'colResultWsus').Visibility -eq 'Visible' -and (& $col 'colResultIntune').Visibility -eq 'Collapsed') 'the run shows a result column only for a destination in the run'
+        & $assert (@('colMecm', 'colWsus', 'colIntune' | Where-Object { (& $col $_).Visibility -ne 'Collapsed' }).Count -eq 0) 'the result columns replace the destination boxes'
+        $wraps = { param($c) @($c.ElementStyle.Setters | Where-Object { $_.Property -eq [System.Windows.Controls.TextBlock]::TextWrappingProperty -and $_.Value -eq [System.Windows.TextWrapping]::Wrap }).Count -gt 0 }
+        & $assert (@('colResultMecm', 'colResultWsus', 'colReason' | Where-Object { -not (& $wraps (& $col $_)) }).Count -eq 0) 'a result longer than its column wraps'
+        & $ok 'run view columns'
         $alpha = $p.Rows | Where-Object { $_.Packager -eq 'package-alpha' }
         $record = $script:RunContext.OneClickRows['package-alpha']
         $record.Step = 'publishing'; $record.Outcome = 'Published'; $record.ResultWSUS = 'published guid-alpha'; $record.IdWSUS = 'guid-alpha'
