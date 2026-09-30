@@ -28,7 +28,7 @@ Installs the latest release into `%LOCALAPPDATA%\AppPackager`. Only a zip crosse
 On an unrestricted network, the installer can do the whole flow itself — resolve the release from the GitHub API, download, verify SHA-256, extract:
 
 ```powershell
-curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.09.30.0097
+curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.09.30.0098
 ```
 
 Omitting `-ZipPath` makes it download and checksum-verify the requested release; `-InstallPath` picks the folder and `-Version` pins a release. `-Force` is required to replace a non-empty folder that holds no existing AppPackager install. If even the curl download is blocked, fetch the zip in a browser and run the same `-ZipPath` command against it.
@@ -147,6 +147,8 @@ Or with custom parameters:
 
 **No network or ConfigMgr actions occur on launch.** The GUI loads packager scripts locally (pre-populating the Latest and Last Checked columns from any persistent history) and waits for you to act.
 
+![Setup](screenshots/setup.png)
+
 **First-run setup** — on a machine with no `AppPackager.preferences.json` yet, a themed Setup window opens over the main window once the grid has loaded. It asks which systems you publish to (ConfigMgr, Intune, WSUS, in any combination) and then shows only the settings those systems need: Site Code, Provider Machine, File Share Root, and Download Root for ConfigMgr, Tenant ID, Client ID, and Client Secret for Intune, and the WSUS server, port and SSL choice for WSUS. The selection is saved as **Systems in use** (Options, ConfigMgr Preferences): the sidebar buttons of a system that is not in use stay disabled, whatever else is set, and a version check runs without a site code when ConfigMgr is not in use. One Click publishes to the first selected system (ConfigMgr, then Intune, then WSUS); change that in One Click Settings. Saving writes the same preference keys the Options window writes — the client secret DPAPI-protected for the current Windows user, an empty secret box keeping any saved one — and the main window picks the settings up without a restart. A "Don't show this again" checkbox lets you dismiss the wizard permanently without configuring anything; skipping or closing it without that box ticked brings it back on the next launch. Existing installs are unaffected: a preferences file from an earlier version counts as already set up.
 
 The sidebar has the workflow actions at the top, an **Add Installer...** button that feeds the drop-to-package intake, a single **Options** button below them, a sidebar comment field, and Debug Columns / theme toggles plus the installed version at the bottom:
@@ -160,7 +162,7 @@ The sidebar has the workflow actions at the top, an **Add Installer...** button 
 - **Publish to WSUS** — stages each checked app and publishes its installer to WSUS as an update for computers that have an older version
 - **WSUS Updates** — lists the updates AppPackager published to WSUS; approve, decline, expire or remove them, or import from the Microsoft Update Catalog
 
-Each publish button sends the checked apps to its own destination, so the destination is chosen per run. A button whose system is not configured is disabled, and its tooltip says what to set: the ConfigMgr console and a site code for ConfigMgr, Tenant ID, Client ID and Client Secret for Intune, and a WSUS server for WSUS.
+Each publish button sends the checked apps to its own destination, so the destination is chosen per run. A button whose system is not in use (Systems in use, set in Setup or Options) or not configured is disabled, and its tooltip says what to set: the ConfigMgr console and a site code for ConfigMgr, Tenant ID, Client ID and Client Secret for Intune, and a WSUS server for WSUS.
 
 All workflow actions share the same persistent history file at `%LOCALAPPDATA%\AppPackager\app-history.json`, so Latest Version and Last Checked survive across sessions.
 
@@ -282,6 +284,10 @@ A publish runs these steps:
 7. A failed approval or decline does not undo the publish. The row shows **Published, warning** (**Packaged, WSUS warning** after a One Click ConfigMgr + WSUS run), and the log names the failure.
 
 Every update goes under the vendor **AppPackager** and the product **AppPackager Applications**. One category keeps the server under its limit of locally published categories. With Configuration Manager, select that product in the software update point's Products list and the chosen classification in its Classifications list, then synchronize software updates. WSUS removes the category with the last AppPackager update and creates it again, with the same ID, at the next publish. Configuration Manager keeps the product selected. Until the next publish, each synchronization writes `Requested category not found` for the product to `wsyncmgr.log`.
+
+![WSUS Publishing options](screenshots/options-wsus.png)
+
+![WSUS Updates](screenshots/wsus-updates.png)
 
 **WSUS Updates** in the sidebar lists the updates AppPackager published, with their approvals and state, and acts on the selected updates. **Show updates from other publishers** also lists locally published updates from other tools. An update with the **Type** `Application` comes from an earlier build that could install on computers without the application. A new publish does not supersede or decline it, and the publish log names it. Expire and remove it.
 
