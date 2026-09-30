@@ -6468,7 +6468,9 @@ function Show-FirstRunWizard {
     [void]$dlg.ShowDialog()
 
     if ($script:FirstRunDlgSaved) {
-        Add-LogLine -Message ("Setup complete. One Click publishes to {0}; change it in Options, One Click Settings." -f $(switch ([string]$script:Prefs.Intune.DeploymentTarget) { 'IntuneOnly' { 'Intune' } 'WSUSOnly' { 'WSUS' } default { 'ConfigMgr' } }))
+        $defaultSet = ConvertTo-OneClickDestinationSet -Value $script:Prefs.AppFlow.DefaultDestinations
+        $defaultNames = @(foreach ($d in (Get-OneClickDestinationNames)) { if ($defaultSet.$d) { $d } })
+        Add-LogLine -Message ("Setup complete. One Click publishes to {0}; change it in Options, One Click Settings." -f $(if ($defaultNames.Count) { $defaultNames -join ' and ' } else { 'no destination' }))
     }
 }
 
@@ -8806,6 +8808,15 @@ function Show-OneClickPlanDialog {
     $btnClose = $dlg.FindName('btnClose')
     $chkForce.IsChecked = $Force
 
+    # A package ID or a not-supported message is wider than its column; a
+    # cell that does not wrap cuts it off.
+    foreach ($name in 'colLast', 'colPlanned', 'colResultMecm', 'colResultWsus', 'colResultIntune', 'colReason') {
+        $col = $dlg.FindName($name)
+        $wrap = [System.Windows.Style]::new([System.Windows.Controls.TextBlock], $col.ElementStyle)
+        $wrap.Setters.Add([System.Windows.Setter]::new([System.Windows.Controls.TextBlock]::TextWrappingProperty, [System.Windows.TextWrapping]::Wrap))
+        $col.ElementStyle = $wrap
+    }
+
     # Closures made with GetNewClosure resolve $script: in their own module
     # scope, so the preferences object is captured here.
     $prefsRef = $script:Prefs
@@ -8947,6 +8958,10 @@ function Show-OneClickPlanDialog {
         $state.Started = Get-Date
         $btnRun.IsEnabled = $false; $btnPlanOnly.IsEnabled = $false; $chkForce.IsEnabled = $false; $btnClose.IsEnabled = $false
         foreach ($name in 'colInclude', 'colMecm', 'colWsus', 'colIntune') { $dlg.FindName($name).IsReadOnly = $true }
+        # The result columns take the place of the destination boxes; with
+        # both shown, a result column is narrower than one package ID.
+        foreach ($name in 'colMecm', 'colWsus', 'colIntune') { $dlg.FindName($name).Visibility = 'Collapsed' }
+        $dlg.FindName('colReason').Width = [System.Windows.Controls.DataGridLength]::new(1, [System.Windows.Controls.DataGridLengthUnitType]::Star)
         $dlg.FindName('colStep').Visibility = 'Visible'
         $dlg.FindName('colResultMecm').Visibility = $(if (@($included | Where-Object { $_.ConfigMgr }).Count) { 'Visible' } else { 'Collapsed' })
         $dlg.FindName('colResultWsus').Visibility = $(if (@($included | Where-Object { $_.WSUS }).Count) { 'Visible' } else { 'Collapsed' })

@@ -635,9 +635,15 @@ function Write-OneClickReport {
     $lines.Add('')
     $lines.Add('## Rollback')
     $lines.Add('')
-    $lines.Add('- ConfigMgr: retire the application named in the ConfigMgr column.')
-    $lines.Add('- WSUS: expire the package ID in the WSUS column from WSUS Updates.')
-    $lines.Add('- Intune: unassign the app ID in the Intune column in the Intune admin center.')
+    $rollback = [ordered]@{
+        ConfigMgr = 'retire the application named in the ConfigMgr column.'
+        WSUS      = 'expire the package ID in the WSUS column from WSUS Updates.'
+        Intune    = 'unassign the app ID in the Intune column in the Intune admin center.'
+    }
+    $hasScope = [bool]($Run.PSObject.Properties['Scope'] -and $Run.Scope)
+    foreach ($d in $script:OneClickDestinations) {
+        if (-not $hasScope -or (& $get $Run.Scope $d)) { $lines.Add(('- {0}: {1}' -f $d, $rollback[$d])) }
+    }
     $lines.Add('')
     [IO.File]::WriteAllText($mdPath, (($lines -join "`r`n") + "`r`n"), (New-Object System.Text.UTF8Encoding($false)))
 

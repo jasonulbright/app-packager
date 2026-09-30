@@ -288,6 +288,17 @@ Describe 'Write-OneClickReport and Get-OneClickReportList' {
         $list[0].Applications | Should -Be 3
         $list[0].MarkdownPath | Should -Be $paths.MarkdownPath
     }
+    It 'lists rollback steps only for the destinations in the scope' {
+        $run = [pscustomobject]@{
+            Started = [datetime]'2026-04-03T10:00:00'; Ended = [datetime]'2026-04-03T10:01:00'; Operator = 'o'; Computer = 'c'; Action = 'Stage and Publish'
+            Scope = [pscustomobject]@{ ConfigMgr = 'application only, no distribution, no deployment'; WSUS = 'published, not approved' }
+        }
+        $paths = Write-OneClickReport -Run $run -Rows @() -Folder (Join-Path $TestDrive 'r3')
+        $md = Get-Content $paths.MarkdownPath -Raw
+        $md | Should -Match '- ConfigMgr: retire the application'
+        $md | Should -Match '- WSUS: expire the package ID'
+        $md | Should -Not -Match '- Intune: unassign'
+    }
     It 'returns an empty list for a missing folder' {
         @(Get-OneClickReportList -Folder (Join-Path $TestDrive 'none')).Count | Should -Be 0
     }
