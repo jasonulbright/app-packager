@@ -155,8 +155,8 @@ function Get-AdobeReaderInstallOptions {
 }
 
 function ConvertTo-AdobeLanguageList {
-    # Normalizes a language selection to the LANG_LIST value: All, or the
-    # sorted locale codes with en_US present. An unknown code stops the run.
+    # Normalizes a language selection to All, or the sorted locale codes
+    # with en_US present. An unknown code stops the run.
     param([string[]]$Languages)
     $list = @($Languages | ForEach-Object { [string]$_ } | Where-Object { $_ })
     if ($list -contains 'All' -or $list -contains 'all') { return @('All') }
@@ -170,6 +170,25 @@ function Get-AdobeInstallerSuffix {
     param([Parameter(Mandatory)][string]$Edition)
     if ($Edition -eq 'MUI') { return '_MUI' }
     return '_en_US'
+}
+
+function Get-AdobeMuiCommandLine {
+    # Adobe's keyword for every language is ALL, and SUPPRESSLANGSELECTION
+    # accepts only 1 or 0; the stored selection keeps All.
+    param([string[]]$Languages)
+    $list = @($Languages)
+    $value = if ($list -contains 'All') { 'ALL' } else { $list -join ',' }
+    return ('LANG_LIST="{0}" SUPPRESSLANGSELECTION=1' -f $value)
+}
+
+function Clear-AdobeContentFolder {
+    # The folder is keyed by version only, so an earlier stage of the other
+    # edition leaves its patch and Transforms here; the share copy never
+    # deletes, so those files would ship with this edition.
+    param([Parameter(Mandatory)][string]$Path)
+    if (Test-Path -LiteralPath $Path) {
+        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+    }
 }
 
 function Set-AdobeSetupIniCommandLine {
@@ -392,6 +411,7 @@ function Invoke-StageAdobeReader {
 
     # --- Versioned local content folder ---
     $localContentPath = Join-Path $BaseDownloadRoot $version
+    Clear-AdobeContentFolder -Path $localContentPath
     Initialize-Folder -Path $localContentPath
 
     # --- Extract EXE to get setup.exe + MSI + setup.ini ---
@@ -457,7 +477,7 @@ function Invoke-StageAdobeReader {
     # setup.exe hands the CmdLine value of setup.ini to msiexec.
     $muiCommandLine = ''
     if ($installOptions.Edition -eq 'MUI') {
-        $muiCommandLine = ('LANG_LIST="{0}" SUPPRESSLANGSELECTION=YES' -f ($installOptions.Languages -join ','))
+        $muiCommandLine = Get-AdobeMuiCommandLine -Languages $installOptions.Languages
         Write-Log "setup.ini CmdLine            : $muiCommandLine"
     }
     Set-AdobeSetupIniCommandLine -Path (Join-Path $localContentPath "setup.ini") -CommandLine $muiCommandLine

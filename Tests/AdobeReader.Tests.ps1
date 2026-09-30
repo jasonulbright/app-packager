@@ -4,7 +4,7 @@ BeforeAll {
     if ($e) { throw ($e.Message -join '; ') }
     $script:AdobeDownloadBase = 'https://ardownload3.adobe.com/pub/adobe/reader/win/AcrobatDC'
     $script:AdobeMuiLocales = @('ca_ES','cs_CZ','da_DK','de_DE','en_US','es_ES','eu_ES','fi_FI','fr_FR','hr_HR','hu_HU','it_IT','ja_JP','ko_KR','nb_NO','nl_NL','pl_PL','pt_BR','ro_RO','ru_RU','sk_SK','sl_SI','sv_SE','tr_TR','uk_UA','zh_CN','zh_TW')
-    foreach ($name in 'ConvertTo-AdobeUrlVersion', 'Get-AdobeInstallerSuffix', 'Get-AdobeInstallerInfo', 'Get-AdobePatchInfo', 'ConvertTo-AdobeLanguageList', 'Get-AdobeReaderInstallOptions', 'Set-AdobeSetupIniCommandLine') {
+    foreach ($name in 'ConvertTo-AdobeUrlVersion', 'Get-AdobeInstallerSuffix', 'Get-AdobeInstallerInfo', 'Get-AdobePatchInfo', 'ConvertTo-AdobeLanguageList', 'Get-AdobeReaderInstallOptions', 'Get-AdobeMuiCommandLine', 'Clear-AdobeContentFolder', 'Set-AdobeSetupIniCommandLine') {
         $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
         if (-not $fn) { throw "function $name not found" }
         . ([scriptblock]::Create($fn.Extent.Text))
@@ -65,28 +65,51 @@ Describe 'Get-AdobeReaderInstallOptions' {
     }
 }
 
+Describe 'Get-AdobeMuiCommandLine' {
+    It 'joins the locale codes and suppresses the language dialog with 1' {
+        Get-AdobeMuiCommandLine -Languages @('de_DE', 'en_US', 'fr_FR') | Should -BeExactly 'LANG_LIST="de_DE,en_US,fr_FR" SUPPRESSLANGSELECTION=1'
+    }
+    It 'writes Adobe''s ALL keyword for the All selection' {
+        Get-AdobeMuiCommandLine -Languages @('All') | Should -BeExactly 'LANG_LIST="ALL" SUPPRESSLANGSELECTION=1'
+    }
+}
+
+Describe 'Clear-AdobeContentFolder' {
+    It 'removes the files an earlier stage of the other edition left' {
+        $dir = Join-Path $TestDrive '26.002.21931'
+        New-Item -ItemType Directory -Path (Join-Path $dir 'Transforms') -Force | Out-Null
+        Set-Content (Join-Path $dir 'AcroRdrDCUpd2600221931_MUI.msp') -Value 'x'
+        Set-Content (Join-Path $dir 'Transforms\1031.mst') -Value 'x'
+        Clear-AdobeContentFolder -Path $dir
+        Test-Path -LiteralPath $dir | Should -BeFalse
+    }
+    It 'accepts a folder that does not exist' {
+        { Clear-AdobeContentFolder -Path (Join-Path $TestDrive 'missing') } | Should -Not -Throw
+    }
+}
+
 Describe 'Set-AdobeSetupIniCommandLine' {
     It 'adds CmdLine to the Product section and keeps the other keys' {
         $ini = Join-Path $TestDrive 'setup.ini'
         Set-Content $ini -Value "[Startup]`r`nRequireMSI=3.0`r`n`r`n[Product]`r`nPATCH=AcroRdrDCUpd2600221901_MUI.msp`r`nmsi=AcroRead.msi`r`n`r`n[Windows 10]`r`nPlatformID=2"
-        Set-AdobeSetupIniCommandLine -Path $ini -CommandLine 'LANG_LIST="de_DE,en_US" SUPPRESSLANGSELECTION=YES'
+        Set-AdobeSetupIniCommandLine -Path $ini -CommandLine 'LANG_LIST="de_DE,en_US" SUPPRESSLANGSELECTION=1'
         $lines = Get-Content $ini
-        $lines | Should -Contain 'CmdLine=LANG_LIST="de_DE,en_US" SUPPRESSLANGSELECTION=YES'
+        $lines | Should -Contain 'CmdLine=LANG_LIST="de_DE,en_US" SUPPRESSLANGSELECTION=1'
         $lines | Should -Contain 'PATCH=AcroRdrDCUpd2600221901_MUI.msp'
         $lines | Should -Contain 'msi=AcroRead.msi'
         $lines | Should -Contain 'PlatformID=2'
         $productIndex = [array]::IndexOf($lines, '[Product]')
-        $cmdIndex = [array]::IndexOf($lines, 'CmdLine=LANG_LIST="de_DE,en_US" SUPPRESSLANGSELECTION=YES')
+        $cmdIndex = [array]::IndexOf($lines, 'CmdLine=LANG_LIST="de_DE,en_US" SUPPRESSLANGSELECTION=1')
         $nextSection = [array]::IndexOf($lines, '[Windows 10]')
         ($cmdIndex -gt $productIndex -and $cmdIndex -lt $nextSection) | Should -BeTrue
     }
     It 'replaces an existing CmdLine once' {
         $ini = Join-Path $TestDrive 'setup2.ini'
         Set-Content $ini -Value "[Product]`r`nCmdLine=TRANSFORMS=`"old.mst`"`r`nmsi=AcroRead.msi"
-        Set-AdobeSetupIniCommandLine -Path $ini -CommandLine 'LANG_LIST="All" SUPPRESSLANGSELECTION=YES'
+        Set-AdobeSetupIniCommandLine -Path $ini -CommandLine 'LANG_LIST="ALL" SUPPRESSLANGSELECTION=1'
         $lines = Get-Content $ini
         @($lines | Where-Object { $_ -like 'CmdLine=*' }).Count | Should -Be 1
-        $lines | Should -Contain 'CmdLine=LANG_LIST="All" SUPPRESSLANGSELECTION=YES'
+        $lines | Should -Contain 'CmdLine=LANG_LIST="ALL" SUPPRESSLANGSELECTION=1'
         $lines | Should -Not -Contain 'CmdLine=TRANSFORMS="old.mst"'
     }
     It 'removes the key for an empty command line' {
@@ -100,10 +123,10 @@ Describe 'Set-AdobeSetupIniCommandLine' {
     It 'creates the section when the file has none' {
         $ini = Join-Path $TestDrive 'setup4.ini'
         Set-Content $ini -Value "[Startup]`r`nRequireMSI=3.0"
-        Set-AdobeSetupIniCommandLine -Path $ini -CommandLine 'LANG_LIST="en_US,fr_FR" SUPPRESSLANGSELECTION=YES'
+        Set-AdobeSetupIniCommandLine -Path $ini -CommandLine 'LANG_LIST="en_US,fr_FR" SUPPRESSLANGSELECTION=1'
         $lines = Get-Content $ini
         $lines | Should -Contain '[Product]'
-        $lines | Should -Contain 'CmdLine=LANG_LIST="en_US,fr_FR" SUPPRESSLANGSELECTION=YES'
+        $lines | Should -Contain 'CmdLine=LANG_LIST="en_US,fr_FR" SUPPRESSLANGSELECTION=1'
     }
 }
 
