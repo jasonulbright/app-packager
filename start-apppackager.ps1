@@ -7690,7 +7690,9 @@ function Invoke-MultiAppPipeline {
                 }
             }
 
-            if ($doneState.Succeeded) {
+            # A staged app stays checked: Stage then Publish is one workflow on
+            # the same selection. A publish clears its rows.
+            if ($doneState.Succeeded -and $script:BgOperation -ne 'Stage') {
                 Clear-SucceededSelection -Rows $script:PackagerData -Scripts $doneState.Succeeded.ToArray()
             }
             try { $dataGrid.Items.Refresh() } catch { }
