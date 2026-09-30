@@ -65,6 +65,7 @@
         'New-MECMApplicationFromManifest'
         'Remove-CMApplicationRevisionHistoryByCIId'
         'Get-NextPatchVersion'
+        'New-ArpEntryDetectionScript'
         'Test-PsadtLayout'
 
         # Deployment type requirement rules

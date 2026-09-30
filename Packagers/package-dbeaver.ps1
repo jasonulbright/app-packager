@@ -1,7 +1,7 @@
 <#
 Vendor: DBeaver Corp
 App: DBeaver Community
-CMName: DBeaver Community
+CMName: DBeaver
 VendorUrl: https://dbeaver.io/
 CPE: cpe:2.3:a:dbeaver:dbeaver:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/dbeaver/dbeaver/releases

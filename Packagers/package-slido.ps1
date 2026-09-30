@@ -1,25 +1,29 @@
-<#
-Vendor: Microsoft
-App: ASP.NET 10 Server Hosting Bundle (x64)
-CMName: Microsoft .NET 10
-VendorUrl: https://dotnet.microsoft.com/download/dotnet/10.0
-CPE: cpe:2.3:a:microsoft:asp.net_core:10.*:*:*:*:*:*:*:*
-ReleaseNotesUrl: https://github.com/dotnet/core/tree/main/release-notes/10.0
-DownloadPageUrl: https://dotnet.microsoft.com/en-us/download/dotnet/10.0
+﻿<#
+Vendor: Slido
+App: Slido for Windows
+CMName: Slido for Windows
+VendorUrl: https://www.slido.com/powerpoint-polling
+ReleaseNotesUrl: https://community.slido.com/powerpoint-244/slido-for-powerpoint-on-windows-changelog-2503
+DownloadPageUrl: https://www.slido.com/powerpoint-polling
 IconSource: None
 
 .SYNOPSIS
-    Packages ASP.NET 10 Server Hosting Bundle for ConfigMgr.
+    Packages Slido for Windows (Slido for PowerPoint, admin MSI, x64) for ConfigMgr.
 
 .DESCRIPTION
-    Downloads the latest .NET 10 ASP.NET Core Windows Server Hosting Bundle
-    installer from the official Microsoft CDN, stages content to a versioned
-    local folder, and creates a ConfigMgr Application with script detection.
-    The detection script, the Intune detection and the WSUS rules read the
-    hosting bundle's own Add/Remove Programs entry: its name, publisher and
-    version. A separate .NET 10 runtime (for example the Windows Desktop
-    Runtime) raises the shared .NET host, but it never makes an older
-    bundle look current.
+    Reads the latest version of the Slido admin installer from the Slido
+    package endpoint, with the vendor download redirect as the fallback,
+    downloads the per-machine admin MSI, stages content to a versioned local
+    folder, and creates a ConfigMgr Application with file version detection.
+
+    The admin MSI installs the PowerPoint add-in for all users; one x64
+    package serves 32-bit and 64-bit Office. The install sets
+    DISABLE_UPDATE_CHECKS=1, so the in-app updater does not change the
+    version outside deployments. Per-user "Basic" installs (SlidoSetup EXE)
+    are a separate product that this package does not update.
+
+    Detection requires Slido.exe in the install folder at or above the
+    packaged version; its file version carries the full build number.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
@@ -34,11 +38,11 @@ IconSource: None
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
-    Content is staged under: <FileServerPath>\Applications\Microsoft\.NET Core\<Version>
+    Content is staged under: <FileServerPath>\Applications\Slido\Slido for Windows\<Version>
 
 .PARAMETER DownloadRoot
     Local root folder for staging downloaded installers.
-    Each packager creates a subfolder under this path (e.g., <DownloadRoot>\ASPNETHostingBundle10).
+    Each packager creates a subfolder under this path (e.g., <DownloadRoot>\Slido).
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
@@ -55,10 +59,10 @@ IconSource: None
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create ConfigMgr application with script detection.
+    create ConfigMgr application with file version detection.
 
 .PARAMETER GetLatestVersionOnly
-    Outputs only the latest available .NET 10 runtime version string and exits.
+    Outputs only the latest available Slido for Windows version string and exits.
 
 .REQUIREMENTS
     - PowerShell 5.1
@@ -93,45 +97,59 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$ReleasesIndexUrl  = "https://builds.dotnet.microsoft.com/dotnet/release-metadata/releases-index.json"
-$DownloadUrlBase   = "https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime"
+$LatestApiUrl = "https://api.slido.com/eu1/api/v0.5/switcher/packages/powerpoint-win-admin64/latest"
+$RedirectUrl  = "https://www.slido.com/api/download?application=powerpoint-win-admin64"
 
-$VendorFolder = "Microsoft"
-$AppFolder    = "ASP.NET Core Hosting Bundle"
+$VendorFolder = "Slido"
+$AppFolder    = "Slido for Windows"
 
-$InstallerFileNamePattern = "dotnet-hosting-{0}-win.exe"
+$BaseDownloadRoot = Join-Path $DownloadRoot "Slido"
 
-$BaseDownloadRoot = Join-Path $DownloadRoot "ASPNETHostingBundle10"
+# The x64 admin MSI installs to ProgramFilesFolder, the 32-bit folder.
+$InstallFolder = "C:\Program Files (x86)\Slido\Slido for Windows"
 
 # --- Functions ---
 
 
-function Get-LatestDotNet10Version {
+function Get-LatestSlidoRelease {
+    <#
+    .SYNOPSIS
+        Returns the latest admin MSI as a PSCustomObject with Version (four
+        parts), FileName, and DownloadUrl.
+    #>
     param([switch]$Quiet)
 
-    Write-Log "Releases index URL           : $ReleasesIndexUrl" -Quiet:$Quiet
+    $version = $null
+    $downloadUrl = $null
 
+    Write-Log "Slido package endpoint       : $LatestApiUrl" -Quiet:$Quiet
     try {
-        $json = (curl.exe -L --fail --silent --show-error $ReleasesIndexUrl) -join ''
-        if ($LASTEXITCODE -ne 0) { throw "Failed to fetch .NET release info: $ReleasesIndexUrl" }
-
-        $releases = ConvertFrom-Json $json
-        $dotnet10Channel = $releases.'releases-index' |
-            Where-Object { $_.'channel-version' -eq '10.0' -and $_.'release-type' -eq 'lts' } |
-            Select-Object -First 1
-
-        if (-not $dotnet10Channel -or -not $dotnet10Channel.'latest-runtime') {
-            throw "Could not find .NET 10.0 LTS release channel or latest runtime."
-        }
-
-        $version = $dotnet10Channel.'latest-runtime'
-
-        Write-Log "Latest .NET 10 runtime version: $version" -Quiet:$Quiet
-        return $version
+        $json = (curl.exe -L --fail --silent --show-error $LatestApiUrl) -join ''
+        if ($LASTEXITCODE -ne 0) { throw "Failed to query $LatestApiUrl" }
+        $package = ConvertFrom-Json $json
+        $version = [string]$package.version
+        $downloadUrl = [string]$package.publicUrl
     }
     catch {
-        Write-Log "Failed to get .NET 10 version: $($_.Exception.Message)" -Level ERROR
-        return $null
+        Write-Log "Package endpoint failed: $($_.Exception.Message). Reading the download redirect." -Level WARN -Quiet:$Quiet
+    }
+
+    if ($version -notmatch '^\d+\.\d+\.\d+\.\d+$' -or $downloadUrl -notmatch '\.msi$') {
+        # The redirect target carries "<timestamp>_<four-part version>/SlidoAdmin_x64_v<x.y.z>.msi".
+        $location = (curl.exe --silent --show-error -o NUL -w "%{redirect_url}" $RedirectUrl) -join ''
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($location)) { throw "Failed to resolve the Slido download redirect: $RedirectUrl" }
+        $m = [regex]::Match($location, '_(\d+\.\d+\.\d+\.\d+)/[^/]+\.msi$')
+        if (-not $m.Success) { throw "The Slido download redirect names no versioned MSI: $location" }
+        $version = $m.Groups[1].Value
+        $downloadUrl = $location
+    }
+
+    Write-Log "Latest Slido version         : $version" -Quiet:$Quiet
+
+    return [PSCustomObject]@{
+        Version     = $version
+        FileName    = [System.IO.Path]::GetFileName(([uri]$downloadUrl).AbsolutePath)
+        DownloadUrl = $downloadUrl
     }
 }
 
@@ -140,90 +158,75 @@ function Get-LatestDotNet10Version {
 # Stage phase
 # ---------------------------------------------------------------------------
 
-function Invoke-StageASPNETHostingBundle10 {
+function Invoke-StageSlido {
     Write-Log ""
     Write-Log ("=" * 60)
-    Write-Log "ASP.NET 10 Hosting Bundle - STAGE phase"
+    Write-Log "Slido for Windows (admin, x64) - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
 
     Initialize-Folder -Path $BaseDownloadRoot
 
     # --- Get version ---
-    $version = Get-LatestDotNet10Version
-    if (-not $version) { throw "Could not resolve .NET 10 runtime version." }
-
-    $installerFileName = $InstallerFileNamePattern -f $version
+    $release = Get-LatestSlidoRelease
+    $version     = $release.Version
+    $msiFileName = $release.FileName
 
     Write-Log "Version                      : $version"
-    Write-Log "Installer filename           : $installerFileName"
+    Write-Log "Installer filename           : $msiFileName"
+    Write-Log "Download URL                 : $($release.DownloadUrl)"
     Write-Log ""
 
     # --- Download ---
-    $localExe = Join-Path $BaseDownloadRoot $installerFileName
-    Write-Log "Local installer path         : $localExe"
+    $localMsi = Join-Path $BaseDownloadRoot $msiFileName
+    Write-Log "Local installer path         : $localMsi"
 
-    if (-not (Test-Path -LiteralPath $localExe)) {
-        $downloadUrl = "${DownloadUrlBase}/${version}/${installerFileName}"
-        Write-Log "Download URL                 : $downloadUrl"
-        Write-Log ""
-        Write-Log "Downloading installer..."
-        Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localExe
+    if (-not (Test-Path -LiteralPath $localMsi)) {
+        Write-Log "Downloading Slido admin MSI..."
+        Invoke-DownloadWithRetry -Url $release.DownloadUrl -OutFile $localMsi
     }
     else {
         Write-Log "Local installer exists. Skipping download."
+    }
+
+    # --- MSI properties ---
+    $props = Get-MsiPropertyMap -MsiPath $localMsi
+    $productCode    = $props["ProductCode"]
+    $productVersion = $props["ProductVersion"]
+    if ([string]::IsNullOrWhiteSpace($productCode)) { throw "MSI ProductCode missing." }
+    Write-Log "MSI ProductName              : $($props['ProductName'])"
+    Write-Log "MSI ProductVersion           : $productVersion"
+    Write-Log "MSI ProductCode              : $productCode"
+    $shortVersion = ($version -split '\.')[0..2] -join '.'
+    if ($productVersion -ne $shortVersion) {
+        throw "The MSI reports version $productVersion, but the release is $version."
     }
 
     # --- Versioned local content folder ---
     $localContentPath = Join-Path $BaseDownloadRoot $version
     Initialize-Folder -Path $localContentPath
 
-    $stagedExe = Join-Path $localContentPath $installerFileName
-    if (-not (Test-Path -LiteralPath $stagedExe)) {
-        Copy-Item -LiteralPath $localExe -Destination $stagedExe -Force -ErrorAction Stop
-        Write-Log "Copied EXE to staged folder  : $stagedExe"
+    $stagedMsi = Join-Path $localContentPath $msiFileName
+    if (-not (Test-Path -LiteralPath $stagedMsi)) {
+        Copy-Item -LiteralPath $localMsi -Destination $stagedMsi -Force -ErrorAction Stop
+        Write-Log "Copied MSI to staged folder  : $stagedMsi"
     }
     else {
-        Write-Log "Staged EXE exists. Skipping copy."
+        Write-Log "Staged MSI exists. Skipping copy."
     }
 
     # --- Generate content wrappers ---
-    $installContent = (
-        ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $installerFileName),
-        '$proc = Start-Process -FilePath $exePath -ArgumentList @(''/install'', ''/quiet'', ''/norestart'') -Wait -PassThru -NoNewWindow',
-        'exit $proc.ExitCode'
-    ) -join "`r`n"
-
-    $uninstallContent = (
-        ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $installerFileName),
-        '$proc = Start-Process -FilePath $exePath -ArgumentList @(''/uninstall'', ''/quiet'', ''/norestart'') -Wait -PassThru -NoNewWindow',
-        'exit $proc.ExitCode'
-    ) -join "`r`n"
-
+    $wrapperContent = New-MsiWrapperContent -MsiFileName $msiFileName -ExtraInstallArgs @('DISABLE_UPDATE_CHECKS=1')
     Write-ContentWrappers -OutputPath $localContentPath `
-        -InstallPs1Content $installContent `
-        -UninstallPs1Content $uninstallContent
+        -InstallPs1Content $wrapperContent.Install `
+        -UninstallPs1Content $wrapperContent.Uninstall
 
     # --- Write stage manifest ---
-    # Burn registers each bundle version under its own 32-bit Uninstall key.
-    # The .NET host, runtime and ASP.NET Core shared framework that the bundle
-    # carries also come from standalone .NET 10 installers, so only this
-    # entry tells the bundle and its version apart. ConfigMgr, Intune and
-    # WSUS all read it.
-    $bundleEntry = @{
-        Type              = "ArpEntry"
-        View              = "32"
-        DisplayNamePrefix = "Microsoft .NET 10.0."
-        DisplayNameSuffix = " - Windows Server Hosting"
-        Publisher         = "Microsoft Corporation"
-        Version           = $version
-    }
-
-    $appName   = "Microsoft .NET ${version} - Windows Server Hosting"
-    $publisher = "Microsoft Corporation"
+    $appName   = "Slido for Windows $version"
+    $publisher = "Slido"
 
     Write-Log ""
-    Write-Log "Detection                    : 32-bit Add/Remove Programs entry 'Microsoft .NET 10.0.* - Windows Server Hosting' by $publisher, DisplayVersion >= $version"
+    Write-Log "Detection                    : $InstallFolder\Slido.exe >= $version"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -231,17 +234,21 @@ function Invoke-StageASPNETHostingBundle10 {
         AppName         = $appName
         Publisher       = $publisher
         SoftwareVersion = $version
-        InstallerFile   = $installerFileName
-        InstallerType   = "EXE"
-        InstallArgs     = "/install /quiet /norestart"
-        UninstallArgs   = "/uninstall /quiet /norestart"
-        RunningProcess  = @()
+        InstallerFile   = $msiFileName
+        InstallerType   = "MSI"
+        InstallArgs     = "/qn /norestart DISABLE_UPDATE_CHECKS=1"
+        UninstallArgs   = "/qn /norestart"
+        ProductCode     = $productCode
+        RunningProcess  = @("Slido", "POWERPNT")
         Detection       = @{
-            Type           = "Script"
-            ScriptLanguage = "PowerShell"
-            ScriptText     = (New-ArpEntryDetectionScript -Entry $bundleEntry)
+            Type          = "File"
+            FilePath      = $InstallFolder
+            FileName      = "Slido.exe"
+            PropertyType  = "Version"
+            Operator      = "GreaterEquals"
+            ExpectedValue = $version
+            Is64Bit       = $true
         }
-        WsusDetection   = $bundleEntry
     }
 
     # Save version marker for Package phase
@@ -258,10 +265,10 @@ function Invoke-StageASPNETHostingBundle10 {
 # Package phase
 # ---------------------------------------------------------------------------
 
-function Invoke-PackageASPNETHostingBundle10 {
+function Invoke-PackageSlido {
     Write-Log ""
     Write-Log ("=" * 60)
-    Write-Log "ASP.NET 10 Hosting Bundle - PACKAGE phase"
+    Write-Log "Slido for Windows (admin, x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
 
@@ -283,7 +290,7 @@ function Invoke-PackageASPNETHostingBundle10 {
     Write-Log "AppName                      : $($manifest.AppName)"
     Write-Log "Publisher                    : $($manifest.Publisher)"
     Write-Log "SoftwareVersion              : $($manifest.SoftwareVersion)"
-    Write-Log "Detection Type               : $($manifest.Detection.Type)"
+    Write-Log "Detection File               : $($manifest.Detection.FilePath)\$($manifest.Detection.FileName)"
     Write-Log ""
 
     # --- Network share ---
@@ -314,9 +321,8 @@ function Invoke-PackageASPNETHostingBundle10 {
 if ($GetLatestVersionOnly) {
     try {
         $ProgressPreference = 'SilentlyContinue'
-        $v = Get-LatestDotNet10Version -Quiet
-        if (-not $v) { exit 1 }
-        Write-Output $v
+        $rel = Get-LatestSlidoRelease -Quiet
+        Write-Output $rel.Version
         exit 0
     }
     catch {
@@ -330,7 +336,7 @@ try {
 
     Write-Log ""
     Write-Log ("=" * 60)
-    Write-Log "ASP.NET 10 Hosting Bundle Auto-Packager starting"
+    Write-Log "Slido for Windows Auto-Packager starting"
     Write-Log ("=" * 60)
     Write-Log ""
     Write-Log ("RunAsUser                    : {0}\{1}" -f $env:USERDOMAIN,$env:USERNAME)
@@ -339,25 +345,25 @@ try {
     Write-Log "SiteCode                     : $SiteCode"
     Write-Log "FileServerPath               : $FileServerPath"
     Write-Log "BaseDownloadRoot             : $BaseDownloadRoot"
-    Write-Log "ReleasesIndexUrl             : $ReleasesIndexUrl"
+    Write-Log "LatestApiUrl                 : $LatestApiUrl"
     Write-Log ""
 
     if ($StageOnly) {
-        Invoke-StageASPNETHostingBundle10
+        Invoke-StageSlido
     }
     elseif ($PackageOnly) {
-        Invoke-PackageASPNETHostingBundle10
+        Invoke-PackageSlido
     }
     else {
-        Invoke-StageASPNETHostingBundle10
-        Invoke-PackageASPNETHostingBundle10
+        Invoke-StageSlido
+        Invoke-PackageSlido
     }
 
     Write-Log ""
     Write-Log "Script execution complete."
 }
 catch {
-    Write-LogErrorRecord -ErrorRecord $_ -Context 'package-aspnethostingbundle10'
+    Write-LogErrorRecord -ErrorRecord $_ -Context 'package-slido'
     Write-Log "SCRIPT FAILED: $($_.Exception.Message)" -Level ERROR
     exit 1
 }

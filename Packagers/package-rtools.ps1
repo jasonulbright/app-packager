@@ -1,25 +1,29 @@
-<#
-Vendor: Microsoft
-App: ASP.NET 10 Server Hosting Bundle (x64)
-CMName: Microsoft .NET 10
-VendorUrl: https://dotnet.microsoft.com/download/dotnet/10.0
-CPE: cpe:2.3:a:microsoft:asp.net_core:10.*:*:*:*:*:*:*:*
-ReleaseNotesUrl: https://github.com/dotnet/core/tree/main/release-notes/10.0
-DownloadPageUrl: https://dotnet.microsoft.com/en-us/download/dotnet/10.0
+﻿<#
+Vendor: The R Foundation
+App: Rtools
+CMName: Rtools
+VendorUrl: https://cran.r-project.org/bin/windows/Rtools/
+ReleaseNotesUrl: https://cran.r-project.org/bin/windows/Rtools/
+DownloadPageUrl: https://cran.r-project.org/bin/windows/Rtools/
 IconSource: None
 
 .SYNOPSIS
-    Packages ASP.NET 10 Server Hosting Bundle for ConfigMgr.
+    Packages Rtools (x64) for ConfigMgr.
 
 .DESCRIPTION
-    Downloads the latest .NET 10 ASP.NET Core Windows Server Hosting Bundle
-    installer from the official Microsoft CDN, stages content to a versioned
-    local folder, and creates a ConfigMgr Application with script detection.
-    The detection script, the Intune detection and the WSUS rules read the
-    hosting bundle's own Add/Remove Programs entry: its name, publisher and
-    version. A separate .NET 10 runtime (for example the Windows Desktop
-    Runtime) raises the shared .NET host, but it never makes an older
-    bundle look current.
+    Reads the CRAN Rtools index for the newest Rtools line (for example
+    Rtools45 for R 4.5), downloads its 64-bit Intel installer, stages content
+    to a versioned local folder, and creates a ConfigMgr Application.
+
+    The package version is the installer FileVersion, for example
+    4.5.6768.6492: the Rtools line, the toolchain revision and the base
+    revision. The installer registers "Rtools<NN>_is1" in Add/Remove Programs
+    with DisplayVersion <line>.<toolchain revision>, and detection compares
+    that value as a version. The key name stays the same for every build of
+    one line, so a newer build upgrades in place.
+
+    Rtools installs to C:\rtools<NN>. Each line installs beside the other
+    lines. R itself is package-r.ps1.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
@@ -34,11 +38,11 @@ IconSource: None
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
-    Content is staged under: <FileServerPath>\Applications\Microsoft\.NET Core\<Version>
+    Content is staged under: <FileServerPath>\Applications\The R Foundation\Rtools\<Version>
 
 .PARAMETER DownloadRoot
     Local root folder for staging downloaded installers.
-    Each packager creates a subfolder under this path (e.g., <DownloadRoot>\ASPNETHostingBundle10).
+    Each packager creates a subfolder under this path (e.g., <DownloadRoot>\Rtools).
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
@@ -55,10 +59,10 @@ IconSource: None
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create ConfigMgr application with script detection.
+    create ConfigMgr application with registry version detection.
 
 .PARAMETER GetLatestVersionOnly
-    Outputs only the latest available .NET 10 runtime version string and exits.
+    Outputs only the latest available Rtools version string and exits.
 
 .REQUIREMENTS
     - PowerShell 5.1
@@ -93,44 +97,64 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$ReleasesIndexUrl  = "https://builds.dotnet.microsoft.com/dotnet/release-metadata/releases-index.json"
-$DownloadUrlBase   = "https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime"
+$IndexUrl = "https://cran.r-project.org/bin/windows/Rtools/"
 
-$VendorFolder = "Microsoft"
-$AppFolder    = "ASP.NET Core Hosting Bundle"
+$VendorFolder = "The R Foundation"
+$AppFolder    = "Rtools"
 
-$InstallerFileNamePattern = "dotnet-hosting-{0}-win.exe"
-
-$BaseDownloadRoot = Join-Path $DownloadRoot "ASPNETHostingBundle10"
+$BaseDownloadRoot = Join-Path $DownloadRoot "Rtools"
 
 # --- Functions ---
 
 
-function Get-LatestDotNet10Version {
+function Get-LatestRtoolsRelease {
+    <#
+    .SYNOPSIS
+        Finds the newest Rtools line on the CRAN index and its x64 installer.
+        Returns a PSCustomObject with Line, Version, DisplayVersion, FileName,
+        and DownloadUrl.
+    #>
     param([switch]$Quiet)
 
-    Write-Log "Releases index URL           : $ReleasesIndexUrl" -Quiet:$Quiet
+    Write-Log "Rtools index                 : $IndexUrl" -Quiet:$Quiet
 
     try {
-        $json = (curl.exe -L --fail --silent --show-error $ReleasesIndexUrl) -join ''
-        if ($LASTEXITCODE -ne 0) { throw "Failed to fetch .NET release info: $ReleasesIndexUrl" }
+        $index = (curl.exe -L --fail --silent --show-error $IndexUrl) -join "`n"
+        if ($LASTEXITCODE -ne 0) { throw "Failed to fetch the Rtools index: $IndexUrl" }
 
-        $releases = ConvertFrom-Json $json
-        $dotnet10Channel = $releases.'releases-index' |
-            Where-Object { $_.'channel-version' -eq '10.0' -and $_.'release-type' -eq 'lts' } |
-            Select-Object -First 1
+        # Lines are listed as rtools<major><minor>/rtools.html (rtools45 = 4.5).
+        $lines = @([regex]::Matches($index, 'href="rtools(\d)(\d+)/rtools\.html"') | ForEach-Object {
+                [pscustomobject]@{ Folder = 'rtools{0}{1}' -f $_.Groups[1].Value, $_.Groups[2].Value; Line = '{0}.{1}' -f $_.Groups[1].Value, $_.Groups[2].Value }
+            })
+        if ($lines.Count -eq 0) { throw "No Rtools line found on the index." }
+        $newest = $lines | Sort-Object { [version]$_.Line } -Descending | Select-Object -First 1
 
-        if (-not $dotnet10Channel -or -not $dotnet10Channel.'latest-runtime') {
-            throw "Could not find .NET 10.0 LTS release channel or latest runtime."
+        $pageUrl = '{0}{1}/rtools.html' -f $IndexUrl, $newest.Folder
+        $page = (curl.exe -L --fail --silent --show-error $pageUrl) -join "`n"
+        if ($LASTEXITCODE -ne 0) { throw "Failed to fetch the Rtools page: $pageUrl" }
+
+        # The aarch64 installer carries "-aarch64-" in its name, so this pattern
+        # selects the 64-bit Intel installer only.
+        $pattern = 'href="files/({0}-(\d+)-(\d+)\.exe)"' -f [regex]::Escape($newest.Folder)
+        $match = [regex]::Match($page, $pattern)
+        if (-not $match.Success) { throw "No x64 installer link found on $pageUrl" }
+
+        $fileName = $match.Groups[1].Value
+        $version = '{0}.{1}.{2}' -f $newest.Line, $match.Groups[2].Value, $match.Groups[3].Value
+
+        Write-Log "Latest Rtools version        : $version" -Quiet:$Quiet
+
+        return [PSCustomObject]@{
+            Line           = $newest.Line
+            Folder         = $newest.Folder
+            Version        = $version
+            DisplayVersion = '{0}.{1}' -f $newest.Line, $match.Groups[2].Value
+            FileName       = $fileName
+            DownloadUrl    = '{0}{1}/files/{2}' -f $IndexUrl, $newest.Folder, $fileName
         }
-
-        $version = $dotnet10Channel.'latest-runtime'
-
-        Write-Log "Latest .NET 10 runtime version: $version" -Quiet:$Quiet
-        return $version
     }
     catch {
-        Write-Log "Failed to get .NET 10 version: $($_.Exception.Message)" -Level ERROR
+        Write-Log "Failed to get Rtools version info: $($_.Exception.Message)" -Level ERROR
         return $null
     }
 }
@@ -140,23 +164,25 @@ function Get-LatestDotNet10Version {
 # Stage phase
 # ---------------------------------------------------------------------------
 
-function Invoke-StageASPNETHostingBundle10 {
+function Invoke-StageRtools {
     Write-Log ""
     Write-Log ("=" * 60)
-    Write-Log "ASP.NET 10 Hosting Bundle - STAGE phase"
+    Write-Log "Rtools (x64) - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
 
     Initialize-Folder -Path $BaseDownloadRoot
 
     # --- Get version ---
-    $version = Get-LatestDotNet10Version
-    if (-not $version) { throw "Could not resolve .NET 10 runtime version." }
+    $release = Get-LatestRtoolsRelease
+    if (-not $release) { throw "Could not resolve the Rtools version." }
 
-    $installerFileName = $InstallerFileNamePattern -f $version
+    $version           = $release.Version
+    $installerFileName = $release.FileName
 
     Write-Log "Version                      : $version"
     Write-Log "Installer filename           : $installerFileName"
+    Write-Log "Download URL                 : $($release.DownloadUrl)"
     Write-Log ""
 
     # --- Download ---
@@ -164,14 +190,17 @@ function Invoke-StageASPNETHostingBundle10 {
     Write-Log "Local installer path         : $localExe"
 
     if (-not (Test-Path -LiteralPath $localExe)) {
-        $downloadUrl = "${DownloadUrlBase}/${version}/${installerFileName}"
-        Write-Log "Download URL                 : $downloadUrl"
-        Write-Log ""
-        Write-Log "Downloading installer..."
-        Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localExe
+        Write-Log "Downloading Rtools installer..."
+        Invoke-DownloadWithRetry -Url $release.DownloadUrl -OutFile $localExe
     }
     else {
         Write-Log "Local installer exists. Skipping download."
+    }
+
+    $fileVersion = ([string](Get-Item -LiteralPath $localExe).VersionInfo.FileVersion).Trim()
+    Write-Log "Installer FileVersion        : $fileVersion"
+    if ($fileVersion -and $fileVersion -ne $version) {
+        throw "The installer reports version $fileVersion, but the CRAN file name says $version."
     }
 
     # --- Versioned local content folder ---
@@ -188,42 +217,27 @@ function Invoke-StageASPNETHostingBundle10 {
     }
 
     # --- Generate content wrappers ---
-    $installContent = (
-        ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $installerFileName),
-        '$proc = Start-Process -FilePath $exePath -ArgumentList @(''/install'', ''/quiet'', ''/norestart'') -Wait -PassThru -NoNewWindow',
-        'exit $proc.ExitCode'
-    ) -join "`r`n"
+    $installDir   = 'C:\{0}' -f $release.Folder
+    $uninstallCmd = Join-Path $installDir 'unins000.exe'
 
-    $uninstallContent = (
-        ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $installerFileName),
-        '$proc = Start-Process -FilePath $exePath -ArgumentList @(''/uninstall'', ''/quiet'', ''/norestart'') -Wait -PassThru -NoNewWindow',
-        'exit $proc.ExitCode'
-    ) -join "`r`n"
+    $wrapperContent = New-ExeWrapperContent `
+        -InstallerFileName $installerFileName `
+        -InstallArgs "'/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-'" `
+        -UninstallCommand $uninstallCmd `
+        -UninstallArgs "'/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'"
 
     Write-ContentWrappers -OutputPath $localContentPath `
-        -InstallPs1Content $installContent `
-        -UninstallPs1Content $uninstallContent
+        -InstallPs1Content $wrapperContent.Install `
+        -UninstallPs1Content $wrapperContent.Uninstall
 
     # --- Write stage manifest ---
-    # Burn registers each bundle version under its own 32-bit Uninstall key.
-    # The .NET host, runtime and ASP.NET Core shared framework that the bundle
-    # carries also come from standalone .NET 10 installers, so only this
-    # entry tells the bundle and its version apart. ConfigMgr, Intune and
-    # WSUS all read it.
-    $bundleEntry = @{
-        Type              = "ArpEntry"
-        View              = "32"
-        DisplayNamePrefix = "Microsoft .NET 10.0."
-        DisplayNameSuffix = " - Windows Server Hosting"
-        Publisher         = "Microsoft Corporation"
-        Version           = $version
-    }
+    $arpKey = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{0}_is1' -f ($release.Folder.Substring(0, 1).ToUpperInvariant() + $release.Folder.Substring(1))
 
-    $appName   = "Microsoft .NET ${version} - Windows Server Hosting"
-    $publisher = "Microsoft Corporation"
+    $appName   = "Rtools $version"
+    $publisher = "The R Foundation"
 
     Write-Log ""
-    Write-Log "Detection                    : 32-bit Add/Remove Programs entry 'Microsoft .NET 10.0.* - Windows Server Hosting' by $publisher, DisplayVersion >= $version"
+    Write-Log "Detection                    : HKLM\$arpKey\DisplayVersion >= $($release.DisplayVersion)"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -233,15 +247,19 @@ function Invoke-StageASPNETHostingBundle10 {
         SoftwareVersion = $version
         InstallerFile   = $installerFileName
         InstallerType   = "EXE"
-        InstallArgs     = "/install /quiet /norestart"
-        UninstallArgs   = "/uninstall /quiet /norestart"
+        InstallArgs     = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-"
+        UninstallArgs   = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
+        UninstallCommand = $uninstallCmd
         RunningProcess  = @()
         Detection       = @{
-            Type           = "Script"
-            ScriptLanguage = "PowerShell"
-            ScriptText     = (New-ArpEntryDetectionScript -Entry $bundleEntry)
+            Type                = "RegistryKeyValue"
+            RegistryKeyRelative = $arpKey
+            ValueName           = "DisplayVersion"
+            PropertyType        = "Version"
+            Operator            = "GreaterEquals"
+            ExpectedValue       = $release.DisplayVersion
+            Is64Bit             = $true
         }
-        WsusDetection   = $bundleEntry
     }
 
     # Save version marker for Package phase
@@ -258,10 +276,10 @@ function Invoke-StageASPNETHostingBundle10 {
 # Package phase
 # ---------------------------------------------------------------------------
 
-function Invoke-PackageASPNETHostingBundle10 {
+function Invoke-PackageRtools {
     Write-Log ""
     Write-Log ("=" * 60)
-    Write-Log "ASP.NET 10 Hosting Bundle - PACKAGE phase"
+    Write-Log "Rtools (x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
 
@@ -283,7 +301,7 @@ function Invoke-PackageASPNETHostingBundle10 {
     Write-Log "AppName                      : $($manifest.AppName)"
     Write-Log "Publisher                    : $($manifest.Publisher)"
     Write-Log "SoftwareVersion              : $($manifest.SoftwareVersion)"
-    Write-Log "Detection Type               : $($manifest.Detection.Type)"
+    Write-Log "Detection Key                : $($manifest.Detection.RegistryKeyRelative)"
     Write-Log ""
 
     # --- Network share ---
@@ -314,9 +332,9 @@ function Invoke-PackageASPNETHostingBundle10 {
 if ($GetLatestVersionOnly) {
     try {
         $ProgressPreference = 'SilentlyContinue'
-        $v = Get-LatestDotNet10Version -Quiet
-        if (-not $v) { exit 1 }
-        Write-Output $v
+        $rel = Get-LatestRtoolsRelease -Quiet
+        if (-not $rel) { exit 1 }
+        Write-Output $rel.Version
         exit 0
     }
     catch {
@@ -330,7 +348,7 @@ try {
 
     Write-Log ""
     Write-Log ("=" * 60)
-    Write-Log "ASP.NET 10 Hosting Bundle Auto-Packager starting"
+    Write-Log "Rtools (x64) Auto-Packager starting"
     Write-Log ("=" * 60)
     Write-Log ""
     Write-Log ("RunAsUser                    : {0}\{1}" -f $env:USERDOMAIN,$env:USERNAME)
@@ -339,25 +357,25 @@ try {
     Write-Log "SiteCode                     : $SiteCode"
     Write-Log "FileServerPath               : $FileServerPath"
     Write-Log "BaseDownloadRoot             : $BaseDownloadRoot"
-    Write-Log "ReleasesIndexUrl             : $ReleasesIndexUrl"
+    Write-Log "IndexUrl                     : $IndexUrl"
     Write-Log ""
 
     if ($StageOnly) {
-        Invoke-StageASPNETHostingBundle10
+        Invoke-StageRtools
     }
     elseif ($PackageOnly) {
-        Invoke-PackageASPNETHostingBundle10
+        Invoke-PackageRtools
     }
     else {
-        Invoke-StageASPNETHostingBundle10
-        Invoke-PackageASPNETHostingBundle10
+        Invoke-StageRtools
+        Invoke-PackageRtools
     }
 
     Write-Log ""
     Write-Log "Script execution complete."
 }
 catch {
-    Write-LogErrorRecord -ErrorRecord $_ -Context 'package-aspnethostingbundle10'
+    Write-LogErrorRecord -ErrorRecord $_ -Context 'package-rtools'
     Write-Log "SCRIPT FAILED: $($_.Exception.Message)" -Level ERROR
     exit 1
 }

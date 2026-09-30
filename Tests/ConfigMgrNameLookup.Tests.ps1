@@ -9,19 +9,21 @@
     The Package phase names the ConfigMgr application from the stage
     manifest AppName (Get-PackagedApplicationName, Default title mode).
     The GUI lookup (Get-MecmCurrentVersionByCMName) searches for the header
-    CMName (default: App), first exactly and then as the prefix "<CMName>*".
-    A packager is found only when its created name equals CMName or starts
-    with CMName.
+    CMName (default: App) as a Get-CMApplication name, where * is a
+    wildcard, and then for "<CMName>*" filtered by Test-MecmApplicationTitle
+    (release details only after CMName). A packager is found only when its
+    created name passes one of the two.
 
     The created name is resolved statically from the manifest AppName
-    expression. Dynamic segments (version, channel, architecture variables)
-    resolve to a wildcard of any length; some expansion of the created name
-    must start with CMName.
+    expression and checked with sample values: a dynamic segment from a
+    variable named for a version becomes a dotted version, and any other
+    dynamic segment becomes an architecture, language, or channel.
 #>
 
 BeforeAll {
     $script:PackagersRoot = Join-Path (Split-Path -Parent $PSScriptRoot) 'Packagers'
     $script:Wild = [char]0x2217
+    $script:VersionWild = [char]0x2218
 
     # The created name comes from the installer ProductName or the ARP
     # DisplayName at Stage time, so no static check applies. A vendor rename
@@ -74,7 +76,7 @@ BeforeAll {
                 foreach ($n in $nested) {
                     $rel = $n.Extent.StartOffset - $base
                     $lit = $Ast.Extent.Text.Substring(1 + $pos, $rel - $pos)
-                    $sub = if ($n -is [System.Management.Automation.Language.VariableExpressionAst]) { Resolve-NameExpression -Ast $n -Root $Root -Depth ($Depth + 1) } else { ,@($w) }
+                    $sub = Resolve-NameExpression -Ast $n -Root $Root -Depth ($Depth + 1)
                     $next = @()
                     foreach ($p in $parts) { foreach ($s in $sub) { $next += ($p + $lit + $s) } }
                     $parts = $next
@@ -101,7 +103,8 @@ BeforeAll {
                     if ($p.DefaultValue) { $values += Resolve-NameExpression -Ast $p.DefaultValue -Root $Root -Depth ($Depth + 1) }
                     else { $values += $w }
                 }
-                if ($values.Count -eq 0) { return ,@($w) }
+                if ($values.Count -eq 0) { $values = @($w) }
+                if ($name -match '(?i)version') { $values = @($values | ForEach-Object { if ($_ -eq $w) { [string]$script:VersionWild } else { $_ } }) }
                 return ,@($values | Select-Object -Unique)
             }
             'CommandExpressionAst' { return Resolve-NameExpression -Ast $Ast.Expression -Root $Root -Depth $Depth }
@@ -110,6 +113,19 @@ BeforeAll {
                 return ,@($w)
             }
             'ParenExpressionAst' { return Resolve-NameExpression -Ast $Ast.Pipeline -Root $Root -Depth $Depth }
+            'SubExpressionAst' {
+                if ($Ast.SubExpression.Statements.Count -eq 1) { return Resolve-NameExpression -Ast $Ast.SubExpression.Statements[0] -Root $Root -Depth $Depth }
+                return ,@($w)
+            }
+            'InvokeMemberExpressionAst' {
+                # "$($ImageType.ToUpper())" and similar case changes of a known value.
+                $member = [string]$Ast.Member.Extent.Text
+                if (($null -eq $Ast.Arguments -or $Ast.Arguments.Count -eq 0) -and $member -in @('ToUpper', 'ToLower', 'ToUpperInvariant', 'ToLowerInvariant')) {
+                    $inner = Resolve-NameExpression -Ast $Ast.Expression -Root $Root -Depth ($Depth + 1)
+                    return ,@($inner | ForEach-Object { if ($member -like 'ToUpper*') { $_.ToUpperInvariant() } else { $_.ToLowerInvariant() } })
+                }
+                return ,@($w)
+            }
             'IfStatementAst' {
                 $values = @()
                 foreach ($c in $Ast.Clauses) { foreach ($s in $c.Item2.Statements) { $values += Resolve-NameExpression -Ast $s -Root $Root -Depth ($Depth + 1) } }
@@ -138,32 +154,37 @@ BeforeAll {
         return ,@($out | Select-Object -Unique)
     }
 
-    function Test-LookupFindsName {
-        param([string]$CMName, [string]$Created)
-        $w = [string]$script:Wild
-        if ($Created.StartsWith($w)) { return $null }
-        # A wildcard segment stands for a runtime value of any length; the
-        # check asks whether some expansion of Created starts with CMName.
-        return (Test-PatternCanStartWith -Pieces $Created.Split($script:Wild) -Index 0 -Target $CMName)
+    # The filter under test is the GUI's own function.
+    $guiErrors = $null
+    $guiAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Split-Path -Parent $PSScriptRoot) 'start-apppackager.ps1'), [ref]$null, [ref]$guiErrors)
+    $titleFilter = $guiAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Test-MecmApplicationTitle' }, $false)
+    if (-not $titleFilter) { throw 'Test-MecmApplicationTitle is not defined in start-apppackager.ps1.' }
+    . ([scriptblock]::Create($titleFilter.Extent.Text))
+
+    function Get-NameSamples {
+        # Concrete titles for a created name. A version segment is a dotted
+        # version; when CMName ends with a major, one sample continues it.
+        param([string]$Created, [string]$CMName)
+        $versions = @('1.2.3', '24.08')
+        if ($CMName -match '(\d+)$') { $versions += ($Matches[1] + '.0.1') }
+        $others = @('x64', 'en-US', 'Current Channel')
+        $samples = @('')
+        foreach ($ch in $Created.ToCharArray()) {
+            $options = if ($ch -eq $script:VersionWild) { $versions } elseif ($ch -eq $script:Wild) { $others } else { @([string]$ch) }
+            $samples = @(foreach ($s in $samples) { foreach ($o in $options) { $s + $o } })
+        }
+        return $samples
     }
 
-    function Test-PatternCanStartWith {
-        param([string[]]$Pieces, [int]$Index, [string]$Target)
-        if ($Target.Length -eq 0) { return $true }
-        if ($Index -ge $Pieces.Count) { return $false }
-        $lit = $Pieces[$Index]
-        if ($Target.Length -le $lit.Length) {
-            return $lit.StartsWith($Target, [StringComparison]::OrdinalIgnoreCase)
-        }
-        if (-not $Target.StartsWith($lit, [StringComparison]::OrdinalIgnoreCase)) { return $false }
-        if ($Index -eq $Pieces.Count - 1) { return $false }
-        $rest = $Target.Substring($lit.Length)
-        for ($i = 0; $i -le $rest.Length; $i++) {
-            if (Test-PatternCanStartWith -Pieces $Pieces -Index ($Index + 1) -Target $rest.Substring($i)) { return $true }
+    function Test-LookupFindsName {
+        param([string]$CMName, [string]$Created)
+        if ($Created.StartsWith([string]$script:Wild) -or $Created.StartsWith([string]$script:VersionWild)) { return $null }
+        $pattern = New-Object System.Management.Automation.WildcardPattern($CMName, [System.Management.Automation.WildcardOptions]::IgnoreCase)
+        foreach ($title in (Get-NameSamples -Created $Created -CMName $CMName)) {
+            if ($pattern.IsMatch($title) -or (Test-MecmApplicationTitle -CMName $CMName -Title $title)) { return $true }
         }
         return $false
     }
-
     $script:Audit = foreach ($file in Get-ChildItem -LiteralPath $script:PackagersRoot -Filter 'package-*.ps1' | Sort-Object Name) {
         $cmName = Get-HeaderCMName -Lines (Get-Content -LiteralPath $file.FullName -TotalCount 40)
         $candidates = Get-CreatedNameCandidates -Path $file.FullName
@@ -198,11 +219,23 @@ Describe 'ConfigMgr name lookup matches the Package phase name' {
         ($stale -join [Environment]::NewLine) | Should -BeNullOrEmpty -Because 'a resolvable name must be checked by the CMName rule'
     }
 
-    It 'starts every created name with the header CMName' {
+    It 'finds every created name through the GUI lookup' {
         $bad = @($script:Audit | Where-Object { $_.Found -eq $false } | ForEach-Object { '{0}: CMName=''{1}'' created=''{2}''' -f $_.Script, $_.CMName, $_.Created })
         ($bad -join [Environment]::NewLine) | Should -BeNullOrEmpty -Because 'the GUI lookup searches "<CMName>" and then "<CMName> - *"'
     }
 
+    It 'keeps release details after CMName and rejects a longer product name' {
+        Test-MecmApplicationTitle -CMName 'Microsoft .NET 8' -Title 'Microsoft .NET 8.0.31 - Windows Server Hosting' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Microsoft .NET 1' -Title 'Microsoft .NET 10.0.12 - Windows Server Hosting' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Audacity' -Title 'Audacity 3.7.5' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'AIMP' -Title 'AIMP (x64)' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'WinMerge' -Title 'WinMerge x64' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Contoso Tool' -Title 'Contoso Tool - 5.4.2' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Git' -Title 'Git Extensions 4.3' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Git' -Title 'GitHub Desktop' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Mozilla Firefox' -Title 'Mozilla Firefox ESR (x64 en-US)' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Microsoft Edge' -Title 'Microsoft Edge WebView2 Runtime' | Should -BeFalse
+    }
     It 'names RStudio so that the lookup finds it' {
         $rows = @($script:Audit | Where-Object { $_.Script -eq 'package-rstudio.ps1' })
         $rows | Should -Not -BeNullOrEmpty
@@ -219,4 +252,15 @@ Describe 'ConfigMgr name lookup prefix safety' {
         $collisions = foreach ($a in $names) { foreach ($b in $names) { if ($b -ne $a -and $b.StartsWith($a + ' - ', [StringComparison]::OrdinalIgnoreCase)) { "'$a' matches '$b'" } } }
         ($collisions -join [Environment]::NewLine) | Should -BeNullOrEmpty
     }
-}
+
+    It 'never lets one packager''s lookup find another packager''s application' {
+        # Packagers that share a CMName are variants of one product by design.
+        $rows = @($script:Audit | Where-Object { $_.Created -and $null -ne $_.Found })
+        $collisions = foreach ($owner in @($rows | Select-Object Script, CMName -Unique)) {
+            $prefix = ($owner.CMName -split '\*')[0]
+            foreach ($other in @($rows | Where-Object { $_.Script -ne $owner.Script -and $_.CMName -ne $owner.CMName -and $_.Created.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })) {
+                if (Test-LookupFindsName -CMName $owner.CMName -Created $other.Created) { "'{0}' ({1}) finds '{2}' ({3})" -f $owner.CMName, $owner.Script, $other.Created, $other.Script }
+            }
+        }
+        ($collisions -join [Environment]::NewLine) | Should -BeNullOrEmpty
+    }}

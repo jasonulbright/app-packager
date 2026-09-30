@@ -1,7 +1,7 @@
 <#
 Vendor: Nextcloud GmbH
 App: Nextcloud Desktop Client
-CMName: Nextcloud
+CMName: Nextcloud Desktop Client
 VendorUrl: https://nextcloud.com/
 CPE: cpe:2.3:a:nextcloud:desktop:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/nextcloud-releases/desktop/releases

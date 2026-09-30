@@ -1,25 +1,34 @@
-<#
+﻿<#
 Vendor: Microsoft
-App: ASP.NET 10 Server Hosting Bundle (x64)
-CMName: Microsoft .NET 10
-VendorUrl: https://dotnet.microsoft.com/download/dotnet/10.0
-CPE: cpe:2.3:a:microsoft:asp.net_core:10.*:*:*:*:*:*:*:*
-ReleaseNotesUrl: https://github.com/dotnet/core/tree/main/release-notes/10.0
-DownloadPageUrl: https://dotnet.microsoft.com/en-us/download/dotnet/10.0
+App: Microsoft Visual C++ v14 Redistributable (x86)
+CMName: Microsoft Visual C++ v14 Redistributable (x86)
+VendorUrl: https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist
+CPE: cpe:2.3:a:microsoft:visual_c%2b%2b_redistributable:*:*:*:*:*:*:*:*
+ReleaseNotesUrl: https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
+DownloadPageUrl: https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
 IconSource: None
 
 .SYNOPSIS
-    Packages ASP.NET 10 Server Hosting Bundle for ConfigMgr.
+    Packages Microsoft Visual C++ v14 Redistributable (x86) for ConfigMgr.
 
 .DESCRIPTION
-    Downloads the latest .NET 10 ASP.NET Core Windows Server Hosting Bundle
-    installer from the official Microsoft CDN, stages content to a versioned
-    local folder, and creates a ConfigMgr Application with script detection.
-    The detection script, the Intune detection and the WSUS rules read the
-    hosting bundle's own Add/Remove Programs entry: its name, publisher and
-    version. A separate .NET 10 runtime (for example the Windows Desktop
-    Runtime) raises the shared .NET host, but it never makes an older
-    bundle look current.
+    Downloads the latest vc_redist.x86.exe from Microsoft's permalink URL,
+    reads the version from VersionInfo, stages it to a versioned local folder,
+    and creates a ConfigMgr Application with file version detection.
+    Detection requires %SystemRoot%\SysWOW64\vcruntime140.dll at or above the
+    packaged version. The runtime DLL carries the redistributable version, so
+    the same detection also finds an older installed copy. The detection
+    reads SysWOW64 directly, so it requires 64-bit Windows.
+
+    The x64 runtime is a separate application (package-msvcruntimesx64.ps1).
+    package-msvcruntimes.ps1 installs both architectures as one application.
+
+    NOTE: The aka.ms permalink URL always serves the current release. The
+    installer is always re-downloaded to ensure the latest version is packaged.
+
+    GetLatestVersionOnly downloads only the installer to a local staging
+    folder, reads the version from VersionInfo, outputs the short version
+    string, and exits.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
@@ -34,11 +43,11 @@ IconSource: None
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
-    Content is staged under: <FileServerPath>\Applications\Microsoft\.NET Core\<Version>
+    Content is staged under: <FileServerPath>\Applications\Microsoft\VC++ v14 Redistributable x86\<Version>
 
 .PARAMETER DownloadRoot
     Local root folder for staging downloaded installers.
-    Each packager creates a subfolder under this path (e.g., <DownloadRoot>\ASPNETHostingBundle10).
+    Each packager creates a subfolder under this path (e.g., <DownloadRoot>\MsvcRedistX86).
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
@@ -55,10 +64,11 @@ IconSource: None
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create ConfigMgr application with script detection.
+    create ConfigMgr application with file version detection.
 
 .PARAMETER GetLatestVersionOnly
-    Outputs only the latest available .NET 10 runtime version string and exits.
+    Downloads the installer, reads the version from VersionInfo, outputs the
+    short version string, and exits. No ConfigMgr changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1
@@ -93,46 +103,53 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$ReleasesIndexUrl  = "https://builds.dotnet.microsoft.com/dotnet/release-metadata/releases-index.json"
-$DownloadUrlBase   = "https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime"
+$Url      = "https://aka.ms/vc14/vc_redist.x86.exe"
+$FileName = "vc_redist.x86.exe"
 
 $VendorFolder = "Microsoft"
-$AppFolder    = "ASP.NET Core Hosting Bundle"
+$AppFolder    = "VC++ v14 Redistributable x86"
 
-$InstallerFileNamePattern = "dotnet-hosting-{0}-win.exe"
+$BaseDownloadRoot = Join-Path $DownloadRoot "MsvcRedistX86"
 
-$BaseDownloadRoot = Join-Path $DownloadRoot "ASPNETHostingBundle10"
+# SysWOW64 with the 64-bit flag, not System32 with the 32-bit flag: a 32-bit
+# ConfigMgr file clause falls back to the 64-bit System32, where the x64
+# runtime carries the same file name.
+$DetectionFolder = "%SystemRoot%\SysWOW64"
+$DetectionFile   = "vcruntime140.dll"
 
 # --- Functions ---
 
 
-function Get-LatestDotNet10Version {
-    param([switch]$Quiet)
+function Get-ExeFileVersion {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [switch]$Quiet
+    )
 
-    Write-Log "Releases index URL           : $ReleasesIndexUrl" -Quiet:$Quiet
+    $vi = (Get-Item -LiteralPath $Path).VersionInfo
+    if (-not $vi) { throw "Could not read VersionInfo from: $Path" }
 
-    try {
-        $json = (curl.exe -L --fail --silent --show-error $ReleasesIndexUrl) -join ''
-        if ($LASTEXITCODE -ne 0) { throw "Failed to fetch .NET release info: $ReleasesIndexUrl" }
+    $fv = $vi.FileVersion
+    $pv = $vi.ProductVersion
 
-        $releases = ConvertFrom-Json $json
-        $dotnet10Channel = $releases.'releases-index' |
-            Where-Object { $_.'channel-version' -eq '10.0' -and $_.'release-type' -eq 'lts' } |
-            Select-Object -First 1
+    if (-not [string]::IsNullOrWhiteSpace($fv)) { $fv = $fv.Trim() }
+    if (-not [string]::IsNullOrWhiteSpace($pv)) { $pv = $pv.Trim() }
 
-        if (-not $dotnet10Channel -or -not $dotnet10Channel.'latest-runtime') {
-            throw "Could not find .NET 10.0 LTS release channel or latest runtime."
-        }
+    Write-Log "EXE FileVersion              : $fv" -Quiet:$Quiet
+    Write-Log "EXE ProductVersion           : $pv" -Quiet:$Quiet
 
-        $version = $dotnet10Channel.'latest-runtime'
+    if ($fv -match '^\d+\.\d+\.\d+\.\d+$') { return $fv }
+    if ($pv -match '^\d+\.\d+\.\d+\.\d+$') { return $pv }
 
-        Write-Log "Latest .NET 10 runtime version: $version" -Quiet:$Quiet
-        return $version
-    }
-    catch {
-        Write-Log "Failed to get .NET 10 version: $($_.Exception.Message)" -Level ERROR
-        return $null
-    }
+    throw "Could not determine quad version from VersionInfo for: $Path"
+}
+
+function Get-ShortVersionFromQuad {
+    param([Parameter(Mandatory)][string]$QuadVersion)
+
+    $parts = $QuadVersion -split '\.'
+    if ($parts.Count -lt 3) { throw "Unexpected version format: $QuadVersion" }
+    return ("{0}.{1}.{2}" -f $parts[0], $parts[1], $parts[2])
 }
 
 
@@ -140,45 +157,34 @@ function Get-LatestDotNet10Version {
 # Stage phase
 # ---------------------------------------------------------------------------
 
-function Invoke-StageASPNETHostingBundle10 {
+function Invoke-StageMsvcRedistX86 {
     Write-Log ""
     Write-Log ("=" * 60)
-    Write-Log "ASP.NET 10 Hosting Bundle - STAGE phase"
+    Write-Log "MSVC v14 Redistributable (x86) - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
 
     Initialize-Folder -Path $BaseDownloadRoot
 
-    # --- Get version ---
-    $version = Get-LatestDotNet10Version
-    if (-not $version) { throw "Could not resolve .NET 10 runtime version." }
+    # Always re-download (permalink URL serves the latest release)
+    $localExe = Join-Path $BaseDownloadRoot $FileName
 
-    $installerFileName = $InstallerFileNamePattern -f $version
+    Write-Log "Downloading installer..."
+    Invoke-DownloadWithRetry -Url $Url -OutFile $localExe
 
-    Write-Log "Version                      : $version"
-    Write-Log "Installer filename           : $installerFileName"
+    $quadVersion  = Get-ExeFileVersion -Path $localExe
+    $shortVersion = Get-ShortVersionFromQuad -QuadVersion $quadVersion
+
+    Write-Log ""
+    Write-Log "Version (short)              : $shortVersion"
+    Write-Log "Version (quad)               : $quadVersion"
     Write-Log ""
 
-    # --- Download ---
-    $localExe = Join-Path $BaseDownloadRoot $installerFileName
-    Write-Log "Local installer path         : $localExe"
-
-    if (-not (Test-Path -LiteralPath $localExe)) {
-        $downloadUrl = "${DownloadUrlBase}/${version}/${installerFileName}"
-        Write-Log "Download URL                 : $downloadUrl"
-        Write-Log ""
-        Write-Log "Downloading installer..."
-        Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localExe
-    }
-    else {
-        Write-Log "Local installer exists. Skipping download."
-    }
-
     # --- Versioned local content folder ---
-    $localContentPath = Join-Path $BaseDownloadRoot $version
+    $localContentPath = Join-Path $BaseDownloadRoot $shortVersion
     Initialize-Folder -Path $localContentPath
 
-    $stagedExe = Join-Path $localContentPath $installerFileName
+    $stagedExe = Join-Path $localContentPath $FileName
     if (-not (Test-Path -LiteralPath $stagedExe)) {
         Copy-Item -LiteralPath $localExe -Destination $stagedExe -Force -ErrorAction Stop
         Write-Log "Copied EXE to staged folder  : $stagedExe"
@@ -189,63 +195,55 @@ function Invoke-StageASPNETHostingBundle10 {
 
     # --- Generate content wrappers ---
     $installContent = (
-        ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $installerFileName),
+        ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $FileName),
         '$proc = Start-Process -FilePath $exePath -ArgumentList @(''/install'', ''/quiet'', ''/norestart'') -Wait -PassThru -NoNewWindow',
         'exit $proc.ExitCode'
     ) -join "`r`n"
 
     $uninstallContent = (
-        ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $installerFileName),
+        ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $FileName),
         '$proc = Start-Process -FilePath $exePath -ArgumentList @(''/uninstall'', ''/quiet'', ''/norestart'') -Wait -PassThru -NoNewWindow',
         'exit $proc.ExitCode'
     ) -join "`r`n"
 
     Write-ContentWrappers -OutputPath $localContentPath `
         -InstallPs1Content $installContent `
-        -UninstallPs1Content $uninstallContent
+        -UninstallPs1Content $uninstallContent `
+        -InstallBatExitCode '3010' `
+        -UninstallBatExitCode '3010'
 
     # --- Write stage manifest ---
-    # Burn registers each bundle version under its own 32-bit Uninstall key.
-    # The .NET host, runtime and ASP.NET Core shared framework that the bundle
-    # carries also come from standalone .NET 10 installers, so only this
-    # entry tells the bundle and its version apart. ConfigMgr, Intune and
-    # WSUS all read it.
-    $bundleEntry = @{
-        Type              = "ArpEntry"
-        View              = "32"
-        DisplayNamePrefix = "Microsoft .NET 10.0."
-        DisplayNameSuffix = " - Windows Server Hosting"
-        Publisher         = "Microsoft Corporation"
-        Version           = $version
-    }
-
-    $appName   = "Microsoft .NET ${version} - Windows Server Hosting"
+    $appName   = "Microsoft Visual C++ v14 Redistributable (x86) - $shortVersion"
     $publisher = "Microsoft Corporation"
 
     Write-Log ""
-    Write-Log "Detection                    : 32-bit Add/Remove Programs entry 'Microsoft .NET 10.0.* - Windows Server Hosting' by $publisher, DisplayVersion >= $version"
+    Write-Log "Detection                    : $DetectionFolder\$DetectionFile >= $quadVersion"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
     Write-StageManifest -Path $manifestPath -ManifestData @{
-        AppName         = $appName
-        Publisher       = $publisher
-        SoftwareVersion = $version
-        InstallerFile   = $installerFileName
-        InstallerType   = "EXE"
-        InstallArgs     = "/install /quiet /norestart"
-        UninstallArgs   = "/uninstall /quiet /norestart"
-        RunningProcess  = @()
-        Detection       = @{
-            Type           = "Script"
-            ScriptLanguage = "PowerShell"
-            ScriptText     = (New-ArpEntryDetectionScript -Entry $bundleEntry)
+        AppName               = $appName
+        Publisher             = $publisher
+        SoftwareVersion       = $shortVersion
+        InstallerFile         = $FileName
+        InstallerType         = "EXE"
+        InstallArgs           = "/install /quiet /norestart"
+        UninstallArgs         = "/uninstall /quiet /norestart"
+        RunningProcess        = @()
+        PostExecutionBehavior = "ForceReboot"
+        Detection             = @{
+            Type          = "File"
+            FilePath      = $DetectionFolder
+            FileName      = $DetectionFile
+            PropertyType  = "Version"
+            Operator      = "GreaterEquals"
+            ExpectedValue = $quadVersion
+            Is64Bit       = $true
         }
-        WsusDetection   = $bundleEntry
     }
 
     # Save version marker for Package phase
-    Set-Content -LiteralPath (Join-Path $BaseDownloadRoot "staged-version.txt") -Value $version -Encoding ASCII -ErrorAction Stop
+    Set-Content -LiteralPath (Join-Path $BaseDownloadRoot "staged-version.txt") -Value $shortVersion -Encoding ASCII -ErrorAction Stop
 
     Write-Log ""
     Write-Log "Stage complete               : $localContentPath"
@@ -258,10 +256,10 @@ function Invoke-StageASPNETHostingBundle10 {
 # Package phase
 # ---------------------------------------------------------------------------
 
-function Invoke-PackageASPNETHostingBundle10 {
+function Invoke-PackageMsvcRedistX86 {
     Write-Log ""
     Write-Log ("=" * 60)
-    Write-Log "ASP.NET 10 Hosting Bundle - PACKAGE phase"
+    Write-Log "MSVC v14 Redistributable (x86) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
 
@@ -284,6 +282,7 @@ function Invoke-PackageASPNETHostingBundle10 {
     Write-Log "Publisher                    : $($manifest.Publisher)"
     Write-Log "SoftwareVersion              : $($manifest.SoftwareVersion)"
     Write-Log "Detection Type               : $($manifest.Detection.Type)"
+    Write-Log "PostExecutionBehavior        : $($manifest.PostExecutionBehavior)"
     Write-Log ""
 
     # --- Network share ---
@@ -314,12 +313,20 @@ function Invoke-PackageASPNETHostingBundle10 {
 if ($GetLatestVersionOnly) {
     try {
         $ProgressPreference = 'SilentlyContinue'
-        $v = Get-LatestDotNet10Version -Quiet
-        if (-not $v) { exit 1 }
-        Write-Output $v
+        Initialize-Folder -Path $BaseDownloadRoot
+
+        $localExe = Join-Path $BaseDownloadRoot $FileName
+
+        Invoke-DownloadWithRetry -Url $Url -OutFile $localExe -Quiet
+
+        $quadVersion = Get-ExeFileVersion -Path $localExe -Quiet
+        $shortVersion = Get-ShortVersionFromQuad -QuadVersion $quadVersion
+
+        Write-Output $shortVersion
         exit 0
     }
     catch {
+        Write-Log $_.Exception.Message -Level ERROR
         exit 1
     }
 }
@@ -330,7 +337,7 @@ try {
 
     Write-Log ""
     Write-Log ("=" * 60)
-    Write-Log "ASP.NET 10 Hosting Bundle Auto-Packager starting"
+    Write-Log "MSVC v14 Redistributable (x86) Auto-Packager starting"
     Write-Log ("=" * 60)
     Write-Log ""
     Write-Log ("RunAsUser                    : {0}\{1}" -f $env:USERDOMAIN,$env:USERNAME)
@@ -339,25 +346,25 @@ try {
     Write-Log "SiteCode                     : $SiteCode"
     Write-Log "FileServerPath               : $FileServerPath"
     Write-Log "BaseDownloadRoot             : $BaseDownloadRoot"
-    Write-Log "ReleasesIndexUrl             : $ReleasesIndexUrl"
+    Write-Log "Url                          : $Url"
     Write-Log ""
 
     if ($StageOnly) {
-        Invoke-StageASPNETHostingBundle10
+        Invoke-StageMsvcRedistX86
     }
     elseif ($PackageOnly) {
-        Invoke-PackageASPNETHostingBundle10
+        Invoke-PackageMsvcRedistX86
     }
     else {
-        Invoke-StageASPNETHostingBundle10
-        Invoke-PackageASPNETHostingBundle10
+        Invoke-StageMsvcRedistX86
+        Invoke-PackageMsvcRedistX86
     }
 
     Write-Log ""
     Write-Log "Script execution complete."
 }
 catch {
-    Write-LogErrorRecord -ErrorRecord $_ -Context 'package-aspnethostingbundle10'
+    Write-LogErrorRecord -ErrorRecord $_ -Context 'package-msvcruntimesx86'
     Write-Log "SCRIPT FAILED: $($_.Exception.Message)" -Level ERROR
     exit 1
 }

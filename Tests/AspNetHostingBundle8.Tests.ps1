@@ -1,6 +1,6 @@
 BeforeAll {
     Import-Module (Join-Path $PSScriptRoot '..\Packagers\AppPackagerCommon.psd1') -Force
-    $script:Path = Join-Path $PSScriptRoot '..\Packagers\package-aspnethostingbundle10.ps1'
+    $script:Path = Join-Path $PSScriptRoot '..\Packagers\package-aspnethostingbundle8.ps1'
     $t = $null; $e = $null
     $script:Ast = [System.Management.Automation.Language.Parser]::ParseFile($script:Path, [ref]$t, [ref]$e)
     $script:ParseErrors = $e
@@ -47,7 +47,7 @@ BeforeAll {
     $script:EntryTable = $right
 }
 
-Describe 'ASP.NET Core 10 Hosting Bundle detection' {
+Describe 'ASP.NET Core 8 Hosting Bundle detection' {
     It 'parses without errors' {
         $script:ParseErrors | Should -BeNullOrEmpty
     }
@@ -72,7 +72,7 @@ Describe 'ASP.NET Core 10 Hosting Bundle detection' {
         $script:EntryTable | Should -BeOfType [System.Management.Automation.Language.HashtableAst]
         Get-ClauseValue $script:EntryTable 'Type' | Should -Be 'ArpEntry'
         Get-ClauseValue $script:EntryTable 'View' | Should -Be '32'
-        Get-ClauseValue $script:EntryTable 'DisplayNamePrefix' | Should -Be 'Microsoft .NET 10.0.'
+        Get-ClauseValue $script:EntryTable 'DisplayNamePrefix' | Should -Be 'Microsoft .NET 8.0.'
         Get-ClauseValue $script:EntryTable 'DisplayNameSuffix' | Should -Be ' - Windows Server Hosting'
         Get-ClauseValue $script:EntryTable 'Publisher' | Should -Be 'Microsoft Corporation'
         Get-ClauseValue $script:EntryTable 'Version' | Should -Be '$version'
@@ -81,13 +81,13 @@ Describe 'ASP.NET Core 10 Hosting Bundle detection' {
     It 'builds a script that reads the 32-bit view for that entry' {
         $entry = @{}
         foreach ($key in 'Type', 'View', 'DisplayNamePrefix', 'DisplayNameSuffix', 'Publisher') { $entry[$key] = Get-ClauseValue $script:EntryTable $key }
-        $entry.Version = '10.0.12'
+        $entry.Version = '8.0.31'
         $text = New-ArpEntryDetectionScript -Entry $entry
         $text | Should -Match ([regex]::Escape('@([Microsoft.Win32.RegistryView]::Registry32)'))
         $text | Should -Not -Match 'Registry64'
-        $text | Should -Match ([regex]::Escape("StartsWith('Microsoft .NET 10.0.', [StringComparison]::OrdinalIgnoreCase)"))
+        $text | Should -Match ([regex]::Escape("StartsWith('Microsoft .NET 8.0.', [StringComparison]::OrdinalIgnoreCase)"))
         $text | Should -Match ([regex]::Escape("EndsWith(' - Windows Server Hosting', [StringComparison]::OrdinalIgnoreCase)"))
         $text | Should -Match ([regex]::Escape("[string]::Equals(`$publisher, 'Microsoft Corporation', [StringComparison]::OrdinalIgnoreCase)"))
-        $text | Should -Match ([regex]::Escape("[version]'10.0.12.0'"))
+        $text | Should -Match ([regex]::Escape("[version]'8.0.31.0'"))
     }
 }
