@@ -4553,7 +4553,7 @@ function New-MecmPreferencesPanel {
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <TextBlock Grid.Column="0" x:Name="txtIntuneWinStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
-        <Button Grid.Column="1" x:Name="btnIntuneWinDownload" Content="Download" FontSize="11" Margin="10,0,0,0" Padding="10,2" VerticalAlignment="Center" Visibility="Collapsed"/>
+        <Button Grid.Column="1" x:Name="btnIntuneWinDownload" Content="Download" FontSize="11" Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" Padding="10,2" VerticalAlignment="Center" Visibility="Collapsed"/>
     </Grid>
 
     <TextBlock Grid.Row="21" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Packager icon pack for IconSource External packagers. Installs into Packagers\Icons and is read at stage time."/>
@@ -4564,8 +4564,8 @@ function New-MecmPreferencesPanel {
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <TextBlock Grid.Column="0" x:Name="txtIconPackStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
-        <Button Grid.Column="1" x:Name="btnIconPackDownload" Content="Download packager icon pack" FontSize="11" Margin="10,0,0,0" Padding="10,2" VerticalAlignment="Center" ToolTip="Fetches the latest pack release, verifies its sha256 against checksums.txt, and extracts it into Packagers\Icons. Existing icons with the same name are replaced."/>
-        <Button Grid.Column="2" x:Name="btnIconPackFromFile" Content="Install from file..." FontSize="11" Margin="6,0,0,0" Padding="10,2" VerticalAlignment="Center" ToolTip="Installs an icon pack from a local or UNC icon-pack.zip when the release download is blocked (proxy/SSL inspection). A checksums.txt beside the zip is verified when present."/>
+        <Button Grid.Column="1" x:Name="btnIconPackDownload" Content="Download packager icon pack" FontSize="11" Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" Padding="10,2" VerticalAlignment="Center" ToolTip="Fetches the latest pack release, verifies its sha256 against checksums.txt, and extracts it into Packagers\Icons. Existing icons with the same name are replaced."/>
+        <Button Grid.Column="2" x:Name="btnIconPackFromFile" Content="Install from file..." FontSize="11" Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="6,0,0,0" Padding="10,2" VerticalAlignment="Center" ToolTip="Installs an icon pack from a local or UNC icon-pack.zip when the release download is blocked (proxy/SSL inspection). A checksums.txt beside the zip is verified when present."/>
     </Grid>
 
     <TextBlock Grid.Row="22" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
@@ -6082,8 +6082,10 @@ function New-AboutPanel {
         </Grid>
         <StackPanel Orientation="Horizontal">
             <Button x:Name="btnAboutUpdate" Content="Update now" MinWidth="110" Height="30" Margin="0,0,8,0"
+                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                     ToolTip="Download and install the latest release, then close and relaunch AppPackager"/>
             <Button x:Name="btnAboutReleases" Content="Release notes" MinWidth="110" Height="30"
+                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                     ToolTip="Open the releases page on GitHub"/>
         </StackPanel>
     </StackPanel>
