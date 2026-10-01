@@ -1103,6 +1103,12 @@ function Sync-StagedContentToNetwork {
         share matching the stage manifest, which New-MECMApplicationFromManifest
         verifies through Compare-StageFileHashes.
 
+        When the destination already holds files and this stage would add or
+        change any of them, and the existing-application policy is not
+        Overwrite, nothing is written: the copy is recorded and
+        New-MECMApplicationFromManifest runs it only when no application
+        exists or the application is replaced. -NoDefer copies regardless.
+
         When Manifest carries FileHashes, the expected hash for a relative path
         comes from that record; otherwise the local file is hashed. The stage
         manifest itself is never copied.
@@ -1117,7 +1123,8 @@ function Sync-StagedContentToNetwork {
         [Parameter(Mandatory)][string]$NetworkContentPath,
         [AllowNull()][object]$Manifest,
         [string[]]$Exclude = @('stage-manifest.json'),
-        [switch]$PassThru
+        [switch]$PassThru,
+        [switch]$NoDefer
     )
 
     $localRoot = (Resolve-Path -LiteralPath $LocalContentPath -ErrorAction Stop).Path.TrimEnd('\', '/')
@@ -1138,6 +1145,59 @@ function Sync-StagedContentToNetwork {
         }
     }
 
+    $script:DeferredContentSync = $null
+    $destinationHadFiles = (Test-Path -LiteralPath $NetworkContentPath) -and
+        $null -ne (Get-ChildItem -LiteralPath $NetworkContentPath -File -Recurse -Force -ErrorAction Stop | Select-Object -First 1)
+
+    $plan = New-Object System.Collections.Generic.List[object]
+    $localFiles = @(Get-ChildItem -LiteralPath $localRoot -File -Recurse -Force -ErrorAction Stop | Sort-Object FullName)
+    foreach ($f in $localFiles) {
+        $relative = $f.FullName.Substring($localRoot.Length).TrimStart('\', '/') -replace '/', '\'
+        if ($excludeSet.ContainsKey($relative.ToLowerInvariant())) { continue }
+
+        $dest = Join-Path $NetworkContentPath $relative
+        $action = 'Copy'
+        if (Test-Path -LiteralPath $dest) {
+            $expected = $expectedMap[$relative.ToLowerInvariant()]
+            if ([string]::IsNullOrWhiteSpace($expected)) {
+                $expected = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256 -ErrorAction Stop).Hash.ToUpperInvariant()
+            }
+            $actual = (Get-FileHash -LiteralPath $dest -Algorithm SHA256 -ErrorAction Stop).Hash.ToUpperInvariant()
+            $action = if ($actual -eq $expected) { 'Unchanged' } else { 'Refresh' }
+        }
+        $plan.Add([pscustomobject]@{ Source = $f.FullName; Relative = $relative; Destination = $dest; Action = $action })
+    }
+
+    # Content already on the share may belong to a published application.
+    # Changing it before New-MECMApplicationFromManifest decides on that
+    # application rewrites the source of an application that Skip or Fail
+    # then leaves in place, and the next redistribution ships the new files.
+    $changes = @($plan | Where-Object { $_.Action -ne 'Unchanged' })
+    if (-not $NoDefer -and $destinationHadFiles -and $changes.Count -gt 0 -and
+        (Resolve-OnExistingBehavior -Requested '').Behavior -ne 'Overwrite') {
+        $script:DeferredContentSync = [pscustomobject]@{
+            LocalContentPath   = $LocalContentPath
+            NetworkContentPath = $NetworkContentPath
+            Manifest           = $Manifest
+            Exclude            = $Exclude
+        }
+        Write-Log ("Network content differs      : {0} file(s); the copy waits for the existing-application decision" -f $changes.Count) -Level WARN
+        if ($PassThru) {
+            return [pscustomobject]@{
+                LocalContentPath   = $localRoot
+                NetworkContentPath = $NetworkContentPath
+                Deferred           = $true
+                Copied             = @()
+                Refreshed          = @()
+                Unchanged          = @()
+                CopiedCount        = 0
+                RefreshedCount     = 0
+                UnchangedCount     = 0
+            }
+        }
+        return
+    }
+
     if (-not (Test-Path -LiteralPath $NetworkContentPath)) {
         New-Item -ItemType Directory -Path $NetworkContentPath -Force -ErrorAction Stop | Out-Null
     }
@@ -1146,38 +1206,25 @@ function Sync-StagedContentToNetwork {
     $refreshed = New-Object System.Collections.Generic.List[string]
     $unchanged = New-Object System.Collections.Generic.List[string]
 
-    $localFiles = @(Get-ChildItem -LiteralPath $localRoot -File -Recurse -Force -ErrorAction Stop | Sort-Object FullName)
-    foreach ($f in $localFiles) {
-        $relative = $f.FullName.Substring($localRoot.Length).TrimStart('\', '/') -replace '/', '\'
-        if ($excludeSet.ContainsKey($relative.ToLowerInvariant())) { continue }
-
-        $dest = Join-Path $NetworkContentPath $relative
-        $destDir = Split-Path -Parent $dest
-        if ($destDir -and -not (Test-Path -LiteralPath $destDir)) {
-            New-Item -ItemType Directory -Path $destDir -Force -ErrorAction Stop | Out-Null
-        }
-
-        if (-not (Test-Path -LiteralPath $dest)) {
-            Copy-Item -LiteralPath $f.FullName -Destination $dest -Force -ErrorAction Stop
-            Write-Log "Copied to network            : $relative"
-            $copied.Add($relative)
+    foreach ($entry in $plan) {
+        if ($entry.Action -eq 'Unchanged') {
+            Write-Log "Already on network           : $($entry.Relative)"
+            $unchanged.Add($entry.Relative)
             continue
         }
 
-        $expected = $expectedMap[$relative.ToLowerInvariant()]
-        if ([string]::IsNullOrWhiteSpace($expected)) {
-            $expected = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256 -ErrorAction Stop).Hash.ToUpperInvariant()
+        $destDir = Split-Path -Parent $entry.Destination
+        if ($destDir -and -not (Test-Path -LiteralPath $destDir)) {
+            New-Item -ItemType Directory -Path $destDir -Force -ErrorAction Stop | Out-Null
         }
-        $actual = (Get-FileHash -LiteralPath $dest -Algorithm SHA256 -ErrorAction Stop).Hash.ToUpperInvariant()
-
-        if ($actual -eq $expected) {
-            Write-Log "Already on network           : $relative"
-            $unchanged.Add($relative)
+        Copy-Item -LiteralPath $entry.Source -Destination $entry.Destination -Force -ErrorAction Stop
+        if ($entry.Action -eq 'Copy') {
+            Write-Log "Copied to network            : $($entry.Relative)"
+            $copied.Add($entry.Relative)
         }
         else {
-            Copy-Item -LiteralPath $f.FullName -Destination $dest -Force -ErrorAction Stop
-            Write-Log "Refreshed on network         : $relative"
-            $refreshed.Add($relative)
+            Write-Log "Refreshed on network         : $($entry.Relative)"
+            $refreshed.Add($entry.Relative)
         }
     }
 
@@ -1185,6 +1232,7 @@ function Sync-StagedContentToNetwork {
         return [pscustomobject]@{
             LocalContentPath   = $localRoot
             NetworkContentPath = $NetworkContentPath
+            Deferred           = $false
             Copied             = @($copied.ToArray())
             Refreshed          = @($refreshed.ToArray())
             Unchanged          = @($unchanged.ToArray())
@@ -3919,16 +3967,25 @@ function New-MECMApplicationFromManifest {
 
     $orig = Get-Location
 
-    $contentVerification = Compare-StageFileHashes -Root $NetworkContentPath -Expected $Manifest.FileHashes
-    if ($contentVerification.Skipped) {
-        Write-Log ("Package integrity verification : skipped ({0})" -f $contentVerification.Reason) -Level WARN
+    $verifyContent = {
+        $contentVerification = Compare-StageFileHashes -Root $NetworkContentPath -Expected $Manifest.FileHashes
+        if ($contentVerification.Skipped) {
+            Write-Log ("Package integrity verification : skipped ({0})" -f $contentVerification.Reason) -Level WARN
+        }
+        elseif (-not $contentVerification.Pass) {
+            throw ("Package integrity verification failed: {0}" -f (Format-StageFileHashComparison -Comparison $contentVerification))
+        }
+        else {
+            Write-Log ("Package integrity verified     : {0} file(s)" -f $contentVerification.ExpectedCount)
+        }
     }
-    elseif (-not $contentVerification.Pass) {
-        throw ("Package integrity verification failed: {0}" -f (Format-StageFileHashComparison -Comparison $contentVerification))
+
+    $deferredSync = $script:DeferredContentSync
+    $script:DeferredContentSync = $null
+    if ($deferredSync -and -not [string]::Equals([string]$deferredSync.NetworkContentPath, $NetworkContentPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $deferredSync = $null
     }
-    else {
-        Write-Log ("Package integrity verified     : {0} file(s)" -f $contentVerification.ExpectedCount)
-    }
+    if (-not $deferredSync) { & $verifyContent }
 
     # Tracks the operation in flight so the catch block can name the step
     # that failed. CM cmdlet errors (e.g. "Key cannot be null. Parameter
@@ -4040,6 +4097,9 @@ function New-MECMApplicationFromManifest {
                             Write-Log "Task-sequence install        : disabled (deployment type requires user context or interaction)"
                         }
                         Write-Log "Application already exists    : $appName (v$existingVersion, unchanged)" -Level WARN
+                        if ($deferredSync) {
+                            Write-Log "Network content              : unchanged; this stage differs from the content of the existing application and was not copied" -Level WARN
+                        }
                         Write-Log ("Deployment type(s) validated : {0}" -f (($dtSpecs | ForEach-Object { $_.DtName }) -join ', '))
                         # Machine-readable companion to the line above: the GUI
                         # parses it to offer the operator an overwrite re-run.
@@ -4072,6 +4132,18 @@ function New-MECMApplicationFromManifest {
                     Write-Log "Existing app has no deployment type; adding the new set." -Level WARN
                 }
             }
+        }
+
+        if ($deferredSync) {
+            # Connect-CMSite leaves the CM drive current; UNC paths resolve
+            # through the CM provider there and Test-Path fails on them.
+            $step = "Network content copy ('$NetworkContentPath')"
+            Push-Location -LiteralPath $env:SystemRoot
+            try {
+                Sync-StagedContentToNetwork -LocalContentPath $deferredSync.LocalContentPath -NetworkContentPath $deferredSync.NetworkContentPath -Manifest $deferredSync.Manifest -Exclude $deferredSync.Exclude -NoDefer
+                & $verifyContent
+            }
+            finally { Pop-Location }
         }
 
         # Requirement rules resolve for every deployment type before any
