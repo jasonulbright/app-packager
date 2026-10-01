@@ -1886,6 +1886,129 @@ Describe 'New-MECMApplicationFromManifest existing application validation' {
                     -NetworkContentPath $contentPath
             } | Should -Throw '*Package integrity verification failed*'
         }
+
+        Context 'content copy that waits for the existing-application decision' {
+            BeforeEach {
+                $script:share = Join-Path $TestDrive ('share-' + [guid]::NewGuid())
+                New-Item -ItemType Directory -Path $script:share -Force | Out-Null
+                $script:DeferredContentSync = [pscustomobject]@{
+                    LocalContentPath   = Join-Path $TestDrive 'stage'
+                    NetworkContentPath = $script:share
+                    Manifest           = $script:testManifest
+                    Exclude            = @('stage-manifest.json')
+                }
+                $script:synced = $false
+                Mock Sync-StagedContentToNetwork { $script:synced = $true }
+            }
+
+            It 'keeps the share when Skip keeps the existing application' {
+                New-MECMApplicationFromManifest -Manifest $script:testManifest -SiteCode MCM -NetworkContentPath $script:share -OnExisting Skip | Should -Be 1234
+                Should -Invoke Sync-StagedContentToNetwork -Times 0 -Exactly
+                $script:DeferredContentSync | Should -BeNullOrEmpty
+            }
+
+            It 'keeps the share when Fail refuses the existing application' {
+                { New-MECMApplicationFromManifest -Manifest $script:testManifest -SiteCode MCM -NetworkContentPath $script:share -OnExisting Fail } | Should -Throw '*OnExisting=Fail*'
+                Should -Invoke Sync-StagedContentToNetwork -Times 0 -Exactly
+            }
+
+            It 'copies the content before it creates a new application' {
+                Mock Get-CMApplication { $null }
+                Mock New-CMApplication { if (-not $script:synced) { throw 'content must be copied before the application is created' }; [pscustomobject]@{ CI_ID = 4321 } }
+                Mock Add-CMScriptDeploymentType { }
+                Mock Remove-CMApplicationRevisionHistoryByCIId { }
+                New-MECMApplicationFromManifest -Manifest $script:testManifest -SiteCode MCM -NetworkContentPath $script:share | Should -Be 4321
+                Should -Invoke Sync-StagedContentToNetwork -Times 1 -Exactly -ParameterFilter { $NoDefer -and $NetworkContentPath -eq $script:share }
+            }
+
+            It 'copies the content before Overwrite replaces the application' {
+                Mock Add-CMScriptDeploymentType { if (-not $script:synced) { throw 'content must be copied before the deployment types are replaced' } }
+                Mock Remove-CMDeploymentType { }
+                Mock Set-CMDeploymentType { }
+                Mock Set-CMApplication { }
+                Mock Remove-CMApplicationRevisionHistoryByCIId { }
+                New-MECMApplicationFromManifest -Manifest $script:testManifest -SiteCode MCM -NetworkContentPath $script:share -OnExisting Overwrite | Should -Be 1234
+                Should -Invoke Sync-StagedContentToNetwork -Times 1 -Exactly -ParameterFilter { $NoDefer }
+            }
+
+            It 'ignores a recorded copy for another content path' {
+                $script:DeferredContentSync.NetworkContentPath = Join-Path $TestDrive 'other'
+                Mock Get-CMApplication { $null }
+                Mock New-CMApplication { [pscustomobject]@{ CI_ID = 4321 } }
+                Mock Add-CMScriptDeploymentType { }
+                Mock Remove-CMApplicationRevisionHistoryByCIId { }
+                New-MECMApplicationFromManifest -Manifest $script:testManifest -SiteCode MCM -NetworkContentPath $script:share | Should -Be 4321
+                Should -Invoke Sync-StagedContentToNetwork -Times 0 -Exactly
+            }
+        }
+    }
+}
+
+Describe 'Sync-StagedContentToNetwork over existing content' {
+    InModuleScope AppPackagerCommon {
+        BeforeEach {
+            $script:savedOnExisting = $env:APP_PACKAGER_ON_EXISTING
+            $env:APP_PACKAGER_ON_EXISTING = $null
+            $script:DeferredContentSync = $null
+            $script:stage = Join-Path $TestDrive ('stage-' + [guid]::NewGuid())
+            $script:share = Join-Path $TestDrive ('share-' + [guid]::NewGuid())
+            New-Item -ItemType Directory -Path $script:stage, $script:share -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $script:stage 'install.ps1') -Value 'new' -Encoding ASCII
+            Set-Content -LiteralPath (Join-Path $script:stage 'patch_MUI.msp') -Value 'patch' -Encoding ASCII
+        }
+
+        AfterEach {
+            $env:APP_PACKAGER_ON_EXISTING = $script:savedOnExisting
+            $script:DeferredContentSync = $null
+        }
+
+        It 'writes nothing over different content under Skip and records the copy' {
+            Set-Content -LiteralPath (Join-Path $script:share 'install.ps1') -Value 'old' -Encoding ASCII
+            $r = Sync-StagedContentToNetwork -LocalContentPath $script:stage -NetworkContentPath $script:share -PassThru
+            $r.Deferred | Should -BeTrue
+            Get-Content -LiteralPath (Join-Path $script:share 'install.ps1') | Should -Be 'old'
+            Test-Path -LiteralPath (Join-Path $script:share 'patch_MUI.msp') | Should -BeFalse
+            $script:DeferredContentSync.NetworkContentPath | Should -Be $script:share
+            $script:DeferredContentSync.LocalContentPath | Should -Be $script:stage
+        }
+
+        It 'records the copy when the stage only adds files to existing content' {
+            Set-Content -LiteralPath (Join-Path $script:share 'install.ps1') -Value 'new' -Encoding ASCII
+            (Sync-StagedContentToNetwork -LocalContentPath $script:stage -NetworkContentPath $script:share -PassThru).Deferred | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $script:share 'patch_MUI.msp') | Should -BeFalse
+        }
+
+        It 'copies into an empty destination at once' {
+            $r = Sync-StagedContentToNetwork -LocalContentPath $script:stage -NetworkContentPath $script:share -PassThru
+            $r.Deferred | Should -BeFalse
+            $r.CopiedCount | Should -Be 2
+            $script:DeferredContentSync | Should -BeNullOrEmpty
+        }
+
+        It 'copies at once when the policy is Overwrite' {
+            $env:APP_PACKAGER_ON_EXISTING = 'Overwrite'
+            Set-Content -LiteralPath (Join-Path $script:share 'install.ps1') -Value 'old' -Encoding ASCII
+            $r = Sync-StagedContentToNetwork -LocalContentPath $script:stage -NetworkContentPath $script:share -PassThru
+            $r.RefreshedCount | Should -Be 1
+            $r.CopiedCount | Should -Be 1
+            Get-Content -LiteralPath (Join-Path $script:share 'install.ps1') | Should -Be 'new'
+        }
+
+        It 'copies at once with NoDefer' {
+            Set-Content -LiteralPath (Join-Path $script:share 'install.ps1') -Value 'old' -Encoding ASCII
+            $r = Sync-StagedContentToNetwork -LocalContentPath $script:stage -NetworkContentPath $script:share -PassThru -NoDefer
+            $r.Deferred | Should -BeFalse
+            Get-Content -LiteralPath (Join-Path $script:share 'install.ps1') | Should -Be 'new'
+            $script:DeferredContentSync | Should -BeNullOrEmpty
+        }
+
+        It 'records nothing when the destination already matches the stage' {
+            Copy-Item -Path (Join-Path $script:stage '*') -Destination $script:share
+            $r = Sync-StagedContentToNetwork -LocalContentPath $script:stage -NetworkContentPath $script:share -PassThru
+            $r.Deferred | Should -BeFalse
+            $r.UnchangedCount | Should -Be 2
+            $script:DeferredContentSync | Should -BeNullOrEmpty
+        }
     }
 }
 
