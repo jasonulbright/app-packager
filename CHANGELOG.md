@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026.10.01.0102] - 2026-10-01
+
+## 1 crash fixed
+
+### Fixed
+
+- Stop the app from closing when Options opens.
 ## [2026.10.01.0101] - 2026-10-01
 
 ## 311 packagers leave published content unchanged on Skip
