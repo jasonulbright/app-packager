@@ -647,7 +647,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-pspad.ps1 | Jan Fiala | PSPad | File existence |
 | package-putty.ps1 | Simon Tatham | PuTTY (x64) | RegistryKeyValue |
 | package-pwsafe.ps1 | Rony Shapiro | Password Safe | RegistryKeyValue |
-| package-pycharm.ps1 | JetBrains | PyCharm Community | RegistryKey existence |
+| package-pycharm.ps1 | JetBrains | PyCharm | RegistryKey existence |
 | package-python.ps1 | Python Software Foundation | Python (x64) | File existence |
 | package-qgis-ltr.ps1 | QGIS | QGIS LTR | RegistryKeyValue |
 | package-qgis.ps1 | QGIS | QGIS | RegistryKeyValue |
