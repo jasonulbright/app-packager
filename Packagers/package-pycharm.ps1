@@ -1,7 +1,7 @@
 <#
 Vendor: JetBrains
-App: PyCharm Community
-CMName: PyCharm Community
+App: PyCharm
+CMName: PyCharm
 VendorUrl: https://www.jetbrains.com/pycharm/
 CPE: cpe:2.3:a:jetbrains:pycharm:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.jetbrains.com/pycharm/whatsnew/
@@ -9,11 +9,12 @@ DownloadPageUrl: https://www.jetbrains.com/pycharm/download/?section=windows
 UpdateCadenceDays: 60
 
 .SYNOPSIS
-    Packages PyCharm Community (x64) for ConfigMgr.
+    Packages PyCharm (x64) for ConfigMgr.
 
 .DESCRIPTION
-    Resolves the latest PyCharm release from the JetBrains product releases API,
-    downloads the unified Windows installer, stages content to a versioned local
+    Resolves the latest PyCharm release from the JetBrains product releases API
+    (product code PCP; the PCC Community code stopped at 2025.3), downloads the
+    Windows installer the API links, stages content to a versioned local
     folder, and creates a ConfigMgr Application with registry-key detection.
 
     The installer is an NSIS package installed silently with /S. Detection is the
@@ -83,18 +84,45 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$ReleasesApiUrl = "https://data.services.jetbrains.com/products/releases?code=PCC&latest=true&type=release"
-$DownloadBase   = "https://download.jetbrains.com/python"
+$ReleasesApiUrl = "https://data.services.jetbrains.com/products/releases?code=PCP&latest=true&type=release"
 
 $VendorFolder = "JetBrains"
-$AppFolder    = "PyCharm Community"
+$AppFolder    = "PyCharm"
 
 $BaseDownloadRoot = Join-Path $DownloadRoot "PyCharm"
 
 # --- Functions ---
 
 
-function Get-LatestPyCharmVersion {
+function Assert-ExecutablePayload {
+    <#
+    .SYNOPSIS
+        Throws unless the downloaded file starts with the PE 'MZ' signature.
+    .DESCRIPTION
+        A CDN error page or consent interstitial answers 200 with HTML, which
+        would otherwise stage as a valid-looking installer.
+    #>
+    param([Parameter(Mandatory)][string]$Path)
+
+    $bytes = New-Object byte[] 2
+    $stream = [System.IO.File]::OpenRead($Path)
+    try { $read = $stream.Read($bytes, 0, 2) } finally { $stream.Dispose() }
+    if ($read -lt 2 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {
+        throw "Downloaded payload is not a Windows executable (no MZ header): $Path"
+    }
+}
+
+
+function Get-LatestPyCharmRelease {
+    <#
+    .SYNOPSIS
+        Returns the newest PyCharm release version and its Windows installer URL.
+    .DESCRIPTION
+        The response is keyed by the product code; the windows entry is read
+        from it rather than assembled from the version, so a filename change
+        does not produce a 404 at download time. windowsARM64 is ignored: this
+        packager ships x64.
+    #>
     param([switch]$Quiet)
 
     Write-Log "Releases API URL             : $ReleasesApiUrl" -Quiet:$Quiet
@@ -103,13 +131,26 @@ function Get-LatestPyCharmVersion {
         $json = (curl.exe -L --fail --silent --show-error $ReleasesApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query the JetBrains releases API." }
 
-        $m = [regex]::Match($json, '"version":"(?<ver>\d+\.\d+(?:\.\d+)?)"')
-        if (-not $m.Success) { throw "Could not parse a version from the releases API response." }
+        $data = ConvertFrom-Json $json
+        $release = $data.PCP | Select-Object -First 1
+        if (-not $release) { throw "The releases API returned no PCP entries." }
 
-        $version = $m.Groups['ver'].Value
+        $version = $release.version
+        if ([string]::IsNullOrWhiteSpace($version)) { throw "Release entry carries no version." }
+
+        $link = $release.downloads.windows.link
+        if ([string]::IsNullOrWhiteSpace($link)) { throw "Release $version carries no windows download link." }
+
+        $fileName = Split-Path -Path ([uri]$link).AbsolutePath -Leaf
 
         Write-Log "Latest PyCharm version       : $version" -Quiet:$Quiet
-        return $version
+        Write-Log "Installer filename           : $fileName" -Quiet:$Quiet
+
+        return [pscustomobject]@{
+            Version     = $version
+            FileName    = $fileName
+            DownloadUrl = $link
+        }
     }
     catch {
         Write-Log "Failed to get PyCharm version: $($_.Exception.Message)" -Level ERROR
@@ -125,21 +166,20 @@ function Get-LatestPyCharmVersion {
 function Invoke-StagePyCharm {
     Write-Log ""
     Write-Log ("=" * 60)
-    Write-Log "PyCharm Community (x64) - STAGE phase"
+    Write-Log "PyCharm (x64) - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
 
     Initialize-Folder -Path $BaseDownloadRoot
 
-    $version = Get-LatestPyCharmVersion
-    if (-not $version) { throw "Could not resolve PyCharm version." }
+    $releaseInfo = Get-LatestPyCharmRelease
+    if (-not $releaseInfo) { throw "Could not resolve PyCharm version." }
 
-    $installerFileName = "pycharm-$version.exe"
-    $downloadUrl       = "$DownloadBase/$installerFileName"
+    $version           = $releaseInfo.Version
+    $installerFileName = $releaseInfo.FileName
 
     Write-Log "Version                      : $version"
-    Write-Log "Download URL                 : $downloadUrl"
-    Write-Log "Installer filename           : $installerFileName"
+    Write-Log "Download URL                 : $($releaseInfo.DownloadUrl)"
     Write-Log ""
 
     # --- Download ---
@@ -148,11 +188,13 @@ function Invoke-StagePyCharm {
 
     if (-not (Test-Path -LiteralPath $localExe)) {
         Write-Log "Downloading PyCharm..."
-        Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localExe
+        Invoke-DownloadWithRetry -Url $releaseInfo.DownloadUrl -OutFile $localExe
     }
     else {
         Write-Log "Local installer exists. Skipping download."
     }
+
+    Assert-ExecutablePayload -Path $localExe
 
     # --- Versioned local content folder ---
     $localContentPath = Join-Path $BaseDownloadRoot $version
@@ -194,7 +236,7 @@ function Invoke-StagePyCharm {
         -UninstallPs1Content $customUninstall
 
     # --- Write stage manifest ---
-    $appName   = "PyCharm Community"
+    $appName   = "PyCharm"
     $publisher = "JetBrains"
 
     Write-Log ""
@@ -234,7 +276,7 @@ function Invoke-StagePyCharm {
 function Invoke-PackagePyCharm {
     Write-Log ""
     Write-Log ("=" * 60)
-    Write-Log "PyCharm Community (x64) - PACKAGE phase"
+    Write-Log "PyCharm (x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
 
@@ -282,9 +324,9 @@ function Invoke-PackagePyCharm {
 if ($GetLatestVersionOnly) {
     try {
         $ProgressPreference = 'SilentlyContinue'
-        $v = Get-LatestPyCharmVersion -Quiet
-        if (-not $v) { exit 1 }
-        Write-Output $v
+        $info = Get-LatestPyCharmRelease -Quiet
+        if (-not $info) { exit 1 }
+        Write-Output $info.Version
         exit 0
     }
     catch {
@@ -299,7 +341,7 @@ try {
 
     Write-Log ""
     Write-Log ("=" * 60)
-    Write-Log "PyCharm Community (x64) Auto-Packager starting"
+    Write-Log "PyCharm (x64) Auto-Packager starting"
     Write-Log ("=" * 60)
     Write-Log ""
     Write-Log ("RunAsUser                    : {0}\{1}" -f $env:USERDOMAIN,$env:USERNAME)
