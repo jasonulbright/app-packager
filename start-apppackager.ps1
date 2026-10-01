@@ -6049,6 +6049,7 @@ function New-AboutPanel {
     $xaml = @'
 <ScrollViewer xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
       VerticalScrollBarVisibility="Auto">
     <StackPanel>
         <TextBlock Text="AppPackager" FontSize="20" FontWeight="Bold" Margin="0,0,0,2"/>
