@@ -1,5 +1,17 @@
 # Changelog
 
+## [2026.10.01.0101] - 2026-10-01
+
+## 311 packagers leave published content unchanged on Skip
+
+### Changed
+
+- Package PyCharm 2026 instead of the discontinued PyCharm Community.
+
+### Fixed
+
+- Leave share content unchanged when an existing application is kept.
+- Apply the theme to the Content Prep, icon pack and About buttons.
 ## [2026.09.30.0100] - 2026-09-30
 
 ## 27 Adobe Acrobat Reader languages selectable
