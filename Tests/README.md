@@ -108,7 +108,7 @@ No test writes to a certificate trust store in any scope. `AppPackagerWsus.Tests
 - `Invoke-TitleOptionsSmoke.ps1` - stored title-mode choices reach the background context map.
 - `Invoke-FullRegression.ps1` - runs every offline stage on both hosts and prints one summary table.
 - `PackagerSmoke.Tests.ps1` - Pester wrapper around the smoke harness.
-- `AnypointStudio.Tests.ps1` - the Anypoint Studio packager: the download URL, the versions probed, and the build read from the ZIP.
+- `AnypointStudio.Tests.ps1` - the Anypoint Studio packager: the downloads manifest entry, its SHA-256, and the build read from the ZIP.
 - `AdobeReader.Tests.ps1` - the Adobe Reader packager: English and MUI installer and patch names, the LANG_LIST normalization, the stored install options, the MUI command line, the stage folder cleanup between editions, the setup.ini command line, and the preferences round trip.
 - `XamlParse.Tests.ps1` - every inline XAML block and XAML file parses as XML, so a panel shown later cannot fail on an undeclared prefix.
 - `ButtonTheme.Tests.ps1` - every button, in XAML or built in code, carries a theme style.

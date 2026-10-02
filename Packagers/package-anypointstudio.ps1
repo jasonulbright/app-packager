@@ -12,9 +12,10 @@ UpdateCadenceDays: 60
     Packages MuleSoft Anypoint Studio (x64) for ConfigMgr.
 
 .DESCRIPTION
-    Resolves the newest Anypoint Studio build that has a public Windows ZIP,
-    downloads it, stages content to a versioned local folder, and creates a
-    ConfigMgr Application with file-existence detection.
+    Reads the latest Windows build from the MuleSoft downloads manifest,
+    downloads the ZIP, verifies it against the manifest's SHA-256, stages
+    content to a versioned local folder, and creates a ConfigMgr Application
+    with file-existence detection.
 
     Anypoint Studio ships as a ZIP with no installer. The install wrapper
     removes any earlier C:\AnypointStudio and extracts the ZIP to C:\, the
@@ -55,7 +56,7 @@ UpdateCadenceDays: 60
     Runs only the Package phase.
 
 .PARAMETER GetLatestVersionOnly
-    Outputs only the newest Anypoint Studio version with a public Windows ZIP and exits.
+    Outputs only the latest Anypoint Studio version from the downloads manifest and exits.
 
 .REQUIREMENTS
     - PowerShell 5.1
@@ -90,9 +91,16 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$ReleaseNotesIndexUrl = "https://docs.mulesoft.com/release-notes/studio/anypoint-studio"
-$DownloadBase         = "https://mule-studio.s3.amazonaws.com"
-$InstallDir           = "C:\AnypointStudio"
+$ManifestUrl  = "https://www.mulesoft.com/downloads/manifest.json"
+$DownloadPage = "https://www.mulesoft.com/lp/dl/anypoint-mule-studio"
+$InstallDir   = "C:\AnypointStudio"
+
+# The download CDN answers 403 unless a request carries a browser
+# User-Agent and the download page as Referer; either one alone is refused.
+$CdnCurlArgs = @(
+    '-A', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+    '-e', $DownloadPage
+)
 
 $VendorFolder = "MuleSoft"
 $AppFolder    = "Anypoint Studio"
@@ -102,28 +110,35 @@ $BaseDownloadRoot = Join-Path $DownloadRoot "AnypointStudio"
 # --- Functions ---
 
 
-function Get-AnypointStudioZipUrl {
-    param([Parameter(Mandatory)][string]$Version)
-    return ('{0}/{1}-GA/AnypointStudio-{1}-win64.zip' -f $DownloadBase, $Version)
-}
-
-
-function Get-AnypointStudioCandidateVersions {
+function Get-AnypointStudioReleaseFromManifest {
     <#
     .SYNOPSIS
-        Lists the versions to probe, newest first.
+        Picks the latest Windows Studio entry from the downloads manifest.
     .DESCRIPTION
-        The release notes list builds that the public download bucket does
-        not carry, so the newest listed version is only a starting point:
-        one minor above it down to eight below, patches 3 to 0 each.
+        The manifest is a JSON array of { name, version, os, source,
+        integrity, packaging }; version is 'latest' or 'previous', and the
+        release number appears only in the source file name.
     #>
-    param([Parameter(Mandatory)][version]$Newest)
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Json)
 
-    $low = [Math]::Max(0, $Newest.Minor - 8)
-    for ($minor = $Newest.Minor + 1; $minor -ge $low; $minor--) {
-        for ($patch = 3; $patch -ge 0; $patch--) {
-            '{0}.{1}.{2}' -f $Newest.Major, $minor, $patch
-        }
+    # Windows PowerShell 5.1 ConvertFrom-Json emits a JSON array as one
+    # object; piping the variable enumerates the entries.
+    $parsed = ConvertFrom-Json -InputObject $Json
+    $entry = $parsed | Where-Object { $_.name -eq 'studio' -and $_.version -eq 'latest' -and $_.os -eq 'windows' } | Select-Object -First 1
+    if (-not $entry) { throw "The downloads manifest has no latest Windows Studio entry." }
+
+    $fileName = Split-Path -Path ([uri][string]$entry.source).AbsolutePath -Leaf
+    $m = [regex]::Match($fileName, '^AnypointStudio-(\d+\.\d+\.\d+)-win64\.zip$')
+    if (-not $m.Success) { throw "Unexpected Windows Studio file name in the downloads manifest: $fileName" }
+
+    $sha256 = ([string]$entry.integrity).Trim().ToUpperInvariant()
+    if ($sha256 -notmatch '^[0-9A-F]{64}$') { throw "The downloads manifest carries no SHA-256 for $fileName." }
+
+    return [pscustomobject]@{
+        Version     = $m.Groups[1].Value
+        FileName    = $fileName
+        DownloadUrl = [string]$entry.source
+        Sha256      = $sha256
     }
 }
 
@@ -131,30 +146,15 @@ function Get-AnypointStudioCandidateVersions {
 function Get-LatestAnypointStudioRelease {
     param([switch]$Quiet)
 
-    Write-Log "Release notes index          : $ReleaseNotesIndexUrl" -Quiet:$Quiet
+    Write-Log "Downloads manifest           : $ManifestUrl" -Quiet:$Quiet
 
     try {
-        $html = (curl.exe -L --fail --silent --show-error $ReleaseNotesIndexUrl) -join "`n"
-        if ($LASTEXITCODE -ne 0) { throw "Failed to read the Anypoint Studio release notes index." }
+        $json = (curl.exe -L --fail --silent --show-error @CdnCurlArgs $ManifestUrl) -join "`n"
+        if ($LASTEXITCODE -ne 0) { throw "Failed to read the MuleSoft downloads manifest." }
 
-        $listed = @([regex]::Matches($html, 'anypoint-studio-(\d+\.\d+\.\d+)') |
-            ForEach-Object { [version]$_.Groups[1].Value } | Sort-Object -Descending -Unique)
-        if ($listed.Count -eq 0) { throw "The release notes index lists no Anypoint Studio version." }
-        Write-Log "Newest listed version        : $($listed[0])" -Quiet:$Quiet
-
-        foreach ($candidate in (Get-AnypointStudioCandidateVersions -Newest $listed[0])) {
-            $url = Get-AnypointStudioZipUrl -Version $candidate
-            $code = (curl.exe --head --silent --output NUL --write-out '%{http_code}' $url) -join ''
-            if ($code -eq '200') {
-                Write-Log "Latest public version        : $candidate" -Quiet:$Quiet
-                return [pscustomobject]@{
-                    Version     = $candidate
-                    FileName    = Split-Path -Path ([uri]$url).AbsolutePath -Leaf
-                    DownloadUrl = $url
-                }
-            }
-        }
-        throw ("No public Windows ZIP found for Anypoint Studio {0}.{1} or the eight minor versions before it." -f $listed[0].Major, $listed[0].Minor)
+        $release = Get-AnypointStudioReleaseFromManifest -Json $json
+        Write-Log "Latest Anypoint Studio       : $($release.Version)" -Quiet:$Quiet
+        return $release
     }
     catch {
         Write-Log "Failed to get Anypoint Studio version: $($_.Exception.Message)" -Level ERROR
@@ -246,11 +246,18 @@ function Invoke-StageAnypointStudio {
 
     if (-not (Test-Path -LiteralPath $localZip)) {
         Write-Log "Downloading Anypoint Studio..."
-        Invoke-DownloadWithRetry -Url $releaseInfo.DownloadUrl -OutFile $localZip
+        Invoke-DownloadWithRetry -Url $releaseInfo.DownloadUrl -OutFile $localZip -ExtraCurlArgs $CdnCurlArgs
     }
     else {
         Write-Log "Local ZIP exists. Skipping download."
     }
+
+    $actualSha256 = (Get-FileHash -LiteralPath $localZip -Algorithm SHA256 -ErrorAction Stop).Hash.ToUpperInvariant()
+    if ($actualSha256 -ne $releaseInfo.Sha256) {
+        Remove-Item -LiteralPath $localZip -Force -ErrorAction SilentlyContinue
+        throw ("SHA-256 mismatch for {0}: expected {1}, got {2}. The download was removed." -f $releaseInfo.FileName, $releaseInfo.Sha256, $actualSha256)
+    }
+    Write-Log "SHA-256 verified             : $actualSha256"
 
     $featureVersion = Get-AnypointStudioFeatureVersion -ZipPath $localZip
     Write-Log "Studio build                 : $featureVersion"
@@ -428,7 +435,7 @@ try {
     Write-Log "SiteCode                     : $SiteCode"
     Write-Log "FileServerPath               : $FileServerPath"
     Write-Log "BaseDownloadRoot             : $BaseDownloadRoot"
-    Write-Log "ReleaseNotesIndexUrl         : $ReleaseNotesIndexUrl"
+    Write-Log "ManifestUrl                  : $ManifestUrl"
     Write-Log ""
 
     if ($StageOnly) {
