@@ -37,7 +37,7 @@ Stage-sweep caveats:
 - `package-windowsadk.ps1` and `package-windowspeaddon.ps1` build their layouts through Windows Installer and cannot run at the same time; they retry on exit 1618, but a sweep with `-ThrottleLimit` above 1 should skip one of them or run them separately.
 - A timed-out packager is killed with its process tree, so a stalled download does not leave curl.exe or setup.exe behind.
 
-A green offline run reports `311 script(s), 1555 check(s), 1555 passed, 0 failed, 0 skipped`.
+A green offline run reports `312 script(s), 1560 check(s), 1560 passed, 0 failed, 0 skipped`.
 
 ## Catalog matrix
 
@@ -108,6 +108,7 @@ No test writes to a certificate trust store in any scope. `AppPackagerWsus.Tests
 - `Invoke-TitleOptionsSmoke.ps1` - stored title-mode choices reach the background context map.
 - `Invoke-FullRegression.ps1` - runs every offline stage on both hosts and prints one summary table.
 - `PackagerSmoke.Tests.ps1` - Pester wrapper around the smoke harness.
+- `AnypointStudio.Tests.ps1` - the Anypoint Studio packager: the download URL, the versions probed, and the build read from the ZIP.
 - `AdobeReader.Tests.ps1` - the Adobe Reader packager: English and MUI installer and patch names, the LANG_LIST normalization, the stored install options, the MUI command line, the stage folder cleanup between editions, the setup.ini command line, and the preferences round trip.
 - `XamlParse.Tests.ps1` - every inline XAML block and XAML file parses as XML, so a panel shown later cannot fail on an undeclared prefix.
 - `ButtonTheme.Tests.ps1` - every button, in XAML or built in code, carries a theme style.
