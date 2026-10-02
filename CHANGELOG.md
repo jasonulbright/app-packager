@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026.10.02.0103] - 2026-10-02
+
+## 312 packagers
+
+### Added
+
+- Package MuleSoft Anypoint Studio from the vendor's latest ZIP to C:\AnypointStudio.
 ## [2026.10.01.0102] - 2026-10-01
 
 ## 1 crash fixed
