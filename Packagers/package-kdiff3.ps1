@@ -9,6 +9,7 @@ DownloadPageUrl: https://download.kde.org/stable/kdiff3/
 IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 180
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages KDiff3 (x64) for ConfigMgr.

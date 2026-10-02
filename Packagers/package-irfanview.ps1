@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.irfanview.info/main_history.htm
 DownloadPageUrl: https://www.irfanview.info/64bit.htm
 IconSource: External
 UpdateCadenceDays: 180
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages IrfanView (x64) for ConfigMgr.

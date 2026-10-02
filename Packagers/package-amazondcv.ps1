@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://docs.aws.amazon.com/dcv/latest/adminguide/doc-history-r
 DownloadPageUrl: https://www.amazondcv.com/
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages the Amazon DCV Client (x64) MSI for ConfigMgr.

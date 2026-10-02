@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://learn.microsoft.com/cli/azure/release-notes-azure-cli
 DownloadPageUrl: https://learn.microsoft.com/cli/azure/install-azure-cli-windows
 IconSource: None
 UpdateCadenceDays: 30
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Azure CLI (x64) MSI for ConfigMgr.

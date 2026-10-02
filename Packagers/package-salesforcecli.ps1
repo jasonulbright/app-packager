@@ -7,6 +7,7 @@ ReleaseNotesUrl: https://github.com/salesforcecli/cli/releases
 DownloadPageUrl: https://developer.salesforce.com/tools/salesforcecli
 IconSource: Installer
 UpdateCadenceDays: 14
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Salesforce CLI (sf, x64) for ConfigMgr.

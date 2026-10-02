@@ -6,6 +6,7 @@ VendorUrl: https://learn.microsoft.com/en-us/sysinternals/
 ReleaseNotesUrl: https://learn.microsoft.com/en-us/sysinternals/
 DownloadPageUrl: https://learn.microsoft.com/en-us/sysinternals/downloads/
 IconSource: External
+WsusSupport: No (CustomInstall)
 
 .SYNOPSIS
     Packages Sysinternals Suite for ConfigMgr.

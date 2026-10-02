@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/clechasseur/pathcopycopy/releases
 DownloadPageUrl: https://pathcopycopy.github.io/
 IconSource: External
 UpdateCadenceDays: 180
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Path Copy Copy (x64) for ConfigMgr.

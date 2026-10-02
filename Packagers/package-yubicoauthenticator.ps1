@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/Yubico/yubioath-flutter/releases
 DownloadPageUrl: https://www.yubico.com/products/yubico-authenticator/
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Yubico Authenticator (x64) MSI for ConfigMgr.

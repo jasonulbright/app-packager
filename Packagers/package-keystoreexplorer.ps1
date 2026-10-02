@@ -9,6 +9,7 @@ DownloadPageUrl: https://keystore-explorer.org/downloads.html
 IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 180
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages KeyStore Explorer (x64) for ConfigMgr.

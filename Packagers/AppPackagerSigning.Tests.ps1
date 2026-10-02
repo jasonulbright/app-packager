@@ -336,6 +336,35 @@ Describe 'Invoke-ScriptSigning' {
     }
 }
 
+Describe 'Signer identity' {
+    It 'fails when the file still carries another certificate after a signing call that wrote nothing' {
+        $other = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=AppPackager Unit Test Other Signer' `
+            -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddDays(1)
+        try {
+            $file = Join-Path $script:Root 'other-signer.ps1'
+            Set-Content -LiteralPath $file -Value 'exit 0' -Encoding ASCII
+            $null = Set-AuthenticodeSignature -FilePath $file -Certificate $other -ErrorAction Stop
+            Mock -ModuleName AppPackagerSigning Set-AuthenticodeSignature { }
+            $r = Invoke-ScriptSigning -Path $file -Category Deployment -Policy (& $script:Policy $false $false $true)
+            $r.Status | Should -Be 'Failed'
+            $r.Reason | Should -Match $script:Thumbprint
+        }
+        finally { Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($other.Thumbprint)" -Force -DeleteKey -ErrorAction SilentlyContinue }
+    }
+
+    It 'does not accept a signer chain from a certificate without the code-signing usage' {
+        $server = New-SelfSignedCertificate -Type SSLServerAuthentication -Subject 'CN=AppPackager Unit Test Server' -DnsName 'unit-test.invalid' `
+            -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddDays(1)
+        try {
+            InModuleScope AppPackagerSigning -Parameters @{ Server = $server; Signer = $script:Cert } {
+                Test-SigningChainIgnoringTrust -Certificate $Server | Should -BeFalse
+                Test-SigningChainIgnoringTrust -Certificate $Signer | Should -BeTrue
+            }
+        }
+        finally { Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($server.Thumbprint)" -Force -DeleteKey -ErrorAction SilentlyContinue }
+    }
+}
+
 Describe 'Signature verification' {
     It 'reports NotSigned for a plain script' {
         $p = Join-Path $script:Root 'plain.ps1'
@@ -527,6 +556,34 @@ Describe 'Test-DeploymentLauncherChain' {
         }
     }
 
+    It 'catches the spelling <Name>' -ForEach @(
+        @{ Name = 'ec alias';               Code = 'LauncherEncodedCommand';  Line = 'powershell.exe -ec ZQB4AGkAdAAgADAA' }
+        @{ Name = 'quoted parameter';       Code = 'LauncherExecutionPolicy'; Line = 'powershell.exe "-ex" bypass -File x.ps1' }
+        @{ Name = 'argument string';        Code = 'LauncherExecutionPolicy'; Line = "Start-Process powershell.exe -ArgumentList '-ep bypass -File x.ps1'" }
+        @{ Name = 'en dash';                Code = 'LauncherExecutionPolicy'; Line = ('powershell.exe ' + [char]0x2013 + 'ep bypass -File x.ps1') }
+        @{ Name = 'em dash';                Code = 'LauncherExecutionPolicy'; Line = ('powershell.exe ' + [char]0x2014 + 'ep bypass -File x.ps1') }
+        @{ Name = 'cmd caret';              Code = 'LauncherExecutionPolicy'; Line = 'powershell.exe -e^p bypass -File x.ps1' }
+    ) {
+        $file = Join-Path $script:ChainRoot 'spelling.ps1'
+        [System.IO.File]::WriteAllText($file, $Line, (New-Object System.Text.UTF8Encoding($true)))
+        $r = Test-DeploymentLauncherChain -StageRoot $script:ChainRoot -Manifest ([pscustomobject]@{}) -Policy ([pscustomobject]@{})
+        @($r.Findings | Where-Object { $_.Code -eq $Code }).Count | Should -BeGreaterThan 0
+    }
+
+    It 'inspects the generated launchers when a toolkit entry script sits at the stage root' {
+        Set-Content -LiteralPath (Join-Path $script:ChainRoot 'Deploy-Application.ps1') -Value 'exit 0' -Encoding ASCII
+        New-Item -ItemType Directory -Path (Join-Path $script:ChainRoot 'AppDeployToolkit') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:ChainRoot 'AppDeployToolkit\AppDeployToolkitMain.ps1') -Value 'exit 0' -Encoding ASCII
+        Set-Content -LiteralPath (Join-Path $script:ChainRoot 'install.bat') -Value 'PowerShell.exe -ExecutionPolicy Bypass -File "%~dp0install.ps1"' -Encoding ASCII
+        Set-Content -LiteralPath (Join-Path $script:ChainRoot 'install.ps1') -Value 'exit 0' -Encoding ASCII
+        New-Item -ItemType Directory -Path (Join-Path $script:ChainRoot 'scripts') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:ChainRoot 'scripts\detect.ps1') -Value 'exit 0' -Encoding ASCII
+        $r = Test-DeploymentLauncherChain -StageRoot $script:ChainRoot -Manifest ([pscustomobject]@{}) -Policy ([pscustomobject]@{})
+        $r.FilesInspected | Should -Be 3
+        $r.ThirdPartySkipped | Should -Be 2
+        $r.BypassFree | Should -BeFalse
+    }
+
     It 'flags a custom command carrying bypass' {
         $manifest = [pscustomobject]@{ InstallCommandLine = 'cmd.exe /c setup.exe && powershell -nop -executionpolicy bypass -file extra.ps1' }
         $r = Test-DeploymentLauncherChain -StageRoot $script:ChainRoot -Manifest $manifest -Policy ([pscustomobject]@{})
@@ -702,6 +759,15 @@ Describe 'Invoke-CategorySigning' {
         $fixture = & $script:NewFixture 'strict-unsigned' $false
         { Invoke-CategorySigning -StageRoot $fixture.StageRoot -ManifestData $fixture.Manifest -Policy (& $script:Policy $false $false $false -RD $true) } |
             Should -Throw '*RequireDetection*'
+    }
+
+    It 'stages a build with no detection or requirement script when both Require switches are set' {
+        $fixture = & $script:NewFixture 'require-not-applicable' $true
+        $fixture.Manifest['Detection'] = @{ Type = 'RegistryKeyValue' }
+        $fixture.Manifest.Remove('Requirements')
+        $block = Invoke-CategorySigning -StageRoot $fixture.StageRoot -ManifestData $fixture.Manifest -Policy (& $script:Policy $false $false $false -RD $true -RR $true)
+        $block.Detection.Status | Should -Be 'NotApplicable'
+        $block.Requirements.Status | Should -Be 'NotApplicable'
     }
 
     It 'accepts pre-signed detection text from the manifest when automatic signing is off' {

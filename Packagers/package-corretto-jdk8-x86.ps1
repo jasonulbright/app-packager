@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:amazon:corretto:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/corretto/corretto-8/releases
 DownloadPageUrl: https://aws.amazon.com/corretto/
 IconSource: None
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Amazon Corretto JDK 8 (x86) MSI for ConfigMgr.

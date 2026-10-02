@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/bitwarden/clients/releases
 DownloadPageUrl: https://bitwarden.com/download/
 IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Bitwarden Desktop (x64) for ConfigMgr.

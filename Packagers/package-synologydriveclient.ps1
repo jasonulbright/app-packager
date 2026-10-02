@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.synology.com/en-global/releaseNote/DriveClient
 DownloadPageUrl: https://archive.synology.com/download/Utility/SynologyDriveClient
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Synology Drive Client (x64) MSI for ConfigMgr.

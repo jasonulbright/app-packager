@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:microsoft:powertoys:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/microsoft/PowerToys/releases
 DownloadPageUrl: https://github.com/microsoft/PowerToys/releases
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Microsoft PowerToys for ConfigMgr.

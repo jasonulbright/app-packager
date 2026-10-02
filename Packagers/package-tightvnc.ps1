@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.tightvnc.com/whatsnew.php
 DownloadPageUrl: https://www.tightvnc.com/download.php
 IconSource: External
 UpdateCadenceDays: 180
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages TightVNC (x64) MSI for ConfigMgr.

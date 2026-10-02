@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/greenshot/greenshot/releases
 DownloadPageUrl: https://getgreenshot.org/downloads/
 IconSource: Installer
 UpdateCadenceDays: 180
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages Greenshot (x64) for ConfigMgr.

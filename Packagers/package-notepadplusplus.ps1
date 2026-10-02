@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:notepad-plus-plus:notepad%2b%2b:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://notepad-plus-plus.org/news/
 DownloadPageUrl: https://notepad-plus-plus.org/downloads/
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Notepad++ (x64) for ConfigMgr.

@@ -6,6 +6,7 @@ VendorUrl: https://www.drawio.com/
 ReleaseNotesUrl: https://github.com/jgraph/drawio-desktop/releases
 DownloadPageUrl: https://github.com/jgraph/drawio-desktop/releases
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages draw.io Desktop for ConfigMgr.

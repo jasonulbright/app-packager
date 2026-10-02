@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://clockify.me/help/whats-new
 DownloadPageUrl: https://clockify.me/apps
 IconSource: Installer
 UpdateCadenceDays: 30
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages the Clockify desktop app (x64) MSI for ConfigMgr.

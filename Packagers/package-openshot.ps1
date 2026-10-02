@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/OpenShot/openshot-qt/releases
 DownloadPageUrl: https://www.openshot.org/download/
 IconSource: Installer
 UpdateCadenceDays: 120
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages OpenShot Video Editor (x64, all-users) for ConfigMgr.

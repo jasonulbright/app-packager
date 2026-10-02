@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:postgresql:postgresql:17.*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.postgresql.org/docs/17/release.html
 DownloadPageUrl: https://www.postgresql.org/download/windows/
 IconSource: Installer
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages PostgreSQL 17 (x64) for ConfigMgr.

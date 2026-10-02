@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://mariadb.com/docs/release-notes/
 DownloadPageUrl: https://mariadb.org/download/
 IconSource: None
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages MariaDB Server (x64) MSI for ConfigMgr.

@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:rarlab:winrar:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.win-rar.com/whatsnew.html
 DownloadPageUrl: https://www.win-rar.com/download.html
 IconSource: Installer
+WsusSupport: No (CustomInstall)
 
 .SYNOPSIS
     Packages WinRAR (x64) for ConfigMgr.

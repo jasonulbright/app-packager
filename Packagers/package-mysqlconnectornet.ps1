@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://dev.mysql.com/doc/relnotes/connector-net/en/
 DownloadPageUrl: https://dev.mysql.com/downloads/connector/net/
 IconSource: External
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages MySQL Connector/NET (MSI) for ConfigMgr.

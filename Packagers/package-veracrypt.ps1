@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.veracrypt.io/en/Release%20Notes.html
 DownloadPageUrl: https://www.veracrypt.io/en/Downloads.html
 IconSource: Installer
 UpdateCadenceDays: 180
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages VeraCrypt (x64 MSI) for ConfigMgr.

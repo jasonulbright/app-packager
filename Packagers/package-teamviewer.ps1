@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:teamviewer:teamviewer:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.teamviewer.com/en-us/whats-new/
 DownloadPageUrl: https://www.teamviewer.com/en-us/download/windows/
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages TeamViewer (x64) MSI for ConfigMgr.

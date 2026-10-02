@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/hashicorp/vagrant/blob/main/CHANGELOG.md
 DownloadPageUrl: https://releases.hashicorp.com/vagrant/
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Vagrant (x64 MSI) for ConfigMgr.
@@ -150,7 +151,7 @@ function Get-LatestVagrantRelease {
         $ordered = @($versions) | Sort-Object { [version]$_ } -Descending
         foreach ($v in $ordered) {
             $versionUrl = "$ReleaseIndexUrl$v/"
-            $html = (curl.exe -L --fail --silent --show-error $versionUrl) -join "`n"
+            $html = (curl.exe -L --fail --silent --show-error (ConvertTo-SafeCurlUrl $versionUrl)) -join "`n"
             if ($LASTEXITCODE -ne 0) { continue }
 
             $fileName = "vagrant_${v}_windows_amd64.msi"

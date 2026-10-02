@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://learn.microsoft.com/en-us/power-bi/fundamentals/desktop
 DownloadPageUrl: https://www.microsoft.com/download/details.aspx?id=58494
 IconSource: Installer
 UpdateCadenceDays: 30
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Microsoft Power BI Desktop (x64) for ConfigMgr.

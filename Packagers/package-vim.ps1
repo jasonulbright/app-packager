@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:vim:vim:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/vim/vim-win32-installer/releases
 DownloadPageUrl: https://github.com/vim/vim-win32-installer/releases
 IconSource: Installer
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages Vim/gVim (x64) for ConfigMgr.

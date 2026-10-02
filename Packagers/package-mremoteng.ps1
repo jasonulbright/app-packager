@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:mremoteng:mremoteng:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/mRemoteNG/mRemoteNG/releases
 DownloadPageUrl: https://mremoteng.org/download
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages mRemoteNG for ConfigMgr.

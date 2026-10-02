@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://docs.aws.amazon.com/systems-manager/latest/userguide/pl
 DownloadPageUrl: https://docs.aws.amazon.com/systems-manager/latest/userguide/install-plugin-windows.html
 IconSource: None
 UpdateCadenceDays: 60
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages the AWS Session Manager Plugin for ConfigMgr.

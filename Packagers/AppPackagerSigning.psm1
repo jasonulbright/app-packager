@@ -224,15 +224,21 @@ function Get-SigningTokenFindings {
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
 
     $findings = New-Object System.Collections.ArrayList
-    foreach ($raw in ($Text -split '[\s=:]+')) {
+    # PowerShell accepts U+2013, U+2014 and U+2015 as the parameter dash, cmd
+    # removes a caret before the host sees the argument, and a parameter can
+    # arrive quoted or inside a quoted argument string.
+    $normalized = ($Text -replace '\^', '') -replace ('[{0}{1}{2}]' -f [char]0x2013, [char]0x2014, [char]0x2015), '-'
+    foreach ($raw in ($normalized -split '[\s=:,;()]+')) {
         if ([string]::IsNullOrWhiteSpace($raw)) { continue }
-        if ($raw[0] -ne '-' -and $raw[0] -ne '/') { continue }
-        $name = $raw.TrimStart('-', '/').Trim('"', "'").ToLowerInvariant()
+        $token = $raw.TrimStart('"', "'", '`')
+        if ($token.Length -eq 0) { continue }
+        if ($token[0] -ne '-' -and $token[0] -ne '/') { continue }
+        $name = $token.TrimStart('-', '/').Trim('"', "'", '`').ToLowerInvariant()
         if ([string]::IsNullOrEmpty($name)) { continue }
         if ('executionpolicy'.StartsWith($name) -or $name -eq 'ep') {
             [void]$findings.Add([pscustomobject]@{ Code = 'LauncherExecutionPolicy'; Token = $raw })
         }
-        if ('encodedcommand'.StartsWith($name)) {
+        if ('encodedcommand'.StartsWith($name) -or $name -eq 'ec') {
             [void]$findings.Add([pscustomobject]@{ Code = 'LauncherEncodedCommand'; Token = $raw })
         }
     }
@@ -263,7 +269,9 @@ function Get-SigningThirdPartyRoots {
     $declared = @()
     $declaredValue = Get-SigningPropertyValue -InputObject $ManifestData -Name 'ThirdPartyScripts' -Default $null
     if ($null -ne $declaredValue) { $declared = @($declaredValue | ForEach-Object { [string]$_ }) }
-    return [pscustomobject]@{ Roots = @($roots); Declared = @($declared) }
+    $stageRootFull = ''
+    if (Test-Path -LiteralPath $StageRoot) { $stageRootFull = (Get-Item -LiteralPath $StageRoot).FullName.TrimEnd('\') }
+    return [pscustomobject]@{ Roots = @($roots); Declared = @($declared); StageRoot = $stageRootFull }
 }
 
 function Test-SigningThirdPartyFile {
@@ -272,8 +280,20 @@ function Test-SigningThirdPartyFile {
         [Parameter(Mandatory)][string]$RelativePath,
         [Parameter(Mandatory)]$ThirdParty
     )
+    $stageRoot = [string](Get-SigningPropertyValue -InputObject $ThirdParty -Name 'StageRoot' -Default '')
     foreach ($root in @($ThirdParty.Roots)) {
-        if ($FullName.StartsWith($root + '\', [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+        if (-not $FullName.StartsWith($root + '\', [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+        if ($stageRoot -and $root -ieq $stageRoot) {
+            # A toolkit laid out at the stage root shares that folder with the
+            # generated launchers: only its entry script and its subfolders
+            # are vendor content.
+            $leaf = [System.IO.Path]::GetFileName($FullName)
+            # scripts\ holds the generated detection and requirement scripts.
+            if ($RelativePath -like 'scripts\*') { continue }
+            $inSubfolder = ($FullName.Substring($root.Length + 1).IndexOf('\') -ge 0)
+            if (-not $inSubfolder -and $leaf -ine 'Invoke-AppDeployToolkit.ps1' -and $leaf -ine 'Deploy-Application.ps1') { continue }
+        }
+        return $true
     }
     foreach ($name in @($ThirdParty.Declared)) {
         if ($RelativePath -ieq $name) { return $true }
@@ -715,6 +735,7 @@ function Test-SigningChainIgnoringTrust {
     try {
         $chain.ChainPolicy.RevocationMode = [System.Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
         $chain.ChainPolicy.VerificationFlags = [System.Security.Cryptography.X509Certificates.X509VerificationFlags]::AllowUnknownCertificateAuthority
+        [void]$chain.ChainPolicy.ApplicationPolicy.Add((New-Object System.Security.Cryptography.Oid($script:CodeSigningEku)))
         return [bool]$chain.Build($Certificate)
     }
     catch { return $false }
@@ -976,7 +997,12 @@ function Invoke-ScriptSigning {
         throw "TimestampRequired is set but the $Category script '$Path' carries no timestamp counter-signature (server '$($policy.TimestampServer)')."
     }
 
-    if ($verify.SignatureIntact) {
+    $selectedThumbprint = $cert.Thumbprint.ToUpperInvariant()
+    if ($verify.SignatureIntact -and $verify.Thumbprint -ne $selectedThumbprint) {
+        $result.Status = 'Failed'
+        $result.Reason = "The file carries a signature from certificate $($verify.Thumbprint), not from the selected certificate $selectedThumbprint."
+    }
+    elseif ($verify.SignatureIntact) {
         $result.Status = 'SignedAndVerified'
         if (-not $verify.TrustedOnThisHost) {
             $result.Reason = 'Signature is intact; the signer chain is not trusted on this host, which says nothing about endpoint trust.'
@@ -1320,6 +1346,8 @@ function Invoke-CategorySigning {
     foreach ($category in 'Detection', 'Requirements', 'Deployment') {
         if (-not $policy.("Require$category")) { continue }
         $status = [string]$block[$category].Status
+        # A build with no script in the category has nothing to sign.
+        if ($status -eq 'NotApplicable') { continue }
         if ($status -ne 'SignedAndVerified' -and $status -ne 'ExistingSignatureValid') {
             throw "Require$category is set but the $category category status is '$status'; refusing to publish."
         }

@@ -25,7 +25,8 @@ function Get-OneClickDestinationNames {
 function ConvertTo-OneClickDestinationSet {
     <#
     .SYNOPSIS
-        Normalizes any destination description to the three flags.
+        Normalizes
+ any destination description to the three flags.
     .DESCRIPTION
         Accepts a deployment target name (MECM, MECMAndIntune, IntuneOnly,
         MECMAndWSUS, WSUSOnly), an object with ConfigMgr, WSUS and Intune
@@ -452,6 +453,7 @@ function Get-OneClickPlan {
 
         $reasons = New-Object System.Collections.Generic.List[string]
         $publishTo = New-Object System.Collections.Generic.List[string]
+        $notPublishable = New-Object System.Collections.Generic.List[string]
         $selected = @($script:OneClickDestinations | Where-Object { [bool]$destinations.$_ })
 
         $planned = ''
@@ -483,8 +485,8 @@ function Get-OneClickPlan {
                 if ($Action -in @('Stage', 'StageAndPackage')) { $steps += 'Stage' }
                 if ($Action -eq 'StageAndPackage') {
                     foreach ($d in $selected) {
-                        if (-not $readiness[$d].Ready) { $reasons.Add(('{0}: {1}' -f $d, $readiness[$d].Reason)); continue }
-                        if ($d -eq 'WSUS' -and $wsusUnsupported) { $reasons.Add('WSUS: not supported'); continue }
+                        if (-not $readiness[$d].Ready) { $reasons.Add(('{0}: {1}' -f $d, $readiness[$d].Reason)); $notPublishable.Add($d); continue }
+                        if ($d -eq 'WSUS' -and $wsusUnsupported) { $reasons.Add('WSUS: not supported'); $notPublishable.Add($d); continue }
                         if (-not $Force -and -not [string]::IsNullOrWhiteSpace($latest) -and $lastRefused[$d] -eq $latest) {
                             $reasons.Add(('{0}: not supported' -f $d)); continue
                         }
@@ -518,12 +520,23 @@ function Get-OneClickPlan {
             LastWSUS      = $lastPublished['WSUS']
             LastIntune    = $lastPublished['Intune']
             PublishTo     = $publishTo.ToArray()
+            NotPublishable = $notPublishable.ToArray()
             Planned       = $planned
             Reason        = ($reasons -join '; ')
             Include       = $include
         })
     }
     return $rows.ToArray()
+}
+
+function Select-OneClickRunDestinations {
+    <#
+    .SYNOPSIS
+        The destinations a run publishes to: the selected ones without those
+        the plan reported as not ready or not supported.
+    #>
+    param([AllowEmptyCollection()][string[]]$Selected = @(), [AllowEmptyCollection()][string[]]$NotPublishable = @())
+    return @($Selected | Where-Object { $NotPublishable -notcontains $_ })
 }
 
 function Get-OneClickPlanSummary {
@@ -601,11 +614,24 @@ function Write-OneClickReport {
     )
     if (-not (Test-Path -LiteralPath $Folder)) { New-Item -ItemType Directory -Path $Folder -Force | Out-Null }
     $stamp = ([datetime]$Run.Started).ToString('yyyyMMdd-HHmmss')
-    $mdPath = Join-Path $Folder ("one-click-{0}.md" -f $stamp)
-    $jsonPath = Join-Path $Folder ("one-click-{0}.json" -f $stamp)
+    # Two runs can start in the same second.
+    $name = 'one-click-{0}' -f $stamp
+    $suffix = 1
+    while ((Test-Path -LiteralPath (Join-Path $Folder ($name + '.md'))) -or (Test-Path -LiteralPath (Join-Path $Folder ($name + '.json')))) {
+        $suffix++
+        $name = 'one-click-{0}-{1}' -f $stamp, $suffix
+    }
+    $mdPath = Join-Path $Folder ($name + '.md')
+    $jsonPath = Join-Path $Folder ($name + '.json')
 
     $get = { param($obj, $prop) if ($obj.PSObject.Properties[$prop]) { [string]$obj.PSObject.Properties[$prop].Value } else { '' } }
-    $esc = { param([string]$s) ($s -replace '\|', '\|') -replace "`r?`n", ' ' }
+    # Application names and messages come from vendor pages and servers; a
+    # Markdown viewer must show them as text, not as links or HTML.
+    $esc = {
+        param([string]$s)
+        $s = (($s -replace '&', '&amp;') -replace '<', '&lt;') -replace '>', '&gt;'
+        ($s -replace '([\\`*_\[\]|])', '\$1') -replace "`r?`n", ' '
+    }
 
     $published = @($Rows | Where-Object { (& $get $_ 'Outcome') -eq 'Published' }).Count
     $failed = @($Rows | Where-Object { (& $get $_ 'Outcome') -eq 'Failed' }).Count
@@ -741,6 +767,6 @@ Export-ModuleMember -Function @(
     'Test-OneClickDestinationInUse', 'Get-OneClickDestinationScope',
     'Get-OneClickPublishedVersion', 'Set-OneClickPublishedVersion',
     'Get-OneClickNotSupportedVersion', 'Get-OneClickNotSupportedReason', 'Set-OneClickNotSupported',
-    'Get-OneClickCadenceDays', 'Get-OneClickPlan', 'Get-OneClickPlanSummary',
+    'Get-OneClickCadenceDays', 'Get-OneClickPlan', 'Get-OneClickPlanSummary', 'Select-OneClickRunDestinations',
     'Get-OneClickReportFolder', 'Write-OneClickReport', 'Get-OneClickReportList'
 )

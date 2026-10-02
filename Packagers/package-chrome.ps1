@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://chromereleases.googleblog.com/
 DownloadPageUrl: https://chromeenterprise.google/download/
 IconSource: Installer
 SupportsVariants: Architecture
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Google Chrome MSI for ConfigMgr.

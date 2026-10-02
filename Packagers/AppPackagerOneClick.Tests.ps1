@@ -333,3 +333,57 @@ Describe 'Write-OneClickReport and Get-OneClickReportList' {
         Split-Path $paths.MarkdownPath -Leaf | Should -Be 'one-click-20260402-010203.md'
     }
 }
+
+Describe 'Write-OneClickReport with hostile text and a repeated start time' {
+    BeforeAll {
+        $script:ReportRun = [pscustomobject]@{
+            Started = [datetime]'2026-04-01T10:00:00'; Ended = [datetime]'2026-04-01T10:01:00'
+            Operator = 'op'; Computer = 'WS01'; Action = 'Report'; Force = $false; Canceled = $false
+        }
+        $script:ReportRows = @([pscustomobject]@{
+            Application = '[Click](http://example.invalid) <img src=x>'; Version = '1.0'; Outcome = 'Failed'
+            Reason = 'a|b *bold* <script>alert(1)</script>'
+        })
+    }
+
+    It 'writes names and messages as text, not as links or HTML' {
+        $paths = Write-OneClickReport -Run $script:ReportRun -Rows $script:ReportRows -Folder (Join-Path $TestDrive 'esc')
+        $md = Get-Content -LiteralPath $paths.MarkdownPath -Raw
+        $md | Should -Not -Match '<img|<script'
+        $md | Should -Not -Match '(?<!\\)\[Click\]'
+        $md | Should -Match '&lt;img src=x&gt;'
+        $md | Should -Match 'a\\\|b \\\*bold\\\*'
+    }
+
+    It 'keeps both reports when two runs start in the same second' {
+        $folder = Join-Path $TestDrive 'same-second'
+        $first = Write-OneClickReport -Run $script:ReportRun -Rows $script:ReportRows -Folder $folder
+        $second = Write-OneClickReport -Run $script:ReportRun -Rows $script:ReportRows -Folder $folder
+        $second.MarkdownPath | Should -Not -Be $first.MarkdownPath
+        $second.JsonPath | Should -Not -Be $first.JsonPath
+        @(Get-ChildItem -LiteralPath $folder -Filter *.md).Count | Should -Be 2
+    }
+}
+
+Describe 'Destinations a run publishes to' {
+    It 'reports a destination that is not ready and one that the packager marks as not supported' {
+        $prefs = New-TestPrefs -Target 'MECMAndWSUS' -WsusServer ''
+        $plan = Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '1') -Prefs $prefs -Action 'StageAndPackage'
+        $plan[0].NotPublishable | Should -Contain 'WSUS'
+
+        $app = New-TestApp 'package-b' -Latest '1'
+        $app | Add-Member -NotePropertyName WsusUnsupported -NotePropertyValue $true -Force
+        $ready = New-TestPrefs -Target 'MECMAndWSUS'
+        $row = (Get-OneClickPlan -Apps @($app) -Prefs $ready -Action 'StageAndPackage')[0]
+        if ($row.WSUS) {
+            $row.NotPublishable | Should -Contain 'WSUS'
+            $row.Reason | Should -Match 'WSUS: not supported'
+        }
+    }
+
+    It 'leaves such a destination out of the run although its box is checked' {
+        Select-OneClickRunDestinations -Selected @('ConfigMgr', 'WSUS') -NotPublishable @('WSUS') | Should -Be @('ConfigMgr')
+        Select-OneClickRunDestinations -Selected @('ConfigMgr', 'WSUS') -NotPublishable @() | Should -Be @('ConfigMgr', 'WSUS')
+        @(Select-OneClickRunDestinations -Selected @('WSUS') -NotPublishable @('WSUS')).Count | Should -Be 0
+    }
+}

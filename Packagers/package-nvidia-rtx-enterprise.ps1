@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.nvidia.com/en-us/drivers/drivers-faq/
 DownloadPageUrl: https://www.nvidia.com/Download/index.aspx
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages the latest NVIDIA RTX Enterprise (Quadro Certified) DCH driver (x64) for ConfigMgr.
@@ -148,7 +149,7 @@ function Resolve-NvidiaRTXEnterpriseLatest {
     Write-Log "NVIDIA driver API URL        : $url" -Quiet:$Quiet
 
     try {
-        $json = (curl.exe -L --fail --silent --show-error $url) -join ''
+        $json = (curl.exe -L --fail --silent --show-error (ConvertTo-SafeCurlUrl $url)) -join ''
         if ($LASTEXITCODE -ne 0) { throw "AjaxDriverService.php returned exit $LASTEXITCODE" }
 
         $data = ConvertFrom-Json $json

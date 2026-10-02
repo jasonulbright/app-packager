@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://anyburn.com/tutorials/history.htm
 DownloadPageUrl: https://anyburn.com/download.htm
 IconSource: Installer
 UpdateCadenceDays: 120
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages AnyBurn (free edition, x64 host) for ConfigMgr.

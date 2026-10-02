@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/Automattic/simplenote-electron/releases/late
 IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Simplenote (x64) for ConfigMgr.

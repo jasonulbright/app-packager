@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:jetbrains:datagrip:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.jetbrains.com/datagrip/whatsnew/
 DownloadPageUrl: https://www.jetbrains.com/datagrip/download/?section=windows
 UpdateCadenceDays: 60
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages DataGrip (x64) for ConfigMgr.

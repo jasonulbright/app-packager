@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:audacityteam:audacity:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.audacityteam.org/releases/
 DownloadPageUrl: https://www.audacityteam.org/download/
 IconSource: Installer
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages Audacity (x64) for ConfigMgr.

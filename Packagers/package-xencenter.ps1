@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://docs.xenserver.com/en-us/xenserver/8/whats-new.html
 DownloadPageUrl: https://www.xenserver.com/downloads
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages XenCenter (x64) MSI for ConfigMgr.

@@ -7,6 +7,7 @@ ReleaseNotesUrl: https://github.com/NetLogo/NetLogo/releases
 DownloadPageUrl: https://www.netlogo.org/download/
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages NetLogo (x64) MSI for ConfigMgr.

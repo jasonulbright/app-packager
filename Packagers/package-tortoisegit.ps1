@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:tortoisegit:tortoisegit:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://tortoisegit.org/changelog
 DownloadPageUrl: https://tortoisegit.org/download/
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages TortoiseGit (x64) MSI for ConfigMgr.

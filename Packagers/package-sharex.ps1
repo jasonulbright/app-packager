@@ -6,6 +6,7 @@ VendorUrl: https://getsharex.com/
 ReleaseNotesUrl: https://github.com/ShareX/ShareX/releases
 DownloadPageUrl: https://getsharex.com/downloads
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages ShareX for ConfigMgr.

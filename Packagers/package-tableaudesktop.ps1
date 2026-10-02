@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.tableau.com/support/releases
 DownloadPageUrl: https://www.tableau.com/products/desktop/download
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages Tableau Desktop (x64) for ConfigMgr.

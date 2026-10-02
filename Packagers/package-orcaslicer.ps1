@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/SoftFever/OrcaSlicer/releases
 DownloadPageUrl: https://github.com/SoftFever/OrcaSlicer/releases/latest
 IconSource: Installer
 UpdateCadenceDays: 45
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages OrcaSlicer (x64) for ConfigMgr.

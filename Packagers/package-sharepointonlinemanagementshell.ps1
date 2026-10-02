@@ -7,6 +7,7 @@ ReleaseNotesUrl: https://learn.microsoft.com/powershell/sharepoint/sharepoint-on
 DownloadPageUrl: https://www.microsoft.com/en-us/download/details.aspx?id=35588
 IconSource: None
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages SharePoint Online Management Shell (x64) MSI for ConfigMgr.

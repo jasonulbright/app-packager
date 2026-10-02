@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.binaryfortress.com/HashTools/ChangeLog/
 DownloadPageUrl: https://www.binaryfortress.com/HashTools/Download/
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages HashTools (x64) Inno Setup installer for ConfigMgr.
