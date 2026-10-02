@@ -41,6 +41,7 @@
 "Android Studio 3","Skip-Splinter","old Android Studio; latest tracked"
 "Android Studio 4","Skip-Splinter","old Android Studio; latest tracked"
 "AnyBurn","Added-1.4.0.16","free direct download, enterprise-relevant; port target [ported, stage-verified 2026-08-31]"
+"Anypoint Studio","Supported","existing packager: anypointstudio (ZIP to C:\AnypointStudio)"
 "AnyDesk","Supported","existing packager: anydesk"
 "AnyLogic Professional","Skip-Licensed","licensed simulation"
 "AnyLogic University","Skip-Licensed","licensed simulation"
