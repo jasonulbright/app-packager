@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:anaconda:anaconda:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://docs.anaconda.com/anaconda/release-notes/
 DownloadPageUrl: https://repo.anaconda.com/archive/
 UpdateCadenceDays: 90
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages Anaconda Distribution (x64) for ConfigMgr.

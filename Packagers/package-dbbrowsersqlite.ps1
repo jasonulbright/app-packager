@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/sqlitebrowser/sqlitebrowser/releases
 DownloadPageUrl: https://sqlitebrowser.org/dl/
 IconSource: Installer
 UpdateCadenceDays: 180
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages DB Browser for SQLite (x64) MSI for ConfigMgr.

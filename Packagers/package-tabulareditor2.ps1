@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/TabularEditor/TabularEditor/releases
 DownloadPageUrl: https://github.com/TabularEditor/TabularEditor/releases/latest
 IconSource: Installer
 UpdateCadenceDays: 120
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Tabular Editor 2 MSI for ConfigMgr.

@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/ibmruntimes/semeru11-binaries/releases
 DownloadPageUrl: https://developer.ibm.com/languages/java/semeru-runtimes/downloads/
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages IBM Semeru Runtime Open Edition JRE 11 (x64) MSI for ConfigMgr.

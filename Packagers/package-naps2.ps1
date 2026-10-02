@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/cyanfish/naps2/releases
 DownloadPageUrl: https://www.naps2.com/download
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages NAPS2 (x64) MSI for ConfigMgr.

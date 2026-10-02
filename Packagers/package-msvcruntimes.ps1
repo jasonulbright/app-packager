@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:microsoft:visual_c%2b%2b_redistributable:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
 DownloadPageUrl: https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
 IconSource: None
+WsusSupport: No (CustomInstall|InstallerMissing)
 
 .SYNOPSIS
     Packages Microsoft Visual C++ v14 Redistributable (x86+x64) for ConfigMgr.

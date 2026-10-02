@@ -11,7 +11,6 @@
         'Get-WsusClassificationNames'
         'ConvertTo-WsusPublishSettings'
         'Get-WsusIdentityTag'
-        'New-WsusPackageId'
         'Get-WsusIdentityLine'
         'Get-WsusUpdateIdentity'
         'ConvertFrom-WsusCatalogInput'

@@ -7,6 +7,7 @@ ReleaseNotesUrl: https://github.com/CloudCompare/CloudCompare/releases
 DownloadPageUrl: https://www.cloudcompare.org/release/index.html
 IconSource: External
 UpdateCadenceDays: 180
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages CloudCompare (x64) for ConfigMgr.
@@ -151,7 +152,7 @@ function Get-LatestCloudCompareRelease {
         $fileName = "CloudCompare_v${version}_setup_x64.exe"
         $url      = "$ReleaseFileRoot$fileName"
 
-        $headers = (curl.exe -sS -I -L -A "Mozilla/5.0" $url) -join "`n"
+        $headers = (curl.exe -sS -I -L -A "Mozilla/5.0" (ConvertTo-SafeCurlUrl $url)) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Could not query the installer URL: $url" }
         if ($headers -notmatch '(?im)^\s*content-type:\s*application/') {
             throw "The composed installer URL does not serve a binary: $url"

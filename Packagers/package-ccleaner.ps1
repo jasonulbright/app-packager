@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.ccleaner.com/ccleaner/version-history
 DownloadPageUrl: https://www.ccleaner.com/ccleaner/download
 IconSource: Installer
 UpdateCadenceDays: 30
+WsusSupport: No (CustomInstall)
 
 .SYNOPSIS
     Packages CCleaner Free for ConfigMgr.
@@ -116,7 +117,8 @@ function Get-LatestCCleanerVersion {
     Write-Log "Version history URL          : $VersionHistoryUrl" -Quiet:$Quiet
 
     try {
-        $html = (curl.exe -L --fail --silent --show-error $VersionHistoryUrl) -join "`n"
+        # The vendor site answers 403 to a request without a browser user agent.
+        $html = (curl.exe -L --fail --silent --show-error -A 'Mozilla/5.0' $VersionHistoryUrl) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch CCleaner version history: $VersionHistoryUrl" }
 
         $rx = [regex]'v(?<ver>\d+\.\d+\.\d+)'
@@ -205,37 +207,51 @@ function Invoke-StageCCleaner {
     }
 
     # --- Generate content wrappers ---
-    $wrappers = New-ExeWrapperContent -InstallerFileName $installerFileName `
-        -InstallArgs "'/S'" `
-        -UninstallCommand 'unused'
+    # The version 7 installer starts CCleaner as its last action. Where no
+    # interactive desktop exists (a deployment that runs as SYSTEM) that start
+    # fails, and the installer returns 111111 after a complete install. The
+    # detection rule still decides whether the install succeeded.
+    $installContent = @'
+$exePath = Join-Path $PSScriptRoot '__INSTALLER__'
+$proc = Start-Process -FilePath $exePath -ArgumentList @('/S') -Wait -PassThru -NoNewWindow
+if ($proc.ExitCode -eq 111111) { exit 0 }
+exit $proc.ExitCode
+'@
+    $installContent = $installContent.Replace('__INSTALLER__', ($installerFileName -replace "'", "''"))
 
     # The uninstaller path is not fixed across CCleaner builds; the ARP
     # UninstallString is the only value guaranteed to point at the copy that
-    # installed this client.
+    # installed this client. Version 7 registers the key 'CCleaner 7' and the
+    # vendor's shared installer, which takes /silent after its own arguments;
+    # earlier versions register 'CCleaner' and an uninstaller that takes /S.
     $uninstallContent = @'
-$keys = @(
-    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CCleaner',
-    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\CCleaner'
-)
-$cmd = $null
-foreach ($k in $keys) {
-    $p = Get-ItemProperty -LiteralPath $k -ErrorAction SilentlyContinue
-    if ($p -and $p.UninstallString) { $cmd = $p.UninstallString; break }
-}
-if (-not $cmd) { exit 0 }
-if ($cmd -match '^"([^"]+)"') { $exe = $matches[1] } else { $exe = $cmd.Trim() }
-if (-not (Test-Path -LiteralPath $exe)) { exit 0 }
-$proc = Start-Process -FilePath $exe -ArgumentList @('/S') -Wait -PassThru -NoNewWindow
+$entry = Get-ChildItem -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
+    Where-Object { $_.PSChildName -match '^CCleaner( \d+)?$' } |
+    ForEach-Object { Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue } |
+    Where-Object { $_.UninstallString } | Sort-Object -Property PSChildName -Descending | Select-Object -First 1
+if (-not $entry) { exit 0 }
+$cmd = [string]$entry.UninstallString
+if ($cmd -match '^"([^"]+)"\s*(.*)$') { $exe = $matches[1]; $rest = $matches[2].Trim() }
+elseif ($cmd -match '^(.+?\.exe)\s*(.*)$') { $exe = $matches[1]; $rest = $matches[2].Trim() }
+else { $exe = $cmd.Trim(); $rest = '' }
+if (-not (Test-Path -LiteralPath $exe)) { Write-Error "CCleaner uninstaller not found: $exe"; exit 1 }
+$arguments = if ($rest -match '/uninstall:') { @($rest, '/silent') } else { @('/S') }
+$proc = Start-Process -FilePath $exe -ArgumentList $arguments -Wait -PassThru -NoNewWindow
 exit $proc.ExitCode
 '@
 
     Write-ContentWrappers -OutputPath $localContentPath `
-        -InstallPs1Content $wrappers.Install `
+        -InstallPs1Content $installContent `
         -UninstallPs1Content $uninstallContent
 
     # --- Write stage manifest ---
     $appName   = "CCleaner"
     $publisher = "Piriform Software Ltd."
+    # From version 7 the uninstall key and its DisplayName carry the major
+    # version ('CCleaner 7').
+    $major = [int]($version -split '\.')[0]
+    $arpName = if ($major -ge 7) { "CCleaner $major" } else { "CCleaner" }
+    $ArpRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$arpName"
 
     Write-Log ""
     Write-Log "Detection key                : $ArpRegistryKey"
@@ -259,7 +275,7 @@ exit $proc.ExitCode
             PropertyType        = "Version"
             Operator            = "GreaterEquals"
             ExpectedValue       = $version
-            DisplayName         = $appName
+            DisplayName         = $arpName
             DisplayVersion      = $version
             Is64Bit             = $true
         }

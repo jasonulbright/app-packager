@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://uvnc.com/downloads/ultravnc.html
 DownloadPageUrl: https://uvnc.com/downloads/ultravnc.html
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages UltraVNC (x64) for ConfigMgr.
@@ -109,7 +110,7 @@ $AppFolder    = "UltraVNC"
 
 $BaseDownloadRoot = Join-Path $DownloadRoot "UltraVNC"
 
-$InstallDir = "{0}\uvnc bvba\UltraVNC" -f $env:ProgramFiles
+$InstallDir = "{0}\uvnc\UltraVNC" -f $env:ProgramFiles
 
 # The Inno script sets AppID to a fixed literal that is neither the product
 # name nor the version, so the uninstall key is stable across releases; the x64
@@ -134,6 +135,50 @@ function Assert-PayloadIsExecutable {
     if ($bytes.Count -lt 2 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {
         throw "Downloaded payload is not a Windows executable (no MZ header): $Path"
     }
+}
+
+
+function New-UltraVncUninstallContent {
+    # The install folder is a vendor choice that differs between releases, so
+    # the uninstaller is found through the ARP entry. A missing entry means the
+    # product is absent; an entry whose uninstaller is gone is a failure.
+    $content = @'
+$entry = $null
+foreach ($root in @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall')) {
+    $entry = Get-ItemProperty -LiteralPath (Join-Path $root '__KEY__') -ErrorAction SilentlyContinue
+    if ($entry -and $entry.UninstallString) { break }
+}
+if (-not $entry -or -not $entry.UninstallString) { exit 0 }
+$cmd = $entry.UninstallString
+if ($cmd -match '^"([^"]+)"') { $exe = $matches[1] } else { $exe = $cmd.Trim() }
+if (-not (Test-Path -LiteralPath $exe)) { Write-Error "Uninstaller not found: $exe"; exit 1 }
+$proc = Start-Process -FilePath $exe -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru -NoNewWindow
+exit $proc.ExitCode
+'@
+    return $content.Replace('__KEY__', (Split-Path -Leaf $ArpRegistryKey))
+}
+
+
+function Get-UltraVncSetupPath {
+    <#
+    .SYNOPSIS
+        Returns the category-relative path of the x64 setup entry for a
+        release, or nothing when the detail page does not list it.
+    .DESCRIPTION
+        The detail page links the entry under /all/summary/ or under
+        /component/jdownloads/summary/, with or without a query string. The
+        download handler takes the same relative path under
+        /component/jdownloads/send/.
+    #>
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Html,
+        [Parameter(Mandatory)][string]$Compact
+    )
+
+    $rx = [regex]('href\s*=\s*"/(?:all|component/jdownloads)/summary/(?<path>[^"?]*?' + [regex]::Escape($Compact) + '-x64-setup\.html(?:\?[^"]*)?)"')
+    $m = $rx.Match($Html)
+    if (-not $m.Success) { return $null }
+    return $m.Groups['path'].Value
 }
 
 
@@ -175,19 +220,17 @@ function Get-LatestUltraVncRelease {
         $detailUrl = $SiteRoot + $best.Href
         Write-Log "Release detail page          : $detailUrl" -Quiet:$Quiet
 
-        $detailHtml = (curl.exe -L --fail --silent --show-error $detailUrl) -join "`n"
+        $detailHtml = (curl.exe -L --fail --silent --show-error (ConvertTo-SafeCurlUrl $detailUrl)) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch UltraVNC release detail page: $detailUrl" }
 
-        $summaryRx = [regex]('href\s*=\s*"(?<href>/component/jdownloads/summary/[^"]*?' + $compact + '-x64-setup\.html[^"]*)"')
-        $summaryMatch = $summaryRx.Match($detailHtml)
-        if (-not $summaryMatch.Success) {
+        $setupPath = Get-UltraVncSetupPath -Html $detailHtml -Compact $compact
+        if (-not $setupPath) {
             throw "Could not locate the x64 setup entry for UltraVNC $version on $detailUrl"
         }
 
-        # The summary page and its download handler differ only in this segment.
-        $sendUrl = $SiteRoot + ($summaryMatch.Groups['href'].Value -replace '/jdownloads/summary/', '/jdownloads/send/')
+        $sendUrl = "$SiteRoot/component/jdownloads/send/$setupPath"
 
-        $stub = (curl.exe -L --fail --silent --show-error $sendUrl) -join "`n"
+        $stub = (curl.exe -L --fail --silent --show-error (ConvertTo-SafeCurlUrl $sendUrl)) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch UltraVNC download handler: $sendUrl" }
 
         $urlMatch = [regex]::Match($stub, "location\.href\s*=\s*'(?<url>https?://[^']+\.exe)'")
@@ -276,7 +319,7 @@ function Invoke-StageUltraVnc {
 
     Write-ContentWrappers -OutputPath $localContentPath `
         -InstallPs1Content $wrappers.Install `
-        -UninstallPs1Content $wrappers.Uninstall
+        -UninstallPs1Content (New-UltraVncUninstallContent)
 
     # --- Write stage manifest ---
     Write-Log ""

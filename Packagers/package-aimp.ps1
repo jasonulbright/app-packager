@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.aimp.ru/?do=changelog&os=desktop
 DownloadPageUrl: https://www.aimp.ru/?do=download&os=windows
 IconSource: Installer
 UpdateCadenceDays: 180
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages AIMP (x64) for ConfigMgr.

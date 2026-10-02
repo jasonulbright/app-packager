@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/aws/aws-tools-for-powershell/blob/main/chang
 DownloadPageUrl: https://aws.amazon.com/powershell/
 IconSource: None
 UpdateCadenceDays: 180
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages AWS Tools for Windows (x64) MSI for ConfigMgr.

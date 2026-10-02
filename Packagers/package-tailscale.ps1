@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://tailscale.com/changelog
 DownloadPageUrl: https://pkgs.tailscale.com/stable/
 IconSource: Installer
 UpdateCadenceDays: 30
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Tailscale (x64) MSI for ConfigMgr.

@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:dotpdn:paint.net:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.getpaint.net/roadmap.html
 DownloadPageUrl: https://www.getpaint.net/download.html
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Paint.NET (x64) MSI for ConfigMgr.

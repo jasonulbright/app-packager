@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://keep.imfreedom.org/pidgin/pidgin/file/tip/ChangeLog
 DownloadPageUrl: https://sourceforge.net/projects/pidgin/files/Pidgin/
 IconSource: External
 UpdateCadenceDays: 120
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Pidgin (x86) for ConfigMgr.

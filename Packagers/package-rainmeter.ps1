@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/rainmeter/rainmeter/releases
 DownloadPageUrl: https://www.rainmeter.net/
 IconSource: Installer
 UpdateCadenceDays: 180
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages Rainmeter (x64) for ConfigMgr.

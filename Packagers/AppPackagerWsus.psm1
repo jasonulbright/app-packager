@@ -439,6 +439,18 @@ function Get-WsusInstallScriptExtras {
         $isEnvironment = $target -is [System.Management.Automation.Language.VariableExpressionAst] -and $target.VariablePath.DriveName -eq 'env'
         if ($isMember -or $isEnvironment) { $extras.Add(('{0} assignment' -f $target.Extent.Text)) }
     }
+    # A wrapper that turns an installer exit code into 0 reports success for a
+    # code that WSUS, which runs the installer itself, reports as a failure.
+    foreach ($exit in @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.ExitStatementAst] }, $true))) {
+        if ($null -eq $exit.Pipeline -or $exit.Pipeline.Extent.Text.Trim() -ne '0') { continue }
+        $parent = $exit.Parent
+        while ($parent -and $parent -isnot [System.Management.Automation.Language.IfStatementAst]) { $parent = $parent.Parent }
+        if (-not $parent) { continue }
+        $condition = @($parent.Clauses | Where-Object { $_.Item2.Extent.StartOffset -le $exit.Extent.StartOffset -and $_.Item2.Extent.EndOffset -ge $exit.Extent.EndOffset } | Select-Object -First 1)
+        if ($condition.Count -and $condition[0].Item1.Extent.Text -match '(?i)ExitCode\s+-(eq|in)\b') {
+            $extras.Add(('installer exit code mapped to success ({0})' -f $condition[0].Item1.Extent.Text))
+        }
+    }
     return @($extras.ToArray() | Select-Object -Unique)
 }
 
@@ -1656,6 +1668,7 @@ function Get-WsusPublishFailureHint {
         'not a WSUS Administrator|Unauthorized' { return 'The account must be a member of the WSUS Administrators group on the server.' }
         'CreateDirectory failed' { return 'The UpdateServicesPackages or WSUSContent share on the server is missing, not shared, or not writable.' }
         'Failed to sign package' { return 'The server could not sign the package: check its signing certificate and that it reaches its time stamp server.' }
+        '(?i)timeout expired' { return 'The WSUS database did not answer in time. Run WSUS database maintenance on the server (update statistics and rebuild the SUSDB indexes), then publish again.' }
         'too many locally published categories' { return 'The server holds too many locally published vendor and product categories; remove unused ones on the server.' }
         'version' { return 'The WSUS console on this computer must match the server version.' }
         default { return '' }
@@ -1786,6 +1799,9 @@ function Publish-WsusSoftwareUpdate {
             foreach ($file in $payload) {
                 Copy-Item -LiteralPath (Resolve-WsusPayloadPath -ContentFolder $ContentFolder -RelativePath $file) -Destination (Resolve-WsusPayloadPath -ContentFolder $source -RelativePath $file) -Force -ErrorAction Stop
             }
+            # The first integrity check ran before the server calls; the files
+            # that go into the package are the copies, so they are checked too.
+            Assert-WsusPayloadIntegrity -Manifest $Manifest -ContentFolder $source -Files $payload
             $buildId = [string](Get-WsusMemberValue -InputObject $Manifest -Name 'BuildId')
             $appName = [string](Get-WsusMemberValue -InputObject $Manifest -Name 'AppName')
             $publisherName = [string](Get-WsusMemberValue -InputObject $Manifest -Name 'Publisher')

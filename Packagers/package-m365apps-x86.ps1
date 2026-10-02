@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://learn.microsoft.com/en-us/officeupdates/update-history-
 DownloadPageUrl: https://www.microsoft.com/en-us/microsoft-365
 IconSource: External
 SupportsVariants: Network
+WsusSupport: No (InstallerTypeUnsupported)
 
 .SYNOPSIS
     Packages M365 Apps for Enterprise (x86) for ConfigMgr using the Office Deployment Tool.

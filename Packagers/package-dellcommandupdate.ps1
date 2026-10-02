@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.dell.com/support/kbdoc/en-us/000177325/dell-command
 DownloadPageUrl: https://www.dell.com/support/kbdoc/en-us/000177325/dell-command-update
 IconSource: Installer
 UpdateCadenceDays: 120
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages the Dell Command | Update Windows Universal Application (x64) for ConfigMgr.

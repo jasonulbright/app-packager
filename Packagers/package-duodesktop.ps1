@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://duo.com/docs/checklist-release-notes
 DownloadPageUrl: https://duo.com/docs/duo-desktop
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Duo Desktop (Device Health, x64) MSI for ConfigMgr.

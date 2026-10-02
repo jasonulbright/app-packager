@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:microsoft:build_of_openjdk:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/en-us/java/openjdk/release-notes
 DownloadPageUrl: https://learn.microsoft.com/en-us/java/openjdk/download
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Microsoft Build of OpenJDK 21 (x64) MSI, per machine, for ConfigMgr.
@@ -291,7 +292,7 @@ function Invoke-StageMsOpenJdk21Msi {
     # --- Generate content wrappers ---
     # The Directory table names the default folder jdk-<ProductVersion>-hotspot.
     $installFolder = "jdk-$productVersionRaw-hotspot"
-    $msiEscaped = $installerFileName -replace "'", "''"
+    $msiEscaped = ConvertTo-SingleQuotedContent $installerFileName
     # A 32-bit host reports Program Files (x86) in ProgramFiles; ProgramW6432
     # names the 64-bit folder the x64 package installs into.
     $installDirDisplay  = "%ProgramFiles%\Microsoft\$installFolder"

@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:microsoft:edge_chromium:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/en-us/deployedge/microsoft-edge-relnote-stable-channel
 DownloadPageUrl: https://www.microsoft.com/en-us/edge/business/download
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Microsoft Edge MSI for ConfigMgr.

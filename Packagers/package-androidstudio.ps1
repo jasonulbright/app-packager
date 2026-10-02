@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:google:android_studio:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://developer.android.com/studio/releases
 DownloadPageUrl: https://developer.android.com/studio
 UpdateCadenceDays: 45
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages the latest stable Android Studio (x64) installer for ConfigMgr.

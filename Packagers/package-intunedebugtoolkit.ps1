@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/MSEndpointMgr/IntuneDebugToolkit
 DownloadPageUrl: https://github.com/MSEndpointMgr/IntuneDebugToolkit
 IconSource: External
 UpdateCadenceDays: 180
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages the MSEndpointMgr Intune Debug Toolkit (x64) MSI for ConfigMgr.

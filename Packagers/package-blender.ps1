@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.blender.org/download/releases/
 DownloadPageUrl: https://www.blender.org/download/
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Blender (x64) MSI for ConfigMgr.
@@ -150,7 +151,7 @@ function Get-LatestBlenderRelease {
         $ordered = @($series) | Sort-Object { [version]$_ } -Descending
         foreach ($s in $ordered) {
             $seriesUrl = "$ReleaseRootUrl" + "Blender$s/"
-            $html = (curl.exe -L --fail --silent --show-error $seriesUrl) -join "`n"
+            $html = (curl.exe -L --fail --silent --show-error (ConvertTo-SafeCurlUrl $seriesUrl)) -join "`n"
             if ($LASTEXITCODE -ne 0) { continue }
 
             $fileRx = [regex]'href\s*=\s*"blender-(?<ver>\d+\.\d+\.\d+)-windows-x64\.msi"'

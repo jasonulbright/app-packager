@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/aws/aws-cli/blob/v2/CHANGELOG.rst
 DownloadPageUrl: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
 IconSource: None
 UpdateCadenceDays: 14
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages the AWS Command Line Interface v2 (x64) MSI for ConfigMgr.

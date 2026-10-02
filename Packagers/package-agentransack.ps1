@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.mythicsoft.com/agentransack/whatsnew/
 DownloadPageUrl: https://www.mythicsoft.com/agentransack/download/
 IconSource: Installer
 UpdateCadenceDays: 180
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Agent Ransack (x64) MSI for ConfigMgr.

@@ -352,6 +352,35 @@ function Get-GitHubApiCurlArgs {
     return @('-H', ('Authorization: Bearer ' + $token.Trim()), '-H', 'X-GitHub-Api-Version: 2022-11-28')
 }
 
+function ConvertTo-SafeCurlUrl {
+    <#
+    .SYNOPSIS
+        Returns a URL that is safe to pass to curl.exe as one argument from
+        Windows PowerShell 5.1, and throws for any other text.
+
+    .DESCRIPTION
+        Windows PowerShell 5.1 does not escape a double quote inside an
+        argument it passes to a native command. A quote in a URL taken from a
+        vendor page ends the argument, and the rest of the text then acts as
+        further curl options, such as an output path. A scheme other than
+        http or https would also fall outside the downloads the packagers
+        make, and text that starts with a dash would be read as an option.
+        The function refuses a URL with a quote character, a control
+        character, a trailing backslash, or a scheme other than http or
+        https, and returns the URL without surrounding white space.
+    #>
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Url)
+
+    $text = $Url.Trim()
+    if ($text -notmatch '^(?i)https?://[^\s]') {
+        throw ("The URL is not an http or https address: {0}" -f $text)
+    }
+    if ($text -match '["\x00-\x1F\x7F]' -or $text.EndsWith('\')) {
+        throw ("The URL carries a quote, control character or trailing backslash and is not passed to curl.exe: {0}" -f ($text -replace '[\x00-\x1F\x7F]', '?'))
+    }
+    return $text
+}
+
 function Invoke-DownloadWithRetry {
     <#
     .SYNOPSIS
@@ -388,6 +417,8 @@ function Invoke-DownloadWithRetry {
 
         [switch]$Quiet
     )
+
+    $Url = ConvertTo-SafeCurlUrl $Url
 
     $maxAttempts = 1 + $RetryCount
 
@@ -1145,8 +1176,18 @@ function Sync-StagedContentToNetwork {
         }
     }
 
+    # A stage that was refused after the packager wrote files leaves a folder
+    # whose files no longer match the manifest beside them. That folder is
+    # refused here, before any of it reaches the share.
+    if ($expectedMap.Count -gt 0) {
+        $localCheck = Compare-StageFileHashes -Root $localRoot -Expected @($Manifest.FileHashes) -Exclude $Exclude
+        if (-not $localCheck.Skipped -and -not $localCheck.Pass) {
+            throw ("Staged content in '{0}' does not match its stage manifest: {1}. Re-run the Stage phase; nothing was copied." -f $localRoot, (Format-StageFileHashComparison -Comparison $localCheck))
+        }
+    }
+
     $script:DeferredContentSync = $null
-    $destinationHadFiles = (Test-Path -LiteralPath $NetworkContentPath) -and
+    $destinationHadFiles =(Test-Path -LiteralPath $NetworkContentPath) -and
         $null -ne (Get-ChildItem -LiteralPath $NetworkContentPath -File -Recurse -Force -ErrorAction Stop | Select-Object -First 1)
 
     $plan = New-Object System.Collections.Generic.List[object]
@@ -1196,6 +1237,16 @@ function Sync-StagedContentToNetwork {
             }
         }
         return
+    }
+
+    # A file on the share that the manifest does not name fails the package
+    # integrity verification that follows this copy. The copy never removes
+    # files, so the run is refused here, before any file on the share changes.
+    if ($destinationHadFiles -and $expectedMap.Count -gt 0) {
+        $extra = @((Compare-StageFileHashes -Root $NetworkContentPath -Expected @($Manifest.FileHashes)).Extra)
+        if ($extra.Count -gt 0) {
+            throw ("Network content folder '{0}' holds {1} file(s) that the stage manifest does not name: {2}. Remove them or publish to an empty folder; nothing was copied." -f $NetworkContentPath, $extra.Count, (($extra | Select-Object -First 5 | ForEach-Object { [string]$_.RelativePath }) -join ', '))
+        }
     }
 
     if (-not (Test-Path -LiteralPath $NetworkContentPath)) {
@@ -2284,6 +2335,9 @@ function Write-ContentWrappers {
         [string]$UninstallBatExitCode = '%ERRORLEVEL%'
     )
 
+    $InstallPs1Content   = Add-StartProcessFailFast $InstallPs1Content
+    $UninstallPs1Content = Add-StartProcessFailFast $UninstallPs1Content
+
     $installBatPath   = Join-Path $OutputPath "install.bat"
     $installPs1Path   = Join-Path $OutputPath "install.ps1"
     $uninstallBatPath = Join-Path $OutputPath "uninstall.bat"
@@ -2341,6 +2395,63 @@ function Write-ContentWrappers {
     }
 }
 
+function ConvertTo-SingleQuotedContent {
+    <#
+    .SYNOPSIS
+        Escapes text for use inside a single-quoted PowerShell string literal
+        in generated script content.
+
+    .DESCRIPTION
+        PowerShell ends a single-quoted string at an apostrophe and also at the
+        typographic quotes U+2018, U+2019, U+201A and U+201B. Doubling only the
+        apostrophe leaves the other four able to end the literal early, so
+        text that came from a vendor page or a file name could add statements
+        to the generated script.
+    #>
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+
+    return [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent($Text)
+}
+
+function Add-StartProcessFailFast {
+    <#
+    .SYNOPSIS
+        Wraps each captured Start-Process call in wrapper script content so a
+        target that cannot start ends the script with exit code 1.
+
+    .DESCRIPTION
+        Start-Process reports a target that cannot start as a statement-
+        terminating error, which -ErrorAction does not turn into a script-
+        terminating one. The script then continues, reads ExitCode from a null
+        process, and exits 0, which reports success for an install or
+        uninstall that never ran. Inside try/catch the failure is caught and
+        the script exits 1.
+
+        Only single-line assignments of the form $name = Start-Process ... are
+        changed. A line that names -ErrorAction, ends in a line continuation,
+        or carries a pipeline is left as written. Remove-StartProcessFailFast
+        reverses the change.
+    #>
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Content)
+
+    # A backtick that escapes a character inside an argument is part of the
+    # call; a backtick at the line end is a continuation and stays unmatched.
+    # A line with a statement separator or a comment mark is left as written.
+    $pattern = '(?m)^(?<indent>[ \t]*)(?<call>\$\w+[ \t]*=[ \t]*Start-Process\b(?:(?!-ErrorAction)(?:`[^\r\n]|[^\r\n`|;#]))*?)(?<end>[ \t]*)(?=\r?$)'
+    return [regex]::Replace($Content, $pattern, '${indent}try { ${call} -ErrorAction Stop } catch { Write-Error $$_.Exception.Message; exit 1 }${end}')
+}
+
+function Remove-StartProcessFailFast {
+    <#
+    .SYNOPSIS
+        Returns wrapper script content as it was before Add-StartProcessFailFast.
+    #>
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Content)
+
+    $pattern = '(?m)^(?<indent>[ \t]*)try \{ (?<call>\$\w+[ \t]*=[ \t]*Start-Process\b[^\r\n]*?) -ErrorAction Stop \} catch \{ Write-Error \$_\.Exception\.Message; exit 1 \}(?<end>[ \t]*)(?=\r?$)'
+    return [regex]::Replace($Content, $pattern, '${indent}${call}${end}')
+}
+
 function New-MsiWrapperContent {
     <#
     .SYNOPSIS
@@ -2368,21 +2479,21 @@ function New-MsiWrapperContent {
     )
 
     # The filename lands inside a single-quoted literal in the generated
-    # script; an unescaped apostrophe terminates the string early.
-    $MsiFileName = $MsiFileName -replace "'", "''"
+    # script; an unescaped quote character terminates the string early.
+    $MsiFileName = ConvertTo-SingleQuotedContent $MsiFileName
 
     $installLines = @(
         ('$msiPath = Join-Path $PSScriptRoot ''{0}''' -f $MsiFileName),
         '$args = @(''/i'', "`"$msiPath`"", ''/qn'', ''/norestart'')'
     )
     foreach ($extra in $ExtraInstallArgs) {
-        $escaped = $extra -replace "'", "''"
+        $escaped = ConvertTo-SingleQuotedContent $extra
         $installLines += ('$args += ''{0}''' -f $escaped)
     }
     $installLines += '$proc = Start-Process msiexec.exe -ArgumentList $args -Wait -PassThru -NoNewWindow'
     $installLines += '$exit = $proc.ExitCode'
     if ($PostInstallKillProcesses.Count -gt 0) {
-        $procList = ($PostInstallKillProcesses | ForEach-Object { "'$_'" }) -join ', '
+        $procList = ($PostInstallKillProcesses | ForEach-Object { "'" + (ConvertTo-SingleQuotedContent $_) + "'" }) -join ', '
         $installLines += ('foreach ($pn in @({0})) {{ Get-Process -Name $pn -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }}' -f $procList)
     }
     $installLines += 'exit $exit'
@@ -2435,10 +2546,13 @@ function New-MsixWrapperContent {
         [string]$SignatureSha1 = ''
     )
 
+    # The file name lands inside single-quoted literals in the generated scripts.
+    $MsixFileName = ConvertTo-SingleQuotedContent $MsixFileName
+
     $sigCheckLines = @()
     if (-not [string]::IsNullOrWhiteSpace($SignatureSha1)) {
         $sigCheckLines = @(
-            ('$expected = ''{0}''' -f ($SignatureSha1 -replace "'", "''")),
+            ('$expected = ''{0}''' -f (ConvertTo-SingleQuotedContent $SignatureSha1)),
             '$sig = Get-AuthenticodeSignature -LiteralPath $msixPath',
             'if ($sig.Status -ne ''Valid'') { Write-Error "MSIX signature not valid: $($sig.Status)"; exit 2 }',
             'if ($sig.SignerCertificate.Thumbprint -ne $expected) { Write-Error "MSIX signed by unexpected cert (got $($sig.SignerCertificate.Thumbprint), expected $expected)"; exit 3 }'
@@ -2533,17 +2647,20 @@ function New-ExeWrapperContent {
     )
 
     # Filename and uninstall path land inside single-quoted literals in the
-    # generated script; an unescaped apostrophe terminates the string early.
-    # InstallArgs/UninstallArgs are excluded: they are caller-authored
+    # generated script; an unescaped quote character terminates the string
+    # early. InstallArgs/UninstallArgs are excluded: they are caller-authored
     # PowerShell element lists interpolated into @() as-is.
-    $InstallerFileName = $InstallerFileName -replace "'", "''"
-    $UninstallCommand  = $UninstallCommand -replace "'", "''"
+    $InstallerFileName = ConvertTo-SingleQuotedContent $InstallerFileName
+    $UninstallCommand  = ConvertTo-SingleQuotedContent $UninstallCommand
 
     if ($PostInstallKillProcesses.Count -gt 0) {
-        $procList = ($PostInstallKillProcesses | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ', '
+        $procList = ($PostInstallKillProcesses | ForEach-Object { "'" + (ConvertTo-SingleQuotedContent $_) + "'" }) -join ', '
+        # Without -Wait, Windows PowerShell 5.1 leaves ExitCode null after the
+        # process exits unless the handle is read while it runs.
         $install = (
             ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $InstallerFileName),
             ('$proc = Start-Process -FilePath $exePath -ArgumentList @({0}) -PassThru -NoNewWindow' -f $InstallArgs),
+            '$null = $proc.Handle',
             '$proc.WaitForExit()',
             '$exit = $proc.ExitCode',
             'Start-Sleep -Seconds 3',
@@ -3008,7 +3125,7 @@ function New-VpnConditionScriptText {
     )
 
     $quoted = @($AdapterPatterns | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object {
-        "'" + ([string]$_ -replace "'", "''") + "'"
+        "'" + (ConvertTo-SingleQuotedContent ([string]$_)) + "'"
     })
 
     $lines = @(
@@ -3021,7 +3138,7 @@ function New-VpnConditionScriptText {
         '}'
     )
     if (-not [string]::IsNullOrWhiteSpace($AliasPattern)) {
-        $aliasLike = '*' + ([string]$AliasPattern -replace "'", "''") + '*'
+        $aliasLike = '*' + (ConvertTo-SingleQuotedContent ([string]$AliasPattern)) + '*'
         $lines += @(
             'if (-not $found) {'
             ('    foreach ($ip in @(Get-CimInstance -ClassName MSFT_NetIPAddress -Namespace ''root/StandardCimv2'' -ErrorAction SilentlyContinue)) {')
@@ -3120,7 +3237,9 @@ function Get-SdmPackageScriptText {
     foreach ($xpath in @(
             ".//*[local-name()='Arg'][@Name='ScriptBody']",
             ".//*[local-name()='DetectionScript']",
-            ".//*[local-name()='ScriptBody']")) {
+            ".//*[local-name()='ScriptBody']",
+            # A script global condition stores its body in this element.
+            ".//*[local-name()='DiscoveryScriptBody']")) {
         $found = $scope.SelectSingleNode($xpath)
         if ($found -and -not [string]::IsNullOrWhiteSpace($found.InnerText)) { return [string]$found.InnerText }
     }
@@ -3170,6 +3289,14 @@ function Get-CMGlobalConditionScriptBody {
     $body = Get-SdmPackageScriptText -SdmPackageXml ([string]$property.Value)
     if ($null -eq $body) { return $null }
     return (ConvertFrom-CMEncodedScriptBody -Body $body)
+}
+
+function Test-ConditionScriptTextEqual {
+    # The site stores an unsigned script body with LF line ends, whatever
+    # was sent. A signed script travels as an encoded block and is compared
+    # by bytes instead.
+    param([AllowEmptyString()][string]$Left, [AllowEmptyString()][string]$Right)
+    return (($Left -replace "`r`n", "`n") -ceq ($Right -replace "`r`n", "`n"))
 }
 
 function Find-CMGlobalConditionByName {
@@ -3332,7 +3459,7 @@ function Get-OrCreateGlobalConditionFromTemplate {
             return New-CMScriptGlobalConditionVerified -Name $name -Template $Template -Identity $identity
         }
         $storedText = Get-CMGlobalConditionScriptText -GlobalCondition $baseCondition
-        if ($null -eq $storedText -or $storedText -eq $identity.Text) {
+        if ($null -eq $storedText -or (Test-ConditionScriptTextEqual -Left $storedText -Right $identity.Text)) {
             Write-Log ("Global condition (existing)  : {0}" -f $name)
             return $baseCondition
         }
@@ -3341,6 +3468,20 @@ function Get-OrCreateGlobalConditionFromTemplate {
     $versionedName = '{0} ({1})' -f $name, $identity.Sha256.Substring(0, 8)
     $versioned = Find-CMGlobalConditionByName -Name $versionedName -Template $Template
     if ($versioned) {
+        # The name carries the hash of the script it was created with; the
+        # stored script can still have been edited on the site afterwards.
+        $storedBody = Get-CMGlobalConditionScriptBody -GlobalCondition $versioned
+        $sameScript = $false
+        if ($null -ne $storedBody) {
+            if ($identity.Signed) { $sameScript = Compare-ByteSequence -Left $storedBody.Bytes -Right ([byte[]]$identity.Bytes) }
+            else { $sameScript = Test-ConditionScriptTextEqual -Left ([string]$storedBody.Text) -Right ([string]$identity.Text) }
+        }
+        if ($null -eq $storedBody -and -not $identity.Signed) {
+            Write-Log ("Global condition read-back   : '{0}' stored no readable script body; the site copy could not be compared." -f $versionedName) -Level WARN
+        }
+        elseif (-not $sameScript) {
+            throw ("Global condition '{0}' exists on the site and its stored script is not the script this run built. Delete or rename that condition, then run again." -f $versionedName)
+        }
         Write-Log ("Global condition (existing)  : {0}" -f $versionedName)
         return $versioned
     }
@@ -3400,6 +3541,9 @@ function New-CMScriptGlobalConditionVerified {
 
     $stored = Get-CMGlobalConditionScriptBody -GlobalCondition $created
     if ($null -eq $stored) {
+        if ($Identity.Signed) {
+            throw ("Global condition '{0}' was created but its stored script could not be read back, so the signed script is not verified." -f $Name)
+        }
         Write-Log ("Global condition read-back   : '{0}' stored no readable script body; the site copy could not be compared." -f $Name) -Level WARN
         return $created
     }
@@ -3411,7 +3555,7 @@ function New-CMScriptGlobalConditionVerified {
         if ($Identity.PSObject.Properties['Thumbprint']) { $expectedThumbprint = [string]$Identity.Thumbprint }
         Test-StoredScriptSignature -Bytes $stored.Bytes -Context ("global condition '$Name'") -ExpectedThumbprint $expectedThumbprint
     }
-    elseif ([string]$stored.Text -ne [string]$Identity.Text) {
+    elseif (-not (Test-ConditionScriptTextEqual -Left ([string]$stored.Text) -Right ([string]$Identity.Text))) {
         throw ("Global condition '{0}' read back different script content than was sent; the site did not store the finalized script." -f $Name)
     }
     Write-Log ("Global condition read-back   : {0} verified" -f $Name)
@@ -3455,6 +3599,27 @@ function Test-StoredScriptSignature {
     $trusted = ($verification.PSObject.Properties['TrustedOnThisHost'] -and $verification.TrustedOnThisHost)
     $trustState = if ($trusted) { 'chain trusted on this host' } else { ("chain not trusted on this host: {0}" -f $verification.Status) }
     Write-Log ("Signature verified           : {0} ({1}); {2}; endpoint publisher trust is a separate client configuration." -f $Context, $verification.Thumbprint, $trustState)
+}
+
+function Assert-ScriptSignatureBeforeSend {
+    <#
+    .SYNOPSIS
+        Refuses to send a script that must be signed when its bytes carry no
+        intact signature.
+    #>
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][byte[]]$Bytes,
+        [Parameter(Mandatory)][string]$Context
+    )
+
+    if (-not (Get-Command -Name Test-ScriptSignatureBytes -ErrorAction SilentlyContinue)) {
+        throw ("A signature check for the {0} was requested but the signing service is not available; reinstall AppPackager." -f $Context)
+    }
+    $verification = Test-ScriptSignatureBytes -Bytes $Bytes
+    $intact = if ($verification.PSObject.Properties['SignatureIntact']) { [bool]$verification.SignatureIntact } else { [bool]$verification.Valid }
+    if (-not $intact) {
+        throw ("The {0} carries no intact signature ({1}) and was not sent. Re-run the Stage phase with signing enabled." -f $Context, $verification.Status)
+    }
 }
 
 function Compare-ByteSequence {
@@ -3724,6 +3889,7 @@ function Resolve-DetectionScriptTransport {
     )
 
     $signed = @('SignedAndVerified', 'ExistingSignatureValid') -contains $SignatureStatus
+    $requireSigned = Get-PolicyFlag -Policy (Resolve-CommonSigningPolicy) -Name 'RequireDetection'
 
     $scriptFile = ''
     if ($Detection.PSObject.Properties['ScriptFile']) { $scriptFile = [string]$Detection.ScriptFile }
@@ -3734,6 +3900,9 @@ function Resolve-DetectionScriptTransport {
             throw 'The detection script is signed but the manifest names no Detection.ScriptFile; a signed script cannot be imported as script text. Re-run the Stage phase so the finalized script is written to the content folder.'
         }
         $text = [string]$Detection.ScriptText
+        if ($requireSigned) {
+            Assert-ScriptSignatureBeforeSend -Bytes ([System.Text.Encoding]::UTF8.GetBytes($text)) -Context 'detection script'
+        }
         return [pscustomobject]@{
             Transport = 'Text'; Path = ''; TempPath = ''
             Text      = $text
@@ -3753,6 +3922,9 @@ function Resolve-DetectionScriptTransport {
         throw ("Detection script '{0}' was not found under the content location '{1}'; re-run the Stage phase." -f $scriptFile, $ContentLocation)
     }
     $bytes = [System.IO.File]::ReadAllBytes($absolute)
+    # The status in the manifest is from stage time. The file can have changed
+    # since, and these are the bytes the deployment type receives.
+    if ($signed -or $requireSigned) { Assert-ScriptSignatureBeforeSend -Bytes $bytes -Context ("detection script '$scriptFile'") }
     # The signature block counts toward the site's script size limit, so the
     # check runs on the finalized bytes rather than the authored text.
     if (Get-Command -Name Get-ConfigMgrDetectionScriptMaxBytes -ErrorAction SilentlyContinue) {
@@ -3924,6 +4096,18 @@ function Test-ResolvedDeploymentCommand {
     # inspected here, the staged files were covered at finalization time.
     $commandsOnlyRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('ap-commands-only-' + [guid]::NewGuid().ToString('N'))
     return Test-DeploymentLauncherChain -StageRoot $commandsOnlyRoot -Manifest $commandManifest -Policy $effectivePolicy
+}
+
+function Get-CMApplicationCurrentCIId {
+    # Every saved revision of an application has its own CI_ID, so an object
+    # captured before a later Set-CMApplication or deployment type write names
+    # a revision that the history cleanup removes.
+    param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][UInt32]$Fallback)
+
+    $current = @(Get-CMApplication -Name $Name -DisableWildcardHandling -ErrorAction SilentlyContinue)
+    if ($current.Count -eq 1 -and $current[0].CI_ID) { return [UInt32]$current[0].CI_ID }
+    Write-Log ("Application CI_ID            : the final read of '{0}' returned {1} object(s); reporting the CI_ID from before the revision cleanup ({2})." -f $Name, $current.Count, $Fallback) -Level WARN
+    return $Fallback
 }
 
 function New-MECMApplicationFromManifest {
@@ -4108,7 +4292,7 @@ function New-MECMApplicationFromManifest {
                         # created before icon support (or before a pack install)
                         # gains one without a version change.
                         Set-CMApplicationIconFromManifest -Manifest $Manifest -AppName $appName -NetworkContentPath $NetworkContentPath
-                        return [UInt32]$cmApp.CI_ID
+                        return (Get-CMApplicationCurrentCIId -Name $appName -Fallback ([UInt32]$cmApp.CI_ID))
                     }
                     throw ("Existing ConfigMgr application '$appName' is missing deployment type(s): {0}. This looks like a partial prior package run; fix or remove the partial app before packaging again." -f (($missingDts | ForEach-Object { $_.DtName }) -join ', '))
                 }
@@ -4398,6 +4582,9 @@ function New-MECMApplicationFromManifest {
         $step = "Remove-CMApplicationRevisionHistory (CI_ID=$($cmApp.CI_ID))"
         Remove-CMApplicationRevisionHistoryByCIId -CI_ID ([UInt32]$cmApp.CI_ID) -KeepLatest 1
 
+        $step = "Get-CMApplication final read ('$appName')"
+        $finalCiId = Get-CMApplicationCurrentCIId -Name $appName -Fallback ([UInt32]$cmApp.CI_ID)
+
         # Optional auto-distribute to a DP group, and optional test-collection
         # deployment after successful distribution. Settings live in
         # AppPackager.preferences.json alongside the GUI. Packagers invoked
@@ -4468,7 +4655,7 @@ function New-MECMApplicationFromManifest {
         Write-Log ""
         Write-Log "Created ConfigMgr application : $appName"
 
-        return [UInt32]$cmApp.CI_ID
+        return $finalCiId
     }
     catch {
         Write-LogErrorRecord -ErrorRecord $_ -Context ("New-MECMApplicationFromManifest failed during step: {0}" -f $step)
@@ -5400,7 +5587,7 @@ function New-AdHocStage {
     # @() literal, so plain space-separated args become a quoted element list.
     $toArgList = {
         param($s)
-        (($s -split '\s+') | Where-Object { $_ } | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ', '
+        (($s -split '\s+') | Where-Object { $_ } | ForEach-Object { "'" + (ConvertTo-SingleQuotedContent $_) + "'" }) -join ', '
     }
     if ($isMsi) {
         $wrapperContent = New-MsiWrapperContent -MsiFileName $installerName
@@ -5942,8 +6129,8 @@ function Set-StageManifestInstallMode {
     $standardUninstall = '^\$uninstallPath = \[Environment\]::ExpandEnvironmentVariables\(''.*''\)\r?\n\$proc = Start-Process -FilePath \$uninstallPath( -ArgumentList @\(.*\))? -Wait -PassThru -NoNewWindow\r?\nexit \$proc\.ExitCode\s*$'
     $installText   = if (Test-Path -LiteralPath $installPs1)   { [IO.File]::ReadAllText($installPs1) }   else { '' }
     $uninstallText = if (Test-Path -LiteralPath $uninstallPs1) { [IO.File]::ReadAllText($uninstallPs1) } else { '' }
-    $quote = { param([string]$s) "'" + ($s -replace "'", "''") + "'" }
-    if ($installText -match $standardInstall -and $uninstallText -match $standardUninstall) {
+    $quote = { param([string]$s) "'" + (ConvertTo-SingleQuotedContent $s) + "'" }
+    if ((Remove-StartProcessFailFast $installText) -match $standardInstall -and (Remove-StartProcessFailFast $uninstallText) -match $standardUninstall) {
         $wrappers = New-ExeWrapperContent -InstallerFileName $installerName `
             -InstallArgs (& $quote ([string]$ManifestData['InstallArgs'])) `
             -UninstallCommand $newUninstallCommand `
@@ -6249,7 +6436,7 @@ function New-IntuneRegistryValueScriptRule {
 
     $hive = if ($HiveRoot -like 'HKEY_CURRENT_USER*') { 'CurrentUser' } else { 'LocalMachine' }
     $view = if ($Is64Bit) { 'Registry64' } else { 'Registry32' }
-    $quote = { param($s) "'" + ([string]$s -replace "'", "''") + "'" }
+    $quote = { param($s) "'" + (ConvertTo-SingleQuotedContent ([string]$s)) + "'" }
     # String.Contains(string, StringComparison) is absent from .NET Framework,
     # which the client-side Windows PowerShell runs the script under.
     $test = switch ($Operator) {
@@ -6334,6 +6521,11 @@ function New-IntuneDetectionScriptRule {
     }
     if ([string]::IsNullOrWhiteSpace($content)) {
         $content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($ScriptText))
+    }
+    # The client verifies the bytes in scriptContent, not the status the
+    # manifest recorded at stage time.
+    if ($settings.EnforceSignatureCheck) {
+        Assert-ScriptSignatureBeforeSend -Bytes ([Convert]::FromBase64String($content)) -Context 'Intune detection script'
     }
 
     return @{
@@ -6617,6 +6809,15 @@ function Get-IntuneIdentityTag {
     return ('AppPackager:{0}/{1}' -f $applicationId, $profileId)
 }
 
+function Get-IntuneNotesIdentityTags {
+    # The identity tags in an app's notes: each line that is an AppPackager
+    # tag and nothing else.
+    param([AllowEmptyString()][string]$Notes)
+    if ([string]::IsNullOrWhiteSpace($Notes)) { return @() }
+    # An application id can carry a space (a custom packager's file name).
+    return @($Notes -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^AppPackager:.+/.+$' })
+}
+
 function Publish-IntuneWin32App {
     <#
     .SYNOPSIS
@@ -6697,7 +6898,7 @@ function Publish-IntuneWin32App {
     while ($uri) {
         $page = Invoke-GraphJson -Method GET -Uri $uri -Token $token
         $tagged += @($page.value | Where-Object {
-            $_.'@odata.type' -eq '#microsoft.graph.win32LobApp' -and [string]$_.notes -eq $identityTag
+            $_.'@odata.type' -eq '#microsoft.graph.win32LobApp' -and (Get-IntuneNotesIdentityTags -Notes ([string]$_.notes)) -contains $identityTag
         })
         $uri = [string]$page.'@odata.nextLink'
     }
@@ -6712,7 +6913,14 @@ function Publish-IntuneWin32App {
     else {
         $filterName = ([string]$Manifest.AppName) -replace "'", "''"
         $existing = Invoke-GraphJson -Method GET -Uri ("$GraphBase/deviceAppManagement/mobileApps?`$filter=displayName eq '$filterName'") -Token $token
-        $candidates = @($existing.value | Where-Object { $_.'@odata.type' -eq '#microsoft.graph.win32LobApp' })
+        # An app that carries the tag of another application or profile is
+        # that build's target; a shared display name does not make it this one.
+        $candidates = @($existing.value | Where-Object {
+            # A legacy tag is derived from the title, not from an application
+            # identity, so an app that carries only that tag can be adopted.
+            $_.'@odata.type' -eq '#microsoft.graph.win32LobApp' -and
+            @(Get-IntuneNotesIdentityTags -Notes ([string]$_.notes) | Where-Object { $_ -notlike 'AppPackager:legacy:*' }).Count -eq 0
+        })
         if ($candidates.Count -gt 1) {
             throw ("Multiple Intune apps are named '{0}' and none carries this application's identity tag (ids: {1}); rename or tag the intended app before publishing." -f $Manifest.AppName, (($candidates | ForEach-Object { [string]$_.id }) -join ', '))
         }
@@ -6776,6 +6984,16 @@ function Publish-IntuneWin32App {
     }
 
     if ($existingApp) {
+        # Notes can hold operator text. The tag is added on its own first
+        # line when the app is adopted, and the notes stay as they are once
+        # they carry the tag.
+        $existingNotes = [string]$existingApp.notes
+        if ((Get-IntuneNotesIdentityTags -Notes $existingNotes) -contains $identityTag) { $appBody['notes'] = $existingNotes }
+        else {
+            # A legacy tag is replaced by the identity tag; other text stays.
+            $kept = @($existingNotes -split "`r?`n" | Where-Object { $_.Trim() -notlike 'AppPackager:legacy:*' }) -join "`r`n"
+            if (-not [string]::IsNullOrWhiteSpace($kept)) { $appBody['notes'] = $identityTag + "`r`n" + $kept.Trim() }
+        }
         $appId = [string]$existingApp.id
         Write-Log ("Updating Intune Win32 app    : {0} (app id {1})" -f $Manifest.AppName, $appId)
         Invoke-GraphJson -Method PATCH -Uri "$GraphBase/deviceAppManagement/mobileApps/$appId" -Token $token -Body $appBody | Out-Null

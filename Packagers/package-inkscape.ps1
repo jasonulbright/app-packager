@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:inkscape:inkscape:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://inkscape.org/release/
 DownloadPageUrl: https://inkscape.org/release/
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Inkscape MSI for ConfigMgr.
@@ -148,7 +149,7 @@ function Invoke-StageInkscape {
     # gallery suffix, so it must be read off the release page rather than
     # composed from the version.
     $releasePage = "https://inkscape.org/release/inkscape-${version}/windows/64-bit/msi/dl/"
-    $html = (curl.exe -L --fail --silent --show-error $releasePage) -join "`n"
+    $html = (curl.exe -L --fail --silent --show-error (ConvertTo-SafeCurlUrl $releasePage)) -join "`n"
     if ($LASTEXITCODE -ne 0 -or $html -notmatch 'href="(/gallery/item/\d+/inkscape-[^"]+?\.msi)"') {
         throw "Could not locate the MSI link on $releasePage"
     }

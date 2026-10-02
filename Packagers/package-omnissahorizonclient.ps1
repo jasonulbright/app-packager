@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://docs.omnissa.com/category/HorizonClientforWindowsReleas
 DownloadPageUrl: https://customerconnect.omnissa.com/downloads/info/slug/virtual_desktop_and_apps/omnissa_horizon_clients/8
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages the Omnissa Horizon Client (x64, per-machine) for ConfigMgr.
@@ -163,7 +164,7 @@ function Get-LatestHorizonClientRelease {
         Write-Log "Download group code          : $($group.code)" -Quiet:$Quiet
 
         $detailsUrl = $DlgDetailsUrl -f $group.code, $ProductId
-        $detailsJson = (curl.exe -L --fail --silent --show-error $detailsUrl) -join ''
+        $detailsJson = (curl.exe -L --fail --silent --show-error (ConvertTo-SafeCurlUrl $detailsUrl)) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query download details for $($group.code)." }
 
         $details = ConvertFrom-Json $detailsJson

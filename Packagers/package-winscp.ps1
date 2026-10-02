@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:winscp:winscp:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://winscp.net/eng/docs/history
 DownloadPageUrl: https://winscp.net/eng/download.php
 IconSource: External
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages WinSCP (x64) for ConfigMgr.
@@ -106,7 +107,7 @@ function Get-LatestWinSCPVersion {
     Write-Log "WinSCP downloads page        : $url" -Quiet:$Quiet
 
     try {
-        $html = (curl.exe -L --max-redirs 10 --fail --silent --show-error $url) -join "`n"
+        $html = (curl.exe -L --max-redirs 10 --fail --silent --show-error (ConvertTo-SafeCurlUrl $url)) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch WinSCP downloads page: $url" }
 
         $version = $null

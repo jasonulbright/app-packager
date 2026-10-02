@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.bulkrenameutility.co.uk/Downloads/BRUChangelog.pdf
 DownloadPageUrl: https://www.bulkrenameutility.co.uk/Download.php
 IconSource: Installer
 UpdateCadenceDays: 180
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Bulk Rename Utility (x64) for ConfigMgr.

@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://newsgroup.xnview.com/viewforum.php?f=60
 DownloadPageUrl: https://www.xnview.com/en/xnviewmp/
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages XnView MP (x64) for ConfigMgr.

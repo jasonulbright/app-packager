@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/musescore/MuseScore/releases
 DownloadPageUrl: https://musescore.org/en/download
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages MuseScore Studio 4 (x64) MSI for ConfigMgr.

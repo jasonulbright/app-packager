@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/thonny/thonny/releases/latest
 IconSource: External
 SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Thonny (x64) for ConfigMgr.

@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.wibu.com/support/user/user-software.html
 DownloadPageUrl: https://www.wibu.com/us/support/user/downloads-user-software.html
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages the CodeMeter Runtime Kit (x64) for ConfigMgr.
@@ -175,7 +176,7 @@ function Get-LatestCodeMeterRuntime {
         $best = $candidates | Sort-Object SortKey -Descending | Select-Object -First 1
 
         $detailUrl = $FileDetailUrl -f $best.Id
-        $detail = (curl.exe -L --fail --silent --show-error -A $BrowserAgent $detailUrl) -join "`n"
+        $detail = (curl.exe -L --fail --silent --show-error -A $BrowserAgent (ConvertTo-SafeCurlUrl $detailUrl)) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch the file detail page: $detailUrl" }
 
         $linkRx = [regex]'href="(?<href>[^"]*directDownload[^"]*)"'

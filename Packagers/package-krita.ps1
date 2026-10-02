@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://krita.org/en/news/
 DownloadPageUrl: https://krita.org/en/download/
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Krita (x64) for ConfigMgr.
@@ -155,7 +156,7 @@ function Get-LatestKritaRelease {
         $ordered = @($versions) | Sort-Object { [version]$_ } -Descending
         foreach ($v in $ordered) {
             $releaseUrl = "$ReleaseRootUrl$v/"
-            $html = (curl.exe -L --fail --silent --show-error $releaseUrl) -join "`n"
+            $html = (curl.exe -L --fail --silent --show-error (ConvertTo-SafeCurlUrl $releaseUrl)) -join "`n"
             if ($LASTEXITCODE -ne 0) { continue }
 
             $fileName = "krita-x64-$v-setup.exe"

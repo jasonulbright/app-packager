@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://support.google.com/a/answer/9250996
 DownloadPageUrl: https://tools.google.com/dlpage/gcpw/
 IconSource: Installer
 UpdateCadenceDays: 30
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Google Credential Provider for Windows (x64) MSI for ConfigMgr.

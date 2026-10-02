@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/d2phap/ImageGlass/releases
 DownloadPageUrl: https://imageglass.org/download
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages ImageGlass (x64) MSI for ConfigMgr.

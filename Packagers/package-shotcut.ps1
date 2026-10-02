@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/mltframework/shotcut/releases
 DownloadPageUrl: https://www.shotcut.org/download/
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Shotcut (x64) for ConfigMgr.

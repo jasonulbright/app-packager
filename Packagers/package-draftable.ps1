@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://help.draftable.com/hc/en-us
 DownloadPageUrl: https://www.draftable.com/desktop
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Draftable Desktop (x64, system-wide MSI) for ConfigMgr.

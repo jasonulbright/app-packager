@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://support.box.com/hc/en-us/articles/360043697154-Box-Driv
 DownloadPageUrl: https://www.box.com/resources/downloads
 IconSource: Installer
 UpdateCadenceDays: 45
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Box Drive (x64) MSI for ConfigMgr.

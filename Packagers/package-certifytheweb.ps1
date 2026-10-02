@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/webprofusion/certify/blob/master/CHANGELOG.m
 DownloadPageUrl: https://certifytheweb.com/home/download
 IconSource: Installer
 UpdateCadenceDays: 120
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Certify The Web (x64) for ConfigMgr.

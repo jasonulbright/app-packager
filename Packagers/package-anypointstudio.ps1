@@ -7,6 +7,7 @@ ReleaseNotesUrl: https://docs.mulesoft.com/release-notes/studio/anypoint-studio
 DownloadPageUrl: https://www.mulesoft.com/lp/dl/anypoint-mule-studio
 IconSource: None
 UpdateCadenceDays: 60
+WsusSupport: No (CustomInstall)
 
 .SYNOPSIS
     Packages MuleSoft Anypoint Studio (x64) for ConfigMgr.
@@ -189,6 +190,76 @@ function Get-AnypointStudioFeatureVersion {
 }
 
 
+function Assert-AnypointStudioZipLayout {
+    <#
+    .SYNOPSIS
+        Throws unless every entry of the ZIP extracts under the install folder.
+    .DESCRIPTION
+        The install script extracts into the parent of the install folder, so
+        the check in .NET that keeps an entry inside the extraction folder does
+        not keep it inside the install folder: an entry named
+        AnypointStudio/../Other lands in the parent without an error.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$ZipPath,
+        [Parameter(Mandatory)][string]$InstallDir
+    )
+
+    $parent = Split-Path -Path $InstallDir -Parent
+    $root = [System.IO.Path]::GetFullPath($InstallDir).TrimEnd([char]92) + [char]92
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        foreach ($entry in $zip.Entries) {
+            $target = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($parent, $entry.FullName.Replace([char]47, [char]92)))
+            if (-not $target.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw ("The ZIP entry '{0}' extracts outside {1}: {2}" -f $entry.FullName, $InstallDir, $ZipPath)
+            }
+        }
+    }
+    finally { $zip.Dispose() }
+}
+
+
+function New-AnypointStudioInstallContent {
+    # The layout is checked again on the client before the earlier version is
+    # removed, so a ZIP changed after staging cannot write outside the install
+    # folder or cost the existing install. An earlier version is removed
+    # because extracting over it would leave its plugins beside the new ones.
+    param(
+        [Parameter(Mandatory)][string]$ZipFileName,
+        [Parameter(Mandatory)][string]$InstallDir
+    )
+
+    return (
+        "`$ErrorActionPreference = 'Stop'",
+        ("`$zipPath = Join-Path `$PSScriptRoot '{0}'" -f (ConvertTo-SingleQuotedContent $ZipFileName)),
+        ("`$installDir = '{0}'" -f (ConvertTo-SingleQuotedContent $InstallDir)),
+        'try {',
+        '    Add-Type -AssemblyName System.IO.Compression.FileSystem',
+        '    $parent = Split-Path -Path $installDir -Parent',
+        '    $root = [System.IO.Path]::GetFullPath($installDir).TrimEnd([char]92) + [char]92',
+        '    $zip = [System.IO.Compression.ZipFile]::OpenRead($zipPath)',
+        '    try {',
+        '        foreach ($entry in $zip.Entries) {',
+        '            $target = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($parent, $entry.FullName.Replace([char]47, [char]92)))',
+        '            if (-not $target.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) { throw ("The ZIP entry " + $entry.FullName + " extracts outside " + $installDir) }',
+        '        }',
+        '    }',
+        '    finally { $zip.Dispose() }',
+        '    if (Test-Path -LiteralPath $installDir) { Remove-Item -LiteralPath $installDir -Recurse -Force }',
+        '    [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $parent)',
+        '    exit 0',
+        '}',
+        'catch {',
+        '    Write-Error $_.Exception.Message',
+        '    exit 1',
+        '}'
+    ) -join "`r`n"
+}
+
+
 function Save-AnypointStudioIcon {
     # The ZIP is not an executable, so the icon comes from the launcher inside it.
     param([Parameter(Mandatory)][string]$ZipPath, [Parameter(Mandatory)][string]$StageRoot)
@@ -259,6 +330,8 @@ function Invoke-StageAnypointStudio {
     }
     Write-Log "SHA-256 verified             : $actualSha256"
 
+    Assert-AnypointStudioZipLayout -ZipPath $localZip -InstallDir $InstallDir
+
     $featureVersion = Get-AnypointStudioFeatureVersion -ZipPath $localZip
     Write-Log "Studio build                 : $featureVersion"
 
@@ -276,23 +349,7 @@ function Invoke-StageAnypointStudio {
     }
 
     # --- Generate content wrappers ---
-    # An earlier version is removed first: extracting over it would leave
-    # its plugins beside the new ones.
-    $installPs1 = (
-        "`$ErrorActionPreference = 'Stop'",
-        ("`$zipPath = Join-Path `$PSScriptRoot '{0}'" -f $zipFileName),
-        ("`$installDir = '{0}'" -f $InstallDir),
-        'try {',
-        '    if (Test-Path -LiteralPath $installDir) { Remove-Item -LiteralPath $installDir -Recurse -Force }',
-        '    Add-Type -AssemblyName System.IO.Compression.FileSystem',
-        '    [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, (Split-Path -Path $installDir -Parent))',
-        '    exit 0',
-        '}',
-        'catch {',
-        '    Write-Error $_.Exception.Message',
-        '    exit 1',
-        '}'
-    ) -join "`r`n"
+    $installPs1 = New-AnypointStudioInstallContent -ZipFileName $zipFileName -InstallDir $InstallDir
 
     $uninstallPs1 = (
         "`$ErrorActionPreference = 'Stop'",

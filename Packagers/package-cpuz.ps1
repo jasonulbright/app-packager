@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.cpuid.com/softwares/cpu-z.html
 DownloadPageUrl: https://www.cpuid.com/softwares/cpu-z.html
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages CPU-Z (x64) for ConfigMgr.
@@ -139,7 +140,7 @@ function Resolve-CpuZInstallerUrl {
     $interstitial = "$DownloadBase/$FileName"
 
     try {
-        $html = (curl.exe -L --fail --silent --show-error $interstitial) -join "`n"
+        $html = (curl.exe -L --fail --silent --show-error (ConvertTo-SafeCurlUrl $interstitial)) -join "`n"
         if ($LASTEXITCODE -eq 0) {
             $m = [regex]::Match($html, 'href\s*=\s*"(?<url>https?://[^"]*?' + [regex]::Escape($FileName) + ')"')
             if ($m.Success -and $m.Groups['url'].Value -ne $interstitial) {

@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/OpenVPN/openvpn/blob/master/Changes.rst
 DownloadPageUrl: https://openvpn.net/community-downloads/
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages the OpenVPN community client (x64 MSI) for ConfigMgr.

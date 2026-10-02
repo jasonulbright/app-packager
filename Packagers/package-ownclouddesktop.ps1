@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/owncloud/client/releases
 DownloadPageUrl: https://owncloud.com/desktop-app/
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages the ownCloud Desktop Client (x64 MSI) for ConfigMgr.
@@ -151,7 +152,7 @@ function Get-LatestOwnCloudRelease {
         $ordered = @($dirs) | Sort-Object { [version]$_ } -Descending
         foreach ($d in $ordered) {
             $winUrl = "$StableRootUrl$d/win/"
-            $html = (curl.exe -L --fail --silent --show-error $winUrl) -join "`n"
+            $html = (curl.exe -L --fail --silent --show-error (ConvertTo-SafeCurlUrl $winUrl)) -join "`n"
             if ($LASTEXITCODE -ne 0) { continue }
 
             $fileRx = [regex]'href\s*=\s*"\./(?<file>ownCloud-[0-9.]+\.x64\.msi)"'

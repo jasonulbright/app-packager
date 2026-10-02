@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:jetbrains:pycharm:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.jetbrains.com/pycharm/whatsnew/
 DownloadPageUrl: https://www.jetbrains.com/pycharm/download/?section=windows
 UpdateCadenceDays: 60
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages PyCharm (x64) for ConfigMgr.

@@ -44,6 +44,8 @@
         # Builds
         'Write-BuildRecord'
         'Get-BuildRecords'
+        'Get-WorkbenchBuildResultText'
+        'Set-ActiveProfile'
         'Get-LatestBuildRecord'
         'Resolve-StageManifestForBuild'
 

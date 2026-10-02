@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/obsidianmd/obsidian-releases/releases
 IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 30
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Obsidian (x64, per-machine) for ConfigMgr.

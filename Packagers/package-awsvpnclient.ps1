@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://docs.aws.amazon.com/vpn/latest/clientvpn-user/release-n
 DownloadPageUrl: https://aws.amazon.com/vpn/client-vpn-download/
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages the AWS VPN Client (x64) MSI for ConfigMgr.

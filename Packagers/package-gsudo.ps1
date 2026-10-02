@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/gerardog/gsudo/releases
 DownloadPageUrl: https://github.com/gerardog/gsudo/releases
 IconSource: None
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages gsudo (x64) MSI for ConfigMgr.

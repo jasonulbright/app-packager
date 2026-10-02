@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:microsoft:build_of_openjdk:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/en-us/java/openjdk/release-notes
 DownloadPageUrl: https://learn.microsoft.com/en-us/java/openjdk/download
 IconSource: Installer
+WsusSupport: No (PerUserInstall)
 
 .SYNOPSIS
     Packages Microsoft Build of OpenJDK 17 (x64) EXE, per user, for ConfigMgr.

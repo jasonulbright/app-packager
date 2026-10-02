@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/aws/aws-sam-cli/releases
 DownloadPageUrl: https://github.com/aws/aws-sam-cli/releases/latest
 IconSource: None
 UpdateCadenceDays: 30
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages the AWS SAM command line interface (x64) MSI for ConfigMgr.

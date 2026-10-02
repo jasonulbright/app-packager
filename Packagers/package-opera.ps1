@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://blogs.opera.com/desktop/
 DownloadPageUrl: https://www.opera.com/download
 IconSource: Installer
 UpdateCadenceDays: 21
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Opera Browser (x64) for ConfigMgr.

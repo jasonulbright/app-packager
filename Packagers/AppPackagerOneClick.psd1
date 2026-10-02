@@ -20,6 +20,7 @@
         'Get-OneClickCadenceDays'
         'Get-OneClickPlan'
         'Get-OneClickPlanSummary'
+        'Select-OneClickRunDestinations'
         'Get-OneClickReportFolder'
         'Write-OneClickReport'
         'Get-OneClickReportList'

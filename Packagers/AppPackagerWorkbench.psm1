@@ -21,6 +21,9 @@ $script:WorkbenchBundleSchemaVersion = 1
 $script:WorkbenchManifestSchemaVersion = 4
 $script:WorkbenchJsonDepth = 12
 $script:WorkbenchTokenNames = @('InstallerFile', 'Version', 'ProductCode', 'ContentRoot')
+# U+2018 to U+201F are the quotation marks PowerShell treats as string delimiters.
+$script:WorkbenchTokenUnsafeInScript = ('[''"`$;|&\r\n{0}-{1}]' -f [char]0x2018, [char]0x201F)
+$script:WorkbenchTokenUnsafeInCommand = '["%&|<>^\r\n]'
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -550,6 +553,13 @@ function New-WorkbenchProfileObject {
     }
 }
 
+function Assert-WorkbenchProfileIdIsFolderName {
+    param([Parameter(Mandatory)][string]$ProfileId)
+    # '.' and '..' resolve to the profiles folder or its parent, and Win32
+    # drops a trailing dot, so 'a.' and 'a' name the same folder.
+    if ($ProfileId -notmatch '^[A-Za-z0-9._-]+$' -or $ProfileId.EndsWith('.')) { throw "Invalid ProfileId '$ProfileId'." }
+}
+
 function Get-WorkbenchProfileFolder {
     param(
         [Parameter(Mandatory)][string]$ApplicationId,
@@ -558,7 +568,7 @@ function Get-WorkbenchProfileFolder {
         [switch]$NoCreate
     )
     if ($ProfileId -eq 'default') { throw 'The default profile is virtual and has no storage folder.' }
-    if ($ProfileId -notmatch '^[A-Za-z0-9._-]+$') { throw "Invalid ProfileId '$ProfileId'." }
+    Assert-WorkbenchProfileIdIsFolderName -ProfileId $ProfileId
     $folder = Join-Path (Join-Path (Get-WorkbenchApplicationFolder -ApplicationId $ApplicationId -DataRoot $DataRoot -NoCreate:$NoCreate) 'profiles') $ProfileId
     if (-not $NoCreate) { [void](New-WorkbenchFolder -Path $folder) }
     return $folder
@@ -607,6 +617,30 @@ function Get-Profiles {
     return @($results)
 }
 
+function Set-ActiveProfile {
+    <#
+    .SYNOPSIS
+        Makes one profile the profile that a run of the application builds.
+
+    .OUTPUTS
+        [bool] True when the definition changed.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$ApplicationId,
+        [Parameter(Mandatory)][string]$ProfileId,
+        [string]$DataRoot
+    )
+
+    if ($ProfileId -ne 'default') { [void](Get-Profile -ApplicationId $ApplicationId -ProfileId $ProfileId -DataRoot $DataRoot) }
+    $definition = ConvertTo-WorkbenchHashtable -InputObject (Get-ApplicationDefinition -ApplicationId $ApplicationId -DataRoot $DataRoot)
+    $current = [string]$definition['ActiveProfileId']
+    if ([string]::IsNullOrWhiteSpace($current)) { $current = 'default' }
+    if ($current -eq $ProfileId) { return $false }
+    $definition['ActiveProfileId'] = $ProfileId
+    [void](Save-ApplicationDefinition -Definition $definition -DataRoot $DataRoot)
+    return $true
+}
+
 function Get-Profile {
     <#
     .SYNOPSIS
@@ -637,6 +671,18 @@ function Get-Profile {
     }
     $data['IsDefault'] = $false
     return [pscustomobject]$data
+}
+
+function ConvertTo-WorkbenchContentSuffix {
+    # Must give the same result as Get-ProfileContentScope in AppPackagerCommon.
+    param([AllowEmptyString()][string]$Name, [Parameter(Mandatory)][string]$ProfileId)
+
+    $suffix = ($Name -replace '[^A-Za-z0-9._-]', '').TrimEnd([char]'.', [char]' ')
+    if ([string]::IsNullOrWhiteSpace($suffix)) {
+        $suffix = ($ProfileId -replace '[^A-Za-z0-9._-]', '')
+        if ($suffix.Length -gt 8) { $suffix = $suffix.Substring(0, 8) }
+    }
+    return $suffix
 }
 
 function Save-Profile {
@@ -683,6 +729,19 @@ function Save-Profile {
     }
 
     Assert-WorkbenchProfileValid -Profile $data
+
+    # The network content folder of a profile build is <version>-<suffix>, and
+    # the suffix is the profile name without the characters a folder name
+    # cannot carry. Two profiles of one application must not share it.
+    $suffix = ConvertTo-WorkbenchContentSuffix -Name ([string]$data['Name']) -ProfileId $profileId
+    foreach ($other in @(Get-Profiles -ApplicationId $applicationId -DataRoot $DataRoot)) {
+        $otherId = [string]$other.ProfileId
+        if ($otherId -eq 'default' -or $otherId -eq $profileId) { continue }
+        if ((ConvertTo-WorkbenchContentSuffix -Name ([string]$other.Name) -ProfileId $otherId) -ieq $suffix) {
+            throw "Profile name '$($data['Name'])' gives the same content folder suffix ('$suffix') as profile '$($other.Name)'; choose a different name."
+        }
+    }
+
     $data['Revision'] = $incoming + 1
     $data['SavedAt'] = (Get-Date -Format 'o')
     [void](Write-WorkbenchJsonFile -Path $path -InputObject $data)
@@ -1398,6 +1457,16 @@ function Resolve-WorkbenchTokens {
             if ([string]::IsNullOrWhiteSpace($value)) {
                 throw "Build token '{{$name}}' has no value at build time; the stage did not resolve it."
             }
+            # ContentRoot is the module's own expression. The other values come
+            # from a vendor page or a file name and land inside a script or a
+            # command line, where these characters end a string or start a
+            # new statement.
+            if ($name -ne 'ContentRoot') {
+                $unsafe = if ($Context -eq 'Script') { $script:WorkbenchTokenUnsafeInScript } else { $script:WorkbenchTokenUnsafeInCommand }
+                if ($value -match $unsafe) {
+                    throw "Build token '{{$name}}' has the value '$value', which contains a character that is not allowed in a $($Context.ToLowerInvariant())."
+                }
+            }
             return $value
         })
 
@@ -1451,7 +1520,10 @@ function Test-WorkbenchSigningRequested {
     if (-not $Policy) { return $false }
     foreach ($name in @('SignDetection', 'SignRequirements', 'SignDeployment', 'RequireDetection', 'RequireRequirements', 'RequireDeployment')) {
         $member = Get-WorkbenchMember -InputObject $Policy -Path $name
-        if ($member.Found -and [bool]$member.Value) { return $true }
+        if (-not $member.Found) { continue }
+        # A stored policy can carry its switches as text, and [bool]'false' is true.
+        if ($member.Value -is [bool]) { if ($member.Value) { return $true } }
+        elseif ([string]$member.Value -match '^\s*(?i:true|1|yes|on)\s*$') { return $true }
     }
     return $false
 }
@@ -1562,7 +1634,8 @@ function New-ExtendOrchestratorContent {
     $lines.Add('    param([string]$Name)')
     $lines.Add('    $script = Join-Path $PSScriptRoot $Name')
     $lines.Add('    if (-not (Test-Path -LiteralPath $script)) { throw "Step script not found: $script" }')
-    $lines.Add("    `$stepArgs = @('-NoProfile', '-NonInteractive'$policyArgument, '-File', `$script)")
+    # Start-Process joins the array with spaces and adds no quotes.
+    $lines.Add("    `$stepArgs = @('-NoProfile', '-NonInteractive'$policyArgument, '-File', ('`"{0}`"' -f `$script))")
     $lines.Add('    $proc = Start-Process -FilePath $hostExe -ArgumentList $stepArgs -Wait -PassThru -NoNewWindow')
     $lines.Add('    return [int]$proc.ExitCode')
     $lines.Add('}')
@@ -1811,6 +1884,19 @@ function Remove-WorkbenchStaleStageArtifacts {
             if ([string]::IsNullOrWhiteSpace($relative)) { continue }
             $full = [System.IO.Path]::GetFullPath((Join-Path $rootFull $relative))
             if (-not $full.StartsWith($rootFull + '\', [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+            # The text check above does not see a junction or symbolic link
+            # below the stage root that leads outside it.
+            $viaLink = $false
+            $segment = Split-Path -Path $full -Parent
+            while ($segment -and $segment.TrimEnd('\').Length -gt $rootFull.Length) {
+                $item = Get-Item -LiteralPath $segment -Force -ErrorAction SilentlyContinue
+                if ($item -and ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) { $viaLink = $true; break }
+                $segment = Split-Path -Path $segment -Parent
+            }
+            if ($viaLink) {
+                Write-WorkbenchLog ("Stage prune kept             : {0} (the path passes through a link)" -f $relative) -Level WARN
+                continue
+            }
             if (Test-Path -LiteralPath $full -PathType Leaf) {
                 # A source file lands at an operator-chosen path that a later
                 # vendor release can also use, so only the bytes the record
@@ -1919,12 +2005,15 @@ function Invoke-StageFinalization {
         $target = ($section.ToLowerInvariant() + '.ps1')
 
         if ($mode -eq 'Custom') {
+            # The window stores typed text as ScriptText; an imported file is
+            # bound as an asset id and wins when both are present.
             $assetId = [string](Get-WorkbenchMember -InputObject $block -Path 'Script').Value
-            if ([string]::IsNullOrWhiteSpace($assetId)) { throw "$section.Mode Custom requires a script asset." }
-            $source = & $resolveAsset $assetId
-            $text = Resolve-WorkbenchTokens -Text ([System.IO.File]::ReadAllText($source)) -ManifestData $ManifestData -Context Script
+            $typed = [string](Get-WorkbenchMember -InputObject $block -Path 'ScriptText').Value
+            if ([string]::IsNullOrWhiteSpace($assetId) -and [string]::IsNullOrWhiteSpace($typed)) { throw "$section.Mode Custom requires a script asset or script text." }
+            $raw = if ([string]::IsNullOrWhiteSpace($assetId)) { $typed } else { [System.IO.File]::ReadAllText((& $resolveAsset $assetId)) }
+            $text = Resolve-WorkbenchTokens -Text $raw -ManifestData $ManifestData -Context Script
             [System.IO.File]::WriteAllText((Join-Path $StageRoot $target), $text, (New-Object System.Text.UTF8Encoding($false)))
-            [void]$customAssets.Add(@{ Category = $section; RelativePath = $target; Asset = $assetId })
+            [void]$customAssets.Add(@{ Category = $section; RelativePath = $target; Asset = $(if ([string]::IsNullOrWhiteSpace($assetId)) { $null } else { $assetId }) })
         }
         elseif ($mode -eq 'Extend') {
             $generatedPath = Join-Path $StageRoot $target
@@ -1937,13 +2026,14 @@ function Invoke-StageFinalization {
             $stepNames = @{}
             foreach ($hook in @('Before', 'After')) {
                 $assetId = [string](Get-WorkbenchMember -InputObject $block -Path $hook).Value
-                if ([string]::IsNullOrWhiteSpace($assetId)) { continue }
-                $source = & $resolveAsset $assetId
+                $typed = [string](Get-WorkbenchMember -InputObject $block -Path ($hook + 'Text')).Value
+                if ([string]::IsNullOrWhiteSpace($assetId) -and [string]::IsNullOrWhiteSpace($typed)) { continue }
+                $raw = if ([string]::IsNullOrWhiteSpace($assetId)) { $typed } else { [System.IO.File]::ReadAllText((& $resolveAsset $assetId)) }
                 $name = ('{0}-{1}.ps1' -f $section.ToLowerInvariant(), $hook.ToLowerInvariant())
-                $text = Resolve-WorkbenchTokens -Text ([System.IO.File]::ReadAllText($source)) -ManifestData $ManifestData -Context Script
+                $text = Resolve-WorkbenchTokens -Text $raw -ManifestData $ManifestData -Context Script
                 [System.IO.File]::WriteAllText((Join-Path $StageRoot $name), $text, (New-Object System.Text.UTF8Encoding($false)))
                 $stepNames[$hook] = $name
-                [void]$customAssets.Add(@{ Category = ($section + $hook); RelativePath = $name; Asset = $assetId })
+                [void]$customAssets.Add(@{ Category = ($section + $hook); RelativePath = $name; Asset = $(if ([string]::IsNullOrWhiteSpace($assetId)) { $null } else { $assetId }) })
             }
 
             $orchestrator = New-ExtendOrchestratorContent -Before ([string]$stepNames['Before']) -Generated $generatedName `
@@ -2172,6 +2262,22 @@ function Write-BuildRecord {
     return [pscustomobject]$record
 }
 
+function Get-WorkbenchBuildResultText {
+    <#
+    .SYNOPSIS
+        Returns the grid text for a build record: a record exists only for a
+        sealed build, so the text is the seal time.
+    #>
+    param([Parameter(Mandatory)]$Record)
+
+    $sealedAt = [string](Get-WorkbenchMember -InputObject $Record -Path 'SealedAt').Value
+    $when = [datetime]::MinValue
+    if ([datetime]::TryParse($sealedAt, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$when)) {
+        return ('Sealed {0}' -f $when.ToLocalTime().ToString('yyyy-MM-dd HH:mm'))
+    }
+    return 'Sealed'
+}
+
 function Get-BuildRecords {
     <#
     .SYNOPSIS
@@ -2387,7 +2493,7 @@ function Get-WorkbenchDraftPath {
         [string]$DataRoot
     )
     if ([string]::IsNullOrWhiteSpace($DataRoot)) { $DataRoot = Get-WorkbenchDataRoot }
-    if ($ProfileId -notmatch '^[A-Za-z0-9._-]+$') { throw "Invalid ProfileId '$ProfileId'." }
+    Assert-WorkbenchProfileIdIsFolderName -ProfileId $ProfileId
     $folder = Join-Path (Join-Path $DataRoot 'drafts') (ConvertTo-ApplicationKey -ApplicationId $ApplicationId)
     return (Join-Path $folder "$ProfileId.draft.json")
 }
@@ -2663,6 +2769,8 @@ Export-ModuleMember -Function @(
     'Invoke-StageFinalization'
     'Write-BuildRecord'
     'Get-BuildRecords'
+    'Get-WorkbenchBuildResultText'
+    'Set-ActiveProfile'
     'Get-LatestBuildRecord'
     'Resolve-StageManifestForBuild'
     'Save-ByoApplication'

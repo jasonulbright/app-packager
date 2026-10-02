@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://anydesk.com/en/changelog/windows
 DownloadPageUrl: https://anydesk.com/en/downloads/windows
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages AnyDesk (x86 payload, 64-bit capable host) for ConfigMgr.

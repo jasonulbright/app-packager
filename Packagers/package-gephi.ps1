@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/gephi/gephi/releases
 DownloadPageUrl: https://gephi.org/users/download/
 IconSource: Installer
 UpdateCadenceDays: 180
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages Gephi (x64) for ConfigMgr.

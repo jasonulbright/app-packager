@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:libreoffice:libreoffice:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://wiki.documentfoundation.org/Releases
 DownloadPageUrl: https://www.libreoffice.org/download/download-libreoffice/
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages LibreOffice (x64) MSI for ConfigMgr.
@@ -125,9 +126,22 @@ function Get-LatestLibreOfficeVersion {
             throw "No version folders found on LibreOffice CDN."
         }
 
-        $latest = $versions[0]
-        Write-Log "Latest LibreOffice version   : $latest" -Quiet:$Quiet
-        return $latest
+        # A version folder can be listed before the mirrors serve its files;
+        # the download then answers 404. The newest version whose installer
+        # answers is the latest one that can be staged.
+        $versions = @($versions)
+        foreach ($candidate in $versions) {
+            $msiUrl = "${CdnStableUrl}$candidate/win/x86_64/LibreOffice_${candidate}_Win_x86-64.msi"
+            $status = (curl.exe -L --silent --range 0-0 --output NUL --write-out '%{http_code}' --max-time 60 $msiUrl) -join ''
+            if ($status -in @('200', '206')) {
+                if ($candidate -ne $versions[0]) {
+                    Write-Log "LibreOffice $($versions[0]) is listed but its installer is not served yet (HTTP $status on $candidate); using $candidate." -Level WARN -Quiet:$Quiet
+                }
+                Write-Log "Latest LibreOffice version   : $candidate" -Quiet:$Quiet
+                return $candidate
+            }
+        }
+        throw "No listed LibreOffice version has a downloadable x64 installer."
     }
     catch {
         Write-Log "Failed to get LibreOffice version: $($_.Exception.Message)" -Level ERROR

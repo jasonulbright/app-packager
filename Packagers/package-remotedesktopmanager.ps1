@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://devolutions.net/remote-desktop-manager/home/whatsnew/
 DownloadPageUrl: https://devolutions.net/remote-desktop-manager/home/download/
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Remote Desktop Manager (x64 MSI, Free edition entitlement) for ConfigMgr.

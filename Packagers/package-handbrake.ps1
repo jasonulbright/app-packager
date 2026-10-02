@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/HandBrake/HandBrake/releases
 DownloadPageUrl: https://handbrake.fr/downloads.php
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages HandBrake (x64) NSIS installer for ConfigMgr.

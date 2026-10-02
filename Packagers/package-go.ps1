@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://go.dev/doc/devel/release
 DownloadPageUrl: https://go.dev/dl/
 IconSource: Installer
 UpdateCadenceDays: 30
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages the Go programming language toolchain (windows-amd64) MSI for ConfigMgr.

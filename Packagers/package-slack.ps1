@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://slack.com/release-notes/windows
 DownloadPageUrl: https://slack.com/downloads/windows
 IconSource: External
 UpdateCadenceDays: 14
+WsusSupport: No (InstallerTypeUnsupported|CustomInstall)
 
 .SYNOPSIS
     Packages Slack (x64) MSIX for ConfigMgr.

@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/jgm/pandoc/releases
 DownloadPageUrl: https://pandoc.org/installing.html
 IconSource: None
 UpdateCadenceDays: 45
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Pandoc (x64) MSI for ConfigMgr.

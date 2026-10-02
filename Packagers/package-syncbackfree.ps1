@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.2brightsparks.com/syncback/changes.html
 DownloadPageUrl: https://www.2brightsparks.com/download-syncbackfree.html
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages SyncBackFree for ConfigMgr.

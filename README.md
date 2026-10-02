@@ -512,7 +512,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-cpuz.ps1 | CPUID | CPU-Z | File existence |
 | package-cryptomator.ps1 | Skymatic | Cryptomator | RegistryKeyValue |
 | package-cura.ps1 | UltiMaker | UltiMaker Cura | RegistryKeyValue |
-| package-cutepdfwriter.ps1 | Acro Software Inc. | CutePDF Writer | RegistryKeyValue |
+| package-cutepdfwriter.ps1 | Acro Software Inc. | CutePDF Writer | RegistryKey existence |
 | package-cyberduck.ps1 | iterate GmbH | Cyberduck | File existence |
 | package-datagrip.ps1 | JetBrains | DataGrip | RegistryKey existence |
 | package-daxstudio.ps1 | DAX Studio | DAX Studio | File existence |
@@ -558,7 +558,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-inkscape.ps1 | Inkscape Project | Inkscape (x64) | RegistryKeyValue |
 | package-intunedebugtoolkit.ps1 | MSEndpointMgr | Intune Debug Toolkit | RegistryKeyValue |
 | package-irfanview.ps1 | Irfan Skiljan | IrfanView | File version |
-| package-jabradirect.ps1 | GN Audio A/S | Jabra Direct | RegistryKeyValue |
+| package-jabradirect.ps1 | GN Audio A/S | Jabra Direct | File version |
 | package-joplin.ps1 | Laurent Cozic | Joplin | File version |
 | package-kdiff3.ps1 | KDE e.V. | KDiff3 | RegistryKeyValue |
 | package-keepass.ps1 | Dominik Reichl | KeePass | RegistryKeyValue |
@@ -738,7 +738,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-webview2.ps1 | Microsoft | WebView2 Evergreen Runtime | File version |
 | package-windirstat.ps1 | WinDirStat Team | WinDirStat (x64) | File version |
 | package-windowsadk.ps1 | Microsoft | Windows ADK for Windows 11 | RegistryKeyValue |
-| package-windowsadmincenter.ps1 | Microsoft | Windows Admin Center | File version |
+| package-windowsadmincenter.ps1 | Microsoft | Windows Admin Center | RegistryKeyValue |
 | package-windowspeaddon.ps1 | Microsoft | Windows PE add-on for the Windows ADK | RegistryKeyValue |
 | package-winmerge.ps1 | WinMerge | WinMerge (x64) | File version |
 | package-winrar.ps1 | win.rar GmbH | WinRAR (x64) | RegistryKeyValue |
@@ -1134,6 +1134,8 @@ All packager scripts import the shared module which provides:
 | `Invoke-AdHocPackage` | Copies ad-hoc staged content to the network share and creates the ConfigMgr application from its manifest |
 | `New-PackagerFromDrop` | Writes a starter `package-<app>.ps1` from the matching template with analysis-filled identity values |
 | `Assert-ArpDetectionKey` | Compares a literal ARP key and registry view in the manifest against the staged installer's own analysis and fails the Stage on a mismatch |
+| `ConvertTo-SingleQuotedContent` | Escapes text for a single-quoted literal in a generated script, including the typographic quotes PowerShell treats as quotes |
+| `ConvertTo-SafeCurlUrl` | Returns a URL that is safe to pass to `curl.exe` as one argument, and throws for a quote, a control character or a scheme other than http or https |
 
 Common loads two further modules at import, so packagers get them without any change of their own:
 

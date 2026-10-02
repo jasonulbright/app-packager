@@ -1030,6 +1030,30 @@ Describe 'Publish-WsusSoftwareUpdate' {
         Mock -ModuleName AppPackagerWsus Invoke-WsusUpdateDecline { $script:Declines.Add([string]$Update.Id.UpdateId) }
     }
 
+    It 'refuses a payload that changes between the first integrity check and the package copy' {
+        $manifest = New-HashedManifest
+        $installer = Join-Path $script:Content ([string]$manifest.InstallerFile)
+        $original = [System.IO.File]::ReadAllBytes($installer)
+        $script:ChangeTarget = $installer
+        Mock -ModuleName AppPackagerWsus Get-WsusLocallyPublishedUpdateObjects {
+            [System.IO.File]::AppendAllText($script:ChangeTarget, 'changed')
+            @()
+        }
+        try {
+            { Publish-WsusSoftwareUpdate -Manifest $manifest -ContentFolder $script:Content -Settings $script:Settings } | Should -Throw '*changed after it was staged*'
+            $script:Published.Count | Should -Be 0
+        }
+        finally { [System.IO.File]::WriteAllBytes($installer, $original) }
+    }
+
+    It 'names database maintenance for a SQL command timeout' {
+        InModuleScope AppPackagerWsus {
+            Get-WsusPublishFailureHint -Message 'Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.' |
+                Should -Match 'WSUS database maintenance'
+            Get-WsusPublishFailureHint -Message 'Access is denied.' | Should -BeNullOrEmpty
+        }
+    }
+
     It 'publishes a new update built from the manifest' {
         $result = Publish-WsusSoftwareUpdate -Manifest (New-HashedManifest) -ContentFolder $script:Content -Settings $script:Settings
         $expectedId = [guid]$script:Plans[0].Plan.PackageId
@@ -1505,5 +1529,26 @@ Describe 'Signing certificate import' {
         $wrong = ConvertTo-SecureString -String 'wrong' -AsPlainText -Force
         { Set-WsusSigningCertificate -Settings @{ ServerName = 'wsus01.contoso.com' } -PfxPath $script:PfxFiles['Strong'] -Password $wrong } | Should -Throw '*could not be opened*'
         Should -Invoke -ModuleName AppPackagerWsus Get-WsusServerConnection -Times 0 -Exactly
+    }
+}
+
+Describe 'Install wrapper that maps an exit code' {
+    It 'is reported as a step WSUS does not carry' {
+        $mapped = Join-Path $TestDrive 'mapped.ps1'
+        Set-Content -LiteralPath $mapped -Encoding ASCII -Value @(
+            '$exePath = Join-Path $PSScriptRoot ''setup.exe''',
+            '$proc = Start-Process -FilePath $exePath -ArgumentList @(''/S'') -Wait -PassThru -NoNewWindow',
+            'if ($proc.ExitCode -eq 111111) { exit 0 }',
+            'exit $proc.ExitCode')
+        $plain = Join-Path $TestDrive 'plain.ps1'
+        Set-Content -LiteralPath $plain -Encoding ASCII -Value @(
+            '$exePath = Join-Path $PSScriptRoot ''setup.exe''',
+            'if (-not (Test-Path -LiteralPath $exePath)) { exit 0 }',
+            '$proc = Start-Process -FilePath $exePath -ArgumentList @(''/S'') -Wait -PassThru -NoNewWindow',
+            'exit $proc.ExitCode')
+        InModuleScope AppPackagerWsus -Parameters @{ Mapped = $mapped; Plain = $plain } {
+            @(Get-WsusInstallScriptExtras -Path $Mapped) -join ';' | Should -Match 'exit code mapped to success'
+            @(Get-WsusInstallScriptExtras -Path $Plain).Count | Should -Be 0
+        }
     }
 }

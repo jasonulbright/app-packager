@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.citrix.com/downloads/workspace-app/workspace-app-fo
 IconSource: Installer
 UpdateCadenceDays: 90
 LocalSource: Required
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Citrix Workspace app for Windows, LTSR (x64), for ConfigMgr.
@@ -355,14 +356,14 @@ function ConvertTo-WrapperArgumentList {
     #>
     param([Parameter(Mandatory)][string[]]$Arguments)
 
-    return (($Arguments | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ', ')
+    return (($Arguments | ForEach-Object { "'" + (ConvertTo-SingleQuotedContent $_) + "'" }) -join ', ')
 }
 
 
 function Get-CitrixWorkspaceUninstallContent {
     param([Parameter(Mandatory)][string]$InstallerFileName)
 
-    $escaped = $InstallerFileName -replace "'", "''"
+    $escaped = ConvertTo-SingleQuotedContent $InstallerFileName
     return (
         ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $escaped),
         'if (-not (Test-Path -LiteralPath $exePath)) { exit 1 }',

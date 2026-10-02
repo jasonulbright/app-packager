@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://learn.microsoft.com/windows-hardware/get-started/what-s
 DownloadPageUrl: https://learn.microsoft.com/windows-hardware/get-started/adk-install
 IconSource: External
 UpdateCadenceDays: 180
+WsusSupport: No (DetectionNotMappable|PayloadInSubfolder)
 
 .SYNOPSIS
     Packages the Windows ADK for Windows 11 for ConfigMgr as an offline layout.
@@ -294,9 +295,9 @@ function Invoke-StageWindowsAdk {
     Write-Log ""
 
     # --- Generate content wrappers ---
-    $installArgList = @("'/quiet'", ("'/installpath'"), ("'`"{0}`"'" -f ($InstallPath -replace "'", "''")), "'/features'")
+    $installArgList = @("'/quiet'", ("'/installpath'"), ("'`"{0}`"'" -f (ConvertTo-SingleQuotedContent $InstallPath)), "'/features'")
     foreach ($feature in $Features) {
-        $installArgList += ("'{0}'" -f ($feature -replace "'", "''"))
+        $installArgList += ("'{0}'" -f (ConvertTo-SingleQuotedContent $feature))
     }
     $wrappers = New-ExeWrapperContent -InstallerFileName $InstallerFileName `
         -InstallArgs ($installArgList -join ', ') `

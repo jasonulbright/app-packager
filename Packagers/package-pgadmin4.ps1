@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.pgadmin.org/docs/pgadmin4/latest/release_notes.html
 DownloadPageUrl: https://www.pgadmin.org/download/pgadmin-4-windows/
 IconSource: Installer
 UpdateCadenceDays: 30
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages pgAdmin 4 (x64) for ConfigMgr.

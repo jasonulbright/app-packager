@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/ThePacielloGroup/CCAe/releases
 DownloadPageUrl: https://www.tpgi.com/color-contrast-checker/
 IconSource: Installer
 UpdateCadenceDays: 180
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Colour Contrast Analyser (x64) MSI for ConfigMgr.

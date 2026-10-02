@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://qgis.org/project/visual-changelogs/
 DownloadPageUrl: https://qgis.org/download/
 IconSource: External
 UpdateCadenceDays: 30
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages QGIS (x64, long term release channel) for ConfigMgr.

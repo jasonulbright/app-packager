@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/karakun/OpenWebStart/releases
 DownloadPageUrl: https://openwebstart.com/download/
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages OpenWebStart (x64) for ConfigMgr.

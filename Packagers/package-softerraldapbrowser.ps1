@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.ldapbrowser.com/resources/english/2026/releasenotes
 DownloadPageUrl: https://www.ldapbrowser.com/download.htm
 IconSource: Installer
 UpdateCadenceDays: 180
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Softerra LDAP Browser (x64, English) for ConfigMgr.

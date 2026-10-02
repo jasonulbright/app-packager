@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:cisco:webex_meetings:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.webex.com/whatsnew.html
 DownloadPageUrl: https://www.webex.com/downloads.html
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Cisco Webex (x64) MSI for ConfigMgr.

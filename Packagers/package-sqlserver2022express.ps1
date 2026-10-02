@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://learn.microsoft.com/sql/database-engine/configure-windo
 DownloadPageUrl: https://www.microsoft.com/download/details.aspx?id=104781
 IconSource: External
 UpdateCadenceDays: 180
+WsusSupport: No (CustomInstall)
 
 .SYNOPSIS
     Packages Microsoft SQL Server 2022 Express (x64) for ConfigMgr.
@@ -204,7 +205,7 @@ function New-SqlExpressWrapperContent {
     )
 
     $preamble = @(
-        ('$mediaPath = Join-Path $PSScriptRoot ''{0}''' -f ($MediaFile -replace "'", "''")),
+        ('$mediaPath = Join-Path $PSScriptRoot ''{0}''' -f (ConvertTo-SingleQuotedContent $MediaFile)),
         '$extractRoot = Join-Path $env:SystemDrive ''SQLEXPR_Media''',
         'if (Test-Path -LiteralPath $extractRoot) { Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue }',
         '$box = Start-Process -FilePath $mediaPath -ArgumentList @(''/Q'', ("/X:" + $extractRoot)) -Wait -PassThru -NoNewWindow',

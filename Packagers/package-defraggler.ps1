@@ -4,18 +4,20 @@ App: Defraggler
 CMName: Defraggler
 VendorUrl: https://www.ccleaner.com/defraggler
 CPE: cpe:2.3:a:piriform:defraggler:*:*:*:*:*:*:*:*
-ReleaseNotesUrl: https://www.ccleaner.com/defraggler/builds
+ReleaseNotesUrl: https://www.ccleaner.com/defraggler/version-history
 DownloadPageUrl: https://www.ccleaner.com/defraggler
 IconSource: Installer
 UpdateCadenceDays: 365
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Defraggler (x64-capable installer) for ConfigMgr.
 
 .DESCRIPTION
-    Reads the current build from the vendor builds page and the version from the
-    installer file version resource, stages content to a versioned local folder,
-    and creates a ConfigMgr Application with file-version detection.
+    Finds the current build by probing the vendor installer host and reads the
+    version from the installer file version resource, stages content to a
+    versioned local folder, and creates a ConfigMgr Application with
+    file-version detection.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
@@ -84,8 +86,13 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$BuildsPageUrl     = "https://www.ccleaner.com/defraggler/builds"
+# The vendor publishes no build index. The installer host serves each build as
+# dfsetup<build>.exe, where the build number joins the major version and the
+# two-digit minor version (2.22 is 222). The newest build is found by probing
+# upward from a build the host is known to serve.
 $DownloadUrlFormat = "https://download.ccleaner.com/dfsetup{0}.exe"
+$FloorBuild        = 222
+$MaxBuildHops      = 12
 
 $VendorFolder = "Piriform"
 $AppFolder    = "Defraggler"
@@ -112,43 +119,92 @@ function Assert-ExePayload {
 }
 
 
+function Test-DefragglerBuildPublished {
+    <#
+    .SYNOPSIS
+        Returns true when the installer host answers 200 to a HEAD request for
+        the build's installer.
+    .DESCRIPTION
+        A 4xx answer is final when two requests in a row return it. A transport
+        failure or a 5xx answer is retried. When no request gives a definite
+        answer the function throws, so an outage is not read as "no newer build".
+    #>
+    param(
+        [Parameter(Mandatory)][int]$Build,
+        [Parameter(Mandatory)][string]$UserAgent
+    )
+
+    $url = $DownloadUrlFormat -f $Build
+    $refusals = 0
+    for ($attempt = 1; $attempt -le 4; $attempt++) {
+        $code = (curl.exe -sIL --max-time 20 -A $UserAgent -o NUL -w "%{http_code}" $url) -join ''
+        if ($LASTEXITCODE -eq 0 -and $code -eq '200') { return $true }
+        if ($LASTEXITCODE -eq 0 -and $code -match '^4\d\d$') {
+            $refusals++
+            if ($refusals -ge 2) { return $false }
+        }
+        Start-Sleep -Seconds (2 * $attempt)
+    }
+    throw "The Defraggler installer host gave no definite answer for build $Build ($url)."
+}
+
+
+function Find-NewestDefragglerBuild {
+    <#
+    .SYNOPSIS
+        Returns the newest build number the installer host serves, found by
+        walking up from a floor build, or nothing when the floor build is not
+        served.
+    .DESCRIPTION
+        Each hop probes the next three build numbers and moves to the first one
+        that is served, so a withdrawn build does not end the walk. The walk
+        stops when none of the three is served, or after MaxHops hops.
+    #>
+    param(
+        [Parameter(Mandatory)][int]$Floor,
+        [Parameter(Mandatory)][int]$MaxHops,
+        [Parameter(Mandatory)][scriptblock]$IsPublished
+    )
+
+    if (-not (& $IsPublished $Floor)) { return $null }
+
+    $current = $Floor
+    for ($hop = 0; $hop -lt $MaxHops; $hop++) {
+        $next = $null
+        foreach ($step in 1..3) {
+            if (& $IsPublished ($current + $step)) { $next = $current + $step; break }
+        }
+        if ($null -eq $next) { break }
+        $current = $next
+    }
+    return $current
+}
+
+
 function Get-LatestDefragglerRelease {
     <#
     .SYNOPSIS
         Returns the current Defraggler version and its download URL.
     .DESCRIPTION
-        The vendor builds page names the current build (dfsetup222.exe); the
-        filename encodes the major and two-digit minor only, and the vendor
-        publishes no version list any more. The full version comes from the
-        installer's file version resource (2.22.33.995 -> 2.22.995, the form
-        the vendor used for releases), so the installer is downloaded into the
-        download root when it is not already there.
+        The newest build is found by probing the installer host. The filename
+        encodes the major and two-digit minor only, so the full version comes
+        from the installer's file version resource (2.22.33.995 -> 2.22.995,
+        the form the vendor used for releases), and the installer is
+        downloaded into the download root when it is not already there.
     #>
     param([switch]$Quiet)
 
-    Write-Log "Builds page URL              : $BuildsPageUrl" -Quiet:$Quiet
+    Write-Log "Download URL format          : $DownloadUrlFormat" -Quiet:$Quiet
 
     try {
-        # The vendor site intermittently answers 404 to back-to-back requests
-        # and to requests without a browser user agent; both are transient.
         $ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-        $html = $null
-        for ($attempt = 1; $attempt -le 3; $attempt++) {
-            $html = (curl.exe -L --fail --silent --show-error -A $ua $BuildsPageUrl) -join "`n"
-            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($html)) { break }
-            $html = $null
-            Start-Sleep -Seconds (2 * $attempt)
+        $build = Find-NewestDefragglerBuild -Floor $FloorBuild -MaxHops $MaxBuildHops -IsPublished {
+            param($candidate)
+            Test-DefragglerBuildPublished -Build $candidate -UserAgent $ua
         }
-        if (-not $html) { throw "Failed to fetch the Defraggler builds page: $BuildsPageUrl" }
-
-        $rx = [regex]'dfsetup(?<slug>\d{3,4})\.exe'
-        $slugs = @($rx.Matches($html) | ForEach-Object { $_.Groups['slug'].Value } | Sort-Object -Unique)
-        if ($slugs.Count -lt 1) {
-            throw "Could not locate a dfsetup<build>.exe link on the builds page."
-        }
-        $slug = $slugs | Sort-Object { [int]$_ } | Select-Object -Last 1
-        $fileName = "dfsetup$slug.exe"
-        $downloadUrl = ($DownloadUrlFormat -f $slug)
+        if ($null -eq $build) { throw "The installer host does not serve build $FloorBuild." }
+        $fileName = "dfsetup$build.exe"
+        $downloadUrl = ($DownloadUrlFormat -f $build)
 
         Initialize-Folder -Path $BaseDownloadRoot
         $localExe = Join-Path $BaseDownloadRoot $fileName
@@ -220,7 +276,7 @@ function Invoke-StageDefraggler {
 
     # The installer carries the same four-part file version as the installed
     # binaries, so detection compares against a value read from the payload
-    # rather than the three-part marketing version on the history page.
+    # rather than the three-part release version.
     $fileVersion = (Get-Item -LiteralPath $localExe).VersionInfo.FileVersion
     if ([string]::IsNullOrWhiteSpace($fileVersion)) {
         throw "Installer carries no file version resource; cannot derive detection value."
@@ -389,7 +445,7 @@ try {
     Write-Log "SiteCode                     : $SiteCode"
     Write-Log "FileServerPath               : $FileServerPath"
     Write-Log "BaseDownloadRoot             : $BaseDownloadRoot"
-    Write-Log "BuildsPageUrl                : $BuildsPageUrl"
+    Write-Log "DownloadUrlFormat            : $DownloadUrlFormat"
     Write-Log ""
 
     if ($StageOnly) {

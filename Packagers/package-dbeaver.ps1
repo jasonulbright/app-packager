@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:dbeaver:dbeaver:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/dbeaver/dbeaver/releases
 DownloadPageUrl: https://dbeaver.io/download/
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages DBeaver Community Edition for ConfigMgr.

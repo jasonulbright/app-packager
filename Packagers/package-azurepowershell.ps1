@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/Azure/azure-powershell/releases
 DownloadPageUrl: https://github.com/Azure/azure-powershell/releases/latest
 IconSource: None
 UpdateCadenceDays: 30
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Azure PowerShell (Az cmdlets, x64) MSI for ConfigMgr.

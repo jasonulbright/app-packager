@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://learn.microsoft.com/en-us/ssms/release-history
 DownloadPageUrl: https://learn.microsoft.com/en-us/ssms/download-sql-server-management-studio-ssms
 IconSource: External
 UpdateCadenceDays: 14
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages SQL Server Management Studio 22 for ConfigMgr.
@@ -190,7 +191,7 @@ function ConvertTo-SsmsArgumentLiteral {
 
     return ($Arguments | ForEach-Object {
         $element = if ($_ -match '\s') { '"' + $_ + '"' } else { $_ }
-        "'" + ($element -replace "'", "''") + "'"
+        "'" + (ConvertTo-SingleQuotedContent $element) + "'"
     }) -join ', '
 }
 

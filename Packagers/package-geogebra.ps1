@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.geogebra.org/m/mMcexbAF
 DownloadPageUrl: https://www.geogebra.org/download
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages GeoGebra Classic 6 MSI for ConfigMgr.
@@ -193,8 +194,8 @@ function New-GeoGebraInstallContent {
         [Parameter(Mandatory)][string]$ProductCode
     )
 
-    $MsiFileName = $MsiFileName -replace "'", "''"
-    $ProductCode = $ProductCode -replace "'", "''"
+    $MsiFileName = ConvertTo-SingleQuotedContent $MsiFileName
+    $ProductCode = ConvertTo-SingleQuotedContent $ProductCode
 
     return (
         ('$msiPath = Join-Path $PSScriptRoot ''{0}''' -f $MsiFileName),

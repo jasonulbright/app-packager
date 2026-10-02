@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/nextcloud-releases/desktop/releases
 DownloadPageUrl: https://nextcloud.com/install/#install-clients
 IconSource: Installer
 UpdateCadenceDays: 45
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages the Nextcloud desktop client (x64) MSI for ConfigMgr.

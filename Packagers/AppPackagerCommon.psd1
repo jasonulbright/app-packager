@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AppPackagerCommon.psm1'
-    ModuleVersion     = '0.0.27'
+    ModuleVersion     = '0.0.28'
     GUID              = 'f5cdd2d6-eb09-47bd-8493-16dfd5666455'
     Author            = 'AppPackager'
     Description       = 'Shared helpers for AppPackager packager scripts.'
@@ -11,6 +11,7 @@
 
         # Download
         'Invoke-DownloadWithRetry'
+        'ConvertTo-SafeCurlUrl'
         'Invoke-CachedDownload'
         'Test-IsAppPackagerTestHost'
         'Resolve-CommonSigningPolicy'
@@ -57,6 +58,7 @@
 
         # Content wrappers
         'Write-ContentWrappers'
+        'ConvertTo-SingleQuotedContent'
         'New-MsiWrapperContent'
         'New-ExeWrapperContent'
         'New-MsixWrapperContent'

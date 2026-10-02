@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://unity.com/unity-hub/release-notes
 DownloadPageUrl: https://unity.com/download
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Unity Hub (x64) for ConfigMgr.
@@ -128,10 +129,11 @@ function Get-LatestUnityHubRelease {
     .SYNOPSIS
         Returns the current Unity Hub version and its x64 installer URL.
     .DESCRIPTION
-        The feed is an electron-updater YAML document whose 'path' entry is
-        relative to the feed's own directory. It is parsed line-wise rather
+        The feed is an electron-updater YAML document whose installer entries
+        are relative to the feed's own directory. It is parsed line-wise rather
         than with a YAML reader so the packager keeps no extra dependency;
-        both 'version' and 'path' must be present or the release is rejected.
+        a version and an x64 installer entry must be present or the release
+        is rejected.
     #>
     param([switch]$Quiet)
 
@@ -147,7 +149,10 @@ function Get-LatestUnityHubRelease {
         if (-not $verMatch.Success) { throw "Could not parse a version from the Unity Hub update feed." }
         $version = $verMatch.Groups['ver'].Value
 
-        $pathMatch = [regex]::Match($text, '(?m)^path:\s*(?<path>\S+\.exe)\s*$')
+        # The feed names the installers under files: as url entries, one per
+        # architecture; older feeds carry a single top-level path entry.
+        $pathMatch = [regex]::Match($text, '(?m)^\s*-?\s*url:\s*(?<path>\S+x64\.exe)\s*$')
+        if (-not $pathMatch.Success) { $pathMatch = [regex]::Match($text, '(?m)^path:\s*(?<path>\S+\.exe)\s*$') }
         if (-not $pathMatch.Success) { throw "Could not parse an installer path from the Unity Hub update feed." }
         $relPath = $pathMatch.Groups['path'].Value
 

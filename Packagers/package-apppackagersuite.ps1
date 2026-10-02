@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/jasonulbright/app-packager-suite/releases
 DownloadPageUrl: https://github.com/jasonulbright/app-packager-suite/releases/latest
 IconSource: Installer
 UpdateCadenceDays: 30
+WsusSupport: No (PerUserInstall)
 
 .SYNOPSIS
     Packages AppPackager Suite for ConfigMgr as a per-user install.

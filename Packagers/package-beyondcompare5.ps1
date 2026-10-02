@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.scootersoftware.com/kb/dl5_winalternate
 DownloadPageUrl: https://www.scootersoftware.com/kb/dl5_winalternate
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Beyond Compare 5 (x64) for ConfigMgr.

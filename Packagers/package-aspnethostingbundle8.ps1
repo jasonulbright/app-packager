@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:microsoft:asp.net_core:8.*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/dotnet/core/tree/main/release-notes/8.0
 DownloadPageUrl: https://dotnet.microsoft.com/en-us/download/dotnet/8.0
 IconSource: None
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages ASP.NET 8 Server Hosting Bundle for ConfigMgr.

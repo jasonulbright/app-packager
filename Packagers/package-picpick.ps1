@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://picpick.app/en/changelog/
 DownloadPageUrl: https://picpick.app/en/download/free/
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages PicPick (x86) for ConfigMgr.

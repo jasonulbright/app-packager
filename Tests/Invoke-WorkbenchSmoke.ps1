@@ -191,6 +191,84 @@ try {
     }
     & $ok 'unsaved-switch prompt path'
 
+    # --- Pass 4: typed script and hook text reach the stage ----------------
+    $script:StubMessageAnswer = 'Yes'
+    $script:StubUnsavedAnswer = 'Discard'
+    $newStage = {
+        $stage = Join-Path $dataRoot ('stage-' + [guid]::NewGuid().ToString('N'))
+        [void](New-Item -ItemType Directory -Path $stage -Force)
+        foreach ($name in 'setup.exe', 'install.bat', 'uninstall.bat') { Set-Content -LiteralPath (Join-Path $stage $name) -Value 'x' -Encoding ASCII }
+        foreach ($name in 'install.ps1', 'uninstall.ps1') { Set-Content -LiteralPath (Join-Path $stage $name) -Value 'exit 0' -Encoding ASCII }
+        return $stage
+    }
+    $newManifest = {
+        @{ AppName = 'Probe App'; Publisher = 'Probe'; SoftwareVersion = '1.2.3'; InstallerFile = 'setup.exe'; InstallerType = 'EXE'; InstallArgs = '/S'
+           ProductCode = '{11111111-2222-3333-4444-555555555555}'
+           Detection = @{ Type = 'RegistryKeyValue'; Hive = 'LocalMachine'; RegistryKeyRelative = 'SOFTWARE\Probe'; ValueName = 'DisplayVersion' }; Requirements = @() }
+    }
+
+    # Pass 1 typed a script in Custom mode and saved it.
+    $stage = & $newStage
+    $manifest = & $newManifest
+    $snapshot = New-RunSnapshot -ApplicationId $script:SavedApplicationId -ProfileId $script:SavedProfileId
+    [void](Invoke-StageFinalization -StageRoot $stage -ManifestData $manifest -PackagerScriptPath $null -SnapshotPath $snapshot.Path)
+    & $assert ((Get-Content -LiteralPath (Join-Path $stage 'install.ps1') -Raw) -match "Write-Output 'three'") 'a script typed in Custom mode is the staged install.ps1'
+    & $ok 'typed Custom script reaches the stage'
+
+    # The sealed build shows its version and seal time in the prior-builds grid.
+    $manifest['PlanDigest'] = 'probe'
+    [void](Write-BuildRecord -StageRoot $stage -Manifest $manifest)
+    Show-ApplicationWorkbench -Owner $probeOwner -PreselectApplicationId $script:SavedApplicationId -Probe {
+        param($p)
+        $buildRows = @((& $p.Find 'dgBuilds').ItemsSource)
+        & $assert ($buildRows.Count -eq 1) ('the grid lists the sealed build: ' + $buildRows.Count)
+        & $assert ([string]$buildRows[0].Version -eq '1.2.3') ('the Version column carries the build version: ' + [string]$buildRows[0].Version)
+        & $assert ([string]$buildRows[0].Result -match '^Sealed \d{4}-\d{2}-\d{2} \d{2}:\d{2}$') ('the Result column carries the seal time: ' + [string]$buildRows[0].Result)
+        & $ok 'prior-builds grid shows version and seal time'
+
+        # Typed hooks in Extend mode, saved in place.
+        (& $p.Find 'cboInstallMode').SelectedItem = 'Extend'
+        (& $p.Find 'txtHookBefore').Text = "Write-Output 'before hook'"
+        (& $p.Find 'txtHookAfter').Text = "Write-Output 'after hook'"
+        & $assert ([bool](& $p.Save '')) 'the profile saves with typed hooks'
+    }
+    $stage = & $newStage
+    $manifest = & $newManifest
+    $snapshot = New-RunSnapshot -ApplicationId $script:SavedApplicationId -ProfileId $script:SavedProfileId
+    [void](Invoke-StageFinalization -StageRoot $stage -ManifestData $manifest -PackagerScriptPath $null -SnapshotPath $snapshot.Path)
+    & $assert ((Get-Content -LiteralPath (Join-Path $stage 'install-before.ps1') -Raw) -match 'before hook') 'the typed Before hook is staged'
+    & $assert ((Get-Content -LiteralPath (Join-Path $stage 'install-after.ps1') -Raw) -match 'after hook') 'the typed After hook is staged'
+    $orchestrator = Get-Content -LiteralPath (Join-Path $stage 'install.ps1') -Raw
+    & $assert ($orchestrator -match 'install-before\.ps1' -and $orchestrator -match 'install-generated\.ps1' -and $orchestrator -match 'install-after\.ps1') 'the orchestrator runs before, generated and after'
+    & $ok 'typed Extend hooks reach the stage'
+
+    # --- Pass 5: Stage builds the profile the window shows ----------------
+    $script:RunCall = $null
+    function Invoke-WorkbenchRun { param($Operation, $Rows, $BuildId, $Target) $script:RunCall = @{ Operation = $Operation; Rows = $Rows } }
+    $script:SecondProfileId = ''
+    Show-ApplicationWorkbench -Owner $probeOwner -PreselectApplicationId $script:SavedApplicationId -Probe {
+        param($p)
+        & $assert ([bool](& $p.Save 'Probe Second')) 'Save as creates a second profile'
+        $script:SecondProfileId = [string]$p.State.ProfileId
+    }
+    & $assert ([string](Get-ApplicationDefinition -ApplicationId $script:SavedApplicationId).ActiveProfileId -eq $script:SecondProfileId) 'the second profile is active after Save as'
+    Show-ApplicationWorkbench -Owner $probeOwner -PreselectApplicationId $script:SavedApplicationId -Probe {
+        param($p)
+        & $p.SelectApplication $p.State.Application $script:SavedProfileId
+        & $assert ([string]$p.State.ProfileId -eq $script:SavedProfileId) 'the window shows the first profile'
+        & $assert ([string](Get-ApplicationDefinition -ApplicationId $script:SavedApplicationId).ActiveProfileId -eq $script:SecondProfileId) 'showing a profile does not make it active'
+        $scriptPath = [string]$p.State.Application.ScriptPath
+        $script:PackagerData = @([pscustomobject]@{ FullPath = $scriptPath; Script = (Split-Path -Leaf $scriptPath) })
+        $btnStage = & $p.Find 'btnStage'
+        $btnStage.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent, $btnStage)))
+    }
+    & $assert ($null -ne $script:RunCall -and $script:RunCall.Operation -eq 'Stage') 'Stage starts the run'
+    & $assert ([string](Get-ApplicationDefinition -ApplicationId $script:SavedApplicationId).ActiveProfileId -eq $script:SavedProfileId) 'Stage makes the shown profile the active profile'
+    $runPlan = Get-WorkbenchRunPlanForContext -Rows @($script:RunCall.Rows) -Target 'MECM'
+    $planJson = $runPlan | ConvertTo-Json -Depth 6
+    & $assert ($planJson -match [regex]::Escape($script:SavedProfileId) -or (@($runPlan.Values | ForEach-Object { if ($_.SnapshotPath) { Get-Content -LiteralPath $_.SnapshotPath -Raw } }) -join '') -match [regex]::Escape($script:SavedProfileId)) 'the run plan carries the shown profile'
+    & $ok 'Stage builds the shown profile'
+
     Write-Host ''
     Write-Host ('PASS: Application Workbench probe, {0} checks' -f $script:PassedChecks)
 }

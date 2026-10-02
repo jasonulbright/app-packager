@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://docs.xenserver.com/en-us/xenserver/8/vms/windows/vm-too
 DownloadPageUrl: https://www.xenserver.com/downloads
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages XenServer VM Tools for Windows (x64) MSI for ConfigMgr.

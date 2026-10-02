@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.tableau.com/support/releases
 DownloadPageUrl: https://www.tableau.com/products/reader/download
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages Tableau Reader (x64) for ConfigMgr.

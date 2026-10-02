@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/pwsafe/pwsafe/releases
 DownloadPageUrl: https://pwsafe.org/
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Password Safe (x64) MSI for ConfigMgr.

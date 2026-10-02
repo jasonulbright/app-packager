@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.jetbrains.com/go/whatsnew/
 DownloadPageUrl: https://www.jetbrains.com/go/download/?section=windows
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages GoLand (x64) for ConfigMgr.
