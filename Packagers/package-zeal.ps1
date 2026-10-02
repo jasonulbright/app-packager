@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/zealdocs/zeal/releases
 DownloadPageUrl: https://zealdocs.org/download.html
 IconSource: Installer
 UpdateCadenceDays: 180
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Zeal (x64) MSI for ConfigMgr.

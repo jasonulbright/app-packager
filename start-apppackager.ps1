@@ -1025,6 +1025,8 @@ function Get-PackagerMetadata {
         SupportsInstallModes = @()
         LocalSource       = $false
         LocalSourceRequired = $false
+        WsusSupport       = $null
+        WsusSupportReason = $null
     }
 
     $lines = Get-Content -LiteralPath $Path -TotalCount 200 -ErrorAction Stop
@@ -1051,6 +1053,11 @@ function Get-PackagerMetadata {
         if (-not $meta.LocalSource -and $l -match '^\s*(?:#\s*)?LocalSource\s*:\s*(Required|Optional)\s*$') {
             $meta.LocalSource = $true
             $meta.LocalSourceRequired = ($Matches[1] -eq 'Required')
+            continue
+        }
+        if ($null -eq $meta.WsusSupport -and $l -match '^\s*(?:#\s*)?WsusSupport\s*:\s*(Yes|No)\s*(?:\(\s*([A-Za-z|]+)\s*\))?\s*$') {
+            $meta.WsusSupport = $Matches[1]
+            if ($Matches[2]) { $meta.WsusSupportReason = $Matches[2] }
             continue
         }
         if ($null -eq $meta.UpdateCadenceDays -and $l -match '^\s*(?:#\s*)?UpdateCadenceDays\s*:\s*(\d+)\s*$') {
@@ -1084,6 +1091,8 @@ function Get-PackagerMetadata {
         SupportsInstallModes = @($meta.SupportsInstallModes)
         LocalSource       = [bool]$meta.LocalSource
         LocalSourceRequired = [bool]$meta.LocalSourceRequired
+        WsusSupport       = $meta.WsusSupport
+        WsusSupportReason = $meta.WsusSupportReason
         Script            = (Split-Path -Leaf $Path)
         FullPath          = $Path
     }
@@ -8756,7 +8765,12 @@ function Get-OneClickPlanApps {
     $apps = foreach ($row in $Rows) {
         $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script)
         $cadence = 0
-        try { $meta = Get-PackagerMetadata -Path ([string]$row.FullPath); if ($meta.UpdateCadenceDays) { $cadence = [int]$meta.UpdateCadenceDays } } catch { }
+        $wsusUnsupported = $false
+        try {
+            $meta = Get-PackagerMetadata -Path ([string]$row.FullPath)
+            if ($meta.UpdateCadenceDays) { $cadence = [int]$meta.UpdateCadenceDays }
+            $wsusUnsupported = ($meta.WsusSupport -eq 'No')
+        } catch { }
         [pscustomobject]@{
             Packager        = $base
             Application     = [string]$row.Application
@@ -8764,7 +8778,7 @@ function Get-OneClickPlanApps {
             LatestVersion   = [string]$row.LatestVersion
             CurrentVersion  = [string]$row.CurrentVersion
             CadenceDays     = $cadence
-            WsusUnsupported = $false
+            WsusUnsupported = $wsusUnsupported
             Row             = $row
         }
     }
@@ -8952,6 +8966,7 @@ function Show-OneClickPlanDialog {
                 $r = $existing[$p.Packager]
                 $r.Version = $p.Version; $r.Planned = $p.Planned; $r.Reason = $p.Reason; $r.LastPublished = ($last -join ', ')
                 $r.PublishTo = @($p.PublishTo)
+                $r.NotPublishable = @($p.NotPublishable)
                 if (-not $r.IncludeTouched) { $r.Include = [bool]$p.Include }
             }
             else {
@@ -8959,7 +8974,7 @@ function Show-OneClickPlanDialog {
                     Packager = $p.Packager; Application = $p.Application; Version = $p.Version
                     ConfigMgr = [bool]$p.ConfigMgr; WSUS = [bool]$p.WSUS; Intune = [bool]$p.Intune
                     LastPublished = ($last -join ', '); Planned = $p.Planned; Reason = $p.Reason
-                    PublishTo = @($p.PublishTo); Include = [bool]$p.Include; IncludeTouched = $false
+                    PublishTo = @($p.PublishTo); NotPublishable = @($p.NotPublishable); Include = [bool]$p.Include; IncludeTouched = $false
                     Step = ''; Outcome = ''; ResultConfigMgr = ''; ResultWSUS = ''; ResultIntune = ''; IdConfigMgr = ''; IdWSUS = ''; IdIntune = ''
                     DetailConfigMgr = ''; DetailWSUS = ''; DetailIntune = ''
                 })
@@ -9078,7 +9093,9 @@ function Show-OneClickPlanDialog {
             if ($r.ConfigMgr) { $selected += 'ConfigMgr' }
             if ($r.WSUS) { $selected += 'WSUS' }
             if ($r.Intune) { $selected += 'Intune' }
-            $planByApp[$r.Packager] = @{ Destinations = $selected }
+            # A destination the plan reported as not ready or not supported
+            # stays out of the run; the check box alone does not publish.
+            $planByApp[$r.Packager] = @{ Destinations = @(Select-OneClickRunDestinations -Selected $selected -NotPublishable @($r.NotPublishable)) }
             $r.Step = 'Pending'
         }
 
@@ -10315,9 +10332,9 @@ function Show-ApplicationWorkbench {
                 [void]$cboBuild.Items.Add([string]$r.BuildId)
                 $rows.Add([pscustomobject]@{
                     BuildId  = [string]$r.BuildId
-                    Version  = [string]$r.Version
+                    Version  = [string]$r.SoftwareVersion
                     Revision = [string]$r.ProfileRevision
-                    Result   = [string]$r.Result
+                    Result   = (Get-WorkbenchBuildResultText -Record $r)
                 })
             }
             $cboBuild.SelectedIndex = 0
@@ -11148,6 +11165,16 @@ function Show-ApplicationWorkbench {
         if ($operation -eq 'Package' -and ($selectedBuild -eq 'No sealed builds' -or -not $selectedBuild)) {
             [void](Show-ThemedMessage -Owner $win -Title 'Package' `
                 -Message 'No sealed build exists for this profile. Stage it first; Package consumes an exact build id, not the newest manifest on disk.' -Buttons OK -Icon Warning)
+            return
+        }
+        # The pipeline builds the application's active profile. The window can
+        # show a profile that was selected and never saved again, so the
+        # displayed profile becomes the active one before the run. This runs
+        # while the window is open so a failure is shown in it.
+        try { [void](Set-ActiveProfile -ApplicationId ([string]$wb.Application.ApplicationId) -ProfileId ([string]$wb.ProfileId)) }
+        catch {
+            [void](Show-ThemedMessage -Owner $win -Title $operation `
+                -Message ('The profile ' + [string]$wb.Profile.Name + ' could not be made the active profile, so nothing ran: ' + $_.Exception.Message) -Buttons OK -Icon Warning)
             return
         }
         $win.Close()

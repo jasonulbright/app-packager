@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/Azure/azure-functions-core-tools/releases
 DownloadPageUrl: https://github.com/Azure/azure-functions-core-tools/releases/latest
 IconSource: Installer
 UpdateCadenceDays: 30
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Azure Functions Core Tools (x64) MSI for ConfigMgr.

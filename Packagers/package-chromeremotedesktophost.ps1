@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://chromereleases.googleblog.com/
 DownloadPageUrl: https://remotedesktop.google.com/access
 IconSource: Installer
 UpdateCadenceDays: 30
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages the Chrome Remote Desktop Host (x64) MSI for ConfigMgr.

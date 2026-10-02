@@ -1,8 +1,9 @@
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot '..\Packagers\AppPackagerCommon.psd1') -Force
     $t = $null; $e = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\Packagers\package-anypointstudio.ps1'), [ref]$t, [ref]$e)
     if ($e) { throw ($e.Message -join '; ') }
-    foreach ($name in 'Get-AnypointStudioReleaseFromManifest', 'Get-AnypointStudioFeatureVersion') {
+    foreach ($name in 'Get-AnypointStudioReleaseFromManifest', 'Get-AnypointStudioFeatureVersion', 'Assert-AnypointStudioZipLayout', 'New-AnypointStudioInstallContent') {
         $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
         if (-not $fn) { throw "function $name not found" }
         . ([scriptblock]::Create($fn.Extent.Text))
@@ -79,5 +80,74 @@ Describe 'Anypoint Studio feature version' {
         $zip = Join-Path $TestDrive 'nofeature.zip'
         New-TestZip -Path $zip -Entries @('AnypointStudio/AnypointStudio.exe')
         { Get-AnypointStudioFeatureVersion -ZipPath $zip } | Should -Throw '*org.mule.tooling.studio*'
+    }
+}
+
+Describe 'Anypoint Studio ZIP layout' {
+    BeforeAll {
+        $script:Parent = Join-Path $TestDrive 'layout'
+        $script:Install = Join-Path $script:Parent 'AnypointStudio'
+    }
+
+    It 'accepts entries that stay under the install folder' {
+        $zip = Join-Path $TestDrive 'layout-ok.zip'
+        New-TestZip -Path $zip -Entries @('AnypointStudio/', 'AnypointStudio/AnypointStudio.exe', 'AnypointStudio/plugins/a/b.jar', 'AnypointStudio/x/../y.txt')
+        { Assert-AnypointStudioZipLayout -ZipPath $zip -InstallDir $script:Install } | Should -Not -Throw
+    }
+
+    It 'refuses the entry <Entry>' -ForEach @(
+        @{ Entry = 'AnypointStudio/../escaped.txt' }
+        @{ Entry = 'AnypointStudio/../../escaped.txt' }
+        @{ Entry = 'AnypointStudio/a/../../escaped.txt' }
+        @{ Entry = 'Other/file.txt' }
+        @{ Entry = 'AnypointStudioEvil/file.txt' }
+        @{ Entry = 'C:/escaped.txt' }
+        @{ Entry = '/escaped.txt' }
+    ) {
+        $zip = Join-Path $TestDrive ('layout-bad-' + [guid]::NewGuid().ToString('N') + '.zip')
+        New-TestZip -Path $zip -Entries @('AnypointStudio/AnypointStudio.exe', $Entry)
+        { Assert-AnypointStudioZipLayout -ZipPath $zip -InstallDir $script:Install } | Should -Throw '*extracts outside*'
+    }
+}
+
+Describe 'Anypoint Studio install script' {
+    BeforeAll {
+        function script:Invoke-InstallScript {
+            param([string]$Name, [string[]]$Entries, [switch]$ExistingInstall)
+            $root = Join-Path $TestDrive $Name
+            $content = Join-Path $root 'content'
+            $installDir = Join-Path $root 'target\AnypointStudio'
+            New-Item -ItemType Directory -Path $content -Force | Out-Null
+            if ($ExistingInstall) {
+                New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+                Set-Content -LiteralPath (Join-Path $installDir 'old.txt') -Value 'old' -Encoding ASCII
+            }
+            New-TestZip -Path (Join-Path $content 'studio.zip') -Entries $Entries
+            $script = New-AnypointStudioInstallContent -ZipFileName 'studio.zip' -InstallDir $installDir
+            Set-Content -LiteralPath (Join-Path $content 'install.ps1') -Value $script -Encoding ASCII
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $content 'install.ps1') *> $null
+            [pscustomobject]@{ Exit = $LASTEXITCODE; Root = $root; InstallDir = $installDir }
+        }
+    }
+
+    It 'parses without errors' {
+        $tokens = $null; $errors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseInput((New-AnypointStudioInstallContent -ZipFileName 'a.zip' -InstallDir 'C:\AnypointStudio'), [ref]$tokens, [ref]$errors)
+        $errors | Should -BeNullOrEmpty
+    }
+
+    It 'extracts a ZIP that stays under the install folder and replaces an earlier version' {
+        $r = Invoke-InstallScript -Name 'install-ok' -Entries @('AnypointStudio/AnypointStudio.exe', 'AnypointStudio/plugins/p.jar') -ExistingInstall
+        $r.Exit | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $r.InstallDir 'AnypointStudio.exe') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $r.InstallDir 'old.txt') | Should -BeFalse
+    }
+
+    It 'writes nothing and keeps the earlier version for a ZIP with an entry that leaves the install folder' {
+        $r = Invoke-InstallScript -Name 'install-bad' -Entries @('AnypointStudio/AnypointStudio.exe', 'AnypointStudio/../escaped.txt') -ExistingInstall
+        $r.Exit | Should -Be 1
+        Test-Path -LiteralPath (Join-Path $r.Root 'target\escaped.txt') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $r.InstallDir 'old.txt') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $r.InstallDir 'AnypointStudio.exe') | Should -BeFalse
     }
 }

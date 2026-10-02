@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/cryptomator/cryptomator/releases
 DownloadPageUrl: https://cryptomator.org/downloads/
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Cryptomator (x64) MSI for ConfigMgr.

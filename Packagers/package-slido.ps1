@@ -6,6 +6,7 @@ VendorUrl: https://www.slido.com/powerpoint-polling
 ReleaseNotesUrl: https://community.slido.com/powerpoint-244/slido-for-powerpoint-on-windows-changelog-2503
 DownloadPageUrl: https://www.slido.com/powerpoint-polling
 IconSource: None
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Slido for Windows (Slido for PowerPoint, admin MSI, x64) for ConfigMgr.

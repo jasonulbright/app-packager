@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/zulip/zulip-desktop/releases
 DownloadPageUrl: https://zulip.com/apps/windows
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Zulip Desktop (x64) MSI for ConfigMgr.

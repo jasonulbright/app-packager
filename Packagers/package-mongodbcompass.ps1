@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/mongodb-js/compass/releases
 DownloadPageUrl: https://www.mongodb.com/try/download/compass
 IconSource: External
 UpdateCadenceDays: 30
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages MongoDB Compass (x64) MSI for ConfigMgr.

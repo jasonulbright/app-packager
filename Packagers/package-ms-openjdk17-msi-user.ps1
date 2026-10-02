@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:microsoft:build_of_openjdk:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/en-us/java/openjdk/release-notes
 DownloadPageUrl: https://learn.microsoft.com/en-us/java/openjdk/download
 IconSource: Installer
+WsusSupport: No (PerUserInstall)
 
 .SYNOPSIS
     Packages Microsoft Build of OpenJDK 17 (x64) MSI, per user, for ConfigMgr.
@@ -294,7 +295,7 @@ function Invoke-StageMsOpenJdk17MsiUser {
     # --- Generate content wrappers ---
     # The Directory table names the default folder jdk-<ProductVersion>-hotspot.
     $installFolder = "jdk-$productVersionRaw-hotspot"
-    $msiEscaped = $installerFileName -replace "'", "''"
+    $msiEscaped = ConvertTo-SingleQuotedContent $installerFileName
     # ALLUSERS=2 with MSIINSTALLPERUSER=1 selects the per-user context; the
     # package conditions its PATH and JAVA_HOME components on that context.
     # INSTALLDIR is required with FeatureMain and must point into the profile.

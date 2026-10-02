@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.7-zip.org/download.html
 IconSource: External
 UpdateCadenceDays: 90
 SupportsVariants: Architecture
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages 7-Zip (x64) MSI for ConfigMgr, optionally with an ARM64 variant.

@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://smath.com/en-US/view/SMathStudio/history
 DownloadPageUrl: https://smath.com/en-US/view/SMathStudio/download
 IconSource: Installer
 UpdateCadenceDays: 180
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages SMath Studio Desktop (MSI) for ConfigMgr.

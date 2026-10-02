@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/LUMESCA/calibrite-profiler-releases/releases
 DownloadPageUrl: https://calibrite.com/us/software-downloads/
 IconSource: Installer
 UpdateCadenceDays: 120
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Calibrite PROFILER (x64) for ConfigMgr.

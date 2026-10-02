@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://developers.cloudflare.com/cloudflare-one/changelog/warp
 DownloadPageUrl: https://developers.cloudflare.com/warp-client/get-started/windows/
 IconSource: Installer
 UpdateCadenceDays: 30
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages the Cloudflare WARP client (x64) MSI for ConfigMgr.

@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://desktop.github.com/release-notes/
 DownloadPageUrl: https://desktop.github.com/download/
 IconSource: Installer
 UpdateCadenceDays: 30
+WsusSupport: No (PerUserInstall|CustomInstall)
 
 .SYNOPSIS
     Packages GitHub Desktop (x64) for ConfigMgr as a per-user install.

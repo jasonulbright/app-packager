@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.bleachbit.org/download/windows
 IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages BleachBit for ConfigMgr.
@@ -185,7 +186,7 @@ function Resolve-BleachBitInstallerUrl {
     $interstitial = "$DownloadHost/get/$FileName"
 
     try {
-        $html = (curl.exe -L --fail --silent --show-error -A "Mozilla/5.0" $interstitial) -join "`n"
+        $html = (curl.exe -L --fail --silent --show-error -A "Mozilla/5.0" (ConvertTo-SafeCurlUrl $interstitial)) -join "`n"
         if ($LASTEXITCODE -eq 0) {
             $m = [regex]::Match($html, 'https?://[^"'' ]*?' + [regex]::Escape($FileName))
             if ($m.Success -and $m.Value -ne $interstitial) {

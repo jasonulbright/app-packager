@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/DaxStudio/DaxStudio/releases
 DownloadPageUrl: https://daxstudio.org/downloads/
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages DAX Studio (x64) for ConfigMgr.

@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.gimp.org/news/
 DownloadPageUrl: https://www.gimp.org/downloads/
 IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages GIMP (x64) for ConfigMgr.

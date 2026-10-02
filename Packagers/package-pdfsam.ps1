@@ -7,6 +7,7 @@ ReleaseNotesUrl: https://github.com/torakiki/pdfsam/releases
 DownloadPageUrl: https://pdfsam.org/download-pdfsam-basic/
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages PDFsam Basic (x64) MSI for ConfigMgr.

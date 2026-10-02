@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.tableau.com/support/releases
 DownloadPageUrl: https://www.tableau.com/products/prep/download
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages Tableau Prep Builder (x64) for ConfigMgr.

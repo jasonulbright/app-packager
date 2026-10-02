@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:putty:putty:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.chiark.greenend.org.uk/~sgtatham/putty/changes.html
 DownloadPageUrl: https://www.chiark.greenend.org.uk/~sgtatham/putty/latest.html
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages PuTTY (x64) MSI for ConfigMgr.

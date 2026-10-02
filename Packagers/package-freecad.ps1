@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.freecad.org/downloads.php
 IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages FreeCAD (x64) for ConfigMgr.

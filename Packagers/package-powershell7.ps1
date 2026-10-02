@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:microsoft:powershell:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/PowerShell/PowerShell/releases
 DownloadPageUrl: https://github.com/PowerShell/PowerShell/releases
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages PowerShell 7 (x64) MSI for ConfigMgr.

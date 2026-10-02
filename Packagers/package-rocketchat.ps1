@@ -7,6 +7,7 @@ ReleaseNotesUrl: https://github.com/RocketChat/Rocket.Chat.Electron/releases
 DownloadPageUrl: https://github.com/RocketChat/Rocket.Chat.Electron/releases
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages the Rocket.Chat desktop client (x64) MSI for ConfigMgr.

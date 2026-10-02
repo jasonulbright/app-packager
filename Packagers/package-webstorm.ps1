@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:jetbrains:webstorm:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.jetbrains.com/webstorm/whatsnew/
 DownloadPageUrl: https://www.jetbrains.com/webstorm/download/?section=windows
 UpdateCadenceDays: 60
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages WebStorm (x64) for ConfigMgr.

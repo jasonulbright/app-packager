@@ -51,6 +51,7 @@ The GUI parses these tags with `Get-PackagerMetadata`:
 | `ReleaseNotesUrl` | No | Shown in Version Monitor HTML report Links column |
 | `DownloadPageUrl` | No | Shown in Version Monitor HTML report Links column |
 | `UpdateCadenceDays` | No (default 7) | Default cadence for One Click Report runs. Per-app overrides live in One Click Settings |
+| `WsusSupport` | Yes for catalog packagers | `Yes`, or `No (<Code>)` with the blocking code that the WSUS check reports for the default build, for example `No (PerUserInstall)`. Several codes are joined with a pipe. The One Click plan reads the tag and shows `WSUS: not supported` before a run |
 
 ## The param block
 
@@ -137,7 +138,7 @@ If the vendor's raw version differs from what Windows writes to the ARP registry
 
 ## Scraping patterns
 
-**Vendor download page regex.** Fetch the HTML with `curl.exe -L --fail --silent --show-error`. Use a narrow regex that targets the href attribute and captures the version as digits. Sort candidates by the captured version and take the highest. Resolve the relative href against the page's base URL. See `Resolve-7ZipX64MsiUrl` in `package-7zip.ps1`.
+**Vendor download page regex.** Fetch the HTML with `curl.exe -L --fail --silent --show-error`; pass a URL taken from a page through `ConvertTo-SafeCurlUrl`. Use a narrow regex that targets the href attribute and captures the version as digits. Sort candidates by the captured version and take the highest. Resolve the relative href against the page's base URL. See `Resolve-7ZipX64MsiUrl` in `package-7zip.ps1`.
 
 **GitHub releases API.** For apps published on GitHub, hit `https://api.github.com/repos/<owner>/<repo>/releases/latest` and parse the JSON. The `tag_name` field is usually the version; `assets[]` contains the download URLs. See `package-bitwarden.ps1`, `package-keepass.ps1`.
 

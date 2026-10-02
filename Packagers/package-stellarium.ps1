@@ -9,6 +9,7 @@ DownloadPageUrl: https://stellarium.org/
 IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Stellarium (x64, Qt6) for ConfigMgr.

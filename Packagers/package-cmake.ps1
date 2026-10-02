@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/Kitware/CMake/releases
 DownloadPageUrl: https://cmake.org/download/
 IconSource: Installer
 UpdateCadenceDays: 30
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages CMake (x64) MSI for ConfigMgr.

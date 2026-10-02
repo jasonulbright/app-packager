@@ -7,6 +7,7 @@ ReleaseNotesUrl: https://github.com/baldurk/renderdoc/releases
 DownloadPageUrl: https://renderdoc.org/builds
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages RenderDoc (x64) MSI for ConfigMgr.

@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/microsoft/AzureStorageExplorer/releases
 DownloadPageUrl: https://github.com/microsoft/AzureStorageExplorer/releases/latest
 IconSource: Installer
 UpdateCadenceDays: 45
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages Microsoft Azure Storage Explorer (x64) for ConfigMgr.

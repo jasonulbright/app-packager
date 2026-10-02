@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.postman.com/release-notes/postman-app/
 DownloadPageUrl: https://www.postman.com/downloads/
 IconSource: Installer
 UpdateCadenceDays: 14
+WsusSupport: No (PerUserInstall|CustomInstall)
 
 .SYNOPSIS
     Packages the Postman desktop app for ConfigMgr user-context deployment.

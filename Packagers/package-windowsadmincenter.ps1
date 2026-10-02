@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://learn.microsoft.com/windows-server/manage/windows-admin
 DownloadPageUrl: https://www.microsoft.com/evalcenter/download-windows-admin-center
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Windows Admin Center (v2, modernized gateway) for ConfigMgr.
@@ -15,7 +16,7 @@ UpdateCadenceDays: 90
 .DESCRIPTION
     Downloads the current Windows Admin Center v2 installer from the vendor's
     permanent download link, stages content to a versioned local folder, and
-    creates a ConfigMgr Application with file-version-based detection.
+    creates a ConfigMgr Application with uninstall-entry version detection.
 
     The version is read from the downloaded setup binary rather than from the
     file name: the link resolves to a release-stamped name (for example
@@ -64,7 +65,7 @@ UpdateCadenceDays: 90
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create ConfigMgr application with file-based detection.
+    create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available Windows Admin Center version string and exits.
@@ -117,10 +118,11 @@ $BaseDownloadRoot = Join-Path $DownloadRoot "WindowsAdminCenter"
 # order, so the first uninstaller in that folder is the product's own.
 $InstallDir = "{0}\WindowsAdminCenter" -f $env:ProgramFiles
 
-# The gateway's component binaries carry the product version, which is what
-# makes an upgrade detectable; the folder itself survives an uninstall, so
-# existence alone would report a removed product as installed.
-$DetectionFileName = "WindowsAdminCenterAccountManagement.exe"
+# The component binaries sit in a Service subfolder and carry their own file
+# versions, which differ from the setup version, and the folder survives an
+# uninstall. The Inno uninstall entry is removed with the product and its
+# DisplayVersion equals the setup version.
+$ArpRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\9B27DF2F-5386-41DF-B52B-5DF81914B043_is1"
 
 # --- Functions ---
 
@@ -167,6 +169,7 @@ function Get-StagedInstaller {
     Invoke-CachedDownload -Url $DownloadUrl -OutFile $localExe -Quiet:$Quiet
 
     Assert-PayloadIsExecutable -Path $localExe
+    Assert-ArpDetectionKey -InstallerPath $localExe -ExpectedKey $ArpRegistryKey -Is64BitView $true
 
     $version = Get-SetupFileVersion -Path $localExe
     Write-Log "Latest Windows Admin Center  : $version" -Quiet:$Quiet
@@ -211,7 +214,7 @@ function Invoke-StageWindowsAdminCenter {
     # the only unattended settings the product exposes on the command line.
     $installArgList = @("'/VERYSILENT'", ("'/HTTPSPortNumber={0}'" -f $HttpsPortNumber))
     if (-not [string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
-        $installArgList += ("'/CertificateThumbprint={0}'" -f ($CertificateThumbprint -replace "'", "''"))
+        $installArgList += ("'/CertificateThumbprint={0}'" -f (ConvertTo-SingleQuotedContent $CertificateThumbprint))
     }
     $installArgs = $installArgList -join ', '
 
@@ -260,8 +263,8 @@ exit $proc.ExitCode
 
     # --- Write stage manifest ---
     Write-Log ""
-    Write-Log "Detection path               : $InstallDir"
-    Write-Log "Detection file               : $DetectionFileName"
+    Write-Log "Detection key                : HKLM\$ArpRegistryKey"
+    Write-Log "Detection value              : DisplayVersion >= $version"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -276,13 +279,13 @@ exit $proc.ExitCode
         UninstallCommand = (Join-Path $InstallDir 'unins000.exe')
         UninstallArgs    = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
         Detection        = @{
-            Type          = "File"
-            FilePath      = $InstallDir
-            FileName      = $DetectionFileName
-            PropertyType  = "Version"
-            Operator      = "GreaterEquals"
-            ExpectedValue = $version
-            Is64Bit       = $true
+            Type                = "RegistryKeyValue"
+            RegistryKeyRelative = $ArpRegistryKey
+            ValueName           = "DisplayVersion"
+            PropertyType        = "Version"
+            Operator            = "GreaterEquals"
+            ExpectedValue       = $version
+            Is64Bit             = $true
         }
     }
     Write-StageManifest -Path $manifestPath -ManifestData $manifestData
@@ -325,8 +328,8 @@ function Invoke-PackageWindowsAdminCenter {
     Write-Log "AppName                      : $($manifest.AppName)"
     Write-Log "Publisher                    : $($manifest.Publisher)"
     Write-Log "SoftwareVersion              : $($manifest.SoftwareVersion)"
-    Write-Log "Detection Path               : $($manifest.Detection.FilePath)"
-    Write-Log "Detection File               : $($manifest.Detection.FileName)"
+    Write-Log "Detection Key                : $($manifest.Detection.RegistryKeyRelative)"
+    Write-Log "Detection Value              : $($manifest.Detection.ExpectedValue)"
     Write-Log ""
 
     # --- Network share ---

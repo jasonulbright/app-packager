@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:eclipse:temurin:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://adoptium.net/temurin/release-notes/
 DownloadPageUrl: https://adoptium.net/temurin/releases/
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Eclipse Temurin JDK 11 (x86) MSI for ConfigMgr.

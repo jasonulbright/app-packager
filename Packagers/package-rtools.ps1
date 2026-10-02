@@ -6,6 +6,7 @@ VendorUrl: https://cran.r-project.org/bin/windows/Rtools/
 ReleaseNotesUrl: https://cran.r-project.org/bin/windows/Rtools/
 DownloadPageUrl: https://cran.r-project.org/bin/windows/Rtools/
 IconSource: None
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Rtools (x64) for ConfigMgr.
@@ -130,7 +131,7 @@ function Get-LatestRtoolsRelease {
         $newest = $lines | Sort-Object { [version]$_.Line } -Descending | Select-Object -First 1
 
         $pageUrl = '{0}{1}/rtools.html' -f $IndexUrl, $newest.Folder
-        $page = (curl.exe -L --fail --silent --show-error $pageUrl) -join "`n"
+        $page = (curl.exe -L --fail --silent --show-error (ConvertTo-SafeCurlUrl $pageUrl)) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch the Rtools page: $pageUrl" }
 
         # The aarch64 installer carries "-aarch64-" in its name, so this pattern

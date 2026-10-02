@@ -1596,6 +1596,19 @@ Describe 'New-MECMApplicationFromManifest existing application validation' {
             }
         }
 
+        It 'returns the CI_ID of the revision that remains after the history cleanup' {
+            $script:appReads = 0
+            Mock Get-CMApplication {
+                $script:appReads++
+                if ($script:appReads -eq 1) { return $null }
+                [pscustomobject]@{ CI_ID = 4324; SoftwareVersion = '1.0' }
+            }
+            Mock New-CMApplication { [pscustomobject]@{ CI_ID = 4321 } }
+            Mock Add-CMScriptDeploymentType { }
+            Mock Remove-CMApplicationRevisionHistoryByCIId { }
+            New-MECMApplicationFromManifest -Manifest $script:testManifest -SiteCode MCM -NetworkContentPath '\\server\share\Test' | Should -Be 4324
+        }
+
         It 'disables task sequences when any deployment type inherits user context' {
             $script:testManifest | Add-Member -NotePropertyMembers @{
                 InstallationBehaviorType = 'InstallForUser'
@@ -1960,6 +1973,30 @@ Describe 'Sync-StagedContentToNetwork over existing content' {
         AfterEach {
             $env:APP_PACKAGER_ON_EXISTING = $script:savedOnExisting
             $script:DeferredContentSync = $null
+        }
+
+        It 'refuses the copy before any write when the share holds a file the manifest does not name' {
+            Set-Content -LiteralPath (Join-Path $script:share 'install.ps1') -Value 'old' -Encoding ASCII
+            Set-Content -LiteralPath (Join-Path $script:share 'leftover.txt') -Value 'x' -Encoding ASCII
+            $manifest = [pscustomobject]@{ FileHashes = @(foreach ($name in 'install.ps1', 'patch_MUI.msp') {
+                $item = Get-Item -LiteralPath (Join-Path $script:stage $name)
+                [pscustomobject]@{ RelativePath = $name; Sha256 = (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash; Size = $item.Length }
+            }) }
+            { Sync-StagedContentToNetwork -LocalContentPath $script:stage -NetworkContentPath $script:share -Manifest $manifest -NoDefer } |
+                Should -Throw '*leftover.txt*nothing was copied*'
+            Get-Content -LiteralPath (Join-Path $script:share 'install.ps1') | Should -Be 'old'
+            Test-Path -LiteralPath (Join-Path $script:share 'patch_MUI.msp') | Should -BeFalse
+        }
+
+        It 'refuses a stage folder whose files changed after the manifest was written' {
+            $manifest = [pscustomobject]@{ FileHashes = @(foreach ($name in 'install.ps1', 'patch_MUI.msp') {
+                $item = Get-Item -LiteralPath (Join-Path $script:stage $name)
+                [pscustomobject]@{ RelativePath = $name; Sha256 = (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash; Size = $item.Length }
+            }) }
+            Add-Content -LiteralPath (Join-Path $script:stage 'install.ps1') -Value '# changed'
+            { Sync-StagedContentToNetwork -LocalContentPath $script:stage -NetworkContentPath $script:share -Manifest $manifest -NoDefer } |
+                Should -Throw '*does not match its stage manifest*nothing was copied*'
+            @(Get-ChildItem -LiteralPath $script:share -File).Count | Should -Be 0
         }
 
         It 'writes nothing over different content under Skip and records the copy' {
@@ -4004,6 +4041,33 @@ Describe 'Deployment launcher commands' {
 # ---------------------------------------------------------------------------
 
 Describe 'Resolve-DetectionScriptTransport' {
+    It 'refuses an unsigned script file whose manifest status says it was signed' {
+        $content = Join-Path $TestDrive 'content-claimed'
+        New-Item -ItemType Directory -Path (Join-Path $content 'scripts') -Force | Out-Null
+        [IO.File]::WriteAllBytes((Join-Path $content 'scripts\detect.ps1'), [Text.Encoding]::UTF8.GetBytes('exit 0'))
+        { Resolve-DetectionScriptTransport -Detection ([pscustomobject]@{ ScriptFile = 'scripts\detect.ps1' }) -ContentLocation $content -SignatureStatus 'SignedAndVerified' } |
+            Should -Throw '*carries no intact signature*was not sent*'
+    }
+
+    It 'refuses unsigned detection content when RequireDetection is set' {
+        Mock Get-SigningPolicy -ModuleName AppPackagerCommon { [pscustomobject]@{ RequireDetection = $true } }
+        $content = Join-Path $TestDrive 'content-required'
+        New-Item -ItemType Directory -Path (Join-Path $content 'scripts') -Force | Out-Null
+        [IO.File]::WriteAllBytes((Join-Path $content 'scripts\detect.ps1'), [Text.Encoding]::UTF8.GetBytes('exit 0'))
+        { Resolve-DetectionScriptTransport -Detection ([pscustomobject]@{ ScriptFile = 'scripts\detect.ps1' }) -ContentLocation $content } |
+            Should -Throw '*carries no intact signature*'
+        { Resolve-DetectionScriptTransport -Detection ([pscustomobject]@{ ScriptText = 'exit 0' }) -ContentLocation $content } |
+            Should -Throw '*carries no intact signature*'
+    }
+
+    It 'refuses an Intune script rule with enforcement when the content sent is unsigned' {
+        InModuleScope AppPackagerCommon {
+            $manifest = [pscustomobject]@{ ScriptSigning = [pscustomobject]@{ Detection = [pscustomobject]@{ Status = 'SignedAndVerified' } } }
+            { New-IntuneDetectionScriptRule -Manifest $manifest -ScriptText 'exit 0' } | Should -Throw '*Intune detection script carries no intact signature*'
+            (New-IntuneDetectionScriptRule -Manifest ([pscustomobject]@{}) -ScriptText 'exit 0').enforceSignatureCheck | Should -BeFalse
+        }
+    }
+
     It 'keeps ScriptText transport for a manifest with no script file' {
         $t = Resolve-DetectionScriptTransport -Detection ([pscustomobject]@{ ScriptText = 'exit 1' }) -ContentLocation $TestDrive
         $t.Transport | Should -Be 'Text'
@@ -4130,6 +4194,54 @@ Describe 'Get-OrCreateGlobalConditionFromTemplate script identity' {
             Mock New-CMGlobalConditionScript { [pscustomobject]@{ CI_ID = 3; SDMPackageXML = '<x><ScriptBody>tampered</ScriptBody></x>' } }
             { Get-OrCreateGlobalConditionFromTemplate -Template $script:ScriptTemplate } |
                 Should -Throw '*read back different script content*'
+        }
+
+        It 'reads the script from the element a script global condition stores it in' {
+            $xml = '<DesiredConfigurationDigest xmlns="urn:x"><GlobalSettings><Settings><RootComplexSetting><SimpleSetting>' +
+                '<ScriptDiscoverySource Is64Bit="true"><DiscoveryScriptBody ScriptType="PowerShell">exit 0</DiscoveryScriptBody></ScriptDiscoverySource>' +
+                '</SimpleSetting></RootComplexSetting></Settings></GlobalSettings></DesiredConfigurationDigest>'
+            Get-SdmPackageScriptText -SdmPackageXml $xml | Should -Be 'exit 0'
+        }
+
+        It 'accepts a stored unsigned script whose line ends became LF' {
+            $template = [pscustomobject]@{
+                Id = 'multi'; Kind = 'Script'; GlobalConditionName = 'AppPackager Multi'
+                DataType = 'Boolean'; Description = 'd'; RuleType = 'Boolean'; ScriptText = @('$a = 1', 'exit 0')
+            }
+            Mock Get-CMGlobalCondition { $null }
+            Mock New-CMGlobalConditionScript {
+                [pscustomobject]@{ CI_ID = 5; SDMPackageXML = "<x><DiscoveryScriptBody>`$a = 1`nexit 0</DiscoveryScriptBody></x>" }
+            }
+            (Get-OrCreateGlobalConditionFromTemplate -Template $template).CI_ID | Should -Be 5
+
+            Mock Get-CMGlobalCondition { [pscustomobject]@{ LocalizedDisplayName = 'AppPackager Multi'; CI_ID = 5; SDMPackageXML = "<x><DiscoveryScriptBody>`$a = 1`nexit 0</DiscoveryScriptBody></x>" } }
+            Mock New-CMGlobalConditionScript { throw 'must not create' }
+            (Get-OrCreateGlobalConditionFromTemplate -Template $template).CI_ID | Should -Be 5
+        }
+
+        It 'refuses an existing versioned condition whose stored script was changed' {
+            Mock Get-CMGlobalCondition {
+                if ($Name -eq 'AppPackager VPN') { return [pscustomobject]@{ LocalizedDisplayName = $Name; CI_ID = 1; SDMPackageXML = '<x><DiscoveryScriptBody>exit 1</DiscoveryScriptBody></x>' } }
+                return [pscustomobject]@{ LocalizedDisplayName = $Name; CI_ID = 2; SDMPackageXML = '<x><DiscoveryScriptBody>exit 99</DiscoveryScriptBody></x>' }
+            }
+            Mock New-CMGlobalConditionScript { throw 'must not create' }
+            { Get-OrCreateGlobalConditionFromTemplate -Template $script:ScriptTemplate } | Should -Throw '*stored script is not the script this run built*'
+        }
+
+        It 'attaches an existing versioned condition whose stored script is unchanged' {
+            Mock Get-CMGlobalCondition {
+                if ($Name -eq 'AppPackager VPN') { return [pscustomobject]@{ LocalizedDisplayName = $Name; CI_ID = 1; SDMPackageXML = '<x><DiscoveryScriptBody>exit 1</DiscoveryScriptBody></x>' } }
+                return [pscustomobject]@{ LocalizedDisplayName = $Name; CI_ID = 2; SDMPackageXML = '<x><DiscoveryScriptBody>exit 0</DiscoveryScriptBody></x>' }
+            }
+            Mock New-CMGlobalConditionScript { throw 'must not create' }
+            (Get-OrCreateGlobalConditionFromTemplate -Template $script:ScriptTemplate).CI_ID | Should -Be 2
+        }
+
+        It 'refuses a signed condition whose stored script cannot be read back' {
+            $identity = [pscustomobject]@{ Text = 'exit 0'; Bytes = [System.Text.Encoding]::UTF8.GetBytes('exit 0'); Sha256 = 'x'; Signed = $true; Thumbprint = 'AB' }
+            Mock New-CMGlobalConditionScript { [pscustomobject]@{ CI_ID = 6; SDMPackageXML = '<x><Other/></x>' } }
+            { New-CMScriptGlobalConditionVerified -Name 'AppPackager VPN (abcdef01)' -Template $script:ScriptTemplate -Identity $identity } |
+                Should -Throw '*could not be read back*'
         }
 
         It 'leaves a WQL condition on its existing name-match behavior' {
@@ -4348,6 +4460,92 @@ Describe 'Publish-IntuneWin32App request bodies' {
         }
         Publish-IntuneWin32App -TenantId 't' -ClientId 'c' -ClientSecret 's' `
             -IntuneWinPath (Join-Path $TestDrive 'w.intunewin') -Manifest $script:IntuneManifest | Should -Be 'mine'
+    }
+
+    It 'creates a new app when the only name match carries the tag of another application' {
+        New-IntuneMocks
+        Mock Invoke-GraphJson -ModuleName AppPackagerCommon {
+            $script:GraphCalls.Add([pscustomobject]@{ Method = $Method; Uri = $Uri; Body = $Body })
+            if ($Method -eq 'GET' -and $Uri -match 'mobileApps\?') {
+                return [pscustomobject]@{ value = @(
+                    [pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'other'; notes = 'AppPackager:catalog:package-other/default' }) }
+            }
+            if ($Method -eq 'GET') { return [pscustomobject]@{ azureStorageUri = 'https://blob.invalid/x'; uploadState = 'commitFileSuccess' } }
+            return [pscustomobject]@{ id = 'new-1' }
+        }
+        Publish-IntuneWin32App -TenantId 't' -ClientId 'c' -ClientSecret 's' `
+            -IntuneWinPath (Join-Path $TestDrive 'w.intunewin') -Manifest $script:IntuneManifest | Should -Be 'new-1'
+        @($script:GraphCalls | Where-Object { $_.Method -eq 'PATCH' -and $_.Uri -match 'mobileApps/other$' }).Count | Should -Be 0
+        @($script:GraphCalls | Where-Object { $_.Method -eq 'POST' -and $_.Uri -match 'mobileApps$' }).Count | Should -Be 1
+    }
+
+    It 'finds its app by tag when the application id carries a space' {
+        New-IntuneMocks
+        $manifest = $script:IntuneManifest.PSObject.Copy(); $manifest.ApplicationId = 'custom:package-my tool'
+        Mock Invoke-GraphJson -ModuleName AppPackagerCommon {
+            $script:GraphCalls.Add([pscustomobject]@{ Method = $Method; Uri = $Uri; Body = $Body })
+            if ($Method -eq 'GET' -and $Uri -match 'mobileApps\?') {
+                return [pscustomobject]@{ value = @(
+                    [pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'spaced'; notes = 'AppPackager:custom:package-my tool/managed-1' }) }
+            }
+            if ($Method -eq 'GET') { return [pscustomobject]@{ azureStorageUri = 'https://blob.invalid/x'; uploadState = 'commitFileSuccess' } }
+            return [pscustomobject]@{ id = 'content-1' }
+        }
+        Publish-IntuneWin32App -TenantId 't' -ClientId 'c' -ClientSecret 's' `
+            -IntuneWinPath (Join-Path $TestDrive 'w.intunewin') -Manifest $manifest | Should -Be 'spaced'
+        @($script:GraphCalls | Where-Object { $_.Method -eq 'POST' -and $_.Uri -match 'mobileApps$' }).Count | Should -Be 0
+    }
+
+    It 'adopts an app that carries only a legacy tag and replaces that tag' {
+        New-IntuneMocks
+        Mock Invoke-GraphJson -ModuleName AppPackagerCommon {
+            $script:GraphCalls.Add([pscustomobject]@{ Method = $Method; Uri = $Uri; Body = $Body })
+            if ($Method -eq 'GET' -and $Uri -match 'mobileApps\?') {
+                return [pscustomobject]@{ value = @(
+                    [pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'old'; notes = 'AppPackager:legacy:Widget/default' }) }
+            }
+            if ($Method -eq 'GET') { return [pscustomobject]@{ azureStorageUri = 'https://blob.invalid/x'; uploadState = 'commitFileSuccess' } }
+            return [pscustomobject]@{ id = 'content-1' }
+        }
+        Publish-IntuneWin32App -TenantId 't' -ClientId 'c' -ClientSecret 's' `
+            -IntuneWinPath (Join-Path $TestDrive 'w.intunewin') -Manifest $script:IntuneManifest | Should -Be 'old'
+        $patch = @($script:GraphCalls | Where-Object { $_.Method -eq 'PATCH' -and $_.Uri -match 'mobileApps/old$' })[0]
+        $patch.Body['notes'] | Should -Be 'AppPackager:catalog:package-widget/managed-1'
+    }
+
+    It 'keeps operator notes when it adopts an untagged app by name' {
+        New-IntuneMocks
+        Mock Invoke-GraphJson -ModuleName AppPackagerCommon {
+            $script:GraphCalls.Add([pscustomobject]@{ Method = $Method; Uri = $Uri; Body = $Body })
+            if ($Method -eq 'GET' -and $Uri -match 'mobileApps\?') {
+                return [pscustomobject]@{ value = @(
+                    [pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'legacy'; notes = 'Owner: desktop team' }) }
+            }
+            if ($Method -eq 'GET') { return [pscustomobject]@{ azureStorageUri = 'https://blob.invalid/x'; uploadState = 'commitFileSuccess' } }
+            return [pscustomobject]@{ id = 'content-1' }
+        }
+        Publish-IntuneWin32App -TenantId 't' -ClientId 'c' -ClientSecret 's' `
+            -IntuneWinPath (Join-Path $TestDrive 'w.intunewin') -Manifest $script:IntuneManifest | Should -Be 'legacy'
+        $patch = @($script:GraphCalls | Where-Object { $_.Method -eq 'PATCH' -and $_.Uri -match 'mobileApps/legacy$' })[0]
+        $patch.Body['notes'] | Should -Be "AppPackager:catalog:package-widget/managed-1`r`nOwner: desktop team"
+    }
+
+    It 'finds its app again by the tag line and leaves those notes unchanged' {
+        New-IntuneMocks
+        $script:TaggedNotes = "AppPackager:catalog:package-widget/managed-1`r`nOwner: desktop team"
+        Mock Invoke-GraphJson -ModuleName AppPackagerCommon {
+            $script:GraphCalls.Add([pscustomobject]@{ Method = $Method; Uri = $Uri; Body = $Body })
+            if ($Method -eq 'GET' -and $Uri -match 'mobileApps\?') {
+                return [pscustomobject]@{ value = @(
+                    [pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'mine'; displayName = 'Renamed'; notes = $script:TaggedNotes }) }
+            }
+            if ($Method -eq 'GET') { return [pscustomobject]@{ azureStorageUri = 'https://blob.invalid/x'; uploadState = 'commitFileSuccess' } }
+            return [pscustomobject]@{ id = 'content-1' }
+        }
+        Publish-IntuneWin32App -TenantId 't' -ClientId 'c' -ClientSecret 's' `
+            -IntuneWinPath (Join-Path $TestDrive 'w.intunewin') -Manifest $script:IntuneManifest | Should -Be 'mine'
+        $patch = @($script:GraphCalls | Where-Object { $_.Method -eq 'PATCH' -and $_.Uri -match 'mobileApps/mine$' })[0]
+        $patch.Body['notes'] | Should -Be $script:TaggedNotes
     }
 
     It 'refuses an ambiguous name match with no identity tag' {
@@ -4794,5 +4992,187 @@ Describe 'Network paths tolerate a trailing dot' {
         $root = Join-Path $TestDrive 'share-dot-flat'
         $p = Get-NetworkContentPath -FileServerPath $root -VendorFolder 'KDE e.V' -AppFolder 'KDiff3' -Version '1.12.4.' -Layout Flat
         (Split-Path -Leaf $p) | Should -Be 'KDE e.V-KDiff3-1.12.4'
+    }
+}
+
+Describe 'Quote characters in generated scripts' {
+    BeforeAll {
+        # An apostrophe and the four typographic quotes that also end a single-quoted string.
+        $script:Hostile = 'a' + [char]0x2019 + '; Write-Host INJECTED; ' + [char]0x2018 + 'b'
+        function script:Get-ScriptFindings {
+            param([string]$Text)
+            $tokens = $null; $errors = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseInput($Text, [ref]$tokens, [ref]$errors)
+            [pscustomobject]@{
+                ParseErrors = @($errors).Count
+                Injected    = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Write-Host' }, $true)).Count
+            }
+        }
+    }
+
+    It 'doubles U+<Code> inside a literal' -ForEach @(
+        @{ Code = '0027' }, @{ Code = '2018' }, @{ Code = '2019' }, @{ Code = '201A' }, @{ Code = '201B' }
+    ) {
+        $ch = [string][char][Convert]::ToInt32($Code, 16)
+        ConvertTo-SingleQuotedContent -Text ('x' + $ch + 'y') | Should -Be ('x' + $ch + $ch + 'y')
+    }
+
+    It 'returns an empty string for an empty string' {
+        ConvertTo-SingleQuotedContent -Text '' | Should -Be ''
+    }
+
+    It 'leaves no statement from the text in the script made by <Name>' -ForEach @(
+        @{ Name = 'New-MsiWrapperContent file name'; Make = { (New-MsiWrapperContent -MsiFileName ($script:Hostile + '.msi')).Install } }
+        @{ Name = 'New-MsiWrapperContent uninstall'; Make = { (New-MsiWrapperContent -MsiFileName ($script:Hostile + '.msi')).Uninstall } }
+        @{ Name = 'New-MsiWrapperContent kill list'; Make = { (New-MsiWrapperContent -MsiFileName 'a.msi' -PostInstallKillProcesses @($script:Hostile)).Install } }
+        @{ Name = 'New-MsiWrapperContent extra argument'; Make = { (New-MsiWrapperContent -MsiFileName 'a.msi' -ExtraInstallArgs @($script:Hostile)).Install } }
+        @{ Name = 'New-ExeWrapperContent file name'; Make = { (New-ExeWrapperContent -InstallerFileName ($script:Hostile + '.exe') -InstallArgs "'/S'" -UninstallCommand 'u.exe').Install } }
+        @{ Name = 'New-ExeWrapperContent uninstall command'; Make = { (New-ExeWrapperContent -InstallerFileName 'a.exe' -InstallArgs "'/S'" -UninstallCommand ($script:Hostile + '.exe')).Uninstall } }
+        @{ Name = 'New-ExeWrapperContent kill list'; Make = { (New-ExeWrapperContent -InstallerFileName 'a.exe' -InstallArgs "'/S'" -UninstallCommand 'u.exe' -PostInstallKillProcesses @($script:Hostile)).Install } }
+        @{ Name = 'New-MsixWrapperContent file name'; Make = { (New-MsixWrapperContent -MsixFileName ($script:Hostile + '.msix')).Install } }
+        @{ Name = 'New-MsixWrapperContent uninstall'; Make = { (New-MsixWrapperContent -MsixFileName ($script:Hostile + '.msix')).Uninstall } }
+        @{ Name = 'New-MsixWrapperContent signature'; Make = { (New-MsixWrapperContent -MsixFileName 'a.msix' -SignatureSha1 $script:Hostile).Install } }
+        @{ Name = 'New-VpnConditionScriptText'; Make = { New-VpnConditionScriptText -AdapterPatterns @($script:Hostile) } }
+    ) {
+        $findings = Get-ScriptFindings (& $Make)
+        $findings.ParseErrors | Should -Be 0
+        $findings.Injected | Should -Be 0
+    }
+}
+
+Describe 'Start-Process fail-fast in wrapper scripts' {
+    BeforeAll {
+        $script:StandardLine = '$proc = Start-Process -FilePath $exePath -ArgumentList @(''/S'') -Wait -PassThru -NoNewWindow'
+    }
+
+    It 'wraps a captured Start-Process call so a launch failure exits 1' {
+        InModuleScope AppPackagerCommon -Parameters @{ Line = $script:StandardLine } {
+            param($Line)
+            Add-StartProcessFailFast -Content $Line | Should -Be ('try { ' + $Line + ' -ErrorAction Stop } catch { Write-Error $_.Exception.Message; exit 1 }')
+        }
+    }
+
+    It 'wraps a call whose arguments carry backtick-escaped quotes' {
+        $line = '$proc = Start-Process -FilePath ''msiexec.exe'' -ArgumentList @(''/i'', "' + [char]96 + '"$msiPath' + [char]96 + '"", ''/qn'') -Wait -PassThru -NoNewWindow'
+        InModuleScope AppPackagerCommon -Parameters @{ Line = $line } {
+            param($Line)
+            $wrapped = Add-StartProcessFailFast -Content $Line
+            $wrapped | Should -Be ('try { ' + $Line + ' -ErrorAction Stop } catch { Write-Error $_.Exception.Message; exit 1 }')
+            $tokens = $null; $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseInput($wrapped, [ref]$tokens, [ref]$errors)
+            $errors | Should -BeNullOrEmpty
+            Remove-StartProcessFailFast -Content $wrapped | Should -Be $Line
+        }
+    }
+
+    It 'leaves lines it must not change: <Name>' -ForEach @(
+        @{ Name = 'explicit error action'; Line = '$proc = Start-Process -FilePath $exe -ErrorAction SilentlyContinue' }
+        @{ Name = 'no capture'; Line = 'Start-Process -FilePath $exe -Wait' }
+        @{ Name = 'pipeline'; Line = '$proc = Start-Process -FilePath $exe -PassThru | Out-Null' }
+        @{ Name = 'continuation'; Line = ('$proc = Start-Process -FilePath $exe ' + [char]96) }
+        @{ Name = 'other statement'; Line = 'exit $proc.ExitCode' }
+        @{ Name = 'second statement on the line'; Line = '$proc = Start-Process -FilePath $exe -Wait -PassThru; exit $proc.ExitCode' }
+        @{ Name = 'trailing comment'; Line = '$proc = Start-Process -FilePath $exe -Wait -PassThru # run the installer' }
+    ) {
+        InModuleScope AppPackagerCommon -Parameters @{ Line = $Line } {
+            param($Line)
+            Add-StartProcessFailFast -Content $Line | Should -Be $Line
+        }
+    }
+
+    It 'is idempotent and reversible across several lines with CRLF endings' {
+        InModuleScope AppPackagerCommon -Parameters @{ Line = $script:StandardLine } {
+            param($Line)
+            $original = ('$exePath = Join-Path $PSScriptRoot ''a.exe''', $Line, '$later = Start-Process -FilePath $x -PassThru -NoNewWindow', 'exit $proc.ExitCode') -join "`r`n"
+            $once = Add-StartProcessFailFast -Content $original
+            $once | Should -Not -Be $original
+            (Add-StartProcessFailFast -Content $once) | Should -Be $once
+            (Remove-StartProcessFailFast -Content $once) | Should -Be $original
+        }
+    }
+
+    It 'writes the wrapped call into install.ps1 and uninstall.ps1' {
+        $dir = Join-Path $TestDrive 'failfast-write'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $w = New-ExeWrapperContent -InstallerFileName 'a.exe' -InstallArgs "'/S'" -UninstallCommand 'u.exe'
+        Write-ContentWrappers -OutputPath $dir -InstallPs1Content $w.Install -UninstallPs1Content $w.Uninstall
+        (Get-Content -LiteralPath (Join-Path $dir 'install.ps1') -Raw) | Should -Match 'try \{ \$proc = Start-Process .* -ErrorAction Stop \} catch'
+        (Get-Content -LiteralPath (Join-Path $dir 'uninstall.ps1') -Raw) | Should -Match 'try \{ \$proc = Start-Process .* -ErrorAction Stop \} catch'
+    }
+}
+
+Describe 'Exit codes of generated install wrappers' {
+    BeforeAll {
+        function script:Invoke-GeneratedInstall {
+            param([string]$Name, [string]$InstallerFileName, [string]$InstallArgs, [string[]]$KillProcesses = @())
+            $dir = Join-Path $TestDrive $Name
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            Copy-Item -LiteralPath (Join-Path $env:WINDIR 'System32\cmd.exe') -Destination (Join-Path $dir 'fake-setup.exe') -Force
+            if ($KillProcesses.Count -gt 0) {
+                $w = New-ExeWrapperContent -InstallerFileName $InstallerFileName -InstallArgs $InstallArgs -UninstallCommand 'unused' -PostInstallKillProcesses $KillProcesses
+            }
+            else {
+                $w = New-ExeWrapperContent -InstallerFileName $InstallerFileName -InstallArgs $InstallArgs -UninstallCommand 'unused'
+            }
+            Write-ContentWrappers -OutputPath $dir -InstallPs1Content $w.Install -UninstallPs1Content $w.Uninstall
+            & cmd.exe /c ('"' + (Join-Path $dir 'install.bat') + '"') *> $null
+            return $LASTEXITCODE
+        }
+    }
+
+    It 'returns the installer exit code' {
+        Invoke-GeneratedInstall -Name 'exit-plain' -InstallerFileName 'fake-setup.exe' -InstallArgs "'/c', 'exit 7'" | Should -Be 7
+    }
+
+    It 'returns the installer exit code after the post-install kill step' {
+        Invoke-GeneratedInstall -Name 'exit-kill' -InstallerFileName 'fake-setup.exe' -InstallArgs "'/c', 'exit 7'" -KillProcesses @('no-such-process') | Should -Be 7
+    }
+
+    It 'returns 0 for an installer that succeeds' {
+        Invoke-GeneratedInstall -Name 'exit-ok' -InstallerFileName 'fake-setup.exe' -InstallArgs "'/c', 'exit 0'" -KillProcesses @('no-such-process') | Should -Be 0
+    }
+
+    It 'fails when the installer cannot start' {
+        Invoke-GeneratedInstall -Name 'exit-missing' -InstallerFileName 'missing-setup.exe' -InstallArgs "'/S'" | Should -Be 1
+    }
+
+    It 'fails when the installer cannot start before the post-install kill step' {
+        Invoke-GeneratedInstall -Name 'exit-kill-missing' -InstallerFileName 'missing-setup.exe' -InstallArgs "'/S'" -KillProcesses @('no-such-process') | Should -Be 1
+    }
+}
+
+Describe 'URLs passed to curl.exe' {
+    It 'accepts <Url>' -ForEach @(
+        @{ Url = 'https://example.test/app/setup-1.2.3.exe' }
+        @{ Url = 'http://example.test/a%22b?x=1&y=2' }
+        @{ Url = 'HTTPS://EXAMPLE.TEST/UPPER' }
+    ) {
+        ConvertTo-SafeCurlUrl -Url $Url | Should -Be $Url
+    }
+
+    It 'trims surrounding white space' {
+        ConvertTo-SafeCurlUrl -Url '  https://example.test/trim  ' | Should -Be 'https://example.test/trim'
+    }
+
+    It 'refuses <Name>' -ForEach @(
+        @{ Name = 'a quote'; Url = 'https://example.test/a"b' }
+        @{ Name = 'a backslash and a quote'; Url = ('https://example.test/x' + [char]92 + [char]34 + ' -o C:\temp\x.bin ' + [char]92 + [char]34) }
+        @{ Name = 'a trailing backslash'; Url = ('https://example.test/x' + [char]92) }
+        @{ Name = 'a control character'; Url = ('https://example.test/x' + [char]10 + 'y') }
+        @{ Name = 'a leading dash'; Url = '-K evil' }
+        @{ Name = 'a scheme other than http or https'; Url = 'ftp://example.test/x' }
+        @{ Name = 'a file URL'; Url = 'file:///C:/Windows/win.ini' }
+        @{ Name = 'empty text'; Url = '' }
+    ) {
+        { ConvertTo-SafeCurlUrl -Url $Url } | Should -Throw
+    }
+
+    It 'stops a download whose URL would add curl options, before any file is written' {
+        $out = Join-Path $TestDrive 'download.bin'
+        $injected = Join-Path $TestDrive 'injected.bin'
+        $hostile = 'https://example.test/x' + [char]92 + [char]34 + ' -o ' + $injected + ' ' + [char]92 + [char]34
+        { Invoke-DownloadWithRetry -Url $hostile -OutFile $out -Quiet } | Should -Throw
+        Test-Path -LiteralPath $out | Should -BeFalse
+        Test-Path -LiteralPath $injected | Should -BeFalse
     }
 }

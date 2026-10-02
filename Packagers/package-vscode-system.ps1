@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://code.visualstudio.com/updates
 DownloadPageUrl: https://code.visualstudio.com/Download
 IconSource: Installer
 UpdateCadenceDays: 14
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Visual Studio Code x64 system installer for ConfigMgr.

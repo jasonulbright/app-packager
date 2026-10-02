@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:wireshark:wireshark:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.wireshark.org/docs/relnotes/
 DownloadPageUrl: https://www.wireshark.org/download.html
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Wireshark (x64) for ConfigMgr.

@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:videolan:vlc_media_player:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.videolan.org/vlc/releases/
 DownloadPageUrl: https://www.videolan.org/vlc/
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages VLC Media Player (x64) MSI for ConfigMgr.

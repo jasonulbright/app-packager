@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.jabra.com/support/release-notes/release-note-jabra-
 DownloadPageUrl: https://www.jabra.com/software-and-services/jabra-direct
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Jabra Direct for ConfigMgr.
@@ -16,7 +17,7 @@ UpdateCadenceDays: 60
     Reads the current version from the vendor release-notes page, downloads
     JabraDirectSetup.exe from the vendor's fixed download URL, stages content
     to a versioned local folder, and creates a ConfigMgr Application with
-    registry-based detection on the WiX Burn bundle ARP entry.
+    file-version detection on jabra-direct.exe.
 
     The download URL carries no version, so the staged payload's file version
     is checked against the release-notes version before content is accepted.
@@ -59,7 +60,7 @@ UpdateCadenceDays: 60
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create ConfigMgr application with registry-based detection.
+    create ConfigMgr application with file-version detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available Jabra Direct version string and exits.
@@ -107,10 +108,12 @@ $BaseDownloadRoot = Join-Path $DownloadRoot "JabraDirect"
 
 $InstallerFileName = "JabraDirectSetup.exe"
 
-# Burn registers the bundle under its BundleId. The bundle stub is 32-bit, so
-# the entry lands in the 32-bit view of the machine uninstall hive.
-$BundleId       = "{FF8111EB-E2A2-4A6B-830C-4F676D20FB39}"
-$ArpRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$BundleId"
+# Burn registers the bundle under its BundleId, and each release's MSI under
+# its own product code, so no uninstall key name can be pinned. Removal finds
+# the bundle entry by its display name; the bundle upgrade code is fixed
+# across releases and also identifies it.
+$ProductDisplayName = "Jabra Direct"
+$BundleUpgradeCode  = "{356870DC-69C0-4757-B09A-22C1786C104C}"
 
 # --- Functions ---
 
@@ -190,6 +193,56 @@ function Assert-PayloadVersion {
 }
 
 
+function New-JabraDirectDetection {
+    param([Parameter(Mandatory)][string]$Version)
+
+    # The executable's version string reads as the three numbers the release
+    # page prints (its numeric form adds a zero revision), so a four-part
+    # expectation would sit above the string form.
+    return @{
+        Type          = "File"
+        FilePath      = "{0}\Jabra\Direct6" -f $env:ProgramFiles
+        FileName      = "jabra-direct.exe"
+        PropertyType  = "Version"
+        Operator      = "GreaterEquals"
+        ExpectedValue = $Version
+        Is64Bit       = $true
+    }
+}
+
+
+function New-JabraDirectUninstallContent {
+    # The bundle caches itself under a per-build folder, so the ARP
+    # QuietUninstallString is the only value that names the right copy. An
+    # entry without one is a package inside the bundle, not the bundle.
+    $content = @'
+$roots = @(
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall',
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
+)
+$hit = $null
+foreach ($root in $roots) {
+    if (-not (Test-Path -LiteralPath $root)) { continue }
+    $hit = Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue |
+        ForEach-Object { Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue } |
+        Where-Object {
+            $_.QuietUninstallString -and
+            (($_.DisplayName -eq '__DISPLAYNAME__') -or (@($_.BundleUpgradeCode) -contains '__UPGRADECODE__'))
+        } |
+        Select-Object -First 1
+    if ($hit) { break }
+}
+if (-not $hit) { exit 0 }
+$cmd = $hit.QuietUninstallString
+if ($cmd -match '^"([^"]+)"') { $exe = $matches[1] } else { $exe = ($cmd -split '\s+/')[0].Trim() }
+if (-not (Test-Path -LiteralPath $exe)) { exit 0 }
+$proc = Start-Process -FilePath $exe -ArgumentList @('/uninstall', '/quiet', '/norestart') -Wait -PassThru -NoNewWindow
+exit $proc.ExitCode
+'@
+    return $content.Replace('__DISPLAYNAME__', $ProductDisplayName).Replace('__UPGRADECODE__', $BundleUpgradeCode)
+}
+
+
 # ---------------------------------------------------------------------------
 # Stage phase
 # ---------------------------------------------------------------------------
@@ -227,7 +280,6 @@ function Invoke-StageJabraDirect {
 
     Assert-PayloadIsExecutable -Path $localExe
     Assert-PayloadVersion -Path $localExe -Expected $version
-    Assert-ArpDetectionKey -InstallerPath $localExe -ExpectedKey $ArpRegistryKey -Is64BitView $false
 
     # --- Versioned local content folder ---
     $localContentPath = Join-Path $BaseDownloadRoot $version
@@ -247,36 +299,16 @@ function Invoke-StageJabraDirect {
         -InstallArgs "'/install', '/quiet', '/norestart'" `
         -UninstallCommand 'unused'
 
-    # The bundle caches itself under a per-build folder, so the ARP
-    # QuietUninstallString is the only value that names the right copy.
-    $uninstallContent = @'
-$keys = @(
-    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\__BUNDLEID__',
-    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\__BUNDLEID__'
-)
-$hit = $null
-foreach ($key in $keys) {
-    if (-not (Test-Path -LiteralPath $key)) { continue }
-    $hit = Get-ItemProperty -LiteralPath $key -ErrorAction SilentlyContinue
-    if ($hit) { break }
-}
-if (-not $hit) { exit 0 }
-$cmd = if ($hit.QuietUninstallString) { $hit.QuietUninstallString } else { $hit.UninstallString }
-if (-not $cmd) { exit 0 }
-if ($cmd -match '^"([^"]+)"') { $exe = $matches[1] } else { $exe = ($cmd -split '\s+/')[0].Trim() }
-if (-not (Test-Path -LiteralPath $exe)) { exit 0 }
-$proc = Start-Process -FilePath $exe -ArgumentList @('/uninstall', '/quiet', '/norestart') -Wait -PassThru -NoNewWindow
-exit $proc.ExitCode
-'@
-    $uninstallContent = $uninstallContent.Replace('__BUNDLEID__', $BundleId)
-
     Write-ContentWrappers -OutputPath $localContentPath `
         -InstallPs1Content $wrappers.Install `
-        -UninstallPs1Content $uninstallContent
+        -UninstallPs1Content (New-JabraDirectUninstallContent)
 
     # --- Write stage manifest ---
+    $detection = New-JabraDirectDetection -Version $version
+
     Write-Log ""
-    Write-Log "ARP RegistryKey              : $ArpRegistryKey"
+    Write-Log "Detection path               : $($detection.FilePath)"
+    Write-Log "Detection file               : $($detection.FileName) >= $($detection.ExpectedValue)"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -289,15 +321,7 @@ exit $proc.ExitCode
         InstallArgs     = "/install /quiet /norestart"
         UninstallArgs   = "/uninstall /quiet /norestart"
         RunningProcess  = @("jabra-direct")
-        Detection       = @{
-            Type                = "RegistryKeyValue"
-            RegistryKeyRelative = $ArpRegistryKey
-            ValueName           = "DisplayVersion"
-            PropertyType        = "Version"
-            Operator            = "GreaterEquals"
-            ExpectedValue       = $version
-            Is64Bit             = $false
-        }
+        Detection       = $detection
     }
 
     # Save version marker for Package phase
@@ -339,8 +363,8 @@ function Invoke-PackageJabraDirect {
     Write-Log "AppName                      : $($manifest.AppName)"
     Write-Log "Publisher                    : $($manifest.Publisher)"
     Write-Log "SoftwareVersion              : $($manifest.SoftwareVersion)"
-    Write-Log "Detection Key                : $($manifest.Detection.RegistryKeyRelative)"
-    Write-Log "Detection Value              : $($manifest.Detection.ExpectedValue)"
+    Write-Log "Detection Path               : $($manifest.Detection.FilePath)"
+    Write-Log "Detection File               : $($manifest.Detection.FileName)"
     Write-Log ""
 
     # --- Network share ---

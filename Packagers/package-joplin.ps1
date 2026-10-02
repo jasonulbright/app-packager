@@ -9,6 +9,7 @@ DownloadPageUrl: https://joplinapp.org/download/
 IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 30
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Joplin Desktop (x64) for ConfigMgr.

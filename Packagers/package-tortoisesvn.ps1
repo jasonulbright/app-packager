@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:tortoisesvn:tortoisesvn:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://tortoisesvn.net/Changelog.txt
 DownloadPageUrl: https://tortoisesvn.net/downloads.html
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages TortoiseSVN (x64) MSI for ConfigMgr.

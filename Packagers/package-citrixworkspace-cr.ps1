@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://docs.citrix.com/en-us/citrix-workspace-app-for-windows/
 DownloadPageUrl: https://www.citrix.com/downloads/workspace-app/windows/workspace-app-for-windows-latest.html
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Citrix Workspace app for Windows, Current Release (x64), for ConfigMgr.
@@ -314,14 +315,14 @@ function ConvertTo-WrapperArgumentList {
     #>
     param([Parameter(Mandatory)][string[]]$Arguments)
 
-    return (($Arguments | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ', ')
+    return (($Arguments | ForEach-Object { "'" + (ConvertTo-SingleQuotedContent $_) + "'" }) -join ', ')
 }
 
 
 function Get-CitrixWorkspaceUninstallContent {
     param([Parameter(Mandatory)][string]$InstallerFileName)
 
-    $escaped = $InstallerFileName -replace "'", "''"
+    $escaped = ConvertTo-SingleQuotedContent $InstallerFileName
     return (
         ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $escaped),
         'if (-not (Test-Path -LiteralPath $exePath)) { exit 1 }',

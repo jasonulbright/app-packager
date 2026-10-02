@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://git.zx2c4.com/wireguard-windows/log/
 DownloadPageUrl: https://download.wireguard.com/windows-client/
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages WireGuard for Windows (amd64) MSI for ConfigMgr.

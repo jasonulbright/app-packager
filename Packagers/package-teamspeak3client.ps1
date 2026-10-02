@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://teamspeak.com/en/downloads/
 DownloadPageUrl: https://teamspeak.com/en/downloads/
 IconSource: Installer
 UpdateCadenceDays: 180
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages the TeamSpeak 3 Client (x64) for ConfigMgr.

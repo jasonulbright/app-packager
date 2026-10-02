@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://gitlab.com/graphviz/graphviz/-/blob/main/CHANGELOG.md
 DownloadPageUrl: https://graphviz.org/download/
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Graphviz (win64) for ConfigMgr.

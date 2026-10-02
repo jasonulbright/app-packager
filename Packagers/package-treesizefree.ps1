@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.jam-software.com/treesize_free
 IconSource: Installer
 UpdateCadenceDays: 90
 SupportsInstallModes: CurrentUser, AllUsers
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages TreeSize Free (x64) for ConfigMgr.

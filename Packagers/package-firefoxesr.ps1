@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.mozilla.org/en-US/firefox/organizations/notes/
 DownloadPageUrl: https://www.mozilla.org/en-US/firefox/enterprise/
 IconSource: External
 UpdateCadenceDays: 30
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Mozilla Firefox ESR (x64) MSI for ConfigMgr.

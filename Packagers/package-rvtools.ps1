@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.dell.com/support/kbdoc/en-us/000325532
 DownloadPageUrl: https://www.dell.com/support/kbdoc/en-us/000325532
 IconSource: External
 UpdateCadenceDays: 120
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages RVTools MSI for ConfigMgr.

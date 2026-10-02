@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.cutepdf.com/Products/CutePDF/writer.asp
 DownloadPageUrl: https://www.cutepdf.com/products/cutepdf/writer.asp
 IconSource: Installer
 UpdateCadenceDays: 180
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages CutePDF Writer (Inno Setup EXE) for ConfigMgr.
@@ -15,7 +16,7 @@ UpdateCadenceDays: 180
 .DESCRIPTION
     Downloads the current CuteWriter.exe from the vendor's static download URL,
     reads its ProductVersion, stages content to a versioned local folder, and
-    creates a ConfigMgr Application with registry-based detection.
+    creates a ConfigMgr Application with uninstall-key existence detection.
 
     Supports two-phase operation:
       -StageOnly    Download, read EXE version, generate wrappers and manifest
@@ -109,6 +110,9 @@ $AppFolder    = "CutePDF Writer"
 
 $BaseDownloadRoot = Join-Path $DownloadRoot "CutePDFWriter"
 
+# DisplayVersion is a fixed marketing label with padding (" 4.0") that does not
+# follow the installer's ProductVersion, so no value comparison can match; the
+# key is removed with the product, so its existence is the installed state.
 $DetectionRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CutePDF Writer Installation"
 
 # --- Functions ---
@@ -191,8 +195,7 @@ function Invoke-StageCutePdfWriter {
         -UninstallPs1Content (Get-CutePdfWriterUninstallContent)
 
     # --- Write stage manifest ---
-    Write-Log "Detection key                : HKLM\$DetectionRegistryKey"
-    Write-Log "Detection value              : DisplayVersion >= $version"
+    Write-Log "Detection key exists         : HKLM\$DetectionRegistryKey"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -207,12 +210,8 @@ function Invoke-StageCutePdfWriter {
         UninstallArgs   = "/uninstall /s"
         RunningProcess  = @()
         Detection       = @{
-            Type                = "RegistryKeyValue"
+            Type                = "RegistryKey"
             RegistryKeyRelative = $DetectionRegistryKey
-            ValueName           = "DisplayVersion"
-            PropertyType        = "Version"
-            Operator            = "GreaterEquals"
-            ExpectedValue       = $version
             Is64Bit             = $true
         }
     }
@@ -255,7 +254,6 @@ function Invoke-PackageCutePdfWriter {
     Write-Log "Publisher                    : $($manifest.Publisher)"
     Write-Log "SoftwareVersion              : $($manifest.SoftwareVersion)"
     Write-Log "Detection Key                : $($manifest.Detection.RegistryKeyRelative)"
-    Write-Log "Detection Value              : $($manifest.Detection.ExpectedValue)"
     Write-Log ""
 
     # --- Network share ---

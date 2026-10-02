@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:nodejs:node.js:*:*:*:*:lts:*:*:*
 ReleaseNotesUrl: https://nodejs.org/en/blog/release
 DownloadPageUrl: https://nodejs.org/en/download/
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Node.js LTS (x64) MSI for ConfigMgr.

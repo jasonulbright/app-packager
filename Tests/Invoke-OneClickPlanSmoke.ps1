@@ -203,6 +203,37 @@ try {
         & $ok 'run report written'
     }
 
+    # --- Run: a destination the plan marks not ready or not supported -----
+    # The check box stays checked; the run must still leave the destination out.
+    $script:Prefs.Wsus.ServerName = ''
+    $script:RunContext = $null
+    Show-OneClickPlanDialog -Owner $probeOwner -Rows $rows -Action 'StageAndPackage' -Probe {
+        param($p)
+        $alpha = $p.Rows | Where-Object { $_.Packager -eq 'package-alpha' }
+        & $assert ([bool]$alpha.WSUS -and [string]$alpha.Reason -like '*WSUS:*') ('the plan row keeps its WSUS box and names the reason: ' + [string]$alpha.Reason)
+        $btnRun = $p.Run
+        $btnRun.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent, $btnRun)))
+        $sent = @($script:RunContext.OneClickPlan['package-alpha'].Destinations)
+        & $assert ($sent -contains 'ConfigMgr' -and $sent -notcontains 'WSUS') ('a destination that is not ready stays out of the run: ' + ($sent -join ','))
+        & $ok 'not-ready destination left out of the run'
+        & $script:RunContext.OneClickDone ([pscustomobject]@{ Canceled = $false })
+    }
+    $script:Prefs.Wsus.ServerName = 'wsus01'
+    function global:Get-PackagerMetadata { param($Path) [pscustomobject]@{ UpdateCadenceDays = 7; WsusSupport = $(if ($Path -like '*alpha*') { 'No' } else { 'Yes' }) } }
+    $script:RunContext = $null
+    Show-OneClickPlanDialog -Owner $probeOwner -Rows $rows -Action 'StageAndPackage' -Probe {
+        param($p)
+        $alpha = $p.Rows | Where-Object { $_.Packager -eq 'package-alpha' }
+        & $assert ([string]$alpha.Reason -like '*WSUS: not supported*') ('the packager tag reaches the plan row: ' + [string]$alpha.Reason)
+        $btnRun = $p.Run
+        $btnRun.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent, $btnRun)))
+        $sent = @($script:RunContext.OneClickPlan['package-alpha'].Destinations)
+        & $assert ($sent -contains 'ConfigMgr' -and $sent -notcontains 'WSUS') ('a destination the packager does not support stays out of the run: ' + ($sent -join ','))
+        & $ok 'not-supported destination left out of the run'
+        & $script:RunContext.OneClickDone ([pscustomobject]@{ Canceled = $false })
+    }
+    function global:Get-PackagerMetadata { param($Path) [pscustomobject]@{ UpdateCadenceDays = 7 } }
+
     # --- One Click Settings panel: per-row boxes round trip ---------------
     $script:Prefs.Wsus.ServerName = 'wsus01'
     function global:Get-Packagers { param($Root) @(

@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:microsoft:ole_db_driver_for_sql_server:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/en-us/sql/connect/oledb/release-notes-for-oledb-driver-for-sql-server
 DownloadPageUrl: https://learn.microsoft.com/en-us/sql/connect/oledb/download-oledb-driver-for-sql-server
 IconSource: External
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Microsoft OLE DB Driver 19 for SQL Server (x64) for ConfigMgr.

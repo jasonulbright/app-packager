@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.axcrypt.net/download/
 DownloadPageUrl: https://www.axcrypt.net/download/
 IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages AxCrypt (x64) MSI for ConfigMgr.

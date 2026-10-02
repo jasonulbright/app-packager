@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://learn.microsoft.com/en-us/officeupdates/teams-app-versi
 DownloadPageUrl: https://learn.microsoft.com/en-us/microsoftteams/teams-client-bulk-install
 IconSource: Installer
 UpdateCadenceDays: 14
+WsusSupport: No (DetectionNotMappable)
 
 .SYNOPSIS
     Packages the new Microsoft Teams client for ConfigMgr.

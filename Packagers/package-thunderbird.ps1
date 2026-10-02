@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:mozilla:thunderbird:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.thunderbird.net/en-US/thunderbird/releases/
 DownloadPageUrl: https://www.thunderbird.net/en-US/
 IconSource: External
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Mozilla Thunderbird (x64) MSI for ConfigMgr.

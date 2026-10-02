@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:voidtools:everything:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.voidtools.com/changelog/
 DownloadPageUrl: https://www.voidtools.com/downloads/
 IconSource: Installer
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Everything (x64) MSI for ConfigMgr.

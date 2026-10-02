@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://protonvpn.com/download/windows-releases.json
 DownloadPageUrl: https://protonvpn.com/download-windows
 IconSource: External
 UpdateCadenceDays: 30
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Proton VPN (x64) for ConfigMgr.

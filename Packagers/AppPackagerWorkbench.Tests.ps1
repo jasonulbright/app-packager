@@ -1253,3 +1253,169 @@ Describe 'Publication records' {
         @(Get-Content -LiteralPath $written.Path).Count | Should -Be 2
     }
 }
+
+Describe 'Signing request detection' {
+    It 'treats a policy whose switches are stored as the text false as not requested' {
+        InModuleScope AppPackagerWorkbench {
+            $names = 'SignDetection', 'SignRequirements', 'SignDeployment', 'RequireDetection', 'RequireRequirements', 'RequireDeployment'
+            $off = @{}; foreach ($n in $names) { $off[$n] = 'false' }
+            Test-WorkbenchSigningRequested -Policy ([pscustomobject]$off) | Should -BeFalse
+            $on = $off.Clone(); $on['RequireDeployment'] = 'true'
+            Test-WorkbenchSigningRequested -Policy ([pscustomobject]$on) | Should -BeTrue
+            Test-WorkbenchSigningRequested -Policy ([pscustomobject]@{ SignDetection = $true }) | Should -BeTrue
+        }
+    }
+}
+
+Describe 'Extend orchestrator in a content path with a space' {
+    It 'runs the step and returns its exit code' {
+        $stage = New-TestFolder -Name ('with space ' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        New-TestFile -Path (Join-Path $stage 'install-generated.ps1') -Content 'exit 7' | Out-Null
+        $orchestrator = New-ExtendOrchestratorContent -Generated 'install-generated.ps1'
+        [System.IO.File]::WriteAllText((Join-Path $stage 'install.ps1'), $orchestrator, [System.Text.Encoding]::ASCII)
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $stage 'install.ps1') | Out-Null
+        $LASTEXITCODE | Should -Be 7
+    }
+}
+
+Describe 'Profile id as a folder name' {
+    It 'refuses the id <_>' -ForEach @('..', '.', 'a.') {
+        InModuleScope AppPackagerWorkbench -Parameters @{ Id = $_ } {
+            { Get-WorkbenchProfileFolder -ApplicationId 'catalog:package-dots' -ProfileId $Id -NoCreate } | Should -Throw '*Invalid ProfileId*'
+            { Get-WorkbenchDraftPath -ApplicationId 'catalog:package-dots' -ProfileId $Id } | Should -Throw '*Invalid ProfileId*'
+        }
+    }
+
+    It 'accepts an id with inner dots' {
+        InModuleScope AppPackagerWorkbench {
+            { Get-WorkbenchProfileFolder -ApplicationId 'catalog:package-dots' -ProfileId 'pilot.a-1' -NoCreate } | Should -Not -Throw
+        }
+    }
+}
+
+Describe 'Stage prune through a junction' {
+    It 'keeps a file that a junction places outside the stage root' {
+        $stage = New-TestStage
+        $outside = New-TestFolder
+        $victim = New-TestFile -Path (Join-Path $outside 'victim.ps1') -Content 'keep'
+        New-Item -ItemType Junction -Path (Join-Path $stage 'link') -Target $outside | Out-Null
+        try {
+            InModuleScope AppPackagerWorkbench -Parameters @{ Stage = $stage } {
+                Mock Get-BuildRecords {
+                    [pscustomobject]@{ BuildId = 'old'; StageRoot = $Stage; CustomAssets = @(@{ Category = 'InstallBefore'; RelativePath = 'link\victim.ps1' }) }
+                }
+                [void](Remove-WorkbenchStaleStageArtifacts -StageRoot $Stage -ApplicationId 'catalog:package-junction' -ProfileId 'p1' -BuildId 'new')
+            }
+            Test-Path -LiteralPath $victim | Should -BeTrue
+        }
+        finally { if (Test-Path -LiteralPath (Join-Path $stage 'link')) { [System.IO.Directory]::Delete((Join-Path $stage 'link')) } }
+    }
+}
+
+Describe 'Script and hook text typed in the window' {
+    It 'stages the Before and After text in Extend mode' {
+        $id = 'catalog:package-hooktext'
+        $profile = New-TestProfile -ApplicationId $id
+        $update = @{
+            SchemaVersion = 1; ProfileId = $profile.ProfileId; ApplicationId = $id; Name = 'Managed'
+            Revision      = $profile.Revision
+            Install       = @{ Mode = 'Extend'; BeforeText = "Write-Output 'before'`r`nexit 0"; AfterText = 'exit 0' }
+        }
+        $saved = Save-Profile -Profile ([pscustomobject]$update)
+        $snapshot = New-RunSnapshot -ApplicationId $id -ProfileId $saved.ProfileId
+        $stage = New-TestStage
+        $manifest = New-TestManifest
+        Invoke-StageFinalization -StageRoot $stage -ManifestData $manifest -PackagerScriptPath $null -SnapshotPath $snapshot.Path | Out-Null
+
+        (Get-Content -LiteralPath (Join-Path $stage 'install-before.ps1') -Raw) | Should -Match "Write-Output 'before'"
+        Test-Path -LiteralPath (Join-Path $stage 'install-after.ps1') | Should -BeTrue
+        $orchestrator = Get-Content -LiteralPath (Join-Path $stage 'install.ps1') -Raw
+        $orchestrator | Should -Match 'install-before\.ps1'
+        $orchestrator | Should -Match 'install-after\.ps1'
+    }
+
+    It 'stages the typed script in Custom mode' {
+        $id = 'catalog:package-scripttext'
+        $profile = New-TestProfile -ApplicationId $id
+        $update = @{
+            SchemaVersion = 1; ProfileId = $profile.ProfileId; ApplicationId = $id; Name = 'Managed'
+            Revision      = $profile.Revision
+            Install       = @{ Mode = 'Custom'; ScriptText = "Write-Output 'custom'`r`nexit 0" }
+        }
+        $saved = Save-Profile -Profile ([pscustomobject]$update)
+        $snapshot = New-RunSnapshot -ApplicationId $id -ProfileId $saved.ProfileId
+        $stage = New-TestStage
+        $manifest = New-TestManifest
+        Invoke-StageFinalization -StageRoot $stage -ManifestData $manifest -PackagerScriptPath $null -SnapshotPath $snapshot.Path | Out-Null
+        (Get-Content -LiteralPath (Join-Path $stage 'install.ps1') -Raw) | Should -Match "Write-Output 'custom'"
+    }
+}
+
+Describe 'Build token values' {
+    It 'refuses a <Token> value that would end a string in a <Context>' -ForEach @(
+        @{ Token = 'Version';       Context = 'Script';  Value = "1.0'; Start-Process calc; '" }
+        @{ Token = 'Version';       Context = 'Script';  Value = ('1.0' + [char]0x2019 + '; calc') }
+        @{ Token = 'Version';       Context = 'Script';  Value = '1.0$(calc)' }
+        @{ Token = 'InstallerFile'; Context = 'Command'; Value = 'setup%TEMP%.exe' }
+        @{ Token = 'InstallerFile'; Context = 'Command'; Value = 'setup.exe" & calc & "' }
+    ) {
+        $manifest = @{ SoftwareVersion = '1.2.3'; InstallerFile = 'setup.exe'; ProductCode = '{11111111-2222-3333-4444-555555555555}' }
+        $manifest[$(if ($Token -eq 'Version') { 'SoftwareVersion' } else { $Token })] = $Value
+        { Resolve-WorkbenchTokens -Text ('x {{' + $Token + '}} y') -ManifestData $manifest -Context $Context } | Should -Throw '*not allowed*'
+    }
+
+    It 'binds ordinary values in both contexts' {
+        $manifest = @{ SoftwareVersion = '1.2.3-beta+4'; InstallerFile = 'Setup (x64) v1.2.exe'; ProductCode = '{11111111-2222-3333-4444-555555555555}' }
+        Resolve-WorkbenchTokens -Text "& '{{ContentRoot}}\{{InstallerFile}}' /v{{Version}} {{ProductCode}}" -ManifestData $manifest -Context Script |
+            Should -Be "& '`$PSScriptRoot\Setup (x64) v1.2.exe' /v1.2.3-beta+4 {11111111-2222-3333-4444-555555555555}"
+        Resolve-WorkbenchTokens -Text '"{{ContentRoot}}{{InstallerFile}}" /S' -ManifestData $manifest -Context Command |
+            Should -Be '"%~dp0Setup (x64) v1.2.exe" /S'
+    }
+}
+
+Describe 'Prior builds grid text' {
+    It 'reports the seal time of a record' {
+        Get-WorkbenchBuildResultText -Record ([pscustomobject]@{ SealedAt = '2026-01-02T03:04:05.0000000Z' }) | Should -Match '^Sealed \d{4}-\d{2}-\d{2} \d{2}:\d{2}$'
+        Get-WorkbenchBuildResultText -Record ([pscustomobject]@{ BuildId = 'b' }) | Should -Be 'Sealed'
+    }
+}
+
+Describe 'Profile names and the content folder suffix' {
+    It 'refuses a second profile whose name gives the same suffix' {
+        $id = 'catalog:package-suffix'
+        $first = Save-Profile -Profile ([pscustomobject](New-WorkbenchProfileObject -ApplicationId $id -Name 'Pilot A'))
+        { Save-Profile -Profile ([pscustomobject](New-WorkbenchProfileObject -ApplicationId $id -Name 'PilotA')) } | Should -Throw '*same content folder suffix*'
+        { Save-Profile -Profile ([pscustomobject](New-WorkbenchProfileObject -ApplicationId $id -Name 'pilot a')) } | Should -Throw '*same content folder suffix*'
+        { Save-Profile -Profile ([pscustomobject](New-WorkbenchProfileObject -ApplicationId $id -Name 'Pilot B')) } | Should -Not -Throw
+        { Save-Profile -Profile $first } | Should -Not -Throw
+    }
+
+    It 'gives the suffix that the network path helper gives' {
+        $id = 'catalog:package-suffix-match'
+        $saved = Save-Profile -Profile ([pscustomobject](New-WorkbenchProfileObject -ApplicationId $id -Name 'Pilot A (x64).'))
+        $snapshot = New-RunSnapshot -ApplicationId $id -ProfileId $saved.ProfileId
+        Import-Module "$PSScriptRoot\AppPackagerCommon.psd1" -Force
+        $scope = Get-ProfileContentScope -SnapshotPath $snapshot.Path
+        InModuleScope AppPackagerWorkbench -Parameters @{ Saved = $saved; Expected = $scope.Suffix } {
+            ConvertTo-WorkbenchContentSuffix -Name $Saved.Name -ProfileId $Saved.ProfileId | Should -Be $Expected
+        }
+    }
+}
+
+Describe 'Set-ActiveProfile' {
+    It 'makes the named profile the one a run builds' {
+        $id = 'catalog:package-active'
+        $first = Save-Profile -Profile ([pscustomobject](New-WorkbenchProfileObject -ApplicationId $id -Name 'First')) -SetActive
+        $second = Save-Profile -Profile ([pscustomobject](New-WorkbenchProfileObject -ApplicationId $id -Name 'Second')) -SetActive
+        (Get-ApplicationDefinition -ApplicationId $id).ActiveProfileId | Should -Be $second.ProfileId
+
+        Set-ActiveProfile -ApplicationId $id -ProfileId $first.ProfileId | Should -BeTrue
+        (Get-ApplicationDefinition -ApplicationId $id).ActiveProfileId | Should -Be $first.ProfileId
+        (New-RunSnapshot -ApplicationId $id -ProfileId ([string](Get-ApplicationDefinition -ApplicationId $id).ActiveProfileId)).ProfileId | Should -Be $first.ProfileId
+        Set-ActiveProfile -ApplicationId $id -ProfileId $first.ProfileId | Should -BeFalse
+
+        Set-ActiveProfile -ApplicationId $id -ProfileId 'default' | Should -BeTrue
+        (Get-ApplicationDefinition -ApplicationId $id).ActiveProfileId | Should -Be 'default'
+        { Set-ActiveProfile -ApplicationId $id -ProfileId 'no-such-profile' } | Should -Throw
+    }
+}

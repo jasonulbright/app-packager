@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/rancher-sandbox/rancher-desktop/releases
 DownloadPageUrl: https://rancherdesktop.io/
 IconSource: External
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Rancher Desktop (x64) MSI for ConfigMgr.

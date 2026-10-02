@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/brave/brave-browser/releases
 DownloadPageUrl: https://brave.com/download/
 IconSource: Installer
 UpdateCadenceDays: 14
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Brave Browser (x64) for ConfigMgr.

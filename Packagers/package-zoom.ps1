@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://support.zoom.com/hc/en/article?id=zm_kb&sysparm_article
 DownloadPageUrl: https://zoom.us/download
 IconSource: Installer
 UpdateCadenceDays: 14
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages Zoom Workplace (x64) MSI for ConfigMgr.

@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.parallels.com/products/ras/resources/
 DownloadPageUrl: https://www.parallels.com/products/ras/download/links/
 IconSource: Installer
 UpdateCadenceDays: 60
+WsusSupport: Yes
 
 .SYNOPSIS
     Packages the Parallels Client (Remote Application Server, x64) MSI for ConfigMgr.
