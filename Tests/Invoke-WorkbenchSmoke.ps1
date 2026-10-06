@@ -227,7 +227,7 @@ try {
         & $ok 'prior-builds grid shows version and seal time'
 
         # Typed hooks in Extend mode, saved in place.
-        (& $p.Find 'cboInstallMode').SelectedItem = 'Extend'
+        (& $p.Find 'cboInstallMode').SelectedItem = 'Extend generated'
         (& $p.Find 'txtHookBefore').Text = "Write-Output 'before hook'"
         (& $p.Find 'txtHookAfter').Text = "Write-Output 'after hook'"
         & $assert ([bool](& $p.Save '')) 'the profile saves with typed hooks'

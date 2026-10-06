@@ -5115,6 +5115,10 @@ Describe 'Exit codes of generated install wrappers' {
                 $w = New-ExeWrapperContent -InstallerFileName $InstallerFileName -InstallArgs $InstallArgs -UninstallCommand 'unused'
             }
             Write-ContentWrappers -OutputPath $dir -InstallPs1Content $w.Install -UninstallPs1Content $w.Uninstall
+            # The wrapper reports a start failure on stderr. Windows PowerShell 5.1
+            # turns redirected native stderr into error records, which end the
+            # test under the Stop preference before the exit code is read.
+            $ErrorActionPreference = 'Continue'
             & cmd.exe /c ('"' + (Join-Path $dir 'install.bat') + '"') *> $null
             return $LASTEXITCODE
         }
