@@ -279,3 +279,8 @@ finally {
     Remove-Item -LiteralPath $dataRoot -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item Env:\APP_PACKAGER_WORKBENCH_ROOT -ErrorAction SilentlyContinue
 }
+
+# The stage passes run native commands, and the last one's exit code stays in
+# $LASTEXITCODE. The regression runner exits with that value, so a passing
+# probe sets its own.
+exit 0
