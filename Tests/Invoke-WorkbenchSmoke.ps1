@@ -52,6 +52,10 @@ try {
     # The reflected Get-IconPackRoot defaults its root to $PSScriptRoot, which
     # is empty inside a scriptblock created from text.
     function Get-IconPackRoot { param([string]$AppRoot) Join-Path (Join-Path $root 'Packagers') 'Icons' }
+    # The same holds for the window state path. Stage closes the window, the
+    # Closing handler threw on the empty path, and the host then ended with
+    # exit code 2 after the probe had passed.
+    function Get-WorkbenchWindowStatePath { Join-Path $dataRoot 'AppPackager.workbench.windowstate.json' }
     function Show-ThemedMessage { param($Owner, $Title, $Message, $Buttons, $Icon) return $script:StubMessageAnswer }
     function Set-DialogChromeFromOwner { param($Dialog, $Owner) }
     function Install-TitleBarDragFallback { param($Window) }
@@ -279,8 +283,3 @@ finally {
     Remove-Item -LiteralPath $dataRoot -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item Env:\APP_PACKAGER_WORKBENCH_ROOT -ErrorAction SilentlyContinue
 }
-
-# The stage passes run native commands, and the last one's exit code stays in
-# $LASTEXITCODE. The regression runner exits with that value, so a passing
-# probe sets its own.
-exit 0
