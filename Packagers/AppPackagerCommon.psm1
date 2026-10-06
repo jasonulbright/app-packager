@@ -1187,7 +1187,7 @@ function Sync-StagedContentToNetwork {
     }
 
     $script:DeferredContentSync = $null
-    $destinationHadFiles =(Test-Path -LiteralPath $NetworkContentPath) -and
+    $destinationHadFiles = (Test-Path -LiteralPath $NetworkContentPath) -and
         $null -ne (Get-ChildItem -LiteralPath $NetworkContentPath -File -Recurse -Force -ErrorAction Stop | Select-Object -First 1)
 
     $plan = New-Object System.Collections.Generic.List[object]

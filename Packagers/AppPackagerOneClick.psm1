@@ -25,8 +25,7 @@ function Get-OneClickDestinationNames {
 function ConvertTo-OneClickDestinationSet {
     <#
     .SYNOPSIS
-        Normalizes
- any destination description to the three flags.
+        Normalizes any destination description to the three flags.
     .DESCRIPTION
         Accepts a deployment target name (MECM, MECMAndIntune, IntuneOnly,
         MECMAndWSUS, WSUSOnly), an object with ConfigMgr, WSUS and Intune
