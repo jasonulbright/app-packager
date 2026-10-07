@@ -3559,6 +3559,15 @@ function Invoke-BatchUpdate {
             continue
         }
 
+        # A vendor feed can step back to an older release (Dell's catalog
+        # listed 5.7.0 after 5.7.1). Acting would publish the older build, so
+        # the run skips it and keeps the newer version on record.
+        if (-not $Force -and $lastKnown -and (Compare-SemVer -A ([string]$lastKnown) -B ([string]$latest)) -gt 0) {
+            Write-Log ("[batch] [VendorOlder] {0}: vendor reports {1}, older than {2} seen before; skipping" -f $baseName, $latest, $lastKnown) -Level WARN
+            $results += [pscustomobject]@{ Name = $baseName; Action = 'Skipped'; OldVersion = $lastKnown; NewVersion = $latest; Reason = ("vendor reports {0}, older than {1}" -f $latest, $lastKnown) }
+            continue
+        }
+
         # 2. Decide whether to act. NoChange short-circuit applies only
         # when there's nothing new to do: same version AND (for Stage /
         # StageAndPackage) we've already staged/packaged that version
@@ -7498,11 +7507,29 @@ function Invoke-MultiAppPipeline {
                                             $counts['NoChange']++
                                             continue
                                         }
+                                        # The site holds a newer release than the vendor now reports;
+                                        # acting would publish the older build over it.
+                                        if ($cmp -gt 0 -and -not $Ctx.ForceFlag) {
+                                            $row.Status = 'Current newer (ConfigMgr)'
+                                            [void]$State.LogQueue.Enqueue(('ConfigMgr has {0} at {1}, newer than the vendor''s {2} - skipping' -f $app, [string]$mecmRes.SoftwareVersion, $latest))
+                                            $counts['Skipped']++
+                                            continue
+                                        }
                                     }
                                 } catch {
                                     [void]$State.LogQueue.Enqueue(('ConfigMgr pre-flight for {0} failed: {1}' -f $app, $_.Exception.Message))
                                 }
                             }
+                        }
+
+                        # A vendor feed can step back to an older release (Dell's
+                        # catalog listed 5.7.0 after 5.7.1). The run skips it and
+                        # keeps the newer version on record.
+                        if (-not $Ctx.ForceFlag -and $lastKnown -and (Compare-SemVer -A ([string]$lastKnown) -B ([string]$latest)) -gt 0) {
+                            $row.Status = 'Vendor older than last seen'
+                            [void]$State.LogQueue.Enqueue(('{0}: the vendor reports {1}, older than {2} seen before - skipping' -f $app, $latest, $lastKnown))
+                            $counts['Skipped']++
+                            continue
                         }
 
                         $versionChanged = (-not $lastKnown) -or ($lastKnown -ne $latest)
