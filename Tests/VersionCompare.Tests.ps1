@@ -18,6 +18,9 @@ Describe 'Single-number vendor versions' {
         @{ A = '31'; B = '30'; Expected = 1 }
         @{ A = '31'; B = '31.0.1'; Expected = 0 }
         @{ A = '26.2.2.2'; B = '26.2.2'; Expected = 0 }
+        @{ A = '8.9.8'; B = '8.9.8.1'; Expected = -1 }
+        @{ A = '8.9.8'; B = '8.9.8.0'; Expected = 0 }
+        @{ A = '8.9.8.1'; B = '8.9.8'; Expected = 0 }
         @{ A = '11.0.30+7'; B = '11.0.31'; Expected = -1 }
     ) {
         param($A, $B, $Expected)

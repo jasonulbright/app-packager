@@ -1619,8 +1619,11 @@ function Compare-SemVer {
         # extra trailing parts (e.g., MSI "26.2.2.2" vs vendor "26.2.2"), we
         # treat the extra parts as non-significant. This handles LibreOffice
         # and mRemoteNG where the MSI adds internal build numbers the vendor
-        # doesn't publish as the version.
+        # doesn't publish as the version. The exception is a vendor release
+        # that adds a fourth part to a full three-part version: Notepad++
+        # 8.9.8.1 follows 8.9.8. A short version ("31") stays a coarse label.
         $minCount = [Math]::Min($aCount, $bCount)
+        if ($aCount -ge 3 -and $bCount -gt $aCount) { $minCount = $bCount }
         $aParts = @($va.Major, $va.Minor, [Math]::Max($va.Build, 0), [Math]::Max($va.Revision, 0))
         $bParts = @($vb.Major, $vb.Minor, [Math]::Max($vb.Build, 0), [Math]::Max($vb.Revision, 0))
 
@@ -1696,21 +1699,35 @@ function Invoke-PackagerGetLatestVersion {
 }
 
 function Test-MecmApplicationTitle {
-    # A packaged title is CMName followed only by release details: a version
-    # that continues a trailing major (".0.31") or stands alone ("3.7.5"),
-    # qualifiers in parentheses, an architecture, and optionally
-    # " - <anything>". Any other word after CMName names a different product:
-    # "Git" must not find "Git Extensions" or "GitHub Desktop", and
-    # "Mozilla Firefox" must not find "Mozilla Firefox ESR".
+    # A packaged title holds the words of CMName in order, with only release
+    # details around them: a version, qualifiers in parentheses, an
+    # architecture, and after the last word optionally " - <anything>". A
+    # word of CMName that ends in a number may continue as a version
+    # ("18" as "18.5.1.1") or carry an architecture ("7" as "7-x64"); vendor
+    # product names put these in the middle ("Microsoft ODBC Driver
+    # 18.5.1.1 for SQL Server") or glue them on ("PowerShell 7-x64"). Any
+    # other word names a different product: "Git" must not find
+    # "Git Extensions" or "GitHub Desktop", and "Mozilla Firefox" must not
+    # find "Mozilla Firefox ESR".
     param(
         [Parameter(Mandatory)][string]$CMName,
         [AllowEmptyString()][string]$Title
     )
-    if ([string]::IsNullOrEmpty($Title) -or -not $Title.StartsWith($CMName, [System.StringComparison]::OrdinalIgnoreCase)) { return $false }
-    $rest = $Title.Substring($CMName.Length)
-    $continuation = if ($CMName -match '\d$') { '(\.\d[\w.+-]*)?' } else { '' }
-    $detail = '\s+(\([^)]*\)|v?\d[\w.+-]*|x64|x86|arm64)'
-    return ($rest -match ('^' + $continuation + '(' + $detail + ')*(\s+-\s+.*)?$'))
+    if ([string]::IsNullOrWhiteSpace($Title) -or [string]::IsNullOrWhiteSpace($CMName)) { return $false }
+    $arch = '(-(x64|x86|arm64|amd64))?'
+    $detail = '^(\([^)]*\)|v?\d[\w.+-]*|x64|x86|arm64|amd64)$'
+    $words = @($CMName.Trim() -split '\s+')
+    $next = 0
+    foreach ($token in @([regex]::Matches($Title, '\([^)]*\)|\S+') | ForEach-Object { $_.Value })) {
+        if ($next -eq $words.Count -and $token -eq '-') { return $true }
+        if ($next -lt $words.Count) {
+            $continuation = if ($words[$next] -match '\d$') { '(\.\d[\w.+-]*)?' } else { '' }
+            if ($token -imatch ('^' + [regex]::Escape($words[$next]) + $continuation + $arch + '$')) { $next++; continue }
+        }
+        if ($token -imatch $detail) { continue }
+        return $false
+    }
+    return ($next -eq $words.Count)
 }
 
 function Get-MecmCurrentVersionByCMName {
@@ -1788,10 +1805,11 @@ function Get-MecmCurrentVersionByCMName {
             return [pscustomobject]@{ Found = $true; DisplayName = $CMName; SoftwareVersion = [string]$apps[0].SoftwareVersion; MatchCount = 1 }
         }
         $apps = @(Get-CMApplication -Name $CMName -ErrorAction SilentlyContinue)
-        # "<CMName>*" alone also returns longer product names ("Git" and
+        # A wildcard between the words of CMName also returns titles with the
+        # version in the middle, and longer product names ("Git" and
         # "GitHub Desktop"); the title filter keeps release details only.
         if (-not $apps -or $apps.Count -eq 0) {
-            $apps = @(Get-CMApplication -Name ("{0}*" -f $CMName) -ErrorAction SilentlyContinue | Where-Object {
+            $apps = @(Get-CMApplication -Name ((@($CMName.Trim() -split '\s+') -join '*') + '*') -ErrorAction SilentlyContinue | Where-Object {
                     $title = if ($_.LocalizedDisplayName) { [string]$_.LocalizedDisplayName } else { [string]$_.Name }
                     Test-MecmApplicationTitle -CMName $CMName -Title $title
                 })

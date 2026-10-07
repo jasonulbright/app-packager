@@ -236,6 +236,16 @@ Describe 'ConfigMgr name lookup matches the Package phase name' {
         Test-MecmApplicationTitle -CMName 'Mozilla Firefox' -Title 'Mozilla Firefox ESR (x64 en-US)' | Should -BeFalse
         Test-MecmApplicationTitle -CMName 'Microsoft Edge' -Title 'Microsoft Edge WebView2 Runtime' | Should -BeFalse
     }
+
+    It 'finds vendor titles with the version in the middle or the architecture glued on' {
+        Test-MecmApplicationTitle -CMName 'PowerShell 7' -Title 'PowerShell 7-x64' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'PowerShell 7' -Title 'PowerShell 7.5.3' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'PowerShell 7' -Title 'PowerShell 7-preview' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Microsoft ODBC Driver 18 for SQL Server' -Title 'Microsoft ODBC Driver 18.5.1.1 for SQL Server' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Microsoft ODBC Driver 18 for SQL Server' -Title 'Microsoft ODBC Driver 18 for SQL Server 18.5.1.1' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Microsoft ODBC Driver 18 for SQL Server' -Title 'Microsoft ODBC Driver 17 for SQL Server' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Microsoft ODBC Driver 18 for SQL Server' -Title 'Microsoft ODBC Driver 18 for SQL Server Tools' | Should -BeFalse
+    }
     It 'names RStudio so that the lookup finds it' {
         $rows = @($script:Audit | Where-Object { $_.Script -eq 'package-rstudio.ps1' })
         $rows | Should -Not -BeNullOrEmpty
