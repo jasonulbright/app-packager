@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026.10.07.0105] - 2026-10-07
+
+## 3 update checks fixed
+
+### Fixed
+
+- Find ConfigMgr titles with the version mid-name or the architecture attached.
+- Report a vendor release that adds a fourth version part as an update.
+- Skip a vendor release older than the version ConfigMgr or history holds.
 ## [2026.10.07.0104] - 2026-10-07
 
 ## 312 packagers declare WSUS support
