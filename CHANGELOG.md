@@ -1,5 +1,31 @@
 # Changelog
 
+## [2026.10.07.0104] - 2026-10-07
+
+## 312 packagers declare WSUS support
+
+### Added
+
+- Show which packagers support WSUS in the One Click plan before a run.
+- Suggest WSUS database maintenance when a publish times out.
+
+### Changed
+
+- Check download addresses taken from vendor pages before passing them to curl.
+- Escape vendor text placed in generated install and detection scripts.
+- Check script signatures again right before sending them to ConfigMgr or Intune.
+- Refuse staged content that no longer matches its stage manifest.
+- Refuse a network content folder that holds files the manifest does not name.
+
+### Fixed
+
+- Report failure when an installer cannot start instead of reporting success.
+- Stage scripts and hooks typed in the Application Workbench.
+- Accept the CCleaner exit code returned when no desktop session exists.
+- Detect CutePDF Writer, Jabra Direct and Windows Admin Center by stable keys.
+- Find the newest Defraggler and LibreOffice builds the vendors actually serve.
+- Find the UltraVNC uninstaller through its uninstall entry.
+- Read Unity Hub installers from the current vendor feed.
 ## [2026.10.02.0103] - 2026-10-02
 
 ## 312 packagers
