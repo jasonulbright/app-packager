@@ -26,6 +26,8 @@ Describe 'Single-number vendor versions' {
         @{ A = '8.9.8'; B = '8.9.8.0'; Expected = 0 }
         @{ A = '8.9.8.1'; B = '8.9.8'; Expected = 0 }
         @{ A = '11.0.30+7'; B = '11.0.31'; Expected = -1 }
+        @{ A = '140.16.0esr'; B = '140.17.0'; Expected = -1 }
+        @{ A = '140.17.0esr'; B = '140.17.0'; Expected = 0 }
     ) {
         param($A, $B, $Expected)
         Compare-SemVer -A $A -B $B | Should -Be $Expected

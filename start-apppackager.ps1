@@ -1611,9 +1611,11 @@ function Compare-SemVer {
         [switch]$Strict
     )
     try {
-        # [version] rejects a single number such as NetBeans "31".
-        $va = [version](($A -replace '[+-].*$', '') -replace '^(\d+)$', '$1.0')
-        $vb = [version](($B -replace '[+-].*$', '') -replace '^(\d+)$', '$1.0')
+        # [version] rejects a single number such as NetBeans "31", a build
+        # suffix ("11.0.30+7") and a channel suffix ("140.17.0esr" as
+        # ConfigMgr held it before the packager recorded the number alone).
+        $va = [version]((($A -replace '[+-].*$', '') -replace '[A-Za-z]+$', '') -replace '^(\d+)$', '$1.0')
+        $vb = [version]((($B -replace '[+-].*$', '') -replace '[A-Za-z]+$', '') -replace '^(\d+)$', '$1.0')
 
         # Unset Build/Revision on [version] is -1.
         $count = 4
