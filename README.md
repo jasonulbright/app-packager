@@ -366,6 +366,27 @@ The optional **Administrative Comment** field sits in the sidebar below the Opti
 - **Debug Columns toggle** — exposes CMName, Script filename, Vendor URL, and Last Checked (ISO 8601 UTC) columns for deeper inspection
 - **Tooltips** on all interactive controls — hover over any field or button for a description of its purpose
 
+### Network requests
+
+AppPackager has no service and no backend. Every network call comes from one of these places:
+
+| Who sends it | What it sends | Where to look |
+|---|---|---|
+| The packager script | A version lookup, then the installer download. The GUI starts `Packagers\package-<app>.ps1` as a child `powershell.exe` with `-GetLatestVersionOnly` (Check latest, One Click) or `-StageOnly` (Stage). The script calls `curl.exe` against the vendor site; 92 packagers read `https://api.github.com/repos/<owner>/<repo>/releases/latest`. | The `GitHub API URL` and `Download URL` lines in the packager log under `Logs\`. |
+| `Get-GitHubApiCurlArgs` in `Packagers\AppPackagerCommon.psm1` | The bearer token every GitHub call carries: `GITHUB_TOKEN`, then `GH_TOKEN`, then `gh auth token`. Without a token the calls are anonymous, 60 per hour per address. | Options, ConfigMgr Preferences, the GitHub API row. |
+| `start-apppackager.ps1` | The update check: `https://api.github.com/repos/jasonulbright/app-packager/releases/latest`, once per 24 hours at launch, cached in `%LOCALAPPDATA%\AppPackager\update-check.json`. The icon pack and Content Prep downloads from the Options window. The `rate_limit` probe behind the GitHub API row. | The log pane at launch. |
+| The Package phase | Writes to the file share and the ConfigMgr provider, or to Intune through Microsoft Graph, or to the WSUS server. No vendor call. | The log pane. |
+
+The Application Workbench sends nothing. Saving a profile writes a file under `%LOCALAPPDATA%\AppPackagerData\Workbench`; Stage and Publish from the Workbench run the same packager script and Package phase as the main window.
+
+To see what one packager sends, run the same command the GUI runs:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File Packagers\package-notepadplusplus.ps1 -SiteCode XXX -GetLatestVersionOnly
+```
+
+Behind a proxy that inspects SSL, `curl.exe` trusts the Windows certificate store; a failure names the URL and the HTTP status.
+
 ### Command Line
 
 Run a packager script directly:
@@ -449,33 +470,33 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 
 | Script | Vendor | Application | Detection Type |
 |---|---|---|---|
-| package-7zip.ps1 | Igor Pavlov | 7-Zip (x64) | RegistryKeyValue |
-| package-adobereader.ps1 | Adobe Inc. | Adobe Acrobat Reader DC (x64) | File version |
+| package-7zip.ps1 | 7-Zip | 7-Zip | RegistryKeyValue |
+| package-adobereader.ps1 | Adobe Inc. | Adobe Acrobat Reader | File version |
 | package-agentransack.ps1 | Mythicsoft | Agent Ransack | RegistryKeyValue |
 | package-aimp.ps1 | AIMP DevTeam | AIMP | File existence |
 | package-amazondcv.ps1 | Amazon Web Services | Amazon DCV Client | RegistryKeyValue |
 | package-amazonworkspaces.ps1 | Amazon Web Services | Amazon WorkSpaces | RegistryKeyValue |
-| package-anaconda.ps1 | Anaconda, Inc. | Anaconda | File existence |
+| package-anaconda.ps1 | Anaconda, Inc. | Anaconda Distribution | File existence |
 | package-androidstudio.ps1 | Google | Android Studio | File existence |
-| package-anyburn.ps1 | PowerSoft | AnyBurn | Script (ARP scan) |
-| package-anypointstudio.ps1 | MuleSoft | Anypoint Studio | File existence |
+| package-anyburn.ps1 | PowerSoft | AnyBurn | RegistryKeyValue |
 | package-anydesk.ps1 | AnyDesk Software GmbH | AnyDesk | File version |
+| package-anypointstudio.ps1 | MuleSoft | Anypoint Studio | File existence |
 | package-apppackagersuite.ps1 | Jason Ulbright | AppPackager Suite (User) | RegistryKeyValue |
 | package-arduinoide.ps1 | Arduino | Arduino IDE | RegistryKeyValue |
-| package-asperaconnect.ps1 | IBM | IBM Aspera Connect | RegistryKeyValue |
-| package-aspnethostingbundle8.ps1 | Microsoft | ASP.NET Core Hosting Bundle 8 | Script (ARP entry, version) |
-| package-aspnethostingbundle10.ps1 | Microsoft | ASP.NET Core Hosting Bundle 10 | Script (ARP entry, version) |
-| package-audacity.ps1 | Audacity Team | Audacity (x64) | RegistryKeyValue |
-| package-awscli.ps1 | Amazon | AWS Command Line Interface | RegistryKeyValue |
+| package-asperaconnect.ps1 | IBM | IBM Aspera Connect (x64) | RegistryKeyValue |
+| package-aspnethostingbundle10.ps1 | Microsoft | ASP.NET 10 Server Hosting Bundle (x64) | Script (ARP entry, version) |
+| package-aspnethostingbundle8.ps1 | Microsoft | ASP.NET 8 Server Hosting Bundle (x64) | Script (ARP entry, version) |
+| package-audacity.ps1 | Audacity Team | Audacity | RegistryKeyValue |
+| package-awscli.ps1 | Amazon | Amazon AWS Command Line Interface | RegistryKeyValue |
 | package-awssamcli.ps1 | Amazon Web Services | AWS SAM CLI | RegistryKeyValue |
-| package-awsssmplugin.ps1 | Amazon Web Services | AWS Session Manager Plugin | File existence |
-| package-awstools.ps1 | Amazon | AWS Tools for Windows | RegistryKeyValue |
+| package-awsssmplugin.ps1 | Amazon Web Services | Session Manager Plugin | File existence |
+| package-awstools.ps1 | Amazon | Amazon AWS Tools for Windows | RegistryKeyValue |
 | package-awsvpnclient.ps1 | Amazon | AWS VPN Client | RegistryKeyValue |
 | package-axcrypt.ps1 | AxCrypt | AxCrypt | RegistryKeyValue |
-| package-azurecli.ps1 | Microsoft | Azure CLI | RegistryKeyValue |
+| package-azurecli.ps1 | Microsoft | Azure CLI (x64) | RegistryKeyValue |
 | package-azurefunctionscore.ps1 | Microsoft | Azure Functions Core Tools | RegistryKeyValue |
-| package-azurepowershell.ps1 | Microsoft | Azure PowerShell | RegistryKeyValue |
-| package-azurestorageexplorer.ps1 | Microsoft | Microsoft Azure Storage Explorer | File existence |
+| package-azurepowershell.ps1 | Microsoft | Azure PowerShell (Az module, x64) | RegistryKeyValue |
+| package-azurestorageexplorer.ps1 | Microsoft | Azure Storage Explorer (x64) | File existence |
 | package-bambustudio.ps1 | Bambu Lab | Bambu Studio | File version |
 | package-bcuninstaller.ps1 | Marcin Szeniak | Bulk Crap Uninstaller | RegistryKeyValue |
 | package-beyondcompare5.ps1 | Scooter Software | Beyond Compare 5 | RegistryKeyValue |
@@ -484,18 +505,18 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-blender.ps1 | Blender Foundation | Blender | RegistryKeyValue |
 | package-boxdrive.ps1 | Box | Box Drive | RegistryKeyValue |
 | package-brave.ps1 | Brave Software | Brave Browser | File version |
-| package-bulkrenameutility.ps1 | TGRMN Software | Bulk Rename Utility | Script |
+| package-bulkrenameutility.ps1 | TGRMN Software | Bulk Rename Utility | RegistryKeyValue |
 | package-calibre.ps1 | Kovid Goyal | calibre | RegistryKeyValue |
 | package-calibrite.ps1 | Calibrite | Calibrite PROFILER | File version |
 | package-ccleaner.ps1 | Piriform Software Ltd. | CCleaner | RegistryKeyValue |
 | package-certifytheweb.ps1 | Webprofusion | Certify The Web | RegistryKeyValue |
 | package-chefworkstation.ps1 | Chef Software | Chef Workstation | RegistryKeyValue |
-| package-chrome.ps1 | Google | Google Chrome Enterprise (x64) | RegistryKeyValue |
+| package-chrome.ps1 | Google | Google Chrome | RegistryKeyValue |
 | package-chromeremotedesktophost.ps1 | Google | Chrome Remote Desktop Host | RegistryKeyValue |
-| package-citrixworkspace-cr.ps1 | Cloud Software Group | Citrix Workspace CR | RegistryKeyValue |
-| package-citrixworkspace-ltsr-arm64.ps1 | Cloud Software Group | Citrix Workspace LTSR ARM64 | RegistryKeyValue |
-| package-citrixworkspace-ltsr-x64.ps1 | Cloud Software Group | Citrix Workspace LTSR x64 | RegistryKeyValue |
-| package-citrixworkspace-ltsr-x86.ps1 | Cloud Software Group | Citrix Workspace LTSR x86 | RegistryKeyValue |
+| package-citrixworkspace-cr.ps1 | Cloud Software Group | Citrix Workspace app for Windows (Current Release) | RegistryKeyValue |
+| package-citrixworkspace-ltsr-arm64.ps1 | Cloud Software Group | Citrix Workspace app for Windows (LTSR ARM64) | RegistryKeyValue |
+| package-citrixworkspace-ltsr-x64.ps1 | Cloud Software Group | Citrix Workspace app for Windows (LTSR x64) | RegistryKeyValue |
+| package-citrixworkspace-ltsr-x86.ps1 | Cloud Software Group | Citrix Workspace app for Windows (LTSR x86) | RegistryKeyValue |
 | package-clockify.ps1 | CAKE.com | Clockify | RegistryKeyValue |
 | package-cloudcompare.ps1 | CloudCompare Project | CloudCompare | File version |
 | package-cloudflarewarp.ps1 | Cloudflare | Cloudflare WARP | RegistryKeyValue |
@@ -507,8 +528,8 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-corretto-jdk17.ps1 | Amazon | Amazon Corretto JDK 17 (x64) | RegistryKeyValue |
 | package-corretto-jdk21.ps1 | Amazon | Amazon Corretto JDK 21 (x64) | RegistryKeyValue |
 | package-corretto-jdk25.ps1 | Amazon | Amazon Corretto JDK 25 (x64) | RegistryKeyValue |
-| package-corretto-jdk8-x64.ps1 | Amazon | Amazon Corretto JDK 8 (x64) | RegistryKeyValue |
-| package-corretto-jdk8-x86.ps1 | Amazon | Amazon Corretto JDK 8 (x86) | RegistryKeyValue |
+| package-corretto-jdk8-x64.ps1 | Amazon | Amazon Corretto JDK 8 (x64) | RegistryKey existence |
+| package-corretto-jdk8-x86.ps1 | Amazon | Amazon Corretto JDK 8 (x86) | RegistryKey existence |
 | package-cpuz.ps1 | CPUID | CPU-Z | File existence |
 | package-cryptomator.ps1 | Skymatic | Cryptomator | RegistryKeyValue |
 | package-cura.ps1 | UltiMaker | UltiMaker Cura | RegistryKeyValue |
@@ -523,27 +544,27 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-dellcommandupdate.ps1 | Dell Inc. | Dell Command Update | File version |
 | package-displaylink.ps1 | DisplayLink | DisplayLink Graphics | File version |
 | package-dngrep.ps1 | dnGREP | dnGREP | RegistryKeyValue |
-| package-dotnet10both.ps1 | Microsoft | .NET Desktop Runtime 10 (x86+x64) | Compound grouped OR: (x86-N AND x64-N) OR (x86-N+1 AND x64-N+1) file existence |
-| package-dotnet8.ps1 | Microsoft | .NET Desktop Runtime 8 (x86+x64) | Compound grouped OR: (x86-N AND x64-N) OR (x86-N+1 AND x64-N+1) file existence |
-| package-dotnet9x64.ps1 | Microsoft | .NET Desktop Runtime 9 (x64) | File existence |
+| package-dotnet10both.ps1 | Microsoft | .NET 10 Desktop Runtime (x86+x64) | Compound grouped OR: (x86-N AND x64-N) OR (x86-N+1 AND x64-N+1) file existence |
+| package-dotnet8.ps1 | Microsoft | .NET 8 Desktop Runtime (x86+x64) | Compound grouped OR: (x86-N AND x64-N) OR (x86-N+1 AND x64-N+1) file existence |
+| package-dotnet9x64.ps1 | Microsoft | .NET 9 Desktop Runtime (x64) | File existence |
 | package-draftable.ps1 | Draftable | Draftable Desktop | RegistryKeyValue |
 | package-drawio.ps1 | JGraph Ltd | draw.io | RegistryKeyValue |
 | package-duodesktop.ps1 | Cisco | Duo Desktop | RegistryKeyValue |
-| package-edge.ps1 | Microsoft | Microsoft Edge (x64) | Compound (OR, 2x File version) |
+| package-edge.ps1 | Microsoft | Microsoft Edge | Compound (OR, 2x File version) |
 | package-everything.ps1 | Voidtools | Everything (x64) | RegistryKeyValue |
-| package-firefox.ps1 | Mozilla | Mozilla Firefox (x64) | File version |
+| package-firefox.ps1 | Mozilla | Mozilla Firefox | File version |
 | package-firefoxesr.ps1 | Mozilla | Mozilla Firefox ESR | File version |
 | package-freecad.ps1 | FreeCAD Team | FreeCAD | RegistryKeyValue |
 | package-gcpw.ps1 | Google | Google Credential Provider for Windows | RegistryKeyValue |
-| package-geogebra.ps1 | International GeoGebra Institute | GeoGebra Classic | RegistryKeyValue |
+| package-geogebra.ps1 | International GeoGebra Institute | GeoGebra Classic 6 | RegistryKeyValue |
 | package-gephi.ps1 | Gephi Consortium | Gephi | File existence |
 | package-gimp.ps1 | The GIMP Team | GIMP (x64) | RegistryKeyValue |
-| package-git.ps1 | Git | Git for Windows (x64) | File version |
+| package-git.ps1 | The Git Development Community | Git for Windows (x64) | File version |
 | package-githubcli.ps1 | GitHub | GitHub CLI | RegistryKeyValue |
 | package-githubdesktop.ps1 | GitHub | GitHub Desktop (User) | RegistryKeyValue |
 | package-go.ps1 | Google | Go Programming Language | RegistryKeyValue |
 | package-goland.ps1 | JetBrains | GoLand | RegistryKey existence |
-| package-googledrive.ps1 | Google | Google Drive | RegistryKeyValue |
+| package-googledrive.ps1 | Google | Google Drive for desktop | RegistryKeyValue |
 | package-gpg4win.ps1 | g10 Code GmbH | Gpg4win | RegistryKeyValue |
 | package-graphviz.ps1 | Graphviz | Graphviz | RegistryKeyValue |
 | package-greenshot.ps1 | Greenshot | Greenshot | File existence |
@@ -553,9 +574,9 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-hashtools.ps1 | Binary Fortress Software | HashTools | File version |
 | package-heidisql.ps1 | Ansgar Becker | HeidiSQL | File version |
 | package-hwmonitor.ps1 | CPUID | HWMonitor | File existence |
-| package-iapdesktop.ps1 | Google | IAP Desktop | RegistryKeyValue |
-| package-imageglass.ps1 | Duong Dieu Phap | ImageGlass | RegistryKeyValue |
-| package-inkscape.ps1 | Inkscape Project | Inkscape (x64) | RegistryKeyValue |
+| package-iapdesktop.ps1 | Google | IAP Desktop (x64) | RegistryKeyValue |
+| package-imageglass.ps1 | Duong Dieu Phap | ImageGlass (x64) | RegistryKeyValue |
+| package-inkscape.ps1 | Inkscape Project | Inkscape | RegistryKeyValue |
 | package-intunedebugtoolkit.ps1 | MSEndpointMgr | Intune Debug Toolkit | RegistryKeyValue |
 | package-irfanview.ps1 | Irfan Skiljan | IrfanView | File version |
 | package-jabradirect.ps1 | GN Audio A/S | Jabra Direct | File version |
@@ -566,8 +587,8 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-keystoreexplorer.ps1 | Kai Kramer | KeyStore Explorer | RegistryKeyValue |
 | package-kreya.ps1 | riok GmbH | Kreya | RegistryKeyValue |
 | package-krita.ps1 | KDE | Krita | RegistryKeyValue |
-| package-liberica-jdk21.ps1 | BellSoft | Liberica JDK 21 | RegistryKeyValue |
-| package-libreoffice.ps1 | The Document Foundation | LibreOffice (x64) | RegistryKeyValue |
+| package-liberica-jdk21.ps1 | BellSoft | Liberica JDK 21 (x64) | RegistryKeyValue |
+| package-libreoffice.ps1 | The Document Foundation | LibreOffice | RegistryKeyValue |
 | package-m365apps-x64.ps1 | Microsoft | M365 Apps for Enterprise (x64) | File version (WINWORD.EXE) |
 | package-m365apps-x86.ps1 | Microsoft | M365 Apps for Enterprise (x86) | File version (WINWORD.EXE) |
 | package-m365project-x64.ps1 | Microsoft | M365 Project (x64) | File version (WINPROJ.EXE) |
@@ -575,27 +596,27 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-m365visio-x64.ps1 | Microsoft | M365 Visio (x64) | File version (VISIO.EXE) |
 | package-m365visio-x86.ps1 | Microsoft | M365 Visio (x86) | File version (VISIO.EXE) |
 | package-malwarebytes.ps1 | Malwarebytes | Malwarebytes | RegistryKeyValue |
-| package-mariadb-server.ps1 | MariaDB | MariaDB Server | RegistryKeyValue |
-| package-mattermost.ps1 | Mattermost | Mattermost Desktop | RegistryKeyValue |
+| package-mariadb-server.ps1 | MariaDB | MariaDB Server (x64) | RegistryKeyValue |
+| package-mattermost.ps1 | Mattermost | Mattermost Desktop (x64) | RegistryKeyValue |
 | package-mongodbcompass.ps1 | MongoDB | MongoDB Compass | RegistryKeyValue |
 | package-mremoteng.ps1 | mRemoteNG | mRemoteNG | RegistryKeyValue |
-| package-ms-openjdk17-exe.ps1 | Microsoft | Microsoft Build of OpenJDK 17 (x64, EXE) | RegistryKeyValue |
 | package-ms-openjdk17-exe-user.ps1 | Microsoft | Microsoft Build of OpenJDK 17 (x64, EXE, per user) | RegistryKeyValue (user context) |
-| package-ms-openjdk17-msi.ps1 | Microsoft | Microsoft Build of OpenJDK 17 (x64, MSI) | RegistryKeyValue |
+| package-ms-openjdk17-exe.ps1 | Microsoft | Microsoft Build of OpenJDK 17 (x64, EXE) | RegistryKeyValue |
 | package-ms-openjdk17-msi-user.ps1 | Microsoft | Microsoft Build of OpenJDK 17 (x64, MSI, per user) | File (user context) |
-| package-ms-openjdk21-exe.ps1 | Microsoft | Microsoft Build of OpenJDK 21 (x64, EXE) | RegistryKeyValue |
+| package-ms-openjdk17-msi.ps1 | Microsoft | Microsoft Build of OpenJDK 17 (x64, MSI) | RegistryKeyValue |
 | package-ms-openjdk21-exe-user.ps1 | Microsoft | Microsoft Build of OpenJDK 21 (x64, EXE, per user) | RegistryKeyValue (user context) |
-| package-ms-openjdk21-msi.ps1 | Microsoft | Microsoft Build of OpenJDK 21 (x64, MSI) | RegistryKeyValue |
+| package-ms-openjdk21-exe.ps1 | Microsoft | Microsoft Build of OpenJDK 21 (x64, EXE) | RegistryKeyValue |
 | package-ms-openjdk21-msi-user.ps1 | Microsoft | Microsoft Build of OpenJDK 21 (x64, MSI, per user) | File (user context) |
-| package-ms-openjdk25-exe.ps1 | Microsoft | Microsoft Build of OpenJDK 25 (x64, EXE) | RegistryKeyValue |
+| package-ms-openjdk21-msi.ps1 | Microsoft | Microsoft Build of OpenJDK 21 (x64, MSI) | RegistryKeyValue |
 | package-ms-openjdk25-exe-user.ps1 | Microsoft | Microsoft Build of OpenJDK 25 (x64, EXE, per user) | RegistryKeyValue (user context) |
-| package-ms-openjdk25-msi.ps1 | Microsoft | Microsoft Build of OpenJDK 25 (x64, MSI) | RegistryKeyValue |
+| package-ms-openjdk25-exe.ps1 | Microsoft | Microsoft Build of OpenJDK 25 (x64, EXE) | RegistryKeyValue |
 | package-ms-openjdk25-msi-user.ps1 | Microsoft | Microsoft Build of OpenJDK 25 (x64, MSI, per user) | File (user context) |
-| package-msodbcsql18.ps1 | Microsoft | ODBC Driver 18 for SQL Server | RegistryKeyValue |
-| package-msoledb.ps1 | Microsoft | OLE DB Driver for SQL Server | RegistryKeyValue |
-| package-msvcruntimes.ps1 | Microsoft | VC++ 2015-2022 Redistributable (x86+x64) | Compound (AND, 2x RegistryKeyValue) |
-| package-msvcruntimesx64.ps1 | Microsoft | VC++ v14 Redistributable (x64) | File version |
-| package-msvcruntimesx86.ps1 | Microsoft | VC++ v14 Redistributable (x86) | File version |
+| package-ms-openjdk25-msi.ps1 | Microsoft | Microsoft Build of OpenJDK 25 (x64, MSI) | RegistryKeyValue |
+| package-msodbcsql18.ps1 | Microsoft | Microsoft ODBC Driver 18 for SQL Server (x64) | RegistryKeyValue |
+| package-msoledb.ps1 | Microsoft | Microsoft OLE DB Driver 19 for SQL Server (x64) | RegistryKeyValue |
+| package-msvcruntimes.ps1 | Microsoft | Microsoft Visual C++ v14 Redistributable (x86+x64) | Compound (AND, 2x RegistryKeyValue) |
+| package-msvcruntimesx64.ps1 | Microsoft | Microsoft Visual C++ v14 Redistributable (x64) | File version |
+| package-msvcruntimesx86.ps1 | Microsoft | Microsoft Visual C++ v14 Redistributable (x86) | File version |
 | package-musescore.ps1 | MuseScore | MuseScore Studio | RegistryKeyValue |
 | package-mysqlconnectornet.ps1 | Oracle | MySQL Connector/NET | RegistryKeyValue |
 | package-nagstamon.ps1 | Henri Wahl | Nagstamon | RegistryKeyValue |
@@ -604,24 +625,24 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-netbird.ps1 | NetBird | NetBird | RegistryKeyValue |
 | package-netlogo.ps1 | Northwestern University | NetLogo | RegistryKeyValue |
 | package-networkmanager.ps1 | BornToBeRoot | NETworkManager | RegistryKeyValue |
-| package-nextcloud.ps1 | Nextcloud GmbH | Nextcloud | RegistryKeyValue |
-| package-nodejs.ps1 | OpenJS Foundation | Node.js LTS (x64) | RegistryKeyValue |
+| package-nextcloud.ps1 | Nextcloud GmbH | Nextcloud Desktop Client | RegistryKeyValue |
+| package-nodejs.ps1 | OpenJS Foundation | Node.js LTS | RegistryKeyValue |
 | package-nomachine.ps1 | NoMachine | NoMachine | Compound |
-| package-notepadplusplus.ps1 | Notepad++ | Notepad++ (x64) | File version |
+| package-notepadplusplus.ps1 | Notepad++ Team | Notepad++ (x64) | File version |
 | package-nvda.ps1 | NV Access | NVDA | Compound |
 | package-nvidia-geforce.ps1 | NVIDIA | NVIDIA Graphics Driver - GeForce Game Ready (x64) | RegistryKeyValue |
 | package-nvidia-rtx-enterprise.ps1 | NVIDIA | NVIDIA Graphics Driver - RTX Enterprise (x64) | RegistryKeyValue |
 | package-obsidian.ps1 | Obsidian | Obsidian | File version |
-| package-ocenaudio.ps1 | Ocenaudio Team | ocenaudio | Script |
-| package-ohmyposh.ps1 | Jan De Dobbeleer | Oh My Posh | Script |
+| package-ocenaudio.ps1 | Ocenaudio Team | ocenaudio | RegistryKeyValue |
+| package-ohmyposh.ps1 | Jan De Dobbeleer | Oh My Posh | RegistryKey existence |
 | package-omnissahorizonclient.ps1 | Omnissa | Omnissa Horizon Client | File version |
-| package-openshot.ps1 | OpenShot Studios, LLC | OpenShot Video Editor | Script |
+| package-openshot.ps1 | OpenShot Studios, LLC | OpenShot Video Editor | RegistryKeyValue |
 | package-openvpn.ps1 | OpenVPN Inc. | OpenVPN | RegistryKeyValue |
 | package-openwebstart.ps1 | Karakun AG | OpenWebStart | File version |
 | package-opera.ps1 | Opera Software | Opera Browser | File version |
 | package-orcaslicer.ps1 | SoftFever | OrcaSlicer | File version |
 | package-ownclouddesktop.ps1 | ownCloud GmbH | ownCloud Desktop Client | RegistryKeyValue |
-| package-paintdotnet.ps1 | dotPDN LLC | Paint.NET (x64) | RegistryKeyValue |
+| package-paintdotnet.ps1 | dotPDN LLC | Paint.NET | RegistryKeyValue |
 | package-pandoc.ps1 | John MacFarlane | Pandoc | RegistryKeyValue |
 | package-parallelsclient.ps1 | Parallels | Parallels Client | RegistryKeyValue |
 | package-pathcopycopy.ps1 | Charles Lechasseur | Path Copy Copy | RegistryKeyValue |
@@ -632,59 +653,59 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-pdfstudioviewer.ps1 | Qoppa Software | PDF Studio Viewer | File existence |
 | package-peazip.ps1 | Giorgio Tani | PeaZip | RegistryKeyValue |
 | package-pgadmin4.ps1 | pgAdmin Development Team | pgAdmin 4 | File existence |
-| package-picpick.ps1 | NGWIN | PicPick | Script |
-| package-pidgin.ps1 | Pidgin | Pidgin | Script |
-| package-positron.ps1 | Posit Software, PBC | Positron (x64) | File existence |
-| package-postgresql13.ps1 | PostgreSQL Global Development Group | PostgreSQL 13 (x64) | File version |
-| package-postgresql14.ps1 | PostgreSQL Global Development Group | PostgreSQL 14 (x64) | File version |
-| package-postgresql15.ps1 | PostgreSQL Global Development Group | PostgreSQL 15 (x64) | File version |
-| package-postgresql16.ps1 | PostgreSQL Global Development Group | PostgreSQL 16 (x64) | File version |
-| package-postgresql17.ps1 | PostgreSQL Global Development Group | PostgreSQL 17 (x64) | File version |
-| package-postman.ps1 | Postman | Postman (User) | File version (user context) |
+| package-picpick.ps1 | NGWIN | PicPick | RegistryKeyValue |
+| package-pidgin.ps1 | Pidgin | Pidgin | RegistryKeyValue |
+| package-positron.ps1 | Posit Software, PBC | Positron | File existence |
+| package-postgresql13.ps1 | PostgreSQL Global Development Group | PostgreSQL 13 (x64) | RegistryKeyValue |
+| package-postgresql14.ps1 | PostgreSQL Global Development Group | PostgreSQL 14 (x64) | RegistryKeyValue |
+| package-postgresql15.ps1 | PostgreSQL Global Development Group | PostgreSQL 15 (x64) | RegistryKeyValue |
+| package-postgresql16.ps1 | PostgreSQL Global Development Group | PostgreSQL 16 (x64) | RegistryKeyValue |
+| package-postgresql17.ps1 | PostgreSQL Global Development Group | PostgreSQL 17 (x64) | RegistryKeyValue |
+| package-postman.ps1 | Postman | Postman (User) | RegistryKeyValue (user context) |
 | package-powerbi-desktop.ps1 | Microsoft | Power BI Desktop (x64) | File version |
-| package-powershell7.ps1 | Microsoft | PowerShell 7 (x64) | RegistryKeyValue |
-| package-powertoys.ps1 | Microsoft Corporation | PowerToys (x64) | File version |
+| package-powershell7.ps1 | Microsoft | PowerShell 7 | RegistryKeyValue |
+| package-powertoys.ps1 | Microsoft | PowerToys | File version |
 | package-protonvpn.ps1 | Proton AG | Proton VPN | RegistryKeyValue |
 | package-pspad.ps1 | Jan Fiala | PSPad | File existence |
-| package-putty.ps1 | Simon Tatham | PuTTY (x64) | RegistryKeyValue |
+| package-putty.ps1 | Simon Tatham | PuTTY | RegistryKeyValue |
 | package-pwsafe.ps1 | Rony Shapiro | Password Safe | RegistryKeyValue |
 | package-pycharm.ps1 | JetBrains | PyCharm | RegistryKey existence |
-| package-python.ps1 | Python Software Foundation | Python (x64) | File existence |
+| package-python.ps1 | Python Software Foundation | Python | File version |
 | package-qgis-ltr.ps1 | QGIS | QGIS LTR | RegistryKeyValue |
 | package-qgis.ps1 | QGIS | QGIS | RegistryKeyValue |
-| package-r.ps1 | The R Foundation | R for Windows (x64) | File existence |
+| package-r.ps1 | The R Foundation | R for Windows | File version |
 | package-rainmeter.ps1 | Rainmeter | Rainmeter | File existence |
 | package-rancherdesktop.ps1 | SUSE | Rancher Desktop | RegistryKeyValue |
 | package-redshiftodbc.ps1 | Amazon Web Services | Amazon Redshift ODBC Driver | RegistryKeyValue |
 | package-remotedesktopmanager.ps1 | Devolutions | Remote Desktop Manager | RegistryKeyValue |
 | package-renderdoc.ps1 | Baldur Karlsson | RenderDoc | RegistryKeyValue |
-| package-rocketchat.ps1 | Rocket.Chat | Rocket.Chat | RegistryKeyValue |
+| package-rocketchat.ps1 | Rocket.Chat | Rocket.Chat Desktop | RegistryKeyValue |
 | package-rpiimager.ps1 | Raspberry Pi Ltd | Raspberry Pi Imager | RegistryKeyValue |
-| package-rstudio.ps1 | Posit Software, PBC | RStudio Desktop (x64) | RegistryKeyValue |
-| package-rtools.ps1 | The R Foundation | Rtools (x64) | RegistryKeyValue |
+| package-rstudio.ps1 | Posit Software, PBC | RStudio Desktop | RegistryKeyValue |
+| package-rtools.ps1 | The R Foundation | Rtools | RegistryKeyValue |
 | package-rustdesk.ps1 | Purslane Tech Pte. Ltd. | RustDesk | RegistryKeyValue |
 | package-rvtools.ps1 | Dell | RVTools | RegistryKeyValue |
 | package-salesforcecli.ps1 | Salesforce | Salesforce CLI | RegistryKeyValue |
 | package-screentogif.ps1 | Nicke Manarin | ScreenToGif | RegistryKeyValue |
-| package-semeru-jdk11.ps1 | IBM | IBM Semeru Runtime Open Edition JDK 11 | RegistryKeyValue |
-| package-semeru-jdk17.ps1 | IBM | IBM Semeru Runtime Open Edition JDK 17 | RegistryKeyValue |
-| package-semeru-jdk8.ps1 | IBM | IBM Semeru Runtime Open Edition JDK 8 | RegistryKeyValue |
-| package-semeru-jre11.ps1 | IBM | IBM Semeru Runtime Open Edition JRE 11 | RegistryKeyValue |
-| package-semeru-jre17.ps1 | IBM | IBM Semeru Runtime Open Edition JRE 17 | RegistryKeyValue |
-| package-semeru-jre8.ps1 | IBM | IBM Semeru Runtime Open Edition JRE 8 | RegistryKeyValue |
+| package-semeru-jdk11.ps1 | IBM | IBM Semeru Runtime Open Edition JDK 11 (x64) | RegistryKeyValue |
+| package-semeru-jdk17.ps1 | IBM | IBM Semeru Runtime Open Edition JDK 17 (x64) | RegistryKeyValue |
+| package-semeru-jdk8.ps1 | IBM | IBM Semeru Runtime Open Edition JDK 8 (x64) | RegistryKeyValue |
+| package-semeru-jre11.ps1 | IBM | IBM Semeru Runtime Open Edition JRE 11 (x64) | RegistryKeyValue |
+| package-semeru-jre17.ps1 | IBM | IBM Semeru Runtime Open Edition JRE 17 (x64) | RegistryKeyValue |
+| package-semeru-jre8.ps1 | IBM | IBM Semeru Runtime Open Edition JRE 8 (x64) | RegistryKeyValue |
 | package-sharepointonlinemanagementshell.ps1 | Microsoft | SharePoint Online Management Shell | RegistryKeyValue |
 | package-sharex.ps1 | ShareX Team | ShareX | File version |
 | package-shotcut.ps1 | Meltytech | Shotcut | RegistryKeyValue |
 | package-signingsuite.ps1 | Jason Ulbright | Signing Suite | RegistryKeyValue |
 | package-simplenote.ps1 | Automattic | Simplenote | File version |
 | package-slack.ps1 | Slack Technologies | Slack | File existence |
-| package-slido.ps1 | Slido | Slido for Windows (admin MSI, x64) | File version |
+| package-slido.ps1 | Slido | Slido for Windows | File version |
 | package-smartty.ps1 | Sysprogs | SmarTTY | RegistryKeyValue |
 | package-smathstudio.ps1 | SMath | SMath Studio | RegistryKey existence |
-| package-soapui.ps1 | SmartBear Software | SoapUI | File existence |
+| package-soapui.ps1 | SmartBear Software | SoapUI Open Source | RegistryKeyValue |
 | package-softerraldapbrowser.ps1 | Softerra | Softerra LDAP Browser | RegistryKeyValue |
 | package-spectrapdf.ps1 | Signal Ridge Labs | Spectra PDF | RegistryKeyValue |
-| package-sqlserver2022express.ps1 | Microsoft | Microsoft SQL Server 2022 Express | RegistryKeyValue |
+| package-sqlserver2022express.ps1 | Microsoft | SQL Server 2022 Express (x64) | RegistryKeyValue |
 | package-ssms.ps1 | Microsoft | SQL Server Management Studio 22 | File version |
 | package-stellarium.ps1 | Stellarium | Stellarium | RegistryKeyValue |
 | package-syncbackfree.ps1 | 2BrightSparks | SyncBackFree | File version |
@@ -698,7 +719,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-teams-new.ps1 | Microsoft | Microsoft Teams (new client) | File existence |
 | package-teamspeak3client.ps1 | TeamSpeak Systems GmbH | TeamSpeak 3 Client | File version |
 | package-teamviewer.ps1 | TeamViewer | TeamViewer (x64) | RegistryKeyValue |
-| package-teamviewerhost.ps1 | TeamViewer | TeamViewer Host (x64) | File |
+| package-teamviewerhost.ps1 | TeamViewer | TeamViewer Host (x64) | File version |
 | package-temurin-jdk11-x64.ps1 | Eclipse Adoptium | Eclipse Temurin JDK 11 (x64) | RegistryKeyValue |
 | package-temurin-jdk11-x86.ps1 | Eclipse Adoptium | Eclipse Temurin JDK 11 (x86) | RegistryKeyValue |
 | package-temurin-jdk17.ps1 | Eclipse Adoptium | Eclipse Temurin JDK 17 (x64) | RegistryKeyValue |
@@ -713,13 +734,13 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-temurin-jre25.ps1 | Eclipse Adoptium | Eclipse Temurin JRE 25 (x64) | RegistryKeyValue |
 | package-temurin-jre8-x64.ps1 | Eclipse Adoptium | Eclipse Temurin JRE 8 (x64) | RegistryKeyValue |
 | package-temurin-jre8-x86.ps1 | Eclipse Adoptium | Eclipse Temurin JRE 8 (x86) | RegistryKeyValue |
-| package-teracopy.ps1 | Code Sector | TeraCopy | Script |
+| package-teracopy.ps1 | Code Sector | TeraCopy | RegistryKeyValue |
 | package-thonny.ps1 | Aivar Annamaa | Thonny | RegistryKeyValue |
-| package-thunderbird.ps1 | Mozilla Foundation | Thunderbird (x64) | File version |
+| package-thunderbird.ps1 | Mozilla | Thunderbird | File version |
 | package-tightvnc.ps1 | GlavSoft | TightVNC | RegistryKeyValue |
-| package-tortoisegit.ps1 | TortoiseGit | TortoiseGit (x64) | RegistryKeyValue |
+| package-tortoisegit.ps1 | TortoiseGit | TortoiseGit | RegistryKeyValue |
 | package-tortoisehg.ps1 | TortoiseHg | TortoiseHg | RegistryKeyValue |
-| package-tortoisesvn.ps1 | TortoiseSVN | TortoiseSVN (x64) | RegistryKeyValue |
+| package-tortoisesvn.ps1 | TortoiseSVN | TortoiseSVN | RegistryKeyValue |
 | package-treesizefree.ps1 | JAM Software | TreeSize Free | File version |
 | package-turbovnc.ps1 | The VirtualGL Project | TurboVNC | RegistryKeyValue |
 | package-typora.ps1 | Typora | Typora | File version |
@@ -728,25 +749,25 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-urbackupclient.ps1 | UrBackup | UrBackup Client | RegistryKeyValue |
 | package-vagrant.ps1 | HashiCorp | Vagrant | RegistryKeyValue |
 | package-veracrypt.ps1 | AM Crypto | VeraCrypt | RegistryKeyValue |
-| package-vim.ps1 | The Vim Project | Vim (x64) | RegistryKeyValue |
-| package-vlc.ps1 | VideoLAN | VLC Media Player (x64) | RegistryKeyValue |
+| package-vim.ps1 | The Vim Project | Vim | File existence |
+| package-vlc.ps1 | VideoLAN | VLC Media Player | RegistryKeyValue |
 | package-vscode-system.ps1 | Microsoft | Visual Studio Code (System) | File version |
-| package-vscode-user.ps1 | Microsoft | Visual Studio Code (User) | File version (user context) |
+| package-vscode-user.ps1 | Microsoft | Visual Studio Code (User) | RegistryKeyValue (user context) |
 | package-vscodium.ps1 | VSCodium | VSCodium | RegistryKeyValue |
-| package-webex.ps1 | Cisco | Webex (x64) | RegistryKeyValue |
+| package-webex.ps1 | Cisco | Cisco Webex (x64) | RegistryKeyValue |
 | package-webstorm.ps1 | JetBrains | WebStorm | RegistryKey existence |
-| package-webview2.ps1 | Microsoft | WebView2 Evergreen Runtime | File version |
-| package-windirstat.ps1 | WinDirStat Team | WinDirStat (x64) | File version |
+| package-webview2.ps1 | Microsoft | Microsoft Edge WebView2 Runtime (x64) | RegistryKeyValue |
+| package-windirstat.ps1 | WinDirStat Team | WinDirStat | File version |
 | package-windowsadk.ps1 | Microsoft | Windows ADK for Windows 11 | RegistryKeyValue |
 | package-windowsadmincenter.ps1 | Microsoft | Windows Admin Center | RegistryKeyValue |
 | package-windowspeaddon.ps1 | Microsoft | Windows PE add-on for the Windows ADK | RegistryKeyValue |
-| package-winmerge.ps1 | WinMerge | WinMerge (x64) | File version |
-| package-winrar.ps1 | win.rar GmbH | WinRAR (x64) | RegistryKeyValue |
-| package-winscp.ps1 | WinSCP | WinSCP | RegistryKeyValue |
+| package-winmerge.ps1 | WinMerge | WinMerge | File version |
+| package-winrar.ps1 | win.rar GmbH | WinRAR | RegistryKeyValue |
+| package-winscp.ps1 | Martin Prikryl | WinSCP (x64) | File version |
 | package-wireguard.ps1 | WireGuard | WireGuard | RegistryKeyValue |
 | package-wireshark.ps1 | Wireshark Foundation | Wireshark (x64) | File version |
 | package-xencenter.ps1 | Cloud Software Group | XenCenter | RegistryKeyValue |
-| package-xenserver-vmtools.ps1 | Cloud Software Group | XenServer VM Tools | RegistryKeyValue |
+| package-xenserver-vmtools.ps1 | Cloud Software Group | XenServer VM Tools for Windows | RegistryKeyValue |
 | package-xnviewmp.ps1 | XnSoft | XnView MP | RegistryKeyValue |
 | package-yubicoauthenticator.ps1 | Yubico | Yubico Authenticator | RegistryKeyValue |
 | package-yubicopivtool.ps1 | Yubico | Yubico PIV Tool | RegistryKeyValue |
@@ -794,7 +815,7 @@ The monitor discovers all `package-*.ps1` scripts in the sibling `Packagers/` fo
 
 Configuration is in `VersionMonitor/monitor-config.json`. Log and report folders default to `VersionMonitor/Logs/` and `VersionMonitor/Reports/` when not specified in config.
 
-90 packagers read their latest version from the GitHub REST API. Without a token GitHub allows 60 requests per hour per source address, so a monitor run or a catalog-wide version check fails partway through with `403 rate limit exceeded`. The packagers look for a token in this order: the `GITHUB_TOKEN` environment variable, then `GH_TOKEN`, then the GitHub CLI login (`gh auth login`) when `gh.exe` is installed. Any of those raises the limit to 5000 requests per hour; a personal access token with no scopes is enough. With none of them the calls stay anonymous. The Options window shows which source is in effect and the remaining quota next to the other detected tools.
+92 packagers read their latest version from the GitHub REST API. Without a token GitHub allows 60 requests per hour per source address, so a monitor run or a catalog-wide version check fails partway through with `403 rate limit exceeded`. The packagers look for a token in this order: the `GITHUB_TOKEN` environment variable, then `GH_TOKEN`, then the GitHub CLI login (`gh auth login`) when `gh.exe` is installed. Any of those raises the limit to 5000 requests per hour; a personal access token with no scopes is enough. With none of them the calls stay anonymous. The Options window shows which source is in effect and the remaining quota next to the other detected tools.
 
 ### Packager header tags for Version Monitor
 
@@ -809,7 +830,9 @@ VendorUrl: https://www.7-zip.org/
 CPE: cpe:2.3:a:7-zip:7-zip:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.7-zip.org/history.txt
 DownloadPageUrl: https://www.7-zip.org/download.html
+IconSource: Installer
 UpdateCadenceDays: 90
+WsusSupport: Yes
 #>
 ```
 
@@ -823,6 +846,8 @@ UpdateCadenceDays: 90
 | `SupportsVariants` | Comma-separated variant splits the packager can stage (`Architecture`, `Language`, `Network`). Enables the Variant split column. |
 | `SupportsInstallModes` | `CurrentUser, AllUsers` when the installer takes a mode switch and the packager uses the standard wrappers. Enables the Install for column. |
 | `RequiresTools` | Comma-separated list of detected tools the packager depends on. Read-only metadata; surfaced via `Get-PackagerMetadata` and reserved for future preflight warnings. Adobe Reader declares `7-Zip`. |
+| `WsusSupport` | `Yes`, or `No (<code>)` with the WSUS compatibility codes the publish would report: `DetectionNotMappable`, `PerUserInstall`, `InstallerTypeUnsupported`, `CustomInstall`, `InstallerMissing`, `PayloadInSubfolder`, several joined with `\|`. Every packager carries it; the One Click plan shows **WSUS: not supported** from it before a run. |
+| `LocalSource` | `Optional` or `Required`: the packager can, or must, stage an installer from a folder set under Local Installer Sources in the [Options window](#options-window). |
 
 ## Application Icons
 
@@ -971,15 +996,23 @@ app-packager/
   MainWindow.xaml                    # WPF window layout
   WorkbenchWindow.xaml               # Application Workbench window layout
   Invoke-AppPackagerBuild.ps1        # Command-line build entry point (one app, one profile)
+  install.ps1                        # Installer and in-place updater (see Install)
   AppPackager.preferences.json       # Persisted GUI preferences (auto-created)
   AppPackager.windowstate.json       # Persisted window state, theme, debug cols (auto-created)
+  AppPackager.workbench.windowstate.json # Persisted Workbench window state (auto-created)
+  CATALOG-PARITY.csv                 # Coverage decision for each reviewed catalog entry
+  RELEASING.md                       # Release procedure
   Lib/
     MahApps.Metro.dll                # MahApps.Metro 2.4.10 (net47)
     ControlzEx.dll                   # ControlzEx 4.4.0 (net45)
     Microsoft.Xaml.Behaviors.dll     # XAML Behaviors 1.1.135 (net462)
+    SuiteCommon/                     # Vendored suite module (runspace repair, shared helpers)
+    InstallerAnalysisCommon/         # Vendored installer analysis (MSI, NSIS, Inno Setup decoders)
   Packagers/
     AppPackagerCommon.psm1           # Shared module (logging, wrappers, ConfigMgr helpers)
     AppPackagerCommon.psd1           # Module manifest
+    AppPackagerOneClick.psm1         # One Click plan, destinations, run report
+    AppPackagerOneClick.psd1         # Module manifest
     AppPackagerWorkbench.psm1        # Applications, profiles, run snapshots, build records
     AppPackagerWorkbench.psd1        # Module manifest
     AppPackagerSigning.psm1          # Authenticode signing of staged scripts and launchers
@@ -989,6 +1022,7 @@ app-packager/
     package-7zip.ps1                 # One script per application (312 total)
     package-chrome.ps1
     ...
+    retired-packagers.txt            # Packagers removed from the catalog; the updater does not carry them forward
     Templates/                       # Skeleton packagers for non-standard installer formats
       package-msix.ps1.template      # MSIX / APPX / MSIXBUNDLE
       package-intunewin.ps1.template # Intunewin (Win32)
@@ -1004,6 +1038,8 @@ app-packager/
       VersionMonitorCommon.psd1      # Module manifest
     Logs/                            # Auto-created log files
     Reports/                         # Auto-created HTML reports
+  Samples/                           # Authoring walkthroughs and packager skeletons
+  Tests/                             # Pester tests and smoke scripts (source only, not in the release zip)
   CHANGELOG.md
   README.md
 ```
@@ -1022,6 +1058,8 @@ app-packager/
    CPE: cpe:2.3:a:acme:widget:*:*:*:*:*:*:*:*
    ReleaseNotesUrl: https://acme.example.com/releases
    DownloadPageUrl: https://acme.example.com/download
+   IconSource: Installer
+   WsusSupport: Yes
    #>
    ```
 
@@ -1105,6 +1143,9 @@ All packager scripts import the shared module which provides:
 | `Write-Log` | Timestamped, severity-tagged logging to console and optional file |
 | `Initialize-Logging` | Sets up log file output |
 | `Invoke-DownloadWithRetry` | curl.exe download wrapper with 1 retry and 5s delay |
+| `Invoke-CachedDownload` | Downloads a fixed-name vendor file once and refreshes it only when the server reports a newer copy (If-Modified-Since) |
+| `Get-GitHubApiCurlArgs` | The curl.exe arguments that carry a GitHub token (`GITHUB_TOKEN`, `GH_TOKEN`, `gh auth token`); empty without one |
+| `Get-LocalSourceFolder` / `Resolve-LocalSourceInstaller` | The Local Installer Sources folder of a packager and the highest-versioned installer inside it |
 | `Get-NetworkContentPath` | Creates and returns the network content folder for one app version in the configured layout (Nested `Applications\Vendor\App\Version` or Flat `Applications\Vendor-App-Version`) |
 | `Test-PsadtLayout` | Detects PSADT v3 vs v4 in a toolkit folder and returns the deployment type install/uninstall command lines (exe launcher preferred, powershell.exe -File fallback) |
 | `Test-IsAdmin` | Checks for administrator elevation. No shipped packager calls it: Stage reads installer metadata via COM and writes only user-writable paths, and Package needs share ACLs + CM RBAC, not local admin. Retained for future packagers whose Stage genuinely must elevate |
@@ -1118,6 +1159,8 @@ All packager scripts import the shared module which provides:
 | `New-ExeWrapperContent` | Returns EXE install/uninstall .ps1 content strings |
 | `Get-NetworkAppRoot` | Constructs and initializes the network share path |
 | `Write-StageManifest` / `Read-StageManifest` | JSON manifest serialization |
+| `Get-PackagedApplicationName` | Applies the title mode (`Default`, `IncludeVersion`, `NoVersion`) to an application name |
+| `New-ArpEntryDetectionScript` | Generates the detection script for an Add/Remove Programs entry compared by DisplayVersion |
 | `New-MECMApplicationFromManifest` | Creates ConfigMgr Application + deployment type from manifest, attaching requirement rules from the manifest `Requirements` array or `APP_PACKAGER_REQUIREMENTS`. `-OnExisting` decides every same-name collision, regardless of version |
 | `Resolve-OnExistingBehavior` | Resolves `Skip` / `Overwrite` / `Fail` from the parameter, then `APP_PACKAGER_ON_EXISTING`, then the default |
 | `Get-ConditionTemplates` / `Save-ConditionTemplates` | Condition template document: built-in defaults (CPU architecture WQL, built-in OS language, VPN adapter script) with an optional `condition-templates.json` override |
@@ -1142,6 +1185,8 @@ Common loads two further modules at import, so packagers get them without any ch
 **`AppPackagerWorkbench.psm1`** — applications, profiles and their revisions, effective-value resolution (global, packager, profile, variant, target, run), migration of the legacy per-app preference maps, the run snapshot, the stage finalization hook that applies a profile to the manifest, build records, and portable profile bundles.
 
 **`AppPackagerSigning.psm1`** — the signing policy, code-signing certificate candidates and selection by thumbprint, signing and verification per category (detection, requirements, deployment), the exact launcher command strings for signed and unsigned mode, a check that no staged launcher carries an execution-policy override in signed mode, and signature verification of script bytes read back from the site.
+
+**`AppPackagerOneClick.psm1`** loads in the GUI and the command-line build: the One Click plan per application and destination, the cadence gate, the destinations a run publishes to, and the Markdown and JSON run report.
 
 **`AppPackagerWsus.psm1`** loads only in the GUI, its background runspace, and the command-line build; packager scripts never publish. It holds the WSUS settings validation, the manifest-to-applicability-rule mapping, the compatibility findings, the publish flow, the signing-certificate operations, the published-update management, and the catalog import. Every WSUS API call sits in one adapter section, so the module imports on a computer without the WSUS console.
 
