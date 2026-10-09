@@ -16,7 +16,11 @@ Describe 'Single-number vendor versions' {
         @{ A = '30'; B = '31'; Expected = -1 }
         @{ A = '31'; B = '31'; Expected = 0 }
         @{ A = '31'; B = '30'; Expected = 1 }
-        @{ A = '31'; B = '31.0.1'; Expected = 0 }
+        @{ A = '31'; B = '31.0.1'; Expected = -1 }
+        @{ A = '31.0.1'; B = '31'; Expected = 0 }
+        @{ A = '8.9'; B = '8.9.8'; Expected = -1 }
+        @{ A = '2026.2'; B = '2026.2.1'; Expected = -1 }
+        @{ A = '3.1'; B = '3.1.0.5'; Expected = -1 }
         @{ A = '26.2.2.2'; B = '26.2.2'; Expected = 0 }
         @{ A = '8.9.8'; B = '8.9.8.1'; Expected = -1 }
         @{ A = '8.9.8'; B = '8.9.8.0'; Expected = 0 }
@@ -25,6 +29,17 @@ Describe 'Single-number vendor versions' {
     ) {
         param($A, $B, $Expected)
         Compare-SemVer -A $A -B $B | Should -Be $Expected
+    }
+
+    It 'orders two feed versions <A> and <B> strictly as <Expected>' -TestCases @(
+        @{ A = '8.9.8.1'; B = '8.9.8'; Expected = 1 }
+        @{ A = '8.9.8'; B = '8.9.8.1'; Expected = -1 }
+        @{ A = '8.9.8'; B = '8.9.8.0'; Expected = 0 }
+        @{ A = '31'; B = '31.0'; Expected = 0 }
+        @{ A = '5.7.1'; B = '5.7.0'; Expected = 1 }
+    ) {
+        param($A, $B, $Expected)
+        Compare-SemVer -A $A -B $B -Strict | Should -Be $Expected
     }
 
     It 'reports a deployed <Mecm> against vendor <Vendor> as <Status>' -TestCases @(

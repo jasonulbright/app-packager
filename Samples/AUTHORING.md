@@ -128,7 +128,7 @@ For EXE installers, you usually have to install once into a disposable VM, note 
 
 ## Version string formatting
 
-The GUI's Latest column and the One Click cadence gate compare version strings with `Compare-SemVer`. That helper normalizes two inputs to the same significant-part count before comparing, so `26.00` and `26.00.00.0` compare equal. Pick one format and use it consistently in:
+The GUI's Latest column and the One Click cadence gate compare version strings with `Compare-SemVer`. That helper compares every part the vendor version carries and treats a part the ConfigMgr version lacks as zero, so `26.00` against vendor `26.00.00.0` compares equal and `8.9.8` against vendor `8.9.8.1` reports an update. Parts the ConfigMgr version carries beyond the vendor version are not compared (an MSI ProductVersion `26.2.2.2` against vendor `26.2.2`). Pick one format and use it consistently in:
 
 - the string returned by `-GetLatestVersionOnly`
 - the `SoftwareVersion` field in the stage manifest
