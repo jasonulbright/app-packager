@@ -1598,36 +1598,34 @@ function Invoke-PackagerIntuneWinPostStep {
 }
 
 function Compare-SemVer {
+    # A is the version ConfigMgr or the history holds, B the version the
+    # vendor reports. Every part B carries is compared; a part A lacks counts
+    # as zero, so "8.9.8.1" after "8.9.8" and "31.0.1" after "31" are
+    # updates. Parts A carries beyond B are not compared: an MSI
+    # ProductVersion adds a build number ("26.2.2.2") the vendor does not
+    # publish ("26.2.2"). -Strict compares all four parts of both sides, for
+    # two versions from the same vendor feed.
     param(
         [Parameter(Mandatory)][string]$A,
-        [Parameter(Mandatory)][string]$B
+        [Parameter(Mandatory)][string]$B,
+        [switch]$Strict
     )
     try {
         # [version] rejects a single number such as NetBeans "31".
         $va = [version](($A -replace '[+-].*$', '') -replace '^(\d+)$', '$1.0')
         $vb = [version](($B -replace '[+-].*$', '') -replace '^(\d+)$', '$1.0')
 
-        # Significant-part counts. Unset Build/Revision on [version] is -1.
-        $aCount = 2
-        if ($va.Build -ge 0) { $aCount = 3 }
-        if ($va.Revision -ge 0) { $aCount = 4 }
-        $bCount = 2
-        if ($vb.Build -ge 0) { $bCount = 3 }
-        if ($vb.Revision -ge 0) { $bCount = 4 }
-
-        # Compare only the parts both sides actually provide. If one side has
-        # extra trailing parts (e.g., MSI "26.2.2.2" vs vendor "26.2.2"), we
-        # treat the extra parts as non-significant. This handles LibreOffice
-        # and mRemoteNG where the MSI adds internal build numbers the vendor
-        # doesn't publish as the version. The exception is a vendor release
-        # that adds a fourth part to a full three-part version: Notepad++
-        # 8.9.8.1 follows 8.9.8. A short version ("31") stays a coarse label.
-        $minCount = [Math]::Min($aCount, $bCount)
-        if ($aCount -ge 3 -and $bCount -gt $aCount) { $minCount = $bCount }
+        # Unset Build/Revision on [version] is -1.
+        $count = 4
+        if (-not $Strict) {
+            $count = 2
+            if ($vb.Build -ge 0) { $count = 3 }
+            if ($vb.Revision -ge 0) { $count = 4 }
+        }
         $aParts = @($va.Major, $va.Minor, [Math]::Max($va.Build, 0), [Math]::Max($va.Revision, 0))
         $bParts = @($vb.Major, $vb.Minor, [Math]::Max($vb.Build, 0), [Math]::Max($vb.Revision, 0))
 
-        for ($i = 0; $i -lt $minCount; $i++) {
+        for ($i = 0; $i -lt $count; $i++) {
             if ($aParts[$i] -lt $bParts[$i]) { return -1 }
             if ($aParts[$i] -gt $bParts[$i]) { return  1 }
         }
@@ -3562,7 +3560,7 @@ function Invoke-BatchUpdate {
         # A vendor feed can step back to an older release (Dell's catalog
         # listed 5.7.0 after 5.7.1). Acting would publish the older build, so
         # the run skips it and keeps the newer version on record.
-        if (-not $Force -and $lastKnown -and (Compare-SemVer -A ([string]$lastKnown) -B ([string]$latest)) -gt 0) {
+        if (-not $Force -and $lastKnown -and (Compare-SemVer -A ([string]$lastKnown) -B ([string]$latest) -Strict) -gt 0) {
             Write-Log ("[batch] [VendorOlder] {0}: vendor reports {1}, older than {2} seen before; skipping" -f $baseName, $latest, $lastKnown) -Level WARN
             $results += [pscustomobject]@{ Name = $baseName; Action = 'Skipped'; OldVersion = $lastKnown; NewVersion = $latest; Reason = ("vendor reports {0}, older than {1}" -f $latest, $lastKnown) }
             continue
@@ -7525,7 +7523,7 @@ function Invoke-MultiAppPipeline {
                         # A vendor feed can step back to an older release (Dell's
                         # catalog listed 5.7.0 after 5.7.1). The run skips it and
                         # keeps the newer version on record.
-                        if (-not $Ctx.ForceFlag -and $lastKnown -and (Compare-SemVer -A ([string]$lastKnown) -B ([string]$latest)) -gt 0) {
+                        if (-not $Ctx.ForceFlag -and $lastKnown -and (Compare-SemVer -A ([string]$lastKnown) -B ([string]$latest) -Strict) -gt 0) {
                             $row.Status = 'Vendor older than last seen'
                             [void]$State.LogQueue.Enqueue(('{0}: the vendor reports {1}, older than {2} seen before - skipping' -f $app, $latest, $lastKnown))
                             $counts['Skipped']++
