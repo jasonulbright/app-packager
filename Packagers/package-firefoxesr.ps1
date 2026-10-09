@@ -178,14 +178,18 @@ function Invoke-StageFirefoxEsr {
     Initialize-Folder -Path $BaseDownloadRoot
 
     # --- Get version ---
-    $version = Get-LatestFirefoxEsrVersion
-    if (-not $version) { throw "Could not resolve Firefox ESR version." }
+    $releaseTrain = Get-LatestFirefoxEsrVersion
+    if (-not $releaseTrain) { throw "Could not resolve Firefox ESR version." }
 
-    $fileVersion = Get-EsrFileVersion -Version $version
+    # The train name ("140.17.0esr") names the download; the recorded version
+    # is the numeric part, which is also the file version of firefox.exe.
+    $version = Get-EsrFileVersion -Version $releaseTrain
+    $fileVersion = $version
 
-    $msiFileName = "Firefox Setup $version.msi"
-    $downloadUrl = "$DownloadBase/$version/win64/en-US/" + ($msiFileName -replace ' ', '%20')
+    $msiFileName = "Firefox Setup $releaseTrain.msi"
+    $downloadUrl = "$DownloadBase/$releaseTrain/win64/en-US/" + ($msiFileName -replace ' ', '%20')
 
+    Write-Log "Release train                : $releaseTrain"
     Write-Log "Version                      : $version"
     Write-Log "Detection file version       : $fileVersion"
     Write-Log "Installer filename           : $msiFileName"
@@ -343,7 +347,7 @@ if ($GetLatestVersionOnly) {
         $ProgressPreference = 'SilentlyContinue'
         $v = Get-LatestFirefoxEsrVersion -Quiet
         if (-not $v) { exit 1 }
-        Write-Output $v
+        Write-Output (Get-EsrFileVersion -Version $v)
         exit 0
     }
     catch {
