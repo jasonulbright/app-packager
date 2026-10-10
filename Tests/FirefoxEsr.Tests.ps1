@@ -9,7 +9,7 @@ BeforeAll {
     $gui = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\start-apppackager.ps1'), [ref]$t, [ref]$e)
     if ($e) { throw ($e.Message -join '; ') }
     $runner = $gui.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-PackagerGetLatestVersion' }, $false)
-    $script:GuiVersionPattern = [regex]::Match($runner.Extent.Text, "\`$version -notmatch '([^']+)'").Groups[1].Value
+    $script:GuiVersionPattern = [regex]::Match($runner.Extent.Text, "\`$pattern = '([^']+)'").Groups[1].Value
 }
 
 Describe 'Firefox ESR version strings' {

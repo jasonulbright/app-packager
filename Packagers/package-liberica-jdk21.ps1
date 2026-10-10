@@ -191,10 +191,10 @@ function Invoke-StageLibericaJDK21 {
     $msiFileName = $release.FileName
     $downloadUrl = $release.DownloadUrl
 
-    # The API version carries the OpenJDK build suffix (21.0.12.1+1). '+' is
-    # legal in a path but not in a ConfigMgr software version, so the folder and
-    # manifest version use a dotted form.
-    $displayVersion = $release.Version -replace '\+', '.'
+    # The API version carries the OpenJDK build suffix (21.0.12.1+1), kept as
+    # the version like the Temurin packagers do: a dotted form would be five
+    # numbers, which neither the GUI nor [version] accepts.
+    $displayVersion = $release.Version
 
     Write-Log "Version                      : $displayVersion"
     Write-Log "Installer filename           : $msiFileName"
@@ -363,7 +363,7 @@ if ($GetLatestVersionOnly) {
         $ProgressPreference = 'SilentlyContinue'
         $rel = Get-LatestLibericaRelease -Quiet
         if (-not $rel) { exit 1 }
-        Write-Output ($rel.Version -replace '\+', '.')
+        Write-Output $rel.Version
         exit 0
     }
     catch {
