@@ -136,8 +136,9 @@ function Get-LatestSMathRelease {
     Write-Log "SMath download page          : $DownloadPageUrl" -Quiet:$Quiet
 
     try {
-        $html = (curl.exe -L --fail --silent --show-error --max-time 20 $DownloadPageUrl) -join "`n"
-        if ($LASTEXITCODE -ne 0) { throw "Failed to fetch the SMath Studio download page." }
+        # The site answers slowly at times; curl retries a timeout or a 5xx twice.
+        $html = (curl.exe -L --fail --silent --show-error --max-time 20 --retry 2 --retry-delay 5 $DownloadPageUrl) -join "`n"
+        if ($LASTEXITCODE -ne 0) { throw "Failed to fetch the SMath Studio download page (curl exit $LASTEXITCODE)." }
 
         $rx = [regex]'href\s*=\s*"(?<href>[^"]*?SMathStudioDesktop\.(?<ver>\d+(?:_\d+)+)\.Setup\.msi)"'
         $rxMatches = $rx.Matches($html)
