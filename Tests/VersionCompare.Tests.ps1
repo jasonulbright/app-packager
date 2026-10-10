@@ -28,6 +28,8 @@ Describe 'Single-number vendor versions' {
         @{ A = '11.0.30+7'; B = '11.0.31'; Expected = -1 }
         @{ A = '140.16.0esr'; B = '140.17.0'; Expected = -1 }
         @{ A = '140.17.0esr'; B = '140.17.0'; Expected = 0 }
+        @{ A = '21.0.12.1.1'; B = '21.0.12.1+1'; Expected = 0 }
+        @{ A = '21.0.12.1.1'; B = '21.0.13+5'; Expected = -1 }
     ) {
         param($A, $B, $Expected)
         Compare-SemVer -A $A -B $B | Should -Be $Expected
@@ -56,7 +58,7 @@ Describe 'Single-number vendor versions' {
     It 'accepts a single-number latest version in both version checks' {
         $gui = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\start-apppackager.ps1') -Raw
         $vmText = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\VersionMonitor\Module\VersionMonitorCommon.psm1') -Raw
-        $guiPattern = [regex]::Match($gui, "\`$version -notmatch '([^']+)'").Groups[1].Value
+        $guiPattern = [regex]::Match($gui, "\`$pattern = '([^']+)'").Groups[1].Value
         $vmPattern = [regex]::Match($vmText, "\`$version -notmatch '([^']+)'").Groups[1].Value
         '31' | Should -Match $guiPattern
         '31' | Should -Match $vmPattern

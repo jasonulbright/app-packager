@@ -1614,8 +1614,10 @@ function Compare-SemVer {
         # [version] rejects a single number such as NetBeans "31", a build
         # suffix ("11.0.30+7") and a channel suffix ("140.17.0esr" as
         # ConfigMgr held it before the packager recorded the number alone).
-        $va = [version]((($A -replace '[+-].*$', '') -replace '[A-Za-z]+$', '') -replace '^(\d+)$', '$1.0')
-        $vb = [version]((($B -replace '[+-].*$', '') -replace '[A-Za-z]+$', '') -replace '^(\d+)$', '$1.0')
+        # A fifth number (a build suffix recorded as ".1" by an earlier
+        # Liberica packager) is dropped: [version] holds four.
+        $va = [version]((((($A -replace '[+-].*$', '') -replace '[A-Za-z]+$', '') -replace '^((\d+\.){3}\d+)\..*$', '$1') -replace '^(\d+)$', '$1.0'))
+        $vb = [version]((((($B -replace '[+-].*$', '') -replace '[A-Za-z]+$', '') -replace '^((\d+\.){3}\d+)\..*$', '$1') -replace '^(\d+)$', '$1.0'))
 
         # Unset Build/Revision on [version] is -1.
         $count = 4
@@ -1687,11 +1689,15 @@ function Invoke-PackagerGetLatestVersion {
         $lines = @($stdout -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
         if (-not $lines -or $lines.Count -lt 1) { throw "No version output received." }
 
-        $version = ([string]$lines[0]).Trim()
-        if ($version -notmatch '^\d+(\.\d+){0,3}([+-]\d+)?$') {
-            throw ("Unexpected version string: '{0}'" -f $version)
+        # A module the packager loads can log to stdout before the version
+        # line (the installer analysis writes "Analyzing file: ..."), so the
+        # version is the first line that has the shape of one.
+        $pattern = '^\d+(\.\d+){0,3}([+-]\d+)?$'
+        $version = @($lines | Where-Object { $_ -match $pattern } | Select-Object -First 1)
+        if ($version.Count -eq 0) {
+            throw ("Unexpected version string: '{0}'" -f ([string]$lines[0]).Trim())
         }
-        return $version
+        return ([string]$version[0]).Trim()
     }
     finally {
         if ($p) { try { $p.Dispose() } catch { } }

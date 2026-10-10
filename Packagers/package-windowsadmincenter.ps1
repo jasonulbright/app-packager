@@ -169,7 +169,6 @@ function Get-StagedInstaller {
     Invoke-CachedDownload -Url $DownloadUrl -OutFile $localExe -Quiet:$Quiet
 
     Assert-PayloadIsExecutable -Path $localExe
-    Assert-ArpDetectionKey -InstallerPath $localExe -ExpectedKey $ArpRegistryKey -Is64BitView $true
 
     $version = Get-SetupFileVersion -Path $localExe
     Write-Log "Latest Windows Admin Center  : $version" -Quiet:$Quiet
@@ -190,6 +189,9 @@ function Invoke-StageWindowsAdminCenter {
     Write-Log ""
 
     $installer = Get-StagedInstaller
+    # Stage-time check only: its analysis log would precede the version line
+    # that -GetLatestVersionOnly prints.
+    Assert-ArpDetectionKey -InstallerPath $installer.Path -ExpectedKey $ArpRegistryKey -Is64BitView $true
     $version   = $installer.Version
 
     Write-Log "Version                      : $version"
