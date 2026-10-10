@@ -1,5 +1,27 @@
 # Changelog
 
+## [2026.10.10.0107] - 2026-10-10
+
+## 308 of 312 packagers staged in one run
+
+### Fixed
+
+- Report a vendor release with more version parts than ConfigMgr holds as an update.
+- Compare all four version parts when a vendor feed steps back.
+- Read the version from the first output line that is a version.
+- Record Firefox ESR as 140.17.0 instead of 140.17.0esr.
+- Keep the Liberica JDK 21 build suffix as the vendor prints it.
+- Run the Windows Admin Center detection key check in Stage only.
+- Retry the SMath Studio page fetch twice; stop after 20 seconds.
+- Compare a ConfigMgr version that carries a channel suffix or a fifth number.
+
+### Documentation
+
+- Add the Network requests section: which process sends each call and where.
+- Match the application table to the packager headers and detection blocks.
+- Document the WsusSupport and LocalSource header tags.
+- List the One Click module, vendored modules, Samples and Tests in Project Structure.
+
 ## [2026.10.07.0106] - 2026-10-07
 
 ## 1 shared module version synchronized
