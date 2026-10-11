@@ -71,7 +71,7 @@ Import-Module (Join-Path $PSScriptRoot 'Packagers\AppPackagerCommon.psm1') -Forc
 # second import of an already-loaded module is a no-op. The WSUS publisher
 # loads only here and in the background runspace: packager children never
 # publish.
-foreach ($workbenchModule in @('AppPackagerWorkbench.psm1', 'AppPackagerSigning.psm1', 'AppPackagerWsus.psm1', 'AppPackagerOneClick.psm1')) {
+foreach ($workbenchModule in @('AppPackagerWorkbench.psm1', 'AppPackagerSigning.psm1', 'AppPackagerWsus.psm1', 'AppPackagerOneClick.psm1', 'AppPackagerVulnerability.psm1')) {
     $modulePath = Join-Path $PSScriptRoot ('Packagers\' + $workbenchModule)
     if (Test-Path -LiteralPath $modulePath) {
         Import-Module $modulePath -Force -Global -DisableNameChecking -ErrorAction SilentlyContinue
@@ -319,6 +319,11 @@ function Read-Preferences {
             Apps = [pscustomobject]@{}
         }
         WorkbenchDataRoot = ''
+        Vulnerability = [pscustomobject]@{
+            # NVD allows 5 requests per 30 seconds without a key, 50 with one.
+            NvdApiKey         = ''
+            CacheTtlMinutes   = 360
+        }
         # Signing creation and signature enforcement are separate concerns;
         # every switch defaults off so an existing installation keeps its
         # current behavior until an operator turns one on.
@@ -345,6 +350,13 @@ function Read-Preferences {
         $raw = Get-Content -LiteralPath $path -Raw -ErrorAction Stop
         if ([string]::IsNullOrWhiteSpace($raw)) { return $defaults }
         $data = $raw | ConvertFrom-Json -ErrorAction Stop
+
+        if ($null -ne $data.Vulnerability) {
+            $vu = $data.Vulnerability
+            if ($null -ne $vu.NvdApiKey) { $defaults.Vulnerability.NvdApiKey = ([string]$vu.NvdApiKey).Trim() }
+            $ttl = 0
+            if ([int]::TryParse([string]$vu.CacheTtlMinutes, [ref]$ttl) -and $ttl -ge 0) { $defaults.Vulnerability.CacheTtlMinutes = $ttl }
+        }
 
         if ($null -ne $data.SiteCode)             { $defaults.SiteCode             = [string]$data.SiteCode }
         if ($null -ne $data.ProviderMachineName)  { $defaults.ProviderMachineName  = [string]$data.ProviderMachineName }
@@ -1130,6 +1142,7 @@ function Get-Packagers {
                 SupportsInstallModes = @($m.SupportsInstallModes)
                 LocalSource       = [bool]$m.LocalSource
                 LocalSourceRequired = [bool]$m.LocalSourceRequired
+                CPE               = [string]$m.CPE
                 CurrentVersion    = ""
                 LatestVersion     = ""
                 Status            = $status
@@ -1148,6 +1161,7 @@ function Get-Packagers {
                 UpdateCadenceDays = $null
                 SupportsVariants  = @()
                 SupportsInstallModes = @()
+                CPE               = ""
                 CurrentVersion    = ""
                 LatestVersion     = ""
                 Status            = ("Read error: " + $_.Exception.Message)
@@ -3917,6 +3931,8 @@ $toggleTheme     = $window.FindName('toggleTheme')
 $txtThemeLabel   = $window.FindName('txtThemeLabel')
 $btnCheckLatest  = $window.FindName('btnCheckLatest')
 $btnCheckMECM    = $window.FindName('btnCheckMECM')
+$btnCheckCve     = $window.FindName('btnCheckCve')
+$btnCveReport    = $window.FindName('btnCveReport')
 $btnStage        = $window.FindName('btnStage')
 $btnPackage      = $window.FindName('btnPackage')
 $btnPublishIntune = $window.FindName('btnPublishIntune')
@@ -3938,6 +3954,8 @@ $colCMName       = $window.FindName('colCMName')
 $colScript       = $window.FindName('colScript')
 $colVendorURL    = $window.FindName('colVendorURL')
 $colLastChecked  = $window.FindName('colLastChecked')
+$colCves         = $window.FindName('colCves')
+$colCveChecked   = $window.FindName('colCveChecked')
 $progressOverlay  = $window.FindName('progressOverlay')
 $txtProgressTitle = $window.FindName('txtProgressTitle')
 $txtProgressStep  = $window.FindName('txtProgressStep')
@@ -3953,7 +3971,7 @@ $btnCancelPipeline = $window.FindName('btnCancelPipeline')
 [ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($window, "Dark.Steel")
 
 # Palette and button/label theming come from SuiteCommon.
-$script:WorkflowButtons = @($btnFullRun, $btnCheckLatest, $btnCheckMECM, $btnStage, $btnPackage, $btnPublishIntune, $btnPublishWsus, $btnWsusUpdates)
+$script:WorkflowButtons = @($btnFullRun, $btnCheckLatest, $btnCheckMECM, $btnCheckCve, $btnStage, $btnPackage, $btnPublishIntune, $btnPublishWsus, $btnWsusUpdates, $btnCveReport)
 $script:OptionsButtons  = @($btnOptions)
 
 Initialize-SuiteTheme -Window $window `
@@ -4186,6 +4204,8 @@ function Set-ActionButtonsEnabled {
     $script:ActionButtonsEnabled = $Enabled
     $btnCheckLatest.IsEnabled   = $Enabled
     $btnCheckMECM.IsEnabled     = $Enabled
+    $btnCheckCve.IsEnabled      = $Enabled
+    $btnCveReport.IsEnabled     = $Enabled
     $btnStage.IsEnabled         = $Enabled
     $btnPackage.IsEnabled       = $Enabled
     $btnPublishIntune.IsEnabled = $Enabled
@@ -4421,6 +4441,7 @@ $toggleDebugCols.Add_Toggled({
     $colScript.Visibility      = $vis
     $colVendorURL.Visibility   = $vis
     $colLastChecked.Visibility = $vis
+    $colCveChecked.Visibility  = $vis
     Add-LogLine -Message ("Debug columns {0}." -f $(if ($toggleDebugCols.IsOn) { 'shown' } else { 'hidden' }))
 })
 
@@ -6611,6 +6632,28 @@ function Get-SiteIdentityKey {
     return ('{0}|{1}' -f ([string]$SiteCode).Trim(), ([string]$ProviderMachineName).Trim()).ToUpperInvariant()
 }
 
+function Get-CveGridCells {
+    # The four CVE cells of a grid row from a history summary (hashtable or
+    # the PSCustomObject ConvertFrom-Json returns), or the placeholder for a
+    # row that has no CPE header. No module call: the grid renders before
+    # and without the vulnerability module.
+    param($Summary, [AllowNull()][AllowEmptyString()][string]$Cpe)
+    $get = { param($name) if ($null -eq $Summary) { $null } elseif ($Summary -is [System.Collections.IDictionary]) { $Summary[$name] } elseif ($Summary.PSObject.Properties[$name]) { $Summary.PSObject.Properties[$name].Value } else { $null } }
+    $cells = [pscustomobject]@{ Cpe = [string]$Cpe; Count = ''; Cvss = ''; Kev = ''; Checked = '' }
+    if ([string]::IsNullOrWhiteSpace($Cpe)) { $cells.Count = 'CPE missing'; return $cells }
+    if ($null -eq $Summary) { return $cells }
+    $cells.Checked = [string](& $get 'QueriedAt')
+    if (& $get 'Error') { $cells.Count = 'Error'; return $cells }
+    $cells.Count = [string][int](& $get 'Count')
+    $score = & $get 'MaxCvss'
+    if ($null -ne $score -and "$score" -ne '') {
+        $sev = [string](& $get 'MaxSeverity')
+        $cells.Cvss = ('{0:N1} {1}' -f [double]$score, $sev).Trim()
+    }
+    if ([int](& $get 'KevCount') -gt 0) { $cells.Kev = 'Yes' }
+    return $cells
+}
+
 function Invoke-RefreshGrid {
     # ConfigMgr versions and compare results describe one site; a site change
     # must not carry them onto rows that now point elsewhere.
@@ -6642,16 +6685,19 @@ function Invoke-RefreshGrid {
         $baseName     = [System.IO.Path]::GetFileNameWithoutExtension($m.Script)
         $latestStored = ""
         $lastChecked  = ""
+        $cmStored     = ""
+        $vulnStored   = $null
         if ($history.ContainsKey($baseName)) {
             $entry = $history[$baseName]
-            if ($entry -is [hashtable]) {
-                if ($entry['LastKnownVersion']) { $latestStored = [string]$entry['LastKnownVersion'] }
-                if ($entry['LastChecked'])      { $lastChecked  = [string]$entry['LastChecked'] }
-            } else {
-                if ($entry.LastKnownVersion) { $latestStored = [string]$entry.LastKnownVersion }
-                if ($entry.LastChecked)      { $lastChecked  = [string]$entry.LastChecked }
-            }
+            $field = { param($name) if ($entry -is [hashtable]) { $entry[$name] } elseif ($entry.PSObject.Properties[$name]) { $entry.PSObject.Properties[$name].Value } else { $null } }
+            if (& $field 'LastKnownVersion') { $latestStored = [string](& $field 'LastKnownVersion') }
+            if (& $field 'LastChecked')      { $lastChecked  = [string](& $field 'LastChecked') }
+            # The ConfigMgr version from an earlier session belongs to the
+            # site it was read from.
+            if ((& $field 'LastCmVersion') -and [string](& $field 'LastCmSite') -eq [string]$script:Prefs.SiteCode) { $cmStored = [string](& $field 'LastCmVersion') }
+            $vulnStored = & $field 'VulnSummary'
         }
+        $cve = Get-CveGridCells -Summary $vulnStored -Cpe $(if ($m.PSObject.Properties['CPE']) { [string]$m.CPE } else { '' })
 
         $row = $script:GridSessionRows[[string]$m.Script]
         if ($row) {
@@ -6661,11 +6707,17 @@ function Invoke-RefreshGrid {
             $row.FullPath    = $m.FullPath
             $row.VendorURL   = $m.VendorUrl
             $row.Description = $m.Description
+            $row.Cpe         = $cve.Cpe
             if (-not [string]$row.LatestVersion) { $row.LatestVersion = $latestStored }
             if (-not [string]$row.LastChecked)   { $row.LastChecked   = $lastChecked }
+            if (-not [string]$row.CveChecked -and -not [string]$row.CveCount) {
+                $row.CveCount = $cve.Count; $row.CveCvss = $cve.Cvss; $row.CveKev = $cve.Kev; $row.CveChecked = $cve.Checked
+            }
             if ($DiscardSiteResults -or ([string]$m.Status).StartsWith('Read error')) {
                 $row.CurrentVersion = ""
                 $row.Status         = $m.Status
+                $row.CveCount = $cve.Count; $row.CveCvss = ''; $row.CveKev = ''; $row.CveChecked = ''
+                if ($cve.Checked) { $row.CveCount = '' }
             }
         }
         else {
@@ -6673,7 +6725,7 @@ function Invoke-RefreshGrid {
                 Selected       = $false
                 Vendor         = $m.Vendor
                 Application    = $m.Application
-                CurrentVersion = ""
+                CurrentVersion = $cmStored
                 LatestVersion  = $latestStored
                 Status         = $m.Status
                 CMName         = $m.CMName
@@ -6682,6 +6734,11 @@ function Invoke-RefreshGrid {
                 VendorURL      = $m.VendorUrl
                 Description    = $m.Description
                 LastChecked    = $lastChecked
+                Cpe            = $cve.Cpe
+                CveCount       = $cve.Count
+                CveCvss        = $cve.Cvss
+                CveKev         = $cve.Kev
+                CveChecked     = $cve.Checked
             }
             $script:GridSessionRows[[string]$m.Script] = $row
         }
@@ -6759,6 +6816,7 @@ function Initialize-BackgroundWorker {
         (Join-Path $PSScriptRoot 'Packagers\AppPackagerSigning.psm1')
         (Join-Path $PSScriptRoot 'Packagers\AppPackagerWsus.psm1')
         (Join-Path $PSScriptRoot 'Packagers\AppPackagerOneClick.psm1')
+        (Join-Path $PSScriptRoot 'Packagers\AppPackagerVulnerability.psm1')
     )
     $initPS = [powershell]::Create()
     $initPS.Runspace = $script:BgRunspace
@@ -6810,7 +6868,7 @@ function Initialize-BackgroundWorker {
 function Invoke-MultiAppPipeline {
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('CheckLatest','Stage','Package','FullRun','OneClick')]
+        [ValidateSet('CheckLatest','CheckCve','Stage','Package','FullRun','OneClick')]
         [string]$Operation,
         [Parameter(Mandatory)]
         [array]$Rows,
@@ -6861,6 +6919,7 @@ function Invoke-MultiAppPipeline {
 
     $titleMap = @{
         CheckLatest = 'Checking latest versions'
+        CheckCve    = 'Checking CVEs'
         Stage       = 'Staging packages'
         Package     = 'Packaging applications'
         FullRun     = 'One Click flow'
@@ -6973,6 +7032,50 @@ function Invoke-MultiAppPipeline {
                             $row.Status = 'Error'
                             [void]$State.LogQueue.Enqueue(('Error: ' + $_.Exception.Message))
                             try { Update-PackagerHistory -PackagerName $baseName -Event Checked -Result Failed } catch { }
+                            $counts['CheckFailed']++
+                        }
+                    }
+
+                    'CheckCve' {
+                        $State.Step = ('CVEs {0}/{1}: {2}' -f $i, $n, $app)
+                        [void]$State.LogQueue.Enqueue(('CVEs: {0} ({1})' -f $app, $scrName))
+                        $cpe     = [string]$row.Cpe
+                        $current = [string]$row.CurrentVersion
+                        $latest  = [string]$row.LatestVersion
+                        $reason = ''
+                        if ([string]::IsNullOrWhiteSpace($cpe)) { $reason = 'CPE missing' }
+                        elseif ([string]::IsNullOrWhiteSpace($current)) { $reason = 'No ConfigMgr version' }
+                        elseif ([string]::IsNullOrWhiteSpace($latest)) { $reason = 'No latest version' }
+                        if ($reason) {
+                            $row.CveCount = $reason
+                            $row.CveCvss = ''; $row.CveKev = ''
+                            [void]$State.LogQueue.Enqueue(('Skipped: {0}.' -f $reason))
+                            $counts['Skipped']++
+                            continue
+                        }
+                        try {
+                            if ($null -eq $Ctx.KevCatalog) { $Ctx.KevCatalog = Get-KevCatalog }
+                            $res = Get-ProductVulnerabilities -Cpe $cpe -CurrentVersion $current -LatestVersion $latest `
+                                -ApiKey ([string]$Ctx.NvdApiKey) -CacheTtlMinutes ([int]$Ctx.CacheTtlMinutes) -KevCatalog $Ctx.KevCatalog -Force:([bool]$Ctx.ForceRefresh)
+                            $summary = Get-VulnerabilitySummary -Result $res
+                            $cells = Get-CveGridCells -Summary $summary -Cpe $cpe
+                            $row.CveCount = $cells.Count; $row.CveCvss = $cells.Cvss; $row.CveKev = $cells.Kev; $row.CveChecked = $cells.Checked
+                            if ($res.Error) {
+                                [void]$State.LogQueue.Enqueue(('Error: ' + $res.Error))
+                                $counts['CheckFailed']++
+                            }
+                            else {
+                                $text = ConvertTo-VulnerabilityCountText -Count $res.Count -KevCount $res.KevCount
+                                if ([string]$row.Status -match '^Update available') { $row.Status = 'Update available (' + $text + ')' }
+                                [void]$State.LogQueue.Enqueue(('{0} between {1} and {2} ({3}){4}' -f $text, $res.From, $res.To, $res.Source, $(if ($null -ne $res.MaxCvss) { '; max CVSS ' + (ConvertTo-VulnerabilityCvssText -Score $res.MaxCvss -Severity $res.MaxSeverity) } else { '' })))
+                                $counts['Checked']++
+                            }
+                            try { Update-PackagerHistory -PackagerName $baseName -Event VulnChecked -Data $summary } catch {
+                                [void]$State.LogQueue.Enqueue(('History write failed for {0}: {1}' -f $baseName, $_.Exception.Message))
+                            }
+                        } catch {
+                            $row.CveCount = 'Error'
+                            [void]$State.LogQueue.Enqueue(('Error: ' + $_.Exception.Message))
                             $counts['CheckFailed']++
                         }
                     }
@@ -7505,6 +7608,7 @@ function Invoke-MultiAppPipeline {
                                     $mecmRes = Get-MecmCurrentVersionByCMName -SiteCode $Ctx.SiteCode -ProviderMachineName $Ctx.ProviderMachineName -CMName $cmName
                                     if ($mecmRes.Found -and -not [string]::IsNullOrWhiteSpace([string]$mecmRes.SoftwareVersion)) {
                                         $row.CurrentVersion = [string]$mecmRes.SoftwareVersion
+                                        try { Update-PackagerHistory -PackagerName $baseName -Event CmChecked -Version ([string]$mecmRes.SoftwareVersion) -Data @{ SiteCode = [string]$Ctx.SiteCode } } catch { }
                                         $cmp = Compare-SemVer -A ([string]$mecmRes.SoftwareVersion) -B $latest
                                         if ($cmp -eq 0) {
                                             $row.Status = 'Up to date (ConfigMgr)'
@@ -7821,6 +7925,7 @@ function Invoke-MultiAppPipeline {
                     if ($summaryEntries.Count -gt 0) {
                         $summaryLabel = switch ($script:BgOperation) {
                             'CheckLatest' { 'Check Latest summary:'; break }
+                            'CheckCve'    { 'Check CVEs summary:'; break }
                             'Stage'       { 'Stage summary:'; break }
                             'Package'     { 'Package summary:'; break }
                             'FullRun'     { 'One Click summary:'; break }
@@ -8570,14 +8675,17 @@ $btnCheckMECM.Add_Click({
             try {
                 $res = Get-MecmCurrentVersionByCMName -SiteCode $siteCodeValue -ProviderMachineName $script:Prefs.ProviderMachineName -CMName $cmName
 
+                $baseName = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script)
                 if (-not $res.Found) {
                     $row.CurrentVersion = ""
                     $row.Status = "Not found in ConfigMgr"
+                    try { Update-PackagerHistory -PackagerName $baseName -Event CmChecked -Version '' -Data @{ SiteCode = $siteCodeValue } } catch { }
                     Add-LogLine -Message "Not found."
                     continue
                 }
 
                 $row.CurrentVersion = [string]$res.SoftwareVersion
+                try { Update-PackagerHistory -PackagerName $baseName -Event CmChecked -Version ([string]$res.SoftwareVersion) -Data @{ SiteCode = $siteCodeValue } } catch { }
 
                 $latest = [string]$row.LatestVersion
                 if (-not [string]::IsNullOrWhiteSpace($latest) -and -not [string]::IsNullOrWhiteSpace($res.SoftwareVersion)) {
@@ -8798,6 +8906,373 @@ $btnWsusUpdates.Add_Click({
         return
     }
     Show-WsusPublishedUpdatesDialog -Owner $window -Settings $settings
+})
+
+# --- 4b. CVEs ---
+# Check CVEs runs Get-ProductVulnerabilities per checked row off the UI
+# thread; the CVE cell opens the detail window from the cache; CVE Report
+# writes the files under Logs\Reports from the same cache.
+
+function Open-ExternalUrl {
+    # Only https URLs leave the application; everything else is logged and
+    # dropped (a vendor reference can be any string).
+    param([AllowNull()][AllowEmptyString()][string]$Url)
+    if ([string]::IsNullOrWhiteSpace($Url) -or $Url -notmatch '^https://') {
+        Add-LogLine -Message ('Link not opened (not https): {0}' -f $Url)
+        return
+    }
+    try { Start-Process $Url } catch { Add-LogLine -Message ('Link failed: {0}' -f $_.Exception.Message) }
+}
+
+function Get-CveNvdApiKey {
+    $key = ''
+    try { $key = [string]$script:Prefs.Vulnerability.NvdApiKey } catch { }
+    if ([string]::IsNullOrWhiteSpace($key) -and $env:NVD_API_KEY) { $key = [string]$env:NVD_API_KEY }
+    return $key.Trim()
+}
+
+function Get-CveCacheTtlMinutes {
+    $ttl = 360
+    try { if ($null -ne $script:Prefs.Vulnerability.CacheTtlMinutes) { $ttl = [int]$script:Prefs.Vulnerability.CacheTtlMinutes } } catch { }
+    return $ttl
+}
+
+function Get-CveCachedResult {
+    # The cached lookup for a grid row, or $null when none was run for the
+    # row's CPE and version pair.
+    param([Parameter(Mandatory)]$Row)
+    $cpe = [string]$Row.Cpe
+    if ([string]::IsNullOrWhiteSpace($cpe)) { return $null }
+    $from = ConvertTo-VulnerabilityVersion -Version ([string]$Row.CurrentVersion)
+    $to   = ConvertTo-VulnerabilityVersion -Version ([string]$Row.LatestVersion)
+    if (-not $from -or -not $to) { return $null }
+    $cache = Read-VulnerabilityCache
+    $key = '{0}|{1}|{2}' -f $cpe, $from, $to
+    if (-not $cache.ContainsKey($key)) { return $null }
+    return (ConvertTo-VulnerabilityResultObject -Result $cache[$key])
+}
+
+function Get-CveReportRows {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][array]$Rows)
+    $out = foreach ($row in $Rows) {
+        $res = Get-CveCachedResult -Row $row
+        $note = ''
+        $count = [string]$row.CveCount
+        if (-not $res -and $count -and $count -notmatch '^\d+$') { $note = $count }
+        elseif (-not $res) { $note = 'Not checked' }
+        [pscustomobject]@{
+            Application    = [string]$row.Application
+            Vendor         = [string]$row.Vendor
+            Script         = [string]$row.Script
+            CurrentVersion = [string]$row.CurrentVersion
+            LatestVersion  = [string]$row.LatestVersion
+            Status         = [string]$row.Status
+            Cpe            = [string]$row.Cpe
+            Note           = $note
+            Result         = $res
+        }
+    }
+    return @($out)
+}
+
+function Get-CveReportFolder {
+    Join-Path (Join-Path $PSScriptRoot 'Logs') 'Reports'
+}
+
+function Write-CveReportForRows {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][array]$Rows, [string]$Name = '')
+    $reportRows = Get-CveReportRows -Rows $Rows
+    $paths = Export-VulnerabilityReport -Rows $reportRows -Folder (Get-CveReportFolder) -Name $Name -Title 'AppPackager CVE report'
+    Add-LogLine -Message ('CVE report: {0}' -f $paths.Html)
+    Add-LogLine -Message ('CVE report: {0}' -f $paths.ApplicationsCsv)
+    Add-LogLine -Message ('CVE report: {0}' -f $paths.CvesCsv)
+    Add-LogLine -Message ('CVE report: {0}' -f $paths.Json)
+    return $paths
+}
+
+function ConvertTo-CveDialogRows {
+    param($Result)
+    $rows = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
+    # The comma keeps an empty collection from unrolling into nothing.
+    if (-not $Result) { return ,$rows }
+    foreach ($c in @($Result.Cves)) {
+        $links = @()
+        foreach ($k in $c.Links.Keys) { $links += [pscustomobject]@{ Name = [string]$k; Url = [string]$c.Links[$k] } }
+        if ($c.References.Count -gt 0 -and [string]$c.References[0] -match '^https://') { $links += [pscustomobject]@{ Name = 'Reference'; Url = [string]$c.References[0] } }
+        $rows.Add([pscustomobject]@{
+            Id        = [string]$c.Id
+            Cvss      = (ConvertTo-VulnerabilityCvssText -Score $c.Score -Severity $c.Severity)
+            Epss      = $(if ($null -ne $c.Epss) { ('{0:P1}' -f [double]$c.Epss) } else { '' })
+            Kev       = $(if ($c.Kev) { 'Yes' } else { '' })
+            Published = $(if ($c.Published) { ([string]$c.Published).Substring(0, [Math]::Min(10, ([string]$c.Published).Length)) } else { '' })
+            Summary   = [string]$c.Summary
+            Links     = $links
+        })
+    }
+    return ,$rows
+}
+
+function Show-CveDetailDialog {
+    param(
+        [AllowNull()]$Owner,
+        [Parameter(Mandatory)]$Row,
+        # Test hook: receives the window internals instead of showing the window.
+        [scriptblock]$Probe = $null
+    )
+
+    $dlgXaml = @'
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="CVEs" Width="1280" Height="680" MinWidth="980" MinHeight="420"
+    WindowStartupLocation="CenterOwner" TitleCharacterCasing="Normal"
+    ShowIconOnTitleBar="False" GlowBrush="{DynamicResource MahApps.Brushes.Accent}" BorderThickness="1">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <Style x:Key="LinkButton" TargetType="Button">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Padding" Value="4,0"/>
+                <Setter Property="Margin" Value="0,0,8,2"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Accent}"/>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <StackPanel Grid.Row="0" Margin="16,12,16,8">
+            <TextBlock x:Name="txtCveTitle" FontSize="14" FontWeight="Bold" TextWrapping="Wrap"/>
+            <TextBlock x:Name="txtCveRange" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
+            <TextBlock x:Name="txtCveNote" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="#FFE07A5F" Visibility="Collapsed"/>
+            <DockPanel Margin="0,6,0,0">
+                <TextBlock Text="Product:" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <ItemsControl x:Name="productLinks">
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Content="{Binding Name}" Tag="{Binding Url}" ToolTip="{Binding Url}" Style="{StaticResource LinkButton}"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </DockPanel>
+        </StackPanel>
+        <DataGrid Grid.Row="1" x:Name="gridCves" AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
+                  SelectionMode="Single" RowHeaderWidth="0" IsReadOnly="True">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="CVE" Binding="{Binding Id}" Width="140"/>
+                <DataGridTextColumn Header="CVSS" Binding="{Binding Cvss}" Width="110"/>
+                <DataGridTextColumn Header="EPSS" Binding="{Binding Epss}" Width="70"/>
+                <DataGridTextColumn Header="KEV" Binding="{Binding Kev}" Width="50"/>
+                <DataGridTextColumn Header="Published" Binding="{Binding Published}" Width="100"/>
+                <DataGridTextColumn x:Name="colSummary" Header="Summary" Binding="{Binding Summary}" Width="*" MinWidth="260"/>
+                <DataGridTemplateColumn Header="Links" Width="380" MinWidth="300">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <ItemsControl ItemsSource="{Binding Links}">
+                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button Content="{Binding Name}" Tag="{Binding Url}" ToolTip="{Binding Url}" Style="{StaticResource LinkButton}"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+        <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
+            <DockPanel Margin="16,10,16,10">
+                <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" MinWidth="90" Height="32"
+                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="btnRefresh" Content="Refresh" MinWidth="110" Height="32" Margin="0,0,8,0"
+                            Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            ToolTip="Look the CVEs up again, bypassing the cache"/>
+                    <Button x:Name="btnCopy" Content="Copy CVE IDs" MinWidth="110" Height="32" Margin="0,0,8,0"
+                            Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    <Button x:Name="btnExport" Content="Export report" MinWidth="110" Height="32" Margin="0,0,8,0"
+                            Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            ToolTip="Write the HTML, CSV and JSON report for this app under Logs\Reports and open the HTML"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Controls:MetroWindow>
+'@
+    [xml]$xml = $dlgXaml
+    $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
+    Install-TitleBarDragFallback -Window $dlg
+    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
+
+    $txtTitle = $dlg.FindName('txtCveTitle')
+    $txtRange = $dlg.FindName('txtCveRange')
+    $txtNote = $dlg.FindName('txtCveNote')
+    $productLinks = $dlg.FindName('productLinks')
+    $gridCves = $dlg.FindName('gridCves')
+    $btnRefresh = $dlg.FindName('btnRefresh')
+    $btnCopy = $dlg.FindName('btnCopy')
+    $btnExport = $dlg.FindName('btnExport')
+    $btnClose = $dlg.FindName('btnClose')
+
+    $colSummary = $dlg.FindName('colSummary')
+    $wrap = [System.Windows.Style]::new([System.Windows.Controls.TextBlock], $colSummary.ElementStyle)
+    $wrap.Setters.Add([System.Windows.Setter]::new([System.Windows.Controls.TextBlock]::TextWrappingProperty, [System.Windows.TextWrapping]::Wrap))
+    $colSummary.ElementStyle = $wrap
+
+    $state = @{ Result = $null; Row = $Row }
+    $txtTitle.Text = ('{0} ({1})' -f [string]$Row.Application, [string]$Row.Vendor)
+
+    $render = {
+        $res = $state.Result
+        $productLinks.ItemsSource = $null
+        if (-not $res) {
+            $txtRange.Text = ('ConfigMgr {0}, latest {1}' -f $(if ([string]$Row.CurrentVersion) { [string]$Row.CurrentVersion } else { '-' }), $(if ([string]$Row.LatestVersion) { [string]$Row.LatestVersion } else { '-' }))
+            $reason = [string]$Row.CveCount
+            if (-not $reason -or $reason -match '^\d+$') { $reason = 'Not checked. Run Check ConfigMgr, Check Latest and Check CVEs for this app.' }
+            $txtNote.Text = $reason
+            $txtNote.Visibility = 'Visible'
+            $links = @()
+            if ([string]$Row.Cpe) { $set = Get-VulnerabilityLinks -Cpe ([string]$Row.Cpe) -VersionStart ([string]$Row.CurrentVersion); foreach ($k in $set.Product.Keys) { $links += [pscustomobject]@{ Name = [string]$k; Url = [string]$set.Product[$k] } } }
+            $productLinks.ItemsSource = $links
+            $gridCves.ItemsSource = (ConvertTo-CveDialogRows -Result $null)
+            return
+        }
+        $unfixedText = $(if ([int]$res.UnfixedCount -gt 0) { ' {0} more still affect {1}.' -f [int]$res.UnfixedCount, $res.To } else { '' })
+        $txtRange.Text = ('{0} fixed by updating from {1} to {2}. Source {3}, checked {4}.{5}' -f (ConvertTo-VulnerabilityCountText -Count $res.Count -KevCount $res.KevCount), $res.From, $res.To, $(if ($res.Source) { $res.Source } else { '-' }), $res.QueriedAt, $unfixedText)
+        if ($res.Error) { $txtNote.Text = [string]$res.Error; $txtNote.Visibility = 'Visible' } else { $txtNote.Visibility = 'Collapsed' }
+        $links = @()
+        foreach ($k in $res.Links.Keys) { $links += [pscustomobject]@{ Name = [string]$k; Url = [string]$res.Links[$k] } }
+        $productLinks.ItemsSource = $links
+        $gridCves.ItemsSource = (ConvertTo-CveDialogRows -Result $res)
+    }.GetNewClosure()
+
+    $state.Result = Get-CveCachedResult -Row $Row
+    & $render
+
+    # Every link in the window is a Button with its https URL in Tag.
+    $dlg.AddHandler([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent, [System.Windows.RoutedEventHandler]{
+        param($sender, $e)
+        $src = $e.OriginalSource
+        if ($src -is [System.Windows.Controls.Button] -and ([string]$src.Tag) -match '^https://') {
+            $e.Handled = $true
+            Open-ExternalUrl -Url ([string]$src.Tag)
+        }
+    })
+
+    $btnRefresh.Add_Click({
+        $cpe = [string]$Row.Cpe
+        $from = [string]$Row.CurrentVersion
+        $to = [string]$Row.LatestVersion
+        if (-not $cpe -or -not $from -or -not $to) {
+            $txtNote.Text = 'Refresh needs a CPE header, a ConfigMgr version and a latest version.'
+            $txtNote.Visibility = 'Visible'
+            return
+        }
+        $dlg.Cursor = [System.Windows.Input.Cursors]::Wait
+        try {
+            $res = Get-ProductVulnerabilities -Cpe $cpe -CurrentVersion $from -LatestVersion $to -ApiKey (Get-CveNvdApiKey) -CacheTtlMinutes (Get-CveCacheTtlMinutes) -Force
+            $state.Result = $res
+            $summary = Get-VulnerabilitySummary -Result $res
+            $cells = Get-CveGridCells -Summary $summary -Cpe $cpe
+            $Row.CveCount = $cells.Count; $Row.CveCvss = $cells.Cvss; $Row.CveKev = $cells.Kev; $Row.CveChecked = $cells.Checked
+            $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$Row.Script)
+            try { Update-PackagerHistory -PackagerName $base -Event VulnChecked -Data $summary } catch { }
+            try { $dataGrid.Items.Refresh() } catch { }
+            & $render
+        }
+        catch {
+            $txtNote.Text = $_.Exception.Message
+            $txtNote.Visibility = 'Visible'
+        }
+        finally { $dlg.Cursor = $null }
+    }.GetNewClosure())
+
+    $btnCopy.Add_Click({
+        $ids = @()
+        if ($state.Result) { foreach ($c in @($state.Result.Cves)) { $ids += [string]$c.Id } }
+        try { [System.Windows.Clipboard]::SetText(($ids -join "`r`n")) } catch { }
+        Add-LogLine -Message ('{0} CVE id(s) copied.' -f $ids.Count)
+    }.GetNewClosure())
+
+    $btnExport.Add_Click({
+        try {
+            $paths = Write-CveReportForRows -Rows @($Row)
+            if ($paths.Html) { Start-Process $paths.Html }
+        }
+        catch { Add-LogLine -Message ('CVE report failed: ' + $_.Exception.Message) }
+    }.GetNewClosure())
+
+    $btnClose.Add_Click({ $dlg.Close() }.GetNewClosure())
+
+    if ($Probe) {
+        & $Probe @{ Window = $dlg; Grid = $gridCves; Title = $txtTitle; Range = $txtRange; Note = $txtNote; ProductLinks = $productLinks; State = $state; Render = $render }
+        return
+    }
+    $dlg.Owner = $Owner
+    [void]$dlg.ShowDialog()
+}
+
+# A click on a CVE count cell opens the detail window for that row.
+$dataGrid.AddHandler(
+    [System.Windows.Controls.Primitives.ButtonBase]::ClickEvent,
+    [System.Windows.RoutedEventHandler]{
+        param($snd, $e)
+        $src = $e.OriginalSource
+        if (-not ($src -is [System.Windows.Controls.Button])) { return }
+        if ([string]$src.Tag -ne 'CveLink') { return }
+        $row = $src.DataContext
+        if (-not $row -or -not $row.PSObject.Properties['Cpe']) { return }
+        $e.Handled = $true
+        Show-CveDetailDialog -Owner $window -Row $row
+    })
+
+$btnCheckCve.Add_Click({
+    $selectedRows = Get-SelectedRows
+    if ($selectedRows.Count -eq 0) {
+        Add-LogLine -Message "No rows selected."
+        return
+    }
+    $txtStatus.Text = "Checking CVEs for selected packagers..."
+    Invoke-MultiAppPipeline -Operation CheckCve -Rows $selectedRows -Context @{
+        NvdApiKey       = Get-CveNvdApiKey
+        CacheTtlMinutes = Get-CveCacheTtlMinutes
+        KevCatalog      = $null
+        ForceRefresh    = $false
+    }
+})
+
+$btnCveReport.Add_Click({
+    $rows = Get-SelectedRows
+    if ($rows.Count -eq 0) { $rows = @($script:PackagerData) }
+    if ($rows.Count -eq 0) {
+        Add-LogLine -Message "No rows to report."
+        return
+    }
+    $window.Cursor = [System.Windows.Input.Cursors]::Wait
+    try {
+        $txtStatus.Text = "Writing the CVE report..."
+        $paths = Write-CveReportForRows -Rows $rows
+        $txtStatus.Text = ("CVE report written for {0} application(s)." -f $rows.Count)
+        if ($paths.Html) { Start-Process $paths.Html }
+    }
+    catch {
+        Add-LogLine -Message ('CVE report failed: ' + $_.Exception.Message)
+        $txtStatus.Text = "CVE report failed."
+    }
+    finally { $window.Cursor = $null }
 })
 
 # --- 5. One Click ---

@@ -2177,6 +2177,28 @@ Describe 'Packager history helpers' {
             ([string]$entry.LastKnownVersion) | Should -Be '2.0'
         }
 
+        It 'records the ConfigMgr version under CmChecked without touching LastKnownVersion' {
+            Update-PackagerHistory -PackagerName 'package-cm' -Event Checked -Version '2.0' -Result Updated
+            Update-PackagerHistory -PackagerName 'package-cm' -Event CmChecked -Version '1.9' -Data @{ SiteCode = 'MCM' }
+
+            $entry = (Read-PackagerHistory)['package-cm']
+            ([string]$entry.LastKnownVersion) | Should -Be '2.0'
+            ([string]$entry.LastCmVersion)    | Should -Be '1.9'
+            ([string]$entry.LastCmSite)       | Should -Be 'MCM'
+            ([string]$entry.LastCmChecked)    | Should -Match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$'
+        }
+
+        It 'stores the VulnChecked summary and reads it back' {
+            $summary = [ordered]@{ QueriedAt = '2026-10-11T12:00:00Z'; From = '1.9'; To = '2.0'; Source = 'NVD'; Count = 3; MaxCvss = 7.5; MaxSeverity = 'HIGH'; KevCount = 1; MaxEpss = 0.2; Error = $null }
+            Update-PackagerHistory -PackagerName 'package-vuln' -Event VulnChecked -Data $summary
+
+            $entry = (Read-PackagerHistory)['package-vuln']
+            $entry.VulnSummary.Count | Should -Be 3
+            $entry.VulnSummary.KevCount | Should -Be 1
+            ([string]$entry.VulnSummary.Source) | Should -Be 'NVD'
+            $entry.LastKnownVersion | Should -BeNullOrEmpty
+        }
+
         It 'omits Version update when -Version is not supplied' {
             Update-PackagerHistory -PackagerName 'package-qux' -Event Checked -Version '1.0' -Result NoChange
             Update-PackagerHistory -PackagerName 'package-qux' -Event Checked  # no -Version this time

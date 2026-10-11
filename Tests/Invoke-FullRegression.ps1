@@ -150,6 +150,7 @@ $paths = @(
     '.\Packagers\AppPackagerSigning.Tests.ps1'
     '.\Packagers\AppPackagerWsus.Tests.ps1'
     '.\Packagers\AppPackagerOneClick.Tests.ps1'
+    '.\Packagers\AppPackagerVulnerability.Tests.ps1'
     '.\Tests\PackagerSmoke.Tests.ps1'
     '.\Tests\PackageWorkflow.Tests.ps1'
     '.\Tests\ProcessStreaming.Tests.ps1'

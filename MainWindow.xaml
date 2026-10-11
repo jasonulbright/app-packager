@@ -187,6 +187,8 @@
                                 ToolTip="Query each checked app's vendor source for the latest available version"/>
                         <Button x:Name="btnCheckMECM"   Content="Check ConfigMgr" Style="{StaticResource WorkflowButtonStyle}"
                                 ToolTip="Query ConfigMgr for the currently deployed version of each checked app"/>
+                        <Button x:Name="btnCheckCve"    Content="Check CVEs"      Style="{StaticResource WorkflowButtonStyle}"
+                                ToolTip="Look up the CVEs fixed by updating each checked app from its ConfigMgr version to the latest version. Needs both versions and a CPE header."/>
                         <Button x:Name="btnStage"       Content="Stage Packages"  Style="{StaticResource WorkflowButtonStyle}"
                                 ToolTip="Download and extract each checked app into the local staging root"/>
                         <Button x:Name="btnPackage"     Content="Publish to ConfigMgr" Style="{StaticResource WorkflowButtonStyle}"
@@ -197,6 +199,9 @@
                                 ToolTip="Stage every checked app and publish its installer to WSUS as an update for computers that have an older version"/>
                         <Button x:Name="btnWsusUpdates" Content="WSUS Updates"     Style="{StaticResource WorkflowButtonStyle}"
                                 ToolTip="List the updates AppPackager published to WSUS; approve, decline, expire or remove them, or import from the Microsoft Update Catalog"/>
+                        <Button x:Name="btnCveReport"   Content="CVE Report"       Style="{StaticResource WorkflowButtonStyle}"
+                                Margin="8,16,8,3"
+                                ToolTip="Write the CVE report for the checked apps (all apps when none is checked) as HTML, CSV and JSON under Logs\Reports, then open the HTML"/>
 
                         <Button x:Name="btnWorkbench"   Content="Application Workbench" Style="{StaticResource WorkflowButtonStyle}"
                                 ToolTip="Edit one application's commands, scripts, detection, requirements, timing, icon and extra source files, then save it as a named profile. Opening or saving deploys nothing."/>
@@ -312,6 +317,20 @@
                     <DataGridTextColumn Header="Current (ConfigMgr)" Width="170" Binding="{Binding CurrentVersion}" IsReadOnly="True"/>
                     <DataGridTextColumn Header="Latest" Width="130" Binding="{Binding LatestVersion}" IsReadOnly="True"/>
                     <DataGridTextColumn Header="Status" Width="170" Binding="{Binding Status}" IsReadOnly="True"/>
+                    <DataGridTemplateColumn x:Name="colCves" Header="CVEs" Width="70" MinWidth="60" SortMemberPath="CveCount">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Button Content="{Binding CveCount}" Tag="CveLink"
+                                        Background="Transparent" BorderThickness="0" Padding="2,0" Cursor="Hand"
+                                        HorizontalAlignment="Left" VerticalAlignment="Center"
+                                        Foreground="{DynamicResource MahApps.Brushes.Accent}"
+                                        ToolTip="Open the CVE list with links for this app"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn x:Name="colCveCvss" Header="Max CVSS" Width="110" Binding="{Binding CveCvss}" IsReadOnly="True"/>
+                    <DataGridTextColumn x:Name="colCveKev" Header="KEV" Width="50" Binding="{Binding CveKev}" IsReadOnly="True"/>
+                    <DataGridTextColumn x:Name="colCveChecked" Header="CVEs Checked (UTC)" Width="170" Binding="{Binding CveChecked}" IsReadOnly="True" Visibility="Collapsed"/>
                     <DataGridTextColumn x:Name="colCMName" Header="CMName" Width="140" Binding="{Binding CMName}" IsReadOnly="True" Visibility="Collapsed"/>
                     <DataGridTextColumn x:Name="colScript" Header="Script" Width="180" Binding="{Binding Script}" IsReadOnly="True" Visibility="Collapsed"/>
                     <DataGridTextColumn x:Name="colVendorURL" Header="Vendor URL" Width="200" Binding="{Binding VendorURL}" IsReadOnly="True" Visibility="Collapsed"/>

@@ -5140,7 +5140,7 @@ function Get-LatestCorrettoRelease {
 # Packager history (per-app timestamps for batch/scheduled workflow)
 # ---------------------------------------------------------------------------
 # Storage lives under %LOCALAPPDATA%\AppPackager\app-history.json. It is NEVER
-# tracked in the repo (per the no-JSON rule) and is auto-created on first use.
+# inside the install folder and is auto-created on first use.
 #
 # Schema (top level is a dictionary keyed by packager base name, e.g. 'package-chrome'):
 # {
@@ -5149,7 +5149,10 @@ function Get-LatestCorrettoRelease {
 #     "LastStaged":       "2026-04-19T17:05:00Z",
 #     "LastPackaged":     "2026-04-19T17:10:00Z",
 #     "LastKnownVersion": "140.0.7339.80",
-#     "LastResult":       "Updated"     # Checked | NoChange | Updated | Failed
+#     "LastResult":       "Updated",    # Checked | NoChange | Updated | Failed
+#     "LastCmChecked":    "2026-04-19T17:00:00Z",
+#     "LastCmVersion":    "139.0.7258.66",
+#     "VulnSummary":      { "QueriedAt", "From", "To", "Source", "Count", "MaxCvss", "MaxSeverity", "KevCount", "MaxEpss", "Error" }
 #   },
 #   ...
 # }
@@ -5192,7 +5195,7 @@ function Read-PackagerHistory {
         foreach ($p in $obj.PSObject.Properties) {
             $entry = $p.Value
             if ($entry -and $entry.PSObject -and $entry.PSObject.Properties) {
-                foreach ($datePropName in @('LastChecked','LastStaged','LastPackaged')) {
+                foreach ($datePropName in @('LastChecked','LastStaged','LastPackaged','LastCmChecked')) {
                     $dateProp = $entry.PSObject.Properties[$datePropName]
                     if ($dateProp) {
                         $dateProp.Value = Convert-PackagerHistoryTimestampToString -Value $dateProp.Value
@@ -5234,19 +5237,28 @@ function Update-PackagerHistory {
     .PARAMETER PackagerName
         Script base name without extension, e.g. 'package-chrome'.
     .PARAMETER Event
-        What happened: Checked | Staged | Packaged
+        What happened: Checked | Staged | Packaged | CmChecked | VulnChecked.
+        CmChecked records the version ConfigMgr holds (LastCmVersion,
+        LastCmChecked) and leaves LastKnownVersion alone. VulnChecked stores
+        the -Data summary as VulnSummary.
     .PARAMETER Version
         Version string associated with the event (the latest version checked,
-        staged, or packaged). Optional for non-version events.
+        staged, or packaged; the ConfigMgr version for CmChecked). Optional
+        for non-version events.
     .PARAMETER Result
         Outcome classification used by the summary: Checked | NoChange |
         Updated | Failed. Optional.
+    .PARAMETER Data
+        VulnChecked: the summary from Get-VulnerabilitySummary, stored as
+        VulnSummary. CmChecked: a SiteCode entry, stored as LastCmSite.
+        Ignored for other events.
     #>
     param(
         [Parameter(Mandatory)][string]$PackagerName,
-        [Parameter(Mandatory)][ValidateSet('Checked','Staged','Packaged')][string]$Event,
+        [Parameter(Mandatory)][ValidateSet('Checked','Staged','Packaged','CmChecked','VulnChecked')][string]$Event,
         [string]$Version,
-        [ValidateSet('Checked','NoChange','Updated','Failed')][string]$Result
+        [ValidateSet('Checked','NoChange','Updated','Failed')][string]$Result,
+        [System.Collections.IDictionary]$Data
     )
 
     $history = Read-PackagerHistory
@@ -5271,11 +5283,19 @@ function Update-PackagerHistory {
 
     $nowUtc = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     switch ($Event) {
-        'Checked'  { $entry['LastChecked']  = $nowUtc }
-        'Staged'   { $entry['LastStaged']   = $nowUtc }
-        'Packaged' { $entry['LastPackaged'] = $nowUtc }
+        'Checked'     { $entry['LastChecked']  = $nowUtc }
+        'Staged'      { $entry['LastStaged']   = $nowUtc }
+        'Packaged'    { $entry['LastPackaged'] = $nowUtc }
+        'CmChecked'   {
+            $entry['LastCmChecked'] = $nowUtc
+            $entry['LastCmVersion'] = $(if ($PSBoundParameters.ContainsKey('Version')) { [string]$Version } else { '' })
+            if ($Data -and $Data.Contains('SiteCode')) { $entry['LastCmSite'] = [string]$Data['SiteCode'] }
+        }
+        'VulnChecked' {
+            $entry['VulnSummary'] = $(if ($Data) { [pscustomobject]$Data } else { $null })
+        }
     }
-    if ($PSBoundParameters.ContainsKey('Version') -and -not [string]::IsNullOrWhiteSpace($Version)) {
+    if ($Event -notin @('CmChecked', 'VulnChecked') -and $PSBoundParameters.ContainsKey('Version') -and -not [string]::IsNullOrWhiteSpace($Version)) {
         $entry['LastKnownVersion'] = $Version
     }
     if ($PSBoundParameters.ContainsKey('Result')) {
