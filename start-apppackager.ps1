@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.10.11.0110
+    Version    : 2026.10.11.0111
     Updated    : 2026-09-09
 #>
 
@@ -2783,9 +2783,12 @@ function Get-UpdateReleaseUrl {
 }
 
 function Show-UpdateIndicator {
+    # -Suite: the update is a suite release (this copy runs inside a suite
+    # install); Update now runs the suite installer instead of install.ps1.
     param(
         [AllowNull()][string]$LatestVersion,
-        [AllowNull()][string]$ReleaseUrl
+        [AllowNull()][string]$ReleaseUrl,
+        [switch]$Suite
     )
 
     if (-not $pnlUpdate) { return }
@@ -2796,8 +2799,9 @@ function Show-UpdateIndicator {
     }
 
     $script:UpdateLatestVersion = $LatestVersion
+    $script:UpdateIsSuite       = [bool]$Suite
     $script:UpdateReleaseUrl    = if ([string]::IsNullOrWhiteSpace($ReleaseUrl)) { Get-UpdateReleaseUrl -Version $LatestVersion } else { $ReleaseUrl }
-    $runUpdateText.Text         = ("Update available: v{0}" -f $LatestVersion)
+    $runUpdateText.Text         = $(if ($Suite) { "Suite update available: v{0}" -f $LatestVersion } else { "Update available: v{0}" -f $LatestVersion })
     $lnkUpdateAvailable.ToolTip = ("Open the v{0} release page on GitHub" -f $LatestVersion)
     $pnlUpdate.Visibility       = 'Visible'
 }
@@ -2806,6 +2810,24 @@ function Start-UpdateCheck {
     # Never let a failed or slow check touch launch: everything below is
     # best-effort and the caller keeps going regardless.
     try {
+        # Inside a suite install the suite release is the update: its
+        # installer replaces every tool at once. The lookup and its daily
+        # cache are shared with the launcher and the other tools.
+        $suite = $null
+        if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+            try { $suite = Get-SuiteInstallInfo -Path $PSScriptRoot } catch { $suite = $null }
+        }
+        if ($suite -and $suite.Installed) {
+            $null = Start-SuiteUpdateNotice -Path $PSScriptRoot -OnResult {
+                param($u)
+                if ($u.Available) {
+                    Add-LogLine -Message ("Suite update available: v{0}." -f $u.Latest)
+                    Show-UpdateIndicator -LatestVersion $u.Latest -ReleaseUrl $u.ReleaseUrl -Suite
+                }
+            }
+            return
+        }
+
         $current = Get-AppVersion
         if ([string]::IsNullOrWhiteSpace($current)) { return }
 
@@ -2894,6 +2916,20 @@ function Invoke-SelfUpdate {
 
     $latest = $script:UpdateLatestVersion
     if ([string]::IsNullOrWhiteSpace($latest)) { return }
+
+    # Inside a suite install the launcher is the one place that updates;
+    # install.ps1 over this folder would break the suite's file list.
+    if ($script:UpdateIsSuite) {
+        $launcher = Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) 'app-packager-suite') 'start-suite.ps1'
+        if (Test-Path -LiteralPath $launcher) {
+            Add-LogLine -Message ("Suite update v{0}: opening the AppPackager Suite Launcher. Close this and every other suite tool, then click Update there." -f $latest)
+            try { Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', $launcher -WorkingDirectory (Split-Path -Parent $launcher) } catch { Add-LogLine -Message ('Could not start the launcher: ' + $_.Exception.Message) }
+        }
+        else {
+            [void](Show-ThemedMessage -Owner $Owner -Title 'Suite update' -Message ("Suite v{0} is available. Update from the AppPackager Suite Launcher in the Start Menu." -f $latest) -Buttons OK -Icon Information)
+        }
+        return
+    }
 
     $answer = Show-ThemedMessage -Owner $Owner -Title 'Update AppPackager' `
         -Message ("AppPackager v{0} will be downloaded and installed over {1}.`n`nThe application closes and relaunches itself when the update finishes. Preferences, window state, and logs are preserved.`n`nContinue?" -f $latest, $PSScriptRoot) `

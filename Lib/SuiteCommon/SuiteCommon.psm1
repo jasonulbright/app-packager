@@ -1552,3 +1552,333 @@ function Show-CollectionPickerDialog {
     return $script:PickerResult
 }
 
+# =============================================================================
+# Suite update check and self-update
+# =============================================================================
+# One cache per machine user under %LOCALAPPDATA%\AppPackagerSuite, shared by
+# the launcher and every tool, so a day's first launch of any tool performs
+# the single release lookup. The installer is the signed per-user setup from
+# the suite release; it is verified against checksums.txt and its
+# Authenticode signature before it runs.
+
+$script:SuiteUpdateRepo      = 'jasonulbright/app-packager-suite'
+$script:SuiteUpdateUserAgent = 'AppPackagerSuite-UpdateCheck'
+$script:SuiteUpdateSigner    = 'CN=Jason Ulbright'
+$script:SuiteUpdateHours     = 24
+
+function Get-SuiteInstallInfo {
+    <#
+    .SYNOPSIS
+        Finds the suite install a tool or the launcher runs from.
+    .DESCRIPTION
+        The suite installer writes suite-manifest.json at the install root;
+        each component sits in a folder below it. Path is the caller's own
+        folder; the manifest is looked for there and one level up.
+    .OUTPUTS
+        [pscustomobject] Installed, Root, Version, ManifestPath.
+    #>
+    param([Parameter(Mandatory)][string]$Path)
+    foreach ($dir in @($Path, (Split-Path -Parent $Path))) {
+        if ([string]::IsNullOrWhiteSpace($dir)) { continue }
+        $manifest = Join-Path $dir 'suite-manifest.json'
+        if (Test-Path -LiteralPath $manifest) {
+            $version = ''
+            try { $version = [string](Get-Content -LiteralPath $manifest -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop).version } catch { $null = $_ }
+            return [pscustomobject]@{ Installed = $true; Root = $dir; Version = $version; ManifestPath = $manifest }
+        }
+    }
+    return [pscustomobject]@{ Installed = $false; Root = ''; Version = ''; ManifestPath = '' }
+}
+
+function Get-SuiteUpdateCachePath {
+    Join-Path (Join-Path $env:LOCALAPPDATA 'AppPackagerSuite') 'update-check.json'
+}
+
+function Read-SuiteUpdateCache {
+    $path = Get-SuiteUpdateCachePath
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
+    try { return (Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop) }
+    catch { return $null }
+}
+
+function Save-SuiteUpdateCache {
+    param([AllowNull()][string]$LatestVersion, [AllowNull()][string]$ReleaseUrl)
+    try {
+        $path = Get-SuiteUpdateCachePath
+        $dir = Split-Path -Parent $path
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        [pscustomobject]@{
+            LastCheckUtc  = (Get-Date).ToUniversalTime().ToString('o')
+            LatestVersion = $LatestVersion
+            ReleaseUrl    = $ReleaseUrl
+        } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $path -Encoding UTF8
+    }
+    catch { $null = $_ }
+}
+
+function Test-SuiteUpdateDue {
+    param([AllowNull()][string]$LastCheckUtc, [int]$IntervalHours = $script:SuiteUpdateHours)
+    if ([string]::IsNullOrWhiteSpace($LastCheckUtc)) { return $true }
+    $last = [datetime]::MinValue
+    if (-not [datetime]::TryParse($LastCheckUtc, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$last)) { return $true }
+    return (((Get-Date).ToUniversalTime() - $last.ToUniversalTime()).TotalHours -ge $IntervalHours)
+}
+
+function ConvertFrom-SuiteReleaseTag {
+    # 'v2026.10.11.0051' -> '2026.10.11.0051'; anything else -> ''.
+    param([AllowNull()][string]$Tag)
+    if ([string]::IsNullOrWhiteSpace($Tag)) { return '' }
+    $t = $Tag.Trim()
+    if ($t -match '^v?(\d{4}\.\d{2}\.\d{2}\.\d{4})$') { return $Matches[1] }
+    return ''
+}
+
+function Compare-SuiteVersion {
+    # -1, 0, 1 for A against B. Parts compare as numbers, so zero padding
+    # and a dropped leading zero compare equal. An unparsable side counts
+    # as the lowest.
+    param([AllowNull()][string]$A, [AllowNull()][string]$B)
+    $pa = @(); $pb = @()
+    if ($A -match '^\d+(\.\d+)*$') { $pa = @($A -split '\.' | ForEach-Object { [long]$_ }) }
+    if ($B -match '^\d+(\.\d+)*$') { $pb = @($B -split '\.' | ForEach-Object { [long]$_ }) }
+    if ($pa.Count -eq 0 -and $pb.Count -eq 0) { return 0 }
+    if ($pa.Count -eq 0) { return -1 }
+    if ($pb.Count -eq 0) { return 1 }
+    $n = [Math]::Max($pa.Count, $pb.Count)
+    for ($i = 0; $i -lt $n; $i++) {
+        $x = $(if ($i -lt $pa.Count) { $pa[$i] } else { 0 })
+        $y = $(if ($i -lt $pb.Count) { $pb[$i] } else { 0 })
+        if ($x -lt $y) { return -1 }
+        if ($x -gt $y) { return 1 }
+    }
+    return 0
+}
+
+function Invoke-SuiteHttpGet {
+    <#
+    .SYNOPSIS
+        GET a URL to a string or a file. curl.exe first (SSL-inspecting
+        proxies that break the .NET chain pass curl); Invoke-WebRequest
+        when curl.exe is missing. Throws on failure.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Url,
+        [AllowEmptyString()][string]$OutFile = '',
+        [int]$TimeoutSeconds = 60
+    )
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $curl = Get-Command -Name curl.exe -ErrorAction SilentlyContinue
+    if ($curl) {
+        $curlArgs = @('-L', '--fail', '--silent', '--show-error', '--max-time', $TimeoutSeconds, '-A', $script:SuiteUpdateUserAgent)
+        if ($OutFile) { $curlArgs += @('-o', $OutFile) }
+        $curlArgs += $Url
+        $out = & $curl.Source @curlArgs 2>&1
+        if ($LASTEXITCODE -ne 0) { throw ('Download failed (curl exit {0}): {1}' -f $LASTEXITCODE, $Url) }
+        if ($OutFile) { return $OutFile }
+        return (($out | ForEach-Object { [string]$_ }) -join "`n")
+    }
+    if ($OutFile) {
+        Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec $TimeoutSeconds -Headers @{ 'User-Agent' = $script:SuiteUpdateUserAgent } -ErrorAction Stop
+        return $OutFile
+    }
+    $resp = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec $TimeoutSeconds -Headers @{ 'User-Agent' = $script:SuiteUpdateUserAgent } -ErrorAction Stop
+    return [string]$resp.Content
+}
+
+function Get-SuiteLatestRelease {
+    <#
+    .SYNOPSIS
+        The latest suite release on GitHub: Version, Tag, Url.
+    #>
+    param([string]$Repo = $script:SuiteUpdateRepo)
+    $json = Invoke-SuiteHttpGet -Url ('https://api.github.com/repos/{0}/releases/latest' -f $Repo) -TimeoutSeconds 20
+    $release = $json | ConvertFrom-Json
+    [pscustomobject]@{
+        Tag     = [string]$release.tag_name
+        Version = (ConvertFrom-SuiteReleaseTag -Tag ([string]$release.tag_name))
+        Url     = [string]$release.html_url
+    }
+}
+
+function Get-SuiteUpdateState {
+    <#
+    .SYNOPSIS
+        Whether a newer suite release exists than the installed version.
+    .DESCRIPTION
+        Uses the shared cache when the last lookup is younger than the
+        interval; otherwise looks the latest release up and refreshes the
+        cache. A failed lookup never throws: the result carries Error and
+        the cached answer when one exists.
+    .PARAMETER InstalledVersion
+        The suite version to compare against (suite-manifest.json version).
+    .OUTPUTS
+        [pscustomobject] Current, Latest, Available, ReleaseUrl, Checked
+        (true when the lookup ran now), Error.
+    #>
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$InstalledVersion,
+        [switch]$Force,
+        [int]$IntervalHours = $script:SuiteUpdateHours
+    )
+    $state = [pscustomobject]@{ Current = $InstalledVersion; Latest = ''; Available = $false; ReleaseUrl = ''; Checked = $false; Error = '' }
+    $cache = Read-SuiteUpdateCache
+    $lastCheck = ''
+    if ($cache) { $lastCheck = [string]$cache.LastCheckUtc }
+    $due = $Force -or -not $cache -or (Test-SuiteUpdateDue -LastCheckUtc $lastCheck -IntervalHours $IntervalHours)
+    if ($due) {
+        try {
+            $release = Get-SuiteLatestRelease
+            if ($release.Version) {
+                Save-SuiteUpdateCache -LatestVersion $release.Version -ReleaseUrl $release.Url
+                $state.Latest = $release.Version
+                $state.ReleaseUrl = $release.Url
+                $state.Checked = $true
+            }
+            else { $state.Error = ('Release tag has no suite version: {0}' -f $release.Tag) }
+        }
+        catch { $state.Error = $_.Exception.Message }
+    }
+    if (-not $state.Latest -and $cache -and $cache.LatestVersion) {
+        $state.Latest = [string]$cache.LatestVersion
+        $state.ReleaseUrl = [string]$cache.ReleaseUrl
+    }
+    if ($state.Latest -and $InstalledVersion) {
+        $state.Available = ((Compare-SuiteVersion -A $InstalledVersion -B $state.Latest) -lt 0)
+    }
+    return $state
+}
+
+function Get-SuiteUpdateDownload {
+    <#
+    .SYNOPSIS
+        Downloads SuiteSetup-<Version>.exe and checksums.txt from the suite
+        release and verifies the hash and the Authenticode signature.
+    .OUTPUTS
+        The installer path. Throws when the download, the hash or the
+        signature fails; a failed file is deleted.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Version,
+        [string]$Repo = $script:SuiteUpdateRepo,
+        [string]$Folder = (Join-Path ([IO.Path]::GetTempPath()) ('suite-update-' + [guid]::NewGuid().ToString('N')))
+    )
+    if (-not (Test-Path -LiteralPath $Folder)) { New-Item -ItemType Directory -Path $Folder -Force | Out-Null }
+    $name = 'SuiteSetup-{0}.exe' -f $Version
+    $base = 'https://github.com/{0}/releases/download/v{1}/' -f $Repo, $Version
+    $exe = Join-Path $Folder $name
+    $sums = Join-Path $Folder 'checksums.txt'
+    try {
+        $null = Invoke-SuiteHttpGet -Url ($base + $name) -OutFile $exe -TimeoutSeconds 300
+        $null = Invoke-SuiteHttpGet -Url ($base + 'checksums.txt') -OutFile $sums -TimeoutSeconds 60
+        $expected = ''
+        foreach ($line in (Get-Content -LiteralPath $sums)) {
+            if ($line -match ('^([0-9a-fA-F]{64})\s+\*?' + [regex]::Escape($name) + '\s*$')) { $expected = $Matches[1].ToLowerInvariant(); break }
+        }
+        if (-not $expected) { throw ('checksums.txt has no entry for {0}' -f $name) }
+        $actual = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actual -ne $expected) { throw ('SHA256 mismatch for {0}' -f $name) }
+        $sig = Get-AuthenticodeSignature -LiteralPath $exe
+        if ($sig.Status -ne 'Valid') { throw ('Signature of {0} is {1}' -f $name, $sig.Status) }
+        $subject = ''
+        if ($sig.SignerCertificate) { $subject = [string]$sig.SignerCertificate.Subject }
+        if (-not $subject.StartsWith($script:SuiteUpdateSigner + ',') -and $subject -ne $script:SuiteUpdateSigner) {
+            throw ('Signer of {0} is {1}, not {2}' -f $name, $subject, $script:SuiteUpdateSigner)
+        }
+        return $exe
+    }
+    catch {
+        Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue
+        throw
+    }
+}
+
+function Start-SuiteUpdateInstaller {
+    <#
+    .SYNOPSIS
+        Runs the verified installer silently after the calling process has
+        exited, then relaunches the given script. The caller closes its
+        window right after this returns.
+    .DESCRIPTION
+        The installer replaces the folder the caller runs from, so a
+        detached child waits on the caller's process id (bounded), runs the
+        setup with /S, waits for it, and starts the relaunch script.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$InstallerPath,
+        [int]$WaitForProcessId = $PID,
+        [AllowEmptyString()][string]$Relaunch = ''
+    )
+    if (-not (Test-Path -LiteralPath $InstallerPath)) { throw ('Installer not found: {0}' -f $InstallerPath) }
+    $quotedInstaller = $InstallerPath.Replace("'", "''")
+    $lines = @(
+        ('Wait-Process -Id {0} -Timeout 120 -ErrorAction SilentlyContinue' -f $WaitForProcessId)
+        ('$p = Start-Process -FilePath ' + "'" + $quotedInstaller + "'" + ' -ArgumentList ' + "'/S'" + ' -PassThru -Wait')
+    )
+    if ($Relaunch) {
+        $quotedRelaunch = $Relaunch.Replace("'", "''")
+        $lines += ('if ($p.ExitCode -eq 0) { Start-Process -FilePath ' + "'powershell.exe'" + ' -ArgumentList ' + "'-NoProfile','-ExecutionPolicy','Bypass','-File','" + $quotedRelaunch + "'" + ' }')
+    }
+    $bootstrap = Join-Path ([IO.Path]::GetTempPath()) ('suite-update-' + [guid]::NewGuid().ToString('N') + '.ps1')
+    Set-Content -LiteralPath $bootstrap -Value ($lines -join "`r`n") -Encoding UTF8
+    Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', $bootstrap | Out-Null
+    return $bootstrap
+}
+
+function Start-SuiteUpdateNotice {
+    <#
+    .SYNOPSIS
+        Runs the suite update check off the UI thread and hands the result
+        to OnResult on the UI thread. One call per tool at window load.
+    .DESCRIPTION
+        Nothing happens for a plain checkout (no suite-manifest.json). The
+        lookup runs in its own runspace with this module imported; a
+        DispatcherTimer polls for the result and invokes OnResult with the
+        Get-SuiteUpdateState object. Every failure is swallowed: a missing
+        network must never touch a tool's launch.
+    .PARAMETER Path
+        The caller's folder ($PSScriptRoot); the manifest is looked for
+        there and one level up.
+    .PARAMETER OnResult
+        Scriptblock receiving the state object. Called only when the check
+        ran or a cached answer exists.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][scriptblock]$OnResult,
+        [switch]$Force
+    )
+    try {
+        $install = Get-SuiteInstallInfo -Path $Path
+        if (-not $install.Installed) { return $null }
+        $state = [hashtable]::Synchronized(@{ Done = $false; Result = $null })
+        $rs = [runspacefactory]::CreateRunspace()
+        $rs.ApartmentState = 'MTA'
+        $rs.Open()
+        $ps = [powershell]::Create()
+        $ps.Runspace = $rs
+        $modulePath = Join-Path $PSScriptRoot 'SuiteCommon.psd1'
+        [void]$ps.AddScript({
+            param($State, $ModulePath, $Installed, $ForceCheck)
+            try {
+                Import-Module $ModulePath -Force -DisableNameChecking
+                $State.Result = Get-SuiteUpdateState -InstalledVersion $Installed -Force:$ForceCheck
+            }
+            catch { $State.Result = $null }
+            finally { $State.Done = $true }
+        }).AddArgument($state).AddArgument($modulePath).AddArgument([string]$install.Version).AddArgument([bool]$Force)
+        $handle = $ps.BeginInvoke()
+        $timer = New-Object System.Windows.Threading.DispatcherTimer
+        $timer.Interval = [TimeSpan]::FromMilliseconds(500)
+        $timer.Add_Tick({
+            if (-not $state.Done) { return }
+            $timer.Stop()
+            try { if ($state.Result) { & $OnResult $state.Result } } catch { $null = $_ }
+            try { $ps.EndInvoke($handle) } catch { $null = $_ }
+            try { $ps.Dispose() } catch { $null = $_ }
+            try { $rs.Close() } catch { $null = $_ }
+        }.GetNewClosure())
+        $timer.Start()
+        return $timer
+    }
+    catch { return $null }
+}
