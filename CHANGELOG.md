@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026.10.11.0111] - 2026-10-11
+
+## 1 suite update notice
+
+### Added
+
+- Show the suite update inside a suite install; Update now opens the suite launcher.
+
 ## [2026.10.11.0110] - 2026-10-11
 
 ## 4 grid and CVE window fixes
