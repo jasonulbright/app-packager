@@ -1,5 +1,31 @@
 # Changelog
 
+## [2026.10.11.0108] - 2026-10-11
+
+## CVE lookup for 294 packagers
+
+### Added
+
+- Look up the CVEs an update fixes for every checked application.
+- Show CVEs, Max CVSS and KEV columns in the grid.
+- Open a CVE window with links to six CVE sites per CVE.
+- Write the CVE report as HTML, CSV, XLSX, Markdown and JSON.
+- Record the ConfigMgr version with its site and show it on the next launch.
+- Run the Version Monitor as a batch mode of the main script.
+- Post the monitor run summary to a webhook and copy reports to a folder.
+- Add the NVD API key and the lookup-after-Check-ConfigMgr preference.
+- Add the vendor security advisory page to 94 packagers.
+- Add the CPE to RenderDoc, Sysinternals and draw.io.
+- Add Open CVE Sources and Copy CVE IDs to the row menu.
+
+### Changed
+
+- Remove the Version Monitor module and its NVD cache.
+
+### Documentation
+
+- Document the CVE lookup, the report formats and the monitor configuration.
+
 ## [2026.10.10.0107] - 2026-10-10
 
 ## 8 update checks fixed

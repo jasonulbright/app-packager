@@ -5,10 +5,12 @@ BeforeAll {
     $fn = $gui.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Compare-SemVer' }, $false)
     . ([scriptblock]::Create($fn.Extent.Text))
 
-    $vm = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\VersionMonitor\Module\VersionMonitorCommon.psm1'), [ref]$t, [ref]$e)
-    if ($e) { throw ($e.Message -join '; ') }
-    $fn = $vm.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Compare-Versions' }, $false)
-    . ([scriptblock]::Create($fn.Extent.Text))
+    # The status the GUI and the batch monitor derive from the compare.
+    function Get-MonitorStatus {
+        param([string]$Mecm, [string]$Vendor)
+        $cmp = Compare-SemVer -A $Mecm -B $Vendor
+        if ($cmp -lt 0) { 'Update available' } elseif ($cmp -eq 0) { 'Up to date' } else { 'Current newer' }
+    }
 }
 
 Describe 'Single-number vendor versions' {
@@ -47,21 +49,18 @@ Describe 'Single-number vendor versions' {
     }
 
     It 'reports a deployed <Mecm> against vendor <Vendor> as <Status>' -TestCases @(
-        @{ Mecm = '30'; Vendor = '31'; Status = 'Stale' }
-        @{ Mecm = '31'; Vendor = '31'; Status = 'Current' }
-        @{ Mecm = '31.0'; Vendor = '31'; Status = 'Current' }
+        @{ Mecm = '30'; Vendor = '31'; Status = 'Update available' }
+        @{ Mecm = '31'; Vendor = '31'; Status = 'Up to date' }
+        @{ Mecm = '31.0'; Vendor = '31'; Status = 'Up to date' }
     ) {
         param($Mecm, $Vendor, $Status)
-        (Compare-Versions -MecmVersion $Mecm -VendorVersion $Vendor).Status | Should -Be $Status
+        Get-MonitorStatus -Mecm $Mecm -Vendor $Vendor | Should -Be $Status
     }
 
-    It 'accepts a single-number latest version in both version checks' {
+    It 'accepts a single-number latest version in the version check' {
         $gui = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\start-apppackager.ps1') -Raw
-        $vmText = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\VersionMonitor\Module\VersionMonitorCommon.psm1') -Raw
         $guiPattern = [regex]::Match($gui, "\`$pattern = '([^']+)'").Groups[1].Value
-        $vmPattern = [regex]::Match($vmText, "\`$version -notmatch '([^']+)'").Groups[1].Value
         '31' | Should -Match $guiPattern
-        '31' | Should -Match $vmPattern
         'Error 31 found' | Should -Not -Match $guiPattern
     }
 }
