@@ -316,15 +316,17 @@
                     <DataGridTextColumn Header="Vendor" Width="150" Binding="{Binding Vendor}" IsReadOnly="True"/>
                     <DataGridTextColumn Header="Current (ConfigMgr)" Width="170" Binding="{Binding CurrentVersion}" IsReadOnly="True"/>
                     <DataGridTextColumn Header="Latest" Width="130" Binding="{Binding LatestVersion}" IsReadOnly="True"/>
-                    <DataGridTextColumn Header="Status" Width="170" Binding="{Binding Status}" IsReadOnly="True"/>
-                    <DataGridTemplateColumn x:Name="colCves" Header="CVEs" Width="70" MinWidth="60" SortMemberPath="CveCount">
+                    <DataGridTextColumn Header="Status" Width="250" Binding="{Binding Status}" IsReadOnly="True"/>
+                    <DataGridTemplateColumn x:Name="colCves" Header="CVEs" Width="120" MinWidth="90" SortMemberPath="CveCount">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <Button Content="{Binding CveCount}" Tag="CveLink"
-                                        Background="Transparent" BorderThickness="0" Padding="2,0" Cursor="Hand"
+                                <!-- The count inherits the cell's foreground so it stays readable on a selected row. -->
+                                <Button Tag="CveLink" Background="Transparent" BorderThickness="0" Padding="2,0" Cursor="Hand"
                                         HorizontalAlignment="Left" VerticalAlignment="Center"
-                                        Foreground="{DynamicResource MahApps.Brushes.Accent}"
-                                        ToolTip="Open the CVE list with links for this app"/>
+                                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=DataGridCell}}"
+                                        ToolTip="Open the CVE list with links for this app">
+                                    <TextBlock Text="{Binding CveCount}" TextDecorations="Underline"/>
+                                </Button>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>

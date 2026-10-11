@@ -2,7 +2,7 @@ BeforeAll {
     $t = $null; $e = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\start-apppackager.ps1'), [ref]$t, [ref]$e)
     if ($e) { throw ($e.Message -join '; ') }
-    foreach ($name in 'Invoke-RefreshGrid', 'Get-SiteIdentityKey', 'Clear-SucceededSelection', 'Get-CveGridCells', 'Select-OnlyUpdateAvailable') {
+    foreach ($name in 'Invoke-RefreshGrid', 'Get-SiteIdentityKey', 'Clear-SucceededSelection', 'Get-CveGridCells', 'Select-OnlyUpdateAvailable', 'Compare-SemVer') {
         $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }.GetNewClosure(), $false)
         . ([scriptblock]::Create($fn.Extent.Text))
     }
@@ -86,6 +86,7 @@ Describe 'Grid refresh keeps session results' {
         $chrome.CveKev | Should -Be 'Yes'
         $chrome.CveEpss | Should -Match '^30'
         $chrome.CveChecked | Should -Be '2026-10-11T12:00:00Z'
+        $chrome.Status | Should -Be 'Update available (4 CVEs, 1 in KEV)'
         $chrome.AdvisoryUrl | Should -Be 'https://chromereleases.googleblog.com/'
         ($script:PackagerData | Where-Object Script -eq 'package-firefox.ps1').AdvisoryUrl | Should -Be ''
     }
