@@ -1,6 +1,6 @@
 @{
     RootModule        = 'SuiteCommon.psm1'
-    ModuleVersion = '2026.10.11.0053'
+    ModuleVersion = '2026.10.11.0054'
     GUID              = '7c1f2a9e-4b3d-4f8a-9c6e-2d5b8e1a7f40'
     Author            = 'Jason Ulbright'
     Description       = 'Shared core for the Configuration Manager tool suite: logging, CM site connection, settings persistence, window chrome, theming, dialogs.'
@@ -34,6 +34,7 @@
         'Test-IsWindowCommandPoint'
         'Add-NativeTitleBarHitTestHook'
         'Remove-NativeTitleBarHitTestHook'
+        'Switch-WindowMaximized'
         'Install-TitleBarDragFallback'
         'Save-WindowState'
         'Restore-WindowState'
