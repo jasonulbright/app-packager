@@ -6,6 +6,7 @@ VendorUrl: https://www.jetbrains.com/webstorm/
 CPE: cpe:2.3:a:jetbrains:webstorm:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.jetbrains.com/webstorm/whatsnew/
 DownloadPageUrl: https://www.jetbrains.com/webstorm/download/?section=windows
+SecurityAdvisoryUrl: https://www.jetbrains.com/privacy-security/issues-fixed/
 UpdateCadenceDays: 60
 WsusSupport: No (DetectionNotMappable)
 

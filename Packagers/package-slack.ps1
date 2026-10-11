@@ -6,6 +6,7 @@ VendorUrl: https://slack.com/
 CPE: cpe:2.3:a:slack:slack:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://slack.com/release-notes/windows
 DownloadPageUrl: https://slack.com/downloads/windows
+SecurityAdvisoryUrl: https://slack.com/intl/en-gb/trust/security
 IconSource: External
 UpdateCadenceDays: 14
 WsusSupport: No (InstallerTypeUnsupported|CustomInstall)

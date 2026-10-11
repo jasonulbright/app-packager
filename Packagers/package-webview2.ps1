@@ -6,6 +6,7 @@ VendorUrl: https://developer.microsoft.com/microsoft-edge/webview2/
 CPE: cpe:2.3:a:microsoft:edge_webview2:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/en-us/microsoft-edge/webview2/release-notes/
 DownloadPageUrl: https://developer.microsoft.com/en-us/microsoft-edge/webview2/
+SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: Installer
 WsusSupport: Yes
 

@@ -6,6 +6,7 @@ VendorUrl: https://www.wireshark.org/
 CPE: cpe:2.3:a:wireshark:wireshark:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.wireshark.org/docs/relnotes/
 DownloadPageUrl: https://www.wireshark.org/download.html
+SecurityAdvisoryUrl: https://www.wireshark.org/security/
 IconSource: Installer
 WsusSupport: Yes
 

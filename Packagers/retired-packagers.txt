@@ -1,2 +1,8 @@
 # Catalog scripts removed from the release; the updater does not carry them forward.
 package-specexec-mitigations.ps1
+# The Version Monitor module and its NVD cache; the monitor now runs through
+# start-apppackager.ps1 -BatchMode -CveReport and the shared vulnerability module.
+VersionMonitor\Module\VersionMonitorCommon.psm1
+VersionMonitor\Module\VersionMonitorCommon.psd1
+VersionMonitor\nvd-cache.json
+VersionMonitor\simulate-overrides.json

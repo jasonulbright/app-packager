@@ -6,6 +6,7 @@ VendorUrl: https://github.com/PowerShell/PowerShell
 CPE: cpe:2.3:a:microsoft:powershell:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/PowerShell/PowerShell/releases
 DownloadPageUrl: https://github.com/PowerShell/PowerShell/releases
+SecurityAdvisoryUrl: https://github.com/PowerShell/PowerShell/security/advisories
 IconSource: Installer
 WsusSupport: Yes
 

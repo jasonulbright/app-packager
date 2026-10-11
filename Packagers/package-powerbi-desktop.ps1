@@ -6,6 +6,7 @@ VendorUrl: https://powerbi.microsoft.com/desktop/
 CPE: cpe:2.3:a:microsoft:power_bi:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/en-us/power-bi/fundamentals/desktop-latest-update
 DownloadPageUrl: https://www.microsoft.com/download/details.aspx?id=58494
+SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: Installer
 UpdateCadenceDays: 30
 WsusSupport: Yes

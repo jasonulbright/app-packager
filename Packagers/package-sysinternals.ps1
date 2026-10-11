@@ -3,8 +3,10 @@ Vendor: Microsoft
 App: Sysinternals Suite
 CMName: Sysinternals Suite
 VendorUrl: https://learn.microsoft.com/en-us/sysinternals/
+CPE: cpe:2.3:a:microsoft:sysinternals:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/en-us/sysinternals/
 DownloadPageUrl: https://learn.microsoft.com/en-us/sysinternals/downloads/
+SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: External
 WsusSupport: No (CustomInstall)
 

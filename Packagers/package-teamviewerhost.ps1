@@ -6,6 +6,7 @@ VendorUrl: https://www.teamviewer.com/
 CPE: cpe:2.3:a:teamviewer:teamviewer:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.teamviewer.com/en-us/whats-new/
 DownloadPageUrl: https://www.teamviewer.com/en-us/download/windows/
+SecurityAdvisoryUrl: https://www.teamviewer.com/en/trust-center/security-bulletins/
 IconSource: Installer
 WsusSupport: Yes
 
