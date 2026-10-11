@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.10.11.0108
+    Version    : 2026.10.11.0109
     Updated    : 2026-09-09
 #>
 
@@ -7275,6 +7275,15 @@ function Initialize-BackgroundWorker {
     $injectPS.Dispose()
 }
 
+function Test-PipelineBusy {
+    # True while a background run is in flight. A function keeps the script
+    # session state, so $script: resolves here where a closure cannot.
+    # The state stays set until the completion tick has run every hook and
+    # cleared it; Done alone leaves a gap in which a new run would drop
+    # the pending hooks.
+    [bool]($null -ne $script:BgState)
+}
+
 function Invoke-MultiAppPipeline {
     param(
         [Parameter(Mandatory)]
@@ -7317,6 +7326,9 @@ function Invoke-MultiAppPipeline {
         ConflictDecisionForAll = ''
         # One Click progress per application, read by the plan window.
         PlanRows               = $(if ($Context.ContainsKey('OneClickRows')) { $Context.OneClickRows } else { $null })
+        # Check CVEs results by script name, read by the CVE window's
+        # completion hook (a cache write can fail after a good lookup).
+        CveResults             = [hashtable]::Synchronized(@{})
     })
     $script:ConflictPromptOpen = $false
     # The timer tick runs after this function returns; its parameters are out
@@ -7469,6 +7481,7 @@ function Invoke-MultiAppPipeline {
                             $res = Get-ProductVulnerabilities -Cpe $cpe -CurrentVersion $current -LatestVersion $latest `
                                 -ApiKey ([string]$Ctx.NvdApiKey) -CacheTtlMinutes ([int]$Ctx.CacheTtlMinutes) -KevCatalog $Ctx.KevCatalog -Force:([bool]$Ctx.ForceRefresh) `
                                 -VendorAdvisoryUrl $(if ($row.PSObject.Properties['AdvisoryUrl']) { [string]$row.AdvisoryUrl } else { '' })
+                            $State.CveResults[$scrName] = $res
                             $summary = Get-VulnerabilitySummary -Result $res
                             $cells = Get-CveGridCells -Summary $summary -Cpe $cpe
                             $row.CveCount = $cells.Count; $row.CveCvss = $cells.Cvss; $row.CveKev = $cells.Kev; $row.CveEpss = $cells.Epss; $row.CveChecked = $cells.Checked
@@ -8376,6 +8389,7 @@ function Invoke-MultiAppPipeline {
             $script:BgTimer = $null
             $script:BgState = $null
             if ($script:BgContext -and $script:BgContext.ContainsKey('OneClickDone')) { try { & $script:BgContext.OneClickDone $doneState } catch { Add-LogLine -Message ('One Click report failed: ' + $_.Exception.Message) } }
+            if ($script:BgContext -and $script:BgContext.ContainsKey('CveDone')) { try { & $script:BgContext.CveDone $doneState } catch { Add-LogLine -Message ('CVE window update failed: ' + $_.Exception.Message) } }
         }
     })
     $script:BgTimer.Start()
@@ -9544,6 +9558,9 @@ function Show-CveDetailDialog {
         }
     })
 
+    # Refresh runs the lookup through the background pipeline (rate-limit
+    # waits included) and re-reads the cache when the run reports done; the
+    # window is modeless, so the main window's overlay and Cancel stay usable.
     $btnRefresh.Add_Click({
         $cpe = [string]$Row.Cpe
         $from = [string]$Row.CurrentVersion
@@ -9553,24 +9570,41 @@ function Show-CveDetailDialog {
             $txtNote.Visibility = 'Visible'
             return
         }
-        $dlg.Cursor = [System.Windows.Input.Cursors]::Wait
-        try {
-            $advisory = $(if ($Row.PSObject.Properties['AdvisoryUrl']) { [string]$Row.AdvisoryUrl } else { '' })
-            $res = Get-ProductVulnerabilities -Cpe $cpe -CurrentVersion $from -LatestVersion $to -ApiKey (Get-CveNvdApiKey) -CacheTtlMinutes (Get-CveCacheTtlMinutes) -Force -VendorAdvisoryUrl $advisory
-            $state.Result = $res
-            $summary = Get-VulnerabilitySummary -Result $res
-            $cells = Get-CveGridCells -Summary $summary -Cpe $cpe
-            $Row.CveCount = $cells.Count; $Row.CveCvss = $cells.Cvss; $Row.CveKev = $cells.Kev; $Row.CveEpss = $cells.Epss; $Row.CveChecked = $cells.Checked
-            $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$Row.Script)
-            if (-not $res.Error) { try { Update-PackagerHistory -PackagerName $base -Event VulnChecked -Data $summary } catch { } }
-            try { $dataGrid.Items.Refresh() } catch { }
-            & $render
-        }
-        catch {
-            $txtNote.Text = $_.Exception.Message
+        # $script: inside a closure is the closure's own module, so the busy
+        # check lives in a script function.
+        if (Test-PipelineBusy) {
+            $txtNote.Text = 'Another run is in progress. Wait for it to finish.'
             $txtNote.Visibility = 'Visible'
+            return
         }
-        finally { $dlg.Cursor = $null }
+        $btnRefresh.IsEnabled = $false
+        $txtNote.Text = 'Looking up...'
+        $txtNote.Visibility = 'Visible'
+        $ctx = Get-CveRunContext
+        $ctx.ForceRefresh = $true
+        # A closure made inside a closure copies the locals of this body
+        # only, not the outer closure's captures; the captures are copied
+        # to locals first.
+        $stateRef = $state; $rowRef = $Row; $renderRef = $render; $noteRef = $txtNote; $btnRef = $btnRefresh
+        $ctx.CveDone = {
+            param($doneState)
+            try {
+                # The run's own result first (a cache write can fail after a
+                # good lookup); the cache when the lookup itself failed.
+                $fresh = $null
+                if ($doneState -and $doneState.CveResults -and $doneState.CveResults.ContainsKey([string]$rowRef.Script)) { $fresh = $doneState.CveResults[[string]$rowRef.Script] }
+                if ($fresh -and -not $fresh.Error) { $stateRef.Result = $fresh }
+                else { $stateRef.Result = Get-CveCachedResult -Row $rowRef }
+                & $renderRef
+                if ([string]$rowRef.CveCount -eq 'Error') {
+                    $noteRef.Text = 'The lookup failed; the last good result is shown. See the log.'
+                    $noteRef.Visibility = 'Visible'
+                }
+            }
+            catch { Add-LogLine -Message ('CVE window update failed: ' + $_.Exception.Message) }
+            finally { $btnRef.IsEnabled = $true }
+        }.GetNewClosure()
+        Invoke-MultiAppPipeline -Operation CheckCve -Rows @($Row) -Context $ctx
     }.GetNewClosure())
 
     $btnCopy.Add_Click({
@@ -9595,7 +9629,7 @@ function Show-CveDetailDialog {
         return
     }
     $dlg.Owner = $Owner
-    [void]$dlg.ShowDialog()
+    $dlg.Show()
 }
 
 # A click on a CVE count cell opens the detail window for that row.

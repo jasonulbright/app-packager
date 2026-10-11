@@ -1,5 +1,15 @@
 # Changelog
 
+## [2026.10.11.0109] - 2026-10-11
+
+## 3 fixes
+
+### Fixed
+
+- Run the CVE window's Refresh off the UI thread and show the new result.
+- Open the CVE window beside the main window instead of over it.
+- Write only https vendor references to the CVE report CSV.
+
 ## [2026.10.11.0108] - 2026-10-11
 
 ## CVE lookup for 294 packagers

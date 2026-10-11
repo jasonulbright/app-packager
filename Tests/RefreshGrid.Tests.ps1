@@ -22,7 +22,8 @@ BeforeAll {
         param($Root)
         @(
             [pscustomobject]@{ Script = 'package-chrome.ps1'; Vendor = 'Google'; Application = 'Chrome'; Status = 'Ready'; CMName = 'Google Chrome'; FullPath = 'x'; VendorUrl = ''; Description = ''; CPE = 'cpe:2.3:a:google:chrome:*:*:*:*:*:*:*:*'; SecurityAdvisoryUrl = 'https://chromereleases.googleblog.com/' }
-            [pscustomobject]@{ Script = 'package-firefox.ps1'; Vendor = 'Mozilla'; Application = 'Firefox'; Status = $script:FirefoxStatus; CMName = 'Mozilla Firefox'; FullPath = 'y'; VendorUrl = ''; Description = '' }
+            # Get-Packagers always sets CPE, empty when the header has none.
+            [pscustomobject]@{ Script = 'package-firefox.ps1'; Vendor = 'Mozilla'; Application = 'Firefox'; Status = $script:FirefoxStatus; CMName = 'Mozilla Firefox'; FullPath = 'y'; VendorUrl = ''; Description = ''; CPE = ''; SecurityAdvisoryUrl = '' }
         )
     }
     $script:PackagersRoot = 'unused'
