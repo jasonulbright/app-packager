@@ -631,6 +631,8 @@ function Get-SuiteCommonVersion {
 # a per-window leak.
 $script:TitleBarHitTestHooks   = @{}
 $script:TitleBarHitTestWindows = @{}
+# One mouse, one pending title-bar drag: the window and the press point.
+$script:TitleBarDragPending    = $null
 
 function Get-TitleBarDragHeight {
     param([MahApps.Metro.Controls.MetroWindow]$Window)
@@ -688,7 +690,17 @@ function Add-NativeTitleBarHitTestHook {
         $script:TitleBarHitTestWindows[$key] = $Window
         $hook = [System.Windows.Interop.HwndSourceHook]{
             param([IntPtr]$hwnd, [int]$msg, [IntPtr]$wParam, [IntPtr]$lParam, [ref]$handled)
-            $WM_NCHITTEST = 0x0084; $HTCAPTION = 2
+            $WM_NCHITTEST = 0x0084; $WM_NCLBUTTONDBLCLK = 0x00A3; $HTCAPTION = 2
+            if ($msg -eq $WM_NCLBUTTONDBLCLK) {
+                # Our HTCAPTION answer routes the double-click here as a
+                # non-client message; nothing else toggles the window state.
+                try {
+                    if ($wParam.ToInt64() -ne $HTCAPTION) { return [IntPtr]::Zero }
+                    $target = $script:TitleBarHitTestWindows[$hwnd.ToInt64().ToString()]
+                    if ($target -and (Switch-WindowMaximized -Window $target)) { $handled.Value = $true }
+                } catch { $null = $_ }
+                return [IntPtr]::Zero
+            }
             if ($msg -ne $WM_NCHITTEST) { return [IntPtr]::Zero }
             try {
                 $target = $script:TitleBarHitTestWindows[$hwnd.ToInt64().ToString()]
@@ -740,6 +752,25 @@ function Remove-NativeTitleBarHitTestHook {
     } catch { $null = $_ }
 }
 
+function Switch-WindowMaximized {
+    <#
+    .SYNOPSIS
+        Toggles a window between Maximized and Normal. Returns $true when
+        the state changed; $false for a window whose ResizeMode forbids
+        maximizing.
+    #>
+    param([Parameter(Mandatory)][System.Windows.Window]$Window)
+    if ($Window.ResizeMode -ne [System.Windows.ResizeMode]::CanResize -and
+        $Window.ResizeMode -ne [System.Windows.ResizeMode]::CanResizeWithGrip) { return $false }
+    if ($Window.WindowState -eq [System.Windows.WindowState]::Maximized) {
+        $Window.WindowState = [System.Windows.WindowState]::Normal
+    }
+    else {
+        $Window.WindowState = [System.Windows.WindowState]::Maximized
+    }
+    return $true
+}
+
 function Install-TitleBarDragFallback {
     param([MahApps.Metro.Controls.MetroWindow]$Window)
     $Window.Add_SourceInitialized({ param($s, $e) Add-NativeTitleBarHitTestHook -Window $s })
@@ -749,7 +780,6 @@ function Install-TitleBarDragFallback {
     $Window.Add_PreviewMouseLeftButtonDown({
         param($s, $e)
         try {
-            if ($s.WindowState -eq [System.Windows.WindowState]::Maximized) { return }
             $titleBarH = Get-TitleBarDragHeight -Window $s
             $pos = $e.GetPosition($s)
             if ($pos.Y -lt 4 -or $pos.Y -gt $titleBarH) { return }
@@ -757,10 +787,38 @@ function Install-TitleBarDragFallback {
             foreach ($ancestor in Get-InputAncestors -Start ($e.OriginalSource -as [System.Windows.DependencyObject])) {
                 if ($ancestor -is [System.Windows.Controls.Primitives.ButtonBase]) { return }
             }
-            $s.DragMove()
+            if ($e.ClickCount -ge 2) {
+                $script:TitleBarDragPending = $null
+                if (Switch-WindowMaximized -Window $s) { $e.Handled = $true }
+                return
+            }
+            # DragMove runs the native move loop, which consumes the button-up;
+            # WPF then filters the next button-down as a repeat and the second
+            # click of a double-click is lost. The drag therefore starts on the
+            # first mouse move past the system drag distance, never on the click.
+            $script:TitleBarDragPending = @{ Window = $s; Start = $pos }
             $e.Handled = $true
         } catch { $null = $_ }
     })
+    $Window.Add_PreviewMouseMove({
+        param($s, $e)
+        try {
+            $pending = $script:TitleBarDragPending
+            if (-not $pending -or -not [object]::ReferenceEquals($pending.Window, $s)) { return }
+            if ($e.LeftButton -ne [System.Windows.Input.MouseButtonState]::Pressed) {
+                $script:TitleBarDragPending = $null
+                return
+            }
+            $pos = $e.GetPosition($s)
+            if ([Math]::Abs($pos.X - $pending.Start.X) -lt [System.Windows.SystemParameters]::MinimumHorizontalDragDistance -and
+                [Math]::Abs($pos.Y - $pending.Start.Y) -lt [System.Windows.SystemParameters]::MinimumVerticalDragDistance) { return }
+            $script:TitleBarDragPending = $null
+            if ($s.WindowState -eq [System.Windows.WindowState]::Maximized) { return }
+            $s.DragMove()
+            $e.Handled = $true
+        } catch { $script:TitleBarDragPending = $null }
+    })
+    $Window.Add_PreviewMouseLeftButtonUp({ param($s, $e) $script:TitleBarDragPending = $null })
 }
 
 function Save-WindowState {
