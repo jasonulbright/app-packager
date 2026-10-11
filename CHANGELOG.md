@@ -2,7 +2,7 @@
 
 ## [2026.10.10.0107] - 2026-10-10
 
-## 308 of 312 packagers staged in one run
+## 8 update checks fixed
 
 ### Fixed
 
