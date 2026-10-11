@@ -6,6 +6,7 @@ VendorUrl: https://anydesk.com/
 CPE: cpe:2.3:a:anydesk:anydesk:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://anydesk.com/en/changelog/windows
 DownloadPageUrl: https://anydesk.com/en/downloads/windows
+SecurityAdvisoryUrl: https://www.anydesk.com/en/security
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes

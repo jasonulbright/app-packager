@@ -6,6 +6,7 @@ VendorUrl: https://www.citrix.com/downloads/workspace-app/
 CPE: cpe:2.3:a:citrix:workspace_app:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://docs.citrix.com/en-us/citrix-workspace-app-for-windows/whats-new.html
 DownloadPageUrl: https://www.citrix.com/downloads/workspace-app/workspace-app-for-windows-long-term-service-release/workspace-app-for-windows-LTSR-Latest1.html
+SecurityAdvisoryUrl: https://support.citrix.com/securitybulletins
 IconSource: Installer
 UpdateCadenceDays: 90
 LocalSource: Optional

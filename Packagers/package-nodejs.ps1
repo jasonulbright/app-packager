@@ -6,6 +6,7 @@ VendorUrl: https://nodejs.org/
 CPE: cpe:2.3:a:nodejs:node.js:*:*:*:*:lts:*:*:*
 ReleaseNotesUrl: https://nodejs.org/en/blog/release
 DownloadPageUrl: https://nodejs.org/en/download/
+SecurityAdvisoryUrl: https://nodejs.org/en/blog/vulnerability
 IconSource: Installer
 WsusSupport: Yes
 

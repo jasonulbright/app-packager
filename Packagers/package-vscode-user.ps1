@@ -6,6 +6,7 @@ VendorUrl: https://code.visualstudio.com/docs/setup/windows
 CPE: cpe:2.3:a:microsoft:visual_studio_code:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://code.visualstudio.com/updates
 DownloadPageUrl: https://code.visualstudio.com/Download
+SecurityAdvisoryUrl: https://github.com/microsoft/vscode/security/advisories
 IconSource: Installer
 UpdateCadenceDays: 14
 WsusSupport: No (PerUserInstall)

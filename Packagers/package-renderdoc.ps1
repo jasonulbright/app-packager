@@ -3,6 +3,7 @@ Vendor: Baldur Karlsson
 App: RenderDoc
 CMName: RenderDoc
 VendorUrl: https://renderdoc.org/
+CPE: cpe:2.3:a:renderdoc:renderdoc:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/baldurk/renderdoc/releases
 DownloadPageUrl: https://renderdoc.org/builds
 IconSource: Installer

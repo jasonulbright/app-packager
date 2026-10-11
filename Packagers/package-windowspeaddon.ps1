@@ -6,6 +6,7 @@ VendorUrl: https://learn.microsoft.com/windows-hardware/get-started/adk-install
 CPE: cpe:2.3:a:microsoft:windows_assessment_and_deployment_kit:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/windows-hardware/get-started/what-s-new-in-kits-and-tools
 DownloadPageUrl: https://learn.microsoft.com/windows-hardware/get-started/adk-install
+SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: External
 UpdateCadenceDays: 180
 WsusSupport: No (DetectionNotMappable|PayloadInSubfolder)

@@ -6,6 +6,7 @@ VendorUrl: https://www.anaconda.com/
 CPE: cpe:2.3:a:anaconda:anaconda:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://docs.anaconda.com/anaconda/release-notes/
 DownloadPageUrl: https://repo.anaconda.com/archive/
+SecurityAdvisoryUrl: https://www.anaconda.com/security
 UpdateCadenceDays: 90
 WsusSupport: No (DetectionNotMappable)
 

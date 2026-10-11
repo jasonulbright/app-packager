@@ -377,7 +377,7 @@ AppPackager has no service and no backend. Every network call comes from one of 
 | `Get-GitHubApiCurlArgs` in `Packagers\AppPackagerCommon.psm1` | The bearer token every GitHub call carries: `GITHUB_TOKEN`, then `GH_TOKEN`, then `gh auth token`. Without a token the calls are anonymous, 60 per hour per address. | Options, ConfigMgr Preferences, the GitHub API row. |
 | `start-apppackager.ps1` | The update check: `https://api.github.com/repos/jasonulbright/app-packager/releases/latest`, once per 24 hours at launch, cached in `%LOCALAPPDATA%\AppPackager\update-check.json`. The icon pack and Content Prep downloads from the Options window. The `rate_limit` probe behind the GitHub API row. | The log pane at launch. |
 | The Package phase | Writes to the file share and the ConfigMgr provider, or to Intune through Microsoft Graph, or to the WSUS server. No vendor call. | The log pane. |
-| Check CVEs (`Packagers\AppPackagerVulnerability.psm1`) | One NVD call per checked app: `https://services.nvd.nist.gov/rest/json/cves/2.0` with the app's CPE and version range, paged at 2000 records; `https://cvedb.shodan.io/cves` with the ConfigMgr version when NVD fails; `https://api.first.org/data/v1/epss` with up to 100 CVE ids per call; the CISA KEV catalog `https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json` once per day. Every call carries the `AppPackager` user agent and the NVD key from Preferences when one is set. Nothing is sent to the other CVE sites; the report and the CVE window only link to them. | The `GET <url> -> HTTP <code>` lines in the log pane. |
+| Check CVEs (`Packagers\AppPackagerVulnerability.psm1`) | One NVD call per checked app: `https://services.nvd.nist.gov/rest/json/cves/2.0` with the app's CPE and version range, paged at 2000 records; `https://cvedb.shodan.io/cves` with the ConfigMgr version when NVD fails; `https://api.first.org/data/v1/epss` with up to 100 CVE ids per call; the CISA KEV catalog `https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json` once per day. Every call carries the `AppPackager` user agent and the NVD key from Preferences when one is set. Nothing is sent to the other CVE sites; the report and the CVE window only link to them. The scheduled monitor adds one POST of the run summary (counts and report paths, no CVE text) to the webhook URL in `monitor-config.json`, when one is set. | The `GET <url> -> HTTP <code>` and `POST <url> -> HTTP <code>` lines in the log pane or the monitor log. |
 
 The Application Workbench sends nothing. Saving a profile writes a file under `%LOCALAPPDATA%\AppPackagerData\Workbench`; Stage and Publish from the Workbench run the same packager script and Package phase as the main window.
 
@@ -796,45 +796,48 @@ How a lookup works:
 3. Each CVE gets its EPSS score from FIRST and its Known Exploited Vulnerabilities (KEV) flag from the CISA catalog, which is downloaded once per day.
 4. The result is cached per CPE and version pair under `%LOCALAPPDATA%\AppPackager\vuln-cache.json` for six hours (Preferences, `Vulnerability.CacheTtlMinutes`), and a summary is written to `app-history.json` so the grid shows the counts on the next launch.
 
-The grid shows **CVEs** (the fixed-by-updating count), **Max CVSS** (`7.5 HIGH`) and **KEV** (`Yes` when any fixed CVE is in the catalog). The Status cell reads `Update available (3 CVEs, 1 in KEV)`. Clicking the count opens the CVE window: the product links (NVD search, CVE.org, EUVD, OpenCVE, cvedetails, OSV), one row per CVE with CVSS, EPSS, KEV and summary, and per CVE the links to NVD, CVE.org, EUVD, OpenCVE, Shodan CVEDB, cvedetails, the KEV catalog entry and the first vendor reference. Only `https` links open. **Refresh** bypasses the cache; **Copy CVE IDs** fills the clipboard; **Export report** writes the files for that one app.
+The grid shows **CVEs** (the fixed-by-updating count), **Max CVSS** (`7.5 HIGH`) and **KEV** (`Yes` when any fixed CVE is in the catalog); **Max EPSS** sits with the debug columns. The Status cell reads `Update available (3 CVEs, 1 in KEV)`. Clicking the count opens the CVE window: the product links (NVD search, CVE.org, EUVD, OpenCVE, cvedetails, OSV, and the vendor advisory page when the packager names one), one row per CVE with CVSS, EPSS, KEV and summary, and per CVE the links to NVD, CVE.org, EUVD, OpenCVE, Shodan CVEDB, cvedetails, the KEV catalog entry and the first vendor reference. Only `https` links open. **Refresh** bypasses the cache; **Copy CVE IDs** fills the clipboard; **Export report** writes the files for that one app. The row's context menu has the same product links under **Open CVE Sources** and a **Copy CVE IDs** entry.
 
-**CVE Report** writes the report for the checked rows (all rows when none is checked) under `Logs\Reports\cve-report-<timestamp>`: a self-contained HTML page with every link, two CSV files (one row per application, one row per application and CVE with the link columns) and a JSON file with the full data. The HTML opens when the files are written.
+**CVE Report** writes the report for the checked rows (all rows when none is checked) under `Logs\Reports\cve-report-<timestamp>`: a self-contained HTML page with every link, two CSV files (one row per application, one row per application and CVE with the link columns), a workbook with the same two tables as sheets with hyperlink cells, a Markdown file, and a JSON file with the full data. The HTML opens when the files are written. The application table carries a `StillInLatest` count: CVEs that affect the ConfigMgr version and the latest version alike, which the update does not fix.
 
-Check ConfigMgr also records the ConfigMgr version in `app-history.json` with the site code, and the grid shows it on the next launch when the site code still matches.
+Check ConfigMgr also records the ConfigMgr version in `app-history.json` with the site code, and the grid shows it on the next launch when the site code still matches. With **Look up CVEs after Check ConfigMgr** on (Options, ConfigMgr Preferences), Check ConfigMgr chains into Check CVEs for the same rows.
 
-NVD allows 5 requests per 30 seconds without a key and 50 with one. Set the key in `AppPackager.preferences.json` under `Vulnerability.NvdApiKey`, or in the `NVD_API_KEY` environment variable. A request for a key is at https://nvd.nist.gov/developers/request-an-api-key.
+NVD allows 5 requests per 30 seconds without a key and 50 with one. Set the key in Options, ConfigMgr Preferences, **NVD API key**, or in the `NVD_API_KEY` environment variable. A request for a key is at https://nvd.nist.gov/developers/request-an-api-key.
+
+For a scheduled run without the window see [Vendor Version Monitor](#vendor-version-monitor).
 
 ## Vendor Version Monitor
 
-The Version Monitor is a headless companion tool that compares ConfigMgr-deployed application versions against the latest vendor releases, flags stale packages, and optionally queries the NIST NVD for known CVEs. It produces a self-contained HTML report.
+The Version Monitor is the scheduled form of Check Latest, Check ConfigMgr, Check CVEs and CVE Report. It runs the application in batch mode without the window, shares `app-history.json` and the CVE cache with the GUI, and so fills the grid for the next interactive session.
 
 ```powershell
-# Full run: ConfigMgr + vendor checks + NVD CVE lookups
+# Full run: vendor versions, ConfigMgr versions, CVE lookups, every report format
 .\VersionMonitor\Start-VersionMonitor.ps1
 
-# Vendor version checks only (no ConfigMgr or NVD dependency)
+# Vendor versions only (no ConfigMgr or NVD dependency)
 .\VersionMonitor\Start-VersionMonitor.ps1 -SkipMECM -SkipNVD
 
-# Simulate stale versions for testing report rendering and CVE lookups
-.\VersionMonitor\Start-VersionMonitor.ps1 -SimulateStale
+# CVE lookups from the versions already in app-history.json, two packagers only
+.\VersionMonitor\Start-VersionMonitor.ps1 -SkipLatest -SkipMECM -Apps package-chrome, package-7zip
 ```
 
-The monitor discovers all `package-*.ps1` scripts in the sibling `Packagers/` folder and reads metadata directly from their headers — no separate catalog file needed. CPE strings embedded in packager headers enable NVD CVE lookups for stale applications.
+The wrapper reads `VersionMonitor\monitor-config.json` (created with defaults on the first run) and starts `start-apppackager.ps1 -BatchMode -CveReport`. Parameters on the wrapper override the file.
 
-| Feature | Details |
+| Config key | Meaning |
 |---|---|
-| **Packager discovery** | Auto-discovers every `package-*.ps1` script (312 today) via relative path |
-| **Version checking** | Calls each packager with `-GetLatestVersionOnly` |
-| **ConfigMgr comparison** | Queries ConfigMgr for deployed versions |
-| **NVD CVE lookup** | Queries NIST NVD API for stale apps with CPE headers |
-| **Rate limiting** | Sliding-window rate limiter with configurable limits |
-| **NVD caching** | JSON cache with configurable TTL (default 6 hours) |
-| **HTML report** | Self-contained report with status badges, CVE pills, CVSS scores |
-| **Simulation mode** | Override ConfigMgr versions via `simulate-overrides.json` for testing |
-| **Notifications** | Drop folder copy and webhook stub (extensible) |
-| **Log/report cleanup** | Configurable retention for old logs and reports |
+| `MECM.SiteCode`, `MECM.ServerFQDN` | Site code and provider machine; empty values fall back to the GUI preferences |
+| `NVD.ApiKey` | NVD API key for the run; the GUI preference and `NVD_API_KEY` are used when empty |
+| `Report.OutputFolder`, `Report.Formats`, `Report.KeepReportDays` | Report folder (default `Logs\Reports`), the formats to write (`Html`, `Csv`, `Json`, `Xlsx`, `Markdown`), and the retention in days |
+| `Logging.LogFolder`, `Logging.KeepLogDays` | Log folder (default `VersionMonitor\Logs`) and retention |
+| `Notifications.Enabled`, `DropFolder`, `WebhookUrl`, `OnlyOnStale` | Copy the report files to a folder and POST the run summary as JSON to an https webhook; by default only when at least one application has an update |
 
-Configuration is in `VersionMonitor/monitor-config.json`. Log and report folders default to `VersionMonitor/Logs/` and `VersionMonitor/Reports/` when not specified in config.
+The run writes one log line per application and per network request. The exit code is 1 when any vendor query, ConfigMgr query or CVE lookup failed, 0 otherwise.
+
+The direct form, without the wrapper and the config file:
+
+```powershell
+.\start-apppackager.ps1 -BatchMode -CveReport -SiteCode MCM -ProviderMachineName cm01.contoso.com -ReportFolder C:\Reports -WebhookUrl https://hooks.example.com/x
+```
 
 92 packagers read their latest version from the GitHub REST API. Without a token GitHub allows 60 requests per hour per source address, so a monitor run or a catalog-wide version check fails partway through with `403 rate limit exceeded`. The packagers look for a token in this order: the `GITHUB_TOKEN` environment variable, then `GH_TOKEN`, then the GitHub CLI login (`gh auth login`) when `gh.exe` is installed. Any of those raises the limit to 5000 requests per hour; a personal access token with no scopes is enough. With none of them the calls stay anonymous. The Options window shows which source is in effect and the remaining quota next to the other detected tools.
 
@@ -862,6 +865,7 @@ WsusSupport: Yes
 | `CPE` | NVD Common Platform Enumeration string. Check CVEs and the monitor query NVD with it; a packager without one shows `CPE missing` in the CVEs column. |
 | `ReleaseNotesUrl` | Link shown in the HTML report's Links column |
 | `DownloadPageUrl` | Link shown in the HTML report's Links column |
+| `SecurityAdvisoryUrl` | The vendor's security advisory page (https). Shown as `Vendor advisory` in the CVE window, the Open CVE Sources menu and every report. 94 packagers carry one; only pages that answered HTTP 200 were added. |
 | `UpdateCadenceDays` | Default cadence for Full Run's Report action. Integer days between vendor re-queries. Falls back to 7 when absent. Override per-app in App Flow. |
 | `IconSource` | Where the application icon comes from: `Installer`, `External`, or `None`. See [Application Icons](#application-icons). |
 | `SupportsVariants` | Comma-separated variant splits the packager can stage (`Architecture`, `Language`, `Network`). Enables the Variant split column. |
@@ -1054,13 +1058,9 @@ app-packager/
       package-chocolatey.ps1.template # Chocolatey / NuGet .nupkg
       README.md                      # Template authoring notes
   VersionMonitor/
-    Start-VersionMonitor.ps1         # Headless version monitor entry point
-    monitor-config.json              # Monitor configuration (ConfigMgr, NVD, report settings)
-    Module/
-      VersionMonitorCommon.psm1      # Monitor module (discovery, comparison, NVD, HTML)
-      VersionMonitorCommon.psd1      # Module manifest
+    Start-VersionMonitor.ps1         # Scheduled entry point: start-apppackager.ps1 -BatchMode -CveReport
+    monitor-config.json              # Monitor configuration (ConfigMgr, NVD, report, notification settings)
     Logs/                            # Auto-created log files
-    Reports/                         # Auto-created HTML reports
   Samples/                           # Authoring walkthroughs and packager skeletons
   Tests/                             # Pester tests and smoke scripts (source only, not in the release zip)
   CHANGELOG.md

@@ -6,6 +6,7 @@ VendorUrl: https://www.videolan.org/vlc/
 CPE: cpe:2.3:a:videolan:vlc_media_player:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.videolan.org/vlc/releases/
 DownloadPageUrl: https://www.videolan.org/vlc/
+SecurityAdvisoryUrl: https://www.videolan.org/security/
 IconSource: Installer
 WsusSupport: Yes
 

@@ -6,6 +6,7 @@ VendorUrl: https://dotnet.microsoft.com/download/dotnet/10.0
 CPE: cpe:2.3:a:microsoft:asp.net_core:10.*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/dotnet/core/tree/main/release-notes/10.0
 DownloadPageUrl: https://dotnet.microsoft.com/en-us/download/dotnet/10.0
+SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: None
 WsusSupport: Yes
 

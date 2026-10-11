@@ -6,6 +6,7 @@ VendorUrl: https://www.jetbrains.com/pycharm/
 CPE: cpe:2.3:a:jetbrains:pycharm:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.jetbrains.com/pycharm/whatsnew/
 DownloadPageUrl: https://www.jetbrains.com/pycharm/download/?section=windows
+SecurityAdvisoryUrl: https://www.jetbrains.com/privacy-security/issues-fixed/
 UpdateCadenceDays: 60
 WsusSupport: No (DetectionNotMappable)
 

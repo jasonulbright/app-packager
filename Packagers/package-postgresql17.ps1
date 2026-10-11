@@ -6,6 +6,7 @@ VendorUrl: https://www.postgresql.org/
 CPE: cpe:2.3:a:postgresql:postgresql:17.*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.postgresql.org/docs/17/release.html
 DownloadPageUrl: https://www.postgresql.org/download/windows/
+SecurityAdvisoryUrl: https://www.postgresql.org/support/security/
 IconSource: Installer
 WsusSupport: No (DetectionNotMappable)
 

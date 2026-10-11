@@ -2,7 +2,7 @@ BeforeAll {
     $t = $null; $e = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\start-apppackager.ps1'), [ref]$t, [ref]$e)
     if ($e) { throw ($e.Message -join '; ') }
-    foreach ($name in 'Invoke-RefreshGrid', 'Get-SiteIdentityKey', 'Clear-SucceededSelection', 'Get-CveGridCells') {
+    foreach ($name in 'Invoke-RefreshGrid', 'Get-SiteIdentityKey', 'Clear-SucceededSelection', 'Get-CveGridCells', 'Select-OnlyUpdateAvailable') {
         $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }.GetNewClosure(), $false)
         . ([scriptblock]::Create($fn.Extent.Text))
     }
@@ -11,7 +11,7 @@ BeforeAll {
     function Read-PackagerHistory {
         @{
             'package-chrome' = @{
-                LastKnownVersion = '130.0'; LastChecked = 'yesterday'
+                LastKnownVersion = $script:ChromeLatest; LastChecked = 'yesterday'
                 LastCmVersion = '129.0'; LastCmSite = 'MCM'; LastCmChecked = 'yesterday'
                 VulnSummary = [pscustomobject]@{ QueriedAt = '2026-10-11T12:00:00Z'; From = '129.0'; To = '130.0'; Source = 'NVD'; Count = 4; MaxCvss = 8.8; MaxSeverity = 'HIGH'; KevCount = 1; MaxEpss = 0.3; Error = $null }
             }
@@ -21,7 +21,7 @@ BeforeAll {
     function Get-Packagers {
         param($Root)
         @(
-            [pscustomobject]@{ Script = 'package-chrome.ps1'; Vendor = 'Google'; Application = 'Chrome'; Status = 'Ready'; CMName = 'Google Chrome'; FullPath = 'x'; VendorUrl = ''; Description = ''; CPE = 'cpe:2.3:a:google:chrome:*:*:*:*:*:*:*:*' }
+            [pscustomobject]@{ Script = 'package-chrome.ps1'; Vendor = 'Google'; Application = 'Chrome'; Status = 'Ready'; CMName = 'Google Chrome'; FullPath = 'x'; VendorUrl = ''; Description = ''; CPE = 'cpe:2.3:a:google:chrome:*:*:*:*:*:*:*:*'; SecurityAdvisoryUrl = 'https://chromereleases.googleblog.com/' }
             [pscustomobject]@{ Script = 'package-firefox.ps1'; Vendor = 'Mozilla'; Application = 'Firefox'; Status = $script:FirefoxStatus; CMName = 'Mozilla Firefox'; FullPath = 'y'; VendorUrl = ''; Description = '' }
         )
     }
@@ -32,6 +32,7 @@ BeforeAll {
 Describe 'Grid refresh keeps session results' {
     BeforeEach {
         $script:FirefoxStatus = 'Ready'
+        $script:ChromeLatest = '130.0'
         $script:Prefs = [pscustomobject]@{ HiddenApplications = @(); SiteCode = 'MCM' }
         $script:GridSessionRows = $null
         $script:PackagerData = New-Object System.Collections.ObjectModel.ObservableCollection[object]
@@ -82,7 +83,10 @@ Describe 'Grid refresh keeps session results' {
         $chrome.CveCount | Should -Be '4'
         $chrome.CveCvss | Should -Be '8.8 HIGH'
         $chrome.CveKev | Should -Be 'Yes'
+        $chrome.CveEpss | Should -Match '^30'
         $chrome.CveChecked | Should -Be '2026-10-11T12:00:00Z'
+        $chrome.AdvisoryUrl | Should -Be 'https://chromereleases.googleblog.com/'
+        ($script:PackagerData | Where-Object Script -eq 'package-firefox.ps1').AdvisoryUrl | Should -Be ''
     }
 
     It 'leaves the ConfigMgr version empty when the history came from another site' {
@@ -110,6 +114,31 @@ Describe 'Grid refresh keeps session results' {
         $chrome.CveKev | Should -Be ''
         $firefox = $script:PackagerData | Where-Object Script -eq 'package-firefox.ps1'
         $firefox.CveCount | Should -Be 'CPE missing'
+    }
+
+    It 'clears the CVE cells when the stored summary is for other versions' {
+        # The history summary covers 129.0 to 130.0; the vendor now reports 131.0.
+        $script:ChromeLatest = '131.0'
+        $script:GridSessionRows = $null
+        $script:PackagerData = New-Object System.Collections.ObjectModel.ObservableCollection[object]
+        Invoke-RefreshGrid
+        $chrome = $script:PackagerData | Where-Object Script -eq 'package-chrome.ps1'
+        $chrome.LatestVersion | Should -Be '131.0'
+        $chrome.CveCount | Should -Be ''
+        $chrome.CveCvss | Should -Be ''
+        $chrome.CveKev | Should -Be ''
+        $chrome.CveChecked | Should -Be ''
+    }
+
+    It 'selects rows whose status carries the CVE count' {
+        $chrome = $script:PackagerData | Where-Object Script -eq 'package-chrome.ps1'
+        $firefox = $script:PackagerData | Where-Object Script -eq 'package-firefox.ps1'
+        $chrome.Status = 'Update available (3 CVEs, 1 in KEV)'
+        $firefox.Status = 'Up to date'
+        $script:dataGrid = [pscustomobject]@{ ItemsSource = @($chrome, $firefox) }
+        Select-OnlyUpdateAvailable
+        $chrome.Selected | Should -BeTrue
+        $firefox.Selected | Should -BeFalse
     }
 
     It 'keeps the same row object so background writes after a rebuild stay visible' {

@@ -3,6 +3,7 @@ Vendor: JGraph Ltd
 App: draw.io
 CMName: draw.io
 VendorUrl: https://www.drawio.com/
+CPE: cpe:2.3:a:jgraph:drawio:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/jgraph/drawio-desktop/releases
 DownloadPageUrl: https://github.com/jgraph/drawio-desktop/releases
 IconSource: Installer

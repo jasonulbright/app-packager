@@ -6,6 +6,7 @@ VendorUrl: https://www.python.org/downloads/
 CPE: cpe:2.3:a:python:python:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://docs.python.org/3/whatsnew/
 DownloadPageUrl: https://www.python.org/downloads/
+SecurityAdvisoryUrl: https://www.python.org/dev/security/
 IconSource: Installer
 WsusSupport: Yes
 

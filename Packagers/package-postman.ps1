@@ -6,6 +6,7 @@ VendorUrl: https://www.postman.com/
 CPE: cpe:2.3:a:postman:postman:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.postman.com/release-notes/postman-app/
 DownloadPageUrl: https://www.postman.com/downloads/
+SecurityAdvisoryUrl: https://www.postman.com/trust/security/
 IconSource: Installer
 UpdateCadenceDays: 14
 WsusSupport: No (PerUserInstall|CustomInstall)

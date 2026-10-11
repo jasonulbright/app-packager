@@ -6,6 +6,7 @@ VendorUrl: https://www.thunderbird.net/
 CPE: cpe:2.3:a:mozilla:thunderbird:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.thunderbird.net/en-US/thunderbird/releases/
 DownloadPageUrl: https://www.thunderbird.net/en-US/
+SecurityAdvisoryUrl: https://www.mozilla.org/en-US/security/known-vulnerabilities/thunderbird/
 IconSource: External
 WsusSupport: Yes
 

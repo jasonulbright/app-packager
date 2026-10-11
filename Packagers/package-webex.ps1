@@ -6,6 +6,7 @@ VendorUrl: https://www.webex.com/downloads.html
 CPE: cpe:2.3:a:cisco:webex_meetings:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.webex.com/whatsnew.html
 DownloadPageUrl: https://www.webex.com/downloads.html
+SecurityAdvisoryUrl: https://sec.cloudapps.cisco.com/security/center/publicationListing.x
 IconSource: Installer
 WsusSupport: Yes
 

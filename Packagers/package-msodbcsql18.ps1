@@ -6,6 +6,7 @@ VendorUrl: https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for
 CPE: cpe:2.3:a:microsoft:odbc_driver_for_sql_server:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/en-us/sql/connect/odbc/windows/release-notes-odbc-sql-server-windows
 DownloadPageUrl: https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server
+SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: External
 WsusSupport: Yes
 

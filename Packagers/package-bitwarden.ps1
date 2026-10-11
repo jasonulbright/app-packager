@@ -6,6 +6,7 @@ VendorUrl: https://bitwarden.com/
 CPE: cpe:2.3:a:bitwarden:desktop:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/bitwarden/clients/releases
 DownloadPageUrl: https://bitwarden.com/download/
+SecurityAdvisoryUrl: https://www.bitwarden.com/help/security/
 IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 WsusSupport: Yes

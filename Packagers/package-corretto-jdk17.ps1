@@ -6,6 +6,7 @@ VendorUrl: https://aws.amazon.com/corretto/
 CPE: cpe:2.3:a:amazon:corretto:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/corretto/corretto-17/releases
 DownloadPageUrl: https://aws.amazon.com/corretto/
+SecurityAdvisoryUrl: https://aws.amazon.com/security/security-bulletins/
 IconSource: None
 WsusSupport: Yes
 
