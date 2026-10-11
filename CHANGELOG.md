@@ -1,5 +1,16 @@
 # Changelog
 
+## [2026.10.11.0110] - 2026-10-11
+
+## 4 grid and CVE window fixes
+
+### Fixed
+
+- Show the CVE count on a selected row and widen the CVEs and Status columns.
+- Show a preloaded ConfigMgr version with its compare result and CVE count on launch.
+- Make the links in the CVE window readable in the dark theme.
+- Clip long CVE summaries to six lines; the full text sits in the tooltip.
+
 ## [2026.10.11.0109] - 2026-10-11
 
 ## 3 fixes

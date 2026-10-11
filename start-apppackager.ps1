@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.10.11.0109
+    Version    : 2026.10.11.0110
     Updated    : 2026-09-09
 #>
 
@@ -3906,7 +3906,7 @@ function Get-CveGridCells {
     # version pair; a count left from older versions is not shown.
     param($Summary, [AllowNull()][AllowEmptyString()][string]$Cpe, [AllowNull()][AllowEmptyString()][string]$CurrentVersion, [AllowNull()][AllowEmptyString()][string]$LatestVersion)
     $get = { param($name) if ($null -eq $Summary) { $null } elseif ($Summary -is [System.Collections.IDictionary]) { $Summary[$name] } elseif ($Summary.PSObject.Properties[$name]) { $Summary.PSObject.Properties[$name].Value } else { $null } }
-    $cells = [pscustomobject]@{ Cpe = [string]$Cpe; Count = ''; Cvss = ''; Kev = ''; Epss = ''; Checked = '' }
+    $cells = [pscustomobject]@{ Cpe = [string]$Cpe; Count = ''; Cvss = ''; Kev = ''; Epss = ''; Checked = ''; Text = '' }
     if ([string]::IsNullOrWhiteSpace($Cpe)) { $cells.Count = 'CPE missing'; return $cells }
     if ($null -eq $Summary) { return $cells }
     if ($PSBoundParameters.ContainsKey('CurrentVersion') -or $PSBoundParameters.ContainsKey('LatestVersion')) {
@@ -3926,6 +3926,9 @@ function Get-CveGridCells {
     $cells.Checked = [string](& $get 'QueriedAt')
     if (& $get 'Error') { $cells.Count = 'Error'; return $cells }
     $cells.Count = [string][int](& $get 'Count')
+    $kevCount = [int](& $get 'KevCount')
+    $cells.Text = '{0} CVE{1}' -f [int](& $get 'Count'), $(if ([int](& $get 'Count') -eq 1) { '' } else { 's' })
+    if ($kevCount -gt 0) { $cells.Text += ', {0} in KEV' -f $kevCount }
     $score = & $get 'MaxCvss'
     if ($null -ne $score -and "$score" -ne '') {
         $sev = [string](& $get 'MaxSeverity')
@@ -7105,6 +7108,15 @@ function Invoke-RefreshGrid {
         }
         $cve = Get-CveGridCells -Summary $vulnStored -Cpe $(if ($m.PSObject.Properties['CPE']) { [string]$m.CPE } else { '' }) -CurrentVersion $cmStored -LatestVersion $latestStored
         $advisory = $(if ($m.PSObject.Properties['SecurityAdvisoryUrl']) { [string]$m.SecurityAdvisoryUrl } else { '' })
+        # Both versions from the history give the row its compare result at
+        # once; a stored CVE count for the same pair rides on the status.
+        $preloadStatus = [string]$m.Status
+        if ($cmStored -and $latestStored -and $preloadStatus -eq 'Ready') {
+            $cmp = Compare-SemVer -A $cmStored -B $latestStored
+            if ($cmp -lt 0) { $preloadStatus = 'Update available'; if ($cve.Text) { $preloadStatus += ' (' + $cve.Text + ')' } }
+            elseif ($cmp -eq 0) { $preloadStatus = 'Up to date' }
+            else { $preloadStatus = 'Current newer' }
+        }
 
         $row = $script:GridSessionRows[[string]$m.Script]
         if ($row) {
@@ -7135,7 +7147,7 @@ function Invoke-RefreshGrid {
                 Application    = $m.Application
                 CurrentVersion = $cmStored
                 LatestVersion  = $latestStored
-                Status         = $m.Status
+                Status         = $preloadStatus
                 CMName         = $m.CMName
                 Script         = $m.Script
                 FullPath       = $m.FullPath
@@ -9424,7 +9436,7 @@ function Show-CveDetailDialog {
                 <Setter Property="Margin" Value="0,0,8,2"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="FontSize" Value="12"/>
-                <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                <Setter Property="Foreground" Value="#FF4C9BE0"/>
             </Style>
         </ResourceDictionary>
     </Window.Resources>
@@ -9444,7 +9456,7 @@ function Show-CveDetailDialog {
                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Button Content="{Binding Name}" Tag="{Binding Url}" ToolTip="{Binding Url}" Style="{StaticResource LinkButton}"/>
+                            <Button Tag="{Binding Url}" ToolTip="{Binding Url}" Style="{StaticResource LinkButton}"><TextBlock Text="{Binding Name}" TextDecorations="Underline"/></Button>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -9466,7 +9478,7 @@ function Show-CveDetailDialog {
                                 <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Button Content="{Binding Name}" Tag="{Binding Url}" ToolTip="{Binding Url}" Style="{StaticResource LinkButton}"/>
+                                        <Button Tag="{Binding Url}" ToolTip="{Binding Url}" Style="{StaticResource LinkButton}"><TextBlock Text="{Binding Name}" TextDecorations="Underline"/></Button>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -9512,6 +9524,10 @@ function Show-CveDetailDialog {
     $colSummary = $dlg.FindName('colSummary')
     $wrap = [System.Windows.Style]::new([System.Windows.Controls.TextBlock], $colSummary.ElementStyle)
     $wrap.Setters.Add([System.Windows.Setter]::new([System.Windows.Controls.TextBlock]::TextWrappingProperty, [System.Windows.TextWrapping]::Wrap))
+    # A long summary (the Terrapin record lists every affected product) is
+    # clipped to six lines; the tooltip carries the full text.
+    $wrap.Setters.Add([System.Windows.Setter]::new([System.Windows.FrameworkElement]::MaxHeightProperty, [double]96))
+    $wrap.Setters.Add([System.Windows.Setter]::new([System.Windows.FrameworkElement]::ToolTipProperty, (New-Object System.Windows.Data.Binding 'Summary')))
     $colSummary.ElementStyle = $wrap
 
     $state = @{ Result = $null; Row = $Row }
