@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026.10.11.0115] - 2026-10-11
+
+## 2 PowerShell 7 fixes
+
+### Fixed
+
+- Read installer headers without the byte encoding that PowerShell 7 removed.
+- Read CVE cache timestamps the same way under Windows PowerShell and PowerShell 7.
+
 ## [2026.10.11.0114] - 2026-10-11
 
 ## 6 fixes

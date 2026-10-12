@@ -185,7 +185,7 @@ function Invoke-StageTreeSizeFree {
 
     # The vendor download endpoint answers 200 with an HTML page rather than
     # a redirect when the setup is unavailable.
-    $header = Get-Content -LiteralPath $localExe -Encoding Byte -TotalCount 2 -ErrorAction Stop
+    $header = Get-FileHeaderBytes -Path $localExe -Count 2
     if ($header.Count -lt 2 -or $header[0] -ne 0x4D -or $header[1] -ne 0x5A) {
         throw "Downloaded payload is not a Windows executable (no MZ header): $localExe"
     }

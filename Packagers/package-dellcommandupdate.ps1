@@ -109,7 +109,7 @@ function Assert-ExePayload {
     #>
     param([Parameter(Mandatory)][string]$Path)
 
-    $bytes = Get-Content -LiteralPath $Path -Encoding Byte -TotalCount 2 -ErrorAction Stop
+    $bytes = Get-FileHeaderBytes -Path $Path -Count 2
     if ($bytes.Count -lt 2 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {
         throw "Downloaded payload is not a Windows executable (no MZ header): $Path"
     }
@@ -147,7 +147,7 @@ function Expand-DellCatalog {
 
     # The outer cab may already yield the XML; only expand again when the
     # extracted file is itself a cab (MSCF signature).
-    $sig = Get-Content -LiteralPath $inner.FullName -Encoding Byte -TotalCount 4 -ErrorAction Stop
+    $sig = Get-FileHeaderBytes -Path $inner.FullName -Count 4
     if ($sig.Count -ge 4 -and $sig[0] -eq 0x4D -and $sig[1] -eq 0x53 -and $sig[2] -eq 0x43 -and $sig[3] -eq 0x46) {
         & $expand $inner.FullName "-F:*" $stage2 | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "Failed to expand inner Dell catalog cab." }
