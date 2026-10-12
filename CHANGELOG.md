@@ -1,5 +1,16 @@
 # Changelog
 
+## [2026.10.11.0113] - 2026-10-11
+
+## 7 CVE data fields
+
+### Added
+
+- Show the fix version, published date and modified date per CVE in the window and every report.
+- Count the CVEs fixed in the latest release, in an earlier release, or with no fix version.
+- Show the newest CVE date and the last NVD update per app.
+- Add In latest and Newest CVE columns to the grid; NVD updated sits with the debug columns.
+
 ## [2026.10.11.0112] - 2026-10-11
 
 ## 1 window fix

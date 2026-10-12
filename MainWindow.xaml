@@ -332,7 +332,10 @@
                     </DataGridTemplateColumn>
                     <DataGridTextColumn x:Name="colCveCvss" Header="Max CVSS" Width="110" Binding="{Binding CveCvss}" IsReadOnly="True"/>
                     <DataGridTextColumn x:Name="colCveKev" Header="KEV" Width="50" Binding="{Binding CveKev}" IsReadOnly="True"/>
+                    <DataGridTextColumn x:Name="colCveFixed" Header="In latest" Width="90" Binding="{Binding CveFixed}" IsReadOnly="True"/>
+                    <DataGridTextColumn x:Name="colCveNewest" Header="Newest CVE" Width="100" Binding="{Binding CveNewest}" IsReadOnly="True"/>
                     <DataGridTextColumn x:Name="colCveEpss" Header="Max EPSS" Width="80" Binding="{Binding CveEpss}" IsReadOnly="True" Visibility="Collapsed"/>
+                    <DataGridTextColumn x:Name="colCveUpdated" Header="NVD updated" Width="100" Binding="{Binding CveUpdated}" IsReadOnly="True" Visibility="Collapsed"/>
                     <DataGridTextColumn x:Name="colCveChecked" Header="CVEs Checked (UTC)" Width="170" Binding="{Binding CveChecked}" IsReadOnly="True" Visibility="Collapsed"/>
                     <DataGridTextColumn x:Name="colCMName" Header="CMName" Width="140" Binding="{Binding CMName}" IsReadOnly="True" Visibility="Collapsed"/>
                     <DataGridTextColumn x:Name="colScript" Header="Script" Width="180" Binding="{Binding Script}" IsReadOnly="True" Visibility="Collapsed"/>

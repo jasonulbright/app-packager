@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.10.11.0112
+    Version    : 2026.10.11.0113
     Updated    : 2026-09-09
 #>
 
@@ -3942,7 +3942,7 @@ function Get-CveGridCells {
     # version pair; a count left from older versions is not shown.
     param($Summary, [AllowNull()][AllowEmptyString()][string]$Cpe, [AllowNull()][AllowEmptyString()][string]$CurrentVersion, [AllowNull()][AllowEmptyString()][string]$LatestVersion)
     $get = { param($name) if ($null -eq $Summary) { $null } elseif ($Summary -is [System.Collections.IDictionary]) { $Summary[$name] } elseif ($Summary.PSObject.Properties[$name]) { $Summary.PSObject.Properties[$name].Value } else { $null } }
-    $cells = [pscustomobject]@{ Cpe = [string]$Cpe; Count = ''; Cvss = ''; Kev = ''; Epss = ''; Checked = ''; Text = '' }
+    $cells = [pscustomobject]@{ Cpe = [string]$Cpe; Count = ''; Cvss = ''; Kev = ''; Epss = ''; Checked = ''; Text = ''; Fixed = ''; Newest = ''; Updated = '' }
     if ([string]::IsNullOrWhiteSpace($Cpe)) { $cells.Count = 'CPE missing'; return $cells }
     if ($null -eq $Summary) { return $cells }
     if ($PSBoundParameters.ContainsKey('CurrentVersion') -or $PSBoundParameters.ContainsKey('LatestVersion')) {
@@ -3973,6 +3973,13 @@ function Get-CveGridCells {
     if ([int](& $get 'KevCount') -gt 0) { $cells.Kev = 'Yes' }
     $epss = & $get 'MaxEpss'
     if ($null -ne $epss -and "$epss" -ne '') { $cells.Epss = ('{0:P1}' -f [double]$epss) }
+    # "5 of 23": the CVEs NVD places at the latest version. A summary from
+    # before the fix-version fields existed shows nothing here.
+    if ($null -ne (& $get 'FixedInLatestCount') -and [int](& $get 'Count') -gt 0) {
+        $cells.Fixed = '{0} of {1}' -f [int](& $get 'FixedInLatestCount'), [int](& $get 'Count')
+    }
+    $cells.Newest = [string](& $get 'NewestPublished')
+    $cells.Updated = [string](& $get 'LastNvdUpdate')
     return $cells
 }
 
@@ -4365,6 +4372,7 @@ $colLastChecked  = $window.FindName('colLastChecked')
 $colCves         = $window.FindName('colCves')
 $colCveChecked   = $window.FindName('colCveChecked')
 $colCveEpss      = $window.FindName('colCveEpss')
+$colCveUpdated   = $window.FindName('colCveUpdated')
 $progressOverlay  = $window.FindName('progressOverlay')
 $txtProgressTitle = $window.FindName('txtProgressTitle')
 $txtProgressStep  = $window.FindName('txtProgressStep')
@@ -4894,6 +4902,7 @@ $toggleDebugCols.Add_Toggled({
     $colLastChecked.Visibility = $vis
     $colCveChecked.Visibility  = $vis
     $colCveEpss.Visibility     = $vis
+    $colCveUpdated.Visibility  = $vis
     Add-LogLine -Message ("Debug columns {0}." -f $(if ($toggleDebugCols.IsOn) { 'shown' } else { 'hidden' }))
 })
 
@@ -7168,11 +7177,13 @@ function Invoke-RefreshGrid {
             if (-not [string]$row.LastChecked)   { $row.LastChecked   = $lastChecked }
             if (-not [string]$row.CveChecked -and -not [string]$row.CveCount) {
                 $row.CveCount = $cve.Count; $row.CveCvss = $cve.Cvss; $row.CveKev = $cve.Kev; $row.CveEpss = $cve.Epss; $row.CveChecked = $cve.Checked
+                $row.CveFixed = $cve.Fixed; $row.CveNewest = $cve.Newest; $row.CveUpdated = $cve.Updated
             }
             if ($DiscardSiteResults -or ([string]$m.Status).StartsWith('Read error')) {
                 $row.CurrentVersion = ""
                 $row.Status         = $m.Status
                 $row.CveCount = $cve.Count; $row.CveCvss = ''; $row.CveKev = ''; $row.CveEpss = ''; $row.CveChecked = ''
+                $row.CveFixed = ''; $row.CveNewest = ''; $row.CveUpdated = ''
                 if ($cve.Checked) { $row.CveCount = '' }
             }
         }
@@ -7196,6 +7207,9 @@ function Invoke-RefreshGrid {
                 CveKev         = $cve.Kev
                 CveEpss        = $cve.Epss
                 CveChecked     = $cve.Checked
+                CveFixed       = $cve.Fixed
+                CveNewest      = $cve.Newest
+                CveUpdated     = $cve.Updated
                 AdvisoryUrl    = $advisory
             }
             $script:GridSessionRows[[string]$m.Script] = $row
@@ -7519,7 +7533,7 @@ function Invoke-MultiAppPipeline {
                         elseif ((Compare-VulnerabilityVersionValue -A $current -B $latest) -ge 0) { $reason = 'No update' }
                         if ($reason) {
                             $row.CveCount = $reason
-                            $row.CveCvss = ''; $row.CveKev = ''
+                            $row.CveCvss = ''; $row.CveKev = ''; $row.CveFixed = ''; $row.CveNewest = ''; $row.CveUpdated = ''
                             [void]$State.LogQueue.Enqueue(('Skipped: {0}.' -f $reason))
                             $counts['Skipped']++
                             continue
@@ -7533,6 +7547,7 @@ function Invoke-MultiAppPipeline {
                             $summary = Get-VulnerabilitySummary -Result $res
                             $cells = Get-CveGridCells -Summary $summary -Cpe $cpe
                             $row.CveCount = $cells.Count; $row.CveCvss = $cells.Cvss; $row.CveKev = $cells.Kev; $row.CveEpss = $cells.Epss; $row.CveChecked = $cells.Checked
+                            $row.CveFixed = $cells.Fixed; $row.CveNewest = $cells.Newest; $row.CveUpdated = $cells.Updated
                             if ($res.Error) {
                                 # A failed lookup is shown, not recorded: the
                                 # history keeps the last good summary.
@@ -9434,7 +9449,9 @@ function ConvertTo-CveDialogRows {
             Cvss      = (ConvertTo-VulnerabilityCvssText -Score $c.Score -Severity $c.Severity)
             Epss      = $(if ($null -ne $c.Epss) { ('{0:P1}' -f [double]$c.Epss) } else { '' })
             Kev       = $(if ($c.Kev) { 'Yes' } else { '' })
-            Published = $(if ($c.Published) { ([string]$c.Published).Substring(0, [Math]::Min(10, ([string]$c.Published).Length)) } else { '' })
+            FixedIn   = [string]$c.FixedIn + $(if ($c.FixedInLatest) { ' (latest)' } else { '' })
+            Published = (ConvertTo-VulnerabilityDayText -Value ([string]$c.Published))
+            Modified  = (ConvertTo-VulnerabilityDayText -Value ([string]$c.LastModified))
             Summary   = [string]$c.Summary
             Links     = $links
         })
@@ -9505,7 +9522,9 @@ function Show-CveDetailDialog {
                 <DataGridTextColumn Header="CVSS" Binding="{Binding Cvss}" Width="110"/>
                 <DataGridTextColumn Header="EPSS" Binding="{Binding Epss}" Width="70"/>
                 <DataGridTextColumn Header="KEV" Binding="{Binding Kev}" Width="50"/>
+                <DataGridTextColumn Header="Fixed in" Binding="{Binding FixedIn}" Width="110"/>
                 <DataGridTextColumn Header="Published" Binding="{Binding Published}" Width="100"/>
+                <DataGridTextColumn Header="Modified" Binding="{Binding Modified}" Width="100"/>
                 <DataGridTextColumn x:Name="colSummary" Header="Summary" Binding="{Binding Summary}" Width="*" MinWidth="260"/>
                 <DataGridTemplateColumn Header="Links" Width="380" MinWidth="300">
                     <DataGridTemplateColumn.CellTemplate>
@@ -9589,7 +9608,11 @@ function Show-CveDetailDialog {
             return
         }
         $unfixedText = $(if ([int]$res.UnfixedCount -gt 0) { ' {0} more still affect {1}.' -f [int]$res.UnfixedCount, $res.To } else { '' })
-        $txtRange.Text = ('{0} fixed by updating from {1} to {2}. Source {3}, checked {4}.{5}' -f (ConvertTo-VulnerabilityCountText -Count $res.Count -KevCount $res.KevCount), $res.From, $res.To, $(if ($res.Source) { $res.Source } else { '-' }), $res.QueriedAt, $unfixedText)
+        $fixText = ConvertTo-VulnerabilityFixText -Result $res
+        if ($fixText) { $fixText = ' ' + $fixText + '.' }
+        $dates = ''
+        if ($res.NewestPublished) { $dates = ' Newest CVE {0}, NVD updated {1}.' -f $res.NewestPublished, $res.LastNvdUpdate }
+        $txtRange.Text = ('{0} fixed by updating from {1} to {2}. Source {3}, checked {4}.{5}{6}{7}' -f (ConvertTo-VulnerabilityCountText -Count $res.Count -KevCount $res.KevCount), $res.From, $res.To, $(if ($res.Source) { $res.Source } else { '-' }), $res.QueriedAt, $unfixedText, $fixText, $dates)
         if ($res.Error) { $txtNote.Text = [string]$res.Error; $txtNote.Visibility = 'Visible' } else { $txtNote.Visibility = 'Collapsed' }
         $links = @()
         foreach ($k in $res.Links.Keys) { $links += [pscustomobject]@{ Name = [string]$k; Url = [string]$res.Links[$k] } }
