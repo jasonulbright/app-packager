@@ -129,6 +129,43 @@ Describe 'publish history per destination' {
         $back = ($history | ConvertTo-Json -Depth 6) | ConvertFrom-Json
         (Get-OneClickPublishedVersion -HistoryEntry $back.'package-a' -Destination 'Intune').Id | Should -Be 'app-id'
     }
+    It 'keys each destination by its configured instance' {
+        $prefs = New-TestPrefs
+        Get-OneClickInstanceKey -Prefs $prefs -Destination 'ConfigMgr' | Should -Be 'mcm@'
+        Get-OneClickInstanceKey -Prefs $prefs -Destination 'WSUS' | Should -Be 'wsus01:'
+        Get-OneClickInstanceKey -Prefs $prefs -Destination 'Intune' | Should -Be 't'
+        $prefs | Add-Member -NotePropertyName ProviderMachineName -NotePropertyValue 'CM01.contoso.com'
+        $prefs.Wsus | Add-Member -NotePropertyName PortNumber -NotePropertyValue 8531
+        Get-OneClickInstanceKey -Prefs $prefs -Destination 'ConfigMgr' | Should -Be 'mcm@cm01.contoso.com'
+        Get-OneClickInstanceKey -Prefs $prefs -Destination 'WSUS' | Should -Be 'wsus01:8531'
+        $keys = Get-OneClickInstanceKeys -Prefs $prefs
+        $keys.Keys.Count | Should -Be 3
+        $keys['Intune'] | Should -Be 't'
+        Get-OneClickInstanceKey -Prefs (New-TestPrefs -WsusServer '') -Destination 'WSUS' | Should -Be ''
+    }
+    It 'ignores a receipt and a refusal written for another instance' {
+        $history = @{}
+        Set-OneClickPublishedVersion -History $history -PackagerName 'package-a' -Destination 'Intune' -Version '3.0' -Id 'app-id' -Instance 'tenant-a' -Build 'p1|2|abc' | Out-Null
+        Set-OneClickNotSupported -History $history -PackagerName 'package-a' -Destination 'WSUS' -Version '3.0' -Reason 'not supported: MSIX' -Instance 'wsus01:8530' | Out-Null
+        $entry = $history['package-a']
+        $rec = Get-OneClickPublishedVersion -HistoryEntry $entry -Destination 'Intune' -Instance 'tenant-a'
+        $rec.Version | Should -Be '3.0'
+        $rec.Instance | Should -Be 'tenant-a'
+        $rec.Build | Should -Be 'p1|2|abc'
+        Get-OneClickPublishedVersion -HistoryEntry $entry -Destination 'Intune' -Instance 'tenant-b' | Should -BeNullOrEmpty
+        Get-OneClickNotSupportedVersion -HistoryEntry $entry -Destination 'WSUS' -Instance 'wsus01:8530' | Should -Be '3.0'
+        Get-OneClickNotSupportedVersion -HistoryEntry $entry -Destination 'WSUS' -Instance 'wsus02:8530' | Should -Be ''
+        Get-OneClickNotSupportedReason -HistoryEntry $entry -Destination 'WSUS' -Instance 'wsus02:8530' | Should -Be ''
+        # The same answers after a JSON round trip.
+        $back = ($history | ConvertTo-Json -Depth 6) | ConvertFrom-Json
+        (Get-OneClickPublishedVersion -HistoryEntry $back.'package-a' -Destination 'Intune' -Instance 'tenant-a').Build | Should -Be 'p1|2|abc'
+        Get-OneClickPublishedVersion -HistoryEntry $back.'package-a' -Destination 'Intune' -Instance 'tenant-b' | Should -BeNullOrEmpty
+    }
+    It 'honors a receipt written before instances were recorded, for any instance' {
+        $history = @{ 'package-a' = [pscustomobject]@{ Published = [pscustomobject]@{ Intune = [pscustomobject]@{ Version = '1.0'; At = '2026-01-01T00:00:00Z'; Id = 'x' } } } }
+        (Get-OneClickPublishedVersion -HistoryEntry $history['package-a'] -Destination 'Intune' -Instance 'tenant-b').Version | Should -Be '1.0'
+        (Get-OneClickPublishedVersion -HistoryEntry $history['package-a'] -Destination 'Intune').Instance | Should -Be ''
+    }
 }
 
 Describe 'Get-OneClickPlan' {
@@ -159,6 +196,18 @@ Describe 'Get-OneClickPlan' {
         $row.LastWSUS | Should -Be '2.0'
         $forced = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECMAndWSUS') -History $history -Action 'StageAndPackage' -Force)[0]
         $forced.PublishTo | Should -Be @('ConfigMgr', 'WSUS')
+    }
+    It 'keeps a destination whose receipt belongs to another instance' {
+        $history = @{}
+        $wsus02 = Get-OneClickInstanceKey -Prefs (New-TestPrefs -WsusServer 'wsus02') -Destination 'WSUS'
+        Set-OneClickPublishedVersion -History $history -PackagerName 'package-a' -Destination 'WSUS' -Version '2.0' -Instance $wsus02 | Out-Null
+        Set-OneClickNotSupported -History $history -PackagerName 'package-a' -Destination 'ConfigMgr' -Version '2.0' -Reason 'not supported' -Instance 'xyz@other' | Out-Null
+        $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECMAndWSUS') -History $history -Action 'StageAndPackage')[0]
+        $row.PublishTo | Should -Be @('ConfigMgr', 'WSUS')
+        $row.LastWSUS | Should -Be ''
+        $same = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECMAndWSUS' -WsusServer 'wsus02') -History $history -Action 'StageAndPackage')[0]
+        $same.PublishTo | Should -Be @('ConfigMgr')
+        $same.LastWSUS | Should -Be '2.0'
     }
     It 'publishes a destination newly selected since the last publish' {
         $history = @{}

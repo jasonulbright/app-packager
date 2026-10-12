@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.10.11.0113
+    Version    : 2026.10.11.0114
     Updated    : 2026-09-09
 #>
 
@@ -4010,6 +4010,11 @@ function Get-CveReportRows {
         $count = [string]$row.CveCount
         if (-not $res -and $count -and $count -notmatch '^\d+$') { $note = $count }
         elseif (-not $res) { $note = 'Not checked' }
+        # The cache holds the last good lookup. A row whose latest lookup
+        # failed, or whose lookup is newer than the cache (its cache write
+        # failed), says so instead of passing the old result off as current.
+        elseif ($count -eq 'Error') { $note = ('Last lookup failed; this is the result from {0}' -f $res.QueriedAt) }
+        elseif ([string]$row.CveChecked -and [string]$row.CveChecked -gt [string]$res.QueriedAt) { $note = ('Result from {0}; the lookup of {1} was not cached' -f $res.QueriedAt, [string]$row.CveChecked) }
         [pscustomobject]@{
             Application    = [string]$row.Application
             Vendor         = [string]$row.Vendor
@@ -7761,6 +7766,17 @@ function Invoke-MultiAppPipeline {
                             continue
                         }
 
+                        # A vendor feed can step back to an older release. The
+                        # run skips it before the history learns the older
+                        # version; the FullRun worker applies the same guard.
+                        if (-not $Ctx.ForceFlag -and $lastKnown -and (Compare-SemVer -A ([string]$lastKnown) -B ([string]$latest) -Strict) -gt 0) {
+                            $row.Status = 'Vendor older than last seen'
+                            [void]$State.LogQueue.Enqueue(('{0}: the vendor reports {1}, older than {2} seen before - skipping' -f $app, $latest, $lastKnown))
+                            $counts['Skipped']++
+                            & $finish 'Skipped' ('vendor reports {0}, older than {1} seen before' -f $latest, $lastKnown)
+                            continue
+                        }
+
                         $versionChanged = (-not $lastKnown) -or ($lastKnown -ne $latest)
                         try {
                             Update-PackagerHistory -PackagerName $baseName -Event Checked -Version $latest -Result $(if ($versionChanged) { 'Updated' } else { 'NoChange' })
@@ -7774,35 +7790,48 @@ function Invoke-MultiAppPipeline {
                             continue
                         }
 
-                        # 2. Which destinations still need this version. The
-                        # guard reads the history again: the check above may
-                        # have found a version the plan did not know.
-                        $publishTo = @()
-                        $skipReasons = @()
-                        if ($Ctx.Action -eq 'StageAndPackage') {
-                            foreach ($d in $wanted) {
-                                $rec = Get-OneClickPublishedVersion -HistoryEntry $entry -Destination $d
-                                if (-not $Ctx.ForceFlag -and $rec -and $rec.Version -eq [string]$latest) {
-                                    $skipReasons += ('{0}: {1} already published' -f $d, $latest)
-                                    if ($pr) { $pr.('Result' + $d) = ('already published ' + $latest) }
-                                    continue
-                                }
-                                $refused = Get-OneClickNotSupportedVersion -HistoryEntry $entry -Destination $d
-                                if (-not $Ctx.ForceFlag -and $refused -and $refused -eq [string]$latest) {
-                                    $skipReasons += ('{0}: not supported' -f $d)
-                                    $refusedReason = Get-OneClickNotSupportedReason -HistoryEntry $entry -Destination $d
-                                    if ($pr) { $pr.('Result' + $d) = $(if ($refusedReason -match '^not supported: ') { $refusedReason } else { 'not supported ' + $latest }) }
-                                    continue
-                                }
-                                $publishTo += $d
-                            }
-                        }
-
+                        # The build identity a publish receipt carries: profile,
+                        # revision and signing policy. A receipt for another
+                        # build does not count as published.
+                        $buildKey = ''
+                        if ($planApplicationId) { $buildKey = '{0}|{1}|{2}' -f [string]$planProfileId, [string]$planRevision, [string]$Ctx.SigningDigest }
                         $buildStale = $false
                         if ($planApplicationId) {
                             $current = Test-WorkbenchBuildIsCurrent -ApplicationId $planApplicationId -ProfileId $planProfileId `
                                 -Version $latest -ProfileRevision $planRevision -PolicyDigest ([string]$Ctx.SigningDigest)
                             if ($null -ne $current -and -not $current) { $buildStale = $true }
+                        }
+
+                        # 2. Which destinations still need this version. The
+                        # guard reads the history again: the check above may
+                        # have found a version the plan did not know. A stale
+                        # build republishes even when the version matches.
+                        $publishTo = @()
+                        $skipReasons = @()
+                        if ($Ctx.Action -eq 'StageAndPackage') {
+                            foreach ($d in $wanted) {
+                                $instance = [string]$(if ($Ctx.InstanceKeys) { $Ctx.InstanceKeys[$d] } else { '' })
+                                $rec = Get-OneClickPublishedVersion -HistoryEntry $entry -Destination $d -Instance $instance
+                                if (-not $Ctx.ForceFlag -and $rec -and (Compare-SemVer -A ([string]$rec.Version) -B ([string]$latest) -Strict) -gt 0) {
+                                    $skipReasons += ('{0}: published {1} is newer than {2}' -f $d, $rec.Version, $latest)
+                                    if ($pr) { $pr.('Result' + $d) = ('published {0} is newer than {1}' -f $rec.Version, $latest) }
+                                    continue
+                                }
+                                $sameBuild = (-not $buildKey) -or (-not $rec) -or (-not $rec.Build) -or ($rec.Build -eq $buildKey)
+                                if (-not $Ctx.ForceFlag -and -not $buildStale -and $sameBuild -and $rec -and $rec.Version -eq [string]$latest) {
+                                    $skipReasons += ('{0}: {1} already published' -f $d, $latest)
+                                    if ($pr) { $pr.('Result' + $d) = ('already published ' + $latest) }
+                                    continue
+                                }
+                                $refused = Get-OneClickNotSupportedVersion -HistoryEntry $entry -Destination $d -Instance $instance
+                                if (-not $Ctx.ForceFlag -and $refused -and $refused -eq [string]$latest) {
+                                    $skipReasons += ('{0}: not supported' -f $d)
+                                    $refusedReason = Get-OneClickNotSupportedReason -HistoryEntry $entry -Destination $d -Instance $instance
+                                    if ($pr) { $pr.('Result' + $d) = $(if ($refusedReason -match '^not supported: ') { $refusedReason } else { 'not supported ' + $latest }) }
+                                    continue
+                                }
+                                $publishTo += $d
+                            }
                         }
                         $needStage = $Ctx.ForceFlag -or $buildStale -or $versionChanged -or (-not $lastStaged) -or ($publishTo.Count -gt 0)
                         if (-not $needStage) {
@@ -7945,7 +7974,8 @@ function Invoke-MultiAppPipeline {
                                             $detail = [string]$note.Message
                                             try {
                                                 $h = Read-PackagerHistory
-                                                [void](Set-OneClickNotSupported -History $h -PackagerName $baseName -Destination 'WSUS' -Version ([string]$latest) -Reason $resultText)
+                                                [void](Set-OneClickNotSupported -History $h -PackagerName $baseName -Destination 'WSUS' -Version ([string]$latest) -Reason $resultText `
+                                                    -Instance ([string]$(if ($Ctx.InstanceKeys) { $Ctx.InstanceKeys['WSUS'] } else { '' })))
                                                 Save-PackagerHistory -History $h
                                             } catch { [void]$State.LogQueue.Enqueue(('History write failed: ' + $_.Exception.Message)) }
                                         }
@@ -7974,7 +8004,8 @@ function Invoke-MultiAppPipeline {
                                 if (-not $present) { $published++ }
                                 try {
                                     $h = Read-PackagerHistory
-                                    [void](Set-OneClickPublishedVersion -History $h -PackagerName $baseName -Destination $d -Version ([string]$latest) -Id $id)
+                                    [void](Set-OneClickPublishedVersion -History $h -PackagerName $baseName -Destination $d -Version ([string]$latest) -Id $id `
+                                        -Instance ([string]$(if ($Ctx.InstanceKeys) { $Ctx.InstanceKeys[$d] } else { '' })) -Build $buildKey)
                                     Save-PackagerHistory -History $h
                                 } catch { [void]$State.LogQueue.Enqueue(('History write failed: ' + $_.Exception.Message)) }
                             }
@@ -9385,6 +9416,9 @@ function Start-PublishRun {
         RunPlanByApp         = Get-WorkbenchRunPlanForContext -Rows $rowsForPlan -Target $Target
         SigningJson          = Get-WorkbenchSigningPolicyJson
         SigningDigest        = Get-WorkbenchSigningPolicyDigest
+        # Receipts and refusals count only for the destination instance they
+        # were written for.
+        InstanceKeys         = Get-OneClickInstanceKeys -Prefs $script:Prefs
     }
 }
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## [2026.10.11.0114] - 2026-10-11
+
+## 6 fixes
+
+### Fixed
+
+- Skip One Click when the vendor reports a version older than the one last seen.
+- Skip a destination whose published version is newer than the vendor version.
+- Count a publish record or refusal only for the site, server or tenant it was written for.
+- Publish again when the Workbench profile or the signing policy changed since the last publish.
+- Ignore CVE records for the Android, Linux or macOS build of a product.
+- Mark a CVE report row whose latest lookup failed or was not cached.
+
 ## [2026.10.11.0113] - 2026-10-11
 
 ## 7 CVE data fields
