@@ -107,7 +107,7 @@ function Assert-MsiPayload {
     param([Parameter(Mandatory)][string]$Path)
 
     $sig = [byte[]](0xD0,0xCF,0x11,0xE0,0xA1,0xB1,0x1A,0xE1)
-    $bytes = Get-Content -LiteralPath $Path -Encoding Byte -TotalCount 8 -ErrorAction Stop
+    $bytes = Get-FileHeaderBytes -Path $Path -Count 8
     if ($bytes.Count -lt 8) { throw "Downloaded payload is too small to be an MSI: $Path" }
     for ($i = 0; $i -lt 8; $i++) {
         if ($bytes[$i] -ne $sig[$i]) { throw "Downloaded payload is not an MSI (no OLE header): $Path" }

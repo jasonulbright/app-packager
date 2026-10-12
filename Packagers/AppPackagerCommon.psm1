@@ -2193,6 +2193,30 @@ function Write-PackagePreflight {
     }
 }
 
+function Get-FileHeaderBytes {
+    <#
+    .SYNOPSIS
+        The first Count bytes of a file as a byte array, fewer when the
+        file is shorter. Throws when the file cannot be opened.
+    .DESCRIPTION
+        Get-Content -Encoding Byte does not exist in PowerShell 7 and
+        -AsByteStream does not exist in Windows PowerShell; a stream read
+        works on both hosts.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][ValidateRange(1, 1048576)][int]$Count
+    )
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        $buffer = New-Object byte[] $Count
+        $read = $stream.Read($buffer, 0, $Count)
+        if ($read -lt $Count) { $buffer = $buffer[0..([Math]::Max($read, 1) - 1)]; if ($read -eq 0) { $buffer = [byte[]]@() } }
+        return ,[byte[]]$buffer
+    }
+    finally { $stream.Dispose() }
+}
+
 function Read-StageManifest {
     param([Parameter(Mandatory)][string]$Path)
 

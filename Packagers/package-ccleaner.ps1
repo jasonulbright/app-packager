@@ -184,7 +184,7 @@ function Invoke-StageCCleaner {
 
     # The distribution endpoint answers 200 with an HTML error body rather
     # than a redirect when a build is unavailable.
-    $header = Get-Content -LiteralPath $localExe -Encoding Byte -TotalCount 2 -ErrorAction Stop
+    $header = Get-FileHeaderBytes -Path $localExe -Count 2
     if ($header.Count -lt 2 -or $header[0] -ne 0x4D -or $header[1] -ne 0x5A) {
         throw "Downloaded payload is not a Windows executable (no MZ header): $localExe"
     }

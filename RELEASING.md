@@ -6,10 +6,11 @@ Maintainer procedure for publishing a release. Run every command from the reposi
 
 - On `main`, working tree clean, `main` level with `origin/main`.
 - Every commit to `main` is part of a release. A commit that is not followed by a tag in the same session, including a documentation-only commit, blocks the suite installer build until the next release. Hold such edits and commit them with the next release.
-- The full test suite passes under Windows PowerShell 5.1 with Pester 5. Never run the suite or the build under PowerShell 7; every app in the suite targets 5.1 and PowerShell 7 failures are not defects:
+- The full test suite passes under Windows PowerShell 5.1 with Pester 5, and again under PowerShell 7. Windows PowerShell is the shipping host and the build host; a failure under either host is a defect, and the fix must be host-neutral (no change that breaks 5.1):
 
 ```bash
 powershell -NoProfile -Command "Import-Module Pester -MinimumVersion 5.0; $r = Invoke-Pester -Path Tests, Packagers -PassThru -Output None; 'passed {0} failed {1}' -f $r.PassedCount, $r.FailedCount"
+pwsh -NoProfile -Command "Import-Module Pester -MinimumVersion 5.0; $r = Invoke-Pester -Path Tests, Packagers -PassThru -Output None; 'passed {0} failed {1}' -f $r.PassedCount, $r.FailedCount"
 ```
 
 Any failure stops the release.

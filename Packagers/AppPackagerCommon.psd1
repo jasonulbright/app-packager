@@ -53,6 +53,7 @@
         'Sync-StagedContentToNetwork'
         'Write-StageManifest'
         'Read-StageManifest'
+        'Get-FileHeaderBytes'
         'Get-PackagedApplicationName'
         'Write-PackagePreflight'
 

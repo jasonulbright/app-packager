@@ -103,7 +103,7 @@ function Assert-ExePayload {
     #>
     param([Parameter(Mandatory)][string]$Path)
 
-    $bytes = Get-Content -LiteralPath $Path -Encoding Byte -TotalCount 2 -ErrorAction Stop
+    $bytes = Get-FileHeaderBytes -Path $Path -Count 2
     if ($bytes.Count -lt 2) { throw "Downloaded payload is too small to be an executable: $Path" }
     if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {
         throw "Downloaded payload is not an executable (no MZ header): $Path"

@@ -113,7 +113,7 @@ function Assert-ChefPayloadIsMsi {
     param([Parameter(Mandatory)][string]$Path)
 
     $expected = [byte[]]@(0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1)
-    $bytes = Get-Content -LiteralPath $Path -Encoding Byte -TotalCount $expected.Length -ErrorAction Stop
+    $bytes = Get-FileHeaderBytes -Path $Path -Count $expected.Length
     if ($bytes.Count -lt $expected.Length) {
         throw "Downloaded payload is too small to be an MSI: $Path"
     }

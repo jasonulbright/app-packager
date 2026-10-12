@@ -115,7 +115,7 @@ function Assert-PayloadIsExecutable {
     #>
     param([Parameter(Mandatory)][string]$Path)
 
-    $bytes = Get-Content -LiteralPath $Path -Encoding Byte -TotalCount 2 -ErrorAction Stop
+    $bytes = Get-FileHeaderBytes -Path $Path -Count 2
     if ($bytes.Count -lt 2 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {
         throw "Downloaded payload is not a Windows executable (no MZ header): $Path"
     }

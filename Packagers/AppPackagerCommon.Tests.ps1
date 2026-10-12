@@ -5202,3 +5202,18 @@ Describe 'URLs passed to curl.exe' {
         Test-Path -LiteralPath $injected | Should -BeFalse
     }
 }
+
+Describe 'Get-FileHeaderBytes' {
+    It 'reads the first bytes of a file and stops at a short file' {
+        $path = Join-Path $TestDrive 'header.bin'
+        [System.IO.File]::WriteAllBytes($path, [byte[]](0x4D, 0x5A, 0x90, 0x00))
+        $two = Get-FileHeaderBytes -Path $path -Count 2
+        $two.Count | Should -Be 2
+        $two[0] | Should -Be 0x4D
+        $two[1] | Should -Be 0x5A
+        (Get-FileHeaderBytes -Path $path -Count 8).Count | Should -Be 4
+        [System.IO.File]::WriteAllBytes($path, [byte[]]@())
+        (Get-FileHeaderBytes -Path $path -Count 2).Count | Should -Be 0
+        { Get-FileHeaderBytes -Path (Join-Path $TestDrive 'missing.bin') -Count 2 } | Should -Throw
+    }
+}
