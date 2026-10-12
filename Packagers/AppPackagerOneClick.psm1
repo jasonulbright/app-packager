@@ -201,16 +201,76 @@ function Get-OneClickDestinationScope {
 # Publish history per destination
 # ---------------------------------------------------------------------------
 
+function Get-OneClickInstanceKey {
+    <#
+    .SYNOPSIS
+        The configured instance of one destination: site code and provider,
+        WSUS server and port, or Intune tenant. A receipt or a refusal
+        written for another instance must not count for this one.
+    .OUTPUTS
+        [string] Lower-case key; '' when the destination is not configured.
+    #>
+    param(
+        [Parameter(Mandatory)]$Prefs,
+        [Parameter(Mandatory)][ValidateSet('ConfigMgr', 'WSUS', 'Intune')][string]$Destination
+    )
+    $get = { param($obj, $prop) if ($null -eq $obj) { $null } elseif ($obj -is [System.Collections.IDictionary]) { if ($obj.Contains($prop)) { $obj[$prop] } } elseif ($obj.PSObject.Properties[$prop]) { $obj.PSObject.Properties[$prop].Value } }
+    switch ($Destination) {
+        'ConfigMgr' {
+            $site = (('' + (& $get $Prefs 'SiteCode'))).Trim()
+            $provider = (('' + (& $get $Prefs 'ProviderMachineName'))).Trim()
+            if (-not $site -and -not $provider) { return '' }
+            return ('{0}@{1}' -f $site, $provider).ToLowerInvariant()
+        }
+        'WSUS' {
+            $wsus = & $get $Prefs 'Wsus'
+            $server = (('' + (& $get $wsus 'ServerName'))).Trim()
+            if (-not $server) { return '' }
+            $port = ('' + (& $get $wsus 'PortNumber'))
+            return ('{0}:{1}' -f $server, $port).ToLowerInvariant()
+        }
+        'Intune' {
+            $intune = & $get $Prefs 'Intune'
+            return (('' + (& $get $intune 'TenantId'))).Trim().ToLowerInvariant()
+        }
+    }
+}
+
+function Get-OneClickInstanceKeys {
+    # One key per destination, for a run context.
+    param([Parameter(Mandatory)]$Prefs)
+    $keys = @{}
+    foreach ($d in $script:OneClickDestinations) { $keys[$d] = Get-OneClickInstanceKey -Prefs $Prefs -Destination $d }
+    return $keys
+}
+
+function Test-OneClickRecordInstance {
+    # A record written for another instance is ignored; a record without
+    # an instance predates the key and is honored as is.
+    param($Record, [AllowEmptyString()][string]$Instance)
+    if ([string]::IsNullOrWhiteSpace($Instance)) { return $true }
+    $recorded = ''
+    if ($Record -is [System.Collections.IDictionary]) { if ($Record.Contains('Instance')) { $recorded = [string]$Record['Instance'] } }
+    elseif ($Record.PSObject.Properties['Instance']) { $recorded = [string]$Record.Instance }
+    if ([string]::IsNullOrWhiteSpace($recorded)) { return $true }
+    return ($recorded -eq $Instance)
+}
+
 function Get-OneClickPublishedVersion {
     <#
     .SYNOPSIS
         The version last published to one destination, from a history entry.
+    .PARAMETER Instance
+        The configured instance key (Get-OneClickInstanceKey). A receipt
+        written for another instance returns $null.
     .OUTPUTS
-        [pscustomobject] Version, At, Id; or $null when never published.
+        [pscustomobject] Version, At, Id, Instance, Build; or $null when
+        never published to this instance.
     #>
     param(
         $HistoryEntry,
-        [Parameter(Mandatory)][ValidateSet('ConfigMgr', 'WSUS', 'Intune')][string]$Destination
+        [Parameter(Mandatory)][ValidateSet('ConfigMgr', 'WSUS', 'Intune')][string]$Destination,
+        [AllowEmptyString()][string]$Instance = ''
     )
     if ($null -eq $HistoryEntry) { return $null }
     $published = $null
@@ -221,11 +281,14 @@ function Get-OneClickPublishedVersion {
     if ($published -is [System.Collections.IDictionary]) { if ($published.Contains($Destination)) { $record = $published[$Destination] } }
     elseif ($published.PSObject.Properties[$Destination]) { $record = $published.PSObject.Properties[$Destination].Value }
     if ($null -eq $record) { return $null }
+    if (-not (Test-OneClickRecordInstance -Record $record -Instance $Instance)) { return $null }
     $get = { param($name) if ($record -is [System.Collections.IDictionary]) { if ($record.Contains($name)) { $record[$name] } } elseif ($record.PSObject.Properties[$name]) { $record.PSObject.Properties[$name].Value } }
     return [pscustomobject]@{
-        Version = [string](& $get 'Version')
-        At      = [string](& $get 'At')
-        Id      = [string](& $get 'Id')
+        Version  = [string](& $get 'Version')
+        At       = [string](& $get 'At')
+        Id       = [string](& $get 'Id')
+        Instance = ('' + (& $get 'Instance'))
+        Build    = ('' + (& $get 'Build'))
     }
 }
 
@@ -244,7 +307,11 @@ function Set-OneClickPublishedVersion {
         [Parameter(Mandatory)][ValidateSet('ConfigMgr', 'WSUS', 'Intune')][string]$Destination,
         [Parameter(Mandatory)][string]$Version,
         [string]$Id = '',
-        [datetime]$At = (Get-Date)
+        [datetime]$At = (Get-Date),
+        # The destination instance (Get-OneClickInstanceKey) and the build
+        # identity (profile, revision, signing policy) this publish carried.
+        [AllowEmptyString()][string]$Instance = '',
+        [AllowEmptyString()][string]$Build = ''
     )
     if (-not $History.ContainsKey($PackagerName) -or $null -eq $History[$PackagerName]) {
         $History[$PackagerName] = @{ LastChecked = $null; LastStaged = $null; LastPackaged = $null; LastKnownVersion = $null; LastResult = $null }
@@ -265,9 +332,11 @@ function Set-OneClickPublishedVersion {
         $published = $h
     }
     $published[$Destination] = @{
-        Version = $Version
-        At      = $At.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-        Id      = $Id
+        Version  = $Version
+        At       = $At.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+        Id       = $Id
+        Instance = $Instance
+        Build    = $Build
     }
     $entry['Published'] = $published
     if ($entry.ContainsKey('NotSupported') -and $null -ne $entry['NotSupported']) {
@@ -288,7 +357,7 @@ function ConvertTo-OneClickHashtable {
 }
 
 function Get-OneClickNotSupportedField {
-    param($HistoryEntry, [string]$Destination, [string]$Field)
+    param($HistoryEntry, [string]$Destination, [string]$Field, [AllowEmptyString()][string]$Instance = '')
     if ($null -eq $HistoryEntry) { return '' }
     $refusals = $null
     if ($HistoryEntry -is [System.Collections.IDictionary]) { if ($HistoryEntry.Contains('NotSupported')) { $refusals = $HistoryEntry['NotSupported'] } }
@@ -298,6 +367,7 @@ function Get-OneClickNotSupportedField {
     if ($refusals -is [System.Collections.IDictionary]) { if ($refusals.Contains($Destination)) { $record = $refusals[$Destination] } }
     elseif ($refusals.PSObject.Properties[$Destination]) { $record = $refusals.PSObject.Properties[$Destination].Value }
     if ($null -eq $record) { return '' }
+    if (-not (Test-OneClickRecordInstance -Record $record -Instance $Instance)) { return '' }
     if ($record -is [System.Collections.IDictionary]) { return [string]$record[$Field] }
     if ($record.PSObject.Properties[$Field]) { return [string]$record.$Field }
     return ''
@@ -312,9 +382,10 @@ function Get-OneClickNotSupportedVersion {
     #>
     param(
         $HistoryEntry,
-        [Parameter(Mandatory)][ValidateSet('ConfigMgr', 'WSUS', 'Intune')][string]$Destination
+        [Parameter(Mandatory)][ValidateSet('ConfigMgr', 'WSUS', 'Intune')][string]$Destination,
+        [AllowEmptyString()][string]$Instance = ''
     )
-    return (Get-OneClickNotSupportedField -HistoryEntry $HistoryEntry -Destination $Destination -Field 'Version')
+    return (Get-OneClickNotSupportedField -HistoryEntry $HistoryEntry -Destination $Destination -Field 'Version' -Instance $Instance)
 }
 
 function Get-OneClickNotSupportedReason {
@@ -327,9 +398,10 @@ function Get-OneClickNotSupportedReason {
     #>
     param(
         $HistoryEntry,
-        [Parameter(Mandatory)][ValidateSet('ConfigMgr', 'WSUS', 'Intune')][string]$Destination
+        [Parameter(Mandatory)][ValidateSet('ConfigMgr', 'WSUS', 'Intune')][string]$Destination,
+        [AllowEmptyString()][string]$Instance = ''
     )
-    return (Get-OneClickNotSupportedField -HistoryEntry $HistoryEntry -Destination $Destination -Field 'Reason')
+    return (Get-OneClickNotSupportedField -HistoryEntry $HistoryEntry -Destination $Destination -Field 'Reason' -Instance $Instance)
 }
 
 function Set-OneClickNotSupported {
@@ -347,7 +419,8 @@ function Set-OneClickNotSupported {
         [Parameter(Mandatory)][ValidateSet('ConfigMgr', 'WSUS', 'Intune')][string]$Destination,
         [Parameter(Mandatory)][string]$Version,
         [string]$Reason = '',
-        [datetime]$At = (Get-Date)
+        [datetime]$At = (Get-Date),
+        [AllowEmptyString()][string]$Instance = ''
     )
     if (-not $History.ContainsKey($PackagerName) -or $null -eq $History[$PackagerName]) {
         $History[$PackagerName] = @{ LastChecked = $null; LastStaged = $null; LastPackaged = $null; LastKnownVersion = $null; LastResult = $null }
@@ -357,9 +430,10 @@ function Set-OneClickNotSupported {
     $refusals = @{}
     if ($entry.ContainsKey('NotSupported')) { $refusals = ConvertTo-OneClickHashtable -Value $entry['NotSupported'] }
     $refusals[$Destination] = @{
-        Version = $Version
-        At      = $At.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-        Reason  = $Reason
+        Version  = $Version
+        At       = $At.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+        Reason   = $Reason
+        Instance = $Instance
     }
     $entry['NotSupported'] = $refusals
     return $History
@@ -422,6 +496,7 @@ function Get-OneClickPlan {
 
     $readiness = @{}
     foreach ($d in $script:OneClickDestinations) { $readiness[$d] = Test-OneClickDestinationInUse -Prefs $Prefs -Destination $d }
+    $instances = Get-OneClickInstanceKeys -Prefs $Prefs
 
     $rows = New-Object System.Collections.Generic.List[object]
     foreach ($app in $Apps) {
@@ -445,9 +520,9 @@ function Get-OneClickPlan {
         $lastPublished = [ordered]@{}
         $lastRefused = @{}
         foreach ($d in $script:OneClickDestinations) {
-            $rec = Get-OneClickPublishedVersion -HistoryEntry $entry -Destination $d
+            $rec = Get-OneClickPublishedVersion -HistoryEntry $entry -Destination $d -Instance $instances[$d]
             $lastPublished[$d] = $(if ($rec) { $rec.Version } else { '' })
-            $lastRefused[$d] = Get-OneClickNotSupportedVersion -HistoryEntry $entry -Destination $d
+            $lastRefused[$d] = Get-OneClickNotSupportedVersion -HistoryEntry $entry -Destination $d -Instance $instances[$d]
         }
 
         $reasons = New-Object System.Collections.Generic.List[string]
@@ -764,6 +839,7 @@ function Get-OneClickReportList {
 Export-ModuleMember -Function @(
     'Get-OneClickDestinationNames', 'ConvertTo-OneClickDestinationSet', 'Get-OneClickDestinations',
     'Test-OneClickDestinationInUse', 'Get-OneClickDestinationScope',
+    'Get-OneClickInstanceKey', 'Get-OneClickInstanceKeys', 'Test-OneClickRecordInstance',
     'Get-OneClickPublishedVersion', 'Set-OneClickPublishedVersion',
     'Get-OneClickNotSupportedVersion', 'Get-OneClickNotSupportedReason', 'Set-OneClickNotSupported',
     'Get-OneClickCadenceDays', 'Get-OneClickPlan', 'Get-OneClickPlanSummary', 'Select-OneClickRunDestinations',
