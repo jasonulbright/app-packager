@@ -56,6 +56,9 @@ function Repair-WindowsPowerShellModulePath {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Process-environment hygiene at startup; no user-visible state to confirm.')]
     param()
 
+    # The inheritance problem exists only in a Windows PowerShell process;
+    # under PowerShell 7 the 7.x roots are the host's own and must stay.
+    if ($PSVersionTable.PSEdition -eq 'Core') { return $false }
     $current = [string]$env:PSModulePath
     $winPsModules = Join-Path $PSHOME 'Modules'
     $roots = @($current -split ';' | Where-Object { $_ -and $_ -notmatch '(?i)[\\/]PowerShell[\\/](7[\\/]|Modules)|microsoft\.powershell_' })
