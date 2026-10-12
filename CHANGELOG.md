@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026.10.12.0117] - 2026-10-12
+
+## 1 PowerShell 7 feature
+
+### Added
+
+- Publish to WSUS under PowerShell 7 through a Windows PowerShell child process.
+
 ## [2026.10.12.0116] - 2026-10-12
 
 ## 1 PowerShell 7 fix

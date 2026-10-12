@@ -66,6 +66,12 @@ $script:WsusGeneratedContentFolder = 'scripts'
 
 function Write-WsusLog {
     param([Parameter(Mandatory)][string]$Message, [ValidateSet('INFO', 'WARN', 'ERROR')][string]$Level = 'INFO')
+    # Inside the Windows PowerShell broker child the lines go to a file the
+    # parent relays into its own log after the call.
+    if ($env:APP_PACKAGER_WSUS_BROKER_LOG) {
+        try { Add-Content -LiteralPath $env:APP_PACKAGER_WSUS_BROKER_LOG -Value ('[{0}] {1}' -f $Level, $Message) -Encoding UTF8 } catch { $null = $_ }
+        return
+    }
     if (Get-Command -Name Write-Log -ErrorAction SilentlyContinue) {
         Write-Log $Message -Level $Level
     }
@@ -1044,6 +1050,113 @@ function Get-WsusErrorMessage {
     return [string]$exception.Message
 }
 
+function Test-WsusBrokerNeeded {
+    <#
+    .SYNOPSIS
+        True when this host cannot load the WSUS administration API and the
+        call must run in a Windows PowerShell child process. The API is a
+        .NET Framework assembly; the UpdateServices module is on PowerShell
+        7's Windows PowerShell Compatibility deny list, so implicit remoting
+        is not an option either.
+    #>
+    if ($PSVersionTable.PSEdition -ne 'Core') { return $false }
+    # The child process itself runs under Windows PowerShell, so this is
+    # never true there; the variable only stops a re-entry on a host where
+    # the edition check is faked under test.
+    if ($env:APP_PACKAGER_WSUS_BROKER_CHILD -eq '1') { return $false }
+    # Tests that mock the adapter functions run the API callers in process.
+    if ($env:APP_PACKAGER_WSUS_NO_BROKER -eq '1') { return $false }
+    return $true
+}
+
+function Invoke-WsusWindowsPowerShell {
+    <#
+    .SYNOPSIS
+        Runs one exported function of this module in a Windows PowerShell
+        child process and returns its result.
+    .DESCRIPTION
+        Parameters travel as CLIXML (a SecureString stays DPAPI-protected
+        for the same user on the same computer); the result comes back the
+        same way as deserialized objects, which carry properties but no
+        methods. The child's log lines are relayed through Write-WsusLog.
+        An error in the child is rethrown here with the child's message.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$FunctionName,
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.IDictionary]$Parameters,
+        [int]$TimeoutSeconds = 1800
+    )
+    $modulePath = Join-Path $PSScriptRoot 'AppPackagerWsus.psd1'
+    $work = Join-Path ([System.IO.Path]::GetTempPath()) ('wsus-broker-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $work -Force | Out-Null
+    $inPath = Join-Path $work 'in.clixml'
+    $outPath = Join-Path $work 'out.clixml'
+    $errPath = Join-Path $work 'error.txt'
+    $logPath = Join-Path $work 'log.txt'
+    $childPath = Join-Path $work 'child.ps1'
+    try {
+        $bound = @{}
+        foreach ($k in $Parameters.Keys) {
+            $v = $Parameters[$k]
+            # A switch does not survive CLIXML as a switch; the child splats a bool.
+            if ($v -is [System.Management.Automation.SwitchParameter]) { $v = [bool]$v }
+            $bound[[string]$k] = $v
+        }
+        $bound | Export-Clixml -LiteralPath $inPath -Depth 10
+        $child = @'
+param([string]$ModulePath, [string]$FunctionName, [string]$InPath, [string]$OutPath, [string]$ErrorPath, [string]$LogPath)
+$ErrorActionPreference = 'Stop'
+$env:APP_PACKAGER_WSUS_BROKER_CHILD = '1'
+try {
+    Import-Module $ModulePath -Force -DisableNameChecking -WarningAction SilentlyContinue
+    $p = Import-Clixml -LiteralPath $InPath
+    $splat = @{}
+    foreach ($k in $p.Keys) { $splat[$k] = $p[$k] }
+    $env:APP_PACKAGER_WSUS_BROKER_LOG = $LogPath
+    $result = & $FunctionName @splat
+    if ($null -eq $result) { $result = [pscustomobject]@{ __WsusBrokerNull = $true } }
+    $result | Export-Clixml -LiteralPath $OutPath -Depth 10
+    exit 0
+}
+catch {
+    $m = $_.Exception.Message
+    while ($_.Exception.InnerException -and $_.Exception -is [System.Management.Automation.MethodInvocationException]) { $m = $_.Exception.InnerException.Message; break }
+    [System.IO.File]::WriteAllText($ErrorPath, [string]$m, (New-Object System.Text.UTF8Encoding($false)))
+    exit 1
+}
+'@
+        [System.IO.File]::WriteAllText($childPath, $child, (New-Object System.Text.UTF8Encoding($false)))
+        $exe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $argList = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $childPath,
+            '-ModulePath', $modulePath, '-FunctionName', $FunctionName, '-InPath', $inPath, '-OutPath', $outPath, '-ErrorPath', $errPath, '-LogPath', $logPath)
+        Write-WsusLog ('WSUS broker                   : {0} in Windows PowerShell' -f $FunctionName)
+        # A child launched from PowerShell 7 inherits the 7.x module roots and
+        # autoloads a Utility manifest without Get-FileHash; it gets the
+        # Windows PowerShell roots for the duration of the launch.
+        $savedModulePath = $env:PSModulePath
+        $env:PSModulePath = ((Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules'),
+            (Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules'),
+            (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Modules')) -join ';'
+        try { $proc = Start-Process -FilePath $exe -ArgumentList $argList -NoNewWindow -PassThru -Wait }
+        finally { $env:PSModulePath = $savedModulePath }
+        if (Test-Path -LiteralPath $logPath) {
+            foreach ($line in Get-Content -LiteralPath $logPath -Encoding UTF8) { if ($line) { Write-WsusLog $line } }
+        }
+        if (Test-Path -LiteralPath $errPath) { throw ([System.IO.File]::ReadAllText($errPath)) }
+        if ($proc.ExitCode -ne 0) { throw ('The Windows PowerShell child for {0} exited with code {1}.' -f $FunctionName, $proc.ExitCode) }
+        # An empty or null child result must come back as no output, not as
+        # one null object: a caller that wraps the call in @() counts it.
+        if (-not (Test-Path -LiteralPath $outPath)) { return }
+        $result = Import-Clixml -LiteralPath $outPath
+        if ($null -eq $result) { return }
+        if ($result -is [System.Management.Automation.PSObject] -and $result.PSObject.Properties['__WsusBrokerNull']) { return }
+        return $result
+    }
+    finally {
+        try { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue } catch { $null = $_ }
+    }
+}
+
 function Import-WsusAdministrationAssembly {
     $loaded = @([AppDomain]::CurrentDomain.GetAssemblies() | Where-Object { $_.GetName().Name -eq $script:WsusAdministrationAssemblyName })
     if ($loaded.Count -gt 0) { return $loaded[0] }
@@ -1359,6 +1472,7 @@ function Get-WsusServerStatus {
         Message. Never throws.
     #>
     param([Parameter(Mandatory)]$Settings)
+    if (Test-WsusBrokerNeeded) { return Invoke-WsusWindowsPowerShell -FunctionName 'Get-WsusServerStatus' -Parameters $PSBoundParameters }
 
     $name = [string](Get-WsusMemberValue -InputObject $Settings -Name 'ServerName')
     try {
@@ -1394,6 +1508,7 @@ function New-WsusSelfSignedSigningCertificate {
         it for local publishing.
     #>
     param([Parameter(Mandatory)]$Settings)
+    if (Test-WsusBrokerNeeded) { return Invoke-WsusWindowsPowerShell -FunctionName 'New-WsusSelfSignedSigningCertificate' -Parameters $PSBoundParameters }
     $server = Get-WsusServerConnection -Settings $Settings
     Assert-WsusAdministrator -Server $server
     Set-WsusSigningCertificateCore -Server $server
@@ -1411,6 +1526,7 @@ function Set-WsusSigningCertificate {
         [Parameter(Mandatory)][string]$PfxPath,
         [Parameter(Mandatory)][System.Security.SecureString]$Password
     )
+    if (Test-WsusBrokerNeeded) { return Invoke-WsusWindowsPowerShell -FunctionName 'Set-WsusSigningCertificate' -Parameters $PSBoundParameters }
     if (-not (Test-Path -LiteralPath $PfxPath -PathType Leaf)) { throw "PFX file not found: $PfxPath" }
     # Opening the file here proves the password, the private key and the
     # code-signing usage before the server's configuration changes.
@@ -1453,6 +1569,7 @@ function Export-WsusSigningCertificate {
         distribution.
     #>
     param([Parameter(Mandatory)]$Settings, [Parameter(Mandatory)][string]$Path)
+    if (Test-WsusBrokerNeeded) { return Invoke-WsusWindowsPowerShell -FunctionName 'Export-WsusSigningCertificate' -Parameters $PSBoundParameters }
     $server = Get-WsusServerConnection -Settings $Settings
     $certificate = Get-WsusSigningCertificateObject -Server $server
     if (-not $certificate) { throw ('WSUS server {0} has no signing certificate to export.' -f [string]$server.Name) }
@@ -1466,6 +1583,7 @@ function Get-WsusComputerGroupNames {
         Names of the server's computer target groups, sorted.
     #>
     param([Parameter(Mandatory)]$Settings)
+    if (Test-WsusBrokerNeeded) { return Invoke-WsusWindowsPowerShell -FunctionName 'Get-WsusComputerGroupNames' -Parameters $PSBoundParameters }
     $server = Get-WsusServerConnection -Settings $Settings
     return @(Get-WsusComputerGroupObjects -Server $server | ForEach-Object { [string]$_.Name } | Sort-Object -Unique)
 }
@@ -1509,6 +1627,7 @@ function Get-WsusPublishedUpdates {
         -IncludeOtherPublishers lists every locally published update.
     #>
     param([Parameter(Mandatory)]$Settings, [switch]$IncludeOtherPublishers)
+    if (Test-WsusBrokerNeeded) { return Invoke-WsusWindowsPowerShell -FunctionName 'Get-WsusPublishedUpdates' -Parameters $PSBoundParameters }
     $server = Get-WsusServerConnection -Settings $Settings
     $groupNames = @{}
     try { foreach ($group in @(Get-WsusComputerGroupObjects -Server $server)) { $groupNames[[string]$group.Id] = [string]$group.Name } } catch { $groupNames = @{} }
@@ -1540,6 +1659,7 @@ function Set-WsusPublishedUpdateState {
         [Parameter(Mandatory)][ValidateSet('Approve', 'Decline', 'Expire', 'Remove')][string]$Action,
         [string]$GroupName = ''
     )
+    if (Test-WsusBrokerNeeded) { return Invoke-WsusWindowsPowerShell -FunctionName 'Set-WsusPublishedUpdateState' -Parameters $PSBoundParameters }
     if ($Action -eq 'Approve' -and [string]::IsNullOrWhiteSpace($GroupName)) { throw 'Approve needs a computer group.' }
     $server = Get-WsusServerConnection -Settings $Settings
     Assert-WsusAdministrator -Server $server
@@ -1602,6 +1722,7 @@ function Import-WsusCatalogUpdate {
         [pscustomobject] UpdateId, Ok, Message.
     #>
     param([Parameter(Mandatory)]$Settings, [Parameter(Mandatory)][guid]$UpdateId)
+    if (Test-WsusBrokerNeeded) { return Invoke-WsusWindowsPowerShell -FunctionName 'Import-WsusCatalogUpdate' -Parameters $PSBoundParameters }
     try {
         $server = Get-WsusServerConnection -Settings $Settings
         Assert-WsusAdministrator -Server $server
@@ -1706,6 +1827,7 @@ function Publish-WsusSoftwareUpdate {
         [Parameter(Mandatory)][string]$ContentFolder,
         [Parameter(Mandatory)]$Settings
     )
+    if (Test-WsusBrokerNeeded) { return Invoke-WsusWindowsPowerShell -FunctionName 'Publish-WsusSoftwareUpdate' -Parameters $PSBoundParameters }
 
     $settings = ConvertTo-WsusPublishSettings -InputObject $Settings
     if ([string]::IsNullOrWhiteSpace($settings.ServerName)) { throw 'No WSUS server is configured.' }
@@ -1902,6 +2024,8 @@ Export-ModuleMember -Function @(
     'ConvertTo-WsusApplicabilityRules'
     'Get-WsusCompatibilityFindings'
     'Test-WsusAdministrationApi'
+    'Test-WsusBrokerNeeded'
+    'Invoke-WsusWindowsPowerShell'
     'Get-WsusServerStatus'
     'New-WsusSelfSignedSigningCertificate'
     'Set-WsusSigningCertificate'
