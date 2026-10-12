@@ -13,7 +13,7 @@ BeforeAll {
             'package-chrome' = @{
                 LastKnownVersion = $script:ChromeLatest; LastChecked = 'yesterday'
                 LastCmVersion = '129.0'; LastCmSite = 'MCM'; LastCmChecked = 'yesterday'
-                VulnSummary = [pscustomobject]@{ QueriedAt = '2026-10-11T12:00:00Z'; From = '129.0'; To = '130.0'; Source = 'NVD'; Count = 4; MaxCvss = 8.8; MaxSeverity = 'HIGH'; KevCount = 1; MaxEpss = 0.3; Error = $null }
+                VulnSummary = [pscustomobject]@{ QueriedAt = '2026-10-11T12:00:00Z'; From = '129.0'; To = '130.0'; Source = 'NVD'; Count = 4; MaxCvss = 8.8; MaxSeverity = 'HIGH'; KevCount = 1; MaxEpss = 0.3; Error = $null; FixedInLatestCount = 1; FixedEarlierCount = 3; FixedUnknownCount = 0; NewestPublished = '2026-09-30'; LastNvdUpdate = '2026-10-08' }
             }
             'package-firefox' = @{ LastCmVersion = '140.0'; LastCmSite = 'OLD' }
         }
@@ -86,6 +86,9 @@ Describe 'Grid refresh keeps session results' {
         $chrome.CveKev | Should -Be 'Yes'
         $chrome.CveEpss | Should -Match '^30'
         $chrome.CveChecked | Should -Be '2026-10-11T12:00:00Z'
+        $chrome.CveFixed | Should -Be '1 of 4'
+        $chrome.CveNewest | Should -Be '2026-09-30'
+        $chrome.CveUpdated | Should -Be '2026-10-08'
         $chrome.Status | Should -Be 'Update available (4 CVEs, 1 in KEV)'
         $chrome.AdvisoryUrl | Should -Be 'https://chromereleases.googleblog.com/'
         ($script:PackagerData | Where-Object Script -eq 'package-firefox.ps1').AdvisoryUrl | Should -Be ''
