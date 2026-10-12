@@ -22,6 +22,8 @@
 
         # Server
         'Test-WsusAdministrationApi'
+        'Test-WsusBrokerNeeded'
+        'Invoke-WsusWindowsPowerShell'
         'Get-WsusServerStatus'
         'New-WsusSelfSignedSigningCertificate'
         'Set-WsusSigningCertificate'

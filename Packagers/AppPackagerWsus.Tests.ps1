@@ -16,6 +16,8 @@
 
 BeforeAll {
     Import-Module "$PSScriptRoot\AppPackagerWsus.psd1" -Force
+    # The adapter mocks need the API callers in process on every host.
+    $env:APP_PACKAGER_WSUS_NO_BROKER = '1'
 
     $script:Root = Join-Path ([System.IO.Path]::GetTempPath()) ('apwsus-' + [guid]::NewGuid().ToString('N').Substring(0, 10))
     New-Item -ItemType Directory -Path $script:Root -Force | Out-Null
@@ -1551,4 +1553,35 @@ Describe 'Install wrapper that maps an exit code' {
             @(Get-WsusInstallScriptExtras -Path $Plain).Count | Should -Be 0
         }
     }
+}
+
+Describe 'Windows PowerShell broker for the administration API' {
+    It 'runs a module function in a Windows PowerShell child and returns its result' {
+        $r = Invoke-WsusWindowsPowerShell -FunctionName 'ConvertTo-WsusPublishSettings' -Parameters @{ InputObject = @{ ServerName = 'wsus01'; ApprovalGroup = 'Pilot' } }
+        [string]$r.ServerName | Should -Be 'wsus01'
+        [int]$r.PortNumber | Should -Be 8530
+        [string]$r.ApprovalGroup | Should -Be 'Pilot'
+    }
+    It 'returns nothing for an empty child result, so a caller counting it sees zero' {
+        @(Invoke-WsusWindowsPowerShell -FunctionName 'ConvertFrom-WsusCatalogInput' -Parameters @{ Text = '' }).Count | Should -Be 0
+    }
+    It 'rethrows the child error with its message' {
+        { Invoke-WsusWindowsPowerShell -FunctionName 'ConvertTo-WsusPublishSettings' -Parameters @{ InputObject = @{ ServerName = 'bad name!' } } } | Should -Throw '*not a host name*'
+    }
+    It 'routes the API functions through the broker only under PowerShell 7' {
+        $expected = ($PSVersionTable.PSEdition -eq 'Core')
+        $env:APP_PACKAGER_WSUS_NO_BROKER = ''
+        try {
+        Test-WsusBrokerNeeded | Should -Be $expected
+        Mock -ModuleName AppPackagerWsus Invoke-WsusWindowsPowerShell { @('Group A', 'Group B') }
+        if ($expected) {
+            @(Get-WsusComputerGroupNames -Settings @{ ServerName = 'wsus01' }) | Should -Be @('Group A', 'Group B')
+            Should -Invoke -ModuleName AppPackagerWsus Invoke-WsusWindowsPowerShell -Times 1 -Exactly -ParameterFilter { $FunctionName -eq 'Get-WsusComputerGroupNames' }
+        }
+        else {
+            Should -Invoke -ModuleName AppPackagerWsus Invoke-WsusWindowsPowerShell -Times 0 -Exactly
+        }
+        } finally { $env:APP_PACKAGER_WSUS_NO_BROKER = '1' }
+    }
+    AfterAll { $env:APP_PACKAGER_WSUS_NO_BROKER = '' }
 }
