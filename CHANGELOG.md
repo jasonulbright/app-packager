@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026.10.14.0118] - 2026-10-14
+
+### Fixed
+
+- Use NVD's CPE filter URL to preserve scoped results on its current search page.
+- Search external CVE sites with readable product/vendor names; retain canonical CPE searches for NVD.
+- Log Visual Studio Code User's destination path for post-package integrity verification.
+
 ## [2026.10.12.0117] - 2026-10-12
 
 ## 1 PowerShell 7 feature
