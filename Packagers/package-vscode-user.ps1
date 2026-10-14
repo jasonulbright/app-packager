@@ -206,6 +206,7 @@ function Invoke-PackageVSCodeUser {
     }
 
     $networkContentPath = Get-NetworkContentPath -FileServerPath $FileServerPath -VendorFolder $VendorFolder -AppFolder $AppFolder -Version $manifest.SoftwareVersion -Layout $ContentLayout
+    Write-Log "Network content path         : $networkContentPath"
 
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
 
