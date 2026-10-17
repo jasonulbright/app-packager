@@ -86,7 +86,7 @@ Import-Module (Join-Path $PSScriptRoot 'Packagers\AppPackagerCommon.psm1') -Forc
 # second import of an already-loaded module is a no-op. The WSUS publisher
 # loads only here and in the background runspace: packager children never
 # publish.
-foreach ($workbenchModule in @('AppPackagerWorkbench.psm1', 'AppPackagerSigning.psm1', 'AppPackagerWsus.psm1', 'AppPackagerOneClick.psm1', 'AppPackagerVulnerability.psm1')) {
+foreach ($workbenchModule in @('AppPackagerWorkbench.psm1', 'AppPackagerSigning.psm1', 'AppPackagerWsus.psm1', 'AppPackagerOneClick.psm1', 'AppPackagerVulnerability.psm1', 'AppPackagerDiscovery.psm1')) {
     $modulePath = Join-Path $PSScriptRoot ('Packagers\' + $workbenchModule)
     if (Test-Path -LiteralPath $modulePath) {
         Import-Module $modulePath -Force -Global -DisableNameChecking -ErrorAction SilentlyContinue
@@ -251,6 +251,10 @@ function Read-Preferences {
         BeyondCompareKeyFile = ""
         LocalSourceFolders   = [pscustomobject]@{}
         HiddenApplications   = @()
+        DiscoveryDismissed   = @()
+        # Empty means the server and the CM_<site> database come from the site.
+        DiscoverySqlServer   = ''
+        DiscoverySqlDatabase = ''
         FirstRunCompleted    = $false
         IncludeVersionInTitle = $false
         # Strips the release version from a vendor product name; applies only
@@ -460,6 +464,17 @@ function Read-Preferences {
             $defaults.LocalSourceFolders = [pscustomobject]$sourceProps
         }
         if ($null -ne $data.HiddenApplications)    { $defaults.HiddenApplications  = @($data.HiddenApplications) }
+        if ($null -ne $data.DiscoveryDismissed) {
+            $dismissed = New-Object System.Collections.Generic.List[string]
+            foreach ($entry in @($data.DiscoveryDismissed)) {
+                $name = ([string]$entry).Trim()
+                if ($name -notmatch '^package-.+\.ps1$') { continue }
+                if (-not ($dismissed | Where-Object { $_ -ieq $name })) { $dismissed.Add($name) }
+            }
+            $defaults.DiscoveryDismissed = $dismissed.ToArray()
+        }
+        if ($null -ne $data.DiscoverySqlServer)   { $defaults.DiscoverySqlServer   = ([string]$data.DiscoverySqlServer).Trim() }
+        if ($null -ne $data.DiscoverySqlDatabase) { $defaults.DiscoverySqlDatabase = ([string]$data.DiscoverySqlDatabase).Trim() }
         $defaults.FirstRunCompleted = Resolve-FirstRunCompleted -StoredValue $data.FirstRunCompleted -PreferencesFileExisted $true
         if ($null -ne $data.IncludeVersionInTitle) {
             try { $defaults.IncludeVersionInTitle = [bool]$data.IncludeVersionInTitle } catch { }
@@ -1201,6 +1216,107 @@ function Get-Packagers {
         }
     }
     return $items
+}
+
+# =============================================================================
+# Discover unmanaged software: the logic behind the sidebar action. Nothing
+# here touches WPF; the click handler runs Invoke-DiscoveryScan in its own
+# runspace and applies the user's choice on the UI thread.
+# =============================================================================
+function Get-DiscoveryPackagerInput {
+    param([object[]]$Rows = @())
+    foreach ($row in @($Rows)) {
+        if (-not $row) { continue }
+        if ([string]::IsNullOrWhiteSpace([string]$row.Vendor) -or [string]::IsNullOrWhiteSpace([string]$row.Application)) { continue }
+        [pscustomobject]@{
+            Script  = [string]$row.Script
+            Vendor  = [string]$row.Vendor
+            App     = [string]$row.Application
+            CMName  = [string]$row.CMName
+            ArpName = $(if ($row.PSObject.Properties['ArpName']) { [string]$row.ArpName } else { '' })
+        }
+    }
+}
+
+function Invoke-DiscoveryScan {
+    # Never throws: a denied login or an unreachable server comes back as
+    # Error text so the caller keeps running.
+    param(
+        [string]$SiteCode,
+        [string]$ProviderMachineName,
+        [string]$ServerOverride,
+        [string]$DatabaseOverride,
+        [object[]]$Packager = @(),
+        [string[]]$HiddenScript = @(),
+        [string[]]$DismissedScript = @()
+    )
+
+    $result = [pscustomobject]@{ Ok = $false; Error = ''; Server = ''; Database = ''; StatusText = ''; Candidates = @() }
+    try {
+        if (-not (Get-Command -Name 'Get-CMInventorySnapshot' -ErrorAction SilentlyContinue)) {
+            $result.Error = 'The discovery module AppPackagerDiscovery is not loaded. Reinstall AppPackager.'
+            return $result
+        }
+
+        $targetArgs = @{ SiteCode = [string]$SiteCode }
+        if (-not [string]::IsNullOrWhiteSpace($ServerOverride))   { $targetArgs.ServerOverride   = $ServerOverride.Trim() }
+        if (-not [string]::IsNullOrWhiteSpace($DatabaseOverride)) { $targetArgs.DatabaseOverride = $DatabaseOverride.Trim() }
+        $resolver = Get-Command -Name 'Resolve-CMDatabaseTarget' -ErrorAction SilentlyContinue
+        if ($resolver -and $resolver.Parameters.ContainsKey('ProviderMachineName') -and -not [string]::IsNullOrWhiteSpace($ProviderMachineName)) {
+            $targetArgs.ProviderMachineName = $ProviderMachineName.Trim()
+        }
+        $target = Resolve-CMDatabaseTarget @targetArgs
+        if ($target -is [string]) { $result.Error = $target; return $result }
+        if (-not $target -or [string]::IsNullOrWhiteSpace([string]$target.Server) -or [string]::IsNullOrWhiteSpace([string]$target.Database)) {
+            $result.Error = 'The SQL server or database of the ConfigMgr site is not known. Set the SQL server and database in Options, ConfigMgr Preferences.'
+            return $result
+        }
+        $result.Server = [string]$target.Server
+        $result.Database = [string]$target.Database
+
+        $snapshot = Get-CMInventorySnapshot -Server $result.Server -Database $result.Database
+        $candidates = @(Find-DiscoveryCandidate -Snapshot $snapshot -Packager @($Packager) -HiddenScript @($HiddenScript) -DismissedScript @($DismissedScript) | Where-Object { $_ })
+        $result.Candidates = $candidates
+        $result.StatusText = [string](Get-DiscoveryStatusText -Snapshot $snapshot -CandidateCount $candidates.Count)
+        $result.Ok = $true
+    }
+    catch {
+        $result.Error = $_.Exception.Message
+        $result.Candidates = @()
+    }
+    return $result
+}
+
+function Enable-DiscoveredApplication {
+    # Same effect as checking the apps in the Product Filter: the scripts
+    # leave HiddenApplications. The caller saves and refreshes the grid.
+    param([Parameter(Mandatory)]$Prefs, [string[]]$Script = @())
+
+    $enable = [System.Collections.Generic.HashSet[string]]::new([string[]]@($Script | Where-Object { $_ }), [System.StringComparer]::OrdinalIgnoreCase)
+    $kept = New-Object System.Collections.Generic.List[string]
+    $removed = 0
+    foreach ($name in @($Prefs.HiddenApplications)) {
+        if ($enable.Contains([string]$name)) { $removed++ } else { $kept.Add([string]$name) }
+    }
+    $Prefs.HiddenApplications = $kept.ToArray()
+    return $removed
+}
+
+function Add-DiscoveryDismissed {
+    param([Parameter(Mandatory)]$Prefs, [string[]]$Script = @())
+
+    $list = New-Object System.Collections.Generic.List[string]
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($name in @($Prefs.DiscoveryDismissed)) { if ($name -and $seen.Add([string]$name)) { $list.Add([string]$name) } }
+    $added = 0
+    foreach ($name in @($Script)) { if ($name -and $seen.Add([string]$name)) { $list.Add([string]$name); $added++ } }
+    $Prefs.DiscoveryDismissed = $list.ToArray()
+    return $added
+}
+
+function Get-DiscoveryPromptText {
+    param([Parameter(Mandatory)][int]$Count)
+    return ('Discovered {0} {1}. Enable console view?' -f $Count, $(if ($Count -eq 1) { 'app' } else { 'apps' }))
 }
 
 function Test-PackagerSupportsFileServerPath {
@@ -4356,6 +4472,7 @@ $toggleTheme     = $window.FindName('toggleTheme')
 $txtThemeLabel   = $window.FindName('txtThemeLabel')
 $btnCheckLatest  = $window.FindName('btnCheckLatest')
 $btnCheckMECM    = $window.FindName('btnCheckMECM')
+$btnDiscover     = $window.FindName('btnDiscover')
 $btnCheckCve     = $window.FindName('btnCheckCve')
 $btnCveReport    = $window.FindName('btnCveReport')
 $btnStage        = $window.FindName('btnStage')
@@ -4398,7 +4515,7 @@ $btnCancelPipeline = $window.FindName('btnCancelPipeline')
 [ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($window, "Dark.Steel")
 
 # Palette and button/label theming come from SuiteCommon.
-$script:WorkflowButtons = @($btnFullRun, $btnCheckLatest, $btnCheckMECM, $btnCheckCve, $btnStage, $btnPackage, $btnPublishIntune, $btnPublishWsus, $btnWsusUpdates, $btnCveReport)
+$script:WorkflowButtons = @($btnFullRun, $btnCheckLatest, $btnCheckMECM, $btnDiscover, $btnCheckCve, $btnStage, $btnPackage, $btnPublishIntune, $btnPublishWsus, $btnWsusUpdates, $btnCveReport)
 $script:OptionsButtons  = @($btnOptions)
 
 Initialize-SuiteTheme -Window $window `
@@ -4673,6 +4790,7 @@ function Set-ActionButtonsEnabled {
     $script:ActionButtonsEnabled = $Enabled
     $btnCheckLatest.IsEnabled   = $Enabled
     $btnCheckMECM.IsEnabled     = $Enabled
+    $btnDiscover.IsEnabled      = $Enabled
     $btnCheckCve.IsEnabled      = $Enabled
     $btnCveReport.IsEnabled     = $Enabled
     $btnStage.IsEnabled         = $Enabled
@@ -4716,7 +4834,15 @@ function Get-SidebarSystemState {
     $wsusReady = [bool]($wsusInUse -and $Prefs.Wsus -and -not [string]::IsNullOrWhiteSpace([string]$Prefs.Wsus.ServerName))
     $wsusReason = $(if ($wsusInUse) { 'Set the WSUS server in Options, WSUS Publishing.' } else { 'WSUS is ' + $notInUse })
 
+    # Discovery reads the site database over SQL, so the console is not needed.
+    $sqlOverride = [bool](-not [string]::IsNullOrWhiteSpace([string]$Prefs.DiscoverySqlServer) -and -not [string]::IsNullOrWhiteSpace([string]$Prefs.DiscoverySqlDatabase))
+    $discoverReason = ''
+    if (-not $mecmInUse) { $discoverReason = 'ConfigMgr is ' + $notInUse }
+    elseif ([string]::IsNullOrWhiteSpace($siteCode) -and -not $sqlOverride) { $discoverReason = 'Set the site code, or the SQL server and database, in Options, ConfigMgr Preferences.' }
+
     return @{
+        DiscoverEnabled      = (-not $discoverReason)
+        DiscoverToolTip      = $(if ($discoverReason) { 'Discover unmanaged software: ' + $discoverReason } else { 'Find hidden apps that hardware inventory shows installed on clients and that have no ConfigMgr application' })
         CheckMecmEnabled     = (-not $mecmReason)
         CheckMecmToolTip     = $(if ($mecmReason) { 'Check ConfigMgr: ' + $mecmReason } else { 'Query ConfigMgr for the currently deployed version of each checked app' })
         MecmEnabled          = (-not $mecmReason)
@@ -4739,7 +4865,7 @@ function Update-SidebarForSystems {
     # setting unless this assignment also enables it; a running pipeline
     # keeps every button disabled through $script:ActionButtonsEnabled.
     $pairs = @(
-        @($btnCheckMECM, 'CheckMecm'), @($btnPackage, 'Mecm'), @($btnPublishIntune, 'Intune'),
+        @($btnCheckMECM, 'CheckMecm'), @($btnDiscover, 'Discover'), @($btnPackage, 'Mecm'), @($btnPublishIntune, 'Intune'),
         @($btnPublishWsus, 'Wsus'), @($btnWsusUpdates, 'WsusUpdates')
     )
     foreach ($pair in $pairs) {
@@ -4997,6 +5123,9 @@ function New-MecmPreferencesPanel {
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
     <Grid.ColumnDefinitions>
         <ColumnDefinition Width="140"/>
@@ -5116,6 +5245,17 @@ function New-MecmPreferencesPanel {
     <PasswordBox Grid.Row="26" Grid.Column="1" x:Name="pwdNvdKey" FontSize="13" Margin="0,0,0,8"/>
     <TextBlock Grid.Row="27" Grid.Column="0" Text="CVEs:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
     <CheckBox  Grid.Row="27" Grid.Column="1" x:Name="chkCveAfterCm" Content="Look up CVEs after Check ConfigMgr" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Runs Check CVEs for the checked rows as soon as Check ConfigMgr finishes. Rows without a latest version or a CPE header are skipped."/>
+    <TextBlock Grid.Row="28" Grid.Column="0" Text="Discovery SQL:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="SQL Server instance of the ConfigMgr site database for Discover unmanaged software. Leave empty to use the server of the site."/>
+    <TextBox   Grid.Row="28" Grid.Column="1" x:Name="txtDiscoverySqlServer" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Server or server\instance, for example cm01.contoso.com. Windows authentication only."/>
+    <TextBlock Grid.Row="29" Grid.Column="0" Text="Discovery DB:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Name of the ConfigMgr site database. Leave empty to use CM_ and the site code."/>
+    <TextBox   Grid.Row="29" Grid.Column="1" x:Name="txtDiscoverySqlDatabase" Width="200" FontSize="13" HorizontalAlignment="Left" MaxLength="128" Margin="0,0,0,8" ToolTip="For example CM_MCM. The account needs db_datareader on this database."/>
+    <TextBlock Grid.Row="30" Grid.Column="0" Text="Not offered:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Apps that Discover unmanaged software leaves out after Don't ask again for these."/>
+    <StackPanel Grid.Row="30" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
+        <TextBlock x:Name="txtDiscoveryDismissed" FontSize="13" VerticalAlignment="Center" Margin="0,0,12,0"/>
+        <Button x:Name="btnClearDiscoveryDismissed" Content="Clear list" MinWidth="90" Height="28"
+                Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                ToolTip="Offer every hidden app again in the next discovery. Applies on OK."/>
+    </StackPanel>
 </Grid>
 </ScrollViewer>
 '@
@@ -5153,6 +5293,10 @@ function New-MecmPreferencesPanel {
     $pwdIntuneSecret      = $element.FindName('pwdIntuneSecret')
     $pwdNvdKey            = $element.FindName('pwdNvdKey')
     $chkCveAfterCm        = $element.FindName('chkCveAfterCm')
+    $txtDiscoverySqlServer   = $element.FindName('txtDiscoverySqlServer')
+    $txtDiscoverySqlDatabase = $element.FindName('txtDiscoverySqlDatabase')
+    $txtDiscoveryDismissed   = $element.FindName('txtDiscoveryDismissed')
+    $btnClearDiscoveryDismissed = $element.FindName('btnClearDiscoveryDismissed')
     $chkSysMecm   = $element.FindName('chkSysMecm')
     $chkSysIntune = $element.FindName('chkSysIntune')
     $chkSysWsus   = $element.FindName('chkSysWsus')
@@ -5162,6 +5306,17 @@ function New-MecmPreferencesPanel {
     $chkSysWsus.IsChecked   = [bool]$script:Prefs.Systems.Wsus
     $txtSC.Text  = [string]$script:Prefs.SiteCode
     $txtProvider.Text = [string]$script:Prefs.ProviderMachineName
+    $txtDiscoverySqlServer.Text   = [string]$script:Prefs.DiscoverySqlServer
+    $txtDiscoverySqlDatabase.Text = [string]$script:Prefs.DiscoverySqlDatabase
+    $discoveryDismissedCount = @($script:Prefs.DiscoveryDismissed | Where-Object { $_ }).Count
+    $txtDiscoveryDismissed.Text = ('{0} app(s)' -f $discoveryDismissedCount)
+    $btnClearDiscoveryDismissed.IsEnabled = ($discoveryDismissedCount -gt 0)
+    $discoveryClear = @{ Pending = $false }
+    $btnClearDiscoveryDismissed.Add_Click({
+        $discoveryClear.Pending = $true
+        $txtDiscoveryDismissed.Text = '0 app(s) after OK'
+        $btnClearDiscoveryDismissed.IsEnabled = $false
+    }.GetNewClosure())
     $txtFS.Text  = [string]$script:Prefs.FileShareRoot
     $cboLayout.SelectedIndex = if ([string]$script:Prefs.ContentLayout -eq 'Flat') { 1 } else { 0 }
     $cboContentFallback.SelectedIndex = if ([string]$script:Prefs.ContentFallback -eq 'Deny') { 1 } else { 0 }
@@ -5323,6 +5478,9 @@ function New-MecmPreferencesPanel {
         $prefsRef.Systems.Wsus         = [bool]$chkSysWsus.IsChecked
         $prefsRef.SiteCode             = $txtSC.Text.Trim()
         $prefsRef.ProviderMachineName  = $txtProvider.Text.Trim()
+        $prefsRef.DiscoverySqlServer   = $txtDiscoverySqlServer.Text.Trim()
+        $prefsRef.DiscoverySqlDatabase = $txtDiscoverySqlDatabase.Text.Trim()
+        if ($discoveryClear.Pending) { $prefsRef.DiscoveryDismissed = @() }
         $prefsRef.FileShareRoot        = $txtFS.Text.Trim()
         $prefsRef.ContentLayout        = if ($cboLayout.SelectedIndex -eq 1) { 'Flat' } else { 'Nested' }
         $prefsRef.ContentFallback      = if ($cboContentFallback.SelectedIndex -eq 1) { 'Deny' } else { 'Allow' }
@@ -9277,6 +9435,261 @@ $btnCheckMECM.Add_Click({
         $txtStatus.Text = "Checking CVEs for the queried packagers..."
         Invoke-MultiAppPipeline -Operation CheckCve -Rows $cveRows -Context (Get-CveRunContext)
     }
+})
+
+# --- 2b. Discover unmanaged software ---
+function Show-DiscoveryDialog {
+    param(
+        [AllowNull()]$Owner,
+        [Parameter(Mandatory)][object[]]$Candidates,
+        [string]$StatusText = '',
+        [hashtable]$NameByScript = @{},
+        # Test hook: receives the window internals instead of showing the window.
+        [scriptblock]$Probe = $null
+    )
+
+    $dlgXaml = @'
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="Discover unmanaged software" Width="860" Height="520" MinWidth="700" MinHeight="360"
+    WindowStartupLocation="CenterOwner" TitleCharacterCasing="Normal"
+    ShowIconOnTitleBar="False" GlowBrush="{DynamicResource MahApps.Brushes.Accent}" BorderThickness="1">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <StackPanel Grid.Row="0" Margin="16,12,16,8">
+            <TextBlock x:Name="txtDiscoverPrompt" FontSize="14" FontWeight="Bold" TextWrapping="Wrap"/>
+            <TextBlock x:Name="txtDiscoverStatus" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
+            <TextBlock FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
+                       Text="Each app is hidden by the Product Filter, has no ConfigMgr application, and is installed on at least one client. Enabled apps join the grid for Check, Stage and Package."/>
+            <TextBlock x:Name="txtDiscoverNote" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="#FFE07A5F" Visibility="Collapsed"/>
+        </StackPanel>
+        <DataGrid Grid.Row="1" x:Name="gridDiscover" AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
+                  SelectionMode="Single" RowHeaderWidth="0">
+            <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="40"/>
+                <DataGridTextColumn Header="Application" Binding="{Binding Name}" Width="*" MinWidth="200" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Vendor" Binding="{Binding Vendor}" Width="180" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Clients" Binding="{Binding ClientCount}" Width="80" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Inventory name" Binding="{Binding MatchedName}" Width="220" IsReadOnly="True"/>
+            </DataGrid.Columns>
+        </DataGrid>
+        <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
+            <WrapPanel Margin="16,10,16,10" HorizontalAlignment="Right">
+                <Button x:Name="btnEnableSelected" Content="Enable selected" MinWidth="130" Height="32" Margin="0,0,8,0"
+                        Style="{DynamicResource MahApps.Styles.Button.Square.Accent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        ToolTip="Show the checked apps in the main grid"/>
+                <Button x:Name="btnEnableAll" Content="Enable all" MinWidth="110" Height="32" Margin="0,0,8,0"
+                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        ToolTip="Show every app in this list in the main grid"/>
+                <Button x:Name="btnNotNow" Content="Not now" MinWidth="100" Height="32" Margin="0,0,8,0" IsCancel="True"
+                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        ToolTip="Close without a change. The next discovery offers these apps again."/>
+                <Button x:Name="btnDismiss" Content="Don't ask again for these" MinWidth="190" Height="32"
+                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        ToolTip="Keep these apps hidden and leave them out of later discoveries. Clear the list in Options, ConfigMgr Preferences."/>
+            </WrapPanel>
+        </Border>
+    </Grid>
+</Controls:MetroWindow>
+'@
+    [xml]$xml = $dlgXaml
+    $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
+    Install-TitleBarDragFallback -Window $dlg
+    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
+
+    $txtPrompt = $dlg.FindName('txtDiscoverPrompt')
+    $txtStatusLine = $dlg.FindName('txtDiscoverStatus')
+    $txtNote = $dlg.FindName('txtDiscoverNote')
+    $grid = $dlg.FindName('gridDiscover')
+    $btnEnableSelected = $dlg.FindName('btnEnableSelected')
+    $btnEnableAll = $dlg.FindName('btnEnableAll')
+    $btnNotNow = $dlg.FindName('btnNotNow')
+    $btnDismiss = $dlg.FindName('btnDismiss')
+
+    $rows = New-Object System.Collections.ObjectModel.ObservableCollection[object]
+    foreach ($c in @($Candidates | Sort-Object -Property @{ Expression = { [int]$_.ClientCount }; Descending = $true }, CMName)) {
+        $scriptName = [string]$c.Script
+        $name = $(if ($NameByScript.ContainsKey($scriptName) -and $NameByScript[$scriptName]) { [string]$NameByScript[$scriptName] } else { [string]$c.CMName })
+        $rows.Add([pscustomobject]@{ Selected = $false; Script = $scriptName; Name = $name; Vendor = [string]$c.Vendor; ClientCount = [int]$c.ClientCount; MatchedName = [string]$c.MatchedName })
+    }
+    $grid.ItemsSource = $rows
+    $txtPrompt.Text = Get-DiscoveryPromptText -Count $rows.Count
+    $txtStatusLine.Text = $StatusText
+
+    $state = @{ Action = 'NotNow'; Scripts = @() }
+    $allScripts = @($rows | ForEach-Object { $_.Script })
+
+    $btnEnableSelected.Add_Click({
+        [void]$grid.CommitEdit([System.Windows.Controls.DataGridEditingUnit]::Cell, $true)
+        [void]$grid.CommitEdit([System.Windows.Controls.DataGridEditingUnit]::Row, $true)
+        $picked = @($rows | Where-Object { $_.Selected -eq $true } | ForEach-Object { $_.Script })
+        if ($picked.Count -eq 0) {
+            $txtNote.Text = 'Check at least one app, or click Enable all.'
+            $txtNote.Visibility = 'Visible'
+            return
+        }
+        $state.Action = 'EnableSelected'
+        $state.Scripts = $picked
+        $dlg.Close()
+    }.GetNewClosure())
+    $btnEnableAll.Add_Click({
+        $state.Action = 'EnableAll'
+        $state.Scripts = $allScripts
+        $dlg.Close()
+    }.GetNewClosure())
+    $btnNotNow.Add_Click({ $dlg.Close() }.GetNewClosure())
+    $btnDismiss.Add_Click({
+        $state.Action = 'Dismiss'
+        $state.Scripts = $allScripts
+        $dlg.Close()
+    }.GetNewClosure())
+
+    if ($Probe) {
+        & $Probe @{ Window = $dlg; Grid = $grid; Rows = $rows; Prompt = $txtPrompt; Status = $txtStatusLine; Note = $txtNote
+            EnableSelected = $btnEnableSelected; EnableAll = $btnEnableAll; NotNow = $btnNotNow; Dismiss = $btnDismiss; State = $state }
+    }
+    else {
+        if ($Owner) { $dlg.Owner = $Owner }
+        [void]$dlg.ShowDialog()
+    }
+    return [pscustomobject]@{ Action = [string]$state.Action; Scripts = @($state.Scripts) }
+}
+
+function Invoke-DiscoveryChoice {
+    # Applies the dialog result on the UI thread. Enabling follows the
+    # Product Filter path: change HiddenApplications, save, rebuild the grid.
+    param([Parameter(Mandatory)]$Choice)
+
+    switch ([string]$Choice.Action) {
+        { $_ -in @('EnableSelected', 'EnableAll') } {
+            $count = Enable-DiscoveredApplication -Prefs $script:Prefs -Script @($Choice.Scripts)
+            Save-Preferences -Prefs $script:Prefs
+            Invoke-RefreshGrid
+            Add-LogLine -Message ("Discover unmanaged software: {0} app(s) added to the grid. Manage them in Product Filter." -f $count)
+            $txtStatus.Text = ("{0} app(s) added to the grid." -f $count)
+        }
+        'Dismiss' {
+            $count = Add-DiscoveryDismissed -Prefs $script:Prefs -Script @($Choice.Scripts)
+            Save-Preferences -Prefs $script:Prefs
+            Add-LogLine -Message ("Discover unmanaged software: {0} app(s) will not be offered again. Clear the list in Options, ConfigMgr Preferences." -f $count)
+        }
+        default {
+            Add-LogLine -Message 'Discover unmanaged software: no change.'
+        }
+    }
+}
+
+function Complete-DiscoveryScan {
+    param($Result)
+
+    Set-ActionButtonsEnabled -Enabled $true
+    $window.Cursor = $null
+    if (-not $Result -or -not $Result.Ok) {
+        $message = 'Discover unmanaged software: ' + $(if ($Result -and $Result.Error) { [string]$Result.Error } else { 'the query returned no result.' })
+        Add-LogLine -Message $message
+        $txtStatus.Text = $message
+        return
+    }
+    Add-LogLine -Message ("Discover unmanaged software: queried {0} on {1}. {2}" -f $Result.Database, $Result.Server, $Result.StatusText)
+    $txtStatus.Text = [string]$Result.StatusText
+    if (@($Result.Candidates).Count -eq 0) { return }
+
+    try {
+        $choice = Show-DiscoveryDialog -Owner $window -Candidates @($Result.Candidates) -StatusText ([string]$Result.StatusText) -NameByScript $script:DiscoveryNames
+        Invoke-DiscoveryChoice -Choice $choice
+    }
+    catch {
+        Add-LogLine -Message ('Discover unmanaged software: ' + $_.Exception.Message)
+    }
+}
+
+function Start-DiscoveryScan {
+    $packagers = @(Get-DiscoveryPackagerInput -Rows @(Get-Packagers -Root $PackagersRoot))
+    $script:DiscoveryNames = @{}
+    foreach ($p in $packagers) { $script:DiscoveryNames[[string]$p.Script] = [string]$p.App }
+
+    $scanArgs = @{
+        SiteCode            = [string]$script:Prefs.SiteCode
+        ProviderMachineName = [string]$script:Prefs.ProviderMachineName
+        ServerOverride      = [string]$script:Prefs.DiscoverySqlServer
+        DatabaseOverride    = [string]$script:Prefs.DiscoverySqlDatabase
+        Packager            = $packagers
+        HiddenScript        = [string[]]@($script:Prefs.HiddenApplications)
+        DismissedScript     = [string[]]@($script:Prefs.DiscoveryDismissed)
+    }
+
+    Set-ActionButtonsEnabled -Enabled $false
+    $window.Cursor = [System.Windows.Input.Cursors]::Wait
+    $txtStatus.Text = 'Reading Add/Remove Programs inventory from the ConfigMgr site database...'
+    Add-LogLine -Message 'Discover unmanaged software: reading hardware inventory from the ConfigMgr site database.'
+
+    try {
+        $script:DiscoveryState = [hashtable]::Synchronized(@{ Done = $false; Result = $null })
+        $script:DiscoveryRunspace = [runspacefactory]::CreateRunspace()
+        $script:DiscoveryRunspace.ApartmentState = 'MTA'
+        $script:DiscoveryRunspace.Open()
+        $script:DiscoveryPS = [powershell]::Create()
+        $script:DiscoveryPS.Runspace = $script:DiscoveryRunspace
+        [void]$script:DiscoveryPS.AddScript({
+            param($State, $ModulePath, $ScanText, $ScanArgs)
+            try {
+                if (Test-Path -LiteralPath $ModulePath) { Import-Module -Name $ModulePath -Force -DisableNameChecking -ErrorAction Stop }
+                Set-Item -Path 'function:Invoke-DiscoveryScan' -Value ([scriptblock]::Create($ScanText))
+                $State.Result = Invoke-DiscoveryScan @ScanArgs
+            }
+            catch {
+                $State.Result = [pscustomobject]@{ Ok = $false; Error = $_.Exception.Message; Server = ''; Database = ''; StatusText = ''; Candidates = @() }
+            }
+            finally { $State.Done = $true }
+        }).AddArgument($script:DiscoveryState).AddArgument((Join-Path $PSScriptRoot 'Packagers\AppPackagerDiscovery.psm1')).AddArgument([string]${function:Invoke-DiscoveryScan}).AddArgument($scanArgs)
+        $script:DiscoveryHandle = $script:DiscoveryPS.BeginInvoke()
+
+        $script:DiscoveryTimer = New-Object System.Windows.Threading.DispatcherTimer
+        $script:DiscoveryTimer.Interval = [TimeSpan]::FromMilliseconds(250)
+        $script:DiscoveryTimer.Add_Tick({
+            if (-not $script:DiscoveryState.Done) { return }
+            $script:DiscoveryTimer.Stop()
+            try { $script:DiscoveryPS.EndInvoke($script:DiscoveryHandle) } catch { }
+            try { $script:DiscoveryPS.Dispose() } catch { }
+            try { $script:DiscoveryRunspace.CloseAsync() } catch { }
+            $script:DiscoveryPS = $null
+            $script:DiscoveryRunspace = $null
+            Complete-DiscoveryScan -Result $script:DiscoveryState.Result
+        })
+        $script:DiscoveryTimer.Start()
+    }
+    catch {
+        Complete-DiscoveryScan -Result ([pscustomobject]@{ Ok = $false; Error = ('the query could not start: ' + $_.Exception.Message) })
+    }
+}
+
+$btnDiscover.Add_Click({
+    if (Test-PipelineBusy) {
+        Add-LogLine -Message 'Discover unmanaged software: another run is in progress. Wait for it to finish.'
+        return
+    }
+    $sidebar = Get-SidebarSystemState -Prefs $script:Prefs
+    if (-not $sidebar.DiscoverEnabled) {
+        Add-LogLine -Message $sidebar.DiscoverToolTip
+        $txtStatus.Text = $sidebar.DiscoverToolTip
+        return
+    }
+    Start-DiscoveryScan
 })
 
 # --- 3. Stage Packages ---
