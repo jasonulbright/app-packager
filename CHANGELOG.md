@@ -13,6 +13,10 @@
 - Add the ArpName header tag to every packager.
 - Add the optional ArpVersion and ArpArch header tags.
 
+### Fixed
+
+- Check ConfigMgr matches applications by installer method and architecture.
+
 ## [2026.10.14.0118] - 2026-10-14
 
 ### Fixed
