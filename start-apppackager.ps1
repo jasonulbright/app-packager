@@ -1306,6 +1306,22 @@ function Invoke-DiscoveryScan {
     return $result
 }
 
+function Resolve-DiscoveryProviderName {
+    # Runs on the UI thread: the discovery runspace has no CMSite provider,
+    # so a drive the console or Check ConfigMgr opened is visible only here.
+    param(
+        [string]$Preference,
+        [string]$SiteCode
+    )
+    if (-not [string]::IsNullOrWhiteSpace($Preference)) { return $Preference.Trim() }
+    $drives = @()
+    try { $drives = @(Get-PSDrive -PSProvider CMSite -ErrorAction Stop | Where-Object { $_ }) } catch { return '' }
+    if ($drives.Count -eq 0) { return '' }
+    $drive = $drives | Where-Object { -not [string]::IsNullOrWhiteSpace($SiteCode) -and [string]$_.Name -eq $SiteCode.Trim() } | Select-Object -First 1
+    if (-not $drive) { $drive = $drives[0] }
+    return ([string]$drive.Root).Trim()
+}
+
 function Start-DiscoveryRunspace {
     # Returns the job object that Get-DiscoveryRunspaceState and
     # Stop-DiscoveryRunspace take. Disposes what it created when setup fails.
@@ -9715,7 +9731,7 @@ function Start-DiscoveryScan {
 
     $scanArgs = @{
         SiteCode            = [string]$script:Prefs.SiteCode
-        ProviderMachineName = [string]$script:Prefs.ProviderMachineName
+        ProviderMachineName = Resolve-DiscoveryProviderName -Preference ([string]$script:Prefs.ProviderMachineName) -SiteCode ([string]$script:Prefs.SiteCode)
         ServerOverride      = [string]$script:Prefs.DiscoverySqlServer
         DatabaseOverride    = [string]$script:Prefs.DiscoverySqlDatabase
         Packager            = $packagers
