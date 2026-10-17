@@ -244,6 +244,20 @@ Describe 'Get-DiscoverySiteDefinition' {
         @($script:Disposed) | Should -Be @('Dcom', 'Wsman')
     }
 
+    It 'keeps the raw provider error out of the verbose stream' {
+        Mock -ModuleName AppPackagerDiscovery Get-DiscoveryCimSiteDefinition { throw 'Access is denied. (HRESULT 0x80070005) CM01.contoso.com' }
+        $verbose = InModuleScope AppPackagerDiscovery {
+            $VerbosePreference = 'Continue'
+            $records = & { try { Get-DiscoverySiteDefinition -ProviderMachineName 'CM01.contoso.com' -SiteCode 'MCM' } catch { } } 4>&1
+            @($records | Where-Object { $_ -is [System.Management.Automation.VerboseRecord] } | ForEach-Object { $_.Message })
+        }
+        @($verbose).Count | Should -Be 2
+        ($verbose -join ' ') | Should -BeLike '*over Dcom failed*over Wsman failed*'
+        ($verbose -join ' ') | Should -Not -BeLike '*Access is denied*'
+        ($verbose -join ' ') | Should -Not -BeLike '*HRESULT*'
+        ($verbose -join ' ') | Should -Not -BeLike '*contoso*'
+    }
+
     It 'throws the plain message when no session can be created' {
         Mock -ModuleName AppPackagerDiscovery New-DiscoveryCimSession { throw 'WinRM cannot complete the operation.' }
         Mock -ModuleName AppPackagerDiscovery Get-DiscoveryCimSiteDefinition { throw 'must not be called' }
