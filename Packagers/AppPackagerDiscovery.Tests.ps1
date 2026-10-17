@@ -515,6 +515,8 @@ Describe 'Find-DiscoveryCandidate' {
         @{ Script = 'package-git.ps1'; CMName = 'Git'; Arp = 'Git'; Row = 'Git'; Title = 'GitHub Desktop' }
         @{ Script = 'package-firefox.ps1'; CMName = 'Mozilla Firefox'; Arp = 'Mozilla Firefox (x64 *)'; Row = 'Mozilla Firefox (x64 en-US)'; Title = 'Mozilla Firefox ESR (x64 en-US)' }
         @{ Script = 'package-m365apps-x64.ps1'; CMName = 'M365 Apps for Enterprise'; Arp = 'Microsoft 365 Apps for enterprise - *'; Row = 'Microsoft 365 Apps for enterprise - en-us'; Title = 'M365 Apps for Enterprise Project (x64)' }
+        @{ Script = 'package-ms-openjdk17-exe.ps1'; CMName = 'Microsoft OpenJDK 17 (EXE)'; Arp = 'Microsoft Build of OpenJDK with Hotspot 17*'; Row = 'Microsoft Build of OpenJDK with Hotspot 17.0.16+8 (x64)'; Title = 'Microsoft OpenJDK 17 (MSI) (EXE)' }
+        @{ Script = 'package-corretto-jdk11-x64.ps1'; CMName = 'Amazon Corretto 11 (x64)'; Arp = 'Amazon Corretto 11*'; Row = 'Amazon Corretto 11.0.28 (x64)'; Title = 'Amazon Corretto 11 (x86) (x64)' }
     ) {
         $snap = New-Snapshot -Rows @(, @($Row, 'P', '1.0', 'x64', 2)) -Applications @($Title)
         $p = New-Packager $Script $CMName $Arp

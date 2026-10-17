@@ -2066,7 +2066,7 @@ function Get-MecmCurrentVersionByCMName {
         # version in the middle, and longer product names ("Git" and
         # "GitHub Desktop"); the title filter keeps release details only.
         if (-not $apps -or $apps.Count -eq 0) {
-            $apps = @(Get-CMApplication -Name ((@($CMName.Trim() -split '\s+') -join '*') + '*') -ErrorAction SilentlyContinue | Where-Object {
+            $apps = @(Get-CMApplication -Name (Get-MecmApplicationNamePattern -CMName $CMName) -ErrorAction SilentlyContinue | Where-Object {
                     $title = if ($_.LocalizedDisplayName) { [string]$_.LocalizedDisplayName } else { [string]$_.Name }
                     Test-MecmApplicationTitle -CMName $CMName -Title $title
                 })

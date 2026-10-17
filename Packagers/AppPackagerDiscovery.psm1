@@ -422,6 +422,51 @@ function Get-DiscoveryArpPatterns {
     return , $patterns.ToArray()
 }
 
+$script:MecmQualifierPattern = '(?i)(?<![a-z0-9])(exe|msi|x64|x86|arm64|amd64|32-bit|64-bit)(?![a-z0-9])'
+$script:MecmTitleTokenPattern = '\([^)]*\)|\S+'
+
+function Get-MecmTitleQualifier {
+    # Class name -> sorted distinct values. amd64 and 64-bit are x64;
+    # 32-bit is x86.
+    param([string]$Text)
+    $classes = @{}
+    foreach ($m in [regex]::Matches([string]$Text, $script:MecmQualifierPattern)) {
+        $value = $m.Value.ToLowerInvariant()
+        $class = 'arch'
+        switch ($value) {
+            'exe' { $class = 'method' }
+            'msi' { $class = 'method' }
+            'amd64' { $value = 'x64' }
+            '64-bit' { $value = 'x64' }
+            '32-bit' { $value = 'x86' }
+        }
+        if (-not $classes.ContainsKey($class)) { $classes[$class] = New-Object System.Collections.Generic.SortedSet[string] }
+        [void]$classes[$class].Add($value)
+    }
+    return $classes
+}
+
+function Test-MecmQualifierWord {
+    # True when the word holds only installer-method and architecture
+    # qualifiers: "(x64)", "(EXE)", "(x86+x64)", "ARM64".
+    param([string]$Word)
+    if ($Word -notmatch $script:MecmQualifierPattern) { return $false }
+    return (($Word -replace $script:MecmQualifierPattern, '') -replace '[\s()+,/]', '').Length -eq 0
+}
+
+function Get-MecmApplicationNamePattern {
+    <#
+    .SYNOPSIS
+        Get-CMApplication -Name wildcard that returns every title
+        Test-MecmApplicationTitle can accept for CMName.
+    #>
+    param([Parameter(Mandatory)][string]$CMName)
+    $words = @([regex]::Matches($CMName.Trim(), $script:MecmTitleTokenPattern) | ForEach-Object { $_.Value })
+    $kept = @($words | Where-Object { -not (Test-MecmQualifierWord $_) })
+    if ($kept.Count -eq 0) { $kept = $words }
+    return (($kept -join '*') + '*')
+}
+
 function Test-MecmApplicationTitle {
     <#
     .SYNOPSIS
@@ -438,16 +483,32 @@ function Test-MecmApplicationTitle {
     # other word names a different product: "Git" must not find
     # "Git Extensions" or "GitHub Desktop", and "Mozilla Firefox" must not
     # find "Mozilla Firefox ESR".
+    # Installer method (EXE, MSI) and architecture are variant classes. When
+    # CMName and the title both carry a class, the values must be equal, or
+    # "OpenJDK 17 (EXE)" counts as managed by "OpenJDK 17 (MSI) (EXE)". A
+    # CMName word that holds only qualifiers of classes the title does not
+    # carry is optional ("Foo (x64)" accepts "Foo 1.2").
     param(
         [Parameter(Mandatory)][string]$CMName,
         [AllowEmptyString()][string]$Title
     )
     if ([string]::IsNullOrWhiteSpace($Title) -or [string]::IsNullOrWhiteSpace($CMName)) { return $false }
+    $nameQualifier = Get-MecmTitleQualifier $CMName
+    $titleQualifier = Get-MecmTitleQualifier $Title
+    foreach ($class in $nameQualifier.Keys) {
+        if ($titleQualifier.ContainsKey($class) -and -not $titleQualifier[$class].SetEquals($nameQualifier[$class])) { return $false }
+    }
     $arch = '(-(x64|x86|arm64|amd64))?'
     $detail = '^(\([^)]*\)|v?\d[\w.+-]*|x64|x86|arm64|amd64)$'
-    $words = @($CMName.Trim() -split '\s+')
+    $allWords = @([regex]::Matches($CMName.Trim(), $script:MecmTitleTokenPattern) | ForEach-Object { $_.Value })
+    $words = @($allWords | Where-Object {
+            if (-not (Test-MecmQualifierWord $_)) { return $true }
+            foreach ($class in (Get-MecmTitleQualifier $_).Keys) { if ($titleQualifier.ContainsKey($class)) { return $true } }
+            return $false
+        })
+    if ($words.Count -eq 0) { $words = $allWords }
     $next = 0
-    foreach ($token in @([regex]::Matches($Title, '\([^)]*\)|\S+') | ForEach-Object { $_.Value })) {
+    foreach ($token in @([regex]::Matches($Title, $script:MecmTitleTokenPattern) | ForEach-Object { $_.Value })) {
         if ($next -eq $words.Count -and $token -eq '-') { return $true }
         if ($next -lt $words.Count) {
             $continuation = if ($words[$next] -match '\d$') { '(\.\d[\w.+-]*)?' } else { '' }
@@ -601,5 +662,5 @@ function Get-DiscoveryStatusText {
 
 Export-ModuleMember -Function @(
     'Resolve-CMDatabaseTarget', 'Get-CMInventorySnapshot', 'Find-DiscoveryCandidate', 'Get-DiscoveryStatusText',
-    'Test-MecmApplicationTitle'
+    'Test-MecmApplicationTitle', 'Get-MecmApplicationNamePattern'
 )

@@ -12,6 +12,7 @@
         'Find-DiscoveryCandidate'
         'Get-DiscoveryStatusText'
         'Test-MecmApplicationTitle'
+        'Get-MecmApplicationNamePattern'
     )
     CmdletsToExport   = @()
     VariablesToExport = @()
