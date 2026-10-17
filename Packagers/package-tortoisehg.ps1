@@ -9,6 +9,7 @@ DownloadPageUrl: https://tortoisehg.bitbucket.io/download/index.html
 IconSource: Installer
 UpdateCadenceDays: 120
 WsusSupport: Yes
+ArpName: TortoiseHg*
 
 .SYNOPSIS
     Packages TortoiseHg (x64) MSI for ConfigMgr.

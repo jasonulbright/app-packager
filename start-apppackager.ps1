@@ -1062,6 +1062,7 @@ function Get-PackagerMetadata {
         LocalSourceRequired = $false
         WsusSupport       = $null
         WsusSupportReason = $null
+        ArpName           = $null
     }
 
     $lines = Get-Content -LiteralPath $Path -TotalCount 200 -ErrorAction Stop
@@ -1096,6 +1097,7 @@ function Get-PackagerMetadata {
             if ($Matches[2]) { $meta.WsusSupportReason = $Matches[2] }
             continue
         }
+        if ($null -eq $meta.ArpName -and $l -match '^\s*(?:#\s*)?ArpName\s*:\s*(.+?)\s*$') { $meta.ArpName = $Matches[1].Trim(); continue }
         if ($null -eq $meta.UpdateCadenceDays -and $l -match '^\s*(?:#\s*)?UpdateCadenceDays\s*:\s*(\d+)\s*$') {
             $days = [int]$Matches[1]
             if ($days -ge 1) { $meta.UpdateCadenceDays = $days }
@@ -1130,6 +1132,7 @@ function Get-PackagerMetadata {
         LocalSourceRequired = [bool]$meta.LocalSourceRequired
         WsusSupport       = $meta.WsusSupport
         WsusSupportReason = $meta.WsusSupportReason
+        ArpName           = $meta.ArpName
         Script            = (Split-Path -Leaf $Path)
         FullPath          = $Path
     }
@@ -1169,6 +1172,7 @@ function Get-Packagers {
                 LocalSourceRequired = [bool]$m.LocalSourceRequired
                 CPE               = [string]$m.CPE
                 SecurityAdvisoryUrl = [string]$m.SecurityAdvisoryUrl
+                ArpName           = [string]$m.ArpName
                 CurrentVersion    = ""
                 LatestVersion     = ""
                 Status            = $status
@@ -1189,6 +1193,7 @@ function Get-Packagers {
                 SupportsInstallModes = @()
                 CPE               = ""
                 SecurityAdvisoryUrl = ""
+                ArpName           = ""
                 CurrentVersion    = ""
                 LatestVersion     = ""
                 Status            = ("Read error: " + $_.Exception.Message)

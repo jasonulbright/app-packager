@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://winscp.net/eng/docs/history
 DownloadPageUrl: https://winscp.net/eng/download.php
 IconSource: External
 WsusSupport: Yes
+ArpName: WinSCP*
 
 .SYNOPSIS
     Packages WinSCP (x64) for ConfigMgr.

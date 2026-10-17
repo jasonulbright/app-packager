@@ -8,6 +8,7 @@ DownloadPageUrl: https://www.pdfgear.com/download/
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: PDFgear*
 
 .SYNOPSIS
     Packages PDFgear (x64) for ConfigMgr.

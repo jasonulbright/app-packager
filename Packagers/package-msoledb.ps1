@@ -9,6 +9,7 @@ DownloadPageUrl: https://learn.microsoft.com/en-us/sql/connect/oledb/download-ol
 SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: External
 WsusSupport: Yes
+ArpName: Microsoft OLE DB Driver 19 for SQL Server
 
 .SYNOPSIS
     Packages Microsoft OLE DB Driver 19 for SQL Server (x64) for ConfigMgr.

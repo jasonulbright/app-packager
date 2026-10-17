@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.ccleaner.com/defraggler
 IconSource: Installer
 UpdateCadenceDays: 365
 WsusSupport: Yes
+ArpName: Defraggler
 
 .SYNOPSIS
     Packages Defraggler (x64-capable installer) for ConfigMgr.

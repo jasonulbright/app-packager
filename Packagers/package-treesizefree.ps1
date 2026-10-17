@@ -10,6 +10,7 @@ IconSource: Installer
 UpdateCadenceDays: 90
 SupportsInstallModes: CurrentUser, AllUsers
 WsusSupport: Yes
+ArpName: TreeSize Free*
 
 .SYNOPSIS
     Packages TreeSize Free (x64) for ConfigMgr.

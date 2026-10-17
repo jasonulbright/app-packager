@@ -7,6 +7,7 @@ ReleaseNotesUrl: https://github.com/windirstat/windirstat/releases
 DownloadPageUrl: https://windirstat.net/download.html
 IconSource: Installer
 WsusSupport: Yes
+ArpName: WinDirStat*
 
 .SYNOPSIS
     Packages WinDirStat (x64) MSI for ConfigMgr.

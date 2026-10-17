@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.python.org/downloads/
 SecurityAdvisoryUrl: https://www.python.org/dev/security/
 IconSource: Installer
 WsusSupport: Yes
+ArpName: Python 3.* (64-bit)
 
 .SYNOPSIS
     Packages the latest Python (x64) for ConfigMgr.

@@ -10,6 +10,7 @@ IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 180
 WsusSupport: Yes
+ArpName: KeyStore Explorer*
 
 .SYNOPSIS
     Packages KeyStore Explorer (x64) for ConfigMgr.

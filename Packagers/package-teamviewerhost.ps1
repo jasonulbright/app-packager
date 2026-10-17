@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.teamviewer.com/en-us/download/windows/
 SecurityAdvisoryUrl: https://www.teamviewer.com/en/trust-center/security-bulletins/
 IconSource: Installer
 WsusSupport: Yes
+ArpName: TeamViewer Host
 
 .SYNOPSIS
     Packages TeamViewer Host (x64) EXE for ConfigMgr.

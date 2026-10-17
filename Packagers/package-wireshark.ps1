@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.wireshark.org/download.html
 SecurityAdvisoryUrl: https://www.wireshark.org/security/
 IconSource: Installer
 WsusSupport: Yes
+ArpName: Wireshark*
 
 .SYNOPSIS
     Packages Wireshark (x64) for ConfigMgr.

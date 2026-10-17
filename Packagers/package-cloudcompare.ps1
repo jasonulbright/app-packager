@@ -8,6 +8,7 @@ DownloadPageUrl: https://www.cloudcompare.org/release/index.html
 IconSource: External
 UpdateCadenceDays: 180
 WsusSupport: Yes
+ArpName: CloudCompare | CloudCompare [0-9]*
 
 .SYNOPSIS
     Packages CloudCompare (x64) for ConfigMgr.

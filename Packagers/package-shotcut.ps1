@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.shotcut.org/download/
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: Shotcut
 
 .SYNOPSIS
     Packages Shotcut (x64) for ConfigMgr.

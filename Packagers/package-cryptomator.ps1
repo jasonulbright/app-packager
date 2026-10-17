@@ -9,6 +9,7 @@ DownloadPageUrl: https://cryptomator.org/downloads/
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: Cryptomator
 
 .SYNOPSIS
     Packages Cryptomator (x64) MSI for ConfigMgr.

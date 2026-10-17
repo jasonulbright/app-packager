@@ -9,6 +9,7 @@ DownloadPageUrl: https://nodejs.org/en/download/
 SecurityAdvisoryUrl: https://nodejs.org/en/blog/vulnerability
 IconSource: Installer
 WsusSupport: Yes
+ArpName: Node.js
 
 .SYNOPSIS
     Packages Node.js LTS (x64) MSI for ConfigMgr.

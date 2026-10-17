@@ -9,6 +9,7 @@ DownloadPageUrl: https://git-scm.com/download/win
 SecurityAdvisoryUrl: https://github.com/git-for-windows/git/security/advisories
 IconSource: Installer
 WsusSupport: Yes
+ArpName: Git | Git version [0-9]*
 
 .SYNOPSIS
     Packages Git for Windows (x64) for ConfigMgr.

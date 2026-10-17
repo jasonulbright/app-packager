@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.azul.com/downloads/?version=java-11-lts&os=windows&
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Azul Zulu JRE 11.*, 64-bit
 
 .SYNOPSIS
     Packages Azul Zulu JRE 11 (x64) MSI for ConfigMgr.

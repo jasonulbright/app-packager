@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/PowerShell/PowerShell/releases
 SecurityAdvisoryUrl: https://github.com/PowerShell/PowerShell/security/advisories
 IconSource: Installer
 WsusSupport: Yes
+ArpName: PowerShell 7-x64
 
 .SYNOPSIS
     Packages PowerShell 7 (x64) MSI for ConfigMgr.

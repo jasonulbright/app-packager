@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.postgresql.org/download/windows/
 SecurityAdvisoryUrl: https://www.postgresql.org/support/security/
 IconSource: Installer
 WsusSupport: No (DetectionNotMappable)
+ArpName: PostgreSQL 13*
 
 .SYNOPSIS
     Packages PostgreSQL 13 (x64) for ConfigMgr.

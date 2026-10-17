@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.blender.org/download/
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: Blender | Blender [0-9]*
 
 .SYNOPSIS
     Packages Blender (x64) MSI for ConfigMgr.

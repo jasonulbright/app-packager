@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.nvidia.com/Download/index.aspx
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: NVIDIA Graphics Driver [0-9]*
 
 .SYNOPSIS
     Packages the latest NVIDIA RTX Enterprise (Quadro Certified) DCH driver (x64) for ConfigMgr.

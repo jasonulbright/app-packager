@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://github.com/microsoft/vscode/security/advisories
 IconSource: Installer
 UpdateCadenceDays: 14
 WsusSupport: No (PerUserInstall)
+ArpName: none
 
 .SYNOPSIS
     Packages Visual Studio Code x64 user installer for ConfigMgr.

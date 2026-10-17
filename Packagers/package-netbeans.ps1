@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/codelerity/netbeans-packages/releases/latest
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Apache NetBeans*
 
 .SYNOPSIS
     Packages Apache NetBeans for ConfigMgr.

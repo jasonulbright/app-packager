@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.audacityteam.org/releases/
 DownloadPageUrl: https://www.audacityteam.org/download/
 IconSource: Installer
 WsusSupport: No (DetectionNotMappable)
+ArpName: Audacity [0-9]*
 
 .SYNOPSIS
     Packages Audacity (x64) for ConfigMgr.

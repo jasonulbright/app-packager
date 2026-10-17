@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://tortoisesvn.net/Changelog.txt
 DownloadPageUrl: https://tortoisesvn.net/downloads.html
 IconSource: Installer
 WsusSupport: Yes
+ArpName: TortoiseSVN*
 
 .SYNOPSIS
     Packages TortoiseSVN (x64) MSI for ConfigMgr.

@@ -9,6 +9,7 @@ DownloadPageUrl: https://docs.aws.amazon.com/cli/latest/userguide/getting-starte
 IconSource: None
 UpdateCadenceDays: 14
 WsusSupport: Yes
+ArpName: AWS Command Line Interface v2
 
 .SYNOPSIS
     Packages the AWS Command Line Interface v2 (x64) MSI for ConfigMgr.

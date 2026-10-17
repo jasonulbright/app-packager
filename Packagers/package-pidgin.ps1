@@ -9,6 +9,7 @@ DownloadPageUrl: https://sourceforge.net/projects/pidgin/files/Pidgin/
 IconSource: External
 UpdateCadenceDays: 120
 WsusSupport: Yes
+ArpName: Pidgin*
 
 .SYNOPSIS
     Packages Pidgin (x86) for ConfigMgr.

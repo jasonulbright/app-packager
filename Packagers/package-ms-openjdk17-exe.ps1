@@ -9,6 +9,7 @@ DownloadPageUrl: https://learn.microsoft.com/en-us/java/openjdk/download
 SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: Installer
 WsusSupport: Yes
+ArpName: Microsoft Build of OpenJDK 17.* | Microsoft Build of OpenJDK  17.*
 
 .SYNOPSIS
     Packages Microsoft Build of OpenJDK 17 (x64) EXE, per machine, for ConfigMgr.

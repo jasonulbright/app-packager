@@ -8,6 +8,7 @@ DownloadPageUrl: https://www.qoppa.com/pdfstudioviewer/download/
 IconSource: Installer
 UpdateCadenceDays: 180
 WsusSupport: No (DetectionNotMappable)
+ArpName: PDF Studio Viewer*
 
 .SYNOPSIS
     Packages PDF Studio Viewer (x64) for ConfigMgr.

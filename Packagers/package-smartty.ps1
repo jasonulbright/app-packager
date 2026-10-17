@@ -9,6 +9,7 @@ DownloadPageUrl: https://sysprogs.com/SmarTTY/download/
 IconSource: Installer
 UpdateCadenceDays: 365
 WsusSupport: Yes
+ArpName: SmarTTY
 
 .SYNOPSIS
     Packages SmarTTY MSI for ConfigMgr.

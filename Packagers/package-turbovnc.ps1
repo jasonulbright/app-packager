@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/TurboVNC/turbovnc/releases/latest
 IconSource: External
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: TurboVNC*
 
 .SYNOPSIS
     Packages TurboVNC (x64) for ConfigMgr.

@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: Installer
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: Microsoft PowerBI Desktop* | Microsoft Power BI Desktop*
 
 .SYNOPSIS
     Packages Microsoft Power BI Desktop (x64) for ConfigMgr.

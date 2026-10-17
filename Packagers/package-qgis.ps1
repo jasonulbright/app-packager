@@ -9,6 +9,7 @@ DownloadPageUrl: https://qgis.org/download/
 IconSource: Installer
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: QGIS [0-9]*
 
 .SYNOPSIS
     Packages QGIS (x64, latest release channel) for ConfigMgr.

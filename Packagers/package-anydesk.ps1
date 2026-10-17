@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://www.anydesk.com/en/security
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: AnyDesk
 
 .SYNOPSIS
     Packages AnyDesk (x86 payload, 64-bit capable host) for ConfigMgr.

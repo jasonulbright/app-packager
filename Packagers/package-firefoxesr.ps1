@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://www.mozilla.org/en-US/security/known-vulnerabilitie
 IconSource: External
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: Mozilla Firefox ESR (x64 *) | Mozilla Firefox [0-9]*esr x64 *
 
 .SYNOPSIS
     Packages Mozilla Firefox ESR (x64) MSI for ConfigMgr.

@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.voidtools.com/changelog/
 DownloadPageUrl: https://www.voidtools.com/downloads/
 IconSource: Installer
 WsusSupport: Yes
+ArpName: Everything [0-9]*
 
 .SYNOPSIS
     Packages Everything (x64) MSI for ConfigMgr.

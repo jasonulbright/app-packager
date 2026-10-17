@@ -9,6 +9,7 @@ DownloadPageUrl: https://handbrake.fr/downloads.php
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: HandBrake*
 
 .SYNOPSIS
     Packages HandBrake (x64) NSIS installer for ConfigMgr.

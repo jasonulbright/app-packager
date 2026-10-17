@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/dbeaver/dbeaver/releases
 DownloadPageUrl: https://dbeaver.io/download/
 IconSource: Installer
 WsusSupport: Yes
+ArpName: DBeaver [0-9]*
 
 .SYNOPSIS
     Packages DBeaver Community Edition for ConfigMgr.

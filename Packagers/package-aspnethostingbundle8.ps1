@@ -9,6 +9,7 @@ DownloadPageUrl: https://dotnet.microsoft.com/en-us/download/dotnet/8.0
 SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: None
 WsusSupport: Yes
+ArpName: Microsoft .NET 8.* - Windows Server Hosting
 
 .SYNOPSIS
     Packages ASP.NET 8 Server Hosting Bundle for ConfigMgr.

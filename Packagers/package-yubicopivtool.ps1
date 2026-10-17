@@ -9,6 +9,7 @@ DownloadPageUrl: https://developers.yubico.com/yubico-piv-tool/Releases/
 IconSource: None
 UpdateCadenceDays: 120
 WsusSupport: Yes
+ArpName: Yubico PIV Tool*
 
 .SYNOPSIS
     Packages Yubico PIV Tool (x64) MSI for ConfigMgr.

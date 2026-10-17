@@ -9,6 +9,7 @@ DownloadPageUrl: https://dotnet.microsoft.com/en-us/download/dotnet/8.0
 SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: None
 WsusSupport: No (CustomInstall|InstallerMissing)
+ArpName: Microsoft Windows Desktop Runtime - 8.*
 
 .SYNOPSIS
     Packages .NET 8 Windows Desktop Runtime (x86 and x64) for ConfigMgr.

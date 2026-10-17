@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.box.com/resources/downloads
 IconSource: Installer
 UpdateCadenceDays: 45
 WsusSupport: Yes
+ArpName: Box | Box Drive
 
 .SYNOPSIS
     Packages Box Drive (x64) MSI for ConfigMgr.

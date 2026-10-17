@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://sec.cloudapps.cisco.com/security/center/publication
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: Duo Desktop*
 
 .SYNOPSIS
     Packages Duo Desktop (Device Health, x64) MSI for ConfigMgr.

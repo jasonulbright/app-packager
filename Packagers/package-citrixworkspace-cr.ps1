@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://support.citrix.com/securitybulletins
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: Citrix Workspace [0-9]*
 
 .SYNOPSIS
     Packages Citrix Workspace app for Windows, Current Release (x64), for ConfigMgr.

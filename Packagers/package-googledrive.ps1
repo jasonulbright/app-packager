@@ -9,6 +9,7 @@ DownloadPageUrl: https://support.google.com/a/answer/7577057
 IconSource: Installer
 UpdateCadenceDays: 30
 WsusSupport: No (DetectionNotMappable)
+ArpName: Google Drive
 
 .SYNOPSIS
     Packages Google Drive for desktop (x64) for ConfigMgr.

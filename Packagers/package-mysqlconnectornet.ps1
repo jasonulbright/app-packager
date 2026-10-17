@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://www.oracle.com/security-alerts/
 IconSource: External
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: MySQL Connector/NET* | MySQL Connector Net*
 
 .SYNOPSIS
     Packages MySQL Connector/NET (MSI) for ConfigMgr.

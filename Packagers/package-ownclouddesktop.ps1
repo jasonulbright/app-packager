@@ -9,6 +9,7 @@ DownloadPageUrl: https://owncloud.com/desktop-app/
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: ownCloud
 
 .SYNOPSIS
     Packages the ownCloud Desktop Client (x64 MSI) for ConfigMgr.

@@ -8,6 +8,7 @@ DownloadPageUrl: https://pdfsam.org/download-pdfsam-basic/
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: PDFsam Basic*
 
 .SYNOPSIS
     Packages PDFsam Basic (x64) MSI for ConfigMgr.

@@ -10,6 +10,7 @@ IconSource: External
 SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Thonny*
 
 .SYNOPSIS
     Packages Thonny (x64) for ConfigMgr.

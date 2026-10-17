@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.tpgi.com/color-contrast-checker/
 IconSource: Installer
 UpdateCadenceDays: 180
 WsusSupport: Yes
+ArpName: Colour Contrast Analyser*
 
 .SYNOPSIS
     Packages Colour Contrast Analyser (x64) MSI for ConfigMgr.

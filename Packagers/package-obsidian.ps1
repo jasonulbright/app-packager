@@ -10,6 +10,7 @@ IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: Obsidian
 
 .SYNOPSIS
     Packages Obsidian (x64, per-machine) for ConfigMgr.

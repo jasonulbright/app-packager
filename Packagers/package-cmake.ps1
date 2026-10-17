@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://github.com/Kitware/CMake/security
 IconSource: Installer
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: CMake
 
 .SYNOPSIS
     Packages CMake (x64) MSI for ConfigMgr.

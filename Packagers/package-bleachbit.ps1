@@ -10,6 +10,7 @@ IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: BleachBit
 
 .SYNOPSIS
     Packages BleachBit for ConfigMgr.

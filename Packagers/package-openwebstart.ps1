@@ -9,6 +9,7 @@ DownloadPageUrl: https://openwebstart.com/download/
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: OpenWebStart*
 
 .SYNOPSIS
     Packages OpenWebStart (x64) for ConfigMgr.

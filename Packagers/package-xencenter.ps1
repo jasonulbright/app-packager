@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.xenserver.com/downloads
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: XenCenter*
 
 .SYNOPSIS
     Packages XenCenter (x64) MSI for ConfigMgr.

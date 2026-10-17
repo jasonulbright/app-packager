@@ -9,6 +9,7 @@ DownloadPageUrl: https://pathcopycopy.github.io/
 IconSource: External
 UpdateCadenceDays: 180
 WsusSupport: Yes
+ArpName: Path Copy Copy*
 
 .SYNOPSIS
     Packages Path Copy Copy (x64) for ConfigMgr.

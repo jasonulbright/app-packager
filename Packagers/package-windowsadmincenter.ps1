@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Windows Admin Center*
 
 .SYNOPSIS
     Packages Windows Admin Center (v2, modernized gateway) for ConfigMgr.

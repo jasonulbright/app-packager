@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://inkscape.org/release/
 DownloadPageUrl: https://inkscape.org/release/
 IconSource: Installer
 WsusSupport: Yes
+ArpName: Inkscape*
 
 .SYNOPSIS
     Packages Inkscape MSI for ConfigMgr.

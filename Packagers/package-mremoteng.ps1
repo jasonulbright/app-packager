@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/mRemoteNG/mRemoteNG/releases
 DownloadPageUrl: https://mremoteng.org/download
 IconSource: Installer
 WsusSupport: Yes
+ArpName: mRemoteNG
 
 .SYNOPSIS
     Packages mRemoteNG for ConfigMgr.

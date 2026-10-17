@@ -9,6 +9,7 @@ DownloadPageUrl: https://customerconnect.omnissa.com/downloads/info/slug/virtual
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Omnissa Horizon Client
 
 .SYNOPSIS
     Packages the Omnissa Horizon Client (x64, per-machine) for ConfigMgr.

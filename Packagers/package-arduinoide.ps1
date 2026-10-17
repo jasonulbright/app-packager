@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/arduino/arduino-ide/releases/latest
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: Arduino IDE | Arduino IDE [0-9]*
 
 .SYNOPSIS
     Packages Arduino IDE 2.x (x64) MSI for ConfigMgr.
