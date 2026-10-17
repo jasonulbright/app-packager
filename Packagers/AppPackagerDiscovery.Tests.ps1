@@ -184,6 +184,86 @@ Describe 'Resolve-CMDatabaseTarget' {
     }
 }
 
+Describe 'Get-DiscoverySiteDefinition' {
+    BeforeEach {
+        $script:Disposed = New-Object System.Collections.Generic.List[string]
+        $script:NewFakeSession = {
+            param($Protocol, $ComputerName, $Disposed)
+            $session = [pscustomobject]@{ Protocol = $Protocol; ComputerName = $ComputerName; Disposed = $Disposed }
+            $session | Add-Member -MemberType ScriptMethod -Name Dispose -Value { $this.Disposed.Add($this.Protocol) }
+            $session
+        }
+        Mock -ModuleName AppPackagerDiscovery New-DiscoveryCimSession {
+            & $script:NewFakeSession $Protocol $ComputerName $script:Disposed
+        }
+    }
+
+    It 'reads the site definition over DCOM without a WinRM session' {
+        Mock -ModuleName AppPackagerDiscovery Get-DiscoveryCimSiteDefinition {
+            [pscustomobject]@{ SQLServerName = 'CM01.contoso.com'; SQLDatabaseName = 'CM_MCM'; Via = $CimSession.Protocol }
+        }
+        $d = InModuleScope AppPackagerDiscovery { Get-DiscoverySiteDefinition -ProviderMachineName 'CM01.contoso.com' -SiteCode 'MCM' }
+        $d.SQLServerName | Should -Be 'CM01.contoso.com'
+        $d.Via | Should -Be 'Dcom'
+        Should -Invoke -ModuleName AppPackagerDiscovery New-DiscoveryCimSession -Times 1 -Exactly -ParameterFilter { $Protocol -eq 'Dcom' -and $ComputerName -eq 'CM01.contoso.com' }
+        Should -Invoke -ModuleName AppPackagerDiscovery New-DiscoveryCimSession -Times 0 -ParameterFilter { $Protocol -eq 'Wsman' }
+        Should -Invoke -ModuleName AppPackagerDiscovery Get-DiscoveryCimSiteDefinition -Times 1 -Exactly -ParameterFilter { $SiteCode -eq 'MCM' }
+        @($script:Disposed) | Should -Be @('Dcom')
+    }
+
+    It 'falls back to WinRM when the DCOM query fails' {
+        Mock -ModuleName AppPackagerDiscovery Get-DiscoveryCimSiteDefinition {
+            if ($CimSession.Protocol -eq 'Dcom') { throw 'Access is denied.' }
+            [pscustomobject]@{ SQLServerName = 'CM01.contoso.com'; SQLDatabaseName = 'CM_MCM'; Via = $CimSession.Protocol }
+        }
+        $d = InModuleScope AppPackagerDiscovery { Get-DiscoverySiteDefinition -ProviderMachineName 'CM01.contoso.com' -SiteCode 'MCM' }
+        $d.SQLDatabaseName | Should -Be 'CM_MCM'
+        $d.Via | Should -Be 'Wsman'
+        @($script:Disposed) | Should -Be @('Dcom', 'Wsman')
+    }
+
+    It 'falls back to WinRM when the DCOM session cannot be created' {
+        Mock -ModuleName AppPackagerDiscovery New-DiscoveryCimSession -ParameterFilter { $Protocol -eq 'Dcom' } { throw 'The RPC server is unavailable.' }
+        Mock -ModuleName AppPackagerDiscovery Get-DiscoveryCimSiteDefinition {
+            [pscustomobject]@{ SQLServerName = 'CM01.contoso.com'; SQLDatabaseName = 'CM_MCM'; Via = $CimSession.Protocol }
+        }
+        $d = InModuleScope AppPackagerDiscovery { Get-DiscoverySiteDefinition -ProviderMachineName 'CM01.contoso.com' -SiteCode 'MCM' }
+        $d.Via | Should -Be 'Wsman'
+        @($script:Disposed) | Should -Be @('Wsman')
+    }
+
+    It 'throws one plain message when DCOM and WinRM both fail' {
+        Mock -ModuleName AppPackagerDiscovery Get-DiscoveryCimSiteDefinition { throw 'Access is denied. (HRESULT 0x80070005)' }
+        $message = $null
+        try { InModuleScope AppPackagerDiscovery { Get-DiscoverySiteDefinition -ProviderMachineName 'CM01.contoso.com' -SiteCode 'MCM' } }
+        catch { $message = $_.Exception.Message }
+        $message | Should -BeLike '*site definition*SMS Provider CM01.contoso.com*'
+        $message | Should -BeLike '*SQL server and database*Options*'
+        $message | Should -Not -BeLike '*Access is denied*'
+        $message | Should -Not -BeLike '*HRESULT*'
+        @($script:Disposed) | Should -Be @('Dcom', 'Wsman')
+    }
+
+    It 'throws the plain message when no session can be created' {
+        Mock -ModuleName AppPackagerDiscovery New-DiscoveryCimSession { throw 'WinRM cannot complete the operation.' }
+        Mock -ModuleName AppPackagerDiscovery Get-DiscoveryCimSiteDefinition { throw 'must not be called' }
+        $message = $null
+        try { InModuleScope AppPackagerDiscovery { Get-DiscoverySiteDefinition -ProviderMachineName 'cm01' -SiteCode 'MCM' } }
+        catch { $message = $_.Exception.Message }
+        $message | Should -BeLike '*SMS Provider cm01*'
+        $message | Should -Not -BeLike '*WinRM cannot*'
+        Should -Invoke -ModuleName AppPackagerDiscovery Get-DiscoveryCimSiteDefinition -Times 0
+    }
+
+    It 'returns nothing over DCOM when the provider has no definition for the site' {
+        Mock -ModuleName AppPackagerDiscovery Get-DiscoveryCimSiteDefinition { }
+        $d = InModuleScope AppPackagerDiscovery { Get-DiscoverySiteDefinition -ProviderMachineName 'cm01' -SiteCode 'MCM' }
+        $d | Should -BeNullOrEmpty
+        Should -Invoke -ModuleName AppPackagerDiscovery New-DiscoveryCimSession -Times 0 -ParameterFilter { $Protocol -eq 'Wsman' }
+        @($script:Disposed) | Should -Be @('Dcom')
+    }
+}
+
 Describe 'Connection and command shape' {
     It 'builds a Windows-auth, read-intent connection string without string concatenation' {
         InModuleScope AppPackagerDiscovery {

@@ -75,18 +75,27 @@ function Get-DiscoveryProviderMachineName {
     return $null
 }
 
-function Get-DiscoverySiteDefinition {
-    <#
-    .SYNOPSIS
-        Reads SMS_SCI_SiteDefinition (SQLServerName, SQLDatabaseName) from
-        the SMS Provider.
-    #>
+function New-DiscoveryCimSession {
     param(
-        [Parameter(Mandatory)][string]$ProviderMachineName,
+        [Parameter(Mandatory)][string]$ComputerName,
+        [Parameter(Mandatory)][ValidateSet('Dcom', 'Wsman')][string]$Protocol
+    )
+    $splat = @{
+        ComputerName        = $ComputerName
+        SessionOption       = (New-CimSessionOption -Protocol $Protocol)
+        OperationTimeoutSec = 30
+        ErrorAction         = 'Stop'
+    }
+    return (New-CimSession @splat)
+}
+
+function Get-DiscoveryCimSiteDefinition {
+    param(
+        [Parameter(Mandatory)]$CimSession,
         [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9]{3}$')][string]$SiteCode
     )
     $splat = @{
-        ComputerName        = $ProviderMachineName
+        CimSession          = $CimSession
         Namespace           = "root\sms\site_$SiteCode"
         ClassName           = 'SMS_SCI_SiteDefinition'
         Filter              = "SiteCode='$SiteCode'"
@@ -94,6 +103,35 @@ function Get-DiscoverySiteDefinition {
         ErrorAction         = 'Stop'
     }
     return (Get-CimInstance @splat | Select-Object -First 1)
+}
+
+function Get-DiscoverySiteDefinition {
+    <#
+    .SYNOPSIS
+        Reads SMS_SCI_SiteDefinition (SQLServerName, SQLDatabaseName) from
+        the SMS Provider, over DCOM first and WinRM second.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$ProviderMachineName,
+        [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9]{3}$')][string]$SiteCode
+    )
+    # WinRM to the provider requires local Administrators or Remote Management
+    # Users membership; a ConfigMgr administrator without either gets "Access
+    # is denied" there and reaches the SMS Provider only through DCOM.
+    foreach ($protocol in 'Dcom', 'Wsman') {
+        $session = $null
+        try {
+            $session = New-DiscoveryCimSession -ComputerName $ProviderMachineName -Protocol $protocol
+            return (Get-DiscoveryCimSiteDefinition -CimSession $session -SiteCode $SiteCode)
+        }
+        catch {
+            Write-Verbose "Site definition lookup over $protocol failed: $($_.Exception.Message)"
+        }
+        finally {
+            if ($null -ne $session) { $session.Dispose() }
+        }
+    }
+    throw "The site definition could not be read from the SMS Provider $ProviderMachineName. Enter the SQL server and database in Options, ConfigMgr Preferences."
 }
 
 function Resolve-CMDatabaseTarget {
