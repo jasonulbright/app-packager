@@ -381,7 +381,7 @@ AppPackager has no service and no backend. Every network call comes from one of 
 | `start-apppackager.ps1` | The update check: `https://api.github.com/repos/jasonulbright/app-packager/releases/latest`, once per 24 hours at launch, cached in `%LOCALAPPDATA%\AppPackager\update-check.json`. The icon pack and Content Prep downloads from the Options window. The `rate_limit` probe behind the GitHub API row. | The log pane at launch. |
 | The Package phase | Writes to the file share and the ConfigMgr provider, or to Intune through Microsoft Graph, or to the WSUS server. No vendor call. | The log pane. |
 | Check CVEs (`Packagers\AppPackagerVulnerability.psm1`) | One NVD call per checked app: `https://services.nvd.nist.gov/rest/json/cves/2.0` with the app's CPE and version range, paged at 2000 records; `https://cvedb.shodan.io/cves` with the ConfigMgr version when NVD fails; `https://api.first.org/data/v1/epss` with up to 100 CVE ids per call; the CISA KEV catalog `https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json` once per day. Every call carries the `AppPackager` user agent and the NVD key from Preferences when one is set. Nothing is sent to the other CVE sites; the report and the CVE window only link to them. The scheduled monitor adds one POST of the run summary (counts and report paths, no CVE text) to the webhook URL in `monitor-config.json`, when one is set. | The `GET <url> -> HTTP <code>` and `POST <url> -> HTTP <code>` lines in the log pane or the monitor log. |
-| Discover unmanaged software (`Packagers\AppPackagerDiscovery.psm1`) | One SQL connection to the ConfigMgr site database with Windows authentication and read-only intent. Parameterized `SELECT` statements on the views `v_GS_ADD_REMOVE_PROGRAMS`, `v_GS_ADD_REMOVE_PROGRAMS_64` and `v_Applications`. The results are display names, publishers, versions and client counts. No machine name leaves the database. Nothing is written. | The `Discover unmanaged software:` lines in the log pane. |
+| Discover unmanaged software (`Packagers\AppPackagerDiscovery.psm1`) | One SQL connection to the ConfigMgr site database with Windows authentication and read-only intent. Parameterized `SELECT` statements on the views `v_GS_ADD_REMOVE_PROGRAMS`, `v_GS_ADD_REMOVE_PROGRAMS_64`, `v_R_System`, `v_Applications` and `v_ConfigurationItems`. AppPackager receives display names, publishers, versions and resource IDs, and keeps only client counts. No machine name leaves the database. Nothing is written. | The `Discover unmanaged software:` lines in the log pane. |
 
 The Application Workbench sends nothing. Saving a profile writes a file under `%LOCALAPPDATA%\AppPackagerData\Workbench`; Stage and Publish from the Workbench run the same packager script and Package phase as the main window.
 
@@ -811,12 +811,23 @@ Enabling an app has the same effect as checking it in the Product Filter. The ap
 
 ### Matching
 
-Each packager carries an `ArpName` header tag. It holds one or more wildcard patterns, separated by ` | `, for the Add/Remove Programs display name. Discovery compares each pattern with PowerShell `-like` against the inventory display names. The comparison ignores case. `none` marks an app with no machine-wide Add/Remove Programs entry: a portable app, a store app, or a per-user install. 296 packagers carry patterns and 16 carry `none`.
+Each packager carries an `ArpName` header tag. It holds one or more wildcard patterns, separated by ` | `, for the Add/Remove Programs display name. Discovery compares each pattern with PowerShell `-like` against the inventory display names. The comparison ignores case and uses invariant culture rules. `none` marks an app with no machine-wide Add/Remove Programs entry: a portable app, a store app, or a per-user install. 287 packagers carry patterns and 25 carry `none`.
+
+Two optional tags make a match narrower:
+
+- `ArpVersion` holds one wildcard pattern for the display version, for example `17.*`.
+- `ArpArch` holds `x64` or `x86`. `x86` is the 32-bit registry view (`v_GS_ADD_REMOVE_PROGRAMS`). `x64` is the 64-bit registry view (`v_GS_ADD_REMOVE_PROGRAMS_64`). Hardware inventory has no arm64 view, so an arm64 packager has no `ArpArch`.
+
+When Add/Remove Programs cannot tell two packagers apart, one packager owns the pattern and the other carries `none`. The owners are Citrix Workspace (Current Release) over the LTSR packagers, QGIS over QGIS LTR, NVIDIA GeForce over NVIDIA RTX Enterprise, and the x64 packagers of Microsoft 365 Apps, Project and Visio over the x86 packagers. The x64 and x86 Visual C++ runtime packagers own their entries, and the packager for both architectures carries `none`.
+
+A client counts once per app, also when it has more than one matching entry. Discovery leaves out clients that ConfigMgr marks obsolete or decommissioned. A pattern that is not a valid wildcard stops discovery with a message that names the packager.
 
 ### Requirements
 
 - The account that runs AppPackager needs `db_datareader` on the site database `CM_<site code>`.
-- Discovery uses Windows authentication only. It never stores or asks for a SQL password.
+- Run AppPackager as a domain account on a domain-joined computer. Discovery uses Windows authentication only. It never stores or asks for a SQL password. On a computer that is not in the domain, the query fails with this message: "Windows authentication to SQL Server `<server>` failed. Run the app as a domain account on a domain-joined computer, and check the SQL Server service principal name."
+- Windows credentials do not pass through a second remoting hop without Kerberos delegation. Run AppPackager in a session that holds your own logon.
+- Discovery needs the site code, or both **Discovery SQL** and **Discovery DB**. Without them the action is not available.
 - The client settings must collect the hardware inventory classes Add/Remove Programs (`SMS_G_System_ADD_REMOVE_PROGRAMS`) and Add/Remove Programs (64) (`SMS_G_System_ADD_REMOVE_PROGRAMS_64`). Without them the result is "no inventory data", not "nothing found".
 - Hardware inventory reads the machine-wide uninstall keys. A per-user install is not in these views.
 
@@ -826,11 +837,14 @@ Discovery reads the SQL server and the database name from the site. To use a dif
 
 - **The SQL views bypass ConfigMgr role-based administration.** A user with `db_datareader` on the site database reads inventory for every client in the hierarchy. Security roles and security scopes in the console do not limit this. Grant `db_datareader` only to accounts that may see the inventory of all clients.
 - Discovery reads counts only. It shows the number of clients per app and never a machine name.
-- Every statement is a parameterized `SELECT` on a `v_` view, with a command timeout and read-only intent. Discovery writes nothing to the database.
+- Every statement is a parameterized `SELECT` on a `v_` view, with a command timeout and read-only intent. Discovery writes nothing to the database. The views are `v_GS_ADD_REMOVE_PROGRAMS`, `v_GS_ADD_REMOVE_PROGRAMS_64`, `v_R_System` (obsolete and decommissioned flags only), `v_Applications` and `v_ConfigurationItems`.
+- A discovery run stops after 600 seconds. The buttons become available again.
 
 ### The list of apps not offered
 
 **Don't ask again for these** adds the apps to the preference `DiscoveryDismissed` in `AppPackager.preferences.json`. Options, ConfigMgr Preferences shows the count in **Not offered**. **Clear list** empties the list when you click OK. An app that you show in the grid is never a candidate, whether or not it is on the list.
+
+**Enable selected** and **Enable all** add the apps to the preference `DiscoveryEnabled`. While this list has entries, the first Check ConfigMgr does not offer to hide apps that ConfigMgr does not have.
 
 ## CVE lookup
 
@@ -921,6 +935,8 @@ ArpName: 7-Zip [0-9]*
 | `RequiresTools` | Comma-separated list of detected tools the packager depends on. Read-only metadata; surfaced via `Get-PackagerMetadata` and reserved for future preflight warnings. Adobe Reader declares `7-Zip`. |
 | `WsusSupport` | `Yes`, or `No (<code>)` with the WSUS compatibility codes the publish would report: `DetectionNotMappable`, `PerUserInstall`, `InstallerTypeUnsupported`, `CustomInstall`, `InstallerMissing`, `PayloadInSubfolder`, several joined with `\|`. Every packager carries it; the One Click plan shows **WSUS: not supported** from it before a run. |
 | `ArpName` | Wildcard patterns for the Add/Remove Programs display name, separated by ` \| `. [Discover unmanaged software](#discover-unmanaged-software) matches them with `-like` against hardware inventory. `none` marks an app with no machine-wide Add/Remove Programs entry: a portable app, a store app, or a per-user install. Every packager carries it. |
+| `ArpVersion` | Optional wildcard pattern for the Add/Remove Programs display version, for example `17.*`. Discovery matches only inventory rows with this version. |
+| `ArpArch` | Optional `x64` or `x86`: the registry view of the Add/Remove Programs entry. Discovery matches only inventory rows from this view. |
 | `LocalSource` | `Optional` or `Required`: the packager can, or must, stage an installer from a folder set under Local Installer Sources in the [Options window](#options-window). |
 
 ## Application Icons

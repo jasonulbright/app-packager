@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://TODO
 DownloadPageUrl: https://TODO
 UpdateCadenceDays: 30
 ArpName: TODO*
+ArpArch: x64
 
 .SYNOPSIS
     Packages TODO (x64) MSI for ConfigMgr.

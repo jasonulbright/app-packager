@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-## 296 packagers matched against hardware inventory
+## 287 packagers matched against hardware inventory
 
 ### Added
 
@@ -11,6 +11,7 @@
 - Keep apps out of later discoveries with Don't ask again for these.
 - Add Discovery SQL and Discovery DB overrides to Options, ConfigMgr Preferences.
 - Add the ArpName header tag to every packager.
+- Add the optional ArpVersion and ArpArch header tags.
 
 ## [2026.10.14.0118] - 2026-10-14
 
