@@ -1413,6 +1413,9 @@ function Enable-DiscoveredApplication {
         if ($enable.Contains([string]$name)) { $removed.Add([string]$name) } else { $kept.Add([string]$name) }
     }
     $Prefs.HiddenApplications = $kept.ToArray()
+    if ($Prefs.PSObject.Properties['DiscoveryDismissed']) {
+        $Prefs.DiscoveryDismissed = [string[]]@($Prefs.DiscoveryDismissed | Where-Object { $_ -and -not $enable.Contains([string]$_) })
+    }
 
     $enabled = New-Object System.Collections.Generic.List[string]
     $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
@@ -1452,7 +1455,28 @@ function Add-DiscoveryDismissed {
     $added = 0
     foreach ($name in @($Script)) { if ($name -and $seen.Add([string]$name)) { $list.Add([string]$name); $added++ } }
     $Prefs.DiscoveryDismissed = $list.ToArray()
+    if ($Prefs.PSObject.Properties['DiscoveryEnabled']) {
+        $Prefs.DiscoveryEnabled = [string[]]@($Prefs.DiscoveryEnabled | Where-Object { $_ -and -not $seen.Contains([string]$_) })
+    }
     return $added
+}
+
+function Resolve-DiscoveryButton {
+    # A non-empty Note means the prompt stays open with no change.
+    param(
+        [Parameter(Mandatory)][ValidateSet('EnableSelected', 'EnableAll', 'Dismiss')][string]$Button,
+        [object[]]$Rows = @()
+    )
+
+    $all = @($Rows | Where-Object { $_ } | ForEach-Object { [string]$_.Script })
+    if ($Button -eq 'EnableAll') { return [pscustomobject]@{ Action = 'EnableAll'; Scripts = $all; Note = '' } }
+
+    $picked = @($Rows | Where-Object { $_ -and $_.Selected -eq $true } | ForEach-Object { [string]$_.Script })
+    if ($picked.Count -eq 0) {
+        $note = $(if ($Button -eq 'Dismiss') { 'Check the apps to leave out of later discoveries. Nothing changed.' } else { 'Check at least one app, or click Enable all.' })
+        return [pscustomobject]@{ Action = ''; Scripts = @(); Note = $note }
+    }
+    return [pscustomobject]@{ Action = $Button; Scripts = $picked; Note = '' }
 }
 
 function Get-DiscoveryPromptText {
@@ -5358,7 +5382,7 @@ function New-MecmPreferencesPanel {
     <TextBox   Grid.Row="28" Grid.Column="1" x:Name="txtDiscoverySqlServer" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Server or server\instance, for example cm01.contoso.com. Windows authentication only."/>
     <TextBlock Grid.Row="29" Grid.Column="0" Text="Discovery DB:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Name of the ConfigMgr site database. Leave empty to use CM_ and the site code."/>
     <TextBox   Grid.Row="29" Grid.Column="1" x:Name="txtDiscoverySqlDatabase" Width="200" FontSize="13" HorizontalAlignment="Left" MaxLength="128" Margin="0,0,0,8" ToolTip="For example CM_MCM. The account needs db_datareader on this database."/>
-    <TextBlock Grid.Row="30" Grid.Column="0" Text="Not offered:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Apps that Discover unmanaged software leaves out after Don't ask again for these."/>
+    <TextBlock Grid.Row="30" Grid.Column="0" Text="Not offered:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Apps that Discover unmanaged software leaves out after Don't ask again for selected."/>
     <StackPanel Grid.Row="30" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
         <TextBlock x:Name="txtDiscoveryDismissed" FontSize="13" VerticalAlignment="Center" Margin="0,0,12,0"/>
         <Button x:Name="btnClearDiscoveryDismissed" Content="Clear list" MinWidth="90" Height="28"
@@ -9609,9 +9633,9 @@ function Show-DiscoveryDialog {
                 <Button x:Name="btnNotNow" Content="Not now" MinWidth="100" Height="32" Margin="0,0,8,0" IsCancel="True"
                         Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Close without a change. The next discovery offers these apps again."/>
-                <Button x:Name="btnDismiss" Content="Don't ask again for these" MinWidth="190" Height="32"
+                <Button x:Name="btnDismiss" Content="Don't ask again for selected" MinWidth="200" Height="32"
                         Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                        ToolTip="Keep these apps hidden and leave them out of later discoveries. Clear the list in Options, ConfigMgr Preferences."/>
+                        ToolTip="Keep the checked apps hidden and leave them out of later discoveries. Clear the list in Options, ConfigMgr Preferences."/>
             </WrapPanel>
         </Border>
     </Grid>
@@ -9642,32 +9666,26 @@ function Show-DiscoveryDialog {
     $txtStatusLine.Text = $StatusText
 
     $state = @{ Action = 'NotNow'; Scripts = @() }
-    $allScripts = @($rows | ForEach-Object { $_.Script })
 
-    $btnEnableSelected.Add_Click({
+    $apply = {
+        param([string]$Button)
+        # A check box edit stays uncommitted until the row loses focus.
         [void]$grid.CommitEdit([System.Windows.Controls.DataGridEditingUnit]::Cell, $true)
         [void]$grid.CommitEdit([System.Windows.Controls.DataGridEditingUnit]::Row, $true)
-        $picked = @($rows | Where-Object { $_.Selected -eq $true } | ForEach-Object { $_.Script })
-        if ($picked.Count -eq 0) {
-            $txtNote.Text = 'Check at least one app, or click Enable all.'
+        $choice = Resolve-DiscoveryButton -Button $Button -Rows @($rows)
+        if ($choice.Note) {
+            $txtNote.Text = $choice.Note
             $txtNote.Visibility = 'Visible'
             return
         }
-        $state.Action = 'EnableSelected'
-        $state.Scripts = $picked
+        $state.Action = $choice.Action
+        $state.Scripts = @($choice.Scripts)
         $dlg.Close()
-    }.GetNewClosure())
-    $btnEnableAll.Add_Click({
-        $state.Action = 'EnableAll'
-        $state.Scripts = $allScripts
-        $dlg.Close()
-    }.GetNewClosure())
+    }.GetNewClosure()
+    $btnEnableSelected.Add_Click({ & $apply 'EnableSelected' }.GetNewClosure())
+    $btnEnableAll.Add_Click({ & $apply 'EnableAll' }.GetNewClosure())
     $btnNotNow.Add_Click({ $dlg.Close() }.GetNewClosure())
-    $btnDismiss.Add_Click({
-        $state.Action = 'Dismiss'
-        $state.Scripts = $allScripts
-        $dlg.Close()
-    }.GetNewClosure())
+    $btnDismiss.Add_Click({ & $apply 'Dismiss' }.GetNewClosure())
 
     if ($Probe) {
         & $Probe @{ Window = $dlg; Grid = $grid; Rows = $rows; Prompt = $txtPrompt; Status = $txtStatusLine; Note = $txtNote

@@ -17,7 +17,7 @@ $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'start-apppackager.ps1'), [ref]$tokens, [ref]$errors)
 if ($errors) { throw ($errors.Message -join '; ') }
 foreach ($name in @('Show-DiscoveryDialog', 'Get-DiscoveryPromptText', 'Invoke-DiscoveryChoice', 'Enable-DiscoveredApplication',
-                    'Add-DiscoveryDismissed', 'Complete-DiscoveryScan', 'Read-Preferences', 'Resolve-FirstRunCompleted', 'New-MecmPreferencesPanel',
+                    'Add-DiscoveryDismissed', 'Resolve-DiscoveryButton', 'Complete-DiscoveryScan', 'Read-Preferences', 'Resolve-FirstRunCompleted', 'New-MecmPreferencesPanel',
                     'Invoke-DiscoveryScan', 'Start-DiscoveryRunspace', 'Get-DiscoveryRunspaceState', 'Stop-DiscoveryRunspace')) {
     $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
     if (-not $fn) { throw ('function not found: ' + $name) }
@@ -69,7 +69,7 @@ try {
         & $assert ($rows[1].Vendor -eq 'The Git Development Community') 'the vendor column carries the vendor'
         & $assert (@($rows | Where-Object Selected).Count -eq 0) 'no row starts checked'
         & $assert (@($p.Grid.Columns | ForEach-Object { [string]$_.Header }) -join ',' -eq ',Application,Vendor,Clients,Inventory name') 'the columns are check, name, vendor, client count and inventory name'
-        & $assert ($p.EnableSelected.Content -eq 'Enable selected' -and $p.EnableAll.Content -eq 'Enable all' -and $p.NotNow.Content -eq 'Not now' -and $p.Dismiss.Content -eq "Don't ask again for these") 'the four buttons carry their labels'
+        & $assert ($p.EnableSelected.Content -eq 'Enable selected' -and $p.EnableAll.Content -eq 'Enable all' -and $p.NotNow.Content -eq 'Not now' -and $p.Dismiss.Content -eq "Don't ask again for selected") 'the four buttons carry their labels'
         & $click $p.EnableSelected
         & $assert ($p.Note.Visibility -eq 'Visible' -and $p.State.Action -eq 'NotNow') 'Enable selected with nothing checked asks for a check and keeps the window'
         $rows[2].Selected = $true
@@ -83,8 +83,20 @@ try {
     $result = Show-DiscoveryDialog -Owner $null -Candidates $candidates -Probe { param($p) & $click $p.NotNow }
     & $assert ($result.Action -eq 'NotNow' -and @($result.Scripts).Count -eq 0) 'Not now returns no script'
 
-    $result = Show-DiscoveryDialog -Owner $null -Candidates $candidates -Probe { param($p) & $click $p.Dismiss }
-    & $assert ($result.Action -eq 'Dismiss' -and @($result.Scripts).Count -eq 3) "Don't ask again returns every script"
+    $result = Show-DiscoveryDialog -Owner $null -Candidates $candidates -Probe {
+        param($p)
+        & $click $p.Dismiss
+        & $assert ($p.Note.Visibility -eq 'Visible' -and $p.Note.Text -eq 'Check the apps to leave out of later discoveries. Nothing changed.' -and $p.State.Action -eq 'NotNow') "Don't ask again with nothing checked says so and keeps the window"
+        & $click $p.NotNow
+    }
+    & $assert ($result.Action -eq 'NotNow' -and @($result.Scripts).Count -eq 0) "Don't ask again with nothing checked returns no script"
+
+    $result = Show-DiscoveryDialog -Owner $null -Candidates $candidates -Probe {
+        param($p)
+        @($p.Rows | Where-Object { $_.Script -in 'package-7zip.ps1', 'package-hashtools.ps1' }) | ForEach-Object { $_.Selected = $true }
+        & $click $p.Dismiss
+    }
+    & $assert ($result.Action -eq 'Dismiss' -and (@($result.Scripts | Sort-Object) -join ',') -eq 'package-7zip.ps1,package-hashtools.ps1') "Don't ask again returns only the checked scripts"
 
     $result = Show-DiscoveryDialog -Owner $null -Candidates @($candidates[0]) -Probe { param($p) & $assert ($p.Prompt.Text -eq 'Discovered 1 app. Enable console view?') 'one candidate reads Discovered 1 app' }
 
@@ -107,6 +119,40 @@ try {
     $global:Saves = 0
     Invoke-DiscoveryChoice -Choice ([pscustomobject]@{ Action = 'NotNow'; Scripts = @() })
     & $assert ($global:Saves -eq 0) 'Not now saves nothing'
+
+    # --- Don't ask again for selected, then the next scan ------------------------------
+    Import-Module (Join-Path $root 'Packagers\AppPackagerDiscovery.psm1') -Force -DisableNameChecking
+    $scanPackagers = @(
+        [pscustomobject]@{ Script = 'package-git.ps1'; CMName = 'Git'; Vendor = 'Git'; ArpName = 'Git' }
+        [pscustomobject]@{ Script = 'package-7zip.ps1'; CMName = '7-Zip'; Vendor = '7-Zip'; ArpName = '7-Zip*' }
+        [pscustomobject]@{ Script = 'package-hashtools.ps1'; CMName = 'HashTools'; Vendor = 'Binary Fortress Software'; ArpName = 'HashTools' }
+    )
+    $snapshot = [pscustomobject]@{ Applications = @(); Rows = @(
+            [pscustomobject]@{ DisplayName = 'Git'; Version = '2.51.0'; Architecture = 'x64'; ClientCount = 2 }
+            [pscustomobject]@{ DisplayName = '7-Zip 26.03 (x64 edition)'; Version = '26.03'; Architecture = 'x64'; ClientCount = 4 }
+            [pscustomobject]@{ DisplayName = 'HashTools'; Version = '5.1'; Architecture = 'x64'; ClientCount = 1 }
+        ) }
+    $script:Prefs = [pscustomobject]@{ HiddenApplications = @('package-git.ps1', 'package-7zip.ps1', 'package-hashtools.ps1'); DiscoveryDismissed = @(); DiscoveryEnabled = @() }
+    $offered = @(Find-DiscoveryCandidate -Snapshot $snapshot -Packager $scanPackagers -HiddenScript $script:Prefs.HiddenApplications -DismissedScript $script:Prefs.DiscoveryDismissed)
+    & $assert ($offered.Count -eq 3) 'the first scan offers the three hidden apps'
+    $choice = Show-DiscoveryDialog -Owner $null -Candidates $offered -Probe {
+        param($p)
+        @($p.Rows | Where-Object { $_.Script -in 'package-7zip.ps1', 'package-hashtools.ps1' }) | ForEach-Object { $_.Selected = $true }
+        & $click $p.Dismiss
+    }
+    $global:Saves = 0
+    Invoke-DiscoveryChoice -Choice $choice
+    & $assert ((@($script:Prefs.DiscoveryDismissed | Sort-Object) -join ',') -eq 'package-7zip.ps1,package-hashtools.ps1' -and $global:Saves -eq 1) 'only the checked apps land in DiscoveryDismissed'
+    & $assert (@($script:Prefs.DiscoveryEnabled).Count -eq 0 -and @($script:Prefs.HiddenApplications).Count -eq 3) 'dismissing enables nothing and keeps the apps hidden'
+    $offered = @(Find-DiscoveryCandidate -Snapshot $snapshot -Packager $scanPackagers -HiddenScript $script:Prefs.HiddenApplications -DismissedScript $script:Prefs.DiscoveryDismissed)
+    & $assert ((@($offered | ForEach-Object { $_.Script }) -join ',') -eq 'package-git.ps1') 'the next scan offers the unchecked app again'
+
+    $global:Saves = 0
+    $choice = Show-DiscoveryDialog -Owner $null -Candidates $offered -Probe { param($p) & $click $p.Dismiss; & $click $p.NotNow }
+    Invoke-DiscoveryChoice -Choice $choice
+    & $assert ($global:Saves -eq 0 -and @($script:Prefs.DiscoveryDismissed).Count -eq 2) "Don't ask again with nothing checked changes no preference"
+    $offered = @(Find-DiscoveryCandidate -Snapshot $snapshot -Packager $scanPackagers -HiddenScript $script:Prefs.HiddenApplications -DismissedScript $script:Prefs.DiscoveryDismissed)
+    & $assert ($offered.Count -eq 1) 'after nothing checked the next scan offers the same app'
 
     # --- The finish step ---------------------------------------------------------
     $global:Shown = 0

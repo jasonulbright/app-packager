@@ -805,7 +805,7 @@ When it finds candidates, a window shows "Discovered N apps. Enable console view
 - **Enable selected** shows the checked apps in the grid.
 - **Enable all** shows every app in the list in the grid.
 - **Not now** closes the window. The next discovery offers the apps again.
-- **Don't ask again for these** keeps the apps hidden and leaves them out of later discoveries.
+- **Don't ask again for selected** keeps the checked apps hidden and leaves them out of later discoveries. The next discovery offers the apps that are not checked again. With no app checked, the button makes no change and the window tells you to check the apps.
 
 Enabling an app has the same effect as checking it in the Product Filter. The app joins the grid for Check, Stage and Package. With no candidates, no window opens and the status line shows the inventory result. A failed query shows a plain message in the log and on the status line. The rest of AppPackager keeps working.
 
@@ -844,9 +844,9 @@ Discovery reads the SQL server and the database name from the site. To use a dif
 
 ### The list of apps not offered
 
-**Don't ask again for these** adds the apps to the preference `DiscoveryDismissed` in `AppPackager.preferences.json`. Options, ConfigMgr Preferences shows the count in **Not offered**. **Clear list** empties the list when you click OK. An app that you show in the grid is never a candidate, whether or not it is on the list.
+**Don't ask again for selected** adds the checked apps to the preference `DiscoveryDismissed` in `AppPackager.preferences.json`. Options, ConfigMgr Preferences shows the count in **Not offered**. **Clear list** empties the list when you click OK. An app that you show in the grid is never a candidate, whether or not it is on the list.
 
-**Enable selected** and **Enable all** add the apps to the preference `DiscoveryEnabled`. The first Check ConfigMgr does not offer to hide the apps on this list. It offers to hide the other apps that ConfigMgr does not have.
+**Enable selected** and **Enable all** add the apps to the preference `DiscoveryEnabled`. An app is never on both lists. The first Check ConfigMgr does not offer to hide the apps on this list. It offers to hide the other apps that ConfigMgr does not have.
 
 ## CVE lookup
 

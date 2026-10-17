@@ -8,7 +8,7 @@
 
 - Add Discover unmanaged software to find hidden apps that clients run without a ConfigMgr application.
 - Show found apps in the grid with Enable selected or Enable all.
-- Keep apps out of later discoveries with Don't ask again for these.
+- Keep checked apps out of later discoveries with Don't ask again for selected.
 - Add Discovery SQL and Discovery DB overrides to Options, ConfigMgr Preferences.
 - Add the ArpName header tag to every packager.
 - Add the optional ArpVersion and ArpArch header tags.
