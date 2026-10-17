@@ -161,6 +161,7 @@ $paths = @(
     '.\Tests\VersionCompare.Tests.ps1'
     '.\Tests\ArpNameTag.Tests.ps1'
     '.\Tests\DiscoverUnmanaged.Tests.ps1'
+    '.\Tests\DiscoveryTarget.Tests.ps1'
     '.\Packagers\AppPackagerDiscovery.Tests.ps1'
 ) | Where-Object { Test-Path -LiteralPath $_ }
 $result = Invoke-Pester -Path $paths -PassThru -Output None

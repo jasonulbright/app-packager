@@ -252,6 +252,7 @@ function Read-Preferences {
         LocalSourceFolders   = [pscustomobject]@{}
         HiddenApplications   = @()
         DiscoveryDismissed   = @()
+        DiscoveryEnabled     = @()
         # Empty means the server and the CM_<site> database come from the site.
         DiscoverySqlServer   = ''
         DiscoverySqlDatabase = ''
@@ -464,14 +465,17 @@ function Read-Preferences {
             $defaults.LocalSourceFolders = [pscustomobject]$sourceProps
         }
         if ($null -ne $data.HiddenApplications)    { $defaults.HiddenApplications  = @($data.HiddenApplications) }
-        if ($null -ne $data.DiscoveryDismissed) {
-            $dismissed = New-Object System.Collections.Generic.List[string]
-            foreach ($entry in @($data.DiscoveryDismissed)) {
+        foreach ($listName in 'DiscoveryDismissed', 'DiscoveryEnabled') {
+            $stored = $data.PSObject.Properties[$listName]
+            if (-not $stored -or $null -eq $stored.Value) { continue }
+            $kept = New-Object System.Collections.Generic.List[string]
+            $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($entry in @($stored.Value)) {
                 $name = ([string]$entry).Trim()
-                if ($name -notmatch '^package-.+\.ps1$') { continue }
-                if (-not ($dismissed | Where-Object { $_ -ieq $name })) { $dismissed.Add($name) }
+                if ($name -notmatch '^package-.+\.(?:ps1|notps1)$') { continue }
+                if ($seen.Add($name)) { $kept.Add($name) }
             }
-            $defaults.DiscoveryDismissed = $dismissed.ToArray()
+            $defaults.$listName = $kept.ToArray()
         }
         if ($null -ne $data.DiscoverySqlServer)   { $defaults.DiscoverySqlServer   = ([string]$data.DiscoverySqlServer).Trim() }
         if ($null -ne $data.DiscoverySqlDatabase) { $defaults.DiscoverySqlDatabase = ([string]$data.DiscoverySqlDatabase).Trim() }
@@ -1078,6 +1082,8 @@ function Get-PackagerMetadata {
         WsusSupport       = $null
         WsusSupportReason = $null
         ArpName           = $null
+        ArpVersion        = $null
+        ArpArch           = $null
     }
 
     $lines = Get-Content -LiteralPath $Path -TotalCount 200 -ErrorAction Stop
@@ -1113,6 +1119,8 @@ function Get-PackagerMetadata {
             continue
         }
         if ($null -eq $meta.ArpName -and $l -match '^\s*(?:#\s*)?ArpName\s*:\s*(.+?)\s*$') { $meta.ArpName = $Matches[1].Trim(); continue }
+        if ($null -eq $meta.ArpVersion -and $l -match '^\s*(?:#\s*)?ArpVersion\s*:\s*(.+?)\s*$') { $meta.ArpVersion = $Matches[1].Trim(); continue }
+        if ($null -eq $meta.ArpArch -and $l -match '^\s*(?:#\s*)?ArpArch\s*:\s*(x64|x86|arm64)\s*$') { $meta.ArpArch = $Matches[1].ToLowerInvariant(); continue }
         if ($null -eq $meta.UpdateCadenceDays -and $l -match '^\s*(?:#\s*)?UpdateCadenceDays\s*:\s*(\d+)\s*$') {
             $days = [int]$Matches[1]
             if ($days -ge 1) { $meta.UpdateCadenceDays = $days }
@@ -1148,6 +1156,8 @@ function Get-PackagerMetadata {
         WsusSupport       = $meta.WsusSupport
         WsusSupportReason = $meta.WsusSupportReason
         ArpName           = $meta.ArpName
+        ArpVersion        = $meta.ArpVersion
+        ArpArch           = $meta.ArpArch
         Script            = (Split-Path -Leaf $Path)
         FullPath          = $Path
     }
@@ -1188,6 +1198,8 @@ function Get-Packagers {
                 CPE               = [string]$m.CPE
                 SecurityAdvisoryUrl = [string]$m.SecurityAdvisoryUrl
                 ArpName           = [string]$m.ArpName
+                ArpVersion        = [string]$m.ArpVersion
+                ArpArch           = [string]$m.ArpArch
                 CurrentVersion    = ""
                 LatestVersion     = ""
                 Status            = $status
@@ -1209,6 +1221,8 @@ function Get-Packagers {
                 CPE               = ""
                 SecurityAdvisoryUrl = ""
                 ArpName           = ""
+                ArpVersion        = ""
+                ArpArch           = ""
                 CurrentVersion    = ""
                 LatestVersion     = ""
                 Status            = ("Read error: " + $_.Exception.Message)
@@ -1219,10 +1233,12 @@ function Get-Packagers {
 }
 
 # =============================================================================
-# Discover unmanaged software: the logic behind the sidebar action. Nothing
-# here touches WPF; the click handler runs Invoke-DiscoveryScan in its own
-# runspace and applies the user's choice on the UI thread.
+# Discover unmanaged software
 # =============================================================================
+$script:DiscoveryScanTimeoutSeconds = 600
+$script:DiscoveryJob = $null
+$script:DiscoveryTimer = $null
+
 function Get-DiscoveryPackagerInput {
     param([object[]]$Rows = @())
     foreach ($row in @($Rows)) {
@@ -1233,7 +1249,9 @@ function Get-DiscoveryPackagerInput {
             Vendor  = [string]$row.Vendor
             App     = [string]$row.Application
             CMName  = [string]$row.CMName
-            ArpName = $(if ($row.PSObject.Properties['ArpName']) { [string]$row.ArpName } else { '' })
+            ArpName    = $(if ($row.PSObject.Properties['ArpName']) { [string]$row.ArpName } else { '' })
+            ArpVersion = $(if ($row.PSObject.Properties['ArpVersion']) { [string]$row.ArpVersion } else { '' })
+            ArpArch    = $(if ($row.PSObject.Properties['ArpArch']) { [string]$row.ArpArch } else { '' })
         }
     }
 }
@@ -1258,7 +1276,8 @@ function Invoke-DiscoveryScan {
             return $result
         }
 
-        $targetArgs = @{ SiteCode = [string]$SiteCode }
+        $targetArgs = @{}
+        if (-not [string]::IsNullOrWhiteSpace($SiteCode)) { $targetArgs.SiteCode = $SiteCode.Trim() }
         if (-not [string]::IsNullOrWhiteSpace($ServerOverride))   { $targetArgs.ServerOverride   = $ServerOverride.Trim() }
         if (-not [string]::IsNullOrWhiteSpace($DatabaseOverride)) { $targetArgs.DatabaseOverride = $DatabaseOverride.Trim() }
         $resolver = Get-Command -Name 'Resolve-CMDatabaseTarget' -ErrorAction SilentlyContinue
@@ -1287,19 +1306,118 @@ function Invoke-DiscoveryScan {
     return $result
 }
 
+function Start-DiscoveryRunspace {
+    # Returns the job object that Get-DiscoveryRunspaceState and
+    # Stop-DiscoveryRunspace take. Disposes what it created when setup fails.
+    param(
+        [Parameter(Mandatory)][string]$ModulePath,
+        [Parameter(Mandatory)][string]$ScanText,
+        [Parameter(Mandatory)][hashtable]$ScanArgs
+    )
+    $job = [pscustomobject]@{
+        State    = [hashtable]::Synchronized(@{ Done = $false; Result = $null })
+        Runspace = $null
+        Shell    = $null
+        Handle   = $null
+        Started  = [DateTime]::UtcNow
+    }
+    try {
+        $job.Runspace = [runspacefactory]::CreateRunspace()
+        $job.Runspace.ApartmentState = 'MTA'
+        $job.Runspace.Open()
+        $job.Shell = [powershell]::Create()
+        $job.Shell.Runspace = $job.Runspace
+        [void]$job.Shell.AddScript({
+            param($State, $ModulePath, $ScanText, $ScanArgs)
+            try {
+                if (Test-Path -LiteralPath $ModulePath) { Import-Module -Name $ModulePath -Force -DisableNameChecking -ErrorAction Stop }
+                Set-Item -Path 'function:Invoke-DiscoveryScan' -Value ([scriptblock]::Create($ScanText))
+                $State.Result = Invoke-DiscoveryScan @ScanArgs
+            }
+            catch {
+                $State.Result = [pscustomobject]@{ Ok = $false; Error = $_.Exception.Message; Server = ''; Database = ''; StatusText = ''; Candidates = @() }
+            }
+            finally { $State.Done = $true }
+        }).AddArgument($job.State).AddArgument($ModulePath).AddArgument($ScanText).AddArgument($ScanArgs)
+        $job.Handle = $job.Shell.BeginInvoke()
+        return $job
+    }
+    catch {
+        Stop-DiscoveryRunspace -Job $job
+        throw
+    }
+}
+
+function Get-DiscoveryRunspaceState {
+    # Running, Done or TimedOut.
+    param($Job, [int]$TimeoutSeconds = 600, [datetime]$UtcNow = [DateTime]::UtcNow)
+    if (-not $Job) { return 'Done' }
+    if ($Job.State.Done) { return 'Done' }
+    if (($UtcNow - $Job.Started).TotalSeconds -ge $TimeoutSeconds) { return 'TimedOut' }
+    return 'Running'
+}
+
+function Stop-DiscoveryRunspace {
+    # Never blocks the caller. Dispose on a running PowerShell object waits
+    # for the pipeline to stop, and a SQL call can ignore the stop request,
+    # so a running pipeline only gets BeginStop and the async runspace close.
+    param($Job)
+    if (-not $Job) { return }
+    if ($Job.Shell) {
+        if ($Job.Handle -and -not $Job.State.Done) {
+            try { [void]$Job.Shell.BeginStop($null, $null) } catch { }
+        }
+        else {
+            if ($Job.Handle) { try { [void]$Job.Shell.EndInvoke($Job.Handle) } catch { } }
+            try { $Job.Shell.Dispose() } catch { }
+        }
+        $Job.Shell = $null
+    }
+    if ($Job.Runspace) {
+        try { $Job.Runspace.CloseAsync() } catch { try { $Job.Runspace.Dispose() } catch { } }
+        $Job.Runspace = $null
+    }
+}
+
 function Enable-DiscoveredApplication {
     # Same effect as checking the apps in the Product Filter: the scripts
-    # leave HiddenApplications. The caller saves and refreshes the grid.
+    # leave HiddenApplications. They are also recorded in DiscoveryEnabled
+    # so the first Check ConfigMgr auto-hide does not hide them again. The
+    # caller saves and refreshes the grid.
     param([Parameter(Mandatory)]$Prefs, [string[]]$Script = @())
 
     $enable = [System.Collections.Generic.HashSet[string]]::new([string[]]@($Script | Where-Object { $_ }), [System.StringComparer]::OrdinalIgnoreCase)
     $kept = New-Object System.Collections.Generic.List[string]
-    $removed = 0
+    $removed = New-Object System.Collections.Generic.List[string]
     foreach ($name in @($Prefs.HiddenApplications)) {
-        if ($enable.Contains([string]$name)) { $removed++ } else { $kept.Add([string]$name) }
+        if ($enable.Contains([string]$name)) { $removed.Add([string]$name) } else { $kept.Add([string]$name) }
     }
     $Prefs.HiddenApplications = $kept.ToArray()
-    return $removed
+
+    $enabled = New-Object System.Collections.Generic.List[string]
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $existing = if ($Prefs.PSObject.Properties['DiscoveryEnabled']) { @($Prefs.DiscoveryEnabled) } else { @() }
+    foreach ($name in @($existing) + @($removed)) { if ($name -and $seen.Add([string]$name)) { $enabled.Add([string]$name) } }
+    if ($Prefs.PSObject.Properties['DiscoveryEnabled']) { $Prefs.DiscoveryEnabled = $enabled.ToArray() }
+    else { $Prefs | Add-Member -NotePropertyName DiscoveryEnabled -NotePropertyValue $enabled.ToArray() }
+    return $removed.Count
+}
+
+function Get-AutoHideOffer {
+    # Scripts that the first Check ConfigMgr offers to hide; empty means no
+    # prompt. Any DiscoveryEnabled entry means the Product Filter was in use,
+    # so an empty HiddenApplications list is not a first run and no app that
+    # Discover enabled is offered for hiding.
+    param([Parameter(Mandatory)]$Prefs, [object[]]$Rows = @())
+
+    if (@($Prefs.HiddenApplications | Where-Object { $_ }).Count -gt 0) { return @() }
+    if ($Prefs.PSObject.Properties['DiscoveryEnabled'] -and @($Prefs.DiscoveryEnabled | Where-Object { $_ }).Count -gt 0) { return @() }
+
+    $notFound = @(foreach ($item in @($Rows)) {
+            if ($item -and [string]$item.Status -eq 'Not found in ConfigMgr') { [string]$item.Script }
+        })
+    if ($notFound.Count -eq 0 -or $notFound.Count -ge @($Rows).Count) { return @() }
+    return $notFound
 }
 
 function Add-DiscoveryDismissed {
@@ -9399,24 +9517,16 @@ $btnCheckMECM.Add_Click({
         Select-OnlyUpdateAvailable
         $dataGrid.Items.Refresh()
 
-        # Auto-discovery: offer to hide apps not found in ConfigMgr
-        if (@($script:Prefs.HiddenApplications).Count -eq 0) {
-            $notFound = @()
-            foreach ($item in $script:PackagerData) {
-                if ([string]$item.Status -eq "Not found in ConfigMgr") {
-                    $notFound += [string]$item.Script
-                }
-            }
-            if ($notFound.Count -gt 0 -and $notFound.Count -lt $script:PackagerData.Count) {
-                $answer = Show-ThemedMessage -Owner $window -Title "Hide Unused Applications" `
-                    -Message ("{0} application(s) were not found in ConfigMgr.`n`nHide them from the grid? You can change this later via Product Filter." -f $notFound.Count) `
-                    -Buttons YesNo -Icon Question
-                if ($answer -eq 'Yes') {
-                    $script:Prefs.HiddenApplications = $notFound
-                    Save-Preferences -Prefs $script:Prefs
-                    Invoke-RefreshGrid
-                    Add-LogLine -Message ("{0} application(s) hidden. Manage via Product Filter." -f $notFound.Count)
-                }
+        $notFound = @(Get-AutoHideOffer -Prefs $script:Prefs -Rows @($script:PackagerData))
+        if ($notFound.Count -gt 0) {
+            $answer = Show-ThemedMessage -Owner $window -Title "Hide Unused Applications" `
+                -Message ("{0} application(s) were not found in ConfigMgr.`n`nHide them from the grid? You can change this later via Product Filter." -f $notFound.Count) `
+                -Buttons YesNo -Icon Question
+            if ($answer -eq 'Yes') {
+                $script:Prefs.HiddenApplications = $notFound
+                Save-Preferences -Prefs $script:Prefs
+                Invoke-RefreshGrid
+                Add-LogLine -Message ("{0} application(s) hidden. Manage via Product Filter." -f $notFound.Count)
             }
         }
 
@@ -9638,42 +9748,40 @@ function Start-DiscoveryScan {
     $txtStatus.Text = 'Reading Add/Remove Programs inventory from the ConfigMgr site database...'
     Add-LogLine -Message 'Discover unmanaged software: reading hardware inventory from the ConfigMgr site database.'
 
+    $script:DiscoveryJob = $null
     try {
-        $script:DiscoveryState = [hashtable]::Synchronized(@{ Done = $false; Result = $null })
-        $script:DiscoveryRunspace = [runspacefactory]::CreateRunspace()
-        $script:DiscoveryRunspace.ApartmentState = 'MTA'
-        $script:DiscoveryRunspace.Open()
-        $script:DiscoveryPS = [powershell]::Create()
-        $script:DiscoveryPS.Runspace = $script:DiscoveryRunspace
-        [void]$script:DiscoveryPS.AddScript({
-            param($State, $ModulePath, $ScanText, $ScanArgs)
-            try {
-                if (Test-Path -LiteralPath $ModulePath) { Import-Module -Name $ModulePath -Force -DisableNameChecking -ErrorAction Stop }
-                Set-Item -Path 'function:Invoke-DiscoveryScan' -Value ([scriptblock]::Create($ScanText))
-                $State.Result = Invoke-DiscoveryScan @ScanArgs
-            }
-            catch {
-                $State.Result = [pscustomobject]@{ Ok = $false; Error = $_.Exception.Message; Server = ''; Database = ''; StatusText = ''; Candidates = @() }
-            }
-            finally { $State.Done = $true }
-        }).AddArgument($script:DiscoveryState).AddArgument((Join-Path $PSScriptRoot 'Packagers\AppPackagerDiscovery.psm1')).AddArgument([string]${function:Invoke-DiscoveryScan}).AddArgument($scanArgs)
-        $script:DiscoveryHandle = $script:DiscoveryPS.BeginInvoke()
+        $script:DiscoveryJob = Start-DiscoveryRunspace -ModulePath (Join-Path $PSScriptRoot 'Packagers\AppPackagerDiscovery.psm1') `
+            -ScanText ([string]${function:Invoke-DiscoveryScan}) -ScanArgs $scanArgs
 
         $script:DiscoveryTimer = New-Object System.Windows.Threading.DispatcherTimer
         $script:DiscoveryTimer.Interval = [TimeSpan]::FromMilliseconds(250)
         $script:DiscoveryTimer.Add_Tick({
-            if (-not $script:DiscoveryState.Done) { return }
-            $script:DiscoveryTimer.Stop()
-            try { $script:DiscoveryPS.EndInvoke($script:DiscoveryHandle) } catch { }
-            try { $script:DiscoveryPS.Dispose() } catch { }
-            try { $script:DiscoveryRunspace.CloseAsync() } catch { }
-            $script:DiscoveryPS = $null
-            $script:DiscoveryRunspace = $null
-            Complete-DiscoveryScan -Result $script:DiscoveryState.Result
+            try {
+                $job = $script:DiscoveryJob
+                $state = Get-DiscoveryRunspaceState -Job $job -TimeoutSeconds $script:DiscoveryScanTimeoutSeconds
+                if ($state -eq 'Running') { return }
+                $script:DiscoveryTimer.Stop()
+                $script:DiscoveryJob = $null
+                $result = if ($state -eq 'Done') { $job.State.Result } else {
+                    [pscustomobject]@{ Ok = $false; Error = ('the query did not finish within {0} seconds and was stopped.' -f $script:DiscoveryScanTimeoutSeconds) }
+                }
+                Stop-DiscoveryRunspace -Job $job
+                Complete-DiscoveryScan -Result $result
+            }
+            catch {
+                try { $script:DiscoveryTimer.Stop() } catch { }
+                Stop-DiscoveryRunspace -Job $script:DiscoveryJob
+                $script:DiscoveryJob = $null
+                Set-ActionButtonsEnabled -Enabled $true
+                $window.Cursor = $null
+                Add-LogLine -Message ('Discover unmanaged software: ' + $_.Exception.Message)
+            }
         })
         $script:DiscoveryTimer.Start()
     }
     catch {
+        Stop-DiscoveryRunspace -Job $script:DiscoveryJob
+        $script:DiscoveryJob = $null
         Complete-DiscoveryScan -Result ([pscustomobject]@{ Ok = $false; Error = ('the query could not start: ' + $_.Exception.Message) })
     }
 }
@@ -13675,6 +13783,9 @@ $window.Add_ContentRendered({
 
 $window.Add_Closing({
     if ($script:UpdateCheckTimer) { $script:UpdateCheckTimer.Stop(); $script:UpdateCheckTimer = $null }
+    if ($script:DiscoveryTimer) { $script:DiscoveryTimer.Stop(); $script:DiscoveryTimer = $null }
+    Stop-DiscoveryRunspace -Job $script:DiscoveryJob
+    $script:DiscoveryJob = $null
 
     Save-WindowState -Window $window -Path (Get-WindowStatePath) -ExtraState @{
         DarkTheme    = ($toggleTheme.IsOn -eq $true)
