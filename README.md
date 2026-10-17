@@ -796,7 +796,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 A hidden packager is a candidate when all of these are true:
 
 - Hardware inventory shows the app installed on at least one client.
-- The site has no ConfigMgr application for the packager's `CMName`. Discover uses the title rule of Check ConfigMgr: the title `M365 Apps for Enterprise - 16.0.19127.20264 (x64) (MEC)` counts for `M365 Apps for Enterprise`. A title with other words, such as `Git Extensions` for `Git`, does not count.
+- The site has no ConfigMgr application for the packager's `CMName`. Discover uses the title rule of Check ConfigMgr: the title `M365 Apps for Enterprise - 16.0.19127.20264 (x64) (MEC)` counts for `M365 Apps for Enterprise`. A title with other words, such as `Git Extensions` for `Git`, does not count. A title with a different installer method or architecture, such as `(MSI)` for `(EXE)` or `(x86)` for `(x64)`, does not count.
 - The packager is not on the list of apps not offered.
 - The packager has an `ArpName` header that is not `none`.
 
@@ -819,6 +819,8 @@ Two optional tags make a match narrower:
 - `ArpArch` holds `x64` or `x86`. `x86` is the 32-bit registry view (`v_GS_ADD_REMOVE_PROGRAMS`). `x64` is the 64-bit registry view (`v_GS_ADD_REMOVE_PROGRAMS_64`). Hardware inventory has no arm64 view, so an arm64 packager has no `ArpArch`.
 
 When Add/Remove Programs cannot tell two packagers apart, one packager owns the pattern and the other carries `none`. The owners are Citrix Workspace (Current Release) over the LTSR packagers, QGIS over QGIS LTR, NVIDIA GeForce over NVIDIA RTX Enterprise, and the x64 packagers of Microsoft 365 Apps, Project and Visio over the x86 packagers. The x64 and x86 Visual C++ runtime packagers own their entries, and the packager for both architectures carries `none`.
+
+Limitation: some packagers share one Add/Remove Programs name with a sibling. These are Citrix Workspace Current Release and LTSR, QGIS and QGIS LTR, NVIDIA GeForce and NVIDIA RTX Enterprise, and Microsoft 365 Apps, Project and Visio in x64 and x86. Discover cannot tell which variant a client has installed, so it offers the owner of each group and never offers the siblings. Enabling a packager only makes its row visible, and Check ConfigMgr then shows its real state.
 
 A client counts once per app, also when it has more than one matching entry. Discovery leaves out clients that ConfigMgr marks obsolete or decommissioned. A pattern that is not a valid wildcard stops discovery with a message that names the packager.
 
