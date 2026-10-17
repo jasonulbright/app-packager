@@ -11,6 +11,7 @@
         'Get-CMInventorySnapshot'
         'Find-DiscoveryCandidate'
         'Get-DiscoveryStatusText'
+        'Test-MecmApplicationTitle'
     )
     CmdletsToExport   = @()
     VariablesToExport = @()

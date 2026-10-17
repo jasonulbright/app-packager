@@ -796,7 +796,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 A hidden packager is a candidate when all of these are true:
 
 - Hardware inventory shows the app installed on at least one client.
-- The site has no ConfigMgr application with the packager's `CMName`.
+- The site has no ConfigMgr application for the packager's `CMName`. Discover uses the title rule of Check ConfigMgr: the title `M365 Apps for Enterprise - 16.0.19127.20264 (x64) (MEC)` counts for `M365 Apps for Enterprise`. A title with other words, such as `Git Extensions` for `Git`, does not count.
 - The packager is not on the list of apps not offered.
 - The packager has an `ArpName` header that is not `none`.
 
@@ -844,7 +844,7 @@ Discovery reads the SQL server and the database name from the site. To use a dif
 
 **Don't ask again for these** adds the apps to the preference `DiscoveryDismissed` in `AppPackager.preferences.json`. Options, ConfigMgr Preferences shows the count in **Not offered**. **Clear list** empties the list when you click OK. An app that you show in the grid is never a candidate, whether or not it is on the list.
 
-**Enable selected** and **Enable all** add the apps to the preference `DiscoveryEnabled`. While this list has entries, the first Check ConfigMgr does not offer to hide apps that ConfigMgr does not have.
+**Enable selected** and **Enable all** add the apps to the preference `DiscoveryEnabled`. The first Check ConfigMgr does not offer to hide the apps on this list. It offers to hide the other apps that ConfigMgr does not have.
 
 ## CVE lookup
 

@@ -147,6 +147,17 @@ Describe 'First Check ConfigMgr auto-hide' {
         $prefs = [pscustomobject]@{ HiddenApplications = @('package-git.ps1'); DiscoveryEnabled = @() }
         [void](Enable-DiscoveredApplication -Prefs $prefs -Script @('package-git.ps1'))
         @($prefs.HiddenApplications).Count | Should -Be 0
+        @(Get-AutoHideOffer -Prefs $prefs -Rows (New-Rows)) | Should -Be @('package-7zip.ps1')
+    }
+
+    It 'offers the other not-found apps when one not-found app was enabled by Discover' {
+        $prefs = [pscustomobject]@{ HiddenApplications = @(); DiscoveryEnabled = @('PACKAGE-GIT.ps1') }
+        $rows = @(New-Rows) + [pscustomobject]@{ Script = 'package-npp.ps1'; Status = 'Not found in ConfigMgr' }
+        @(Get-AutoHideOffer -Prefs $prefs -Rows $rows) | Should -Be @('package-7zip.ps1', 'package-npp.ps1')
+    }
+
+    It 'offers nothing when every not-found app was enabled by Discover' {
+        $prefs = [pscustomobject]@{ HiddenApplications = @(); DiscoveryEnabled = @('package-git.ps1', 'package-7zip.ps1') }
         @(Get-AutoHideOffer -Prefs $prefs -Rows (New-Rows)).Count | Should -Be 0
     }
 
