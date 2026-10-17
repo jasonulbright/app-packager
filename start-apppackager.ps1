@@ -7526,29 +7526,27 @@ $script:BgState    = $null
 $script:BgTimer    = $null
 $script:BgGraveyard = @()
 
-function Initialize-BackgroundWorker {
-    if ($script:BgRunspace -and $script:BgRunspace.RunspaceStateInfo.State -eq 'Opened') { return }
-
-    $script:BgRunspace = [runspacefactory]::CreateRunspace()
-    $script:BgRunspace.ApartmentState = 'STA'
-    $script:BgRunspace.ThreadOptions  = 'ReuseThread'
-    $script:BgRunspace.Open()
-
-    # Pre-import AppPackagerCommon into the bg runspace so Update-PackagerHistory /
-    # Read-PackagerHistory / New-MECMApplicationFromManifest / Write-StageManifest
-    # resolve inside the bg scriptblock.
-    # The workbench module comes too: One Click freshness reads build
-    # records from the background loop, not from the UI thread.
+function Import-BackgroundWorkerModule {
+    param(
+        [Parameter(Mandatory)][System.Management.Automation.Runspaces.Runspace]$Runspace,
+        [Parameter(Mandatory)][string]$Root
+    )
+    # Every module whose commands the background loop or the inline helpers
+    # it calls resolve: Common for history and the ConfigMgr application
+    # helpers, Workbench for One Click build records, Discovery for the
+    # ConfigMgr title rule of Get-MecmCurrentVersionByCMName. A missing
+    # module surfaces only as "The term ... is not recognized" inside a run.
     $modulePath = @(
-        (Join-Path $PSScriptRoot 'Packagers\AppPackagerCommon.psm1')
-        (Join-Path $PSScriptRoot 'Packagers\AppPackagerWorkbench.psm1')
-        (Join-Path $PSScriptRoot 'Packagers\AppPackagerSigning.psm1')
-        (Join-Path $PSScriptRoot 'Packagers\AppPackagerWsus.psm1')
-        (Join-Path $PSScriptRoot 'Packagers\AppPackagerOneClick.psm1')
-        (Join-Path $PSScriptRoot 'Packagers\AppPackagerVulnerability.psm1')
+        (Join-Path $Root 'Packagers\AppPackagerCommon.psm1')
+        (Join-Path $Root 'Packagers\AppPackagerWorkbench.psm1')
+        (Join-Path $Root 'Packagers\AppPackagerSigning.psm1')
+        (Join-Path $Root 'Packagers\AppPackagerWsus.psm1')
+        (Join-Path $Root 'Packagers\AppPackagerOneClick.psm1')
+        (Join-Path $Root 'Packagers\AppPackagerVulnerability.psm1')
+        (Join-Path $Root 'Packagers\AppPackagerDiscovery.psm1')
     )
     $initPS = [powershell]::Create()
-    $initPS.Runspace = $script:BgRunspace
+    $initPS.Runspace = $Runspace
     [void]$initPS.AddScript({
         param($ModulePath)
         $paths = @($ModulePath)
@@ -7561,6 +7559,17 @@ function Initialize-BackgroundWorker {
     }).AddArgument($modulePath)
     [void]$initPS.Invoke()
     $initPS.Dispose()
+}
+
+function Initialize-BackgroundWorker {
+    if ($script:BgRunspace -and $script:BgRunspace.RunspaceStateInfo.State -eq 'Opened') { return }
+
+    $script:BgRunspace = [runspacefactory]::CreateRunspace()
+    $script:BgRunspace.ApartmentState = 'STA'
+    $script:BgRunspace.ThreadOptions  = 'ReuseThread'
+    $script:BgRunspace.Open()
+
+    Import-BackgroundWorkerModule -Runspace $script:BgRunspace -Root $PSScriptRoot
 
     # Reflect the inline helpers from this script into the bg runspace so
     # the per-app loop can call them directly. Single source of truth: the
