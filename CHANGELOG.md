@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2026.10.17.0119] - 2026-10-17
 
 ## 287 packagers matched against hardware inventory
 
