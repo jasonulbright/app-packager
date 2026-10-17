@@ -9,6 +9,7 @@ DownloadPageUrl: https://rancherdesktop.io/
 IconSource: External
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: Rancher Desktop
 
 .SYNOPSIS
     Packages Rancher Desktop (x64) MSI for ConfigMgr.

@@ -9,6 +9,7 @@ DownloadPageUrl: https://nextcloud.com/install/#install-clients
 IconSource: Installer
 UpdateCadenceDays: 45
 WsusSupport: No (DetectionNotMappable)
+ArpName: Nextcloud
 
 .SYNOPSIS
     Packages the Nextcloud desktop client (x64) MSI for ConfigMgr.

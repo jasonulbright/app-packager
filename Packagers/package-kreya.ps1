@@ -9,6 +9,7 @@ DownloadPageUrl: https://kreya.app/downloads/
 IconSource: Installer
 UpdateCadenceDays: 45
 WsusSupport: Yes
+ArpName: Kreya
 
 .SYNOPSIS
     Packages Kreya (x64) MSI for ConfigMgr.

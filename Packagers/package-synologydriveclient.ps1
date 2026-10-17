@@ -9,6 +9,7 @@ DownloadPageUrl: https://archive.synology.com/download/Utility/SynologyDriveClie
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Synology Drive Client
 
 .SYNOPSIS
     Packages Synology Drive Client (x64) MSI for ConfigMgr.

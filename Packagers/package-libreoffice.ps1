@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.libreoffice.org/download/download-libreoffice/
 SecurityAdvisoryUrl: https://www.libreoffice.org/about-us/security/advisories/
 IconSource: Installer
 WsusSupport: Yes
+ArpName: LibreOffice [0-9]*.*.*.*
 
 .SYNOPSIS
     Packages LibreOffice (x64) MSI for ConfigMgr.

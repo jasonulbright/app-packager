@@ -9,6 +9,7 @@ DownloadPageUrl: https://desktop.github.com/download/
 IconSource: Installer
 UpdateCadenceDays: 30
 WsusSupport: No (PerUserInstall|CustomInstall)
+ArpName: none
 
 .SYNOPSIS
     Packages GitHub Desktop (x64) for ConfigMgr as a per-user install.

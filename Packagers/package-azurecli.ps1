@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: None
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: Microsoft Azure CLI*
 
 .SYNOPSIS
     Packages Azure CLI (x64) MSI for ConfigMgr.

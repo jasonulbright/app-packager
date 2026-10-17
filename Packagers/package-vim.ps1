@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/vim/vim-win32-installer/releases
 DownloadPageUrl: https://github.com/vim/vim-win32-installer/releases
 IconSource: Installer
 WsusSupport: No (DetectionNotMappable)
+ArpName: Vim [0-9]*
 
 .SYNOPSIS
     Packages Vim/gVim (x64) for ConfigMgr.

@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://chromereleases.googleblog.com/
 IconSource: Installer
 SupportsVariants: Architecture
 WsusSupport: Yes
+ArpName: Google Chrome
 
 .SYNOPSIS
     Packages Google Chrome MSI for ConfigMgr.

@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://security.opera.com/
 IconSource: Installer
 UpdateCadenceDays: 21
 WsusSupport: Yes
+ArpName: Opera Stable*
 
 .SYNOPSIS
     Packages Opera Browser (x64) for ConfigMgr.

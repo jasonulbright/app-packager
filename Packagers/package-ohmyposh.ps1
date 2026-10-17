@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/JanDeDobbeleer/oh-my-posh/releases
 IconSource: None
 UpdateCadenceDays: 30
 WsusSupport: No (InstallerTypeUnsupported|CustomInstall)
+ArpName: none
 
 .SYNOPSIS
     Packages Oh My Posh (x64 MSIX, device-wide) for ConfigMgr.

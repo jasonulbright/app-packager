@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.openshot.org/download/
 IconSource: Installer
 UpdateCadenceDays: 120
 WsusSupport: Yes
+ArpName: OpenShot Video Editor*
 
 .SYNOPSIS
     Packages OpenShot Video Editor (x64, all-users) for ConfigMgr.

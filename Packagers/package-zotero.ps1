@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.zotero.org/download/
 IconSource: Installer
 UpdateCadenceDays: 45
 WsusSupport: Yes
+ArpName: Zotero*
 
 .SYNOPSIS
     Packages Zotero (x64) EXE for ConfigMgr.

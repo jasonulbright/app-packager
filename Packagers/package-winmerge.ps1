@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/WinMerge/winmerge/releases
 DownloadPageUrl: https://winmerge.org/downloads/
 IconSource: External
 WsusSupport: Yes
+ArpName: WinMerge*
 
 .SYNOPSIS
     Packages WinMerge (x64) for ConfigMgr.

@@ -857,6 +857,7 @@ DownloadPageUrl: https://www.7-zip.org/download.html
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: 7-Zip [0-9]*
 #>
 ```
 
@@ -872,6 +873,7 @@ WsusSupport: Yes
 | `SupportsInstallModes` | `CurrentUser, AllUsers` when the installer takes a mode switch and the packager uses the standard wrappers. Enables the Install for column. |
 | `RequiresTools` | Comma-separated list of detected tools the packager depends on. Read-only metadata; surfaced via `Get-PackagerMetadata` and reserved for future preflight warnings. Adobe Reader declares `7-Zip`. |
 | `WsusSupport` | `Yes`, or `No (<code>)` with the WSUS compatibility codes the publish would report: `DetectionNotMappable`, `PerUserInstall`, `InstallerTypeUnsupported`, `CustomInstall`, `InstallerMissing`, `PayloadInSubfolder`, several joined with `\|`. Every packager carries it; the One Click plan shows **WSUS: not supported** from it before a run. |
+| `ArpName` | Wildcard patterns for the Add/Remove Programs display name, separated by ` \| `. [Discover unmanaged software](#discover-unmanaged-software) matches them with `-like` against hardware inventory. `none` marks an app with no machine-wide Add/Remove Programs entry: a portable app, a store app, or a per-user install. Every packager carries it. |
 | `LocalSource` | `Optional` or `Required`: the packager can, or must, stage an installer from a folder set under Local Installer Sources in the [Options window](#options-window). |
 
 ## Application Icons
@@ -1083,6 +1085,7 @@ app-packager/
    DownloadPageUrl: https://acme.example.com/download
    IconSource: Installer
    WsusSupport: Yes
+   ArpName: Acme Widget*
    #>
    ```
 

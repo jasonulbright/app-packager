@@ -10,6 +10,7 @@ DownloadPageUrl: https://www.mozilla.org/en-US/firefox/enterprise/
 SecurityAdvisoryUrl: https://www.mozilla.org/en-US/security/known-vulnerabilities/firefox/
 IconSource: External
 WsusSupport: Yes
+ArpName: Mozilla Firefox (x64 *) | Mozilla Firefox [0-9]*[0-9] x64 *
 
 .SYNOPSIS
     Packages Mozilla Firefox (x64) MSI for ConfigMgr.

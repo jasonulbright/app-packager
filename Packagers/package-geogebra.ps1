@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.geogebra.org/download
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: GeoGebra Classic*
 
 .SYNOPSIS
     Packages GeoGebra Classic 6 MSI for ConfigMgr.

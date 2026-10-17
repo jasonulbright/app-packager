@@ -10,6 +10,7 @@ IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: FreeCAD | FreeCAD [0-9]*
 
 .SYNOPSIS
     Packages FreeCAD (x64) for ConfigMgr.

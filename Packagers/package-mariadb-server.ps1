@@ -9,6 +9,7 @@ DownloadPageUrl: https://mariadb.org/download/
 IconSource: None
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: MariaDB [0-9]* (x64)
 
 .SYNOPSIS
     Packages MariaDB Server (x64) MSI for ConfigMgr.

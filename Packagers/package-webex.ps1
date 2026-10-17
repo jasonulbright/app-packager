@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.webex.com/downloads.html
 SecurityAdvisoryUrl: https://sec.cloudapps.cisco.com/security/center/publicationListing.x
 IconSource: Installer
 WsusSupport: Yes
+ArpName: Webex
 
 .SYNOPSIS
     Packages Cisco Webex (x64) MSI for ConfigMgr.

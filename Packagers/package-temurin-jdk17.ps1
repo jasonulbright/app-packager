@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://adoptium.net/temurin/release-notes/
 DownloadPageUrl: https://adoptium.net/temurin/releases/
 IconSource: Installer
 WsusSupport: Yes
+ArpName: Eclipse Temurin JDK with Hotspot 17.* (x64)
 
 .SYNOPSIS
     Packages Eclipse Temurin JDK 17 (x64) MSI for ConfigMgr.

@@ -9,6 +9,7 @@ DownloadPageUrl: https://download.wireguard.com/windows-client/
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: WireGuard
 
 .SYNOPSIS
     Packages WireGuard for Windows (amd64) MSI for ConfigMgr.

@@ -8,6 +8,7 @@ DownloadPageUrl: https://github.com/raspberrypi/rpi-imager/releases
 IconSource: External
 UpdateCadenceDays: 60
 WsusSupport: No (DetectionNotMappable)
+ArpName: Raspberry Pi Imager*
 
 .SYNOPSIS
     Packages Raspberry Pi Imager (x64) for ConfigMgr.

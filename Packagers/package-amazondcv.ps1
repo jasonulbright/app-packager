@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.amazondcv.com/
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Amazon DCV Client | NICE DCV Client
 
 .SYNOPSIS
     Packages the Amazon DCV Client (x64) MSI for ConfigMgr.

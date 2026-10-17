@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/cli/cli/releases/latest
 IconSource: None
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: GitHub CLI
 
 .SYNOPSIS
     Packages GitHub CLI (x64) MSI for ConfigMgr.

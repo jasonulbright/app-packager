@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/Klocman/Bulk-Crap-Uninstaller/releases/lates
 IconSource: Installer
 UpdateCadenceDays: 120
 WsusSupport: Yes
+ArpName: BCUninstaller* | Bulk Crap Uninstaller*
 
 .SYNOPSIS
     Packages Bulk Crap Uninstaller for ConfigMgr.

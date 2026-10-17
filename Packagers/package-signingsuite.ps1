@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/jasonulbright/signing-suite/releases/latest
 IconSource: Installer
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: Signing Suite
 
 .SYNOPSIS
     Packages Signing Suite for ConfigMgr.

@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://slack.com/intl/en-gb/trust/security
 IconSource: External
 UpdateCadenceDays: 14
 WsusSupport: No (InstallerTypeUnsupported|CustomInstall)
+ArpName: none
 
 .SYNOPSIS
     Packages Slack (x64) MSIX for ConfigMgr.

@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.codesector.com/downloads
 IconSource: Installer
 UpdateCadenceDays: 180
 WsusSupport: Yes
+ArpName: TeraCopy*
 
 .SYNOPSIS
     Packages TeraCopy (x64) for ConfigMgr.

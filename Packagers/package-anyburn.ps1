@@ -9,6 +9,7 @@ DownloadPageUrl: https://anyburn.com/download.htm
 IconSource: Installer
 UpdateCadenceDays: 120
 WsusSupport: Yes
+ArpName: AnyBurn*
 
 .SYNOPSIS
     Packages AnyBurn (free edition, x64 host) for ConfigMgr.

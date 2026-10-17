@@ -8,6 +8,7 @@ DownloadPageUrl: https://www.mulesoft.com/lp/dl/anypoint-mule-studio
 IconSource: None
 UpdateCadenceDays: 60
 WsusSupport: No (CustomInstall)
+ArpName: none
 
 .SYNOPSIS
     Packages MuleSoft Anypoint Studio (x64) for ConfigMgr.

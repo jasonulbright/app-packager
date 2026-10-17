@@ -9,6 +9,7 @@ DownloadPageUrl: https://learn.microsoft.com/en-us/sysinternals/downloads/
 SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: External
 WsusSupport: No (CustomInstall)
+ArpName: none
 
 .SYNOPSIS
     Packages Sysinternals Suite for ConfigMgr.

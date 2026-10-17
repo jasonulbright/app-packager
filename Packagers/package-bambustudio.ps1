@@ -9,6 +9,7 @@ DownloadPageUrl: https://bambulab.com/en/download/studio
 IconSource: Installer
 UpdateCadenceDays: 45
 WsusSupport: Yes
+ArpName: Bambu Studio
 
 .SYNOPSIS
     Packages Bambu Studio (x64) for ConfigMgr.

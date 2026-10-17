@@ -9,6 +9,7 @@ DownloadPageUrl: https://renderdoc.org/builds
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: RenderDoc*
 
 .SYNOPSIS
     Packages RenderDoc (x64) MSI for ConfigMgr.

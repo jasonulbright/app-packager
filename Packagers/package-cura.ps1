@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/Ultimaker/Cura/releases/latest
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: UltiMaker Cura*
 
 .SYNOPSIS
     Packages UltiMaker Cura (x64) MSI for ConfigMgr.

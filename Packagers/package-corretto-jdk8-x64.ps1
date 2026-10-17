@@ -9,6 +9,7 @@ DownloadPageUrl: https://aws.amazon.com/corretto/
 SecurityAdvisoryUrl: https://aws.amazon.com/security/security-bulletins/
 IconSource: None
 WsusSupport: Yes
+ArpName: Amazon Corretto 8 (x64)
 
 .SYNOPSIS
     Packages Amazon Corretto JDK 8 (x64) MSI for ConfigMgr.

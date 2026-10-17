@@ -9,6 +9,7 @@ DownloadPageUrl: https://calibre-ebook.com/download_windows64
 IconSource: Installer
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: calibre | calibre 64bit
 
 .SYNOPSIS
     Packages calibre (x64) MSI for ConfigMgr.

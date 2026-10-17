@@ -9,6 +9,7 @@ DownloadPageUrl: https://clients.amazonworkspaces.com/
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: Amazon WorkSpaces
 
 .SYNOPSIS
     Packages the Amazon WorkSpaces Windows client MSI for ConfigMgr.

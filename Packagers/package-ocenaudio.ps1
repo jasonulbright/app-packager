@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.ocenaudio.com/download
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: ocenaudio*
 
 .SYNOPSIS
     Packages ocenaudio (x64, all-users) for ConfigMgr.

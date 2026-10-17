@@ -7,6 +7,7 @@ ReleaseNotesUrl: https://github.com/posit-dev/positron/releases
 DownloadPageUrl: https://github.com/posit-dev/positron/releases
 IconSource: Installer
 WsusSupport: No (DetectionNotMappable)
+ArpName: Positron*
 
 .SYNOPSIS
     Packages Positron IDE (x64) for ConfigMgr.

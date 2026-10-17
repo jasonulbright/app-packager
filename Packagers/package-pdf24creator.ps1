@@ -8,6 +8,7 @@ DownloadPageUrl: https://creator.pdf24.org/listVersions.php
 IconSource: Installer
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: PDF24 Creator*
 
 .SYNOPSIS
     Packages PDF24 Creator (x64) MSI for ConfigMgr.

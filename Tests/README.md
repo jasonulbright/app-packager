@@ -117,6 +117,7 @@ No test writes to a certificate trust store in any scope. `AppPackagerWsus.Tests
 - `SigningCombinations.Tests.ps1` - all eight signing switch combinations through `Write-StageManifest`, strict-requirement refusals, post-sign mutation detection, non-ASCII content and a stage path containing a space.
 - `UpdatePreservation.Tests.ps1` - what an install-root replacement keeps, and that the workbench data root outside the install folder is untouched.
 - `UserDetection.Tests.ps1` - the shipped per-user detection rules.
+- `ArpNameTag.Tests.ps1` - the `ArpName` header tag: the parse, the packager row, and a valid value in every packager.
 - `..\Packagers\AppPackagerCommon.Tests.ps1` - unit tests for the shared module.
 - `..\Packagers\AppPackagerWorkbench.Tests.ps1` - unit tests for the build model.
 - `..\Packagers\AppPackagerSigning.Tests.ps1` - unit tests for the signing service.

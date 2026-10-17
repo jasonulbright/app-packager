@@ -10,6 +10,7 @@ IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: Joplin | Joplin [0-9]*
 
 .SYNOPSIS
     Packages Joplin Desktop (x64) for ConfigMgr.

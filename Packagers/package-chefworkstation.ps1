@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://github.com/chef/chef-workstation/blob/main/CHANGELOG.md
 DownloadPageUrl: https://www.chef.io/downloads/tools/workstation
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Chef Workstation*
 
 .SYNOPSIS
     Packages Chef Workstation (x64) MSI for ConfigMgr.

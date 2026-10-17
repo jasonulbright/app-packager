@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.cpuid.com/softwares/hwmonitor.html
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: No (DetectionNotMappable)
+ArpName: CPUID HWMonitor [0-9]* | HWMonitor [0-9]*
 
 .SYNOPSIS
     Packages HWMonitor (x64) for ConfigMgr.

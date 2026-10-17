@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.gimp.org/downloads/
 IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 WsusSupport: Yes
+ArpName: GIMP [0-9]*
 
 .SYNOPSIS
     Packages GIMP (x64) for ConfigMgr.

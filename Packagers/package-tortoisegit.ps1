@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://tortoisegit.org/changelog
 DownloadPageUrl: https://tortoisegit.org/download/
 IconSource: Installer
 WsusSupport: Yes
+ArpName: TortoiseGit*
 
 .SYNOPSIS
     Packages TortoiseGit (x64) MSI for ConfigMgr.

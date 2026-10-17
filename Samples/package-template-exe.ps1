@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:TODO:TODO:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://TODO
 DownloadPageUrl: https://TODO
 UpdateCadenceDays: 30
+ArpName: TODO*
 
 .SYNOPSIS
     Packages TODO (x64) EXE for ConfigMgr.

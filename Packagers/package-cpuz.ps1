@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.cpuid.com/softwares/cpu-z.html
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: No (DetectionNotMappable)
+ArpName: CPUID CPU-Z [0-9]* | CPU-Z [0-9]*
 
 .SYNOPSIS
     Packages CPU-Z (x64) for ConfigMgr.

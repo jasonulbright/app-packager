@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.ibm.com/aspera/connect/
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: IBM Aspera Connect*
 
 .SYNOPSIS
     Packages IBM Aspera Connect (x64) MSI for ConfigMgr.
