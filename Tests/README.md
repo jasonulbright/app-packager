@@ -118,6 +118,8 @@ No test writes to a certificate trust store in any scope. `AppPackagerWsus.Tests
 - `UpdatePreservation.Tests.ps1` - what an install-root replacement keeps, and that the workbench data root outside the install folder is untouched.
 - `UserDetection.Tests.ps1` - the shipped per-user detection rules.
 - `ArpNameTag.Tests.ps1` - the `ArpName` header tag: the parse, the packager row, and a valid value in every packager.
+- `DiscoverUnmanaged.Tests.ps1` - Discover unmanaged software in the GUI: the preferences, the enable and dismiss lists, the prompt text, the scan against a mocked discovery module, the button availability, and the wiring.
+- `Invoke-DiscoverySmoke.ps1` - the Discover unmanaged software window headless: its rows and four buttons, the choice applied to the preferences, the finish step for a failed, an empty and a found result, and the SQL override fields in Options.
 - `..\Packagers\AppPackagerCommon.Tests.ps1` - unit tests for the shared module.
 - `..\Packagers\AppPackagerWorkbench.Tests.ps1` - unit tests for the build model.
 - `..\Packagers\AppPackagerSigning.Tests.ps1` - unit tests for the signing service.
