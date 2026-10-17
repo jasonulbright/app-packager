@@ -1,8 +1,9 @@
 #Requires -Version 5.1
 # Headless probe for Discover unmanaged software: the prompt window and its
 # four buttons, the choice applied to the preferences, the finish step for a
-# failed, an empty and a found result, and the SQL override fields in Options,
-# ConfigMgr Preferences. No SQL server is contacted and no window is shown.
+# failed, an empty and a found result, the background runspace start, time
+# limit and stop, and the SQL override fields in Options, ConfigMgr
+# Preferences. No SQL server is contacted and no window is shown.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 
@@ -16,7 +17,8 @@ $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'start-apppackager.ps1'), [ref]$tokens, [ref]$errors)
 if ($errors) { throw ($errors.Message -join '; ') }
 foreach ($name in @('Show-DiscoveryDialog', 'Get-DiscoveryPromptText', 'Invoke-DiscoveryChoice', 'Enable-DiscoveredApplication',
-                    'Add-DiscoveryDismissed', 'Complete-DiscoveryScan', 'Read-Preferences', 'Resolve-FirstRunCompleted', 'New-MecmPreferencesPanel')) {
+                    'Add-DiscoveryDismissed', 'Complete-DiscoveryScan', 'Read-Preferences', 'Resolve-FirstRunCompleted', 'New-MecmPreferencesPanel',
+                    'Invoke-DiscoveryScan', 'Start-DiscoveryRunspace', 'Get-DiscoveryRunspaceState', 'Stop-DiscoveryRunspace')) {
     $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
     if (-not $fn) { throw ('function not found: ' + $name) }
     # Global, the way the shell publishes its functions: a GetNewClosure
@@ -122,6 +124,37 @@ try {
     $script:Prefs = [pscustomobject]@{ HiddenApplications = @('package-git.ps1'); DiscoveryDismissed = @() }
     Complete-DiscoveryScan -Result ([pscustomobject]@{ Ok = $true; Server = 'cm01'; Database = 'CM_MCM'; StatusText = '1 app found.'; Candidates = @($candidates[0]) })
     & $assert ($global:Shown -eq 1 -and @($script:Prefs.HiddenApplications).Count -eq 0) 'a candidate opens the prompt and its choice is applied'
+
+    # --- The background runspace ---------------------------------------------------
+    # Without a site code and without both overrides the scan stops before any
+    # SQL connection, so the real module runs end to end with no network.
+    $modulePath = Join-Path $root 'Packagers\AppPackagerDiscovery.psm1'
+    $scanText = [string]${function:Invoke-DiscoveryScan}
+    $job = Start-DiscoveryRunspace -ModulePath $modulePath -ScanText $scanText -ScanArgs @{ SiteCode = ''; ServerOverride = 'sql01'; DatabaseOverride = ''; Packager = @(); HiddenScript = @(); DismissedScript = @() }
+    $deadline = [DateTime]::UtcNow.AddSeconds(60)
+    while ((Get-DiscoveryRunspaceState -Job $job -TimeoutSeconds 60) -eq 'Running' -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
+    & $assert ((Get-DiscoveryRunspaceState -Job $job -TimeoutSeconds 60) -eq 'Done') 'the runspace scan finishes'
+    & $assert ($job.State.Result -and -not $job.State.Result.Ok -and [string]$job.State.Result.Error -like '*site code or SQL overrides are required*') 'the runspace scan imports the module and returns the plain target message'
+    $runspace = $job.Runspace
+    Stop-DiscoveryRunspace -Job $job
+    & $assert ($null -eq $job.Shell -and $null -eq $job.Runspace) 'stopping a finished scan releases the PowerShell object and the runspace'
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    while ($runspace.RunspaceStateInfo.State -notin 'Closed', 'Broken' -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
+    & $assert ($runspace.RunspaceStateInfo.State -eq 'Closed') 'the finished runspace closes'
+
+    $job = Start-DiscoveryRunspace -ModulePath $modulePath -ScanText 'param() Start-Sleep -Seconds 120' -ScanArgs @{}
+    Start-Sleep -Milliseconds 500
+    & $assert ((Get-DiscoveryRunspaceState -Job $job -TimeoutSeconds 600) -eq 'Running') 'a scan within the time limit is running'
+    & $assert ((Get-DiscoveryRunspaceState -Job $job -TimeoutSeconds 600 -UtcNow ([DateTime]::UtcNow.AddSeconds(601))) -eq 'TimedOut') 'a scan past the time limit is timed out'
+    $runspace = $job.Runspace
+    $stopWatch = [System.Diagnostics.Stopwatch]::StartNew()
+    Stop-DiscoveryRunspace -Job $job
+    & $assert ($stopWatch.Elapsed.TotalSeconds -lt 10 -and $null -eq $job.Shell -and $null -eq $job.Runspace) 'stopping a running scan returns without waiting for it'
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    while ($runspace.RunspaceStateInfo.State -notin 'Closed', 'Broken' -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
+    & $assert ($runspace.RunspaceStateInfo.State -eq 'Closed') 'the stopped runspace closes'
+    & $assert ((Get-DiscoveryRunspaceState -Job $null) -eq 'Done') 'no scan reads as done'
+    Stop-DiscoveryRunspace -Job $null
 
     # --- Options, ConfigMgr Preferences ---------------------------------------------
     Set-Content -LiteralPath $global:fixturePath -Value '{ "DiscoverySqlServer": "sql01", "DiscoverySqlDatabase": "CM_ABC", "DiscoveryDismissed": ["package-git.ps1", "package-vlc.ps1"] }'

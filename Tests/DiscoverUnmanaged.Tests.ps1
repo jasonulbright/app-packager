@@ -4,11 +4,20 @@ BeforeAll {
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($script:GuiPath, [ref]$t, [ref]$e)
     if ($e) { throw ($e.Message -join '; ') }
     foreach ($name in 'Read-Preferences', 'Resolve-FirstRunCompleted', 'Get-SidebarSystemState', 'Get-DiscoveryPackagerInput',
-        'Invoke-DiscoveryScan', 'Enable-DiscoveredApplication', 'Add-DiscoveryDismissed', 'Get-DiscoveryPromptText') {
+        'Invoke-DiscoveryScan', 'Enable-DiscoveredApplication', 'Add-DiscoveryDismissed', 'Get-DiscoveryPromptText', 'Get-AutoHideOffer') {
         $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
         if (-not $fn) { throw "function $name not found" }
         . ([scriptblock]::Create($fn.Extent.Text))
     }
+    # Save-Preferences resolves Packagers\ from $PSScriptRoot, so it runs from
+    # a file under TestDrive and writes nothing into the repository.
+    $saveFile = Join-Path $TestDrive 'save-preferences.ps1'
+    $saveText = foreach ($name in 'Save-Preferences', 'Set-DeploymentTypeContentEnvironment') {
+        $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false).Extent.Text
+    }
+    Set-Content -LiteralPath $saveFile -Value ($saveText -join [Environment]::NewLine) -Encoding UTF8
+    New-Item -ItemType Directory -Path (Join-Path $TestDrive 'Packagers') -Force | Out-Null
+    . $saveFile
     $script:prefPath = Join-Path $TestDrive 'preferences.json'
     function Get-PreferencesPath { $script:prefPath }
 
@@ -64,9 +73,86 @@ Describe 'Discovery preferences' {
         $back.DiscoverySqlDatabase | Should -BeExactly 'CM_ABC'
     }
 
-    It 'is written by Save-Preferences, which serializes the whole preference object' {
-        $source = [System.IO.File]::ReadAllText($script:GuiPath)
-        $source | Should -Match '\$json = \$Prefs \| ConvertTo-Json -Depth 5'
+    It 'round-trips DiscoveryDismissed, DiscoveryEnabled and the overrides through Save-Preferences and Read-Preferences' {
+        $envBefore = @($env:APP_PACKAGER_DT_CONTENT_FALLBACK, $env:APP_PACKAGER_DT_SLOW_NETWORK_MODE)
+        try {
+            Remove-Item $script:prefPath -ErrorAction SilentlyContinue
+            $p = Read-Preferences
+            $p.DiscoveryDismissed = @('package-git.ps1', 'package-legacy.notps1')
+            $p.DiscoveryEnabled = @('package-7zip.ps1')
+            $p.DiscoverySqlServer = 'sql01'
+            $p.DiscoverySqlDatabase = 'CM_ABC'
+            Save-Preferences -Prefs $p
+            Test-Path -LiteralPath $script:prefPath | Should -BeTrue
+            $back = Read-Preferences
+            $back.DiscoveryDismissed | Should -Be @('package-git.ps1', 'package-legacy.notps1')
+            @($back.DiscoveryEnabled) | Should -Be @('package-7zip.ps1')
+            $back.DiscoverySqlServer | Should -BeExactly 'sql01'
+            $back.DiscoverySqlDatabase | Should -BeExactly 'CM_ABC'
+
+            $p = Read-Preferences
+            $p.DiscoveryEnabled = @('package-only.ps1')
+            Save-Preferences -Prefs $p
+            , (Read-Preferences).DiscoveryEnabled | Should -BeOfType [array]
+            @((Read-Preferences).DiscoveryEnabled) | Should -Be @('package-only.ps1')
+        }
+        finally {
+            $env:APP_PACKAGER_DT_CONTENT_FALLBACK = $envBefore[0]
+            $env:APP_PACKAGER_DT_SLOW_NETWORK_MODE = $envBefore[1]
+        }
+    }
+
+    It 'defaults DiscoveryEnabled to an empty list' {
+        Set-Content $script:prefPath -Value '{}'
+        @((Read-Preferences).DiscoveryEnabled).Count | Should -Be 0
+    }
+
+    It 'keeps .ps1 and .notps1 packager names in <List> and drops the rest' -ForEach @(
+        @{ List = 'DiscoveryDismissed' }
+        @{ List = 'DiscoveryEnabled' }
+    ) {
+        Set-Content $script:prefPath -Value ('{ "' + $List + '": ["package-a.notps1", "package-b.ps1", "PACKAGE-B.ps1", "package-c.txt", "notes.ps1", ""] }')
+        (Read-Preferences).$List | Should -Be @('package-a.notps1', 'package-b.ps1')
+    }
+}
+
+Describe 'First Check ConfigMgr auto-hide' {
+    BeforeAll {
+        function New-Rows {
+            @(
+                [pscustomobject]@{ Script = 'package-git.ps1'; Status = 'Not found in ConfigMgr' }
+                [pscustomobject]@{ Script = 'package-7zip.ps1'; Status = 'Not found in ConfigMgr' }
+                [pscustomobject]@{ Script = 'package-vlc.ps1'; Status = 'Current' }
+            )
+        }
+    }
+
+    It 'offers the not-found apps on a first run' {
+        $prefs = [pscustomobject]@{ HiddenApplications = @(); DiscoveryEnabled = @() }
+        @(Get-AutoHideOffer -Prefs $prefs -Rows (New-Rows)) | Should -Be @('package-git.ps1', 'package-7zip.ps1')
+    }
+
+    It 'offers nothing when the Product Filter already hides apps' {
+        $prefs = [pscustomobject]@{ HiddenApplications = @('package-vlc.ps1'); DiscoveryEnabled = @() }
+        @(Get-AutoHideOffer -Prefs $prefs -Rows (New-Rows)).Count | Should -Be 0
+    }
+
+    It 'offers nothing when every app is not found' {
+        $prefs = [pscustomobject]@{ HiddenApplications = @(); DiscoveryEnabled = @() }
+        $rows = @((New-Rows)[0], (New-Rows)[1])
+        @(Get-AutoHideOffer -Prefs $prefs -Rows $rows).Count | Should -Be 0
+    }
+
+    It 'does not re-hide apps that Discover enabled, after Discover emptied HiddenApplications' {
+        $prefs = [pscustomobject]@{ HiddenApplications = @('package-git.ps1'); DiscoveryEnabled = @() }
+        [void](Enable-DiscoveredApplication -Prefs $prefs -Script @('package-git.ps1'))
+        @($prefs.HiddenApplications).Count | Should -Be 0
+        @(Get-AutoHideOffer -Prefs $prefs -Rows (New-Rows)).Count | Should -Be 0
+    }
+
+    It 'treats preferences without DiscoveryEnabled as a first run' {
+        $prefs = [pscustomobject]@{ HiddenApplications = @() }
+        @(Get-AutoHideOffer -Prefs $prefs -Rows (New-Rows)).Count | Should -Be 2
     }
 }
 
@@ -83,6 +169,18 @@ Describe 'Enabling discovered applications' {
         [void](Enable-DiscoveredApplication -Prefs $prefs -Script @('package-git.ps1'))
         , $prefs.HiddenApplications | Should -BeOfType [array]
         @($prefs.HiddenApplications).Count | Should -Be 0
+    }
+
+    It 'records the enabled scripts in DiscoveryEnabled once each' {
+        $prefs = [pscustomobject]@{ HiddenApplications = @('package-git.ps1', 'package-7zip.ps1'); DiscoveryEnabled = @('package-git.ps1') }
+        [void](Enable-DiscoveredApplication -Prefs $prefs -Script @('PACKAGE-GIT.ps1', 'package-7zip.ps1', 'package-notthere.ps1'))
+        $prefs.DiscoveryEnabled | Should -Be @('package-git.ps1', 'package-7zip.ps1')
+    }
+
+    It 'adds DiscoveryEnabled to preferences that lack it' {
+        $prefs = [pscustomobject]@{ HiddenApplications = @('package-git.ps1') }
+        [void](Enable-DiscoveredApplication -Prefs $prefs -Script @('package-git.ps1'))
+        @($prefs.DiscoveryEnabled) | Should -Be @('package-git.ps1')
     }
 
     It 'adds dismissed scripts once each' {
@@ -149,6 +247,11 @@ Describe 'Invoke-DiscoveryScan' {
         Should -Invoke Resolve-CMDatabaseTarget -Times 1 -ParameterFilter { $SiteCode -eq 'MCM' -and $ServerOverride -eq 'sql01' -and $DatabaseOverride -eq 'CM_X' }
         [void](Invoke-DiscoveryScan -SiteCode 'MCM' -ServerOverride '' -DatabaseOverride '  ' -Packager (New-ScanPackager) -HiddenScript @() -DismissedScript @())
         Should -Invoke Resolve-CMDatabaseTarget -Times 1 -ParameterFilter { [string]::IsNullOrEmpty($ServerOverride) -and [string]::IsNullOrEmpty($DatabaseOverride) }
+    }
+
+    It 'passes no site code when the site code is blank' {
+        [void](Invoke-DiscoveryScan -SiteCode '  ' -ServerOverride 'sql01' -DatabaseOverride 'CM_X' -Packager (New-ScanPackager) -HiddenScript @() -DismissedScript @())
+        Should -Invoke Resolve-CMDatabaseTarget -Times 1 -ParameterFilter { [string]::IsNullOrEmpty($SiteCode) -and $ServerOverride -eq 'sql01' }
     }
 
     It 'returns zero candidates with the status text and no error' {
