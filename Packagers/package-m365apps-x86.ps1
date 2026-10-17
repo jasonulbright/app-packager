@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: External
 SupportsVariants: Network
 WsusSupport: No (InstallerTypeUnsupported)
+ArpName: Microsoft 365 Apps for enterprise - *
 
 .SYNOPSIS
     Packages M365 Apps for Enterprise (x86) for ConfigMgr using the Office Deployment Tool.

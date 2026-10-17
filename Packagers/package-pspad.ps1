@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.pspad.com/en/download.php
 IconSource: Installer
 UpdateCadenceDays: 180
 WsusSupport: No (DetectionNotMappable)
+ArpName: PSPad*
 
 .SYNOPSIS
     Packages PSPad (x64) for ConfigMgr.

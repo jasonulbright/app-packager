@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: Installer
 UpdateCadenceDays: 14
 WsusSupport: No (DetectionNotMappable)
+ArpName: none
 
 .SYNOPSIS
     Packages the new Microsoft Teams client for ConfigMgr.

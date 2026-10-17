@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.cutepdf.com/products/cutepdf/writer.asp
 IconSource: Installer
 UpdateCadenceDays: 180
 WsusSupport: No (DetectionNotMappable)
+ArpName: CutePDF Writer*
 
 .SYNOPSIS
     Packages CutePDF Writer (Inno Setup EXE) for ConfigMgr.

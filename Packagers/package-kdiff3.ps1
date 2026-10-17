@@ -10,6 +10,7 @@ IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 180
 WsusSupport: Yes
+ArpName: KDiff3*
 
 .SYNOPSIS
     Packages KDiff3 (x64) for ConfigMgr.

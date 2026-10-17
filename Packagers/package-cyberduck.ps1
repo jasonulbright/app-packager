@@ -9,6 +9,7 @@ DownloadPageUrl: https://cyberduck.io/download/
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: No (DetectionNotMappable)
+ArpName: Cyberduck*
 
 .SYNOPSIS
     Packages Cyberduck (x64) for ConfigMgr.

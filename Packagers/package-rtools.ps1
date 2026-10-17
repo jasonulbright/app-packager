@@ -7,6 +7,7 @@ ReleaseNotesUrl: https://cran.r-project.org/bin/windows/Rtools/
 DownloadPageUrl: https://cran.r-project.org/bin/windows/Rtools/
 IconSource: None
 WsusSupport: Yes
+ArpName: Rtools*
 
 .SYNOPSIS
     Packages Rtools (x64) for ConfigMgr.

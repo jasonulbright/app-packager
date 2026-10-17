@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://www.jetbrains.com/privacy-security/issues-fixed/
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: No (DetectionNotMappable)
+ArpName: GoLand [0-9]*
 
 .SYNOPSIS
     Packages GoLand (x64) for ConfigMgr.

@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/VSCodium/vscodium/releases/latest
 IconSource: Installer
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: VSCodium*
 
 .SYNOPSIS
     Packages VSCodium (x64) MSI for ConfigMgr.

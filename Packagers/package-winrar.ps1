@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.win-rar.com/whatsnew.html
 DownloadPageUrl: https://www.win-rar.com/download.html
 IconSource: Installer
 WsusSupport: No (CustomInstall)
+ArpName: WinRAR*
 
 .SYNOPSIS
     Packages WinRAR (x64) for ConfigMgr.

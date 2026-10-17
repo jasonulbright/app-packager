@@ -9,6 +9,7 @@ DownloadPageUrl: https://certifytheweb.com/home/download
 IconSource: Installer
 UpdateCadenceDays: 120
 WsusSupport: Yes
+ArpName: Certify The Web*
 
 .SYNOPSIS
     Packages Certify The Web (x64) for ConfigMgr.

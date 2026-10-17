@@ -9,6 +9,7 @@ DownloadPageUrl: https://keepassxc.org/download/#windows
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: KeePassXC
 
 .SYNOPSIS
     Packages KeePassXC (x64) MSI for ConfigMgr.

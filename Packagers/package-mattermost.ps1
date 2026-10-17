@@ -9,6 +9,7 @@ DownloadPageUrl: https://mattermost.com/apps/
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: Mattermost
 
 .SYNOPSIS
     Packages Mattermost Desktop (x64) MSI for ConfigMgr.

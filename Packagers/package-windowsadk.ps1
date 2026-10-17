@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: External
 UpdateCadenceDays: 180
 WsusSupport: No (DetectionNotMappable|PayloadInSubfolder)
+ArpName: Windows Assessment and Deployment Kit | Windows Assessment and Deployment Kit - Windows*
 
 .SYNOPSIS
     Packages the Windows ADK for Windows 11 for ConfigMgr as an offline layout.

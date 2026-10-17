@@ -9,6 +9,7 @@ DownloadPageUrl: https://netbird.io/download
 IconSource: Installer
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: NetBird
 
 .SYNOPSIS
     Packages the NetBird client (x64) MSI for ConfigMgr.

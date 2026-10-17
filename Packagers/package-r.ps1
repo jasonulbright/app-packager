@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://cran.r-project.org/bin/windows/base/NEWS.html
 DownloadPageUrl: https://cran.r-project.org/bin/windows/base/
 IconSource: Installer
 WsusSupport: Yes
+ArpName: R for Windows*
 
 .SYNOPSIS
     Packages R for Windows (x64) for ConfigMgr.

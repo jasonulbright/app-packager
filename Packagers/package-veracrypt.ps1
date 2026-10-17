@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.veracrypt.io/en/Downloads.html
 IconSource: Installer
 UpdateCadenceDays: 180
 WsusSupport: Yes
+ArpName: VeraCrypt*
 
 .SYNOPSIS
     Packages VeraCrypt (x64 MSI) for ConfigMgr.

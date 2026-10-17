@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.urbackup.org/download.html
 IconSource: Installer
 UpdateCadenceDays: 180
 WsusSupport: Yes
+ArpName: UrBackup Client*
 
 .SYNOPSIS
     Packages the UrBackup Client (x64 MSI) for ConfigMgr.

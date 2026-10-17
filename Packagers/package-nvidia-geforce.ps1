@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.nvidia.com/Download/index.aspx
 IconSource: Installer
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: NVIDIA Graphics Driver [0-9]*
 
 .SYNOPSIS
     Packages the latest NVIDIA GeForce Game Ready DCH driver (x64) for ConfigMgr.

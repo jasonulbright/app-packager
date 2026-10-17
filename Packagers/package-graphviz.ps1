@@ -9,6 +9,7 @@ DownloadPageUrl: https://graphviz.org/download/
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: Graphviz*
 
 .SYNOPSIS
     Packages Graphviz (win64) for ConfigMgr.

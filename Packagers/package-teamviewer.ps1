@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.teamviewer.com/en-us/download/windows/
 SecurityAdvisoryUrl: https://www.teamviewer.com/en/trust-center/security-bulletins/
 IconSource: Installer
 WsusSupport: Yes
+ArpName: TeamViewer | TeamViewer [0-9]*
 
 .SYNOPSIS
     Packages TeamViewer (x64) MSI for ConfigMgr.

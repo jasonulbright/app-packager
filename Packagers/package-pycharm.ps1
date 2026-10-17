@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.jetbrains.com/pycharm/download/?section=windows
 SecurityAdvisoryUrl: https://www.jetbrains.com/privacy-security/issues-fixed/
 UpdateCadenceDays: 60
 WsusSupport: No (DetectionNotMappable)
+ArpName: PyCharm [0-9]*
 
 .SYNOPSIS
     Packages PyCharm (x64) for ConfigMgr.

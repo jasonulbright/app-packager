@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.azul.com/downloads/?version=java-17-lts&os=windows&
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Azul Zulu JDK 17.*, 64-bit
 
 .SYNOPSIS
     Packages Azul Zulu JDK 17 (x64) MSI for ConfigMgr.

@@ -9,6 +9,7 @@ DownloadPageUrl: https://dotnet.microsoft.com/en-us/download/dotnet/9.0
 SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: None
 WsusSupport: No (DetectionNotMappable)
+ArpName: Microsoft Windows Desktop Runtime - 9.* (x64)
 
 .SYNOPSIS
     Packages .NET 9 Desktop Runtime (x64) for ConfigMgr.

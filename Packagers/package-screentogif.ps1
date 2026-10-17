@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/NickeManarin/ScreenToGif/releases/latest
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: ScreenToGif
 
 .SYNOPSIS
     Packages ScreenToGif (x64) MSI for ConfigMgr.

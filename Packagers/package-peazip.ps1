@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/peazip/PeaZip/releases/latest
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: PeaZip*
 
 .SYNOPSIS
     Packages PeaZip (x64) for ConfigMgr.

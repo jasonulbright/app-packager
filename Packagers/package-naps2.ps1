@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.naps2.com/download
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: NAPS2*
 
 .SYNOPSIS
     Packages NAPS2 (x64) MSI for ConfigMgr.

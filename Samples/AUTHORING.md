@@ -36,6 +36,7 @@ CPE: cpe:2.3:a:7-zip:7-zip:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.7-zip.org/history.txt
 DownloadPageUrl: https://www.7-zip.org/download.html
 UpdateCadenceDays: 90
+ArpName: 7-Zip [0-9]*
 #>
 ```
 
@@ -52,6 +53,7 @@ The GUI parses these tags with `Get-PackagerMetadata`:
 | `DownloadPageUrl` | No | Shown in Version Monitor HTML report Links column |
 | `UpdateCadenceDays` | No (default 7) | Default cadence for One Click Report runs. Per-app overrides live in One Click Settings |
 | `WsusSupport` | Yes for catalog packagers | `Yes`, or `No (<Code>)` with the blocking code that the WSUS check reports for the default build, for example `No (PerUserInstall)`. Several codes are joined with a pipe. The One Click plan reads the tag and shows `WSUS: not supported` before a run |
+| `ArpName` | Yes for catalog packagers | One or more wildcard patterns, separated by ` \| `, for the Add/Remove Programs display name of the installed app. Discover unmanaged software matches each pattern with `-like` against hardware inventory. Use a trailing wildcard for a versioned name and `[0-9]` to stop a pattern from matching a different product. Write `none` when the app makes no machine-wide Add/Remove Programs entry: a portable app, a store app, or a per-user install |
 
 ## The param block
 

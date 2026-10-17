@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.xnview.com/en/xnviewmp/
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: XnView MP*
 
 .SYNOPSIS
     Packages XnView MP (x64) for ConfigMgr.

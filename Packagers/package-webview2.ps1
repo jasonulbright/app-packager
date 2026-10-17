@@ -9,6 +9,7 @@ DownloadPageUrl: https://developer.microsoft.com/en-us/microsoft-edge/webview2/
 SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: Installer
 WsusSupport: Yes
+ArpName: Microsoft Edge WebView2 Runtime
 
 .SYNOPSIS
     Packages Microsoft Edge WebView2 Runtime (x64) for ConfigMgr.

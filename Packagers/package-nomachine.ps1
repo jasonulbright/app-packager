@@ -9,6 +9,7 @@ DownloadPageUrl: https://download.nomachine.com/download/?id=41&platform=windows
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: NoMachine
 
 .SYNOPSIS
     Packages NoMachine (x64) for ConfigMgr.

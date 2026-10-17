@@ -9,6 +9,7 @@ DownloadPageUrl: https://gephi.org/users/download/
 IconSource: Installer
 UpdateCadenceDays: 180
 WsusSupport: No (DetectionNotMappable)
+ArpName: Gephi | Gephi [0-9]*
 
 .SYNOPSIS
     Packages Gephi (x64) for ConfigMgr.

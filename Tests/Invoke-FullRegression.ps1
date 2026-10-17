@@ -159,6 +159,9 @@ $paths = @(
     '.\Tests\UpdatePreservation.Tests.ps1'
     '.\Tests\CveMonitor.Tests.ps1'
     '.\Tests\VersionCompare.Tests.ps1'
+    '.\Tests\ArpNameTag.Tests.ps1'
+    '.\Tests\DiscoverUnmanaged.Tests.ps1'
+    '.\Packagers\AppPackagerDiscovery.Tests.ps1'
 ) | Where-Object { Test-Path -LiteralPath $_ }
 $result = Invoke-Pester -Path $paths -PassThru -Output None
 $failures = @($result.Failed | ForEach-Object { $_.ExpandedPath + " :: " + [string]$_.ErrorRecord.Exception.Message.Split([char]10)[0] })

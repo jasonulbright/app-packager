@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.jetbrains.com/datagrip/download/?section=windows
 SecurityAdvisoryUrl: https://www.jetbrains.com/privacy-security/issues-fixed/
 UpdateCadenceDays: 60
 WsusSupport: No (DetectionNotMappable)
+ArpName: DataGrip [0-9]*
 
 .SYNOPSIS
     Packages DataGrip (x64) for ConfigMgr.

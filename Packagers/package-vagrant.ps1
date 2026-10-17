@@ -9,6 +9,7 @@ DownloadPageUrl: https://releases.hashicorp.com/vagrant/
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Vagrant
 
 .SYNOPSIS
     Packages Vagrant (x64 MSI) for ConfigMgr.

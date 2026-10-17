@@ -9,6 +9,7 @@ DownloadPageUrl: https://learn.microsoft.com/en-us/cpp/windows/latest-supported-
 SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: None
 WsusSupport: Yes
+ArpName: Microsoft Visual C++ v14 Redistributable (x86) - * | Microsoft Visual C++ 2015-20?? Redistributable (x86) - *
 
 .SYNOPSIS
     Packages Microsoft Visual C++ v14 Redistributable (x86) for ConfigMgr.

@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/stefankueng/grepWin/releases
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: grepWin*
 
 .SYNOPSIS
     Packages grepWin (x64) MSI for ConfigMgr.

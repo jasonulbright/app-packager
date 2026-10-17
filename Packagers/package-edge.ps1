@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.microsoft.com/en-us/edge/business/download
 SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: Installer
 WsusSupport: Yes
+ArpName: Microsoft Edge
 
 .SYNOPSIS
     Packages Microsoft Edge MSI for ConfigMgr.

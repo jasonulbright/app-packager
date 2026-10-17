@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/dnGrep/dnGrep/releases
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: dnGrep*
 
 .SYNOPSIS
     Packages dnGREP (x64) MSI for ConfigMgr.

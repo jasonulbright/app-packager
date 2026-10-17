@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://chromereleases.googleblog.com/
 IconSource: Installer
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: Chrome Remote Desktop Host
 
 .SYNOPSIS
     Packages the Chrome Remote Desktop Host (x64) MSI for ConfigMgr.

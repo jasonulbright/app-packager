@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/jasonulbright/spectra-pdf/releases
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Spectra PDF
 
 .SYNOPSIS
     Packages Spectra PDF (first-party, x64) for ConfigMgr.

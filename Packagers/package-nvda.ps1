@@ -8,6 +8,7 @@ DownloadPageUrl: https://www.nvaccess.org/download/
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: NVDA | NVDA [0-9]*
 
 .SYNOPSIS
     Packages NVDA (NonVisual Desktop Access) for ConfigMgr.

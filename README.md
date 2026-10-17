@@ -156,6 +156,7 @@ The sidebar has the workflow actions at the top, an **Add Installer...** button 
 - **One Click** — opens the plan for the apps you track in One Click Settings, then runs Check Latest → Stage → Publish per destination without a prompt. See [One Click](#one-click). Multi-app loops (Check Latest, Stage, Package, One Click) run on a background STA runspace with an animated progress overlay so the window stays responsive instead of freezing during long downloads / extracts / ConfigMgr round-trips
 - **Check Latest** — queries vendor sources for the latest version of selected applications
 - **Check ConfigMgr** — queries your ConfigMgr site for the currently deployed version
+- **Discover unmanaged software** — finds hidden apps that hardware inventory shows installed on clients and that have no ConfigMgr application, and offers to show them in the grid. See [Discover unmanaged software](#discover-unmanaged-software)
 - **Stage Packages** — downloads installers, extracts metadata, generates wrappers and manifests locally, and builds a `.intunewin` when IntuneWinAppUtil is detected
 - **Publish to ConfigMgr** — reads manifests, copies content to network share, creates ConfigMgr applications
 - **Publish to Intune** — stages each checked app, builds its `.intunewin`, and publishes a Win32 app through Microsoft Graph
@@ -173,6 +174,8 @@ Clicking **Options** opens a unified settings window with a left-nav list and a 
 ![Options window](screenshots/options-mecm.png)
 
 **ConfigMgr Preferences** — Site Code, Provider Machine, File Share Root, Content Layout, Download Root, estimated/maximum deployment runtime, an Auto-distribute-to-DP checkbox + DP Group Name, and a test-deployment group (Deploy to test collection, Test collection name, Create collection if it does not exist). Content Layout selects the share folder shape for packaged content: **Nested** (`Applications\Vendor\App\Version`, the default — an app's versions sit adjacent, so retention pruning is deleting old version folders in place) or **Flat** (`Applications\Vendor-App-Version`, one folder per package, for org conventions that mandate it). It applies to future Package runs; existing content stays where it is, so pick one and stay with it — mixing layouts splits content across two trees. Provider Machine is the `$ProviderMachineName` value from the ConfigMgr AdminUI-generated connect script. The bottom of the panel shows detected-tools status: ConfigMgr Console (name, version, install path in tooltip), 7-Zip CLI (display name, version, exe path), GitHub API (Authenticated with the token source and remaining hourly quota, or Anonymous at 60 requests/hour; see [Vendor Version Monitor](#vendor-version-monitor)), Content Prep (IntuneWinAppUtil.exe version and path, with a Download button when missing), and Icon Pack (installed pack version and icon count, with a Download packager icon pack button — see [Application Icons](#application-icons)). Each row shows a checkmark + version when found or an `X` + guidance when missing.
+
+**Discovery SQL**, **Discovery DB** and **Not offered** belong to [Discover unmanaged software](#discover-unmanaged-software). Leave the two boxes empty to use the SQL server and the `CM_<site code>` database of the site. **Not offered** shows how many apps discovery leaves out; **Clear list** empties that list on OK.
 
 Two settings control the content options of each ConfigMgr deployment type that a Package run creates. **Fallback DPs** maps to `-ContentFallback`: **Allow** (the default) lets a client use distribution points in the site default boundary group when no distribution point in its current or neighbor boundary groups has the content; **Deny** keeps the client on its current and neighbor boundary groups. **Neighbor/default DP** maps to `-SlowNetworkDeploymentMode` and sets the deployment option when the client uses a distribution point in a neighbor boundary group or the site default boundary group: **Download content and install** (`Download`, the default) or **Do not download content** (`DoNothing`). Both settings apply to future Package runs; existing deployment types keep their settings. Intune publishing does not use them.
 
@@ -378,6 +381,7 @@ AppPackager has no service and no backend. Every network call comes from one of 
 | `start-apppackager.ps1` | The update check: `https://api.github.com/repos/jasonulbright/app-packager/releases/latest`, once per 24 hours at launch, cached in `%LOCALAPPDATA%\AppPackager\update-check.json`. The icon pack and Content Prep downloads from the Options window. The `rate_limit` probe behind the GitHub API row. | The log pane at launch. |
 | The Package phase | Writes to the file share and the ConfigMgr provider, or to Intune through Microsoft Graph, or to the WSUS server. No vendor call. | The log pane. |
 | Check CVEs (`Packagers\AppPackagerVulnerability.psm1`) | One NVD call per checked app: `https://services.nvd.nist.gov/rest/json/cves/2.0` with the app's CPE and version range, paged at 2000 records; `https://cvedb.shodan.io/cves` with the ConfigMgr version when NVD fails; `https://api.first.org/data/v1/epss` with up to 100 CVE ids per call; the CISA KEV catalog `https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json` once per day. Every call carries the `AppPackager` user agent and the NVD key from Preferences when one is set. Nothing is sent to the other CVE sites; the report and the CVE window only link to them. The scheduled monitor adds one POST of the run summary (counts and report paths, no CVE text) to the webhook URL in `monitor-config.json`, when one is set. | The `GET <url> -> HTTP <code>` and `POST <url> -> HTTP <code>` lines in the log pane or the monitor log. |
+| Discover unmanaged software (`Packagers\AppPackagerDiscovery.psm1`) | One SQL connection to the ConfigMgr site database with Windows authentication and read-only intent. Parameterized `SELECT` statements on the views `v_GS_ADD_REMOVE_PROGRAMS`, `v_GS_ADD_REMOVE_PROGRAMS_64` and `v_Applications`. The results are display names, publishers, versions and client counts. No machine name leaves the database. Nothing is written. | The `Discover unmanaged software:` lines in the log pane. |
 
 The Application Workbench sends nothing. Saving a profile writes a file under `%LOCALAPPDATA%\AppPackagerData\Workbench`; Stage and Publish from the Workbench run the same packager script and Package phase as the main window.
 
@@ -785,6 +789,49 @@ The catalog grew from 108 to 284 across releases 1.4.0.16–1.4.0.24 by porting 
 | package-zulu-jre17.ps1 | Azul | Azul Zulu JRE 17 (x64) | RegistryKeyValue |
 | package-zulu-jre8.ps1 | Azul | Azul Zulu JRE 8 (x64) | RegistryKeyValue |
 
+## Discover unmanaged software
+
+**Discover unmanaged software** finds applications that clients already run and that the site does not manage. It reads the ConfigMgr site database and compares hardware inventory with the packagers that the Product Filter hides.
+
+A hidden packager is a candidate when all of these are true:
+
+- Hardware inventory shows the app installed on at least one client.
+- The site has no ConfigMgr application with the packager's `CMName`.
+- The packager is not on the list of apps not offered.
+- The packager has an `ArpName` header that is not `none`.
+
+When it finds candidates, a window shows "Discovered N apps. Enable console view?". The list shows the application, the vendor, the client count and the inventory name that matched. Select one of these buttons:
+
+- **Enable selected** shows the checked apps in the grid.
+- **Enable all** shows every app in the list in the grid.
+- **Not now** closes the window. The next discovery offers the apps again.
+- **Don't ask again for these** keeps the apps hidden and leaves them out of later discoveries.
+
+Enabling an app has the same effect as checking it in the Product Filter. The app joins the grid for Check, Stage and Package. With no candidates, no window opens and the status line shows the inventory result. A failed query shows a plain message in the log and on the status line. The rest of AppPackager keeps working.
+
+### Matching
+
+Each packager carries an `ArpName` header tag. It holds one or more wildcard patterns, separated by ` | `, for the Add/Remove Programs display name. Discovery compares each pattern with PowerShell `-like` against the inventory display names. The comparison ignores case. `none` marks an app with no machine-wide Add/Remove Programs entry: a portable app, a store app, or a per-user install. 296 packagers carry patterns and 16 carry `none`.
+
+### Requirements
+
+- The account that runs AppPackager needs `db_datareader` on the site database `CM_<site code>`.
+- Discovery uses Windows authentication only. It never stores or asks for a SQL password.
+- The client settings must collect the hardware inventory classes Add/Remove Programs (`SMS_G_System_ADD_REMOVE_PROGRAMS`) and Add/Remove Programs (64) (`SMS_G_System_ADD_REMOVE_PROGRAMS_64`). Without them the result is "no inventory data", not "nothing found".
+- Hardware inventory reads the machine-wide uninstall keys. A per-user install is not in these views.
+
+Discovery reads the SQL server and the database name from the site. To use a different server or database, set **Discovery SQL** and **Discovery DB** in Options, ConfigMgr Preferences. Leave both empty to use the site values. The database name defaults to `CM_` and the site code.
+
+### Security notes
+
+- **The SQL views bypass ConfigMgr role-based administration.** A user with `db_datareader` on the site database reads inventory for every client in the hierarchy. Security roles and security scopes in the console do not limit this. Grant `db_datareader` only to accounts that may see the inventory of all clients.
+- Discovery reads counts only. It shows the number of clients per app and never a machine name.
+- Every statement is a parameterized `SELECT` on a `v_` view, with a command timeout and read-only intent. Discovery writes nothing to the database.
+
+### The list of apps not offered
+
+**Don't ask again for these** adds the apps to the preference `DiscoveryDismissed` in `AppPackager.preferences.json`. Options, ConfigMgr Preferences shows the count in **Not offered**. **Clear list** empties the list when you click OK. An app that you show in the grid is never a candidate, whether or not it is on the list.
+
 ## CVE lookup
 
 **Check CVEs** looks up, for every checked application, the CVEs that an update from the ConfigMgr version to the latest version fixes. It needs three things per row: a `CPE` header in the packager, a ConfigMgr version (Check ConfigMgr) and a latest version (Check Latest). A row that lacks one shows the reason in the CVEs column (`CPE missing`, `No ConfigMgr version`, `No latest version`).
@@ -857,6 +904,7 @@ DownloadPageUrl: https://www.7-zip.org/download.html
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: 7-Zip [0-9]*
 #>
 ```
 
@@ -872,6 +920,7 @@ WsusSupport: Yes
 | `SupportsInstallModes` | `CurrentUser, AllUsers` when the installer takes a mode switch and the packager uses the standard wrappers. Enables the Install for column. |
 | `RequiresTools` | Comma-separated list of detected tools the packager depends on. Read-only metadata; surfaced via `Get-PackagerMetadata` and reserved for future preflight warnings. Adobe Reader declares `7-Zip`. |
 | `WsusSupport` | `Yes`, or `No (<code>)` with the WSUS compatibility codes the publish would report: `DetectionNotMappable`, `PerUserInstall`, `InstallerTypeUnsupported`, `CustomInstall`, `InstallerMissing`, `PayloadInSubfolder`, several joined with `\|`. Every packager carries it; the One Click plan shows **WSUS: not supported** from it before a run. |
+| `ArpName` | Wildcard patterns for the Add/Remove Programs display name, separated by ` \| `. [Discover unmanaged software](#discover-unmanaged-software) matches them with `-like` against hardware inventory. `none` marks an app with no machine-wide Add/Remove Programs entry: a portable app, a store app, or a per-user install. Every packager carries it. |
 | `LocalSource` | `Optional` or `Required`: the packager can, or must, stage an installer from a folder set under Local Installer Sources in the [Options window](#options-window). |
 
 ## Application Icons
@@ -1046,6 +1095,8 @@ app-packager/
     AppPackagerWsus.psd1             # Module manifest
     AppPackagerVulnerability.psm1    # CVE lookup (NVD, Shodan CVEDB, EPSS, KEV), links, cache, reports
     AppPackagerVulnerability.psd1    # Module manifest
+    AppPackagerDiscovery.psm1        # Discover unmanaged software: site database query and matching
+    AppPackagerDiscovery.psd1        # Module manifest
     package-7zip.ps1                 # One script per application (312 total)
     package-chrome.ps1
     ...
@@ -1083,6 +1134,7 @@ app-packager/
    DownloadPageUrl: https://acme.example.com/download
    IconSource: Installer
    WsusSupport: Yes
+   ArpName: Acme Widget*
    #>
    ```
 

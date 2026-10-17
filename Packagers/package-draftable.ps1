@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.draftable.com/desktop
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: Draftable Desktop*
 
 .SYNOPSIS
     Packages Draftable Desktop (x64, system-wide MSI) for ConfigMgr.

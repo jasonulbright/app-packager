@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.azul.com/downloads/?version=java-8-lts&os=windows&a
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Azul Zulu JRE 8.*, 64-bit
 
 .SYNOPSIS
     Packages Azul Zulu JRE 8 (x64) MSI for ConfigMgr.

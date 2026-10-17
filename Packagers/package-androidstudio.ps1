@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://developer.android.com/studio/releases
 DownloadPageUrl: https://developer.android.com/studio
 UpdateCadenceDays: 45
 WsusSupport: No (DetectionNotMappable)
+ArpName: Android Studio
 
 .SYNOPSIS
     Packages the latest stable Android Studio (x64) installer for ConfigMgr.

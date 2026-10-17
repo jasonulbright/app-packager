@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: Installer
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: Azure Functions Core Tools*
 
 .SYNOPSIS
     Packages Azure Functions Core Tools (x64) MSI for ConfigMgr.

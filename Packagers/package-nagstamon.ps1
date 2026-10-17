@@ -9,6 +9,7 @@ DownloadPageUrl: https://nagstamon.de/download/
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Nagstamon*
 
 .SYNOPSIS
     Packages Nagstamon (x64) for ConfigMgr.

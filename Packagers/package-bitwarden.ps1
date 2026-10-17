@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://www.bitwarden.com/help/security/
 IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 WsusSupport: Yes
+ArpName: Bitwarden | Bitwarden [0-9]*
 
 .SYNOPSIS
     Packages Bitwarden Desktop (x64) for ConfigMgr.

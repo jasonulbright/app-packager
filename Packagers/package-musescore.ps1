@@ -9,6 +9,7 @@ DownloadPageUrl: https://musescore.org/en/download
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: No (DetectionNotMappable)
+ArpName: MuseScore Studio* | MuseScore [0-9]*
 
 .SYNOPSIS
     Packages MuseScore Studio 4 (x64) MSI for ConfigMgr.

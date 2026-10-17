@@ -9,6 +9,7 @@ SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: None
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: SharePoint Online Management Shell
 
 .SYNOPSIS
     Packages SharePoint Online Management Shell (x64) MSI for ConfigMgr.

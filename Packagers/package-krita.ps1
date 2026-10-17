@@ -9,6 +9,7 @@ DownloadPageUrl: https://krita.org/en/download/
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: Krita*
 
 .SYNOPSIS
     Packages Krita (x64) for ConfigMgr.

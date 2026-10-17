@@ -9,6 +9,7 @@ DownloadPageUrl: https://calibrite.com/us/software-downloads/
 IconSource: Installer
 UpdateCadenceDays: 120
 WsusSupport: Yes
+ArpName: calibrite PROFILER*
 
 .SYNOPSIS
     Packages Calibrite PROFILER (x64) for ConfigMgr.

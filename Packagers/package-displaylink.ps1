@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.synaptics.com/products/displaylink-graphics/downloa
 IconSource: Installer
 UpdateCadenceDays: 120
 WsusSupport: Yes
+ArpName: DisplayLink Graphics*
 
 .SYNOPSIS
     Packages the DisplayLink USB Graphics Software (dock driver) for ConfigMgr.

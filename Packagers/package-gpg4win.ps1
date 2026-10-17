@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.gpg4win.org/download.html
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Gpg4win*
 
 .SYNOPSIS
     Packages Gpg4win for ConfigMgr.

@@ -10,6 +10,7 @@ IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Stellarium*
 
 .SYNOPSIS
     Packages Stellarium (x64, Qt6) for ConfigMgr.

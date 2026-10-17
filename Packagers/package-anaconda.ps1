@@ -9,6 +9,7 @@ DownloadPageUrl: https://repo.anaconda.com/archive/
 SecurityAdvisoryUrl: https://www.anaconda.com/security
 UpdateCadenceDays: 90
 WsusSupport: No (DetectionNotMappable)
+ArpName: Anaconda3 *
 
 .SYNOPSIS
     Packages Anaconda Distribution (x64) for ConfigMgr.
