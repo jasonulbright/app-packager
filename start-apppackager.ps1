@@ -1314,6 +1314,10 @@ function Resolve-DiscoveryProviderName {
         [string]$SiteCode
     )
     if (-not [string]::IsNullOrWhiteSpace($Preference)) { return $Preference.Trim() }
+    if (Get-Command -Name 'Resolve-CMProviderMachineName' -ErrorAction SilentlyContinue) {
+        $resolved = [string](Resolve-CMProviderMachineName -ProviderMachineName $Preference)
+        if (-not [string]::IsNullOrWhiteSpace($resolved)) { return $resolved.Trim() }
+    }
     $drives = @()
     try { $drives = @(Get-PSDrive -PSProvider CMSite -ErrorAction Stop | Where-Object { $_ }) } catch { return '' }
     if ($drives.Count -eq 0) { return '' }

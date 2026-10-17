@@ -8,6 +8,7 @@ BeforeAll {
         . ([scriptblock]::Create($fn.Extent.Text))
     }
     Import-Module (Join-Path $PSScriptRoot '..\Packagers\AppPackagerDiscovery.psd1') -Force
+    Import-Module (Join-Path $PSScriptRoot '..\Packagers\AppPackagerCommon.psm1') -Force -DisableNameChecking
 
     function New-TargetPrefs {
         param([string]$SiteCode, [string]$Server, [string]$Database)
@@ -71,11 +72,40 @@ Describe 'Discover button rule and the scan agree on the SQL target' {
     }
 }
 
+Describe 'Discover provider name from APP_PACKAGER_CM_PROVIDER' {
+    It 'uses the environment variable when the preference is empty and no CMSite drive exists' {
+        Mock Get-PSDrive { } -ParameterFilter { $PSProvider -eq 'CMSite' }
+        $saved = $env:APP_PACKAGER_CM_PROVIDER
+        try {
+            $env:APP_PACKAGER_CM_PROVIDER = ' cm04.contoso.com '
+            Resolve-DiscoveryProviderName -Preference '' -SiteCode 'MCM' | Should -Be 'cm04.contoso.com'
+            Should -Invoke Get-PSDrive -Times 0 -ParameterFilter { $PSProvider -eq 'CMSite' }
+        }
+        finally {
+            if ($null -eq $saved) { Remove-Item Env:\APP_PACKAGER_CM_PROVIDER -ErrorAction SilentlyContinue }
+            else { $env:APP_PACKAGER_CM_PROVIDER = $saved }
+        }
+    }
+}
+
 Describe 'Discover provider name' {
+    BeforeEach {
+        Mock Resolve-CMProviderMachineName { $null }
+    }
+
     It 'uses the stored preference, trimmed, without reading the site drive' {
         Mock Get-PSDrive { throw 'must not be called' }
         Resolve-DiscoveryProviderName -Preference ' cm02.contoso.com ' -SiteCode 'MCM' | Should -Be 'cm02.contoso.com'
         Should -Invoke Get-PSDrive -Times 0
+        Should -Invoke Resolve-CMProviderMachineName -Times 0
+    }
+
+    It 'uses the shared provider resolution before the CMSite drives when the preference is empty' {
+        Mock Resolve-CMProviderMachineName { ' cm03.contoso.com ' }
+        Mock Get-PSDrive { @([pscustomobject]@{ Name = 'MCM'; Root = 'cm01.contoso.com' }) } -ParameterFilter { $PSProvider -eq 'CMSite' }
+        Resolve-DiscoveryProviderName -Preference '' -SiteCode 'MCM' | Should -Be 'cm03.contoso.com'
+        Should -Invoke Resolve-CMProviderMachineName -Times 1
+        Should -Invoke Get-PSDrive -Times 0 -ParameterFilter { $PSProvider -eq 'CMSite' }
     }
 
     It 'uses the root of the site code CMSite drive when the preference is empty' {
