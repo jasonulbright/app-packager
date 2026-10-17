@@ -10,6 +10,8 @@ SecurityAdvisoryUrl: https://aws.amazon.com/security/security-bulletins/
 IconSource: None
 WsusSupport: Yes
 ArpName: Amazon Corretto (x64)
+ArpVersion: 25.*
+ArpArch: x64
 
 .SYNOPSIS
     Packages Amazon Corretto JDK 25 (x64) MSI for ConfigMgr.

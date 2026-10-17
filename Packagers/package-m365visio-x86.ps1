@@ -10,7 +10,7 @@ SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: External
 SupportsVariants: Network
 WsusSupport: No (InstallerTypeUnsupported)
-ArpName: Microsoft Visio - * | Microsoft Visio Plan 2 - *
+ArpName: none
 
 .SYNOPSIS
     Packages M365 Visio (x86) for ConfigMgr using the Office Deployment Tool.

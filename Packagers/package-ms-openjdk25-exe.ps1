@@ -9,7 +9,8 @@ DownloadPageUrl: https://learn.microsoft.com/en-us/java/openjdk/download
 SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: Installer
 WsusSupport: Yes
-ArpName: Microsoft Build of OpenJDK 25.* | Microsoft Build of OpenJDK  25.*
+ArpName: Microsoft Build of OpenJDK 25.*
+ArpArch: x64
 
 .SYNOPSIS
     Packages Microsoft Build of OpenJDK 25 (x64) EXE, per machine, for ConfigMgr.
