@@ -1,11 +1,16 @@
 #Requires -Version 5.1
 <#
     The site database views are outside ConfigMgr role-based administration.
-    No function returns a client machine name or a ResourceID: client
-    identity leaves Get-CMInventorySnapshot only as per-snapshot ordinals.
+    No function returns a client machine name, a ResourceID or any per-client
+    key: the client set of each snapshot row stays in module scope, and only
+    counts leave the module.
 #>
 
 Set-StrictMode -Version 2.0
+
+# Snapshot row object -> HashSet[int] of per-snapshot client ordinals. Weak
+# keys release the sets with the snapshot.
+$script:RowClients = New-Object 'System.Runtime.CompilerServices.ConditionalWeakTable[object,object]'
 
 $script:DiscoveryInventoryQuery = @'
 SET NOCOUNT ON;
@@ -362,16 +367,15 @@ function Get-CMInventorySnapshot {
     $rows = New-Object System.Collections.Generic.List[object]
     foreach ($key in $order) {
         $group = $groups[$key]
-        $keys = New-Object int[] $group.Clients.Count
-        $group.Clients.CopyTo($keys)
-        $rows.Add([pscustomobject]@{
-                DisplayName  = $group.DisplayName
-                Publisher    = $group.Publisher
-                Version      = $group.Version
-                Architecture = $group.Architecture
-                ClientCount  = $keys.Length
-                ClientKeys   = $keys
-            })
+        $row = [pscustomobject]@{
+            DisplayName  = $group.DisplayName
+            Publisher    = $group.Publisher
+            Version      = $group.Version
+            Architecture = $group.Architecture
+            ClientCount  = $group.Clients.Count
+        }
+        $script:RowClients.Add($row, $group.Clients)
+        $rows.Add($row)
     }
 
     $clientTotal = 0
@@ -418,6 +422,72 @@ function Get-DiscoveryArpPatterns {
     return , $patterns.ToArray()
 }
 
+function Test-MecmApplicationTitle {
+    <#
+    .SYNOPSIS
+        True when a ConfigMgr Application title is a packaged title of
+        CMName. Check ConfigMgr and Discover share this rule.
+    #>
+    # A packaged title holds the words of CMName in order, with only release
+    # details around them: a version, qualifiers in parentheses, an
+    # architecture, and after the last word optionally " - <anything>". A
+    # word of CMName that ends in a number may continue as a version
+    # ("18" as "18.5.1.1") or carry an architecture ("7" as "7-x64"); vendor
+    # product names put these in the middle ("Microsoft ODBC Driver
+    # 18.5.1.1 for SQL Server") or glue them on ("PowerShell 7-x64"). Any
+    # other word names a different product: "Git" must not find
+    # "Git Extensions" or "GitHub Desktop", and "Mozilla Firefox" must not
+    # find "Mozilla Firefox ESR".
+    param(
+        [Parameter(Mandatory)][string]$CMName,
+        [AllowEmptyString()][string]$Title
+    )
+    if ([string]::IsNullOrWhiteSpace($Title) -or [string]::IsNullOrWhiteSpace($CMName)) { return $false }
+    $arch = '(-(x64|x86|arm64|amd64))?'
+    $detail = '^(\([^)]*\)|v?\d[\w.+-]*|x64|x86|arm64|amd64)$'
+    $words = @($CMName.Trim() -split '\s+')
+    $next = 0
+    foreach ($token in @([regex]::Matches($Title, '\([^)]*\)|\S+') | ForEach-Object { $_.Value })) {
+        if ($next -eq $words.Count -and $token -eq '-') { return $true }
+        if ($next -lt $words.Count) {
+            $continuation = if ($words[$next] -match '\d$') { '(\.\d[\w.+-]*)?' } else { '' }
+            if ($token -imatch ('^' + [regex]::Escape($words[$next]) + $continuation + $arch + '$')) { $next++; continue }
+        }
+        if ($token -imatch $detail) { continue }
+        return $false
+    }
+    return ($next -eq $words.Count)
+}
+
+function Test-DiscoveryApplicationManaged {
+    param([string]$CMName, [string[]]$Application)
+    # Every title that the rule accepts contains the first word of CMName;
+    # the substring test skips the per-title rule for all other titles.
+    $first = @($CMName.Trim() -split '\s+')[0]
+    foreach ($title in $Application) {
+        if ([string]::Equals($CMName, $title, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+        if ($title.IndexOf($first, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) { continue }
+        if (Test-MecmApplicationTitle -CMName $CMName -Title $title) { return $true }
+    }
+    return $false
+}
+
+function Measure-DiscoveryClientCount {
+    # Distinct clients over the matched rows. A row built outside
+    # Get-CMInventorySnapshot (or by an earlier import of this module) has no
+    # client set; the result is then at least the largest ClientCount of such
+    # rows, which never overstates the distinct total.
+    param([object[]]$Row)
+    $clients = New-Object 'System.Collections.Generic.HashSet[int]'
+    $floor = 0
+    foreach ($r in $Row) {
+        $set = $null
+        if ($script:RowClients.TryGetValue($r, [ref]$set)) { $clients.UnionWith([System.Collections.Generic.IEnumerable[int]]$set) }
+        elseif ([int]$r.ClientCount -gt $floor) { $floor = [int]$r.ClientCount }
+    }
+    return [Math]::Max($clients.Count, $floor)
+}
+
 function Get-DiscoveryPackagerValue {
     param($Packager, [string]$Name)
     $property = $Packager.PSObject.Properties[$Name]
@@ -430,7 +500,8 @@ function Find-DiscoveryCandidate {
     .SYNOPSIS
         Returns the hidden, not dismissed packagers whose ArpName (and
         ArpVersion and ArpArch, when set) matches at least one inventory row
-        and whose CMName is not a current ConfigMgr Application. ClientCount
+        and whose CMName has no current ConfigMgr Application (the Check
+        ConfigMgr title rule of Test-MecmApplicationTitle). ClientCount
         is the number of distinct clients over the matched rows. Throws when
         a pattern is not a valid wildcard.
     #>
@@ -449,8 +520,7 @@ function Find-DiscoveryCandidate {
     foreach ($s in @($HiddenScript)) { if ($s) { [void]$hidden.Add($s.Trim()) } }
     $dismissed = New-Object System.Collections.Generic.HashSet[string] -ArgumentList $comparer
     foreach ($s in @($DismissedScript)) { if ($s) { [void]$dismissed.Add($s.Trim()) } }
-    $applications = New-Object System.Collections.Generic.HashSet[string] -ArgumentList $comparer
-    foreach ($a in @($Snapshot.Applications)) { if ($a) { [void]$applications.Add(([string]$a).Trim()) } }
+    $applications = @(foreach ($a in @($Snapshot.Applications)) { if ($a) { ([string]$a).Trim() } })
 
     $candidates = foreach ($p in @($Packager)) {
         if (-not $p) { continue }
@@ -458,14 +528,14 @@ function Find-DiscoveryCandidate {
         if (-not $scriptName -or -not $hidden.Contains($scriptName) -or $dismissed.Contains($scriptName)) { continue }
 
         $cmName = ([string]$p.CMName).Trim()
-        if ($cmName -and $applications.Contains($cmName)) { continue }
+        if ($cmName -and (Test-DiscoveryApplicationManaged -CMName $cmName -Application $applications)) { continue }
 
         $patterns = Get-DiscoveryArpPatterns -ArpName (Get-DiscoveryPackagerValue $p 'ArpName') -Script $scriptName
         if ($patterns.Count -eq 0) { continue }
         $versionPatterns = Get-DiscoveryArpPatterns -ArpName (Get-DiscoveryPackagerValue $p 'ArpVersion') -Script $scriptName -Tag 'ArpVersion'
         $arch = Get-DiscoveryPackagerValue $p 'ArpArch'
 
-        $clients = New-Object 'System.Collections.Generic.HashSet[int]'
+        $matched = New-Object System.Collections.Generic.List[object]
         $best = $null
         foreach ($row in $rows) {
             if ($arch -and -not [string]::Equals($arch, [string]$row.Architecture, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
@@ -479,7 +549,7 @@ function Find-DiscoveryCandidate {
             $hit = $false
             foreach ($pattern in $patterns) { if ($pattern.IsMatch($name)) { $hit = $true; break } }
             if (-not $hit) { continue }
-            foreach ($k in @($row.ClientKeys)) { [void]$clients.Add([int]$k) }
+            $matched.Add($row)
             if (-not $best -or [int]$row.ClientCount -gt [int]$best.ClientCount) { $best = $row }
         }
         if (-not $best) { continue }
@@ -488,7 +558,7 @@ function Find-DiscoveryCandidate {
             Script      = $scriptName
             CMName      = $cmName
             Vendor      = [string]$p.Vendor
-            ClientCount = $clients.Count
+            ClientCount = (Measure-DiscoveryClientCount -Row $matched.ToArray())
             MatchedName = [string]$best.DisplayName
         }
     }
@@ -530,5 +600,6 @@ function Get-DiscoveryStatusText {
 }
 
 Export-ModuleMember -Function @(
-    'Resolve-CMDatabaseTarget', 'Get-CMInventorySnapshot', 'Find-DiscoveryCandidate', 'Get-DiscoveryStatusText'
+    'Resolve-CMDatabaseTarget', 'Get-CMInventorySnapshot', 'Find-DiscoveryCandidate', 'Get-DiscoveryStatusText',
+    'Test-MecmApplicationTitle'
 )

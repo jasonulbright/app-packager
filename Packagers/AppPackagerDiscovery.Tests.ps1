@@ -47,17 +47,35 @@ public class DiscoveryTestSqlError : System.Exception {
 
     function New-Snapshot {
         param([object[]]$Rows = @(), [int]$ClientTotal = 4, $InventoryNewest = (Get-Date '2026-10-15T02:55:30'), [string[]]$Applications = @())
-        # The fifth element is either explicit client keys (int[]) or a count
-        # that receives keys no other row shares.
-        $script:NextKey = 1000
-        [pscustomobject]@{
-            Rows            = @($Rows | ForEach-Object {
-                    $keys = if ($_[4] -is [array]) { [int[]]$_[4] } else { [int[]]@(for ($i = 0; $i -lt [int]$_[4]; $i++) { ($script:NextKey++) }) }
-                    [pscustomobject]@{ DisplayName = $_[0]; Publisher = $_[1]; Version = $_[2]; Architecture = $_[3]; ClientCount = $keys.Length; ClientKeys = $keys }
-                })
-            ClientTotal     = $ClientTotal
-            InventoryNewest = $InventoryNewest
-            Applications    = $Applications
+        # Builds the snapshot through Get-CMInventorySnapshot from fixture SQL
+        # rows. The fifth element is either explicit ResourceIDs (int[]) or a
+        # count that receives ResourceIDs no other row shares.
+        $nextId = 1000
+        $script:FixtureArpRows = @(foreach ($r in @($Rows)) {
+                $ids = if ($r[4] -is [array]) { [int[]]$r[4] } else { [int[]]@(for ($i = 0; $i -lt [int]$r[4]; $i++) { ($nextId++) }) }
+                foreach ($id in $ids) { , @($id, $r[0], $r[1], $r[2], $r[3]) }
+            })
+        $script:FixtureClientTotal = $ClientTotal
+        $script:FixtureNewest = if ($null -eq $InventoryNewest) { [DBNull]::Value } else { $InventoryNewest }
+        $script:FixtureApplications = $Applications
+        Mock -ModuleName AppPackagerDiscovery Invoke-DiscoverySqlQuery {
+            New-SnapshotDataSet -ArpRows $script:FixtureArpRows -ClientTotal $script:FixtureClientTotal -Newest $script:FixtureNewest -Applications $script:FixtureApplications
+        }
+        Get-CMInventorySnapshot -Server 's' -Database 'd'
+    }
+
+    function Get-AllValueText {
+        # Every property value of an object graph, as text, depth first.
+        param($Value, [int]$Depth = 0)
+        if ($null -eq $Value -or $Depth -gt 6) { return }
+        if ($Value -is [string] -or $Value -is [ValueType]) { return [string]$Value }
+        if ($Value -is [System.Collections.IEnumerable]) {
+            foreach ($item in $Value) { Get-AllValueText -Value $item -Depth ($Depth + 1) }
+            return
+        }
+        foreach ($p in $Value.PSObject.Properties) {
+            "@name:$($p.Name)"
+            Get-AllValueText -Value $p.Value -Depth ($Depth + 1)
         }
     }
 
@@ -236,7 +254,7 @@ Describe 'Get-CMInventorySnapshot' {
         $script:Captured | Should -Not -Match '(?i)\bName0\b|Netbios|ResourceName|MachineName|User_Name'
     }
 
-    It 'returns ResourceIDs to nobody: rows carry counts and per-snapshot ordinals only' {
+    It 'returns ResourceIDs to nobody: rows carry counts only' {
         Mock -ModuleName AppPackagerDiscovery Invoke-DiscoverySqlQuery {
             New-SnapshotDataSet -ArpRows @(
                 , @(16777301, 'Git', 'Git', '2.51', 'x64')
@@ -248,7 +266,31 @@ Describe 'Get-CMInventorySnapshot' {
         $text | Should -Not -Match '1677730[15]'
         @($s.Rows).Count | Should -Be 1
         $s.Rows[0].ClientCount | Should -Be 2
-        @($s.Rows[0].ClientKeys | Sort-Object) | Should -Be @(0, 1)
+    }
+
+    It 'returns no per-client key in any property of the snapshot or the candidates' {
+        # Client 1 has two entries that the packager matches; client 2 has one.
+        $snap = New-Snapshot -Rows @(
+            , @('Java 8 Update 471', 'Oracle', '8.0.4710', 'x86', @(1, 2))
+            , @('Java 8 Update 471 (64-bit)', 'Oracle', '8.0.4710', 'x64', @(1))
+            , @('Notepad++ (64-bit x64)', 'Notepad++ Team', '8.8', 'x64', @(2))
+        ) -ClientTotal 2
+        $c = @(Find-DiscoveryCandidate -Snapshot $snap -Packager @(New-Packager 'package-java8.ps1' 'Java 8' 'Java 8 Update *') -HiddenScript 'package-java8.ps1')
+        $c.Count | Should -Be 1
+        $c[0].ClientCount | Should -Be 2
+
+        foreach ($object in @($snap) + @($snap.Rows) + $c) {
+            $values = @(Get-AllValueText -Value $object)
+            $values | Should -Not -Contain '@name:ClientKeys'
+            $values | Should -Not -Contain '@name:ResourceID'
+            # Every number in the output is a count or a version, never a list of ordinals per row.
+            foreach ($p in $object.PSObject.Properties) {
+                if ($p.Value -is [System.Collections.IEnumerable] -and $p.Value -isnot [string]) {
+                    @($p.Value | Where-Object { $_ -is [int] -or $_ -is [long] }).Count | Should -Be 0 -Because "property $($p.Name) must not list client keys"
+                }
+            }
+        }
+        @($snap.Rows[0].PSObject.Properties.Name) | Should -Be @('DisplayName', 'Publisher', 'Version', 'Architecture', 'ClientCount')
     }
 
     It 'counts a client once per product row when the query returns the same client twice' {
@@ -306,7 +348,7 @@ Describe 'Get-CMInventorySnapshot' {
         }
         $s = Get-CMInventorySnapshot -Server 's' -Database 'd'
         @($s.PSObject.Properties.Name) | Should -Be @('Rows', 'ClientTotal', 'InventoryNewest', 'Applications')
-        @($s.Rows[0].PSObject.Properties.Name) | Should -Be @('DisplayName', 'Publisher', 'Version', 'Architecture', 'ClientCount', 'ClientKeys')
+        @($s.Rows[0].PSObject.Properties.Name) | Should -Be @('DisplayName', 'Publisher', 'Version', 'Architecture', 'ClientCount')
     }
 
     It 'returns an empty snapshot for zero inventory rows' {
@@ -448,10 +490,37 @@ Describe 'Find-DiscoveryCandidate' {
         @(Find-DiscoveryCandidate -Snapshot $snap -Packager @($p) -HiddenScript 'package-audacity.ps1').Count | Should -Be 0
     }
 
-    It 'keeps a packager whose CMName only partly matches an Application name' {
-        $snap = New-Snapshot -Rows $script:Rows -Applications @('7-Zip 26.03 (x64 edition)')
-        $p = New-Packager 'package-7zip.ps1' '7-Zip' '7-Zip*'
-        @(Find-DiscoveryCandidate -Snapshot $snap -Packager @($p) -HiddenScript 'package-7zip.ps1').Count | Should -Be 1
+    It 'skips <Script> when ConfigMgr has the packaged title <Title>' -ForEach @(
+        @{ Script = 'package-m365apps-x64.ps1'; CMName = 'M365 Apps for Enterprise'; Arp = 'Microsoft 365 Apps for enterprise - *'; Title = 'M365 Apps for Enterprise (x64) (MEC)' }
+        @{ Script = 'package-m365apps-x64.ps1'; CMName = 'M365 Apps for Enterprise'; Arp = 'Microsoft 365 Apps for enterprise - *'; Title = 'M365 Apps for Enterprise - 16.0.19127.20264 (x64) (MEC)' }
+        @{ Script = 'package-audacity.ps1'; CMName = 'Audacity'; Arp = 'Audacity [0-9]*'; Title = 'Audacity 3.7.9' }
+        @{ Script = 'package-7zip.ps1'; CMName = '7-Zip'; Arp = '7-Zip [0-9]*'; Title = '7-Zip' }
+        @{ Script = 'package-7zip.ps1'; CMName = '7-Zip'; Arp = '7-Zip [0-9]*'; Title = '7-zip 26.03 (x64)' }
+        @{ Script = 'package-notepadplusplus.ps1'; CMName = 'Notepad++'; Arp = 'Notepad++ (64-bit x64)'; Title = 'Notepad++ (64-bit x64)' }
+        @{ Script = 'package-firefox.ps1'; CMName = 'Mozilla Firefox'; Arp = 'Mozilla Firefox (x64 *)'; Title = 'Mozilla Firefox (en-US)' }
+    ) {
+        $snap = New-Snapshot -Rows @(
+            , @('Microsoft 365 Apps for enterprise - en-us', 'Microsoft Corporation', '16.0.19127.20264', 'x64', 2)
+            , @('Audacity 3.7.9', 'Audacity Team', '3.7.9', 'x64', 1)
+            , @('7-Zip 26.03 (x64)', 'Igor Pavlov', '26.03', 'x64', 3)
+            , @('Notepad++ (64-bit x64)', 'Notepad++ Team', '8.8', 'x64', 2)
+            , @('Mozilla Firefox (x64 en-US)', 'Mozilla', '144.0', 'x64', 4)
+        ) -Applications @('CMTrace Open', $Title)
+        $p = New-Packager $Script $CMName $Arp
+        @(Find-DiscoveryCandidate -Snapshot $snap -Packager @($p) -HiddenScript $Script).Count | Should -Be 0
+    }
+
+    It 'keeps <Script> when ConfigMgr only has another product that starts with the same words: <Title>' -ForEach @(
+        @{ Script = 'package-git.ps1'; CMName = 'Git'; Arp = 'Git'; Row = 'Git'; Title = 'Git Extensions 4.3' }
+        @{ Script = 'package-git.ps1'; CMName = 'Git'; Arp = 'Git'; Row = 'Git'; Title = 'GitHub Desktop' }
+        @{ Script = 'package-firefox.ps1'; CMName = 'Mozilla Firefox'; Arp = 'Mozilla Firefox (x64 *)'; Row = 'Mozilla Firefox (x64 en-US)'; Title = 'Mozilla Firefox ESR (x64 en-US)' }
+        @{ Script = 'package-m365apps-x64.ps1'; CMName = 'M365 Apps for Enterprise'; Arp = 'Microsoft 365 Apps for enterprise - *'; Row = 'Microsoft 365 Apps for enterprise - en-us'; Title = 'M365 Apps for Enterprise Project (x64)' }
+    ) {
+        $snap = New-Snapshot -Rows @(, @($Row, 'P', '1.0', 'x64', 2)) -Applications @($Title)
+        $p = New-Packager $Script $CMName $Arp
+        $c = @(Find-DiscoveryCandidate -Snapshot $snap -Packager @($p) -HiddenScript $Script)
+        $c.Count | Should -Be 1
+        $c[0].ClientCount | Should -Be 2
     }
 
     It 'returns nothing for zero inventory rows' {
@@ -496,6 +565,18 @@ Describe 'Find-DiscoveryCandidate' {
         $c = @(Find-DiscoveryCandidate -Snapshot $snap -Packager @(New-Packager 'package-java8.ps1' 'Java 8' 'Java 8 Update *') -HiddenScript 'package-java8.ps1')
         $c[0].ClientCount | Should -Be 3
         $c[0].MatchedName | Should -Be 'Java 8 Update 471'
+    }
+
+    It 'never overstates the count for rows that Get-CMInventorySnapshot did not build' {
+        $snap = [pscustomobject]@{
+            Rows         = @(
+                [pscustomobject]@{ DisplayName = 'Java 8 Update 471'; Publisher = 'Oracle'; Version = '8.0.4710'; Architecture = 'x86'; ClientCount = 2 }
+                [pscustomobject]@{ DisplayName = 'Java 8 Update 471 (64-bit)'; Publisher = 'Oracle'; Version = '8.0.4710'; Architecture = 'x64'; ClientCount = 3 }
+            )
+            Applications = @()
+        }
+        $c = @(Find-DiscoveryCandidate -Snapshot $snap -Packager @(New-Packager 'package-java8.ps1' 'Java 8' 'Java 8 Update *') -HiddenScript 'package-java8.ps1')
+        $c[0].ClientCount | Should -Be 3
     }
 
     It 'matches with invariant culture rules' {

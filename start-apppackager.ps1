@@ -1405,19 +1405,22 @@ function Enable-DiscoveredApplication {
 
 function Get-AutoHideOffer {
     # Scripts that the first Check ConfigMgr offers to hide; empty means no
-    # prompt. Any DiscoveryEnabled entry means the Product Filter was in use,
-    # so an empty HiddenApplications list is not a first run and no app that
-    # Discover enabled is offered for hiding.
+    # prompt. Discover can empty HiddenApplications, so the apps it enabled
+    # are never offered for hiding again.
     param([Parameter(Mandatory)]$Prefs, [object[]]$Rows = @())
 
     if (@($Prefs.HiddenApplications | Where-Object { $_ }).Count -gt 0) { return @() }
-    if ($Prefs.PSObject.Properties['DiscoveryEnabled'] -and @($Prefs.DiscoveryEnabled | Where-Object { $_ }).Count -gt 0) { return @() }
 
     $notFound = @(foreach ($item in @($Rows)) {
             if ($item -and [string]$item.Status -eq 'Not found in ConfigMgr') { [string]$item.Script }
         })
     if ($notFound.Count -eq 0 -or $notFound.Count -ge @($Rows).Count) { return @() }
-    return $notFound
+
+    $enabled = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    if ($Prefs.PSObject.Properties['DiscoveryEnabled']) {
+        foreach ($name in @($Prefs.DiscoveryEnabled)) { if ($name) { [void]$enabled.Add([string]$name) } }
+    }
+    return @($notFound | Where-Object { -not $enabled.Contains($_) })
 }
 
 function Add-DiscoveryDismissed {
@@ -1982,38 +1985,6 @@ function Invoke-PackagerGetLatestVersion {
     finally {
         if ($p) { try { $p.Dispose() } catch { } }
     }
-}
-
-function Test-MecmApplicationTitle {
-    # A packaged title holds the words of CMName in order, with only release
-    # details around them: a version, qualifiers in parentheses, an
-    # architecture, and after the last word optionally " - <anything>". A
-    # word of CMName that ends in a number may continue as a version
-    # ("18" as "18.5.1.1") or carry an architecture ("7" as "7-x64"); vendor
-    # product names put these in the middle ("Microsoft ODBC Driver
-    # 18.5.1.1 for SQL Server") or glue them on ("PowerShell 7-x64"). Any
-    # other word names a different product: "Git" must not find
-    # "Git Extensions" or "GitHub Desktop", and "Mozilla Firefox" must not
-    # find "Mozilla Firefox ESR".
-    param(
-        [Parameter(Mandatory)][string]$CMName,
-        [AllowEmptyString()][string]$Title
-    )
-    if ([string]::IsNullOrWhiteSpace($Title) -or [string]::IsNullOrWhiteSpace($CMName)) { return $false }
-    $arch = '(-(x64|x86|arm64|amd64))?'
-    $detail = '^(\([^)]*\)|v?\d[\w.+-]*|x64|x86|arm64|amd64)$'
-    $words = @($CMName.Trim() -split '\s+')
-    $next = 0
-    foreach ($token in @([regex]::Matches($Title, '\([^)]*\)|\S+') | ForEach-Object { $_.Value })) {
-        if ($next -eq $words.Count -and $token -eq '-') { return $true }
-        if ($next -lt $words.Count) {
-            $continuation = if ($words[$next] -match '\d$') { '(\.\d[\w.+-]*)?' } else { '' }
-            if ($token -imatch ('^' + [regex]::Escape($words[$next]) + $continuation + $arch + '$')) { $next++; continue }
-        }
-        if ($token -imatch $detail) { continue }
-        return $false
-    }
-    return ($next -eq $words.Count)
 }
 
 function Get-MecmCurrentVersionByCMName {

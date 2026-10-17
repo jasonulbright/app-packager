@@ -11,7 +11,7 @@
     The GUI lookup (Get-MecmCurrentVersionByCMName) searches for the header
     CMName (default: App) as a Get-CMApplication name, where * is a
     wildcard, and then for "<CMName>*" filtered by Test-MecmApplicationTitle
-    (release details only after CMName). A packager is found only when its
+    (AppPackagerDiscovery module; release details only after CMName). A packager is found only when its
     created name passes one of the two.
 
     The created name is resolved statically from the manifest AppName
@@ -154,12 +154,8 @@ BeforeAll {
         return ,@($out | Select-Object -Unique)
     }
 
-    # The filter under test is the GUI's own function.
-    $guiErrors = $null
-    $guiAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Split-Path -Parent $PSScriptRoot) 'start-apppackager.ps1'), [ref]$null, [ref]$guiErrors)
-    $titleFilter = $guiAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Test-MecmApplicationTitle' }, $false)
-    if (-not $titleFilter) { throw 'Test-MecmApplicationTitle is not defined in start-apppackager.ps1.' }
-    . ([scriptblock]::Create($titleFilter.Extent.Text))
+    # The GUI lookup and Discover both use the module's title rule.
+    Import-Module (Join-Path $script:PackagersRoot 'AppPackagerDiscovery.psd1') -Force
 
     function Get-NameSamples {
         # Concrete titles for a created name. A version segment is a dotted
