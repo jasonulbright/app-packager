@@ -17,6 +17,7 @@
 
 - Check ConfigMgr matches applications by installer method and architecture.
 - Check ConfigMgr treats 64-bit and amd64 as x64, and 32-bit as x86.
+- Read the SQL server name from the SMS Provider over DCOM, then WinRM.
 
 ## [2026.10.14.0118] - 2026-10-14
 

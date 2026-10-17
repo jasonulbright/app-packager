@@ -833,7 +833,7 @@ A client counts once per app, also when it has more than one matching entry. Dis
 - The client settings must collect the hardware inventory classes Add/Remove Programs (`SMS_G_System_ADD_REMOVE_PROGRAMS`) and Add/Remove Programs (64) (`SMS_G_System_ADD_REMOVE_PROGRAMS_64`). Without them the result is "no inventory data", not "nothing found".
 - Hardware inventory reads the machine-wide uninstall keys. A per-user install is not in these views.
 
-Discovery reads the SQL server and the database name from the site. To use a different server or database, set **Discovery SQL** and **Discovery DB** in Options, ConfigMgr Preferences. Leave both empty to use the site values. The database name defaults to `CM_` and the site code.
+Discovery reads the SQL server and the database name from the site. The lookup connects to the SMS Provider over DCOM first, then over WinRM. To use a different server or database, set **Discovery SQL** and **Discovery DB** in Options, ConfigMgr Preferences. Leave both empty to use the site values. The database name defaults to `CM_` and the site code.
 
 ### Security notes
 
