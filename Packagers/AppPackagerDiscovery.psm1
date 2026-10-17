@@ -125,7 +125,7 @@ function Get-DiscoverySiteDefinition {
             return (Get-DiscoveryCimSiteDefinition -CimSession $session -SiteCode $SiteCode)
         }
         catch {
-            Write-Verbose "Site definition lookup over $protocol failed: $($_.Exception.Message)"
+            Write-Verbose "Site definition lookup over $protocol failed."
         }
         finally {
             if ($null -ne $session) { $session.Dispose() }
