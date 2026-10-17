@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.mongodb.com/try/download/compass
 IconSource: External
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: MongoDB Compass
 
 .SYNOPSIS
     Packages MongoDB Compass (x64) MSI for ConfigMgr.

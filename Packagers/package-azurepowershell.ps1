@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: None
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: Microsoft Azure PowerShell - *
 
 .SYNOPSIS
     Packages Azure PowerShell (Az cmdlets, x64) MSI for ConfigMgr.

@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: External
 UpdateCadenceDays: 14
 WsusSupport: Yes
+ArpName: SQL Server Management Studio [0-9]* | Microsoft SQL Server Management Studio - *
 
 .SYNOPSIS
     Packages SQL Server Management Studio 22 for ConfigMgr.

@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.bulkrenameutility.co.uk/Download.php
 IconSource: Installer
 UpdateCadenceDays: 180
 WsusSupport: Yes
+ArpName: Bulk Rename Utility*
 
 .SYNOPSIS
     Packages Bulk Rename Utility (x64) for ConfigMgr.

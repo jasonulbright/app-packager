@@ -8,6 +8,7 @@ DownloadPageUrl: https://github.com/BornToBeRoot/NETworkManager/releases/latest
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: NETworkManager*
 
 .SYNOPSIS
     Packages NETworkManager (x64) MSI for ConfigMgr.

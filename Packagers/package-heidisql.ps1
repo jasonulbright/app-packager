@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.heidisql.com/download.php
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: HeidiSQL*
 
 .SYNOPSIS
     Packages HeidiSQL (x64) Inno Setup installer for ConfigMgr.

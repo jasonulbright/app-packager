@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/microsoft/PowerToys/releases
 SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: Installer
 WsusSupport: Yes
+ArpName: PowerToys*
 
 .SYNOPSIS
     Packages Microsoft PowerToys for ConfigMgr.

@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.thunderbird.net/en-US/
 SecurityAdvisoryUrl: https://www.mozilla.org/en-US/security/known-vulnerabilities/thunderbird/
 IconSource: External
 WsusSupport: Yes
+ArpName: Mozilla Thunderbird (x64 *) | Mozilla Thunderbird [0-9]* x64 *
 
 .SYNOPSIS
     Packages Mozilla Thunderbird (x64) MSI for ConfigMgr.

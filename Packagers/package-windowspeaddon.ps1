@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: External
 UpdateCadenceDays: 180
 WsusSupport: No (DetectionNotMappable|PayloadInSubfolder)
+ArpName: Windows Assessment and Deployment Kit Windows Preinstallation Environment Add-ons*
 
 .SYNOPSIS
     Packages the Windows PE add-on for the Windows ADK for ConfigMgr as an

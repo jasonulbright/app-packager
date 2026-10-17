@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.wibu.com/us/support/user/downloads-user-software.ht
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: CodeMeter Runtime Kit*
 
 .SYNOPSIS
     Packages the CodeMeter Runtime Kit (x64) for ConfigMgr.

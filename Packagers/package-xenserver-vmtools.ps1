@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.xenserver.com/downloads
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: XenServer VM Tools*
 
 .SYNOPSIS
     Packages XenServer VM Tools for Windows (x64) MSI for ConfigMgr.

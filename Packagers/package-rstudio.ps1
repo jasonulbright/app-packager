@@ -9,6 +9,7 @@ DownloadPageUrl: https://posit.co/download/rstudio-desktop/
 IconSource: Installer
 SupportsInstallModes: CurrentUser, AllUsers
 WsusSupport: No (DetectionNotMappable)
+ArpName: RStudio
 
 .SYNOPSIS
     Packages RStudio Desktop (x64) for ConfigMgr.

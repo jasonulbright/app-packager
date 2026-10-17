@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.videolan.org/vlc/
 SecurityAdvisoryUrl: https://www.videolan.org/security/
 IconSource: Installer
 WsusSupport: Yes
+ArpName: VLC media player
 
 .SYNOPSIS
     Packages VLC Media Player (x64) MSI for ConfigMgr.

@@ -9,6 +9,7 @@ DownloadPageUrl: https://unity.com/download
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: Unity Hub*
 
 .SYNOPSIS
     Packages Unity Hub (x64) for ConfigMgr.

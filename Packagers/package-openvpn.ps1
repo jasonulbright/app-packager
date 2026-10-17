@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://openvpn.net/security-advisories/
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: OpenVPN | OpenVPN [0-9]*
 
 .SYNOPSIS
     Packages the OpenVPN community client (x64 MSI) for ConfigMgr.

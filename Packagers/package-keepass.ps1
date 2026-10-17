@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://keepass.info/news/news_all.html
 DownloadPageUrl: https://keepass.info/download.html
 IconSource: Installer
 WsusSupport: Yes
+ArpName: KeePass [0-9]* | KeePass Password Safe [0-9]*
 
 .SYNOPSIS
     Packages KeePass 2.x MSI for ConfigMgr.

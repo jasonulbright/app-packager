@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.yubico.com/products/yubico-authenticator/
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Yubico Authenticator*
 
 .SYNOPSIS
     Packages Yubico Authenticator (x64) MSI for ConfigMgr.

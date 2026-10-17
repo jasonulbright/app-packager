@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: Installer
 UpdateCadenceDays: 45
 WsusSupport: No (DetectionNotMappable)
+ArpName: Microsoft Azure Storage Explorer*
 
 .SYNOPSIS
     Packages Microsoft Azure Storage Explorer (x64) for ConfigMgr.

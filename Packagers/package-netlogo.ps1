@@ -8,6 +8,7 @@ DownloadPageUrl: https://www.netlogo.org/download/
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: NetLogo [0-9]*
 
 .SYNOPSIS
     Packages NetLogo (x64) MSI for ConfigMgr.

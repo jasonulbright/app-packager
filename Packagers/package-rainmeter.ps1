@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.rainmeter.net/
 IconSource: Installer
 UpdateCadenceDays: 180
 WsusSupport: No (DetectionNotMappable)
+ArpName: Rainmeter
 
 .SYNOPSIS
     Packages Rainmeter (x64) for ConfigMgr.

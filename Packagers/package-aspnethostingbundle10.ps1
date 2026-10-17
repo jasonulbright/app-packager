@@ -9,6 +9,7 @@ DownloadPageUrl: https://dotnet.microsoft.com/en-us/download/dotnet/10.0
 SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: None
 WsusSupport: Yes
+ArpName: Microsoft .NET 10.* - Windows Server Hosting
 
 .SYNOPSIS
     Packages ASP.NET 10 Server Hosting Bundle for ConfigMgr.

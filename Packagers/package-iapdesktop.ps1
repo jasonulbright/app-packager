@@ -9,6 +9,7 @@ DownloadPageUrl: https://googlecloudplatform.github.io/iap-desktop/install/
 IconSource: Installer
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: IAP Desktop*
 
 .SYNOPSIS
     Packages IAP Desktop (x64) MSI for ConfigMgr.

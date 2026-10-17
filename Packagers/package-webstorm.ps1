@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.jetbrains.com/webstorm/download/?section=windows
 SecurityAdvisoryUrl: https://www.jetbrains.com/privacy-security/issues-fixed/
 UpdateCadenceDays: 60
 WsusSupport: No (DetectionNotMappable)
+ArpName: WebStorm [0-9]*
 
 .SYNOPSIS
     Packages WebStorm (x64) for ConfigMgr.

@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.pdfforge.org/pdfcreator/download
 IconSource: External
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: PDFCreator
 
 .SYNOPSIS
     Packages PDFCreator Free (x64) for ConfigMgr.

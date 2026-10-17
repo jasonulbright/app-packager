@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.jabra.com/software-and-services/jabra-direct
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: Yes
+ArpName: Jabra Direct
 
 .SYNOPSIS
     Packages Jabra Direct for ConfigMgr.

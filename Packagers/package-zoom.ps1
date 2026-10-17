@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://www.zoom.com/en/trust/security-bulletin/
 IconSource: Installer
 UpdateCadenceDays: 14
 WsusSupport: Yes
+ArpName: Zoom Workplace* | Zoom | Zoom (64-bit) | Zoom (32-bit)
 
 .SYNOPSIS
     Packages Zoom Workplace (x64) MSI for ConfigMgr.

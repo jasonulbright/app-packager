@@ -9,6 +9,7 @@ DownloadPageUrl: https://zulip.com/apps/windows
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Zulip
 
 .SYNOPSIS
     Packages Zulip Desktop (x64) MSI for ConfigMgr.

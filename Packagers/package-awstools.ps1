@@ -9,6 +9,7 @@ DownloadPageUrl: https://aws.amazon.com/powershell/
 IconSource: None
 UpdateCadenceDays: 180
 WsusSupport: Yes
+ArpName: AWS Tools for Windows*
 
 .SYNOPSIS
     Packages AWS Tools for Windows (x64) MSI for ConfigMgr.

@@ -9,6 +9,7 @@ DownloadPageUrl: https://pandoc.org/installing.html
 IconSource: None
 UpdateCadenceDays: 45
 WsusSupport: Yes
+ArpName: Pandoc*
 
 .SYNOPSIS
     Packages Pandoc (x64) MSI for ConfigMgr.

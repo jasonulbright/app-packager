@@ -9,6 +9,7 @@ DownloadPageUrl: https://docs.aws.amazon.com/redshift/latest/mgmt/odbc20-install
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Amazon Redshift ODBC Driver*
 
 .SYNOPSIS
     Packages the Amazon Redshift ODBC driver (64-bit) MSI for ConfigMgr.

@@ -9,6 +9,7 @@ DownloadPageUrl: https://docs.aws.amazon.com/systems-manager/latest/userguide/in
 IconSource: None
 UpdateCadenceDays: 60
 WsusSupport: No (DetectionNotMappable)
+ArpName: Session Manager Plugin*
 
 .SYNOPSIS
     Packages the AWS Session Manager Plugin for ConfigMgr.

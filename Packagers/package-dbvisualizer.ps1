@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.dbvis.com/download/
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: DbVisualizer*
 
 .SYNOPSIS
     Packages DbVisualizer (x64, bundled JRE) for ConfigMgr.

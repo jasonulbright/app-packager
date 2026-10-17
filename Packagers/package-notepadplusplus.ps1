@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://notepad-plus-plus.org/news/
 DownloadPageUrl: https://notepad-plus-plus.org/downloads/
 IconSource: Installer
 WsusSupport: Yes
+ArpName: Notepad++ (64-bit x64)
 
 .SYNOPSIS
     Packages Notepad++ (x64) for ConfigMgr.

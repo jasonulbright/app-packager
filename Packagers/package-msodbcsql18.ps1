@@ -9,6 +9,7 @@ DownloadPageUrl: https://learn.microsoft.com/en-us/sql/connect/odbc/download-odb
 SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: External
 WsusSupport: Yes
+ArpName: Microsoft ODBC Driver 18 for SQL Server
 
 .SYNOPSIS
     Packages Microsoft ODBC Driver 18 for SQL Server (x64) for ConfigMgr.

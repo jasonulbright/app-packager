@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://www.ccleaner.com/knowledge/ccleaner-security-adviso
 IconSource: Installer
 UpdateCadenceDays: 30
 WsusSupport: No (CustomInstall)
+ArpName: CCleaner | CCleaner [0-9]*
 
 .SYNOPSIS
     Packages CCleaner Free for ConfigMgr.

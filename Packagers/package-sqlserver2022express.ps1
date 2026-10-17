@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: External
 UpdateCadenceDays: 180
 WsusSupport: No (CustomInstall)
+ArpName: none
 
 .SYNOPSIS
     Packages Microsoft SQL Server 2022 Express (x64) for ConfigMgr.

@@ -9,6 +9,7 @@ DownloadPageUrl: https://developers.yubico.com/yubikey-manager/Releases/
 IconSource: None
 UpdateCadenceDays: 120
 WsusSupport: Yes
+ArpName: YubiKey Manager CLI*
 
 .SYNOPSIS
     Packages YubiKey Manager CLI (ykman, x64) MSI for ConfigMgr.

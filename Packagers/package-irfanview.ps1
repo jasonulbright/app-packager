@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.irfanview.info/64bit.htm
 IconSource: External
 UpdateCadenceDays: 180
 WsusSupport: Yes
+ArpName: IrfanView [0-9]*
 
 .SYNOPSIS
     Packages IrfanView (x64) for ConfigMgr.

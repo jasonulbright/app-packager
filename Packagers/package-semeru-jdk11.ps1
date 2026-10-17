@@ -9,6 +9,7 @@ DownloadPageUrl: https://developer.ibm.com/languages/java/semeru-runtimes/downlo
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: IBM Semeru Runtime Open Edition (JDK) 11.* (x64)
 
 .SYNOPSIS
     Packages IBM Semeru Runtime Open Edition JDK 11 (x64) MSI for ConfigMgr.

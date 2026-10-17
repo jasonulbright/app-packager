@@ -9,6 +9,7 @@ DownloadPageUrl: https://bell-sw.com/pages/downloads/#jdk-21-lts
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Liberica JDK 21*
 
 .SYNOPSIS
     Packages BellSoft Liberica JDK 21 (x64) MSI for ConfigMgr.

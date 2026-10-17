@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://www.postman.com/trust/security/
 IconSource: Installer
 UpdateCadenceDays: 14
 WsusSupport: No (PerUserInstall|CustomInstall)
+ArpName: none
 
 .SYNOPSIS
     Packages the Postman desktop app for ConfigMgr user-context deployment.

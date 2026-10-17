@@ -9,6 +9,7 @@ DownloadPageUrl: https://brave.com/download/
 IconSource: Installer
 UpdateCadenceDays: 14
 WsusSupport: Yes
+ArpName: Brave | Brave Browser
 
 .SYNOPSIS
     Packages Brave Browser (x64) for ConfigMgr.

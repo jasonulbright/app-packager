@@ -10,6 +10,7 @@ IconSource: External
 UpdateCadenceDays: 90
 SupportsVariants: Architecture
 WsusSupport: Yes
+ArpName: 7-Zip [0-9]*
 
 .SYNOPSIS
     Packages 7-Zip (x64) MSI for ConfigMgr, optionally with an ARM64 variant.

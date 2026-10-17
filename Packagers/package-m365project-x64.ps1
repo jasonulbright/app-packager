@@ -10,6 +10,7 @@ SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide
 IconSource: External
 SupportsVariants: Network
 WsusSupport: No (InstallerTypeUnsupported)
+ArpName: Microsoft Project - * | Microsoft Project Online Desktop Client - *
 
 .SYNOPSIS
     Packages M365 Project (x64) for ConfigMgr using the Office Deployment Tool.

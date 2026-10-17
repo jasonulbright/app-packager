@@ -9,6 +9,7 @@ DownloadPageUrl: https://uvnc.com/downloads/ultravnc.html
 IconSource: Installer
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: UltraVNC*
 
 .SYNOPSIS
     Packages UltraVNC (x64) for ConfigMgr.

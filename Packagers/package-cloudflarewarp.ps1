@@ -9,6 +9,7 @@ DownloadPageUrl: https://developers.cloudflare.com/warp-client/get-started/windo
 IconSource: Installer
 UpdateCadenceDays: 30
 WsusSupport: Yes
+ArpName: Cloudflare WARP | Cloudflare One Client
 
 .SYNOPSIS
     Packages the Cloudflare WARP client (x64) MSI for ConfigMgr.

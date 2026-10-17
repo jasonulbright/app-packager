@@ -8,6 +8,7 @@ DownloadPageUrl: https://developer.salesforce.com/tools/salesforcecli
 IconSource: Installer
 UpdateCadenceDays: 14
 WsusSupport: Yes
+ArpName: @salesforce/cli*
 
 .SYNOPSIS
     Packages Salesforce CLI (sf, x64) for ConfigMgr.

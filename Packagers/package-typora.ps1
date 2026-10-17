@@ -9,6 +9,7 @@ DownloadPageUrl: https://typora.io/#windows
 IconSource: External
 UpdateCadenceDays: 90
 WsusSupport: Yes
+ArpName: Typora*
 
 .SYNOPSIS
     Packages Typora (x64) for ConfigMgr.

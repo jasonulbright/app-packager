@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://adoptium.net/temurin/release-notes/
 DownloadPageUrl: https://adoptium.net/temurin/releases/
 IconSource: Installer
 WsusSupport: Yes
+ArpName: Eclipse Temurin JRE with Hotspot 11.* (x64)
 
 .SYNOPSIS
     Packages Eclipse Temurin JRE 11 (x64) MSI for ConfigMgr.

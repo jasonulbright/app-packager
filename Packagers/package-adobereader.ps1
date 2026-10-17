@@ -8,6 +8,7 @@ ReleaseNotesUrl: https://www.adobe.com/devnet-docs/acrobatetk/tools/ReleaseNotes
 DownloadPageUrl: https://www.adobe.com/acrobat/pdf-reader.html
 IconSource: Installer
 WsusSupport: Yes
+ArpName: Adobe Acrobat Reader*
 RequiresTools: 7-Zip
 
 .SYNOPSIS

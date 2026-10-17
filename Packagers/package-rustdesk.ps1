@@ -9,6 +9,7 @@ DownloadPageUrl: https://github.com/rustdesk/rustdesk/releases
 IconSource: Installer
 UpdateCadenceDays: 60
 WsusSupport: No (DetectionNotMappable)
+ArpName: RustDesk
 
 .SYNOPSIS
     Packages RustDesk (x64) MSI for ConfigMgr.

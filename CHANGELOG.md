@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+## 296 packagers matched against hardware inventory
+
+### Added
+
+- Add Discover unmanaged software to find hidden apps that clients run without a ConfigMgr application.
+- Show found apps in the grid with Enable selected or Enable all.
+- Keep apps out of later discoveries with Don't ask again for these.
+- Add Discovery SQL and Discovery DB overrides to Options, ConfigMgr Preferences.
+- Add the ArpName header tag to every packager.
+
 ## [2026.10.14.0118] - 2026-10-14
 
 ### Fixed
