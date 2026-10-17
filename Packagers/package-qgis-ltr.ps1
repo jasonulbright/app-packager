@@ -9,7 +9,7 @@ DownloadPageUrl: https://qgis.org/download/
 IconSource: External
 UpdateCadenceDays: 30
 WsusSupport: Yes
-ArpName: QGIS [0-9]*
+ArpName: none
 
 .SYNOPSIS
     Packages QGIS (x64, long term release channel) for ConfigMgr.

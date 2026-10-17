@@ -9,6 +9,7 @@ IconSource: Installer
 UpdateCadenceDays: 14
 WsusSupport: Yes
 ArpName: @salesforce/cli*
+ArpArch: x86
 
 .SYNOPSIS
     Packages Salesforce CLI (sf, x64) for ConfigMgr.

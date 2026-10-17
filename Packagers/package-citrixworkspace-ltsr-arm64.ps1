@@ -11,7 +11,7 @@ IconSource: Installer
 UpdateCadenceDays: 90
 LocalSource: Required
 WsusSupport: Yes
-ArpName: Citrix Workspace [0-9]*
+ArpName: none
 
 .SYNOPSIS
     Packages Citrix Workspace app for Windows, LTSR (ARM64), for ConfigMgr.
