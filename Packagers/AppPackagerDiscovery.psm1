@@ -454,6 +454,18 @@ function Test-MecmQualifierWord {
     return (($Word -replace $script:MecmQualifierPattern, '') -replace '[\s()+,/]', '').Length -eq 0
 }
 
+function Test-MecmQualifierEqual {
+    # True when the token carries every qualifier class of the word with the
+    # same normalized values, so "(x64)" equals "(64-bit)".
+    param([string]$Word, [string]$Token)
+    $wordQualifier = Get-MecmTitleQualifier $Word
+    $tokenQualifier = Get-MecmTitleQualifier $Token
+    foreach ($class in $wordQualifier.Keys) {
+        if (-not $tokenQualifier.ContainsKey($class) -or -not $tokenQualifier[$class].SetEquals($wordQualifier[$class])) { return $false }
+    }
+    return $true
+}
+
 function Get-MecmApplicationNamePattern {
     <#
     .SYNOPSIS
@@ -511,6 +523,9 @@ function Test-MecmApplicationTitle {
     foreach ($token in @([regex]::Matches($Title, $script:MecmTitleTokenPattern) | ForEach-Object { $_.Value })) {
         if ($next -eq $words.Count -and $token -eq '-') { return $true }
         if ($next -lt $words.Count) {
+            if ((Test-MecmQualifierWord $words[$next]) -and (Test-MecmQualifierWord $token)) {
+                if (Test-MecmQualifierEqual -Word $words[$next] -Token $token) { $next++; continue }
+            }
             $continuation = if ($words[$next] -match '\d$') { '(\.\d[\w.+-]*)?' } else { '' }
             if ($token -imatch ('^' + [regex]::Escape($words[$next]) + $continuation + $arch + '$')) { $next++; continue }
         }

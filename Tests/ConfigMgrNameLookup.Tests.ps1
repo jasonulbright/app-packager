@@ -276,6 +276,26 @@ Describe 'ConfigMgr name lookup matches the Package phase name' {
         Test-MecmApplicationTitle -CMName 'Firefox' -Title 'Firefox (en-US)' | Should -BeTrue
     }
 
+    It 'accepts an architecture alias for the CMName architecture in either direction' {
+        Test-MecmApplicationTitle -CMName 'Eclipse Temurin JDK 11 (x64)' -Title 'Eclipse Temurin JDK 11 (64-bit)' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Eclipse Temurin JDK 11 (64-bit)' -Title 'Eclipse Temurin JDK 11 (x64)' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Eclipse Temurin JDK 11 (x64)' -Title 'Eclipse Temurin JDK 11 (amd64) 11.0.25' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Eclipse Temurin JDK 11 (amd64)' -Title 'Eclipse Temurin JDK 11 (64-bit)' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Eclipse Temurin JDK 11 (x86)' -Title 'Eclipse Temurin JDK 11 (32-bit)' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Eclipse Temurin JDK 11 (32-bit)' -Title 'Eclipse Temurin JDK 11 (x86)' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Microsoft Visual C++ v14 Redistributable (x86+x64)' -Title 'Microsoft Visual C++ v14 Redistributable (32-bit+64-bit) - 14.44' | Should -BeTrue
+    }
+
+    It 'rejects a different architecture or installer method written as an alias' {
+        Test-MecmApplicationTitle -CMName 'Eclipse Temurin JDK 11 (x64)' -Title 'Eclipse Temurin JDK 11 (x86)' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Eclipse Temurin JDK 11 (64-bit)' -Title 'Eclipse Temurin JDK 11 (32-bit)' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Eclipse Temurin JDK 11 (32-bit)' -Title 'Eclipse Temurin JDK 11 (amd64)' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Eclipse Temurin JDK 11 (x86)' -Title 'Eclipse Temurin JDK 11 (64-bit)' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Microsoft OpenJDK 17 (exe)' -Title 'Microsoft OpenJDK 17 (MSI)' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Microsoft OpenJDK 17 (MSI)' -Title 'Microsoft OpenJDK 17 (exe)' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Microsoft OpenJDK 17 (EXE) (x64)' -Title 'Microsoft OpenJDK 17 (EXE) (32-bit)' | Should -BeFalse
+    }
+
     It 'finds the created title of every packager whose CMName carries an installer method or architecture' {
         $qualified = @($script:Audit | Where-Object { $_.Created -and $_.CMName -match '(?i)(?<![a-z0-9])(exe|msi|x64|x86|arm64|amd64|32-bit|64-bit)(?![a-z0-9])' })
         $qualified.Count | Should -BeGreaterThan 30
