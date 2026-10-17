@@ -4,7 +4,7 @@ BeforeAll {
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($script:GuiPath, [ref]$t, [ref]$e)
     if ($e) { throw ($e.Message -join '; ') }
     foreach ($name in 'Read-Preferences', 'Resolve-FirstRunCompleted', 'Get-SidebarSystemState', 'Get-DiscoveryPackagerInput',
-        'Invoke-DiscoveryScan', 'Enable-DiscoveredApplication', 'Add-DiscoveryDismissed', 'Get-DiscoveryPromptText', 'Get-AutoHideOffer') {
+        'Invoke-DiscoveryScan', 'Enable-DiscoveredApplication', 'Add-DiscoveryDismissed', 'Get-DiscoveryPromptText', 'Get-AutoHideOffer', 'Resolve-DiscoveryButton') {
         $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
         if (-not $fn) { throw "function $name not found" }
         . ([scriptblock]::Create($fn.Extent.Text))
@@ -199,6 +199,63 @@ Describe 'Enabling discovered applications' {
         $added = Add-DiscoveryDismissed -Prefs $prefs -Script @('package-git.ps1', 'package-7zip.ps1', 'PACKAGE-7ZIP.ps1')
         $added | Should -Be 1
         $prefs.DiscoveryDismissed | Should -Be @('package-git.ps1', 'package-7zip.ps1')
+    }
+
+    It 'keeps DiscoveryEnabled and DiscoveryDismissed disjoint when a script is dismissed' {
+        $prefs = [pscustomobject]@{ HiddenApplications = @('package-7zip.ps1'); DiscoveryDismissed = @(); DiscoveryEnabled = @('package-git.ps1', 'package-vlc.ps1') }
+        [void](Add-DiscoveryDismissed -Prefs $prefs -Script @('PACKAGE-GIT.ps1', 'package-7zip.ps1'))
+        $prefs.DiscoveryEnabled | Should -Be @('package-vlc.ps1')
+        $prefs.DiscoveryDismissed | Should -Be @('PACKAGE-GIT.ps1', 'package-7zip.ps1')
+    }
+
+    It 'keeps DiscoveryEnabled and DiscoveryDismissed disjoint when a script is enabled' {
+        $prefs = [pscustomobject]@{ HiddenApplications = @('package-git.ps1', 'package-7zip.ps1'); DiscoveryDismissed = @('package-git.ps1', 'package-vlc.ps1') }
+        [void](Enable-DiscoveredApplication -Prefs $prefs -Script @('PACKAGE-GIT.ps1'))
+        $prefs.DiscoveryDismissed | Should -Be @('package-vlc.ps1')
+        @($prefs.DiscoveryEnabled) | Should -Be @('package-git.ps1')
+    }
+}
+
+Describe 'Discovery prompt buttons' {
+    BeforeAll {
+        function New-PromptRows {
+            @(
+                [pscustomobject]@{ Selected = $true; Script = 'package-edge.ps1' }
+                [pscustomobject]@{ Selected = $false; Script = 'package-git.ps1' }
+                [pscustomobject]@{ Selected = $true; Script = 'package-vcredist.ps1' }
+            )
+        }
+    }
+
+    It 'Dismiss returns only the checked scripts' {
+        $choice = Resolve-DiscoveryButton -Button Dismiss -Rows (New-PromptRows)
+        $choice.Action | Should -Be 'Dismiss'
+        $choice.Scripts | Should -Be @('package-edge.ps1', 'package-vcredist.ps1')
+        $choice.Note | Should -BeNullOrEmpty
+    }
+
+    It '<Button> with nothing checked returns no action and a plain note' -ForEach @(
+        @{ Button = 'Dismiss'; Expected = 'Check the apps to leave out of later discoveries. Nothing changed.' }
+        @{ Button = 'EnableSelected'; Expected = 'Check at least one app, or click Enable all.' }
+    ) {
+        $rows = New-PromptRows
+        foreach ($r in $rows) { $r.Selected = $false }
+        $choice = Resolve-DiscoveryButton -Button $Button -Rows $rows
+        $choice.Action | Should -BeNullOrEmpty
+        @($choice.Scripts).Count | Should -Be 0
+        $choice.Note | Should -BeExactly $Expected
+    }
+
+    It 'EnableSelected returns only the checked scripts' {
+        $choice = Resolve-DiscoveryButton -Button EnableSelected -Rows (New-PromptRows)
+        $choice.Action | Should -Be 'EnableSelected'
+        $choice.Scripts | Should -Be @('package-edge.ps1', 'package-vcredist.ps1')
+    }
+
+    It 'EnableAll returns every script whether or not it is checked' {
+        $choice = Resolve-DiscoveryButton -Button EnableAll -Rows (New-PromptRows)
+        $choice.Action | Should -Be 'EnableAll'
+        $choice.Scripts | Should -Be @('package-edge.ps1', 'package-git.ps1', 'package-vcredist.ps1')
     }
 }
 
