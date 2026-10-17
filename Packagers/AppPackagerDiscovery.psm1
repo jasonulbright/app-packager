@@ -1,15 +1,8 @@
 #Requires -Version 5.1
 <#
-    Discovery of unmanaged software. Reads Add or Remove Programs inventory
-    and the current ConfigMgr Applications from the site database with one
-    read-only, parameterized query over the v_ views, and matches hidden
-    packagers against the result. No WPF and no ConfigMgr cmdlets: the GUI
-    runs these functions off the UI thread and builds the prompt from the
-    returned objects.
-
     The site database views are outside ConfigMgr role-based administration.
-    Every result here is a count per product; no function returns a client
-    machine name.
+    No function returns a client machine name or a ResourceID: client
+    identity leaves Get-CMInventorySnapshot only as per-snapshot ordinals.
 #>
 
 Set-StrictMode -Version 2.0
@@ -17,24 +10,28 @@ Set-StrictMode -Version 2.0
 $script:DiscoveryInventoryQuery = @'
 SET NOCOUNT ON;
 
-SELECT arp.DisplayName0 AS DisplayName, arp.Publisher0 AS Publisher, arp.Version0 AS Version,
-       @Arch32 AS Architecture, COUNT(DISTINCT arp.ResourceID) AS ClientCount
+SELECT DISTINCT arp.ResourceID, arp.DisplayName0 AS DisplayName, arp.Publisher0 AS Publisher,
+       arp.Version0 AS Version, @Arch32 AS Architecture
 FROM dbo.v_GS_ADD_REMOVE_PROGRAMS AS arp
+JOIN dbo.v_R_System AS sys ON sys.ResourceID = arp.ResourceID
 WHERE arp.DisplayName0 IS NOT NULL AND arp.DisplayName0 <> N''
-GROUP BY arp.DisplayName0, arp.Publisher0, arp.Version0
+  AND ISNULL(sys.Obsolete0, 0) = 0 AND ISNULL(sys.Decommissioned0, 0) = 0
 UNION ALL
-SELECT arp64.DisplayName0, arp64.Publisher0, arp64.Version0,
-       @Arch64, COUNT(DISTINCT arp64.ResourceID)
+SELECT DISTINCT arp64.ResourceID, arp64.DisplayName0, arp64.Publisher0,
+       arp64.Version0, @Arch64
 FROM dbo.v_GS_ADD_REMOVE_PROGRAMS_64 AS arp64
+JOIN dbo.v_R_System AS sys64 ON sys64.ResourceID = arp64.ResourceID
 WHERE arp64.DisplayName0 IS NOT NULL AND arp64.DisplayName0 <> N''
-GROUP BY arp64.DisplayName0, arp64.Publisher0, arp64.Version0;
+  AND ISNULL(sys64.Obsolete0, 0) = 0 AND ISNULL(sys64.Decommissioned0, 0) = 0;
 
 SELECT COUNT(DISTINCT inv.ResourceID) AS ClientTotal, MAX(inv.TimeStamp) AS InventoryNewest
 FROM (
     SELECT ResourceID, TimeStamp FROM dbo.v_GS_ADD_REMOVE_PROGRAMS
     UNION ALL
     SELECT ResourceID, TimeStamp FROM dbo.v_GS_ADD_REMOVE_PROGRAMS_64
-) AS inv;
+) AS inv
+JOIN dbo.v_R_System AS invsys ON invsys.ResourceID = inv.ResourceID
+WHERE ISNULL(invsys.Obsolete0, 0) = 0 AND ISNULL(invsys.Decommissioned0, 0) = 0;
 
 SELECT DISTINCT app.DisplayName
 FROM dbo.v_Applications AS app
@@ -102,16 +99,23 @@ function Resolve-CMDatabaseTarget {
         database default. Throws a plain message when no server is known.
     #>
     param(
-        [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9]{3}$')][string]$SiteCode,
+        [AllowEmptyString()][AllowNull()][ValidatePattern('^(?:[A-Za-z0-9]{3})?$')][string]$SiteCode = '',
         [string]$ServerOverride = '',
         [string]$DatabaseOverride = '',
         [string]$ProviderMachineName = ''
     )
 
-    $code = $SiteCode.ToUpperInvariant()
+    $code = ([string]$SiteCode).ToUpperInvariant()
     $server = ([string]$ServerOverride).Trim()
     $database = ([string]$DatabaseOverride).Trim()
     $lookupError = ''
+
+    if ($server -and $database) {
+        return [pscustomobject]@{ Server = $server; Database = $database }
+    }
+    if (-not $code) {
+        throw 'A site code or SQL overrides are required. Set the site code, or the SQL server and database, in Options, ConfigMgr Preferences.'
+    }
 
     if (-not $server -or -not $database) {
         $provider = ([string]$ProviderMachineName).Trim()
@@ -120,7 +124,7 @@ function Resolve-CMDatabaseTarget {
         $definition = $null
         if ($provider) {
             try { $definition = Get-DiscoverySiteDefinition -ProviderMachineName $provider -SiteCode $code }
-            catch { $lookupError = "the SMS Provider $provider did not return the site definition: $($_.Exception.Message)" }
+            catch { $lookupError = "the SMS Provider $provider did not return the site definition" }
         }
         else {
             $lookupError = 'no SMS Provider is configured'
@@ -323,14 +327,50 @@ function Get-CMInventorySnapshot {
         throw "The site database query on $Server returned an unexpected result."
     }
 
-    $rows = New-Object System.Collections.Generic.List[object]
+    $ordinalByResource = New-Object 'System.Collections.Generic.Dictionary[long,int]'
+    $groups = New-Object 'System.Collections.Generic.Dictionary[string,object]' -ArgumentList ([System.StringComparer]::Ordinal)
+    $order = New-Object System.Collections.Generic.List[string]
     foreach ($r in $dataSet.Tables[0].Rows) {
+        $resource = Get-DiscoveryCellValue $r 'ResourceID'
+        if ($null -eq $resource) { continue }
+        $resourceId = [long]$resource
+        $ordinal = 0
+        if (-not $ordinalByResource.TryGetValue($resourceId, [ref]$ordinal)) {
+            $ordinal = $ordinalByResource.Count
+            $ordinalByResource[$resourceId] = $ordinal
+        }
+        $name = [string](Get-DiscoveryCellValue $r 'DisplayName')
+        $publisher = [string](Get-DiscoveryCellValue $r 'Publisher')
+        $version = [string](Get-DiscoveryCellValue $r 'Version')
+        $architecture = [string](Get-DiscoveryCellValue $r 'Architecture')
+        $key = $name + [char]0 + $publisher + [char]0 + $version + [char]0 + $architecture
+        $group = $null
+        if (-not $groups.TryGetValue($key, [ref]$group)) {
+            $group = [pscustomobject]@{
+                DisplayName  = $name
+                Publisher    = $publisher
+                Version      = $version
+                Architecture = $architecture
+                Clients      = New-Object 'System.Collections.Generic.HashSet[int]'
+            }
+            $groups[$key] = $group
+            $order.Add($key)
+        }
+        [void]$group.Clients.Add($ordinal)
+    }
+
+    $rows = New-Object System.Collections.Generic.List[object]
+    foreach ($key in $order) {
+        $group = $groups[$key]
+        $keys = New-Object int[] $group.Clients.Count
+        $group.Clients.CopyTo($keys)
         $rows.Add([pscustomobject]@{
-                DisplayName  = [string](Get-DiscoveryCellValue $r 'DisplayName')
-                Publisher    = [string](Get-DiscoveryCellValue $r 'Publisher')
-                Version      = [string](Get-DiscoveryCellValue $r 'Version')
-                Architecture = [string](Get-DiscoveryCellValue $r 'Architecture')
-                ClientCount  = [int](Get-DiscoveryCellValue $r 'ClientCount')
+                DisplayName  = $group.DisplayName
+                Publisher    = $group.Publisher
+                Version      = $group.Version
+                Architecture = $group.Architecture
+                ClientCount  = $keys.Length
+                ClientKeys   = $keys
             })
     }
 
@@ -361,29 +401,38 @@ function Get-CMInventorySnapshot {
 # ---------------------------------------------------------------------------
 
 function Get-DiscoveryArpPatterns {
-    param($ArpName)
+    param($ArpName, [string]$Script = '', [string]$Tag = 'ArpName')
+    $options = [System.Management.Automation.WildcardOptions]::IgnoreCase -bor [System.Management.Automation.WildcardOptions]::CultureInvariant
     $patterns = New-Object System.Collections.Generic.List[System.Management.Automation.WildcardPattern]
     foreach ($value in @($ArpName)) {
         foreach ($part in ([string]$value -split '\|')) {
             $text = $part.Trim()
             if (-not $text -or $text -eq 'none') { continue }
-            $pattern = New-Object System.Management.Automation.WildcardPattern -ArgumentList $text, ([System.Management.Automation.WildcardOptions]::IgnoreCase)
+            $pattern = New-Object System.Management.Automation.WildcardPattern -ArgumentList $text, $options
+            # WildcardPattern parses on first use; an unclosed [ throws there.
             try { [void]$pattern.IsMatch('') }
-            catch {
-                $pattern = New-Object System.Management.Automation.WildcardPattern -ArgumentList ([System.Management.Automation.WildcardPattern]::Escape($text)), ([System.Management.Automation.WildcardOptions]::IgnoreCase)
-            }
+            catch { throw "Packager $Script has a $Tag pattern that is not a valid wildcard: $text" }
             $patterns.Add($pattern)
         }
     }
     return , $patterns.ToArray()
 }
 
+function Get-DiscoveryPackagerValue {
+    param($Packager, [string]$Name)
+    $property = $Packager.PSObject.Properties[$Name]
+    if (-not $property -or $null -eq $property.Value) { return '' }
+    return ([string]$property.Value).Trim()
+}
+
 function Find-DiscoveryCandidate {
     <#
     .SYNOPSIS
-        Returns the hidden, not dismissed packagers whose ArpName matches at
-        least one inventory row and whose CMName is not a current ConfigMgr
-        Application. ClientCount is the sum over matched rows.
+        Returns the hidden, not dismissed packagers whose ArpName (and
+        ArpVersion and ArpArch, when set) matches at least one inventory row
+        and whose CMName is not a current ConfigMgr Application. ClientCount
+        is the number of distinct clients over the matched rows. Throws when
+        a pattern is not a valid wildcard.
     #>
     param(
         [Parameter(Mandatory)]$Snapshot,
@@ -411,19 +460,26 @@ function Find-DiscoveryCandidate {
         $cmName = ([string]$p.CMName).Trim()
         if ($cmName -and $applications.Contains($cmName)) { continue }
 
-        $arpProperty = $p.PSObject.Properties['ArpName']
-        if (-not $arpProperty) { continue }
-        $patterns = Get-DiscoveryArpPatterns -ArpName $arpProperty.Value
+        $patterns = Get-DiscoveryArpPatterns -ArpName (Get-DiscoveryPackagerValue $p 'ArpName') -Script $scriptName
         if ($patterns.Count -eq 0) { continue }
+        $versionPatterns = Get-DiscoveryArpPatterns -ArpName (Get-DiscoveryPackagerValue $p 'ArpVersion') -Script $scriptName -Tag 'ArpVersion'
+        $arch = Get-DiscoveryPackagerValue $p 'ArpArch'
 
-        $count = 0
+        $clients = New-Object 'System.Collections.Generic.HashSet[int]'
         $best = $null
         foreach ($row in $rows) {
+            if ($arch -and -not [string]::Equals($arch, [string]$row.Architecture, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+            if ($versionPatterns.Count -gt 0) {
+                $version = [string]$row.Version
+                $versionHit = $false
+                foreach ($pattern in $versionPatterns) { if ($pattern.IsMatch($version)) { $versionHit = $true; break } }
+                if (-not $versionHit) { continue }
+            }
             $name = [string]$row.DisplayName
             $hit = $false
             foreach ($pattern in $patterns) { if ($pattern.IsMatch($name)) { $hit = $true; break } }
             if (-not $hit) { continue }
-            $count += [int]$row.ClientCount
+            foreach ($k in @($row.ClientKeys)) { [void]$clients.Add([int]$k) }
             if (-not $best -or [int]$row.ClientCount -gt [int]$best.ClientCount) { $best = $row }
         }
         if (-not $best) { continue }
@@ -432,12 +488,12 @@ function Find-DiscoveryCandidate {
             Script      = $scriptName
             CMName      = $cmName
             Vendor      = [string]$p.Vendor
-            ClientCount = $count
+            ClientCount = $clients.Count
             MatchedName = [string]$best.DisplayName
         }
     }
 
-    @($candidates) | Sort-Object -Property CMName
+    if ($candidates) { @($candidates) | Sort-Object -Property CMName }
 }
 
 # ---------------------------------------------------------------------------
