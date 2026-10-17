@@ -2,7 +2,7 @@ BeforeAll {
     $t = $null; $e = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\start-apppackager.ps1'), [ref]$t, [ref]$e)
     if ($e) { throw ($e.Message -join '; ') }
-    foreach ($name in 'Get-SidebarSystemState', 'Invoke-DiscoveryScan') {
+    foreach ($name in 'Get-SidebarSystemState', 'Invoke-DiscoveryScan', 'Resolve-DiscoveryProviderName') {
         $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
         if (-not $fn) { throw "function $name not found" }
         . ([scriptblock]::Create($fn.Extent.Text))
@@ -68,5 +68,32 @@ Describe 'Discover button rule and the scan agree on the SQL target' {
         $scan.Ok | Should -BeTrue
         Should -Invoke -ModuleName AppPackagerDiscovery Get-DiscoverySiteDefinition -Times 1 -ParameterFilter { $ProviderMachineName -eq 'cm02.contoso.com' }
         Should -Invoke -ModuleName AppPackagerDiscovery Get-DiscoveryProviderMachineName -Times 0
+    }
+}
+
+Describe 'Discover provider name' {
+    It 'uses the stored preference, trimmed, without reading the site drive' {
+        Mock Get-PSDrive { throw 'must not be called' }
+        Resolve-DiscoveryProviderName -Preference ' cm02.contoso.com ' -SiteCode 'MCM' | Should -Be 'cm02.contoso.com'
+        Should -Invoke Get-PSDrive -Times 0
+    }
+
+    It 'uses the root of the site code CMSite drive when the preference is empty' {
+        Mock Get-PSDrive {
+            @([pscustomobject]@{ Name = 'LAB'; Root = 'lab01.contoso.com' }, [pscustomobject]@{ Name = 'MCM'; Root = ' cm01.contoso.com ' })
+        } -ParameterFilter { $PSProvider -eq 'CMSite' }
+        Resolve-DiscoveryProviderName -Preference '' -SiteCode 'MCM' | Should -Be 'cm01.contoso.com'
+    }
+
+    It 'uses the first CMSite drive when no drive has the site code' {
+        Mock Get-PSDrive { @([pscustomobject]@{ Name = 'LAB'; Root = 'lab01.contoso.com' }) } -ParameterFilter { $PSProvider -eq 'CMSite' }
+        Resolve-DiscoveryProviderName -Preference '   ' -SiteCode 'MCM' | Should -Be 'lab01.contoso.com'
+    }
+
+    It 'returns an empty name when no CMSite drive exists or the provider is not loaded' {
+        Mock Get-PSDrive { } -ParameterFilter { $PSProvider -eq 'CMSite' }
+        Resolve-DiscoveryProviderName -Preference '' -SiteCode 'MCM' | Should -Be ''
+        Mock Get-PSDrive { throw 'Cannot find a provider with the name CMSite.' } -ParameterFilter { $PSProvider -eq 'CMSite' }
+        Resolve-DiscoveryProviderName -Preference $null -SiteCode '' | Should -Be ''
     }
 }
