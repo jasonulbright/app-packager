@@ -535,8 +535,7 @@ function Test-DiscoveryApplicationManaged {
 
 function Measure-DiscoveryClientCount {
     # Distinct clients over the matched rows. A row built outside
-    # Get-CMInventorySnapshot (or by an earlier import of this module) has no
-    # client set; the result is then at least the largest ClientCount of such
+    # Get-CMInventorySnapshot has no client set; the result is then at least the largest ClientCount of such
     # rows, which never overstates the distinct total.
     param([object[]]$Row)
     $clients = New-Object 'System.Collections.Generic.HashSet[int]'
