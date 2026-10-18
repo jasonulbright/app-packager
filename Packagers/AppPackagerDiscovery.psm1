@@ -525,13 +525,18 @@ function Test-MecmApplicationTitle {
     #>
     # A packaged title holds the words of CMName in order, with only release
     # details around them: a version, qualifiers in parentheses, an
-    # architecture, and after the last word optionally " - <anything>". A
+    # architecture, and after the last word optionally " - <detail>", where
+    # the first token of <detail> is a version (a digit, v and a digit, or
+    # "Latest"), a parenthetical or a qualifier word, and any text may follow
+    # it. When the last word continues as a version right before the dash,
+    # <detail> is free: the vendor title "Microsoft .NET 8.0.31 - Windows
+    # Server Hosting" names the variant after the version. A
     # word of CMName that ends in a number may continue as a version
     # ("18" as "18.5.1.1") or carry an architecture ("7" as "7-x64"); vendor
     # product names put these in the middle ("Microsoft ODBC Driver
     # 18.5.1.1 for SQL Server") or glue them on ("PowerShell 7-x64"). Any
     # other word names a different product: "Git" must not find
-    # "Git Extensions" or "GitHub Desktop", and "Mozilla Firefox" must not
+    # "Git Extensions", "Git - Extensions" or "GitHub Desktop", and "Mozilla Firefox" must not
     # find "Mozilla Firefox ESR".
     # Installer method (EXE, MSI) and architecture are variant classes. When
     # CMName and the title both carry a class, the values must be equal, or
@@ -558,14 +563,25 @@ function Test-MecmApplicationTitle {
         })
     if ($words.Count -eq 0) { $words = $allWords }
     $next = 0
+    $afterDash = $false
+    $lastContinued = $false
     foreach ($token in @([regex]::Matches($Title, $script:MecmTitleTokenPattern) | ForEach-Object { $_.Value })) {
-        if ($next -eq $words.Count -and $token -eq '-') { return $true }
+        if ($afterDash) { return (($token -match '^(\(|v?\d|latest$)') -or (Test-MecmQualifierWord $token)) }
+        if ($next -eq $words.Count -and $token -eq '-') {
+            if ($lastContinued) { return $true }
+            $afterDash = $true; continue
+        }
+        $lastContinued = $false
         if ($next -lt $words.Count) {
             if ((Test-MecmQualifierWord $words[$next]) -and (Test-MecmQualifierWord $token)) {
                 if (Test-MecmQualifierEqual -Word $words[$next] -Token $token) { $next++; continue }
             }
             $continuation = if ($words[$next] -match '\d$') { '(\.\d[\w.+-]*)?' } else { '' }
-            if ($token -imatch ('^' + [regex]::Escape($words[$next]) + $continuation + $arch + '$')) { $next++; continue }
+            if ($token -imatch ('^' + [regex]::Escape($words[$next]) + $continuation + $arch + '$')) {
+                $next++
+                $lastContinued = ($next -eq $words.Count -and $continuation -and $token -imatch ('^' + [regex]::Escape($words[$next - 1]) + '\.\d'))
+                continue
+            }
         }
         if ($token -imatch $detail) { continue }
         return $false
