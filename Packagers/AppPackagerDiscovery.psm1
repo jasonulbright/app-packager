@@ -462,13 +462,23 @@ function Get-DiscoveryArpPatterns {
 
 $script:MecmQualifierPattern = '(?i)(?<![a-z0-9])(exe|msi|x64|x86|arm64|amd64|32-bit|64-bit)(?![a-z0-9])'
 $script:MecmTitleTokenPattern = '\([^)]*\)|\S+'
+# A "." suffix group must not start with a digit, or "2.3D" passes as "2" plus ".3D".
+$script:MecmVersionPattern = 'v?\d+(\.\d+)*([-+_]\w+|\.[a-z_]\w*)*'
+# PowerShell -match, -like and -replace fold case with the current culture;
+# under tr-TR "MSI" does not match "msi".
+$script:MecmRegexOptions = [System.Text.RegularExpressions.RegexOptions]'IgnoreCase, CultureInvariant'
+
+function Test-MecmMatch {
+    param([string]$Text, [string]$Pattern)
+    return [regex]::IsMatch($Text, $Pattern, $script:MecmRegexOptions)
+}
 
 function Get-MecmTitleQualifier {
     # Class name -> sorted distinct values. amd64 and 64-bit are x64;
     # 32-bit is x86.
     param([string]$Text)
     $classes = @{}
-    foreach ($m in [regex]::Matches([string]$Text, $script:MecmQualifierPattern)) {
+    foreach ($m in [regex]::Matches([string]$Text, $script:MecmQualifierPattern, $script:MecmRegexOptions)) {
         $value = $m.Value.ToLowerInvariant()
         $class = 'arch'
         switch ($value) {
@@ -488,8 +498,8 @@ function Test-MecmQualifierWord {
     # True when the word holds only installer-method and architecture
     # qualifiers: "(x64)", "(EXE)", "(x86+x64)", "ARM64".
     param([string]$Word)
-    if ($Word -notmatch $script:MecmQualifierPattern) { return $false }
-    return (($Word -replace $script:MecmQualifierPattern, '') -replace '[\s()+,/]', '').Length -eq 0
+    if (-not (Test-MecmMatch $Word $script:MecmQualifierPattern)) { return $false }
+    return ([regex]::Replace([regex]::Replace($Word, $script:MecmQualifierPattern, '', $script:MecmRegexOptions), '[\s()+,/]', '')).Length -eq 0
 }
 
 function Test-MecmQualifierEqual {
@@ -525,13 +535,19 @@ function Test-MecmApplicationTitle {
     #>
     # A packaged title holds the words of CMName in order, with only release
     # details around them: a version, qualifiers in parentheses, an
-    # architecture, and after the last word optionally " - <anything>". A
+    # architecture, and after the last word optionally " - <detail>", where
+    # the first token of <detail> is a whole version ("26.03", "v2",
+    # "1.2.3-beta", or "Latest"), a parenthetical or a qualifier word, and
+    # any text may follow it. "2FA" or "3D" is a word, not a version. When
+    # the last word continues as a dotted version right before the dash,
+    # <detail> may also be "Windows Server Hosting" followed only by release
+    # details: the vendor title of the ASP.NET hosting bundle. A
     # word of CMName that ends in a number may continue as a version
     # ("18" as "18.5.1.1") or carry an architecture ("7" as "7-x64"); vendor
     # product names put these in the middle ("Microsoft ODBC Driver
     # 18.5.1.1 for SQL Server") or glue them on ("PowerShell 7-x64"). Any
     # other word names a different product: "Git" must not find
-    # "Git Extensions" or "GitHub Desktop", and "Mozilla Firefox" must not
+    # "Git Extensions", "Git - Extensions" or "GitHub Desktop", and "Mozilla Firefox" must not
     # find "Mozilla Firefox ESR".
     # Installer method (EXE, MSI) and architecture are variant classes. When
     # CMName and the title both carry a class, the values must be equal, or
@@ -549,7 +565,8 @@ function Test-MecmApplicationTitle {
         if ($titleQualifier.ContainsKey($class) -and -not $titleQualifier[$class].SetEquals($nameQualifier[$class])) { return $false }
     }
     $arch = '(-(x64|x86|arm64|amd64))?'
-    $detail = '^(\([^)]*\)|v?\d[\w.+-]*|x64|x86|arm64|amd64)$'
+    $detail = '^(\([^)]*\)|' + $script:MecmVersionPattern + '|x64|x86|arm64|amd64)$'
+    $dashDetail = '^(' + $script:MecmVersionPattern + '|\([^)]*\)|latest)$'
     $allWords = @([regex]::Matches($CMName.Trim(), $script:MecmTitleTokenPattern) | ForEach-Object { $_.Value })
     $words = @($allWords | Where-Object {
             if (-not (Test-MecmQualifierWord $_)) { return $true }
@@ -558,16 +575,35 @@ function Test-MecmApplicationTitle {
         })
     if ($words.Count -eq 0) { $words = $allWords }
     $next = 0
-    foreach ($token in @([regex]::Matches($Title, $script:MecmTitleTokenPattern) | ForEach-Object { $_.Value })) {
-        if ($next -eq $words.Count -and $token -eq '-') { return $true }
+    $lastContinued = $false
+    $tokens = @([regex]::Matches($Title, $script:MecmTitleTokenPattern) | ForEach-Object { $_.Value })
+    for ($i = 0; $i -lt $tokens.Count; $i++) {
+        $token = $tokens[$i]
+        if ($next -eq $words.Count -and $token -eq '-') {
+            $rest = @($tokens | Select-Object -Skip ($i + 1))
+            if ($rest.Count -eq 0) { return $false }
+            if ($lastContinued -and $rest.Count -ge 3 -and [string]::Equals(($rest[0..2] -join ' '), 'Windows Server Hosting', [System.StringComparison]::OrdinalIgnoreCase)) {
+                foreach ($tail in @($rest | Select-Object -Skip 3)) { if (-not (Test-MecmMatch $tail $detail)) { return $false } }
+                return $true
+            }
+            if (Test-MecmMatch $rest[0] $dashDetail) { return $true }
+            # Test-MecmQualifierWord ignores parentheses, so an unclosed "(x64" passes it.
+            return ((Test-MecmQualifierWord $rest[0]) -and $rest[0].IndexOfAny([char[]]'()') -lt 0)
+        }
+        $lastContinued = $false
         if ($next -lt $words.Count) {
             if ((Test-MecmQualifierWord $words[$next]) -and (Test-MecmQualifierWord $token)) {
                 if (Test-MecmQualifierEqual -Word $words[$next] -Token $token) { $next++; continue }
             }
-            $continuation = if ($words[$next] -match '\d$') { '(\.\d[\w.+-]*)?' } else { '' }
-            if ($token -imatch ('^' + [regex]::Escape($words[$next]) + $continuation + $arch + '$')) { $next++; continue }
+            $continuation = if ([regex]::IsMatch($words[$next], '\d$')) { '(?<version>(\.\d+)+([-+_]\w+|\.[a-z_]\w*)*)?' } else { '' }
+            $wordMatch = [regex]::Match($token, ('^' + [regex]::Escape($words[$next]) + $continuation + $arch + '$'), $script:MecmRegexOptions)
+            if ($wordMatch.Success) {
+                $next++
+                $lastContinued = ($next -eq $words.Count -and $wordMatch.Groups['version'].Success)
+                continue
+            }
         }
-        if ($token -imatch $detail) { continue }
+        if (Test-MecmMatch $token $detail) { continue }
         return $false
     }
     return ($next -eq $words.Count)

@@ -233,6 +233,122 @@ Describe 'ConfigMgr name lookup matches the Package phase name' {
         Test-MecmApplicationTitle -CMName 'Microsoft Edge' -Title 'Microsoft Edge WebView2 Runtime' | Should -BeFalse
     }
 
+    It 'accepts after a dash only a version, a parenthetical or a qualifier word' {
+        Test-MecmApplicationTitle -CMName '7-Zip' -Title '7-Zip (x64 edition) - 26.03' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'M365 Apps for Enterprise' -Title 'M365 Apps for Enterprise (x64) (MEC)' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - 1.2.3' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - v2' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - V2' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - x64' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - 64-bit' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - msi' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - (en-US)' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Git' -Title 'Git - Extensions' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - Bar' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - Pro 2' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - version' | Should -BeFalse
+    }
+
+    It 'accepts after a dash only a closed parenthetical' {
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - (MEC)' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - (open' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - (x64' | Should -BeFalse
+    }
+
+    It 'matches titles with invariant culture rules under tr-TR' {
+        $before = [System.Threading.Thread]::CurrentThread.CurrentCulture
+        try {
+            [System.Threading.Thread]::CurrentThread.CurrentCulture = [System.Globalization.CultureInfo]::GetCultureInfo('tr-TR')
+            Test-MecmApplicationTitle -CMName 'Microsoft Foo' -Title 'MICROSOFT FOO - 1.2' | Should -BeTrue
+            Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - MSI' | Should -BeTrue
+            Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - X64 build' | Should -BeTrue
+            Test-MecmApplicationTitle -CMName 'Foo' -Title 'FOO - LATEST' | Should -BeTrue
+            Test-MecmApplicationTitle -CMName 'Microsoft .NET 8' -Title 'MICROSOFT .NET 8.0.31 - WINDOWS SERVER HOSTING' | Should -BeTrue
+            Test-MecmApplicationTitle -CMName 'Microsoft OpenJDK 17 (MSI)' -Title 'Microsoft OpenJDK 17 (msi) 17.0.12' | Should -BeTrue
+            Test-MecmApplicationTitle -CMName 'Microsoft OpenJDK 17 (EXE)' -Title 'MICROSOFT OPENJDK 17 (MSI)' | Should -BeFalse
+            Test-MecmApplicationTitle -CMName 'Git' -Title 'GIT - EXTENSIONS' | Should -BeFalse
+            Test-MecmApplicationTitle -CMName 'Foo' -Title 'FOO - 2FA TOOL' | Should -BeFalse
+            Test-MecmApplicationTitle -CMName 'Microsoft .NET 8' -Title 'MICROSOFT .NET 8.0.31 - DESKTOP RUNTIME' | Should -BeFalse
+            Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo -' | Should -BeFalse
+            Get-MecmApplicationNamePattern -CMName 'Amazon Corretto 11 (X64)' | Should -Be 'Amazon*Corretto*11*'
+            Get-MecmApplicationNamePattern -CMName 'Microsoft OpenJDK 17 (MSI)' | Should -Be 'Microsoft*OpenJDK*17*'
+        }
+        finally { [System.Threading.Thread]::CurrentThread.CurrentCulture = $before }
+    }
+
+    It 'folds case like a .NET regex with IgnoreCase and CultureInvariant' {
+        $dottedCapitalI = [string][char]0x130
+        $dotlessI = [string][char]0x131
+        $sharpS = [string][char]0xDF
+        $capitalSharpS = [string][char]0x1E9E
+        Test-MecmApplicationTitle -CMName $dottedCapitalI -Title 'i' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'i' -Title $dottedCapitalI | Should -BeFalse
+        Test-MecmApplicationTitle -CMName $dotlessI -Title 'I' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'I' -Title $dotlessI | Should -BeFalse
+        Test-MecmApplicationTitle -CMName $sharpS -Title 'SS' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'ss' -Title $sharpS | Should -BeFalse
+        # .NET Framework has no case pair for U+00DF and U+1E9E; .NET does.
+        Test-MecmApplicationTitle -CMName $sharpS -Title $capitalSharpS | Should -Be ($PSVersionTable.PSEdition -eq 'Core')
+    }
+
+    It 'accepts only a whole version as a release detail without a dash' {
+        Test-MecmApplicationTitle -CMName 'Git' -Title 'Git 2FA' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Git' -Title 'Git 3D' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo 7zip' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo 2.3D' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Microsoft .NET 8' -Title 'Microsoft .NET 8.0.31 - Windows Server Hosting 2FA' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo 1.2.3.beta' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo v2 1.2.3-rc1' | Should -BeTrue
+    }
+
+    It 'accepts only numeric dotted groups as the version that continues the last CMName word' {
+        Test-MecmApplicationTitle -CMName 'Foo 2' -Title 'Foo 2.3D - Windows Server Hosting' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Foo 2' -Title 'Foo 2.3x - Windows Server Hosting' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Foo 2' -Title 'Foo 2.3D' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Foo 2' -Title 'Foo 2.3.1-beta' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Foo 17' -Title 'Foo 17.0.16+8' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Microsoft .NET 8' -Title 'Microsoft .NET 8.0.31 - Windows Server Hosting' | Should -BeTrue
+    }
+
+    It 'rejects a title that ends in a bare dash' {
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo -' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - ' | Should -BeFalse
+    }
+
+    It 'accepts after a dash only a whole version shape, not a word that starts with a digit' {
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - 26.03' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - 1.2.3-beta' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - 2024.1' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - 1.2.3+build_7' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - 2FA Tool' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - 3D Viewer' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Git' -Title 'Git - 3D Viewer' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - 7zip' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - v2beta' | Should -BeFalse
+    }
+
+    It 'accepts Latest as the version after a dash' {
+        Test-MecmApplicationTitle -CMName 'M365 Apps for Enterprise' -Title 'M365 Apps for Enterprise - Latest (x64) (MEC)' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'M365 Visio' -Title 'M365 Visio - latest (x86) (Current)' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - Latest' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Foo' -Title 'Foo - Latestware' | Should -BeFalse
+    }
+
+    It 'accepts Windows Server Hosting after a dash only when the last CMName word continues as a version before it' {
+        Test-MecmApplicationTitle -CMName 'Microsoft .NET 8' -Title 'Microsoft .NET 8.0.31 - Windows Server Hosting' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Microsoft .NET 10' -Title 'Microsoft .NET 10.0.12 - Windows Server Hosting' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Microsoft .NET 8' -Title 'Microsoft .NET 8.0.31 - windows server hosting (x64)' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Microsoft .NET 8' -Title 'Microsoft .NET 8.0.31 - Windows Server Hosting 8.0.31.26421' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Microsoft .NET 8' -Title 'Microsoft .NET 8.0.31 - 8.0.31.26421' | Should -BeTrue
+        Test-MecmApplicationTitle -CMName 'Microsoft .NET 8' -Title 'Microsoft .NET 8.0.31 - Desktop Runtime' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Microsoft .NET 8' -Title 'Microsoft .NET 8.0.31 - Windows Server' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Microsoft .NET 8' -Title 'Microsoft .NET 8.0.31 - Windows Server Hosting Tools' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Foo 2' -Title 'Foo 2.1 - Pro' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Microsoft .NET 8' -Title 'Microsoft .NET 8 - Windows Server Hosting' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Microsoft .NET 8' -Title 'Microsoft .NET 8.0.31 (x64) - Windows Server Hosting' | Should -BeFalse
+        Test-MecmApplicationTitle -CMName 'Foo 2' -Title 'Foo 2 - Pro' | Should -BeFalse
+    }
+
     It 'finds vendor titles with the version in the middle or the architecture glued on' {
         Test-MecmApplicationTitle -CMName 'PowerShell 7' -Title 'PowerShell 7-x64' | Should -BeTrue
         Test-MecmApplicationTitle -CMName 'PowerShell 7' -Title 'PowerShell 7.5.3' | Should -BeTrue

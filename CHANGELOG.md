@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Treat a ConfigMgr title with an unrelated word after a dash as another application.
+
 ## [2026.10.17.0119] - 2026-10-17
 
 ## 287 packagers matched against hardware inventory
