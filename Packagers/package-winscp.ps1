@@ -112,10 +112,10 @@ function Get-LatestWinSCPVersion {
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch WinSCP downloads page: $url" }
 
         $version = $null
-        if ($html -match 'Download\s+WinSCP\s+([0-9]+\.[0-9]+\.[0-9]+)') {
+        if ($html -match 'Download\s+WinSCP\s+([0-9]+\.[0-9]+(?:\.[0-9]+)?)') {
             $version = $matches[1]
         }
-        elseif ($html -match 'WinSCP-([0-9]+\.[0-9]+\.[0-9]+)-Setup\.exe') {
+        elseif ($html -match 'WinSCP-([0-9]+\.[0-9]+(?:\.[0-9]+)?)-Setup\.exe') {
             $version = $matches[1]
         }
 
