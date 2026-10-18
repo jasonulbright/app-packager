@@ -462,13 +462,23 @@ function Get-DiscoveryArpPatterns {
 
 $script:MecmQualifierPattern = '(?i)(?<![a-z0-9])(exe|msi|x64|x86|arm64|amd64|32-bit|64-bit)(?![a-z0-9])'
 $script:MecmTitleTokenPattern = '\([^)]*\)|\S+'
+# A "." suffix group must not start with a digit, or "2.3D" passes as "2" plus ".3D".
+$script:MecmVersionPattern = 'v?\d+(\.\d+)*([-+_]\w+|\.[a-z_]\w*)*'
+# PowerShell -match, -like and -replace fold case with the current culture;
+# under tr-TR "MSI" does not match "msi".
+$script:MecmRegexOptions = [System.Text.RegularExpressions.RegexOptions]'IgnoreCase, CultureInvariant'
+
+function Test-MecmMatch {
+    param([string]$Text, [string]$Pattern)
+    return [regex]::IsMatch($Text, $Pattern, $script:MecmRegexOptions)
+}
 
 function Get-MecmTitleQualifier {
     # Class name -> sorted distinct values. amd64 and 64-bit are x64;
     # 32-bit is x86.
     param([string]$Text)
     $classes = @{}
-    foreach ($m in [regex]::Matches([string]$Text, $script:MecmQualifierPattern)) {
+    foreach ($m in [regex]::Matches([string]$Text, $script:MecmQualifierPattern, $script:MecmRegexOptions)) {
         $value = $m.Value.ToLowerInvariant()
         $class = 'arch'
         switch ($value) {
@@ -488,8 +498,8 @@ function Test-MecmQualifierWord {
     # True when the word holds only installer-method and architecture
     # qualifiers: "(x64)", "(EXE)", "(x86+x64)", "ARM64".
     param([string]$Word)
-    if ($Word -notmatch $script:MecmQualifierPattern) { return $false }
-    return (($Word -replace $script:MecmQualifierPattern, '') -replace '[\s()+,/]', '').Length -eq 0
+    if (-not (Test-MecmMatch $Word $script:MecmQualifierPattern)) { return $false }
+    return ([regex]::Replace([regex]::Replace($Word, $script:MecmQualifierPattern, '', $script:MecmRegexOptions), '[\s()+,/]', '')).Length -eq 0
 }
 
 function Test-MecmQualifierEqual {
@@ -555,7 +565,8 @@ function Test-MecmApplicationTitle {
         if ($titleQualifier.ContainsKey($class) -and -not $titleQualifier[$class].SetEquals($nameQualifier[$class])) { return $false }
     }
     $arch = '(-(x64|x86|arm64|amd64))?'
-    $detail = '^(\([^)]*\)|v?\d[\w.+-]*|x64|x86|arm64|amd64)$'
+    $detail = '^(\([^)]*\)|' + $script:MecmVersionPattern + '|x64|x86|arm64|amd64)$'
+    $dashDetail = '^(' + $script:MecmVersionPattern + '|\([^)]*\)|latest)$'
     $allWords = @([regex]::Matches($CMName.Trim(), $script:MecmTitleTokenPattern) | ForEach-Object { $_.Value })
     $words = @($allWords | Where-Object {
             if (-not (Test-MecmQualifierWord $_)) { return $true }
@@ -571,27 +582,28 @@ function Test-MecmApplicationTitle {
         if ($next -eq $words.Count -and $token -eq '-') {
             $rest = @($tokens | Select-Object -Skip ($i + 1))
             if ($rest.Count -eq 0) { return $false }
-            if ($lastContinued -and $rest.Count -ge 3 -and (($rest[0..2] -join ' ') -ieq 'Windows Server Hosting')) {
-                foreach ($tail in @($rest | Select-Object -Skip 3)) { if ($tail -inotmatch $detail) { return $false } }
+            if ($lastContinued -and $rest.Count -ge 3 -and [string]::Equals(($rest[0..2] -join ' '), 'Windows Server Hosting', [System.StringComparison]::OrdinalIgnoreCase)) {
+                foreach ($tail in @($rest | Select-Object -Skip 3)) { if (-not (Test-MecmMatch $tail $detail)) { return $false } }
                 return $true
             }
-            if ($rest[0] -imatch '^(v?\d+(\.\d+)*([-+._]\w+)*|\([^)]*\)|latest)$') { return $true }
+            if (Test-MecmMatch $rest[0] $dashDetail) { return $true }
             # Test-MecmQualifierWord ignores parentheses, so an unclosed "(x64" passes it.
-            return ((Test-MecmQualifierWord $rest[0]) -and $rest[0] -notmatch '[()]')
+            return ((Test-MecmQualifierWord $rest[0]) -and $rest[0].IndexOfAny([char[]]'()') -lt 0)
         }
         $lastContinued = $false
         if ($next -lt $words.Count) {
             if ((Test-MecmQualifierWord $words[$next]) -and (Test-MecmQualifierWord $token)) {
                 if (Test-MecmQualifierEqual -Word $words[$next] -Token $token) { $next++; continue }
             }
-            $continuation = if ($words[$next] -match '\d$') { '(\.\d[\w.+-]*)?' } else { '' }
-            if ($token -imatch ('^' + [regex]::Escape($words[$next]) + $continuation + $arch + '$')) {
+            $continuation = if ([regex]::IsMatch($words[$next], '\d$')) { '(?<version>(\.\d+)+([-+_]\w+|\.[a-z_]\w*)*)?' } else { '' }
+            $wordMatch = [regex]::Match($token, ('^' + [regex]::Escape($words[$next]) + $continuation + $arch + '$'), $script:MecmRegexOptions)
+            if ($wordMatch.Success) {
                 $next++
-                $lastContinued = ($next -eq $words.Count -and $continuation -and $token -imatch ('^' + [regex]::Escape($words[$next - 1]) + '\.\d'))
+                $lastContinued = ($next -eq $words.Count -and $wordMatch.Groups['version'].Success)
                 continue
             }
         }
-        if ($token -imatch $detail) { continue }
+        if (Test-MecmMatch $token $detail) { continue }
         return $false
     }
     return ($next -eq $words.Count)
