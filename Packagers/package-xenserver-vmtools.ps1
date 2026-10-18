@@ -104,7 +104,7 @@ if ($StageOnly -and $PackageOnly) {
 # --- Configuration ---
 $DownloadPageUrl = "https://www.xenserver.com/downloads"
 $MsiUrlPattern   = 'https://downloads\.xenserver\.com/vm-tools-windows/[^"'']+\.msi'
-$VersionPattern  = 'vm-tools-windows/(\d+\.\d+\.\d+)/'
+$VersionPattern  = 'vm-tools-windows/(\d+\.\d+\.\d+(?:\.\d+)?)/'
 
 # The agent updates itself out of band unless both properties are set; a
 # self-updated agent no longer matches the packaged version ConfigMgr detects.

@@ -2,12 +2,13 @@
 
 ## [2026.10.18.0120] - 2026-10-18
 
-## 2 fixes
+## 3 fixes
 
 ### Fixed
 
 - Treat a ConfigMgr title with an unrelated word after a dash as another application.
-- Read WinSCP versions with two parts from the downloads page.
+- Read and stage WinSCP versions with two parts.
+- Read XenServer VM Tools versions with four parts from the downloads page.
 
 ## [2026.10.17.0119] - 2026-10-17
 
