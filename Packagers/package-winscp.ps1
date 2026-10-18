@@ -249,8 +249,8 @@ function Invoke-StageWinSCP {
     $version = Get-LatestWinSCPVersion
     if (-not $version) { throw "Could not resolve WinSCP version." }
 
-    if ($version -notmatch '^\d+\.\d+\.\d+$') {
-        throw "Parsed version '$version' does not look like x.y.z"
+    if ($version -notmatch '^\d+\.\d+(\.\d+)?$') {
+        throw "Parsed version '$version' does not look like x.y or x.y.z"
     }
 
     $installerFileName = "WinSCP-$version-Setup.exe"
