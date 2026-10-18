@@ -526,11 +526,12 @@ function Test-MecmApplicationTitle {
     # A packaged title holds the words of CMName in order, with only release
     # details around them: a version, qualifiers in parentheses, an
     # architecture, and after the last word optionally " - <detail>", where
-    # the first token of <detail> is a version (a digit, v and a digit, or
-    # "Latest"), a parenthetical or a qualifier word, and any text may follow
-    # it. When the last word continues as a version right before the dash,
-    # <detail> is free: the vendor title "Microsoft .NET 8.0.31 - Windows
-    # Server Hosting" names the variant after the version. A
+    # the first token of <detail> is a whole version ("26.03", "v2",
+    # "1.2.3-beta", or "Latest"), a parenthetical or a qualifier word, and
+    # any text may follow it. "2FA" or "3D" is a word, not a version. When
+    # the last word continues as a dotted version right before the dash,
+    # <detail> may also be "Windows Server Hosting" followed only by release
+    # details: the vendor title of the ASP.NET hosting bundle. A
     # word of CMName that ends in a number may continue as a version
     # ("18" as "18.5.1.1") or carry an architecture ("7" as "7-x64"); vendor
     # product names put these in the middle ("Microsoft ODBC Driver
@@ -563,13 +564,20 @@ function Test-MecmApplicationTitle {
         })
     if ($words.Count -eq 0) { $words = $allWords }
     $next = 0
-    $afterDash = $false
     $lastContinued = $false
-    foreach ($token in @([regex]::Matches($Title, $script:MecmTitleTokenPattern) | ForEach-Object { $_.Value })) {
-        if ($afterDash) { return (($token -match '^(\(|v?\d|latest$)') -or (Test-MecmQualifierWord $token)) }
+    $tokens = @([regex]::Matches($Title, $script:MecmTitleTokenPattern) | ForEach-Object { $_.Value })
+    for ($i = 0; $i -lt $tokens.Count; $i++) {
+        $token = $tokens[$i]
         if ($next -eq $words.Count -and $token -eq '-') {
-            if ($lastContinued) { return $true }
-            $afterDash = $true; continue
+            $rest = @($tokens | Select-Object -Skip ($i + 1))
+            if ($rest.Count -eq 0) { return $false }
+            if ($lastContinued -and $rest.Count -ge 3 -and (($rest[0..2] -join ' ') -ieq 'Windows Server Hosting')) {
+                foreach ($tail in @($rest | Select-Object -Skip 3)) { if ($tail -inotmatch $detail) { return $false } }
+                return $true
+            }
+            if ($rest[0] -imatch '^(v?\d+(\.\d+)*([-+._]\w+)*|\([^)]*\)|latest)$') { return $true }
+            # Test-MecmQualifierWord ignores parentheses, so an unclosed "(x64" passes it.
+            return ((Test-MecmQualifierWord $rest[0]) -and $rest[0] -notmatch '[()]')
         }
         $lastContinued = $false
         if ($next -lt $words.Count) {
