@@ -587,9 +587,14 @@ Describe 'Find-DiscoveryCandidate' {
     It 'skips <Script> when ConfigMgr has the packaged title <Title>' -ForEach @(
         @{ Script = 'package-m365apps-x64.ps1'; CMName = 'M365 Apps for Enterprise'; Arp = 'Microsoft 365 Apps for enterprise - *'; Title = 'M365 Apps for Enterprise (x64) (MEC)' }
         @{ Script = 'package-m365apps-x64.ps1'; CMName = 'M365 Apps for Enterprise'; Arp = 'Microsoft 365 Apps for enterprise - *'; Title = 'M365 Apps for Enterprise - 16.0.19127.20264 (x64) (MEC)' }
+        @{ Script = 'package-m365apps-x64.ps1'; CMName = 'M365 Apps for Enterprise'; Arp = 'Microsoft 365 Apps for enterprise - *'; Title = 'M365 Apps for Enterprise - Latest (x64) (MEC)' }
         @{ Script = 'package-audacity.ps1'; CMName = 'Audacity'; Arp = 'Audacity [0-9]*'; Title = 'Audacity 3.7.9' }
         @{ Script = 'package-7zip.ps1'; CMName = '7-Zip'; Arp = '7-Zip [0-9]*'; Title = '7-Zip' }
         @{ Script = 'package-7zip.ps1'; CMName = '7-Zip'; Arp = '7-Zip [0-9]*'; Title = '7-zip 26.03 (x64)' }
+        @{ Script = 'package-7zip.ps1'; CMName = '7-Zip'; Arp = '7-Zip [0-9]*'; Title = '7-Zip (x64 edition) - 26.03' }
+        @{ Script = 'package-7zip.ps1'; CMName = '7-Zip'; Arp = '7-Zip [0-9]*'; Title = '7-Zip - v26' }
+        @{ Script = 'package-7zip.ps1'; CMName = '7-Zip'; Arp = '7-Zip [0-9]*'; Title = '7-Zip - x64' }
+        @{ Script = 'package-7zip.ps1'; CMName = '7-Zip'; Arp = '7-Zip [0-9]*'; Title = '7-Zip - (en-US)' }
         @{ Script = 'package-notepadplusplus.ps1'; CMName = 'Notepad++'; Arp = 'Notepad++ (64-bit x64)'; Title = 'Notepad++ (64-bit x64)' }
         @{ Script = 'package-firefox.ps1'; CMName = 'Mozilla Firefox'; Arp = 'Mozilla Firefox (x64 *)'; Title = 'Mozilla Firefox (en-US)' }
     ) {
@@ -607,6 +612,9 @@ Describe 'Find-DiscoveryCandidate' {
     It 'keeps <Script> when ConfigMgr only has another product that starts with the same words: <Title>' -ForEach @(
         @{ Script = 'package-git.ps1'; CMName = 'Git'; Arp = 'Git'; Row = 'Git'; Title = 'Git Extensions 4.3' }
         @{ Script = 'package-git.ps1'; CMName = 'Git'; Arp = 'Git'; Row = 'Git'; Title = 'GitHub Desktop' }
+        @{ Script = 'package-git.ps1'; CMName = 'Git'; Arp = 'Git'; Row = 'Git'; Title = 'Git - Extensions' }
+        @{ Script = 'package-foo.ps1'; CMName = 'Foo'; Arp = 'Foo'; Row = 'Foo'; Title = 'Foo - Bar' }
+        @{ Script = 'package-foo.ps1'; CMName = 'Foo'; Arp = 'Foo'; Row = 'Foo'; Title = 'Foo - Pro 2' }
         @{ Script = 'package-firefox.ps1'; CMName = 'Mozilla Firefox'; Arp = 'Mozilla Firefox (x64 *)'; Row = 'Mozilla Firefox (x64 en-US)'; Title = 'Mozilla Firefox ESR (x64 en-US)' }
         @{ Script = 'package-m365apps-x64.ps1'; CMName = 'M365 Apps for Enterprise'; Arp = 'Microsoft 365 Apps for enterprise - *'; Row = 'Microsoft 365 Apps for enterprise - en-us'; Title = 'M365 Apps for Enterprise Project (x64)' }
         @{ Script = 'package-ms-openjdk17-exe.ps1'; CMName = 'Microsoft OpenJDK 17 (EXE)'; Arp = 'Microsoft Build of OpenJDK with Hotspot 17*'; Row = 'Microsoft Build of OpenJDK with Hotspot 17.0.16+8 (x64)'; Title = 'Microsoft OpenJDK 17 (MSI) (EXE)' }
