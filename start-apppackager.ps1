@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.10.18.0120
+    Version    : 2026.10.20.0121
     Updated    : 2026-09-09
 #>
 
@@ -1266,7 +1266,8 @@ function Invoke-DiscoveryScan {
         [string]$DatabaseOverride,
         [object[]]$Packager = @(),
         [string[]]$HiddenScript = @(),
-        [string[]]$DismissedScript = @()
+        [string[]]$DismissedScript = @(),
+        [hashtable]$OperationState
     )
 
     $result = [pscustomobject]@{ Ok = $false; Error = ''; Server = ''; Database = ''; StatusText = ''; Candidates = @() }
@@ -1293,7 +1294,9 @@ function Invoke-DiscoveryScan {
         $result.Server = [string]$target.Server
         $result.Database = [string]$target.Database
 
-        $snapshot = Get-CMInventorySnapshot -Server $result.Server -Database $result.Database
+        $snapshotArgs = @{ Server = $result.Server; Database = $result.Database }
+        if ($OperationState) { $snapshotArgs.OperationState = $OperationState }
+        $snapshot = Get-CMInventorySnapshot @snapshotArgs
         $candidates = @(Find-DiscoveryCandidate -Snapshot $snapshot -Packager @($Packager) -HiddenScript @($HiddenScript) -DismissedScript @($DismissedScript) | Where-Object { $_ })
         $result.Candidates = $candidates
         $result.StatusText = [string](Get-DiscoveryStatusText -Snapshot $snapshot -CandidateCount $candidates.Count)
@@ -1335,13 +1338,14 @@ function Start-DiscoveryRunspace {
         [Parameter(Mandatory)][hashtable]$ScanArgs
     )
     $job = [pscustomobject]@{
-        State    = [hashtable]::Synchronized(@{ Done = $false; Result = $null })
+        State    = [hashtable]::Synchronized(@{ Done = $false; Result = $null; Command = $null; Cancellation = (New-Object System.Threading.CancellationTokenSource) })
         Runspace = $null
         Shell    = $null
         Handle   = $null
         Started  = [DateTime]::UtcNow
     }
     try {
+        $ScanArgs.OperationState = $job.State
         $job.Runspace = [runspacefactory]::CreateRunspace()
         $job.Runspace.ApartmentState = 'MTA'
         $job.Runspace.Open()
@@ -1383,6 +1387,11 @@ function Stop-DiscoveryRunspace {
     # so a running pipeline only gets BeginStop and the async runspace close.
     param($Job)
     if (-not $Job) { return }
+    if ($Job.State.Cancellation) {
+        try { $Job.State.Cancellation.Cancel() } catch { }
+    }
+    $command = $Job.State.Command
+    if ($command) { try { $command.Cancel() } catch { } }
     if ($Job.Shell) {
         if ($Job.Handle -and -not $Job.State.Done) {
             try { [void]$Job.Shell.BeginStop($null, $null) } catch { }
@@ -5028,6 +5037,10 @@ $btnPausePipeline.Add_Click({
 })
 
 $btnCancelPipeline.Add_Click({
+    if ($script:DiscoveryJob) {
+        Stop-DiscoveryScan
+        return
+    }
     if (-not $script:BgState -or $script:BgState.Done) { return }
 
     $script:BgState.CancelRequested = $true
@@ -9618,7 +9631,6 @@ function Show-DiscoveryDialog {
                 <DataGridCheckBoxColumn Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="40"/>
                 <DataGridTextColumn Header="Application" Binding="{Binding Name}" Width="*" MinWidth="200" IsReadOnly="True"/>
                 <DataGridTextColumn Header="Vendor" Binding="{Binding Vendor}" Width="180" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Clients" Binding="{Binding ClientCount}" Width="80" IsReadOnly="True"/>
                 <DataGridTextColumn Header="Inventory name" Binding="{Binding MatchedName}" Width="220" IsReadOnly="True"/>
             </DataGrid.Columns>
         </DataGrid>
@@ -9656,10 +9668,10 @@ function Show-DiscoveryDialog {
     $btnDismiss = $dlg.FindName('btnDismiss')
 
     $rows = New-Object System.Collections.ObjectModel.ObservableCollection[object]
-    foreach ($c in @($Candidates | Sort-Object -Property @{ Expression = { [int]$_.ClientCount }; Descending = $true }, CMName)) {
+    foreach ($c in @($Candidates | Sort-Object -Property CMName)) {
         $scriptName = [string]$c.Script
         $name = $(if ($NameByScript.ContainsKey($scriptName) -and $NameByScript[$scriptName]) { [string]$NameByScript[$scriptName] } else { [string]$c.CMName })
-        $rows.Add([pscustomobject]@{ Selected = $false; Script = $scriptName; Name = $name; Vendor = [string]$c.Vendor; ClientCount = [int]$c.ClientCount; MatchedName = [string]$c.MatchedName })
+        $rows.Add([pscustomobject]@{ Selected = $false; Script = $scriptName; Name = $name; Vendor = [string]$c.Vendor; MatchedName = [string]$c.MatchedName })
     }
     $grid.ItemsSource = $rows
     $txtPrompt.Text = Get-DiscoveryPromptText -Count $rows.Count
@@ -9726,6 +9738,7 @@ function Complete-DiscoveryScan {
     param($Result)
 
     Set-ActionButtonsEnabled -Enabled $true
+    $btnCancelPipeline.IsEnabled = $false
     $window.Cursor = $null
     if (-not $Result -or -not $Result.Ok) {
         $message = 'Discover unmanaged software: ' + $(if ($Result -and $Result.Error) { [string]$Result.Error } else { 'the query returned no result.' })
@@ -9746,6 +9759,14 @@ function Complete-DiscoveryScan {
     }
 }
 
+function Stop-DiscoveryScan {
+    if ($script:DiscoveryTimer) { $script:DiscoveryTimer.Stop() }
+    $job = $script:DiscoveryJob
+    $script:DiscoveryJob = $null
+    Stop-DiscoveryRunspace -Job $job
+    Complete-DiscoveryScan -Result ([pscustomobject]@{ Ok = $false; Error = 'cancelled.' })
+}
+
 function Start-DiscoveryScan {
     $packagers = @(Get-DiscoveryPackagerInput -Rows @(Get-Packagers -Root $PackagersRoot))
     $script:DiscoveryNames = @{}
@@ -9762,6 +9783,7 @@ function Start-DiscoveryScan {
     }
 
     Set-ActionButtonsEnabled -Enabled $false
+    $btnCancelPipeline.IsEnabled = $true
     $window.Cursor = [System.Windows.Input.Cursors]::Wait
     $txtStatus.Text = 'Reading Add/Remove Programs inventory from the ConfigMgr site database...'
     Add-LogLine -Message 'Discover unmanaged software: reading hardware inventory from the ConfigMgr site database.'
@@ -9776,6 +9798,7 @@ function Start-DiscoveryScan {
         $script:DiscoveryTimer.Add_Tick({
             try {
                 $job = $script:DiscoveryJob
+                if (-not $job) { return }
                 $state = Get-DiscoveryRunspaceState -Job $job -TimeoutSeconds $script:DiscoveryScanTimeoutSeconds
                 if ($state -eq 'Running') { return }
                 $script:DiscoveryTimer.Stop()
@@ -9791,6 +9814,7 @@ function Start-DiscoveryScan {
                 Stop-DiscoveryRunspace -Job $script:DiscoveryJob
                 $script:DiscoveryJob = $null
                 Set-ActionButtonsEnabled -Enabled $true
+                $btnCancelPipeline.IsEnabled = $false
                 $window.Cursor = $null
                 Add-LogLine -Message ('Discover unmanaged software: ' + $_.Exception.Message)
             }

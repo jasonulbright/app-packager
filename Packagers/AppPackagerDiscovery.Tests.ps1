@@ -10,34 +10,29 @@ public class DiscoveryTestSqlError : System.Exception {
 '@
     }
 
-    # One fixture row per (ResourceID, DisplayName, Publisher, Version, Architecture),
-    # the shape of the first result set.
+    # Input fixture rows may repeat a title on multiple clients. The SQL
+    # boundary returns distinct software metadata only.
     function New-ArpTable {
         param([object[]]$Rows)
         $t = New-Object System.Data.DataTable
-        [void]$t.Columns.Add('ResourceID', [int])
         foreach ($c in 'DisplayName', 'Publisher', 'Version', 'Architecture') { [void]$t.Columns.Add($c, [string]) }
+        $seen = New-Object 'System.Collections.Generic.HashSet[string]'
         foreach ($r in $Rows) {
+            $values = @($r[1], $r[2], $r[3], $r[4])
+            if (-not $seen.Add(($values -join [char]0))) { continue }
             $row = $t.NewRow()
-            $row.ResourceID = $r[0]
-            $row.DisplayName = $r[1]
-            $row.Publisher = if ($null -eq $r[2]) { [DBNull]::Value } else { $r[2] }
-            $row.Version = if ($null -eq $r[3]) { [DBNull]::Value } else { $r[3] }
-            $row.Architecture = $r[4]
+            for ($i = 0; $i -lt 4; $i++) {
+                $row[$i] = if ($null -eq $values[$i]) { [DBNull]::Value } else { $values[$i] }
+            }
             $t.Rows.Add($row)
         }
         return , $t
     }
 
     function New-SnapshotDataSet {
-        param([object[]]$ArpRows = @(), [int]$ClientTotal = 0, $Newest = [DBNull]::Value, [string[]]$Applications = @())
+        param([object[]]$ArpRows = @(), [string[]]$Applications = @())
         $ds = New-Object System.Data.DataSet
         $ds.Tables.Add((New-ArpTable -Rows $ArpRows))
-        $s = New-Object System.Data.DataTable
-        [void]$s.Columns.Add('ClientTotal', [int])
-        [void]$s.Columns.Add('InventoryNewest', [datetime])
-        $row = $s.NewRow(); $row.ClientTotal = $ClientTotal; $row.InventoryNewest = if ($Newest -is [DBNull]) { $Newest } else { [datetime]$Newest }; $s.Rows.Add($row)
-        $ds.Tables.Add($s)
         $a = New-Object System.Data.DataTable
         [void]$a.Columns.Add('DisplayName', [string])
         foreach ($n in $Applications) { $r = $a.NewRow(); $r.DisplayName = $n; $a.Rows.Add($r) }
@@ -46,20 +41,11 @@ public class DiscoveryTestSqlError : System.Exception {
     }
 
     function New-Snapshot {
-        param([object[]]$Rows = @(), [int]$ClientTotal = 4, $InventoryNewest = (Get-Date '2026-10-15T02:55:30'), [string[]]$Applications = @())
-        # Builds the snapshot through Get-CMInventorySnapshot from fixture SQL
-        # rows. The fifth element is either explicit ResourceIDs (int[]) or a
-        # count that receives ResourceIDs no other row shares.
-        $nextId = 1000
-        $script:FixtureArpRows = @(foreach ($r in @($Rows)) {
-                $ids = if ($r[4] -is [array]) { [int[]]$r[4] } else { [int[]]@(for ($i = 0; $i -lt [int]$r[4]; $i++) { ($nextId++) }) }
-                foreach ($id in $ids) { , @($id, $r[0], $r[1], $r[2], $r[3]) }
-            })
-        $script:FixtureClientTotal = $ClientTotal
-        $script:FixtureNewest = if ($null -eq $InventoryNewest) { [DBNull]::Value } else { $InventoryNewest }
+        param([object[]]$Rows = @(), [string[]]$Applications = @())
+        $script:FixtureArpRows = @(foreach ($r in @($Rows)) { , @(0, $r[0], $r[1], $r[2], $r[3]) })
         $script:FixtureApplications = $Applications
         Mock -ModuleName AppPackagerDiscovery Invoke-DiscoverySqlQuery {
-            New-SnapshotDataSet -ArpRows $script:FixtureArpRows -ClientTotal $script:FixtureClientTotal -Newest $script:FixtureNewest -Applications $script:FixtureApplications
+            New-SnapshotDataSet -ArpRows $script:FixtureArpRows -Applications $script:FixtureApplications
         }
         Get-CMInventorySnapshot -Server 's' -Database 'd'
     }
@@ -279,6 +265,20 @@ Describe 'Get-DiscoverySiteDefinition' {
 }
 
 Describe 'Connection and command shape' {
+    It 'does not open SQL when cancellation was already requested' {
+        InModuleScope AppPackagerDiscovery {
+            $source = New-Object System.Threading.CancellationTokenSource
+            $source.Cancel()
+            $state = [hashtable]::Synchronized(@{ Cancellation = $source; Command = $null })
+            try {
+                { Invoke-DiscoverySqlQuery -ConnectionString 'Data Source=unused;Initial Catalog=unused;Integrated Security=True' -CommandText 'SELECT 1' -OperationState $state } |
+                    Should -Throw -ExpectedMessage '*canceled*'
+                $state.Command | Should -BeNullOrEmpty
+            }
+            finally { $source.Dispose() }
+        }
+    }
+
     It 'builds a Windows-auth, read-intent connection string without string concatenation' {
         InModuleScope AppPackagerDiscovery {
             $cs = New-DiscoveryConnectionString -Server 'sql01;User ID=sa' -Database 'CM_MCM;Integrated Security=false' -TimeoutSeconds 30
@@ -337,6 +337,8 @@ Describe 'Get-CMInventorySnapshot' {
         $c.CommandText | Should -Match 'v_GS_ADD_REMOVE_PROGRAMS\b'
         $c.CommandText | Should -Match 'v_GS_ADD_REMOVE_PROGRAMS_64\b'
         $c.CommandText | Should -Match 'v_Applications\b'
+        $c.CommandText | Should -Not -Match '(?i)SELECT\s+(?:DISTINCT\s+)?\w+\.ResourceID|COUNT\s*\(|TimeStamp'
+        Should -Invoke -ModuleName AppPackagerDiscovery Invoke-DiscoverySqlQuery -Times 1 -Exactly
     }
 
     It 'never selects machine names' {
@@ -345,49 +347,48 @@ Describe 'Get-CMInventorySnapshot' {
             New-SnapshotDataSet
         }
         $null = Get-CMInventorySnapshot -Server 's' -Database 'd'
-        $script:Captured | Should -Not -Match '(?i)\bName0\b|Netbios|ResourceName|MachineName|User_Name'
+        ($script:Captured -split ';' | Where-Object { $_ -match 'v_GS_ADD_REMOVE_PROGRAMS' }) | Should -Not -Match '(?i)\bName0\b|Netbios|ResourceName|MachineName|User_Name'
     }
 
-    It 'returns ResourceIDs to nobody: rows carry counts only' {
+    It 'returns distinct titles without per-client keys or counts' {
         Mock -ModuleName AppPackagerDiscovery Invoke-DiscoverySqlQuery {
             New-SnapshotDataSet -ArpRows @(
                 , @(16777301, 'Git', 'Git', '2.51', 'x64')
                 , @(16777305, 'Git', 'Git', '2.51', 'x64')
-            ) -ClientTotal 2
+            )
         }
         $s = Get-CMInventorySnapshot -Server 's' -Database 'd'
         $text = ($s | ConvertTo-Json -Depth 6)
         $text | Should -Not -Match '1677730[15]'
         @($s.Rows).Count | Should -Be 1
-        $s.Rows[0].ClientCount | Should -Be 2
     }
 
     It 'returns no per-client key in any property of the snapshot or the candidates' {
-        # Client 1 has two entries that the packager matches; client 2 has one.
+        # Multiple inventory names can match a single catalog product.
         $snap = New-Snapshot -Rows @(
-            , @('Java 8 Update 471', 'Oracle', '8.0.4710', 'x86', @(1, 2))
-            , @('Java 8 Update 471 (64-bit)', 'Oracle', '8.0.4710', 'x64', @(1))
-            , @('Notepad++ (64-bit x64)', 'Notepad++ Team', '8.8', 'x64', @(2))
-        ) -ClientTotal 2
+            , @('Java 8 Update 471', 'Oracle', '8.0.4710', 'x86')
+            , @('Java 8 Update 471 (64-bit)', 'Oracle', '8.0.4710', 'x64')
+            , @('Notepad++ (64-bit x64)', 'Notepad++ Team', '8.8', 'x64')
+        )
         $c = @(Find-DiscoveryCandidate -Snapshot $snap -Packager @(New-Packager 'package-java8.ps1' 'Java 8' 'Java 8 Update *') -HiddenScript 'package-java8.ps1')
         $c.Count | Should -Be 1
-        $c[0].ClientCount | Should -Be 2
 
         foreach ($object in @($snap) + @($snap.Rows) + $c) {
             $values = @(Get-AllValueText -Value $object)
             $values | Should -Not -Contain '@name:ClientKeys'
             $values | Should -Not -Contain '@name:ResourceID'
-            # Every number in the output is a count or a version, never a list of ordinals per row.
+            $values | Should -Not -Contain '@name:ClientCount'
+            # Software rows and candidates contain no lists of client keys.
             foreach ($p in $object.PSObject.Properties) {
                 if ($p.Value -is [System.Collections.IEnumerable] -and $p.Value -isnot [string]) {
                     @($p.Value | Where-Object { $_ -is [int] -or $_ -is [long] }).Count | Should -Be 0 -Because "property $($p.Name) must not list client keys"
                 }
             }
         }
-        @($snap.Rows[0].PSObject.Properties.Name) | Should -Be @('DisplayName', 'Publisher', 'Version', 'Architecture', 'ClientCount')
+        @($snap.Rows[0].PSObject.Properties.Name) | Should -Be @('DisplayName', 'Version', 'Architecture')
     }
 
-    It 'counts a client once per product row when the query returns the same client twice' {
+    It 'receives one software row regardless of how many clients have it' {
         Mock -ModuleName AppPackagerDiscovery Invoke-DiscoverySqlQuery {
             New-SnapshotDataSet -ArpRows @(
                 , @(1, 'Git', 'Git', '2.51', 'x64')
@@ -396,25 +397,19 @@ Describe 'Get-CMInventorySnapshot' {
             )
         }
         $s = Get-CMInventorySnapshot -Server 's' -Database 'd'
-        $s.Rows[0].ClientCount | Should -Be 2
+        @($s.Rows).Count | Should -Be 1
     }
 
-    It 'excludes obsolete and decommissioned clients from rows, client total and newest time' {
+    It 'reads software views only, with no client table and no client filter' {
         Mock -ModuleName AppPackagerDiscovery Invoke-DiscoverySqlQuery {
             $script:Captured = $CommandText
             New-SnapshotDataSet
         }
         $null = Get-CMInventorySnapshot -Server 's' -Database 'd'
-        $statements = $script:Captured -split ';' | Where-Object { $_ -match '(?i)v_GS_ADD_REMOVE_PROGRAMS' }
-        @($statements).Count | Should -Be 2
-        foreach ($statement in $statements) {
-            ([regex]::Matches($statement, '(?i)JOIN dbo\.v_R_System')).Count | Should -BeGreaterOrEqual 1
-            ([regex]::Matches($statement, '(?i)ISNULL\(\w+\.Obsolete0, 0\) = 0')).Count | Should -Be ([regex]::Matches($statement, '(?i)JOIN dbo\.v_R_System')).Count
-            ([regex]::Matches($statement, '(?i)ISNULL\(\w+\.Decommissioned0, 0\) = 0')).Count | Should -Be ([regex]::Matches($statement, '(?i)JOIN dbo\.v_R_System')).Count
-        }
+        ($script:Captured -split ';' | Where-Object { $_ -match 'v_GS_ADD_REMOVE_PROGRAMS' }) | Should -Not -Match '(?i)v_R_System|JOIN|ResourceID|Obsolete|Decommissioned|Publisher'
     }
 
-    It 'merges 32-bit and 64-bit rows and maps the summary' {
+    It 'reads distinct 32-bit and 64-bit titles and application names' {
         Mock -ModuleName AppPackagerDiscovery Invoke-DiscoverySqlQuery {
             New-SnapshotDataSet -ArpRows @(
                 , @(1, '7-Zip 26.03', 'Igor Pavlov', '26.03', 'x86')
@@ -423,34 +418,28 @@ Describe 'Get-CMInventorySnapshot' {
                 , @(4, '7-Zip 26.03 (x64)', 'Igor Pavlov', '26.03', 'x64')
                 , @(2, 'Notepad++ (64-bit x64)', $null, $null, 'x64')
                 , @(3, 'Notepad++ (64-bit x64)', $null, $null, 'x64')
-            ) -ClientTotal 4 -Newest (Get-Date '2026-10-15T02:55:30') -Applications @('Audacity 3.7.9', 'CMTrace Open')
+            ) -Applications @('Audacity 3.7.9', 'CMTrace Open')
         }
         $s = Get-CMInventorySnapshot -Server 's' -Database 'd'
         @($s.Rows).Count | Should -Be 3
         @($s.Rows | Where-Object Architecture -eq 'x86').Count | Should -Be 1
         @($s.Rows | Where-Object Architecture -eq 'x64').Count | Should -Be 2
-        ($s.Rows | Where-Object DisplayName -eq '7-Zip 26.03 (x64)').ClientCount | Should -Be 3
-        ($s.Rows | Where-Object DisplayName -like 'Notepad*').Publisher | Should -Be ''
-        $s.ClientTotal | Should -Be 4
-        $s.InventoryNewest | Should -Be (Get-Date '2026-10-15T02:55:30')
         $s.Applications | Should -Be @('Audacity 3.7.9', 'CMTrace Open')
     }
 
     It 'returns only the contract properties' {
         Mock -ModuleName AppPackagerDiscovery Invoke-DiscoverySqlQuery {
-            New-SnapshotDataSet -ArpRows @(, @(1, 'A', 'P', '1', 'x86')) -ClientTotal 1 -Newest (Get-Date)
+            New-SnapshotDataSet -ArpRows @(, @(1, 'A', 'P', '1', 'x86'))
         }
         $s = Get-CMInventorySnapshot -Server 's' -Database 'd'
-        @($s.PSObject.Properties.Name) | Should -Be @('Rows', 'ClientTotal', 'InventoryNewest', 'Applications')
-        @($s.Rows[0].PSObject.Properties.Name) | Should -Be @('DisplayName', 'Publisher', 'Version', 'Architecture', 'ClientCount')
+        @($s.PSObject.Properties.Name) | Should -Be @('Rows', 'Applications')
+        @($s.Rows[0].PSObject.Properties.Name) | Should -Be @('DisplayName', 'Version', 'Architecture')
     }
 
     It 'returns an empty snapshot for zero inventory rows' {
         Mock -ModuleName AppPackagerDiscovery Invoke-DiscoverySqlQuery { New-SnapshotDataSet }
         $s = Get-CMInventorySnapshot -Server 's' -Database 'd'
         @($s.Rows).Count | Should -Be 0
-        $s.ClientTotal | Should -Be 0
-        $s.InventoryNewest | Should -BeNullOrEmpty
         @($s.Applications).Count | Should -Be 0
     }
 
@@ -513,32 +502,30 @@ Describe 'Get-CMInventorySnapshot' {
 Describe 'Find-DiscoveryCandidate' {
     BeforeAll {
         $script:Rows = @(
-            , @('7-Zip 26.03', 'Igor Pavlov', '26.03', 'x86', 1)
-            , @('7-Zip 26.03 (x64)', 'Igor Pavlov', '26.03', 'x64', 3)
-            , @('Notepad++ (64-bit x64)', 'Notepad++ Team', '8.8', 'x64', 2)
-            , @('Mozilla Firefox (x64 en-US)', 'Mozilla', '144.0', 'x64', 4)
-            , @('Mozilla Maintenance Service', 'Mozilla', '144.0', 'x64', 4)
-            , @('Audacity 3.7.9', 'Audacity Team', '3.7.9', 'x64', 1)
-            , @('Java 8 Update 471', 'Oracle', '8.0.4710', 'x86', 1)
-            , @('Java 8 Update 471 (64-bit)', 'Oracle', '8.0.4710', 'x64', 2)
+            , @('7-Zip 26.03', 'Igor Pavlov', '26.03', 'x86')
+            , @('7-Zip 26.03 (x64)', 'Igor Pavlov', '26.03', 'x64')
+            , @('Notepad++ (64-bit x64)', 'Notepad++ Team', '8.8', 'x64')
+            , @('Mozilla Firefox (x64 en-US)', 'Mozilla', '144.0', 'x64')
+            , @('Mozilla Maintenance Service', 'Mozilla', '144.0', 'x64')
+            , @('Audacity 3.7.9', 'Audacity Team', '3.7.9', 'x64')
+            , @('Java 8 Update 471', 'Oracle', '8.0.4710', 'x86')
+            , @('Java 8 Update 471 (64-bit)', 'Oracle', '8.0.4710', 'x64')
         )
     }
 
-    It 'merges 32-bit and 64-bit rows into one candidate with the summed client count' {
+    It 'offers one candidate when both architectures match' {
         $snap = New-Snapshot -Rows $script:Rows
         $c = @(Find-DiscoveryCandidate -Snapshot $snap -Packager @(New-Packager 'package-7zip.ps1' '7-Zip' '7-Zip *') -HiddenScript 'package-7zip.ps1' -DismissedScript @())
         $c.Count | Should -Be 1
         $c[0].Script | Should -Be 'package-7zip.ps1'
         $c[0].CMName | Should -Be '7-Zip'
-        $c[0].ClientCount | Should -Be 4
-        $c[0].MatchedName | Should -Be '7-Zip 26.03 (x64)'
+        $c[0].MatchedName | Should -Be '7-Zip 26.03'
     }
 
     It 'matches a wildcard case-insensitively' {
         $snap = New-Snapshot -Rows $script:Rows
         $c = @(Find-DiscoveryCandidate -Snapshot $snap -Packager @(New-Packager 'package-npp.ps1' 'Notepad++' 'NOTEPAD++*') -HiddenScript 'package-npp.ps1')
         $c.Count | Should -Be 1
-        $c[0].ClientCount | Should -Be 2
     }
 
     It 'matches any pattern of a multi-pattern ArpName' {
@@ -546,14 +533,13 @@ Describe 'Find-DiscoveryCandidate' {
         $p = New-Packager 'package-java8.ps1' 'Java 8' 'Java 8 Update * (64-bit) | Java 8 Update ?*'
         $c = @(Find-DiscoveryCandidate -Snapshot $snap -Packager @($p) -HiddenScript 'package-java8.ps1')
         $c.Count | Should -Be 1
-        $c[0].ClientCount | Should -Be 3
     }
 
-    It 'counts a row once when more than one pattern matches it' {
+    It 'offers a title once when multiple patterns match it' {
         $snap = New-Snapshot -Rows $script:Rows
         $p = New-Packager 'package-ff.ps1' 'Firefox' 'Mozilla Firefox* | Mozilla Firefox (x64*'
         $c = @(Find-DiscoveryCandidate -Snapshot $snap -Packager @($p) -HiddenScript 'package-ff.ps1')
-        $c[0].ClientCount | Should -Be 4
+        $c.Count | Should -Be 1
     }
 
     It 'skips an ArpName of none or an empty ArpName' {
@@ -599,11 +585,11 @@ Describe 'Find-DiscoveryCandidate' {
         @{ Script = 'package-firefox.ps1'; CMName = 'Mozilla Firefox'; Arp = 'Mozilla Firefox (x64 *)'; Title = 'Mozilla Firefox (en-US)' }
     ) {
         $snap = New-Snapshot -Rows @(
-            , @('Microsoft 365 Apps for enterprise - en-us', 'Microsoft Corporation', '16.0.19127.20264', 'x64', 2)
-            , @('Audacity 3.7.9', 'Audacity Team', '3.7.9', 'x64', 1)
-            , @('7-Zip 26.03 (x64)', 'Igor Pavlov', '26.03', 'x64', 3)
-            , @('Notepad++ (64-bit x64)', 'Notepad++ Team', '8.8', 'x64', 2)
-            , @('Mozilla Firefox (x64 en-US)', 'Mozilla', '144.0', 'x64', 4)
+            , @('Microsoft 365 Apps for enterprise - en-us', 'Microsoft Corporation', '16.0.19127.20264', 'x64')
+            , @('Audacity 3.7.9', 'Audacity Team', '3.7.9', 'x64')
+            , @('7-Zip 26.03 (x64)', 'Igor Pavlov', '26.03', 'x64')
+            , @('Notepad++ (64-bit x64)', 'Notepad++ Team', '8.8', 'x64')
+            , @('Mozilla Firefox (x64 en-US)', 'Mozilla', '144.0', 'x64')
         ) -Applications @('CMTrace Open', $Title)
         $p = New-Packager $Script $CMName $Arp
         @(Find-DiscoveryCandidate -Snapshot $snap -Packager @($p) -HiddenScript $Script).Count | Should -Be 0
@@ -620,15 +606,14 @@ Describe 'Find-DiscoveryCandidate' {
         @{ Script = 'package-ms-openjdk17-exe.ps1'; CMName = 'Microsoft OpenJDK 17 (EXE)'; Arp = 'Microsoft Build of OpenJDK with Hotspot 17*'; Row = 'Microsoft Build of OpenJDK with Hotspot 17.0.16+8 (x64)'; Title = 'Microsoft OpenJDK 17 (MSI) (EXE)' }
         @{ Script = 'package-corretto-jdk11-x64.ps1'; CMName = 'Amazon Corretto 11 (x64)'; Arp = 'Amazon Corretto 11*'; Row = 'Amazon Corretto 11.0.28 (x64)'; Title = 'Amazon Corretto 11 (x86) (x64)' }
     ) {
-        $snap = New-Snapshot -Rows @(, @($Row, 'P', '1.0', 'x64', 2)) -Applications @($Title)
+        $snap = New-Snapshot -Rows @(, @($Row, 'P', '1.0', 'x64')) -Applications @($Title)
         $p = New-Packager $Script $CMName $Arp
         $c = @(Find-DiscoveryCandidate -Snapshot $snap -Packager @($p) -HiddenScript $Script)
         $c.Count | Should -Be 1
-        $c[0].ClientCount | Should -Be 2
     }
 
     It 'returns nothing for zero inventory rows' {
-        $snap = New-Snapshot -Rows @() -ClientTotal 0 -InventoryNewest $null
+        $snap = New-Snapshot -Rows @()
         @(Find-DiscoveryCandidate -Snapshot $snap -Packager @(New-Packager 'package-7zip.ps1' '7-Zip' '*') -HiddenScript 'package-7zip.ps1').Count | Should -Be 0
     }
 
@@ -643,7 +628,7 @@ Describe 'Find-DiscoveryCandidate' {
         @{ Tag = 'ArpName'; Pattern = 'Git | Odd[' }
         @{ Tag = 'ArpVersion'; Pattern = '17.[0' }
     ) {
-        $snap = New-Snapshot -Rows @(, @('Odd [Name', 'P', '17.0', 'x86', 2))
+        $snap = New-Snapshot -Rows @(, @('Odd [Name', 'P', '17.0', 'x86'))
         $p = if ($Tag -eq 'ArpName') { New-Packager 'package-odd.ps1' 'Odd' $Pattern } else { New-Packager 'package-odd.ps1' 'Odd' 'Odd*' -ArpVersion $Pattern }
         { Find-DiscoveryCandidate -Snapshot $snap -Packager @($p) -HiddenScript 'package-odd.ps1' } |
             Should -Throw -ExpectedMessage "Packager package-odd.ps1 has a $Tag pattern that is not a valid wildcard*"
@@ -660,34 +645,23 @@ Describe 'Find-DiscoveryCandidate' {
         $null -eq $direct | Should -BeTrue
     }
 
-    It 'counts a client once when it has two matching entries' {
-        $snap = New-Snapshot -Rows @(
-            , @('Java 8 Update 471', 'Oracle', '8.0.4710', 'x86', @(1, 2))
-            , @('Java 8 Update 471 (64-bit)', 'Oracle', '8.0.4710', 'x64', @(2, 3))
-            , @('Java 8 Update 461 (64-bit)', 'Oracle', '8.0.4610', 'x64', @(3))
-        )
-        $c = @(Find-DiscoveryCandidate -Snapshot $snap -Packager @(New-Packager 'package-java8.ps1' 'Java 8' 'Java 8 Update *') -HiddenScript 'package-java8.ps1')
-        $c[0].ClientCount | Should -Be 3
-        $c[0].MatchedName | Should -Be 'Java 8 Update 471'
-    }
-
-    It 'never overstates the count for rows that Get-CMInventorySnapshot did not build' {
+    It 'matches title rows without any client metadata' {
         $snap = [pscustomobject]@{
             Rows         = @(
-                [pscustomobject]@{ DisplayName = 'Java 8 Update 471'; Publisher = 'Oracle'; Version = '8.0.4710'; Architecture = 'x86'; ClientCount = 2 }
-                [pscustomobject]@{ DisplayName = 'Java 8 Update 471 (64-bit)'; Publisher = 'Oracle'; Version = '8.0.4710'; Architecture = 'x64'; ClientCount = 3 }
+                [pscustomobject]@{ DisplayName = 'Java 8 Update 471'; Publisher = 'Oracle'; Version = '8.0.4710'; Architecture = 'x86' }
+                [pscustomobject]@{ DisplayName = 'Java 8 Update 471 (64-bit)'; Publisher = 'Oracle'; Version = '8.0.4710'; Architecture = 'x64' }
             )
             Applications = @()
         }
         $c = @(Find-DiscoveryCandidate -Snapshot $snap -Packager @(New-Packager 'package-java8.ps1' 'Java 8' 'Java 8 Update *') -HiddenScript 'package-java8.ps1')
-        $c[0].ClientCount | Should -Be 3
+        $c.Count | Should -Be 1
     }
 
     It 'matches with invariant culture rules' {
         $before = [System.Threading.Thread]::CurrentThread.CurrentCulture
         try {
             [System.Threading.Thread]::CurrentThread.CurrentCulture = [System.Globalization.CultureInfo]::GetCultureInfo('tr-TR')
-            $snap = New-Snapshot -Rows @(, @('INKSCAPE 1.4', 'Inkscape', '1.4', 'x64', 1))
+            $snap = New-Snapshot -Rows @(, @('INKSCAPE 1.4', 'Inkscape', '1.4', 'x64'))
             @(Find-DiscoveryCandidate -Snapshot $snap -Packager @(New-Packager 'package-inkscape.ps1' 'Inkscape' 'inkscape*') -HiddenScript 'package-inkscape.ps1').Count | Should -Be 1
         }
         finally { [System.Threading.Thread]::CurrentThread.CurrentCulture = $before }
@@ -695,9 +669,9 @@ Describe 'Find-DiscoveryCandidate' {
 
     It 'limits matches to ArpVersion and ArpArch when the packager sets them' {
         $snap = New-Snapshot -Rows @(
-            , @('Amazon Corretto (x64)', 'Amazon', '17.0.16.8', 'x64', @(1))
-            , @('Amazon Corretto (x64)', 'Amazon', '21.0.8.9', 'x64', @(2, 3))
-            , @('Amazon Corretto (x86)', 'Amazon', '17.0.16.8', 'x86', @(4))
+            , @('Amazon Corretto (x64)', 'Amazon', '17.0.16.8', 'x64')
+            , @('Amazon Corretto (x64)', 'Amazon', '21.0.8.9', 'x64')
+            , @('Amazon Corretto (x86)', 'Amazon', '17.0.16.8', 'x86')
         )
         $pk = @(
             (New-Packager 'package-c17.ps1' 'Corretto 17' 'Amazon Corretto (x??)' -ArpVersion '17.*' -ArpArch 'x64')
@@ -707,14 +681,13 @@ Describe 'Find-DiscoveryCandidate' {
             (New-Packager 'package-carm.ps1' 'Corretto arm64' 'Amazon Corretto*' -ArpArch 'arm64')
         )
         $c = @(Find-DiscoveryCandidate -Snapshot $snap -Packager $pk -HiddenScript @($pk.Script))
-        ($c | ForEach-Object { '{0}={1}' -f $_.Script, $_.ClientCount }) -join ',' |
-            Should -Be 'package-c17.ps1=1,package-c17x86.ps1=1,package-c21.ps1=2'
+        @($c.Script) | Should -Be @('package-c17.ps1', 'package-c17x86.ps1', 'package-c21.ps1')
     }
 
     It 'returns only the contract properties, with no machine names' {
         $snap = New-Snapshot -Rows $script:Rows
         $c = @(Find-DiscoveryCandidate -Snapshot $snap -Packager @(New-Packager 'package-7zip.ps1' '7-Zip' '7-Zip*' -Vendor 'Igor Pavlov') -HiddenScript 'package-7zip.ps1')
-        @($c[0].PSObject.Properties.Name) | Should -Be @('Script', 'CMName', 'Vendor', 'ClientCount', 'MatchedName')
+        @($c[0].PSObject.Properties.Name) | Should -Be @('Script', 'CMName', 'Vendor', 'MatchedName')
         $c[0].Vendor | Should -Be 'Igor Pavlov'
     }
 
@@ -732,29 +705,16 @@ Describe 'Find-DiscoveryCandidate' {
 
 Describe 'Get-DiscoveryStatusText' {
     It 'reports no inventory data for zero rows' {
-        $snap = New-Snapshot -Rows @() -ClientTotal 0 -InventoryNewest $null
-        $t = Get-DiscoveryStatusText -Snapshot $snap -CandidateCount 0
-        $t | Should -Match '^No inventory data'
-        $t | Should -Not -Match 'Discovered'
+        $snap = New-Snapshot -Rows @()
+        Get-DiscoveryStatusText -Snapshot $snap -CandidateCount 0 | Should -Match '^No inventory data'
     }
 
-    It 'states the client total, inventory age and candidate count' {
-        $snap = New-Snapshot -Rows @(, @('A', 'P', '1', 'x86', 1)) -ClientTotal 4 -InventoryNewest (Get-Date '2026-10-15T02:55:30')
-        $t = Get-DiscoveryStatusText -Snapshot $snap -CandidateCount 3 -Now (Get-Date '2026-10-17T12:00:00')
-        $t | Should -Be 'Inventory covers 4 clients; newest data is 2 days old. Discovered 3 apps.'
-    }
-
-    It 'uses singular words and today for fresh data' {
-        $snap = New-Snapshot -Rows @(, @('A', 'P', '1', 'x86', 1)) -ClientTotal 1 -InventoryNewest (Get-Date '2026-10-17T08:00:00')
-        Get-DiscoveryStatusText -Snapshot $snap -CandidateCount 1 -Now (Get-Date '2026-10-17T12:00:00') |
-            Should -Be 'Inventory covers 1 client; newest data is from today. Discovered 1 app.'
-        $snap.InventoryNewest = Get-Date '2026-10-16T08:00:00'
-        Get-DiscoveryStatusText -Snapshot $snap -CandidateCount 0 -Now (Get-Date '2026-10-17T12:00:00') |
-            Should -Be 'Inventory covers 1 client; newest data is 1 day old. Discovered 0 apps.'
-    }
-
-    It 'states an unknown age when the newest time is missing' {
-        $snap = New-Snapshot -Rows @(, @('A', 'P', '1', 'x86', 1)) -ClientTotal 2 -InventoryNewest $null
-        Get-DiscoveryStatusText -Snapshot $snap -CandidateCount 0 | Should -Be 'Inventory covers 2 clients; age of newest data is unknown. Discovered 0 apps.'
+    It 'reports <Count> candidate(s) without client statistics' -ForEach @(
+        @{ Count = 0; Expected = 'Discovered 0 apps.' }
+        @{ Count = 1; Expected = 'Discovered 1 app.' }
+        @{ Count = 3; Expected = 'Discovered 3 apps.' }
+    ) {
+        $snap = New-Snapshot -Rows @(, @('A', 'P', '1', 'x86'))
+        Get-DiscoveryStatusText -Snapshot $snap -CandidateCount $Count | Should -Be $Expected
     }
 }

@@ -286,11 +286,11 @@ Describe 'Discovery packager input' {
 
 Describe 'Invoke-DiscoveryScan' {
     BeforeEach {
-        $script:snap = [pscustomobject]@{ Rows = @([pscustomobject]@{ DisplayName = 'Git'; Publisher = 'Git'; Version = '2.0'; Architecture = 'x64'; ClientCount = 3 }); ClientTotal = 4; InventoryNewest = (Get-Date); Applications = @() }
+        $script:snap = [pscustomobject]@{ Rows = @([pscustomobject]@{ DisplayName = 'Git'; Publisher = 'Git'; Version = '2.0'; Architecture = 'x64'; ClientCount = 3 }); Applications = @() }
         Mock Resolve-CMDatabaseTarget { [pscustomobject]@{ Server = 'cm01'; Database = 'CM_MCM' } }
         Mock Get-CMInventorySnapshot { $script:snap }
-        Mock Find-DiscoveryCandidate { @([pscustomobject]@{ Script = 'package-git.ps1'; CMName = 'Git'; Vendor = 'Git'; ClientCount = 3; MatchedName = 'Git' }) }
-        Mock Get-DiscoveryStatusText { 'Inventory from 4 clients. 1 app found.' }
+        Mock Find-DiscoveryCandidate { @([pscustomobject]@{ Script = 'package-git.ps1'; CMName = 'Git'; Vendor = 'Git'; MatchedName = 'Git' }) }
+        Mock Get-DiscoveryStatusText { 'Discovered 1 app.' }
     }
 
     It 'returns the candidates and the status text' {
@@ -298,7 +298,7 @@ Describe 'Invoke-DiscoveryScan' {
         $r.Ok | Should -BeTrue
         @($r.Candidates).Count | Should -Be 1
         $r.Candidates[0].Script | Should -Be 'package-git.ps1'
-        $r.StatusText | Should -Be 'Inventory from 4 clients. 1 app found.'
+        $r.StatusText | Should -Be 'Discovered 1 app.'
         Should -Invoke Get-CMInventorySnapshot -Times 1 -ParameterFilter { $Server -eq 'cm01' -and $Database -eq 'CM_MCM' }
         Should -Invoke Get-DiscoveryStatusText -Times 1 -ParameterFilter { $CandidateCount -eq 1 }
     }

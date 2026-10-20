@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026.10.20.0121] - 2026-10-20
+
+## 2 fixes
+
+### Fixed
+
+- Read only distinct software titles in Discover unmanaged software.
+- Stop an active discovery scan with Cancel.
+
 ## [2026.10.18.0120] - 2026-10-18
 
 ## 3 fixes
