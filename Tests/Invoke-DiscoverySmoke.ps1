@@ -18,7 +18,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $roo
 if ($errors) { throw ($errors.Message -join '; ') }
 foreach ($name in @('Show-DiscoveryDialog', 'Get-DiscoveryPromptText', 'Invoke-DiscoveryChoice', 'Enable-DiscoveredApplication',
                     'Add-DiscoveryDismissed', 'Resolve-DiscoveryButton', 'Complete-DiscoveryScan', 'Read-Preferences', 'Resolve-FirstRunCompleted', 'New-MecmPreferencesPanel',
-                    'Invoke-DiscoveryScan', 'Start-DiscoveryRunspace', 'Get-DiscoveryRunspaceState', 'Stop-DiscoveryRunspace')) {
+                    'Invoke-DiscoveryScan', 'Start-DiscoveryRunspace', 'Get-DiscoveryRunspaceState', 'Stop-DiscoveryRunspace', 'Stop-DiscoveryScan')) {
     $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
     if (-not $fn) { throw ('function not found: ' + $name) }
     # Global, the way the shell publishes its functions: a GetNewClosure
@@ -40,6 +40,14 @@ foreach ($stub in 'Get-GitHubApiAuthStatus', 'Get-IconPackManifestPath', 'Get-Ic
     Set-Item -Path ('function:global:' + $stub) -Value { }
 }
 
+$global:btnCancelPipeline = New-Object System.Windows.Controls.Button
+$global:btnCancelPipeline.IsEnabled = $false
+$cancelHandler = $ast.Find({
+    param($n)
+    $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and
+    $n.Expression.Extent.Text -eq '$btnCancelPipeline' -and $n.Member.Value -eq 'Add_Click'
+}, $true)
+& ([scriptblock]::Create($cancelHandler.Extent.Text))
 $checks = 0
 $failures = @()
 $assert = {
@@ -50,25 +58,25 @@ $assert = {
 $click = { param($Control) $Control.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
 
 $candidates = @(
-    [pscustomobject]@{ Script = 'package-git.ps1'; CMName = 'Git'; Vendor = 'The Git Development Community'; ClientCount = 2; MatchedName = 'Git' }
-    [pscustomobject]@{ Script = 'package-7zip.ps1'; CMName = '7-Zip'; Vendor = '7-Zip'; ClientCount = 4; MatchedName = '7-Zip 26.03 (x64 edition)' }
-    [pscustomobject]@{ Script = 'package-hashtools.ps1'; CMName = 'HashTools'; Vendor = 'Binary Fortress Software'; ClientCount = 1; MatchedName = 'HashTools' }
+    [pscustomobject]@{ Script = 'package-git.ps1'; CMName = 'Git'; Vendor = 'The Git Development Community'; MatchedName = 'Git' }
+    [pscustomobject]@{ Script = 'package-7zip.ps1'; CMName = '7-Zip'; Vendor = '7-Zip'; MatchedName = '7-Zip 26.03 (x64 edition)' }
+    [pscustomobject]@{ Script = 'package-hashtools.ps1'; CMName = 'HashTools'; Vendor = 'Binary Fortress Software'; MatchedName = 'HashTools' }
 )
 $names = @{ 'package-git.ps1' = 'Git for Windows (x64)'; 'package-7zip.ps1' = '7-Zip' }
 
 try {
     # --- The prompt window ---------------------------------------------------
-    $result = Show-DiscoveryDialog -Owner $null -Candidates $candidates -StatusText 'Inventory from 4 clients, newest 2026-10-17.' -NameByScript $names -Probe {
+    $result = Show-DiscoveryDialog -Owner $null -Candidates $candidates -StatusText 'Discovered 3 apps.' -NameByScript $names -Probe {
         param($p)
         & $assert ($p.Prompt.Text -eq 'Discovered 3 apps. Enable console view?') 'the prompt reads Discovered 3 apps. Enable console view?'
-        & $assert ($p.Status.Text -eq 'Inventory from 4 clients, newest 2026-10-17.') 'the status line shows the inventory text'
+        & $assert ($p.Status.Text -eq 'Discovered 3 apps.') 'the status line shows the inventory text'
         $rows = @($p.Rows)
         & $assert ($rows.Count -eq 3) 'one row per candidate'
-        & $assert ($rows[0].Script -eq 'package-7zip.ps1' -and $rows[0].ClientCount -eq 4) 'the app on the most clients comes first'
+        & $assert ($rows[0].Script -eq 'package-7zip.ps1') 'the apps are sorted by title'
         & $assert ($rows[1].Name -eq 'Git for Windows (x64)' -and $rows[2].Name -eq 'HashTools') 'the name is the grid name, or the ConfigMgr name without one'
         & $assert ($rows[1].Vendor -eq 'The Git Development Community') 'the vendor column carries the vendor'
         & $assert (@($rows | Where-Object Selected).Count -eq 0) 'no row starts checked'
-        & $assert (@($p.Grid.Columns | ForEach-Object { [string]$_.Header }) -join ',' -eq ',Application,Vendor,Clients,Inventory name') 'the columns are check, name, vendor, client count and inventory name'
+        & $assert (@($p.Grid.Columns | ForEach-Object { [string]$_.Header }) -join ',' -eq ',Application,Vendor,Inventory name') 'the columns are check, name, vendor and inventory name'
         & $assert ($p.EnableSelected.Content -eq 'Enable selected' -and $p.EnableAll.Content -eq 'Enable all' -and $p.NotNow.Content -eq 'Not now' -and $p.Dismiss.Content -eq "Don't ask again for selected") 'the four buttons carry their labels'
         & $click $p.EnableSelected
         & $assert ($p.Note.Visibility -eq 'Visible' -and $p.State.Action -eq 'NotNow') 'Enable selected with nothing checked asks for a check and keeps the window'
@@ -199,6 +207,22 @@ try {
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
     while ($runspace.RunspaceStateInfo.State -notin 'Closed', 'Broken' -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
     & $assert ($runspace.RunspaceStateInfo.State -eq 'Closed') 'the stopped runspace closes'
+    # Cancel the discovery itself, including the SQL command and result timer.
+    $script:DiscoveryTimer = [pscustomobject]@{ Stopped = $false }
+    $script:DiscoveryTimer | Add-Member ScriptMethod Stop { $this.Stopped = $true }
+    $sqlCommand = [pscustomobject]@{ Cancelled = $false }
+    $sqlCommand | Add-Member ScriptMethod Cancel { $this.Cancelled = $true }
+    $script:DiscoveryJob = Start-DiscoveryRunspace -ModulePath $modulePath -ScanText 'param() Start-Sleep -Seconds 120' -ScanArgs @{}
+    $cancelState = $script:DiscoveryJob.State
+    $cancelState.Command = $sqlCommand
+    $global:btnCancelPipeline.IsEnabled = $true
+    $global:ButtonsEnabled = $false
+    $shownBeforeCancel = $global:Shown
+    & $click $global:btnCancelPipeline
+    & $assert ($sqlCommand.Cancelled -and $cancelState.Cancellation.IsCancellationRequested) 'Cancel requests SQL and connection cancellation'
+    & $assert ($null -eq $script:DiscoveryJob -and $script:DiscoveryTimer.Stopped) 'Cancel detaches the scan and stops result polling'
+    & $assert ($global:ButtonsEnabled -and -not $global:btnCancelPipeline.IsEnabled) 'Cancel restores action buttons and disables itself'
+    & $assert ($global:txtStatus.Text -eq 'Discover unmanaged software: cancelled.' -and $global:Shown -eq $shownBeforeCancel) 'Cancel reports cancellation without showing results'
     & $assert ((Get-DiscoveryRunspaceState -Job $null) -eq 'Done') 'no scan reads as done'
     Stop-DiscoveryRunspace -Job $null
 

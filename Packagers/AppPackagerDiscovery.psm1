@@ -1,42 +1,21 @@
 #Requires -Version 5.1
 <#
     The site database views are outside ConfigMgr role-based administration.
-    No function returns a client machine name, a ResourceID or any per-client
-    key: the client set of each snapshot row stays in module scope, and only
-    counts leave the module.
+    Discovery reads distinct software titles, never per-client inventory.
 #>
 
 Set-StrictMode -Version 2.0
 
-# Snapshot row object -> HashSet[int] of per-snapshot client ordinals. Weak
-# keys release the sets with the snapshot.
-$script:RowClients = New-Object 'System.Runtime.CompilerServices.ConditionalWeakTable[object,object]'
-
 $script:DiscoveryInventoryQuery = @'
 SET NOCOUNT ON;
 
-SELECT DISTINCT arp.ResourceID, arp.DisplayName0 AS DisplayName, arp.Publisher0 AS Publisher,
-       arp.Version0 AS Version, @Arch32 AS Architecture
-FROM dbo.v_GS_ADD_REMOVE_PROGRAMS AS arp
-JOIN dbo.v_R_System AS sys ON sys.ResourceID = arp.ResourceID
-WHERE arp.DisplayName0 IS NOT NULL AND arp.DisplayName0 <> N''
-  AND ISNULL(sys.Obsolete0, 0) = 0 AND ISNULL(sys.Decommissioned0, 0) = 0
+SELECT DISTINCT DisplayName0 AS DisplayName, Version0 AS Version, @Arch32 AS Architecture
+FROM dbo.v_GS_ADD_REMOVE_PROGRAMS
+WHERE DisplayName0 IS NOT NULL AND DisplayName0 <> N''
 UNION ALL
-SELECT DISTINCT arp64.ResourceID, arp64.DisplayName0, arp64.Publisher0,
-       arp64.Version0, @Arch64
-FROM dbo.v_GS_ADD_REMOVE_PROGRAMS_64 AS arp64
-JOIN dbo.v_R_System AS sys64 ON sys64.ResourceID = arp64.ResourceID
-WHERE arp64.DisplayName0 IS NOT NULL AND arp64.DisplayName0 <> N''
-  AND ISNULL(sys64.Obsolete0, 0) = 0 AND ISNULL(sys64.Decommissioned0, 0) = 0;
-
-SELECT COUNT(DISTINCT inv.ResourceID) AS ClientTotal, MAX(inv.TimeStamp) AS InventoryNewest
-FROM (
-    SELECT ResourceID, TimeStamp FROM dbo.v_GS_ADD_REMOVE_PROGRAMS
-    UNION ALL
-    SELECT ResourceID, TimeStamp FROM dbo.v_GS_ADD_REMOVE_PROGRAMS_64
-) AS inv
-JOIN dbo.v_R_System AS invsys ON invsys.ResourceID = inv.ResourceID
-WHERE ISNULL(invsys.Obsolete0, 0) = 0 AND ISNULL(invsys.Decommissioned0, 0) = 0;
+SELECT DISTINCT DisplayName0, Version0, @Arch64
+FROM dbo.v_GS_ADD_REMOVE_PROGRAMS_64
+WHERE DisplayName0 IS NOT NULL AND DisplayName0 <> N'';
 
 SELECT DISTINCT app.DisplayName
 FROM dbo.v_Applications AS app
@@ -259,20 +238,30 @@ function Invoke-DiscoverySqlQuery {
         [Parameter(Mandatory)][string]$ConnectionString,
         [Parameter(Mandatory)][string]$CommandText,
         [System.Collections.IDictionary]$Parameters = @{},
-        [int]$TimeoutSeconds = 30
+        [int]$TimeoutSeconds = 30,
+        [hashtable]$OperationState
     )
     $connection = New-Object System.Data.SqlClient.SqlConnection $ConnectionString
     $command = $null
+    $adapter = $null
     try {
-        $connection.Open()
         $command = New-DiscoverySqlCommand -Connection $connection -CommandText $CommandText -Parameters $Parameters -TimeoutSeconds $TimeoutSeconds
+        if ($OperationState) {
+            $OperationState.Command = $command
+            $token = $OperationState.Cancellation.Token
+            $token.ThrowIfCancellationRequested()
+            $connection.OpenAsync($token).GetAwaiter().GetResult()
+            $token.ThrowIfCancellationRequested()
+        }
+        else { $connection.Open() }
         $adapter = New-Object System.Data.SqlClient.SqlDataAdapter $command
         $dataSet = New-Object System.Data.DataSet
         [void]$adapter.Fill($dataSet)
-        $adapter.Dispose()
         return , $dataSet
     }
     finally {
+        if ($OperationState) { $OperationState.Command = $null }
+        if ($adapter) { $adapter.Dispose() }
         if ($command) { $command.Dispose() }
         $connection.Dispose()
     }
@@ -344,97 +333,48 @@ function Get-DiscoveryCellValue {
 function Get-CMInventorySnapshot {
     <#
     .SYNOPSIS
-        Reads Add or Remove Programs inventory (32-bit and 64-bit views),
-        the client total, the newest inventory time and the current
-        ConfigMgr Application names. Throws a plain message on a denied
-        login, an unreachable server or a wrong database.
+        Reads distinct Add or Remove Programs titles (32-bit and 64-bit
+        views) and current ConfigMgr Application names. Throws a plain message
+        on a denied login, an unreachable server or a wrong database.
     #>
     param(
         [Parameter(Mandatory)][string]$Server,
         [Parameter(Mandatory)][string]$Database,
-        [ValidateRange(1, 600)][int]$TimeoutSeconds = 30
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 30,
+        [hashtable]$OperationState
     )
 
     $connectionString = New-DiscoveryConnectionString -Server $Server -Database $Database -TimeoutSeconds $TimeoutSeconds
     $parameters = [ordered]@{ Arch32 = 'x86'; Arch64 = 'x64'; AppObjectType = 31 }
 
     try {
-        $dataSet = Invoke-DiscoverySqlQuery -ConnectionString $connectionString -CommandText $script:DiscoveryInventoryQuery -Parameters $parameters -TimeoutSeconds $TimeoutSeconds
+        $dataSet = Invoke-DiscoverySqlQuery -ConnectionString $connectionString -CommandText $script:DiscoveryInventoryQuery -Parameters $parameters -TimeoutSeconds $TimeoutSeconds -OperationState $OperationState
     }
     catch {
         $message = ConvertTo-DiscoverySqlMessage -Exception $_.Exception -Server $Server -Database $Database -TimeoutSeconds $TimeoutSeconds
         throw (New-Object System.InvalidOperationException -ArgumentList $message, $_.Exception)
     }
 
-    if (-not $dataSet -or $dataSet.Tables.Count -lt 3) {
+    if (-not $dataSet -or $dataSet.Tables.Count -lt 2) {
         throw "The site database query on $Server returned an unexpected result."
     }
 
-    $ordinalByResource = New-Object 'System.Collections.Generic.Dictionary[long,int]'
-    $groups = New-Object 'System.Collections.Generic.Dictionary[string,object]' -ArgumentList ([System.StringComparer]::Ordinal)
-    $order = New-Object System.Collections.Generic.List[string]
-    foreach ($r in $dataSet.Tables[0].Rows) {
-        $resource = Get-DiscoveryCellValue $r 'ResourceID'
-        if ($null -eq $resource) { continue }
-        $resourceId = [long]$resource
-        $ordinal = 0
-        if (-not $ordinalByResource.TryGetValue($resourceId, [ref]$ordinal)) {
-            $ordinal = $ordinalByResource.Count
-            $ordinalByResource[$resourceId] = $ordinal
+    $rows = @(foreach ($r in $dataSet.Tables[0].Rows) {
+        [pscustomobject]@{
+            DisplayName  = [string](Get-DiscoveryCellValue $r 'DisplayName')
+            Version      = [string](Get-DiscoveryCellValue $r 'Version')
+            Architecture = [string](Get-DiscoveryCellValue $r 'Architecture')
         }
-        $name = [string](Get-DiscoveryCellValue $r 'DisplayName')
-        $publisher = [string](Get-DiscoveryCellValue $r 'Publisher')
-        $version = [string](Get-DiscoveryCellValue $r 'Version')
-        $architecture = [string](Get-DiscoveryCellValue $r 'Architecture')
-        $key = $name + [char]0 + $publisher + [char]0 + $version + [char]0 + $architecture
-        $group = $null
-        if (-not $groups.TryGetValue($key, [ref]$group)) {
-            $group = [pscustomobject]@{
-                DisplayName  = $name
-                Publisher    = $publisher
-                Version      = $version
-                Architecture = $architecture
-                Clients      = New-Object 'System.Collections.Generic.HashSet[int]'
-            }
-            $groups[$key] = $group
-            $order.Add($key)
-        }
-        [void]$group.Clients.Add($ordinal)
-    }
+    })
 
-    $rows = New-Object System.Collections.Generic.List[object]
-    foreach ($key in $order) {
-        $group = $groups[$key]
-        $row = [pscustomobject]@{
-            DisplayName  = $group.DisplayName
-            Publisher    = $group.Publisher
-            Version      = $group.Version
-            Architecture = $group.Architecture
-            ClientCount  = $group.Clients.Count
-        }
-        $script:RowClients.Add($row, $group.Clients)
-        $rows.Add($row)
-    }
-
-    $clientTotal = 0
-    $newest = $null
-    if ($dataSet.Tables[1].Rows.Count -gt 0) {
-        $summary = $dataSet.Tables[1].Rows[0]
-        $clientTotal = [int](Get-DiscoveryCellValue $summary 'ClientTotal')
-        $n = Get-DiscoveryCellValue $summary 'InventoryNewest'
-        if ($null -ne $n) { $newest = [datetime]$n }
-    }
-
-    $applications = @(foreach ($r in $dataSet.Tables[2].Rows) {
+    $applications = @(foreach ($r in $dataSet.Tables[1].Rows) {
             $name = [string](Get-DiscoveryCellValue $r 'DisplayName')
             if ($name) { $name }
         })
 
     return [pscustomobject]@{
-        Rows            = $rows.ToArray()
-        ClientTotal     = $clientTotal
-        InventoryNewest = $newest
-        Applications    = $applications
+        Rows         = $rows
+        Applications = $applications
     }
 }
 
@@ -622,21 +562,6 @@ function Test-DiscoveryApplicationManaged {
     return $false
 }
 
-function Measure-DiscoveryClientCount {
-    # Distinct clients over the matched rows. A row built outside
-    # Get-CMInventorySnapshot has no client set; the result is then at least the largest ClientCount of such
-    # rows, which never overstates the distinct total.
-    param([object[]]$Row)
-    $clients = New-Object 'System.Collections.Generic.HashSet[int]'
-    $floor = 0
-    foreach ($r in $Row) {
-        $set = $null
-        if ($script:RowClients.TryGetValue($r, [ref]$set)) { $clients.UnionWith([System.Collections.Generic.IEnumerable[int]]$set) }
-        elseif ([int]$r.ClientCount -gt $floor) { $floor = [int]$r.ClientCount }
-    }
-    return [Math]::Max($clients.Count, $floor)
-}
-
 function Get-DiscoveryPackagerValue {
     param($Packager, [string]$Name)
     $property = $Packager.PSObject.Properties[$Name]
@@ -650,8 +575,7 @@ function Find-DiscoveryCandidate {
         Returns the hidden, not dismissed packagers whose ArpName (and
         ArpVersion and ArpArch, when set) matches at least one inventory row
         and whose CMName has no current ConfigMgr Application (the Check
-        ConfigMgr title rule of Test-MecmApplicationTitle). ClientCount
-        is the number of distinct clients over the matched rows. Throws when
+        ConfigMgr title rule of Test-MecmApplicationTitle). Throws when
         a pattern is not a valid wildcard.
     #>
     param(
@@ -684,8 +608,7 @@ function Find-DiscoveryCandidate {
         $versionPatterns = Get-DiscoveryArpPatterns -ArpName (Get-DiscoveryPackagerValue $p 'ArpVersion') -Script $scriptName -Tag 'ArpVersion'
         $arch = Get-DiscoveryPackagerValue $p 'ArpArch'
 
-        $matched = New-Object System.Collections.Generic.List[object]
-        $best = $null
+        $match = $null
         foreach ($row in $rows) {
             if ($arch -and -not [string]::Equals($arch, [string]$row.Architecture, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
             if ($versionPatterns.Count -gt 0) {
@@ -698,17 +621,16 @@ function Find-DiscoveryCandidate {
             $hit = $false
             foreach ($pattern in $patterns) { if ($pattern.IsMatch($name)) { $hit = $true; break } }
             if (-not $hit) { continue }
-            $matched.Add($row)
-            if (-not $best -or [int]$row.ClientCount -gt [int]$best.ClientCount) { $best = $row }
+            $match = $row
+            break
         }
-        if (-not $best) { continue }
+        if (-not $match) { continue }
 
         [pscustomobject]@{
             Script      = $scriptName
             CMName      = $cmName
             Vendor      = [string]$p.Vendor
-            ClientCount = (Measure-DiscoveryClientCount -Row $matched.ToArray())
-            MatchedName = [string]$best.DisplayName
+            MatchedName = [string]$match.DisplayName
         }
     }
 
@@ -722,30 +644,20 @@ function Find-DiscoveryCandidate {
 function Get-DiscoveryStatusText {
     <#
     .SYNOPSIS
-        One line for the log and the prompt: client total, inventory age and
-        candidate count, or the no-inventory-data text for zero rows.
+        One line for the log and the prompt: candidate count, or the
+        no-inventory-data text for zero rows.
     #>
     param(
         [Parameter(Mandatory)]$Snapshot,
-        [Parameter(Mandatory)][int]$CandidateCount,
-        [datetime]$Now = (Get-Date)
+        [Parameter(Mandatory)][int]$CandidateCount
     )
 
     if (@($Snapshot.Rows).Count -eq 0) {
         return 'No inventory data: the site database has no Add or Remove Programs rows. Check that hardware inventory collects Add or Remove Programs.'
     }
 
-    $clients = [int]$Snapshot.ClientTotal
-    $clientWord = if ($clients -eq 1) { 'client' } else { 'clients' }
-    $age = 'age of newest data is unknown'
-    if ($null -ne $Snapshot.InventoryNewest) {
-        $days = [int](($Now.Date - ([datetime]$Snapshot.InventoryNewest).Date).TotalDays)
-        $age = if ($days -le 0) { 'newest data is from today' }
-        elseif ($days -eq 1) { 'newest data is 1 day old' }
-        else { "newest data is $days days old" }
-    }
     $appWord = if ($CandidateCount -eq 1) { 'app' } else { 'apps' }
-    return "Inventory covers $clients $clientWord; $age. Discovered $CandidateCount $appWord."
+    return "Discovered $CandidateCount $appWord."
 }
 
 Export-ModuleMember -Function @(

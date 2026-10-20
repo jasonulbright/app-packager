@@ -28,7 +28,7 @@ Installs the latest release into `%LOCALAPPDATA%\AppPackager`. Only a zip crosse
 On an unrestricted network, the installer can do the whole flow itself — resolve the release from the GitHub API, download, verify SHA-256, extract:
 
 ```powershell
-curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.10.18.0120
+curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.10.20.0121
 ```
 
 Omitting `-ZipPath` makes it download and checksum-verify the requested release; `-InstallPath` picks the folder and `-Version` pins a release. `-Force` is required to replace a non-empty folder that holds no existing AppPackager install. If even the curl download is blocked, fetch the zip in a browser and run the same `-ZipPath` command against it.
@@ -381,7 +381,7 @@ AppPackager has no service and no backend. Every network call comes from one of 
 | `start-apppackager.ps1` | The update check: `https://api.github.com/repos/jasonulbright/app-packager/releases/latest`, once per 24 hours at launch, cached in `%LOCALAPPDATA%\AppPackager\update-check.json`. The icon pack and Content Prep downloads from the Options window. The `rate_limit` probe behind the GitHub API row. | The log pane at launch. |
 | The Package phase | Writes to the file share and the ConfigMgr provider, or to Intune through Microsoft Graph, or to the WSUS server. No vendor call. | The log pane. |
 | Check CVEs (`Packagers\AppPackagerVulnerability.psm1`) | One NVD call per checked app: `https://services.nvd.nist.gov/rest/json/cves/2.0` with the app's CPE and version range, paged at 2000 records; `https://cvedb.shodan.io/cves` with the ConfigMgr version when NVD fails; `https://api.first.org/data/v1/epss` with up to 100 CVE ids per call; the CISA KEV catalog `https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json` once per day. Every call carries the `AppPackager` user agent and the NVD key from Preferences when one is set. Nothing is sent to the other CVE sites; the report and the CVE window only link to them. The scheduled monitor adds one POST of the run summary (counts and report paths, no CVE text) to the webhook URL in `monitor-config.json`, when one is set. | The `GET <url> -> HTTP <code>` and `POST <url> -> HTTP <code>` lines in the log pane or the monitor log. |
-| Discover unmanaged software (`Packagers\AppPackagerDiscovery.psm1`) | One SQL connection to the ConfigMgr site database with Windows authentication and read-only intent. Parameterized `SELECT` statements on the views `v_GS_ADD_REMOVE_PROGRAMS`, `v_GS_ADD_REMOVE_PROGRAMS_64`, `v_R_System`, `v_Applications` and `v_ConfigurationItems`. AppPackager receives display names, publishers, versions and resource IDs, and keeps only client counts. No machine name leaves the database. Nothing is written. | The `Discover unmanaged software:` lines in the log pane. |
+| Discover unmanaged software (`Packagers\AppPackagerDiscovery.psm1`) | One SQL connection to the ConfigMgr site database with Windows authentication and read-only intent. Parameterized `SELECT` statements on the views `v_GS_ADD_REMOVE_PROGRAMS`, `v_GS_ADD_REMOVE_PROGRAMS_64`, `v_Applications` and `v_ConfigurationItems`. AppPackager receives distinct display names, versions and architectures, plus ConfigMgr application titles. No per-client inventory or client counts leave the database. Nothing is written. | The `Discover unmanaged software:` lines in the log pane. |
 
 The Application Workbench sends nothing. Saving a profile writes a file under `%LOCALAPPDATA%\AppPackagerData\Workbench`; Stage and Publish from the Workbench run the same packager script and Package phase as the main window.
 
@@ -800,14 +800,14 @@ A hidden packager is a candidate when all of these are true:
 - The packager is not on the list of apps not offered.
 - The packager has an `ArpName` header that is not `none`.
 
-When it finds candidates, a window shows "Discovered N apps. Enable console view?". The list shows the application, the vendor, the client count and the inventory name that matched. Select one of these buttons:
+When it finds candidates, a window shows "Discovered N apps. Enable console view?". The list shows the application, the vendor and the inventory name that matched. Select one of these buttons:
 
 - **Enable selected** shows the checked apps in the grid.
 - **Enable all** shows every app in the list in the grid.
 - **Not now** closes the window. The next discovery offers the apps again.
 - **Don't ask again for selected** keeps the checked apps hidden and leaves them out of later discoveries. The next discovery offers the apps that are not checked again. With no app checked, the button makes no change and the window tells you to check the apps.
 
-Enabling an app has the same effect as checking it in the Product Filter. The app joins the grid for Check, Stage and Package. With no candidates, no window opens and the status line shows the inventory result. A failed query shows a plain message in the log and on the status line. The rest of AppPackager keeps working.
+Enabling an app has the same effect as checking it in the Product Filter. The app joins the grid for Check, Stage and Package. With no candidates, no window opens and the status line shows the inventory result. A failed query shows a plain message in the log and on the status line. The rest of AppPackager keeps working. Use **Cancel** to stop an active discovery scan. Cancellation stops the query and restores the action buttons without opening the results window.
 
 ### Matching
 
@@ -822,7 +822,7 @@ When Add/Remove Programs cannot tell two packagers apart, one packager owns the 
 
 Limitation: some packagers share one Add/Remove Programs name with a sibling. These are Citrix Workspace Current Release and LTSR, QGIS and QGIS LTR, NVIDIA GeForce and NVIDIA RTX Enterprise, and Microsoft 365 Apps, Project and Visio in x64 and x86. Discover cannot tell which variant a client has installed, so it offers the owner of each group and never offers the siblings. Enabling a packager only makes its row visible, and Check ConfigMgr then shows its real state.
 
-A client counts once per app, also when it has more than one matching entry. Discovery leaves out clients that ConfigMgr marks obsolete or decommissioned. A pattern that is not a valid wildcard stops discovery with a message that names the packager.
+Discovery retrieves distinct software titles and ConfigMgr application names in one SQL round trip, then matches the titles locally. It does not retrieve per-client rows or calculate client counts. Version and architecture metadata keep the `ArpVersion` and `ArpArch` rules working. A pattern that is not a valid wildcard stops discovery with a message that names the packager.
 
 ### Requirements
 
@@ -838,8 +838,8 @@ Discovery reads the SQL server and the database name from the site. The lookup c
 ### Security notes
 
 - **The SQL views bypass ConfigMgr role-based administration.** A user with `db_datareader` on the site database reads inventory for every client in the hierarchy. Security roles and security scopes in the console do not limit this. Grant `db_datareader` only to accounts that may see the inventory of all clients.
-- Discovery reads counts only. It shows the number of clients per app and never a machine name.
-- Every statement is a parameterized `SELECT` on a `v_` view, with a command timeout and read-only intent. Discovery writes nothing to the database. The views are `v_GS_ADD_REMOVE_PROGRAMS`, `v_GS_ADD_REMOVE_PROGRAMS_64`, `v_R_System` (obsolete and decommissioned flags only), `v_Applications` and `v_ConfigurationItems`.
+- Discovery reads distinct software titles only. It reads no client key, no client count and no machine name.
+- Every statement is a parameterized `SELECT` on a `v_` view, with a command timeout and read-only intent. Discovery writes nothing to the database. The views are `v_GS_ADD_REMOVE_PROGRAMS`, `v_GS_ADD_REMOVE_PROGRAMS_64`, `v_Applications` and `v_ConfigurationItems`.
 - A discovery run stops after 600 seconds. The buttons become available again.
 
 ### The list of apps not offered
