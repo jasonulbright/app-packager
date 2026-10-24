@@ -100,8 +100,9 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$VersionProbeUrl = "https://zoom.us/client/latest/ZoomInstaller.exe"
-$MsiDownloadUrl  = "https://zoom.us/client/latest/ZoomInstallerFull.msi"
+# Without archType=x64 both "latest" URLs serve the older 32-bit build.
+$VersionProbeUrl = "https://zoom.us/client/latest/ZoomInstaller.exe?archType=x64"
+$MsiDownloadUrl  = "https://zoom.us/client/latest/ZoomInstallerFull.msi?archType=x64"
 $MsiFileName     = "ZoomInstallerFull.msi"
 
 $VendorFolder = "Zoom"
