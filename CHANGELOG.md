@@ -2,12 +2,13 @@
 
 ## [2026.10.20.0121] - 2026-10-20
 
-## 2 fixes
+## 3 fixes
 
 ### Fixed
 
 - Read only distinct software titles in Discover unmanaged software.
 - Stop an active discovery scan with Cancel.
+- Check and download the current 64-bit Zoom Workplace release.
 
 ## [2026.10.18.0120] - 2026-10-18
 
