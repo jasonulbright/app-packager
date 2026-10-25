@@ -915,6 +915,27 @@ Describe 'Bundles' {
         (Get-ApplicationDefinition -ApplicationId $targetId).Persisted | Should -BeTrue
     }
 
+    It 'gives an imported copy its own profiles and leaves the source untouched when one is saved' {
+        $id = 'catalog:package-bundle-source'
+        $profile = New-TestProfile -ApplicationId $id
+        Save-ApplicationDefinition -Definition ([pscustomobject]@{ ApplicationId = $id; DisplayName = 'Source' }) | Out-Null
+        $bundle = Join-Path (New-TestFolder) 'identity.zip'
+        Export-WorkbenchBundle -ApplicationId $id -Path $bundle | Out-Null
+
+        $copyId = 'catalog:package-bundle-source-copy'
+        Import-WorkbenchBundle -Path $bundle -ApplicationId $copyId | Out-Null
+
+        $copied = Get-Profile -ApplicationId $copyId -ProfileId $profile.ProfileId
+        $copied.ApplicationId | Should -Be $copyId
+
+        $before = (Get-Profile -ApplicationId $id -ProfileId $profile.ProfileId).Revision
+        $edit = @{ SchemaVersion = 1; ProfileId = $profile.ProfileId; ApplicationId = $copyId; Name = $copied.Name; Revision = $copied.Revision; Timing = @{ EstimatedMinutes = 31 } }
+        Save-Profile -Profile ([pscustomobject]$edit) | Out-Null
+
+        (Get-Profile -ApplicationId $id -ProfileId $profile.ProfileId).Revision | Should -Be $before
+        (Get-Profile -ApplicationId $copyId -ProfileId $profile.ProfileId).Revision | Should -BeGreaterThan $before
+    }
+
     It 'refuses to overwrite an existing application without -Force' {
         $id = 'catalog:package-bundle-existing'
         Save-ApplicationDefinition -Definition ([pscustomobject]@{ ApplicationId = $id; DisplayName = 'Existing' }) | Out-Null
@@ -1133,7 +1154,7 @@ Describe 'Invoke-AppPackagerBuild CLI' {
 
     It 'runs Package without Stage' {
         $result = Invoke-Cli -Arguments @('-Application', 'package-clifixture.ps1', '-Profile', 'default', '-Package',
-            '-Target', 'IntuneOnly', '-PackagersRoot', $script:CliRoot, '-DownloadRoot', $script:CliDownloadRoot)
+            '-Target', 'MECM', '-PackagersRoot', $script:CliRoot, '-DownloadRoot', $script:CliDownloadRoot)
         $result.Output | Should -Not -Match "property 'Count' cannot be found"
         $result.ExitCode | Should -Be 0
     }
@@ -1417,5 +1438,97 @@ Describe 'Set-ActiveProfile' {
         Set-ActiveProfile -ApplicationId $id -ProfileId 'default' | Should -BeTrue
         (Get-ApplicationDefinition -ApplicationId $id).ActiveProfileId | Should -Be 'default'
         { Set-ActiveProfile -ApplicationId $id -ProfileId 'no-such-profile' } | Should -Throw
+    }
+}
+
+Describe 'Stage scripts folder at finalization' {
+    BeforeAll {
+        Import-Module "$PSScriptRoot\AppPackagerSigning.psd1" -Force
+    }
+    AfterAll {
+        Remove-Module AppPackagerSigning -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'keeps a profile file under scripts and removes only the generated scripts' {
+        $id = 'catalog:package-scriptsfolder'
+        $profile = New-TestProfile -ApplicationId $id
+        $file = New-TestFile -Path (Join-Path (New-TestFolder) 'helper.ps1') -Content 'Write-Output helper'
+        $asset = Add-ProfileAsset -ApplicationId $id -ProfileId $profile.ProfileId -Path $file
+        $saved = Save-Profile -Profile ([pscustomobject]@{
+                SchemaVersion = 1; ProfileId = $profile.ProfileId; ApplicationId = $id; Name = 'Managed'
+                Revision      = $profile.Revision
+                SourceFiles   = @(@{ Asset = $asset.AssetId; Destination = 'scripts\helper.ps1' })
+            })
+        $snapshot = New-RunSnapshot -ApplicationId $id -ProfileId $saved.ProfileId
+
+        $stage = New-TestStage
+        New-TestFile -Path (Join-Path $stage 'scripts\detect.ps1') -Content 'stale detector' | Out-Null
+        New-TestFile -Path (Join-Path $stage 'scripts\requirements\old-rule.ps1') -Content 'stale requirement' | Out-Null
+        $manifest = New-TestManifest
+        Invoke-StageFinalization -StageRoot $stage -ManifestData $manifest -PackagerScriptPath $null -SnapshotPath $snapshot.Path | Out-Null
+
+        (Get-Content -LiteralPath (Join-Path $stage 'scripts\helper.ps1') -Raw).Trim() | Should -Be 'Write-Output helper'
+        Test-Path -LiteralPath (Join-Path $stage 'scripts\detect.ps1') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $stage 'scripts\requirements') | Should -BeFalse
+        $entry = @($manifest['CustomAssets'] | Where-Object { $_.RelativePath -eq 'scripts\helper.ps1' })[0]
+        $entry.Sha256 | Should -Be (Get-FileHash -LiteralPath (Join-Path $stage 'scripts\helper.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+
+    It 'reserves the generated script paths' {
+        foreach ($destination in 'scripts\detect.ps1', 'scripts\requirements\cpu-arch.ps1') {
+            $id = 'catalog:package-reserved-' + ([guid]::NewGuid().ToString('N').Substring(0, 6))
+            $profile = New-TestProfile -ApplicationId $id
+            $file = New-TestFile -Path (Join-Path (New-TestFolder) 'x.ps1') -Content 'x'
+            $asset = Add-ProfileAsset -ApplicationId $id -ProfileId $profile.ProfileId -Path $file
+            $saved = Save-Profile -Profile ([pscustomobject]@{
+                    SchemaVersion = 1; ProfileId = $profile.ProfileId; ApplicationId = $id; Name = 'Managed'
+                    Revision      = $profile.Revision
+                    SourceFiles   = @(@{ Asset = $asset.AssetId; Destination = $destination })
+                })
+            $snapshot = New-RunSnapshot -ApplicationId $id -ProfileId $saved.ProfileId
+            $stage = New-TestStage
+            $manifest = New-TestManifest
+            { Invoke-StageFinalization -StageRoot $stage -ManifestData $manifest -PackagerScriptPath $null -SnapshotPath $snapshot.Path } |
+                Should -Throw '*reserved for the generated detection and requirement scripts*'
+        }
+    }
+}
+
+Describe 'Script text encoding at finalization' {
+    It 'writes non-ASCII custom script text with a byte order mark and ASCII text without one' {
+        foreach ($case in @(
+                @{ Text = "Write-Output 'caf$([char]0x00E9)'`r`nexit 0"; Bom = $true },
+                @{ Text = "Write-Output 'cafe'`r`nexit 0"; Bom = $false })) {
+            $id = 'catalog:package-encoding-' + ([guid]::NewGuid().ToString('N').Substring(0, 6))
+            $profile = New-TestProfile -ApplicationId $id
+            $saved = Save-Profile -Profile ([pscustomobject]@{
+                    SchemaVersion = 1; ProfileId = $profile.ProfileId; ApplicationId = $id; Name = 'Managed'
+                    Revision      = $profile.Revision
+                    Install       = @{ Mode = 'Custom'; ScriptText = $case.Text }
+                })
+            $snapshot = New-RunSnapshot -ApplicationId $id -ProfileId $saved.ProfileId
+            $stage = New-TestStage
+            $manifest = New-TestManifest
+            Invoke-StageFinalization -StageRoot $stage -ManifestData $manifest -PackagerScriptPath $null -SnapshotPath $snapshot.Path | Out-Null
+            $bytes = [System.IO.File]::ReadAllBytes((Join-Path $stage 'install.ps1'))
+            $hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+            $hasBom | Should -Be $case.Bom
+        }
+    }
+
+    It 'writes non-ASCII hook text with a byte order mark' {
+        $id = 'catalog:package-encoding-hook'
+        $profile = New-TestProfile -ApplicationId $id
+        $saved = Save-Profile -Profile ([pscustomobject]@{
+                SchemaVersion = 1; ProfileId = $profile.ProfileId; ApplicationId = $id; Name = 'Managed'
+                Revision      = $profile.Revision
+                Install       = @{ Mode = 'Extend'; BeforeText = "Write-Output '$([char]0x00FC)'`r`nexit 0" }
+            })
+        $snapshot = New-RunSnapshot -ApplicationId $id -ProfileId $saved.ProfileId
+        $stage = New-TestStage
+        $manifest = New-TestManifest
+        Invoke-StageFinalization -StageRoot $stage -ManifestData $manifest -PackagerScriptPath $null -SnapshotPath $snapshot.Path | Out-Null
+        $bytes = [System.IO.File]::ReadAllBytes((Join-Path $stage 'install-before.ps1'))
+        ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) | Should -BeTrue
     }
 }

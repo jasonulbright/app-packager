@@ -1528,6 +1528,51 @@ function Test-WorkbenchSigningRequested {
     return $false
 }
 
+function Write-WorkbenchScriptFile {
+    <#
+    .SYNOPSIS
+        Writes script text that Windows PowerShell 5.1 will read back as the
+        same characters.
+
+    .DESCRIPTION
+        5.1 reads a script with no byte order mark in the ANSI code page, so
+        text with any non-ASCII character is written as UTF-8 with a BOM. Text
+        that already carries a signature block is written in the first
+        encoding that keeps the signature verifiable.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Text
+    )
+
+    if ($Text -match '# SIG # Begin signature block') {
+        $verifier = Get-Command -Name Test-ScriptSignature -ErrorAction SilentlyContinue
+        if ($verifier) {
+            foreach ($encoding in @(
+                    (New-Object System.Text.UTF8Encoding($false)),
+                    (New-Object System.Text.UTF8Encoding($true)),
+                    (New-Object System.Text.UnicodeEncoding($false, $true)),
+                    (New-Object System.Text.UnicodeEncoding($true, $true)))) {
+                [System.IO.File]::WriteAllText($Path, $Text, $encoding)
+                if ((& $verifier -Path $Path).SignatureIntact) { return }
+            }
+        }
+    }
+    $needsBom = ($Text -match '[^\x00-\x7F]')
+    [System.IO.File]::WriteAllText($Path, $Text, (New-Object System.Text.UTF8Encoding($needsBom)))
+}
+
+function Test-WorkbenchGeneratedScriptPath {
+    <#
+    .SYNOPSIS
+        True for the stage-relative paths the signing step writes itself.
+    #>
+    param([Parameter(Mandatory)][string]$RelativePath)
+
+    $normalized = ($RelativePath -replace '/', '\').TrimStart('\')
+    return ($normalized -ieq 'scripts\detect.ps1') -or ($normalized -like 'scripts\requirements\*') -or ($normalized -ieq 'scripts\requirements')
+}
+
 function Invoke-WorkbenchSigning {
     <#
     .SYNOPSIS
@@ -1559,13 +1604,18 @@ function Invoke-WorkbenchSigning {
         }
     }
 
-    # The signing module regenerates scripts\detect*.ps1 and
-    # scripts\requirements\*.ps1 from the current manifest. Clearing the
-    # folder first stops a previous build's detector, which the current
-    # profile no longer selects, from being signed and shipped.
-    $scriptsFolder = Join-Path $StageRoot 'scripts'
-    if (Test-Path -LiteralPath $scriptsFolder) {
-        Remove-Item -LiteralPath $scriptsFolder -Recurse -Force -ErrorAction Stop
+    # The signing module regenerates scripts\detect.ps1 and
+    # scripts\requirements\*.ps1 from the current manifest. Clearing those
+    # two paths first stops a previous build's detector, which the current
+    # profile no longer selects, from being signed and shipped. Every other
+    # file under scripts\ belongs to the profile and stays.
+    $generatedDetect = Join-Path (Join-Path $StageRoot 'scripts') 'detect.ps1'
+    if (Test-Path -LiteralPath $generatedDetect) {
+        Remove-Item -LiteralPath $generatedDetect -Force -ErrorAction Stop
+    }
+    $generatedRequirements = Join-Path (Join-Path $StageRoot 'scripts') 'requirements'
+    if (Test-Path -LiteralPath $generatedRequirements) {
+        Remove-Item -LiteralPath $generatedRequirements -Recurse -Force -ErrorAction Stop
     }
 
     $signing = ConvertTo-WorkbenchHashtable -InputObject (& $categorySigning -StageRoot $StageRoot -ManifestData $ManifestData -Policy $Policy)
@@ -2012,7 +2062,7 @@ function Invoke-StageFinalization {
             if ([string]::IsNullOrWhiteSpace($assetId) -and [string]::IsNullOrWhiteSpace($typed)) { throw "$section.Mode Custom requires a script asset or script text." }
             $raw = if ([string]::IsNullOrWhiteSpace($assetId)) { $typed } else { [System.IO.File]::ReadAllText((& $resolveAsset $assetId)) }
             $text = Resolve-WorkbenchTokens -Text $raw -ManifestData $ManifestData -Context Script
-            [System.IO.File]::WriteAllText((Join-Path $StageRoot $target), $text, (New-Object System.Text.UTF8Encoding($false)))
+            Write-WorkbenchScriptFile -Path (Join-Path $StageRoot $target) -Text $text
             [void]$customAssets.Add(@{ Category = $section; RelativePath = $target; Asset = $(if ([string]::IsNullOrWhiteSpace($assetId)) { $null } else { $assetId }) })
         }
         elseif ($mode -eq 'Extend') {
@@ -2031,7 +2081,7 @@ function Invoke-StageFinalization {
                 $raw = if ([string]::IsNullOrWhiteSpace($assetId)) { $typed } else { [System.IO.File]::ReadAllText((& $resolveAsset $assetId)) }
                 $name = ('{0}-{1}.ps1' -f $section.ToLowerInvariant(), $hook.ToLowerInvariant())
                 $text = Resolve-WorkbenchTokens -Text $raw -ManifestData $ManifestData -Context Script
-                [System.IO.File]::WriteAllText((Join-Path $StageRoot $name), $text, (New-Object System.Text.UTF8Encoding($false)))
+                Write-WorkbenchScriptFile -Path (Join-Path $StageRoot $name) -Text $text
                 $stepNames[$hook] = $name
                 [void]$customAssets.Add(@{ Category = ($section + $hook); RelativePath = $name; Asset = $(if ([string]::IsNullOrWhiteSpace($assetId)) { $null } else { $assetId }) })
             }
@@ -2166,6 +2216,9 @@ function Invoke-StageFinalization {
     foreach ($entry in @($profile.SourceFiles)) {
         if ($null -eq $entry) { continue }
         $destination = [string](Get-WorkbenchMember -InputObject $entry -Path 'Destination').Value
+        if (Test-WorkbenchGeneratedScriptPath -RelativePath $destination) {
+            throw "Source file destination '$destination' is reserved for the generated detection and requirement scripts."
+        }
         $source = Resolve-ProfileAssetPath -ApplicationId $applicationId -ProfileId $profileId -Asset $entry -DataRoot $dataRoot
         $sourceHash = Get-WorkbenchFileSha256 -Path $source
         $written = Copy-WorkbenchStageFile -StageRoot $StageRoot -SourcePath $source -Destination $destination -ExpectedSha256 $sourceHash
@@ -2684,6 +2737,23 @@ function Import-WorkbenchBundle {
             $definition = ConvertTo-WorkbenchHashtable -InputObject (Read-WorkbenchJsonFile -Path $definitionPath)
             $definition['ApplicationId'] = $ApplicationId
             [void](Write-WorkbenchJsonFile -Path $definitionPath -InputObject $definition)
+        }
+
+        # Each stored profile names its application, and saving a profile writes
+        # to the application folder that name selects, so a copy imported under a
+        # new id must not keep the source's id.
+        $profilesFolder = Join-Path $target 'profiles'
+        $storedProfiles = @()
+        if (Test-Path -LiteralPath $profilesFolder -PathType Container) {
+            $storedProfiles = @(Get-ChildItem -LiteralPath $profilesFolder -Directory -ErrorAction SilentlyContinue |
+                ForEach-Object { Get-Item -LiteralPath (Join-Path $_.FullName 'profile.json') -ErrorAction SilentlyContinue })
+        }
+        foreach ($profileFile in $storedProfiles) {
+            $stored = ConvertTo-WorkbenchHashtable -InputObject (Read-WorkbenchJsonFile -Path $profileFile.FullName)
+            if ($stored -and [string]$stored['ApplicationId'] -cne $ApplicationId) {
+                $stored['ApplicationId'] = $ApplicationId
+                [void](Write-WorkbenchJsonFile -Path $profileFile.FullName -InputObject $stored)
+            }
         }
 
         return [pscustomobject]@{

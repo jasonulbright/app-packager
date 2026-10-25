@@ -74,6 +74,8 @@ param(
 
     [string]$PackagersRoot,
 
+    [string]$PreferencesPath,
+
     [string]$LogFolder,
 
     [string]$SiteCode,
@@ -109,7 +111,16 @@ $cliBoundParameters = @{} + $PSBoundParameters
 if ($Target -eq 'MECMAndWSUS' -and $Package -and -not $Stage) {
     throw 'A MECMAndWSUS package publishes the build staged in the same run; pass -Stage together with -Package.'
 }
+if ($Package -and $Target -in @('MECMAndIntune', 'IntuneOnly')) {
+    throw "Target $Target cannot be packaged from the command line: Intune publishing runs only from the application window. Use -Target MECM, WSUSOnly or ContentOnly, or publish to Intune from the window."
+}
+if ($Target -eq 'ContentOnly' -and $Package) {
+    if (-not $Stage) { throw 'Target ContentOnly stages content and publishes nothing, so there is nothing to package. Pass -Stage.' }
+    Write-Warning 'Target ContentOnly publishes nothing; the package phase is skipped.'
+    $Package = $false
+}
 if ([string]::IsNullOrWhiteSpace($PackagersRoot)) { $PackagersRoot = Join-Path $PSScriptRoot 'Packagers' }
+if ([string]::IsNullOrWhiteSpace($PreferencesPath)) { $PreferencesPath = Join-Path $PSScriptRoot 'AppPackager.preferences.json' }
 
 # The snapshot's signing gate resolves the certificate through Get-Command, so the signing service must be
 # loaded in this host before New-RunSnapshot runs or every signed build fails as "not loaded".
@@ -117,10 +128,13 @@ Import-Module (Join-Path $PackagersRoot 'AppPackagerSigning.psd1') -Force -Error
 Import-Module (Join-Path $PackagersRoot 'AppPackagerWorkbench.psd1') -Force -ErrorAction Stop
 
 function Read-CliPreferences {
-    $path = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'AppPackager\AppPackager.preferences.json'
-    if (-not (Test-Path -LiteralPath $path)) { return $null }
-    try { return ([System.IO.File]::ReadAllText($path) | ConvertFrom-Json) }
-    catch { return $null }
+    # The preferences file sits beside the launcher, so a run from a suite or
+    # custom install reads that install's signing policy, site and share. A
+    # file that exists but cannot be read stops the run: continuing would
+    # drop a required-signing policy without a message.
+    if (-not (Test-Path -LiteralPath $PreferencesPath)) { return $null }
+    try { return ([System.IO.File]::ReadAllText($PreferencesPath) | ConvertFrom-Json) }
+    catch { throw "The preferences file could not be read: $PreferencesPath ($($_.Exception.Message))" }
 }
 
 function Get-CliCustomScriptRoot {
@@ -206,6 +220,14 @@ function ConvertTo-CliRequirementsJson {
 }
 
 $preferences = Read-CliPreferences
+
+function Get-CliPreference {
+    # Strict mode terminates on a property the file does not carry, and a
+    # preferences file written by an older release lacks newer keys.
+    param([Parameter(Mandatory)][string]$Name)
+    if ($null -eq $preferences -or -not $preferences.PSObject.Properties[$Name]) { return $null }
+    return $preferences.$Name
+}
 $applicationId = Resolve-CliApplication -Value $Application -Root $PackagersRoot
 $profileId = Resolve-CliProfile -ApplicationId $applicationId -Value $Profile
 $profileObject = Get-Profile -ApplicationId $applicationId -ProfileId $profileId
@@ -245,7 +267,7 @@ else {
 }
 
 if ([string]::IsNullOrWhiteSpace($DownloadRoot)) {
-    $DownloadRoot = if ($preferences -and $preferences.DownloadRoot) { [string]$preferences.DownloadRoot } else { 'C:\temp\ap' }
+    $DownloadRoot = if ((Get-CliPreference 'DownloadRoot')) { [string](Get-CliPreference 'DownloadRoot') } else { 'C:\temp\ap' }
 }
 $effectiveDownloadRoot = $DownloadRoot
 if ($profileId -ne 'default') {
@@ -258,6 +280,47 @@ $runOverrides = @{}
 if ($PSBoundParameters.ContainsKey('EstimatedMinutes')) { $runOverrides['EstimatedMinutes'] = $EstimatedMinutes }
 if ($PSBoundParameters.ContainsKey('MaximumMinutes')) { $runOverrides['MaximumMinutes'] = $MaximumMinutes }
 if ($PSBoundParameters.ContainsKey('Version') -and -not [string]::IsNullOrWhiteSpace($Version)) { $runOverrides['PinnedVersion'] = $Version }
+
+function Test-CliVersionEqual {
+    param([string]$Left, [string]$Right)
+
+    $a = $Left.Trim().TrimStart('vV'); $b = $Right.Trim().TrimStart('vV')
+    $parsedA = $null; $parsedB = $null
+    if ([version]::TryParse($a, [ref]$parsedA) -and [version]::TryParse($b, [ref]$parsedB)) { return ($parsedA -eq $parsedB) }
+    return [string]::Equals($a, $b, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Get-CliPackagerLatestVersion {
+    # Catalog packagers stage the vendor's current release and take no version
+    # input, so a pinned version can only be honored when it is the current one.
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = 'powershell.exe'
+    $startInfo.WorkingDirectory = Split-Path -Parent $packagerPath
+    Set-CliArgumentList -StartInfo $startInfo -Arguments @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $packagerPath, '-GetLatestVersionOnly', '-DownloadRoot', $effectiveDownloadRoot)
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    $process.WaitForExit()
+    $lines = @(([string]$stdoutTask.Result -split "`r?`n") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($process.ExitCode -ne 0 -or $lines.Count -eq 0) {
+        throw ("The latest version of '{0}' could not be read, so the pinned version {1} cannot be checked. {2}" -f $applicationId, $Version, ([string]$stderrTask.Result).Trim())
+    }
+    return $lines[-1].Trim()
+}
+
+if (-not $isByo -and $runOverrides.ContainsKey('PinnedVersion')) {
+    if (-not $Stage) {
+        throw 'On a catalog application -Version selects the build the stage phase produces. Add -Stage.'
+    }
+    $latestVersion = Get-CliPackagerLatestVersion
+    if (-not (Test-CliVersionEqual -Left $latestVersion -Right $Version)) {
+        throw ("Version {0} was requested, but '{1}' stages only the current vendor release, {2}. Nothing was staged." -f $Version, $applicationId, $latestVersion)
+    }
+}
 
 $signingPolicy = $null
 if ($preferences -and $preferences.PSObject.Properties['ScriptSigning']) { $signingPolicy = $preferences.ScriptSigning }
@@ -315,9 +378,9 @@ function Invoke-CliPackagerPhase {
     $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $packagerPath, $phaseSwitch, '-LogPath', $structuredLog)
 
     if ($Phase -eq 'Package' -and -not $siteFree) {
-        $resolvedSite = if ($SiteCode) { $SiteCode } elseif ($preferences -and $preferences.SiteCode) { [string]$preferences.SiteCode } else { 'MCM' }
+        $resolvedSite = if ($SiteCode) { $SiteCode } elseif ((Get-CliPreference 'SiteCode')) { [string](Get-CliPreference 'SiteCode') } else { 'MCM' }
         $arguments += @('-SiteCode', $resolvedSite, '-Comment', $Comment)
-        $resolvedShare = if ($FileServerPath) { $FileServerPath } elseif ($preferences -and $preferences.FileShareRoot) { [string]$preferences.FileShareRoot } else { '' }
+        $resolvedShare = if ($FileServerPath) { $FileServerPath } elseif ((Get-CliPreference 'FileShareRoot')) { [string](Get-CliPreference 'FileShareRoot') } else { '' }
         if ($resolvedShare) {
             $head = (Get-Content -LiteralPath $packagerPath -TotalCount 120 -ErrorAction SilentlyContinue | Out-String)
             if ($head -match '\$FileServerPath') { $arguments += @('-FileServerPath', $resolvedShare) }
@@ -336,9 +399,9 @@ function Invoke-CliPackagerPhase {
     $startInfo.CreateNoWindow = $true
     foreach ($key in $legacy.Keys) { $startInfo.EnvironmentVariables[$key] = [string]$legacy[$key] }
     if ($ProviderMachineName) { $startInfo.EnvironmentVariables['APP_PACKAGER_CM_PROVIDER'] = $ProviderMachineName }
-    elseif ($preferences -and $preferences.ProviderMachineName) { $startInfo.EnvironmentVariables['APP_PACKAGER_CM_PROVIDER'] = [string]$preferences.ProviderMachineName }
-    if ($preferences -and [string]$preferences.ContentFallback) { $startInfo.EnvironmentVariables['APP_PACKAGER_DT_CONTENT_FALLBACK'] = [string]$preferences.ContentFallback }
-    if ($preferences -and [string]$preferences.SlowNetworkDeploymentMode) { $startInfo.EnvironmentVariables['APP_PACKAGER_DT_SLOW_NETWORK_MODE'] = [string]$preferences.SlowNetworkDeploymentMode }
+    elseif ((Get-CliPreference 'ProviderMachineName')) { $startInfo.EnvironmentVariables['APP_PACKAGER_CM_PROVIDER'] = [string](Get-CliPreference 'ProviderMachineName') }
+    if ([string](Get-CliPreference 'ContentFallback')) { $startInfo.EnvironmentVariables['APP_PACKAGER_DT_CONTENT_FALLBACK'] = [string](Get-CliPreference 'ContentFallback') }
+    if ([string](Get-CliPreference 'SlowNetworkDeploymentMode')) { $startInfo.EnvironmentVariables['APP_PACKAGER_DT_SLOW_NETWORK_MODE'] = [string](Get-CliPreference 'SlowNetworkDeploymentMode') }
 
     $process = [System.Diagnostics.Process]::Start($startInfo)
     $process.WaitForExit()
@@ -366,12 +429,15 @@ function Invoke-CliAdHocPhases {
             # folder shape mirrors the ad-hoc stage so nothing is re-staged. A
             # WSUS target stages again, because its publish accepts only a
             # manifest that carries this run's BuildId.
-            $sanitize = { param($s) (($s -replace '[\\/:*?"<>|]', '') -replace '\s+', ' ').Trim() }
-            $vendorFolder = & $sanitize ([string]$byoDefinition.Publisher)
+            $vendorFolder = ConvertTo-SafePathSegment ([string]$byoDefinition.Publisher)
             if ([string]::IsNullOrWhiteSpace($vendorFolder)) { $vendorFolder = 'Unknown' }
-            $appFolder = & $sanitize ([string]$byoDefinition.DisplayName)
-            $versionFolder = & $sanitize ([string]$byoSource.SoftwareVersion)
+            $appFolder = ConvertTo-SafePathSegment ([string]$byoDefinition.DisplayName)
+            $versionFolder = ConvertTo-SafePathSegment ([string]$byoSource.SoftwareVersion)
+            if ([string]::IsNullOrWhiteSpace($appFolder) -or [string]::IsNullOrWhiteSpace($versionFolder)) {
+                throw 'The custom application name and version must each contain a usable folder name.'
+            }
             $stagedPath = Join-Path (Join-Path (Join-Path $effectiveDownloadRoot $vendorFolder) $appFolder) $versionFolder
+            Assert-PathUnderRoot -Path $stagedPath -Root $effectiveDownloadRoot
             $manifestPath = Join-Path $stagedPath 'stage-manifest.json'
             if (Test-Path -LiteralPath $manifestPath) {
                 $stageResult = [pscustomobject]@{ StagedPath = $stagedPath; ManifestPath = $manifestPath; VendorFolder = $vendorFolder; AppFolder = $appFolder }
@@ -391,10 +457,10 @@ function Invoke-CliAdHocPhases {
             [void]$phases.Add([pscustomobject]@{ Phase = 'Stage'; ExitCode = 0; StagedPath = $stageResult.StagedPath })
         }
         if ($Package -and $Target -notin @('ContentOnly', 'IntuneOnly', 'WSUSOnly')) {
-            $resolvedSite = if ($SiteCode) { $SiteCode } elseif ($preferences -and $preferences.SiteCode) { [string]$preferences.SiteCode } else { 'MCM' }
-            $resolvedProvider = if ($ProviderMachineName) { $ProviderMachineName } elseif ($preferences -and $preferences.ProviderMachineName) { [string]$preferences.ProviderMachineName } else { '' }
-            $resolvedShare = if ($FileServerPath) { $FileServerPath } elseif ($preferences -and $preferences.FileShareRoot) { [string]$preferences.FileShareRoot } else { '' }
-            $layout = if ($preferences -and $preferences.ContentLayout) { [string]$preferences.ContentLayout } else { 'Nested' }
+            $resolvedSite = if ($SiteCode) { $SiteCode } elseif ((Get-CliPreference 'SiteCode')) { [string](Get-CliPreference 'SiteCode') } else { 'MCM' }
+            $resolvedProvider = if ($ProviderMachineName) { $ProviderMachineName } elseif ((Get-CliPreference 'ProviderMachineName')) { [string](Get-CliPreference 'ProviderMachineName') } else { '' }
+            $resolvedShare = if ($FileServerPath) { $FileServerPath } elseif ((Get-CliPreference 'FileShareRoot')) { [string](Get-CliPreference 'FileShareRoot') } else { '' }
+            $layout = if ((Get-CliPreference 'ContentLayout')) { [string](Get-CliPreference 'ContentLayout') } else { 'Nested' }
             if (-not (Connect-CMSite -SiteCode $resolvedSite -ProviderMachineName $resolvedProvider)) {
                 throw "Site connection to '$resolvedSite' failed; the staged content is intact and packaging was skipped."
             }
@@ -468,6 +534,23 @@ function Resolve-CliWsusSettings {
     return $settings
 }
 
+$pinnedVersionNote = ''
+if (-not $isByo -and $runOverrides.ContainsKey('PinnedVersion') -and $Stage -and $exitCode -eq 0) {
+    try {
+        Import-Module (Join-Path $PackagersRoot 'AppPackagerCommon.psd1') -ErrorAction Stop
+        $stagedForPin = Resolve-StageManifestForBuild -BuildId ([string]$snapshot.BuildId) -SearchRoot $effectiveDownloadRoot
+        $stagedVersion = [string](Read-StageManifest -Path ([string]$stagedForPin.Path)).SoftwareVersion
+        if (-not (Test-CliVersionEqual -Left $stagedVersion -Right $Version)) {
+            $pinnedVersionNote = "Version $Version was requested, but the stage holds $stagedVersion."
+            $exitCode = 1
+        }
+    }
+    catch {
+        $pinnedVersionNote = "The staged version could not be checked against the requested version ${Version}: $($_.Exception.Message)"
+        $exitCode = 1
+    }
+}
+
 $wsusOutcome = $null
 if ($publishesToWsus -and $Package -and $exitCode -eq 0) {
     try {
@@ -498,6 +581,7 @@ if ($publishesToWsus -and $Package -and $exitCode -eq 0) {
     DownloadRoot  = $effectiveDownloadRoot
     Phases        = @($results)
     Wsus          = $wsusOutcome
+    PinnedVersion = $pinnedVersionNote
     ExitCode      = $exitCode
 }
 

@@ -219,7 +219,7 @@ function New-WinPeOfflineLayout {
     do {
         $attempt++
         $proc = Start-Process -FilePath $BootstrapperPath `
-            -ArgumentList @('/quiet', '/layout', $LayoutPath) -Wait -PassThru -NoNewWindow
+            -ArgumentList @('/quiet', '/layout', ('"{0}"' -f $LayoutPath)) -Wait -PassThru -NoNewWindow
         if ($proc.ExitCode -eq 1618 -and $attempt -lt 6) {
             Write-Log "Windows Installer is busy (exit 1618); retrying the layout in 60 seconds (attempt $attempt of 6)." -Level WARN
             Start-Sleep -Seconds 60

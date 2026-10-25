@@ -48,7 +48,7 @@ param(
     [switch]$VerboseLog
 )
 
-Import-Module "$PSScriptRoot\..\AppPackagerCommon.psd1" -Force
+Import-Module "$PSScriptRoot\AppPackagerCommon.psd1" -Force
 
 $VendorFolder = "TODO-VENDOR"
 $AppFolder    = "TODO-APPLICATION"

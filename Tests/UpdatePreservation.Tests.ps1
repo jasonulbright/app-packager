@@ -238,3 +238,75 @@ Describe 'Preserved state selection' {
         $script:Selected.Count | Should -Be (@($script:Selected | Sort-Object -Unique).Count)
     }
 }
+
+Describe 'Failed update' {
+    BeforeAll {
+        . (Join-Path $script:RepoRoot 'install.ps1')
+        function New-ReleaseZip {
+            param([Parameter(Mandatory)][string]$ZipFile)
+            $src = Join-Path $TestDrive ('zipsrc-' + [guid]::NewGuid().ToString('N'))
+            New-ReleaseStage -Root $src
+            Compress-Archive -Path (Join-Path $src '*') -DestinationPath $ZipFile -Force
+        }
+    }
+
+    It 'puts the previous version and its saved state back when the copy fails' {
+        $install = Join-Path $TestDrive 'rollback\AppPackager'
+        New-InstallFixture -Root $install
+        $zip = Join-Path $TestDrive 'rollback-release.zip'
+        New-ReleaseZip -ZipFile $zip
+
+        Mock Copy-FolderContent { throw 'disk full' } -ParameterFilter { $From -like '*\stage' }
+
+        { Invoke-Install -InstallPath $install -ZipPath $zip } | Should -Throw '*disk full*'
+
+        (Get-Content -LiteralPath (Join-Path $install 'start-apppackager.ps1') -Raw).Trim() | Should -Be '# shipped v1'
+        (Get-Content -LiteralPath (Join-Path $install 'AppPackager.preferences.json') -Raw).Trim() | Should -Be '{"SiteCode":"MCM"}'
+        (Get-Content -LiteralPath (Join-Path $install 'Packagers\package-contoso-inhouse.ps1') -Raw).Trim() | Should -Be '# user authored packager'
+        Test-Path -LiteralPath (Join-Path $install 'Logs\apppackager.log') | Should -BeTrue
+    }
+
+    It 'puts the previous version back when restoring the saved state fails' {
+        $install = Join-Path $TestDrive 'rollback2\AppPackager'
+        New-InstallFixture -Root $install
+        $zip = Join-Path $TestDrive 'rollback2-release.zip'
+        New-ReleaseZip -ZipFile $zip
+
+        Mock Copy-Item { throw 'locked' } -ParameterFilter { $LiteralPath -like '*\state\*' }
+
+        { Invoke-Install -InstallPath $install -ZipPath $zip } | Should -Throw '*locked*'
+
+        (Get-Content -LiteralPath (Join-Path $install 'start-apppackager.ps1') -Raw).Trim() | Should -Be '# shipped v1'
+        (Get-Content -LiteralPath (Join-Path $install 'AppPackager.windowstate.json') -Raw).Trim() | Should -Be '{"Width":1200}'
+    }
+
+    It 'replaces the install and keeps state on a normal update' {
+        $install = Join-Path $TestDrive 'normal\AppPackager'
+        New-InstallFixture -Root $install
+        $zip = Join-Path $TestDrive 'normal-release.zip'
+        New-ReleaseZip -ZipFile $zip
+
+        Invoke-Install -InstallPath $install -ZipPath $zip
+
+        (Get-Content -LiteralPath (Join-Path $install 'start-apppackager.ps1') -Raw).Trim() | Should -Be '# shipped v2'
+        (Get-Content -LiteralPath (Join-Path $install 'AppPackager.preferences.json') -Raw).Trim() | Should -Be '{"SiteCode":"MCM"}'
+    }
+}
+
+Describe 'Release lookup without curl' {
+    BeforeAll {
+        . (Join-Path $script:RepoRoot 'install.ps1')
+    }
+
+    It 'parses the release once when Invoke-WebRequest supplies the text' {
+        Mock Get-Command { $null } -ParameterFilter { $Name -eq 'curl.exe' }
+        Mock Invoke-WebRequest { [pscustomobject]@{ Content = '{"tag_name":"v2026.10.24.0001","assets":[]}' } }
+        (Get-ReleaseMetadata -Version '2026.10.24.0001').tag_name | Should -Be 'v2026.10.24.0001'
+    }
+
+    It 'decodes a byte response' {
+        Mock Get-Command { $null } -ParameterFilter { $Name -eq 'curl.exe' }
+        Mock Invoke-WebRequest { [pscustomobject]@{ Content = [System.Text.Encoding]::UTF8.GetBytes('{"tag_name":"v9"}') } }
+        (Get-ReleaseMetadata).tag_name | Should -Be 'v9'
+    }
+}

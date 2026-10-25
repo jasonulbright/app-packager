@@ -19,7 +19,7 @@ ArpName: Microsoft Windows Desktop Runtime - 9.* (x64)
     releases-index.json, downloads the x64 installer from the Microsoft CDN,
     stages content to a versioned local folder with file-based detection
     metadata, and creates a ConfigMgr Application with file-based detection.
-    Detection uses hostfxr.dll existence in the version-specific fxr path.
+    Detection uses PresentationFramework.dll existence in the version-specific Microsoft.WindowsDesktop.App folder.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
@@ -204,14 +204,14 @@ function Invoke-StageDotNet9 {
         -UninstallPs1Content $uninstallContent
 
     # --- Write stage manifest ---
-    $detectionPath = "{0}\dotnet\host\fxr\{1}" -f $env:ProgramFiles, $version
+    $detectionPath = "{0}\dotnet\shared\Microsoft.WindowsDesktop.App\{1}" -f $env:ProgramFiles, $version
 
     $appName   = "Microsoft Windows Desktop Runtime - ${version} (x64)"
     $publisher = "Microsoft Corporation"
 
     Write-Log ""
     Write-Log "Detection path               : $detectionPath"
-    Write-Log "Detection file               : hostfxr.dll"
+    Write-Log "Detection file               : PresentationFramework.dll"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -227,7 +227,7 @@ function Invoke-StageDotNet9 {
         Detection       = @{
             Type         = "File"
             FilePath     = $detectionPath
-            FileName     = "hostfxr.dll"
+            FileName     = "PresentationFramework.dll"
             PropertyType = "Existence"
             Is64Bit      = $true
         }

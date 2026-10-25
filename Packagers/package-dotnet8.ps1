@@ -19,7 +19,7 @@ ArpName: Microsoft Windows Desktop Runtime - 8.*
     x86 and x64 from the official Microsoft CDN, stages content to a versioned
     local folder with compound file-based detection metadata, and creates an
     ConfigMgr Application with file-based detection.
-    Detection uses hostfxr.dll existence in the version-specific fxr path for
+    Detection uses PresentationFramework.dll existence in the version-specific Microsoft.WindowsDesktop.App folder for
     both architectures, and also accepts the immediate successor patch:
     (x86-N AND x64-N) OR (x86-N+1 AND x64-N+1). An in-place upgrade to next
     month's runtime therefore keeps this app detected, so its still-active
@@ -250,8 +250,8 @@ function Invoke-StageDotNet8 {
         -UninstallPs1Content $uninstallContent
 
     # --- Write stage manifest ---
-    $x86DetectionPath = "{0} (x86)\dotnet\host\fxr\{1}" -f $env:ProgramFiles, $version
-    $x64DetectionPath = "{0}\dotnet\host\fxr\{1}" -f $env:ProgramFiles, $version
+    $x86DetectionPath = "{0} (x86)\dotnet\shared\Microsoft.WindowsDesktop.App\{1}" -f $env:ProgramFiles, $version
+    $x64DetectionPath = "{0}\dotnet\shared\Microsoft.WindowsDesktop.App\{1}" -f $env:ProgramFiles, $version
 
     $appName   = "Microsoft Windows Desktop Runtime - ${version}"
     $publisher = "Microsoft Corporation"
@@ -259,26 +259,26 @@ function Invoke-StageDotNet8 {
     Write-Log ""
     Write-Log "Detection x86 path           : $x86DetectionPath"
     Write-Log "Detection x64 path           : $x64DetectionPath"
-    Write-Log "Detection file               : hostfxr.dll"
+    Write-Log "Detection file               : PresentationFramework.dll"
 
     $clauses = @(
         @{
             Type         = "File"
             FilePath     = $x86DetectionPath
-            FileName     = "hostfxr.dll"
+            FileName     = "PresentationFramework.dll"
             PropertyType = "Existence"
             Is64Bit      = $false
         },
         @{
             Type         = "File"
             FilePath     = $x64DetectionPath
-            FileName     = "hostfxr.dll"
+            FileName     = "PresentationFramework.dll"
             PropertyType = "Existence"
             Is64Bit      = $true
         }
     )
 
-    # In-place upgrades replace the fxr\<version> folder, which flips this
+    # In-place upgrades replace the Microsoft.WindowsDesktop.App\<version> folder, which flips this
     # app's detection to not-installed and makes its still-active deployment
     # reinstall over next month's runtime. Detection therefore also accepts
     # the immediate successor patch: (x86-N AND x64-N) OR (x86-N+1 AND x64-N+1).
@@ -295,15 +295,15 @@ function Invoke-StageDotNet8 {
         $detection.Clauses = $clauses + @(
             @{
                 Type         = "File"
-                FilePath     = "{0} (x86)\dotnet\host\fxr\{1}" -f $env:ProgramFiles, $nextVersion
-                FileName     = "hostfxr.dll"
+                FilePath     = "{0} (x86)\dotnet\shared\Microsoft.WindowsDesktop.App\{1}" -f $env:ProgramFiles, $nextVersion
+                FileName     = "PresentationFramework.dll"
                 PropertyType = "Existence"
                 Is64Bit      = $false
             },
             @{
                 Type         = "File"
-                FilePath     = "{0}\dotnet\host\fxr\{1}" -f $env:ProgramFiles, $nextVersion
-                FileName     = "hostfxr.dll"
+                FilePath     = "{0}\dotnet\shared\Microsoft.WindowsDesktop.App\{1}" -f $env:ProgramFiles, $nextVersion
+                FileName     = "PresentationFramework.dll"
                 PropertyType = "Existence"
                 Is64Bit      = $true
             }

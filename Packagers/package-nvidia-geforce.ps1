@@ -268,6 +268,10 @@ exit `$proc.ExitCode
         }
     }
 
+    # Package reads this marker, so it packages the build this stage made
+    # whatever the vendor lists by then.
+    Set-Content -LiteralPath (Join-Path $BaseDownloadRoot "staged-version.txt") -Value $version -Encoding ASCII -ErrorAction Stop
+
     Write-Log ""
     Write-Log "Stage complete               : $localContentPath"
     return $localContentPath
@@ -285,10 +289,15 @@ function Invoke-PackageNvidiaGeForce {
     Write-Log ("=" * 60)
     Write-Log ""
 
-    $release = Resolve-NvidiaGeForceLatest -Quiet
-    if (-not $release) { throw "Could not resolve latest NVIDIA GeForce driver for manifest lookup." }
+    Initialize-Folder -Path $BaseDownloadRoot
 
-    $localContentPath = Join-Path $BaseDownloadRoot $release.Version
+    $versionFile = Join-Path $BaseDownloadRoot "staged-version.txt"
+    if (-not (Test-Path -LiteralPath $versionFile)) {
+        throw "Version marker not found - run Stage phase first: $versionFile"
+    }
+    $stagedVersion = (Get-Content -LiteralPath $versionFile -Raw -ErrorAction Stop).Trim()
+
+    $localContentPath = Join-Path $BaseDownloadRoot $stagedVersion
     $manifestPath     = Join-Path $localContentPath "stage-manifest.json"
 
     if (-not (Test-Path -LiteralPath $manifestPath)) {

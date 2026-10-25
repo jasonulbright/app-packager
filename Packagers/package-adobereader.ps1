@@ -435,7 +435,7 @@ function Invoke-StageAdobeReader {
     }
     $extractProc = $null
     try {
-        $extractProc = Start-Process -FilePath $sevenZip -ArgumentList @('x', "-o$localContentPath", '-y', $localExe) -Wait -PassThru -NoNewWindow
+        $extractProc = Start-Process -FilePath $sevenZip -ArgumentList @('x', ('"-o{0}"' -f $localContentPath), '-y', ('"{0}"' -f $localExe)) -Wait -PassThru -NoNewWindow
         if ($extractProc.ExitCode -ne 0) {
             throw "7-Zip extraction failed with exit code $($extractProc.ExitCode)"
         }

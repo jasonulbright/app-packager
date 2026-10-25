@@ -144,37 +144,28 @@ function Get-PesterRunnerScript {
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath '__ROOT__'
 Import-Module Pester -RequiredVersion 5.7.1 -Force
-$paths = @(
-    '.\Packagers\AppPackagerCommon.Tests.ps1'
-    '.\Packagers\AppPackagerWorkbench.Tests.ps1'
-    '.\Packagers\AppPackagerSigning.Tests.ps1'
-    '.\Packagers\AppPackagerWsus.Tests.ps1'
-    '.\Packagers\AppPackagerOneClick.Tests.ps1'
-    '.\Packagers\AppPackagerVulnerability.Tests.ps1'
-    '.\Tests\PackagerSmoke.Tests.ps1'
-    '.\Tests\PackageWorkflow.Tests.ps1'
-    '.\Tests\ProcessStreaming.Tests.ps1'
-    '.\Tests\UserDetection.Tests.ps1'
-    '.\Tests\SigningCombinations.Tests.ps1'
-    '.\Tests\UpdatePreservation.Tests.ps1'
-    '.\Tests\CveMonitor.Tests.ps1'
-    '.\Tests\VersionCompare.Tests.ps1'
-    '.\Tests\ArpNameTag.Tests.ps1'
-    '.\Tests\DiscoverUnmanaged.Tests.ps1'
-    '.\Tests\DiscoveryTarget.Tests.ps1'
-    '.\Tests\BackgroundWorkerModules.Tests.ps1'
-    '.\Packagers\AppPackagerDiscovery.Tests.ps1'
-) | Where-Object { Test-Path -LiteralPath $_ }
+$paths = @(Get-ChildItem -LiteralPath '.\Tests', '.\Packagers' -Filter '*.Tests.ps1' -File -Recurse | Sort-Object FullName | ForEach-Object { $_.FullName })
+if ($paths.Count -eq 0) { throw 'No *.Tests.ps1 files were found.' }
+# The suites run native child processes whose stderr is part of the case; under
+# a Stop preference that output ends the case as a failure.
+$ErrorActionPreference = 'Continue'
 $result = Invoke-Pester -Path $paths -PassThru -Output None
 $failures = @($result.Failed | ForEach-Object { $_.ExpandedPath + " :: " + [string]$_.ErrorRecord.Exception.Message.Split([char]10)[0] })
+$containerFailures = @($result.Containers | Where-Object { $_.Result -eq 'Failed' } | ForEach-Object {
+    $detail = (@($_.ErrorRecord | ForEach-Object { [string]$_.Exception.Message.Split([char]10)[0] }) -join ' ')
+    'container ' + [string]$_.Item + ' :: ' + $detail
+})
+$failures = @($failures) + @($containerFailures)
+$extraFailures = $result.FailedContainersCount + $result.FailedBlocksCount
+$suiteFailed = ($result.Result -ne 'Passed') -or ($extraFailures -gt 0) -or ($result.FailedCount -gt 0) -or ($result.TotalCount -eq 0)
 $payload = @{
     Passed  = $result.PassedCount
-    Failed  = $result.FailedCount
+    Failed  = $result.FailedCount + $extraFailures + $(if ($suiteFailed -and $result.FailedCount -eq 0 -and $extraFailures -eq 0) { 1 } else { 0 })
     Skipped = $result.SkippedCount
     Failures = $failures
 } | ConvertTo-Json -Depth 4 -Compress
 [System.IO.File]::WriteAllText('__RESULT__', $payload)
-if ($result.FailedCount -gt 0) { exit 1 }
+if ($suiteFailed) { exit 1 }
 exit 0
 '@
     $body = $body.Replace('__ROOT__', $script:RepoRoot).Replace('__RESULT__', $ResultPath)

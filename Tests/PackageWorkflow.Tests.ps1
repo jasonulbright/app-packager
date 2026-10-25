@@ -603,6 +603,9 @@ Describe 'CLI stage of a fixture packager' {
         Import-Module "$PSScriptRoot\..\Packagers\AppPackagerWorkbench.psd1" -Force
         $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
         $script:CliRoot = Join-Path $TestDrive 'cli'
+        # The CLI reads the preferences file beside the launcher; the repository root can hold a
+        # developer's own file, which would change the resolved plan these cases compare.
+        $script:NoPrefs = Join-Path $script:CliRoot 'no-preferences.json'
         # A path with a space: the launcher quoting has to survive it.
         $script:FixtureRoot = Join-Path $script:CliRoot 'fixture repo'
         $script:FixturePackagers = Join-Path $script:FixtureRoot 'Packagers'
@@ -744,6 +747,7 @@ catch {
                 '-Application', 'catalog:package-gfixture',
                 '-Profile', $script:Profile.ProfileId,
                 '-Stage', '-Target', 'ContentOnly',
+                '-PreferencesPath', ('"' + $script:NoPrefs + '"'),
                 '-PackagersRoot', ('"' + $script:FixturePackagers + '"'),
                 '-DownloadRoot', ('"' + $script:DownloadRoot + '"'))
         $script:CliExit = $process.ExitCode
@@ -754,6 +758,27 @@ catch {
         $script:StagedManifest = if (Test-Path -LiteralPath $script:StagedManifestPath) {
             Get-Content -LiteralPath $script:StagedManifestPath -Raw | ConvertFrom-Json
         } else { $null }
+
+        $script:RunCli = {
+            param([string[]]$Arguments, [string]$Tag, [string]$CliPath = (Join-Path $script:RepoRoot 'Invoke-AppPackagerBuild.ps1'))
+            $out = Join-Path $script:CliRoot ($Tag + '.out')
+            $err = Join-Path $script:CliRoot ($Tag + '.err')
+            if (-not $PSBoundParameters.ContainsKey('CliPath') -and $Arguments -notcontains '-PreferencesPath') { $Arguments = @($Arguments) + @('-PreferencesPath', $script:NoPrefs) }
+            $quoted = @($Arguments | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } })
+            $proc = Start-Process -FilePath (Get-Command powershell.exe).Source -Wait -PassThru -NoNewWindow `
+                -RedirectStandardOutput $out -RedirectStandardError $err `
+                -ArgumentList (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $CliPath + '"')) + $quoted)
+            [pscustomobject]@{
+                ExitCode = $proc.ExitCode
+                Out      = [string](Get-Content -LiteralPath $out -Raw -ErrorAction SilentlyContinue)
+                Err      = [string](Get-Content -LiteralPath $err -Raw -ErrorAction SilentlyContinue)
+            }
+        }
+        $script:SeedCache = {
+            param([string]$Root)
+            New-Item -ItemType Directory -Path (Join-Path $Root '_cache') -Force | Out-Null
+            Copy-Item -LiteralPath (Join-Path $script:SourceFolder 'gfixture-setup.exe') -Destination (Join-Path $Root '_cache') -Force
+        }
     }
     AfterAll { $env:APP_PACKAGER_WORKBENCH_ROOT = $script:PreviousRoot }
 
@@ -843,9 +868,84 @@ catch {
                 '-Application', 'catalog:package-gfixture',
                 '-Profile', $saved.ProfileId,
                 '-Stage', '-Target', 'ContentOnly',
+                '-PreferencesPath', ('"' + $script:NoPrefs + '"'),
                 '-PackagersRoot', ('"' + $script:FixturePackagers + '"'),
                 '-DownloadRoot', ('"' + $script:DownloadRoot + '"'))
         $process.ExitCode | Should -Be 0 -Because (Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue)
+    }
+
+    It 'skips the package phase for ContentOnly instead of publishing' {
+        $root = Join-Path $script:CliRoot 'dl-contentonly'
+        & $script:SeedCache $root
+        $r = & $script:RunCli @('-Application', 'catalog:package-gfixture', '-Profile', $script:Profile.ProfileId, '-Stage', '-Package', '-Target', 'ContentOnly',
+            '-PackagersRoot', $script:FixturePackagers, '-DownloadRoot', $root) 'contentonly'
+        $r.ExitCode | Should -Be 0 -Because ($r.Err + $r.Out)
+        @(Get-ChildItem -LiteralPath (Join-Path $root '_logs') -Filter '*-stage-*.structured.log').Count | Should -BeGreaterThan 0
+        @(Get-ChildItem -LiteralPath (Join-Path $root '_logs') -Filter '*-package-*.structured.log' -ErrorAction SilentlyContinue).Count | Should -Be 0
+    }
+
+    It 'refuses to package ContentOnly without a stage' {
+        $root = Join-Path $script:CliRoot 'dl-contentonly2'
+        $r = & $script:RunCli @('-Application', 'catalog:package-gfixture', '-Profile', $script:Profile.ProfileId, '-Package', '-Target', 'ContentOnly',
+            '-PackagersRoot', $script:FixturePackagers, '-DownloadRoot', $root) 'contentonly2'
+        $r.ExitCode | Should -Not -Be 0
+        $r.Err | Should -Match 'nothing to package'
+        Test-Path -LiteralPath $root | Should -BeFalse
+    }
+
+    It 'rejects an Intune target before any work' {
+        foreach ($target in 'IntuneOnly', 'MECMAndIntune') {
+            $root = Join-Path $script:CliRoot ('dl-' + $target)
+            $r = & $script:RunCli @('-Application', 'catalog:package-gfixture', '-Profile', $script:Profile.ProfileId, '-Stage', '-Package', '-Target', $target,
+                '-PackagersRoot', $script:FixturePackagers, '-DownloadRoot', $root) ('intune-' + $target)
+            $r.ExitCode | Should -Not -Be 0
+            $r.Err | Should -Match 'cannot be packaged from the command line'
+            Test-Path -LiteralPath $root | Should -BeFalse
+        }
+    }
+
+    It 'stages when the pinned version is the current release' {
+        $root = Join-Path $script:CliRoot 'dl-pin-ok'
+        & $script:SeedCache $root
+        $r = & $script:RunCli @('-Application', 'catalog:package-gfixture', '-Profile', $script:Profile.ProfileId, '-Stage', '-Target', 'ContentOnly', '-Version', '4.2.1',
+            '-PackagersRoot', $script:FixturePackagers, '-DownloadRoot', $root) 'pin-ok'
+        $r.ExitCode | Should -Be 0 -Because ($r.Err + $r.Out)
+    }
+
+    It 'refuses an older pinned version before anything is staged' {
+        $root = Join-Path $script:CliRoot 'dl-pin-old'
+        & $script:SeedCache $root
+        $r = & $script:RunCli @('-Application', 'catalog:package-gfixture', '-Profile', $script:Profile.ProfileId, '-Stage', '-Target', 'ContentOnly', '-Version', '4.1.0',
+            '-PackagersRoot', $script:FixturePackagers, '-DownloadRoot', $root) 'pin-old'
+        $r.ExitCode | Should -Not -Be 0
+        $r.Err | Should -Match 'stages only the current vendor release, 4\.2\.1'
+        Test-Path -LiteralPath (Join-Path $root 'profiles') | Should -BeFalse
+    }
+
+    It 'reads the preferences file beside the launcher' {
+        $install = Join-Path $script:CliRoot 'custom install'
+        New-Item -ItemType Directory -Path $install -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'Invoke-AppPackagerBuild.ps1') -Destination $install -Force
+        Copy-Item -LiteralPath $script:FixturePackagers -Destination $install -Recurse -Force
+        Copy-Item -LiteralPath (Join-Path $script:FixtureRoot 'Lib') -Destination $install -Recurse -Force
+        $prefRoot = Join-Path $script:CliRoot 'dl-from-prefs'
+        & $script:SeedCache $prefRoot
+        @{ DownloadRoot = $prefRoot } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $install 'AppPackager.preferences.json') -Encoding UTF8
+        $r = & $script:RunCli @('-Application', 'catalog:package-gfixture', '-Profile', 'default', '-Stage', '-Target', 'ContentOnly') 'prefs' (Join-Path $install 'Invoke-AppPackagerBuild.ps1')
+        $r.ExitCode | Should -Be 0 -Because ($r.Err + $r.Out)
+        Test-Path -LiteralPath (Join-Path $prefRoot 'GFixture\4.2.1\stage-manifest.json') | Should -BeTrue
+    }
+
+    It 'stops when the preferences file cannot be read' {
+        $install = Join-Path $script:CliRoot 'broken prefs install'
+        New-Item -ItemType Directory -Path $install -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'Invoke-AppPackagerBuild.ps1') -Destination $install -Force
+        Copy-Item -LiteralPath $script:FixturePackagers -Destination $install -Recurse -Force
+        Copy-Item -LiteralPath (Join-Path $script:FixtureRoot 'Lib') -Destination $install -Recurse -Force
+        Set-Content -LiteralPath (Join-Path $install 'AppPackager.preferences.json') -Value '{ not json' -Encoding UTF8
+        $r = & $script:RunCli @('-Application', 'catalog:package-gfixture', '-Profile', 'default', '-Stage', '-Target', 'ContentOnly', '-DownloadRoot', (Join-Path $script:CliRoot 'dl-broken')) 'prefs-broken' (Join-Path $install 'Invoke-AppPackagerBuild.ps1')
+        $r.ExitCode | Should -Not -Be 0
+        $r.Err | Should -Match 'preferences file could not be read'
     }
 }
 

@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AppPackagerCommon.psm1'
-    ModuleVersion     = '0.0.29'
+    ModuleVersion     = '0.0.30'
     GUID              = 'f5cdd2d6-eb09-47bd-8493-16dfd5666455'
     Author            = 'AppPackager'
     Description       = 'Shared helpers for AppPackager packager scripts.'
@@ -30,6 +30,9 @@
         # Network path
         'Get-NetworkAppRoot'
         'Get-NetworkContentPath'
+        'ConvertTo-SafePathSegment'
+        'Assert-SafePathSegment'
+        'Assert-PathUnderRoot'
         'Get-ProfileContentScope'
         'Get-ProfileScopedVersionFolder'
 
@@ -62,6 +65,8 @@
         'ConvertTo-SingleQuotedContent'
         'New-MsiWrapperContent'
         'New-ExeWrapperContent'
+        'New-PostgreSqlSuperuserSecretBlock'
+        'New-TargetSecretBlock'
         'New-MsixWrapperContent'
 
         # ConfigMgr
@@ -130,6 +135,7 @@
         'Read-PackagerHistory'
         'Save-PackagerHistory'
         'Update-PackagerHistory'
+        'Get-PackagerHistoryActedVersion'
 
         # Ad-hoc drop intake
         'Get-InstallerAnalysis',
