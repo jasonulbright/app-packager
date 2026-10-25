@@ -26,9 +26,10 @@ ArpName: PostgreSQL 17*
     The EDB installer is a BitRock InstallBuilder EXE (not MSI). Default install
     creates the PostgreSQL service, data directory, and superuser account.
 
-    IMPORTANT: The install wrapper includes a default superuser password placeholder
-    (P0stgres!MECM). Edit install.ps1 in the staged content folder before deploying
-    to production, or change the password post-install.
+    The superuser password is generated on each target at install time. It is stored
+    DPAPI-protected (LocalMachine) in %ProgramData%\PostgreSQL-Superuser-Secret\postgresql-17.dpapi,
+    readable only by SYSTEM and Administrators. No password is stored in the content.
+    The install exits 1 before the installer starts when the secret cannot be stored.
 
     GetLatestVersionOnly queries the endoflife.date API for the latest 17.x release.
 
@@ -189,12 +190,13 @@ function Invoke-StagePostgreSQL {
 
     # --- Generate content wrappers ---
     # BitRock InstallBuilder -- uses --mode unattended (not MSI)
-    # IMPORTANT: Change the superpassword below before deploying to production.
+    # The superuser password is generated per target by the install wrapper.
     $wrapperContent = New-ExeWrapperContent `
         -InstallerFileName $installerFileName `
-        -InstallArgs "'--mode', 'unattended', '--unattendedmodeui', 'none', '--superpassword', 'P0stgres!MECM', '--serverport', '5432', '--install_runtimes', '0', '--disable-components', 'stackbuilder'" `
+        -InstallArgs "'--mode', 'unattended', '--unattendedmodeui', 'none', '--superpassword', `$pgSuperPassword, '--serverport', '5432', '--install_runtimes', '0', '--disable-components', 'stackbuilder'" `
         -UninstallCommand "C:\Program Files\PostgreSQL\$MajorVersion\uninstall-postgresql.exe" `
         -UninstallArgs "'--mode', 'unattended'"
+    $wrapperContent.Install = (New-PostgreSqlSuperuserSecretBlock -MajorVersion $MajorVersion) + "`r`n" + $wrapperContent.Install
 
     Write-ContentWrappers -OutputPath $localContentPath `
         -InstallPs1Content $wrapperContent.Install `
@@ -222,7 +224,7 @@ function Invoke-StagePostgreSQL {
         SoftwareVersion = $version
         InstallerFile   = $installerFileName
         InstallerType   = "EXE"
-        InstallArgs     = "--mode unattended --unattendedmodeui none --superpassword P0stgres!MECM --serverport 5432 --install_runtimes 0 --disable-components stackbuilder"
+        InstallArgs     = "--mode unattended --unattendedmodeui none --superpassword <generated on each target> --serverport 5432 --install_runtimes 0 --disable-components stackbuilder"
         UninstallArgs   = "--mode unattended"
         RunningProcess  = @("postgres", "pgAdmin4")
         Detection       = @{

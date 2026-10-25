@@ -329,6 +329,18 @@ Describe 'Invoke-ScriptSigning' {
             Should -Be 'ExistingSignatureValid'
     }
 
+    It 'refuses an existing signature without a timestamp when a timestamp is required' {
+        $null = Invoke-ScriptSigning -Path $script:CasePath -Category Detection -Policy (& $script:Policy $true $false $false)
+        $required = Invoke-ScriptSigning -Path $script:CasePath -Category Detection -Policy (& $script:Policy $false $false $false -RD $true -TimestampRequired $true)
+        $required.Status | Should -Be 'Failed'
+        $required.Reason | Should -Match 'TimestampRequired'
+        $required.Timestamped | Should -BeFalse
+
+        $null = Invoke-ScriptSigning -Path $script:CasePath -Category Deployment -Policy (& $script:Policy $false $false $true)
+        $preserved = Invoke-ScriptSigning -Path $script:CasePath -Category Deployment -Policy (& $script:Policy $false $false $true -TimestampRequired $true) -PreserveExisting
+        $preserved.Status | Should -Be 'Failed'
+    }
+
     It 'throws when a required timestamp cannot be obtained' {
         { Invoke-ScriptSigning -Path $script:CasePath -Category Detection `
             -Policy (& $script:Policy $true $false $false -Timestamp 'http://timestamp.invalid.example/tsa' -TimestampRequired $true) } |
@@ -836,5 +848,68 @@ Describe 'Invoke-CategorySigning' {
             -Policy ([pscustomobject]@{ CertificateThumbprint = '' })
         $block.Detection.Status | Should -Be 'NotRequested'
         $block.Deployment.LaunchersBypassFree | Should -BeFalse
+    }
+}
+
+Describe 'Deployment file inventory under scripts' {
+    It 'owns a profile script under scripts and leaves the generated scripts to their own categories' {
+        $stage = Join-Path $TestDrive 'inventory-stage'
+        New-Item -ItemType Directory -Path (Join-Path $stage 'scripts\requirements') -Force | Out-Null
+        foreach ($name in 'install.ps1', 'scripts\detect.ps1', 'scripts\requirements\r1.ps1', 'scripts\helper.ps1') {
+            Set-Content -LiteralPath (Join-Path $stage $name) -Value 'exit 0' -Encoding ASCII
+        }
+        $inventory = InModuleScope AppPackagerSigning -Parameters @{ Stage = $stage } {
+            param($Stage)
+            Get-SigningDeploymentFileInventory -StageRoot $Stage -ManifestData @{}
+        }
+        $owned = @($inventory.Owned | ForEach-Object { $_.RelativePath })
+        $owned | Should -Contain 'install.ps1'
+        $owned | Should -Contain 'scripts\helper.ps1'
+        $owned | Should -Not -Contain 'scripts\detect.ps1'
+        $owned | Should -Not -Contain 'scripts\requirements\r1.ps1'
+    }
+
+    It 'writes unsigned non-ASCII detection text with a byte order mark' {
+        $path = Join-Path $TestDrive 'detect-nonascii.ps1'
+        $text = "Write-Output 'caf$([char]0x00E9)'"
+        InModuleScope AppPackagerSigning -Parameters @{ Path = $path; Text = $text } {
+            param($Path, $Text)
+            Write-SigningScriptFile -Path $Path -Text $Text
+        }
+        $bytes = [System.IO.File]::ReadAllBytes($path)
+        ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) | Should -BeTrue
+
+        $ascii = Join-Path $TestDrive 'detect-ascii.ps1'
+        InModuleScope AppPackagerSigning -Parameters @{ Path = $ascii } {
+            param($Path)
+            Write-SigningScriptFile -Path $Path -Text "Write-Output 'cafe'"
+        }
+        $asciiBytes = [System.IO.File]::ReadAllBytes($ascii)
+        ($asciiBytes[0] -eq 0xEF) | Should -BeFalse
+    }
+}
+
+Describe 'Requirement script names' {
+    It 'keeps distinct rule ids on distinct files after normalization' {
+        $manifest = @{ Requirements = @(
+                @{ RuleId = 'rule/a'; ScriptText = 'exit 0' }
+                @{ RuleId = 'rule?a'; ScriptText = 'exit 1' }
+                @{ RuleId = 'plain-id'; ScriptText = 'exit 0' })
+        }
+        $scripts = @(InModuleScope AppPackagerSigning -Parameters @{ Manifest = $manifest } { param($Manifest) Get-SigningRequirementScripts -ManifestData $Manifest })
+        $scripts.Count | Should -Be 3
+        @($scripts.FileName | Sort-Object -Unique).Count | Should -Be 3
+        $scripts[0].RuleId | Should -Be 'rule/a'
+        $scripts[0].FileName | Should -Match '^rule-a-[0-9a-f]{8}$'
+        $scripts[2].FileName | Should -Be 'plain-id'
+    }
+
+    It 'refuses two rules that would share a script name' {
+        $manifest = @{ Requirements = @(
+                @{ RuleId = 'Same'; ScriptText = 'exit 0' }
+                @{ RuleId = 'same'; ScriptText = 'exit 0' })
+        }
+        { InModuleScope AppPackagerSigning -Parameters @{ Manifest = $manifest } { param($Manifest) Get-SigningRequirementScripts -ManifestData $Manifest } } |
+            Should -Throw '*already uses*'
     }
 }

@@ -1167,7 +1167,7 @@ Describe 'Publish-WsusSoftwareUpdate' {
         $script:Plans.Count | Should -Be 2
         $script:Plans[0].Plan.PackageId | Should -Not -Be $script:Plans[1].Plan.PackageId
     }
-    It 'keeps a successful publish when the approval or a decline fails afterwards' {
+    It 'keeps a successful publish and the earlier versions when the approval fails afterwards' {
         $older = [guid]'00000000-0000-0000-0000-000000000541'
         $script:ServerUpdates = @(New-FakeUpdate -Id $older -Title 'Contoso Tool 5.4.1' -Description (Get-WsusIdentityLine -IdentityTag $script:Identity -PackageType Update -Version '5.4.1'))
         Mock -ModuleName AppPackagerWsus Invoke-WsusUpdateApproval { throw "WSUS has no computer group named 'Pilto'." }
@@ -1178,8 +1178,32 @@ Describe 'Publish-WsusSoftwareUpdate' {
         $result.Outcome | Should -Be 'Published'
         $result.Approved | Should -Be ''
         @($result.Warnings)[0] | Should -Match "approval for Pilto failed: WSUS has no computer group named 'Pilto'"
-        $script:Declines.ToArray() | Should -Be @([string]$older)
+        @($result.Warnings)[1] | Should -Be 'earlier versions were not declined because the approval failed'
+        $script:Declines.Count | Should -Be 0
+        @($result.Declined).Count | Should -Be 0
         $result.Message | Should -Match 'approval for Pilto failed'
+    }
+
+    It 'declines earlier versions when no approval is requested' {
+        $older = [guid]'00000000-0000-0000-0000-000000000541'
+        $script:ServerUpdates = @(New-FakeUpdate -Id $older -Title 'Contoso Tool 5.4.1' -Description (Get-WsusIdentityLine -IdentityTag $script:Identity -PackageType Update -Version '5.4.1'))
+        $settings = @{} + $script:Settings
+        $settings.ApprovalGroup = ''
+        $settings.DeclineSuperseded = $true
+        [void](Publish-WsusSoftwareUpdate -Manifest (New-HashedManifest) -ContentFolder $script:Content -Settings $settings)
+        $script:Declines.ToArray() | Should -Be @([string]$older)
+    }
+
+    It 'declines nothing when the replacement is missing from the server after publishing' {
+        $older = [guid]'00000000-0000-0000-0000-000000000541'
+        $script:ServerUpdates = @(New-FakeUpdate -Id $older -Title 'Contoso Tool 5.4.1' -Description (Get-WsusIdentityLine -IdentityTag $script:Identity -PackageType Update -Version '5.4.1'))
+        Mock -ModuleName AppPackagerWsus Get-WsusUpdateObject { $null }
+        $settings = @{} + $script:Settings
+        $settings.ApprovalGroup = 'Pilot'
+        $settings.DeclineSuperseded = $true
+        $result = Publish-WsusSoftwareUpdate -Manifest (New-HashedManifest) -ContentFolder $script:Content -Settings $settings
+        @($result.Warnings)[0] | Should -Match 'not visible'
+        $script:Declines.Count | Should -Be 0
     }
 
     It 'approves a new update for the configured group' {
@@ -1567,6 +1591,56 @@ Describe 'Windows PowerShell broker for the administration API' {
     }
     It 'rethrows the child error with its message' {
         { Invoke-WsusWindowsPowerShell -FunctionName 'ConvertTo-WsusPublishSettings' -Parameters @{ InputObject = @{ ServerName = 'bad name!' } } } | Should -Throw '*not a host name*'
+    }
+    It 'keeps the refusal marker when the child reports a refused application' {
+        $manifest = [pscustomobject]@{ AppName = 'x'; Publisher = 'p'; SoftwareVersion = '1.0'; InstallerType = 'EXE'; InstallerFile = '' }
+        $caught = $null
+        try { Invoke-WsusWindowsPowerShell -FunctionName 'Publish-WsusSoftwareUpdate' -Parameters @{ Manifest = $manifest; ContentFolder = (Join-Path $TestDrive 'none'); Settings = @{ ServerName = 'wsus01' } } }
+        catch { $caught = $_.Exception }
+        $caught | Should -Not -BeNullOrEmpty
+        $caught.Message | Should -BeLike 'This application cannot be published to WSUS:*'
+        $caught.Data.Contains('WsusRefusal') | Should -BeTrue
+        [string]$caught.Data['WsusRefusal'] | Should -Be 'InstallerMissing'
+    }
+    It 'does not mark a plain failure as a refusal' {
+        $caught = $null
+        try { Invoke-WsusWindowsPowerShell -FunctionName 'ConvertTo-WsusPublishSettings' -Parameters @{ InputObject = @{ ServerName = 'bad name!' } } }
+        catch { $caught = $_.Exception }
+        $caught.Data.Contains('WsusRefusal') | Should -BeFalse
+    }
+    It 'runs from a module folder and a temp folder whose paths contain spaces' {
+        $spaced = Join-Path $TestDrive 'wsus module folder'
+        New-Item -ItemType Directory -Path $spaced -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'AppPackagerWsus.psm1'), (Join-Path $PSScriptRoot 'AppPackagerWsus.psd1') -Destination $spaced -Force
+        $spacedTemp = Join-Path $TestDrive 'temp folder with spaces'
+        New-Item -ItemType Directory -Path $spacedTemp -Force | Out-Null
+        $savedTmp = $env:TMP; $savedTemp = $env:TEMP
+        try {
+            $env:TMP = $spacedTemp; $env:TEMP = $spacedTemp
+            Remove-Module AppPackagerWsus -Force -ErrorAction SilentlyContinue
+            Import-Module (Join-Path $spaced 'AppPackagerWsus.psd1') -Force -DisableNameChecking
+            $r = Invoke-WsusWindowsPowerShell -FunctionName 'ConvertTo-WsusPublishSettings' -Parameters @{ InputObject = @{ ServerName = 'wsus01' } }
+            [string]$r.ServerName | Should -Be 'wsus01'
+        }
+        finally {
+            $env:TMP = $savedTmp; $env:TEMP = $savedTemp
+            Remove-Module AppPackagerWsus -Force -ErrorAction SilentlyContinue
+            Import-Module (Join-Path $PSScriptRoot 'AppPackagerWsus.psd1') -Force -DisableNameChecking
+        }
+    }
+    It 'stops a child that does not finish within the timeout' {
+        $watch = [System.Diagnostics.Stopwatch]::StartNew()
+        { Invoke-WsusWindowsPowerShell -FunctionName 'Start-Sleep' -Parameters @{ Seconds = 60 } -TimeoutSeconds 3 } |
+            Should -Throw '*did not finish within 3 seconds*'
+        $watch.Elapsed.TotalSeconds | Should -BeLessThan 40
+    }
+    It 'quotes a value for a command line' {
+        $quote = { param($v) InModuleScope AppPackagerWsus -Parameters @{ V = $v } { param($V) ConvertTo-WsusProcessArgument $V } }
+        & $quote 'C:\a b\c.ps1' | Should -Be '"C:\a b\c.ps1"'
+        & $quote 'plain' | Should -Be 'plain'
+        & $quote 'C:\dir with space\' | Should -Be '"C:\dir with space\\"'
+        & $quote 'say "hi"' | Should -Be '"say \"hi\""'
+        & $quote '' | Should -Be '""'
     }
     It 'routes the API functions through the broker only under PowerShell 7' {
         $expected = ($PSVersionTable.PSEdition -eq 'Core')

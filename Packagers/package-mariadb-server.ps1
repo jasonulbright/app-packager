@@ -30,12 +30,14 @@ ArpName: MariaDB [0-9]* (x64)
     install. Default: MariaDB
 
 .PARAMETER RootPassword
-    Password assigned to the MariaDB root account during install. Leaving this
-    empty installs the server with a blank root password, which is only
-    defensible on a host where the instance is not reachable off-box; supply a
-    value for any deployment that is not a throwaway lab build. The value is
-    written into install.ps1 in the staged content, so treat the content folder
-    and its network copy as sensitive when it is set.
+    Password assigned to the MariaDB root account during install. When empty
+    and a service is installed, install.ps1 generates a random password on each
+    target and stores it DPAPI-protected (LocalMachine) in
+    %ProgramData%\MariaDB-Root-Secret\mariadb.dpapi, readable only by SYSTEM
+    and Administrators; the install exits 1 before the installer starts if that
+    fails. A value given here is written into install.ps1 in the staged content
+    for every target, so treat the content folder and its network copy as
+    sensitive when it is set.
 
 .PARAMETER Port
     TCP port for the server instance. Default: 3306
@@ -297,18 +299,27 @@ function Invoke-StageMariaDB {
         $extraArgs += ("SERVICENAME={0}" -f $ServiceName)
         $extraArgs += ("PORT={0}" -f $Port)
     }
+    $generateRootPassword = (-not [string]::IsNullOrWhiteSpace($ServiceName)) -and [string]::IsNullOrWhiteSpace($RootPassword)
     if (-not [string]::IsNullOrWhiteSpace($RootPassword)) {
         $extraArgs += ("PASSWORD={0}" -f $RootPassword)
+    }
+    elseif ($generateRootPassword) {
+        $extraArgs += 'PASSWORD=__GENERATED__'
     }
 
     if ([string]::IsNullOrWhiteSpace($ServiceName)) {
         Write-Log "SERVICENAME empty - staging a tools-only install with no service." -Level WARN
     }
-    elseif ([string]::IsNullOrWhiteSpace($RootPassword)) {
-        Write-Log "No -RootPassword supplied - the instance installs with a blank root password." -Level WARN
+    elseif ($generateRootPassword) {
+        Write-Log "No -RootPassword supplied - install.ps1 generates a root password on each target."
     }
 
     $wrapperContent = New-MsiWrapperContent -MsiFileName $msiFileName -ExtraInstallArgs $extraArgs
+    if ($generateRootPassword) {
+        $installBody = $wrapperContent.Install.Replace('$args += ''PASSWORD=__GENERATED__''', '$args += (''PASSWORD='' + $mariaRootPassword)')
+        $secretBlock = New-TargetSecretBlock -FolderName 'MariaDB-Root-Secret' -FileName 'mariadb.dpapi' -VariableName 'mariaRootPassword' -Label 'MariaDB root'
+        $wrapperContent.Install = $secretBlock + "`r`n" + $installBody
+    }
     Write-ContentWrappers -OutputPath $localContentPath `
         -InstallPs1Content $wrapperContent.Install `
         -UninstallPs1Content $wrapperContent.Uninstall
@@ -320,6 +331,7 @@ function Invoke-StageMariaDB {
     # The install argument list is recorded without the PASSWORD property so the
     # manifest does not carry the secret that install.ps1 already holds.
     $manifestInstallArgs = @("/qn", "/norestart") + @($extraArgs | Where-Object { $_ -notlike 'PASSWORD=*' })
+    if ($generateRootPassword) { $manifestInstallArgs += 'PASSWORD=<generated on each target>' }
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
     Write-StageManifest -Path $manifestPath -ManifestData @{

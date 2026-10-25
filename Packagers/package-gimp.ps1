@@ -128,11 +128,17 @@ function Get-LatestGIMPVersion {
             $fileName = "gimp-$version-setup.exe"
         }
 
-        Write-Log "Latest GIMP version          : $version (revision: $revision)" -Quiet:$Quiet
+        # A rebuilt installer ("gimp-3.0.4-setup-2.exe") reports the same
+        # AppVersion as the first build, so the revision is part of the release
+        # identity but not of the version the installed product shows.
+        $releaseVersion = if ($revision -and [int]$revision -gt 1) { "$version-$revision" } else { $version }
+
+        Write-Log "Latest GIMP version          : $releaseVersion (revision: $revision)" -Quiet:$Quiet
 
         return [PSCustomObject]@{
-            Version     = $version
-            Revision    = $revision
+            Version        = $version
+            ReleaseVersion = $releaseVersion
+            Revision       = $revision
             FileName    = $fileName
             DownloadUrl = "$CdnDirectoryUrl$fileName"
         }
@@ -161,7 +167,8 @@ function Invoke-StageGIMP {
     $versionInfo = Get-LatestGIMPVersion
     if (-not $versionInfo) { throw "Could not determine latest GIMP version." }
 
-    $version          = $versionInfo.Version
+    $installedVersion = $versionInfo.Version
+    $version          = $versionInfo.ReleaseVersion
     $installerFileName = $versionInfo.FileName
     $downloadUrl      = $versionInfo.DownloadUrl
 
@@ -195,7 +202,7 @@ function Invoke-StageGIMP {
     }
 
     # --- Generate content wrappers ---
-    $majorVer = $version.Split('.')[0]
+    $majorVer = $installedVersion.Split('.')[0]
 
     $wrapperContent = New-ExeWrapperContent `
         -InstallerFileName $installerFileName `
@@ -233,7 +240,7 @@ function Invoke-StageGIMP {
             RegistryKeyRelative = $arpRegistryKey
             ValueName           = "DisplayVersion"
             PropertyType        = "Version"
-            ExpectedValue       = $version
+            ExpectedValue       = $installedVersion
             Operator            = "GreaterEquals"
             Is64Bit             = $true
         }
@@ -304,7 +311,7 @@ if ($GetLatestVersionOnly) {
         $ProgressPreference = 'SilentlyContinue'
         $info = Get-LatestGIMPVersion -Quiet
         if (-not $info) { exit 1 }
-        Write-Output $info.Version
+        Write-Output $info.ReleaseVersion
         exit 0
     }
     catch {

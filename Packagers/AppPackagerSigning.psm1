@@ -307,7 +307,8 @@ function Write-SigningScriptFile {
         carries a signature block only verifies when the original bytes are
         reproduced, so each candidate encoding is written and verified and the
         first one that keeps the signature intact wins. Unsigned text is
-        written as UTF-8 without a BOM.
+        written as UTF-8, with a BOM when it holds a non-ASCII character
+        because Windows PowerShell 5.1 reads a BOMless script as ANSI.
     #>
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -316,6 +317,7 @@ function Write-SigningScriptFile {
     )
 
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    $unsignedDefault = New-Object System.Text.UTF8Encoding([bool]($Text -match '[^\x00-\x7F]'))
     $candidates = New-Object System.Collections.ArrayList
     if (-not [string]::IsNullOrWhiteSpace($EncodingName)) {
         $named = switch ($EncodingName) {
@@ -341,7 +343,8 @@ function Write-SigningScriptFile {
         }
     }
 
-    [System.IO.File]::WriteAllText($Path, $Text, $candidates[0])
+    $final = if ([string]::IsNullOrWhiteSpace($EncodingName) -and $Text -notmatch '# SIG # Begin signature block') { $unsignedDefault } else { $candidates[0] }
+    [System.IO.File]::WriteAllText($Path, $Text, $final)
 }
 
 function Get-SigningEncodingInfo {
@@ -945,6 +948,16 @@ function Invoke-ScriptSigning {
 
     $existing = Test-ScriptSignature -Path $Path
     if ($existing.SignatureIntact -and ($PreserveExisting -or -not $signSwitch)) {
+        # A preserved signature meets the same timestamp rule as one made here.
+        if ($policy.TimestampRequired -and -not $existing.Timestamped) {
+            $result.Status = 'Failed'
+            $result.Thumbprint = $existing.Thumbprint
+            $result.Timestamped = $false
+            $result.TimestampVerified = $false
+            $result.Sha256 = Get-SigningFileSha256 -Path $Path
+            $result.Reason = "TimestampRequired is set but the existing signature on the $Category script carries no timestamp counter-signature."
+            return $result
+        }
         $result.Status = 'ExistingSignatureValid'
         $result.Thumbprint = $existing.Thumbprint
         $result.Timestamped = $existing.Timestamped
@@ -1212,9 +1225,10 @@ function Get-SigningDeploymentFileInventory {
     foreach ($file in (Get-ChildItem -LiteralPath $StageRoot -Recurse -File -ErrorAction SilentlyContinue |
             Where-Object { $_.Extension -match '^(?i)\.(ps1|psm1)$' })) {
         $relative = $file.FullName.Substring($rootFull.Length).TrimStart('\')
-        # scripts\ holds the detection and requirement categories; the
-        # deployment category must not re-sign them under its own switch.
-        if ($relative -like 'scripts\*') { continue }
+        # The generated detection and requirement scripts belong to their own
+        # categories; the deployment category must not re-sign them under its
+        # own switch. Any other script under scripts\ is a deployment file.
+        if ($relative -ieq 'scripts\detect.ps1' -or $relative -like 'scripts\requirements\*') { continue }
         $isThirdParty = Test-SigningThirdPartyFile -FullName $file.FullName -RelativePath $relative -ThirdParty $thirdPartyRoots
         if ($isThirdParty) { [void]$thirdParty.Add([pscustomobject]@{ FullName = $file.FullName; RelativePath = $relative }) }
         else { [void]$owned.Add([pscustomobject]@{ FullName = $file.FullName; RelativePath = $relative }) }
@@ -1290,13 +1304,13 @@ function Invoke-CategorySigning {
         $items = New-Object System.Collections.ArrayList
         $statuses = New-Object System.Collections.ArrayList
         foreach ($req in $requirements) {
-            $file = Join-Path $reqDir ('{0}.ps1' -f $req.RuleId)
+            $file = Join-Path $reqDir ('{0}.ps1' -f $req.FileName)
             Write-SigningScriptFile -Path $file -Text $req.ScriptText -EncodingName $req.ScriptEncoding
             $signed = Invoke-ScriptSigning -Path $file -Policy $policy -Category 'Requirements' -Certificate $cert
             [void]$statuses.Add($signed.Status)
             [void]$items.Add([pscustomobject]@{
                 RuleId     = $req.RuleId
-                File       = 'scripts\requirements\{0}.ps1' -f $req.RuleId
+                File       = 'scripts\requirements\{0}.ps1' -f $req.FileName
                 Sha256     = $signed.Sha256
                 Thumbprint = $signed.Thumbprint
                 Status     = $signed.Status
@@ -1375,14 +1389,27 @@ function Get-SigningRequirementScripts {
     if ($null -eq $requirements) { return $results.ToArray() }
 
     $index = 0
+    $usedNames = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     foreach ($rule in @($requirements)) {
         $index++
         $text = Get-SigningPropertyValue -InputObject $rule -Name 'ScriptText' -Default ''
         if ([string]::IsNullOrWhiteSpace([string]$text)) { continue }
         $ruleId = [string](Get-SigningPropertyValue -InputObject $rule -Name 'RuleId' -Default ('rule{0}' -f $index))
-        $ruleId = $ruleId -replace '[^0-9A-Za-z._-]', '-'
+        # The file name is derived from the id. An id that needed changes gets a
+        # short digest of the original, so 'rule/a' and 'rule?a' stay apart.
+        $fileName = $ruleId -replace '[^0-9A-Za-z._-]', '-'
+        if ($fileName -cne $ruleId) {
+            $sha = [System.Security.Cryptography.SHA256]::Create()
+            try { $digest = (($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($ruleId)) | Select-Object -First 4 | ForEach-Object { $_.ToString('x2') }) -join '') }
+            finally { $sha.Dispose() }
+            $fileName = '{0}-{1}' -f $fileName, $digest
+        }
+        if (-not $usedNames.Add($fileName)) {
+            throw "Requirement rule id '$ruleId' maps to the script name '$fileName', which another rule already uses; give each rule a distinct id."
+        }
         [void]$results.Add([pscustomobject]@{
             RuleId         = $ruleId
+            FileName       = $fileName
             ScriptText     = [string]$text
             ScriptEncoding = [string](Get-SigningPropertyValue -InputObject $rule -Name 'ScriptEncoding' -Default '')
         })

@@ -151,6 +151,10 @@ function Invoke-StageSpectraPdf {
         }
     }
 
+    # Package reads this marker, so it packages the build this stage made
+    # whatever the vendor lists by then.
+    Set-Content -LiteralPath (Join-Path $BaseDownloadRoot 'staged-version.txt') -Value $version -Encoding ASCII -ErrorAction Stop
+
     Write-Log ""
     Write-Log "Stage complete               : $localContentPath"
     return $localContentPath
@@ -168,8 +172,12 @@ function Invoke-PackageSpectraPdf {
     Write-Log ""
 
     Initialize-Folder -Path $BaseDownloadRoot
-    $release = Get-SpectraPdfLatestRelease -Quiet
-    $localContentPath = Join-Path $BaseDownloadRoot $release.Version
+    $versionFile = Join-Path $BaseDownloadRoot 'staged-version.txt'
+    if (-not (Test-Path -LiteralPath $versionFile)) {
+        throw "Version marker not found - run Stage phase first: $versionFile"
+    }
+    $stagedVersion = (Get-Content -LiteralPath $versionFile -Raw -ErrorAction Stop).Trim()
+    $localContentPath = Join-Path $BaseDownloadRoot $stagedVersion
     $manifestPath = Join-Path $localContentPath 'stage-manifest.json'
     $manifest = Read-StageManifest -Path $manifestPath
 

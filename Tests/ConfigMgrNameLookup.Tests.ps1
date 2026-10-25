@@ -46,7 +46,6 @@ BeforeAll {
         'package-vlc.ps1'
         'package-webex.ps1'
         'package-windirstat.ps1'
-        'package-winscp.ps1'
         'package-wireshark.ps1'
     )
 

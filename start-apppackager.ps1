@@ -1086,12 +1086,17 @@ function Get-PackagerMetadata {
         ArpArch           = $null
     }
 
-    $lines = Get-Content -LiteralPath $Path -TotalCount 200 -ErrorAction Stop
+    $lines = @([System.IO.File]::ReadLines($Path) | Select-Object -First 200)
+
+    # Every key test below starts with the same prefix; one match per line
+    # rules out the lines that carry no key, which are nearly all of them.
+    $keyLine = New-Object System.Text.RegularExpressions.Regex('^\s*(?:#\s*)?(?:Vendor|App|CMName|VendorUrl|CPE|ReleaseNotesUrl|DownloadPageUrl|SecurityAdvisoryUrl|SupportsVariants|SupportsInstallModes|LocalSource|WsusSupport|ArpName|ArpVersion|ArpArch|UpdateCadenceDays|Application)\s*:', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
 
     $inSynopsis = $false
     foreach ($line in $lines) {
         $l = $line.TrimStart([char]0xFEFF)
 
+        if ($keyLine.IsMatch($l)) {
         if (-not $meta.Vendor    -and $l -match '^\s*(?:#\s*)?Vendor\s*:\s*(.+?)\s*$')    { $meta.Vendor    = $Matches[1].Trim(); continue }
         if (-not $meta.App       -and $l -match '^\s*(?:#\s*)?App\s*:\s*(.+?)\s*$')       { $meta.App       = $Matches[1].Trim(); continue }
         if (-not $meta.CMName    -and $l -match '^\s*(?:#\s*)?CMName\s*:\s*(.+?)\s*$')    { $meta.CMName    = $Matches[1].Trim(); continue }
@@ -1127,6 +1132,7 @@ function Get-PackagerMetadata {
             continue
         }
         if (-not $meta.App             -and $l -match '^\s*(?:#\s*)?Application\s*:\s*(.+?)\s*$')     { $meta.App             = $Matches[1].Trim(); continue }
+        }
 
         if (-not $meta.Description -and $l -match '^\s*\.SYNOPSIS\s*$') { $inSynopsis = $true; continue }
         if ($inSynopsis -and -not $meta.Description) {
@@ -1164,6 +1170,12 @@ function Get-PackagerMetadata {
 }
 
 function Get-Packagers {
+    <#
+        Reading and parsing every packager header is the cost of a call, and the
+        Options window makes several. The parsed rows are kept per folder and
+        reused while no packager file has been added, removed or changed;
+        every caller gets its own copies, since the grid edits its rows.
+    #>
     param([Parameter(Mandatory)][string]$Root)
 
     if (-not (Test-Path -LiteralPath $Root)) { return @() }
@@ -1171,6 +1183,14 @@ function Get-Packagers {
     $files = Get-ChildItem -LiteralPath $Root -File -ErrorAction Stop |
         Where-Object { $_.Name -match '^package-.*\.(?:ps1|notps1)$' } |
         Sort-Object Name
+
+    $signature = (@($files | ForEach-Object { '{0}|{1}|{2}' -f $_.Name, $_.Length, $_.LastWriteTimeUtc.Ticks }) -join ';')
+    if (-not $script:PackagerCatalogCache) { $script:PackagerCatalogCache = @{} }
+    $cacheKey = $Root.TrimEnd('\').ToLowerInvariant()
+    $cached = $script:PackagerCatalogCache[$cacheKey]
+    if ($cached -and $cached.Signature -ceq $signature) {
+        return @($cached.Rows | ForEach-Object { $_.PSObject.Copy() })
+    }
 
     $items = New-Object System.Collections.Generic.List[object]
     foreach ($f in $files) {
@@ -1229,6 +1249,7 @@ function Get-Packagers {
             })
         }
     }
+    $script:PackagerCatalogCache[$cacheKey] = @{ Signature = $signature; Rows = @($items | ForEach-Object { $_.PSObject.Copy() }) }
     return $items
 }
 
@@ -3186,7 +3207,7 @@ function Invoke-SelfUpdate {
         $launcher = Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) 'app-packager-suite') 'start-suite.ps1'
         if (Test-Path -LiteralPath $launcher) {
             Add-LogLine -Message ("Suite update v{0}: opening the AppPackager Suite Launcher. Close this and every other suite tool, then click Update there." -f $latest)
-            try { Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', $launcher -WorkingDirectory (Split-Path -Parent $launcher) } catch { Add-LogLine -Message ('Could not start the launcher: ' + $_.Exception.Message) }
+            try { Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $launcher) -WorkingDirectory (Split-Path -Parent $launcher) } catch { Add-LogLine -Message ('Could not start the launcher: ' + $_.Exception.Message) }
         }
         else {
             [void](Show-ThemedMessage -Owner $Owner -Title 'Suite update' -Message ("Suite v{0} is available. Update from the AppPackager Suite Launcher in the Start Menu." -f $latest) -Buttons OK -Icon Information)
@@ -3226,13 +3247,13 @@ function Invoke-SelfUpdate {
         $script = @"
 Wait-Process -Id $PID -Timeout 120 -ErrorAction SilentlyContinue
 & '$($installer.Replace("'","''"))' -InstallPath '$($PSScriptRoot.Replace("'","''"))'
-Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','$($relaunch.Replace("'","''"))'
+Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','"$($relaunch.Replace("'","''"))"'
 "@
         $bootstrap = Join-Path ([IO.Path]::GetTempPath()) ('apupdate-' + [Guid]::NewGuid().ToString('N') + '.ps1')
         Set-Content -LiteralPath $bootstrap -Value $script -Encoding UTF8
 
         Start-Process -FilePath 'powershell.exe' `
-            -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', $bootstrap
+            -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ('"{0}"' -f $bootstrap)
 
         Add-LogLine -Message ("Updating to v{0}; closing." -f $latest)
         $Owner.Close()
@@ -3836,11 +3857,34 @@ function Invoke-BatchUpdate {
             continue
         }
 
+        # The profile decides the staging root, so it is resolved before
+        # anything compares or launches against that root.
+        $batchAppId = ''
+        $batchProfileId = 'default'
+        $batchDownloadRoot = $DownloadRoot
+        if ($batchWorkbenchRoot -and (Get-Command -Name 'Get-WorkbenchProfileDownloadRoot' -ErrorAction SilentlyContinue)) {
+            try {
+                $batchAppId = [string](New-ApplicationId -Kind Catalog -ScriptPath $scriptPath)
+                $batchDefinition = Get-ApplicationDefinition -ApplicationId $batchAppId
+                if ([string]$batchDefinition.ActiveProfileId) { $batchProfileId = [string]$batchDefinition.ActiveProfileId }
+                $batchDownloadRoot = Get-WorkbenchProfileDownloadRoot -DownloadRoot $DownloadRoot -ProfileId $batchProfileId
+            }
+            catch {
+                Write-Log ("[batch] {0}: profile not resolved, using the base staging root: {1}" -f $baseName, $_.Exception.Message) -Level WARN
+                $batchAppId = ''
+                $batchProfileId = 'default'
+                $batchDownloadRoot = $DownloadRoot
+            }
+        }
+        $stageScope   = [string]$batchDownloadRoot
+        $packageScope = ('{0}|{1}|{2}' -f $SiteCode, $FileServerPath, $batchProfileId)
+
         $history = Read-PackagerHistory
         $lastKnown    = $null
         $lastChecked  = $null
         $lastStaged   = $null
         $lastPackaged = $null
+        $entry = $null
         if ($history.ContainsKey($baseName)) {
             $entry = $history[$baseName]
             if ($entry -is [hashtable]) {
@@ -3854,6 +3898,14 @@ function Invoke-BatchUpdate {
                 $lastStaged   = $entry.LastStaged
                 $lastPackaged = $entry.LastPackaged
             }
+        }
+        # The version this kind of run has already completed for this
+        # destination. A check records the newest version seen, which says
+        # nothing about what was built.
+        $actedVersion = switch ($OnUpdateFound) {
+            'Stage'           { Get-PackagerHistoryActedVersion -Entry $entry -Event Staged -Scope $stageScope }
+            'StageAndPackage' { Get-PackagerHistoryActedVersion -Entry $entry -Event Packaged -Scope $packageScope }
+            default           { Get-PackagerHistoryActedVersion -Entry $entry -Event Checked }
         }
 
         # Cadence gate applies to Report only. Stage / StageAndPackage
@@ -3919,10 +3971,28 @@ function Invoke-BatchUpdate {
         # when there's nothing new to do: same version AND (for Stage /
         # StageAndPackage) we've already staged/packaged that version
         # at least once. First-time stages and Force=on always run.
-        $versionChanged = (-not $lastKnown) -or ($lastKnown -ne $latest)
-        $neverStaged    = ($OnUpdateFound -eq 'Stage'           -and -not $lastStaged)
-        $neverPackaged  = ($OnUpdateFound -eq 'StageAndPackage' -and -not $lastPackaged)
-        $shouldAct      = $versionChanged -or $Force -or $neverStaged -or $neverPackaged
+        $versionChanged = (-not $actedVersion) -or ($actedVersion -ne $latest)
+
+        # A matching version is not freshness: a changed profile revision or
+        # signing policy makes the last build stale, as in a Full Run.
+        $buildStale = $false
+        if ($batchAppId -and $OnUpdateFound -ne 'Report' -and (Get-Command -Name 'Get-LatestBuildRecord' -ErrorAction SilentlyContinue) -and
+            (Get-LatestBuildRecord -ApplicationId $batchAppId -ProfileId $batchProfileId -ErrorAction SilentlyContinue)) {
+            # Only an application with a build record can be compared; one without
+            # has nothing to be stale against.
+            try {
+                $batchRevision = [int](Get-Profile -ApplicationId $batchAppId -ProfileId $batchProfileId).Revision
+                $batchDigest = ''
+                if (-not [string]::IsNullOrWhiteSpace($SigningJson) -and (Get-Command -Name 'Get-SigningPolicy' -ErrorAction SilentlyContinue)) {
+                    $batchDigest = [string](Get-SigningPolicy -Json $SigningJson).PolicyDigest
+                }
+                $current = Test-WorkbenchBuildIsCurrent -ApplicationId $batchAppId -ProfileId $batchProfileId `
+                    -Version ([string]$latest) -ProfileRevision $batchRevision -PolicyDigest $batchDigest
+                if ($null -ne $current -and -not $current) { $buildStale = $true }
+            }
+            catch { $buildStale = $false }
+        }
+        $shouldAct = $versionChanged -or $Force -or $buildStale
 
         if (-not $shouldAct) {
             Update-PackagerHistory -PackagerName $baseName -Event Checked -Version $latest -Result NoChange
@@ -3932,8 +4002,8 @@ function Invoke-BatchUpdate {
         }
 
         # 3. Taking action
-        $oldDisplay = if ($lastKnown) { $lastKnown } else { '(none)' }
-        $label = if ($versionChanged) { 'Updated' } else { 'Forced' }
+        $oldDisplay = if ($actedVersion) { $actedVersion } else { '(none)' }
+        $label = if ($versionChanged) { 'Updated' } elseif ($buildStale) { 'Rebuilt' } else { 'Forced' }
         Update-PackagerHistory -PackagerName $baseName -Event Checked -Version $latest -Result Updated
         Write-Log ("[batch] [{0}] {1}: {2} -> {3} (action={4})" -f $label, $baseName, $oldDisplay, $latest, $OnUpdateFound) -Level INFO
 
@@ -3946,7 +4016,7 @@ function Invoke-BatchUpdate {
         $pkgArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath, '-SiteCode', $SiteCode)
         if ($FileServerPath)       { $pkgArgs += @('-FileServerPath',       $FileServerPath)       }
         if ($ContentLayout)        { $pkgArgs += @('-ContentLayout',        $ContentLayout)        }
-        if ($DownloadRoot)         { $pkgArgs += @('-DownloadRoot',         $DownloadRoot)         }
+        if ($batchDownloadRoot)    { $pkgArgs += @('-DownloadRoot',         $batchDownloadRoot)    }
         if ($EstimatedRuntimeMins) { $pkgArgs += @('-EstimatedRuntimeMins', $EstimatedRuntimeMins) }
         if ($MaximumRuntimeMins)   { $pkgArgs += @('-MaximumRuntimeMins',   $MaximumRuntimeMins)   }
         if ($Comment)              { $pkgArgs += @('-Comment',              $Comment)              }
@@ -3992,7 +4062,6 @@ function Invoke-BatchUpdate {
             # This path launches through the process environment, so each
             # value is saved here and restored in finally.
             $batchRunSnapshot = ''
-            $batchDownloadRoot = $DownloadRoot
             if ($batchWorkbenchRoot -and (Get-Command -Name 'New-RunSnapshot' -ErrorAction SilentlyContinue)) {
                 # The snapshot carries the signing policy so the certificate
                 # gate runs here, before the child writes any content.
@@ -4001,11 +4070,7 @@ function Invoke-BatchUpdate {
                     try { $batchSigningPolicy = $SigningJson | ConvertFrom-Json } catch { $batchSigningPolicy = $null }
                 }
                 try {
-                    $batchAppId = [string](New-ApplicationId -Kind Catalog -ScriptPath $scriptPath)
-                    $batchDefinition = Get-ApplicationDefinition -ApplicationId $batchAppId
-                    $batchProfileId = [string]$batchDefinition.ActiveProfileId
-                    if (-not $batchProfileId) { $batchProfileId = 'default' }
-                    $batchDownloadRoot = Get-WorkbenchProfileDownloadRoot -DownloadRoot $DownloadRoot -ProfileId $batchProfileId
+                    if (-not $batchAppId) { $batchAppId = [string](New-ApplicationId -Kind Catalog -ScriptPath $scriptPath) }
                     $batchSnapshot = New-RunSnapshot -ApplicationId $batchAppId -ProfileId $batchProfileId `
                         -Target 'MECM' -SigningPolicy $batchSigningPolicy -PackagerScriptPath $scriptPath -DownloadRoot $batchDownloadRoot
                     $batchRunSnapshot = [string]$batchSnapshot.Path
@@ -4138,9 +4203,9 @@ function Invoke-BatchUpdate {
             $rc = $LASTEXITCODE
             if ($rc -ne 0 -and $rc -ne 3010) { throw "Packager exited with code $rc" }
 
-            Update-PackagerHistory -PackagerName $baseName -Event Staged -Version $latest -Result Updated
+            Update-PackagerHistory -PackagerName $baseName -Event Staged -Version $latest -Result Updated -Scope $stageScope
             if ($OnUpdateFound -eq 'StageAndPackage') {
-                Update-PackagerHistory -PackagerName $baseName -Event Packaged -Version $latest -Result Updated
+                Update-PackagerHistory -PackagerName $baseName -Event Packaged -Version $latest -Result Updated -Scope $packageScope
             }
             $results += [pscustomobject]@{ Name = $baseName; Action = $OnUpdateFound; OldVersion = $lastKnown; NewVersion = $latest }
         } catch {
@@ -4812,7 +4877,7 @@ $menuOpenLogFolder.Add_Click({
     if (-not (Test-Path -LiteralPath $logFolder)) {
         New-Item -ItemType Directory -Path $logFolder -Force | Out-Null
     }
-    Start-Process "explorer.exe" -ArgumentList $logFolder
+    Start-Process "explorer.exe" -ArgumentList ('"{0}"' -f $logFolder)
 })
 
 $menuOpenStagedFolder.Add_Click({
@@ -4833,19 +4898,19 @@ $menuOpenStagedFolder.Add_Click({
         if (-not [string]::IsNullOrWhiteSpace($version)) {
             $versionPath = Join-Path $targetPath $version
             if (Test-Path -LiteralPath $versionPath) {
-                Start-Process "explorer.exe" -ArgumentList $versionPath
+                Start-Process "explorer.exe" -ArgumentList ('"{0}"' -f $versionPath)
                 return
             }
         }
 
         if (Test-Path -LiteralPath $targetPath) {
-            Start-Process "explorer.exe" -ArgumentList $targetPath
+            Start-Process "explorer.exe" -ArgumentList ('"{0}"' -f $targetPath)
             return
         }
     }
 
     if (Test-Path -LiteralPath $dlRoot) {
-        Start-Process "explorer.exe" -ArgumentList $dlRoot
+        Start-Process "explorer.exe" -ArgumentList ('"{0}"' -f $dlRoot)
     }
     else {
         Add-LogLine -Message ("Folder not found: {0}" -f $dlRoot)
@@ -4866,14 +4931,14 @@ $menuOpenNetworkShare.Add_Click({
     if ($info.VendorFolder -and $info.AppFolder) {
         $targetPath = Join-Path (Join-Path (Join-Path $fsPath "Applications") $info.VendorFolder) $info.AppFolder
         if (Test-Path -LiteralPath $targetPath) {
-            Start-Process "explorer.exe" -ArgumentList $targetPath
+            Start-Process "explorer.exe" -ArgumentList ('"{0}"' -f $targetPath)
             return
         }
     }
 
     $appsRoot = Join-Path $fsPath "Applications"
     if (Test-Path -LiteralPath $appsRoot) {
-        Start-Process "explorer.exe" -ArgumentList $appsRoot
+        Start-Process "explorer.exe" -ArgumentList ('"{0}"' -f $appsRoot)
     }
     else {
         Add-LogLine -Message ("Network path not accessible: {0}" -f $appsRoot)
@@ -5514,20 +5579,74 @@ function New-MecmPreferencesPanel {
         $txtSevenZipStatus.ToolTip = "Detected once per launch via registry ARP + Program Files\7-Zip"
     }
 
-    $gh = Get-GitHubApiAuthStatus
-    $ghQuota = ''
-    if ($gh.Limit) {
-        $ghQuota = ' (' + $gh.Limit + ' requests/hour'
-        if ($gh.Remaining) { $ghQuota += ', ' + $gh.Remaining + ' remaining' }
-        $ghQuota += ')'
+    # The status needs a web request to api.github.com and may start gh.exe;
+    # behind a slow proxy that held the whole Options window for seconds, so
+    # the line fills in when a background runspace has the answer.
+    $showGitHubStatus = {
+        param($gh)
+        $ghQuota = ''
+        if ($gh.Limit) {
+            $ghQuota = ' (' + $gh.Limit + ' requests/hour'
+            if ($gh.Remaining) { $ghQuota += ', ' + $gh.Remaining + ' remaining' }
+            $ghQuota += ')'
+        }
+        if ($gh.Authenticated) {
+            $txtGitHubStatus.Text = ([char]0x2713 + ' Authenticated  -  ' + $gh.Source + $ghQuota)
+            $txtGitHubStatus.ToolTip = 'The token is sent as a bearer token by every GitHub-backed packager and by the version monitor. Resolved when this window opened.'
+        } else {
+            $anonRemaining = if ($gh.Remaining) { ', ' + $gh.Remaining + ' remaining' } else { '' }
+            $txtGitHubStatus.Text = ([char]0x2717 + ' Anonymous  -  60 requests/hour per address' + $anonRemaining + '; set GITHUB_TOKEN or run gh auth login')
+            $txtGitHubStatus.ToolTip = 'A version check across the 90 GitHub-backed packagers exceeds the anonymous limit. A personal access token with no scopes is enough.'
+        }
+    }.GetNewClosure()
+    $txtGitHubStatus.Text = 'Checking GitHub access...'
+    $ghState = [hashtable]::Synchronized(@{ Done = $false; Result = $null })
+    $ghRunspace = $null
+    $ghShell = $null
+    try {
+        $ghRunspace = [runspacefactory]::CreateRunspace()
+        $ghRunspace.ApartmentState = 'MTA'
+        $ghRunspace.Open()
+        $ghShell = [powershell]::Create()
+        $ghShell.Runspace = $ghRunspace
+        [void]$ghShell.AddScript({
+            param($State, $ModulePath, $FunctionText)
+            try {
+                Import-Module -Name $ModulePath -DisableNameChecking -ErrorAction Stop
+                Set-Item -Path 'function:Get-GitHubApiAuthStatus' -Value ([scriptblock]::Create($FunctionText))
+                $State.Result = Get-GitHubApiAuthStatus
+            }
+            catch { $State.Result = $null }
+            finally { $State.Done = $true }
+        }).AddArgument($ghState).AddArgument((Join-Path $PSScriptRoot 'Packagers\AppPackagerCommon.psd1')).AddArgument((Get-Item -Path 'function:Get-GitHubApiAuthStatus').ScriptBlock.ToString())
+        $ghHandle = $ghShell.BeginInvoke()
+        $ghTimer = New-Object System.Windows.Threading.DispatcherTimer
+        $ghTimer.Interval = [TimeSpan]::FromMilliseconds(250)
+        $ghDeadline = [DateTime]::UtcNow.AddSeconds(20)
+        $ghTimer.Add_Tick({
+            if (-not $ghState.Done) {
+                if ([DateTime]::UtcNow -lt $ghDeadline) { return }
+                # gh.exe validates its login over the network without a limit of its own.
+                $ghTimer.Stop()
+                $txtGitHubStatus.Text = 'GitHub access could not be checked: no answer within 20 seconds.'
+                # Stopping a pipeline that waits on a network call blocks until it returns, so the stop is asynchronous.
+                try { [void]$ghShell.BeginStop($null, $null) } catch { }
+                try { [void]$ghRunspace.CloseAsync() } catch { }
+                return
+            }
+            $ghTimer.Stop()
+            if ($ghState.Result) { & $showGitHubStatus $ghState.Result }
+            else { $txtGitHubStatus.Text = 'GitHub access could not be checked.' }
+            try { $ghShell.EndInvoke($ghHandle) } catch { }
+            try { $ghShell.Dispose() } catch { }
+            try { $ghRunspace.Close() } catch { }
+        }.GetNewClosure())
+        $ghTimer.Start()
     }
-    if ($gh.Authenticated) {
-        $txtGitHubStatus.Text = ([char]0x2713 + ' Authenticated  -  ' + $gh.Source + $ghQuota)
-        $txtGitHubStatus.ToolTip = 'The token is sent as a bearer token by every GitHub-backed packager and by the version monitor. Resolved when this window opened.'
-    } else {
-        $anonRemaining = if ($gh.Remaining) { ', ' + $gh.Remaining + ' remaining' } else { '' }
-        $txtGitHubStatus.Text = ([char]0x2717 + ' Anonymous  -  60 requests/hour per address' + $anonRemaining + '; set GITHUB_TOKEN or run gh auth login')
-        $txtGitHubStatus.ToolTip = 'A version check across the 90 GitHub-backed packagers exceeds the anonymous limit. A personal access token with no scopes is enough.'
+    catch {
+        $txtGitHubStatus.Text = 'GitHub access could not be checked.'
+        if ($ghShell) { try { [void]$ghShell.BeginStop($null, $null) } catch { } }
+        if ($ghRunspace) { try { [void]$ghRunspace.CloseAsync() } catch { } }
     }
     # The key box stays empty; an empty box keeps the saved key.
     $chkCveAfterCm.IsChecked = [bool]$script:Prefs.Vulnerability.LookupAfterCheckCm
@@ -7073,29 +7192,35 @@ function Show-OptionsDialog {
     $btnOK       = $dlg.FindName('btnOK')
     $btnCancel   = $dlg.FindName('btnCancel')
 
-    # All panels live in the unified Options window.
-    $panels = @(
-        (New-MecmPreferencesPanel),
-        (New-PackagerPreferencesPanel),
-        (New-AppFlowPanel),
-        (New-ProductFilterPanel),
-        (New-ScriptSigningPanel),
-        (New-WsusPanel),
-        (New-AboutPanel)
+    # All panels live in the unified Options window. A panel is built the
+    # first time its section is shown: building all seven before the window
+    # appears delays the first open, and a panel nobody visits has no
+    # changes to save. $panels holds null until its section is opened.
+    $panelNames = @('ConfigMgr Preferences', 'Packager Preferences', 'One Click Settings', 'Product Filter', 'Script Signing', 'WSUS Publishing', 'About')
+    $panelFactories = @(
+        { New-MecmPreferencesPanel },
+        { New-PackagerPreferencesPanel },
+        { New-AppFlowPanel },
+        { New-ProductFilterPanel },
+        { New-ScriptSigningPanel },
+        { New-WsusPanel },
+        { New-AboutPanel }
     )
+    $panels = New-Object object[] $panelFactories.Count
 
-    foreach ($p in $panels) { [void]$lstNav.Items.Add($p.Name) }
+    foreach ($name in $panelNames) { [void]$lstNav.Items.Add($name) }
 
     $lstNav.Add_SelectionChanged({
         $idx = $lstNav.SelectedIndex
         if ($idx -ge 0 -and $idx -lt $panels.Count) {
+            if ($null -eq $panels[$idx]) { $panels[$idx] = & $panelFactories[$idx] }
             $contentArea.Content = $panels[$idx].Element
         }
     })
 
     $initialIdx = 0
-    for ($i = 0; $i -lt $panels.Count; $i++) {
-        if ($panels[$i].Name -eq $InitialSection) { $initialIdx = $i; break }
+    for ($i = 0; $i -lt $panelNames.Count; $i++) {
+        if ($panelNames[$i] -eq $InitialSection) { $initialIdx = $i; break }
     }
     $lstNav.SelectedIndex = $initialIdx
 
@@ -7103,13 +7228,14 @@ function Show-OptionsDialog {
     $btnOK.Add_Click({
         try {
             $siteBefore = Get-SiteIdentityKey -SiteCode $script:Prefs.SiteCode -ProviderMachineName $script:Prefs.ProviderMachineName
-            foreach ($p in $panels) { if ($p.Commit) { & $p.Commit } }
+            foreach ($p in $panels) { if ($p -and $p.Commit) { & $p.Commit } }
             $siteChanged = (Get-SiteIdentityKey -SiteCode $script:Prefs.SiteCode -ProviderMachineName $script:Prefs.ProviderMachineName) -cne $siteBefore
             Save-Preferences -Prefs $script:Prefs
             # Panels that mutate sibling JSON configs expose the refs on
             # the panel hash; master persists them here so panel commits
             # stay free of function calls (GetNewClosure-safe).
             foreach ($p in $panels) {
+                if (-not $p) { continue }
                 if ($p.CwaSwitches) { Save-CwaSwitches -Switches $p.CwaSwitches }
                 if ($p.TvConfig)    { Save-TvHostConfig -Config $p.TvConfig }
             }
@@ -8096,6 +8222,10 @@ function Invoke-MultiAppPipeline {
                         }
 
                         $versionChanged = (-not $lastKnown) -or ($lastKnown -ne $latest)
+                        # The version a stage completed for this root, not the newest one a check saw.
+                        $oneClickStageScope = [string]$planDownloadRoot
+                        $stagedVersion = Get-PackagerHistoryActedVersion -Entry $entry -Event Staged -Scope $oneClickStageScope
+                        $stageStale = (-not $stagedVersion) -or ([string]$stagedVersion -ne [string]$latest)
                         try {
                             Update-PackagerHistory -PackagerName $baseName -Event Checked -Version $latest -Result $(if ($versionChanged) { 'Updated' } else { 'NoChange' })
                             $row.LastChecked = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
@@ -8151,7 +8281,7 @@ function Invoke-MultiAppPipeline {
                                 $publishTo += $d
                             }
                         }
-                        $needStage = $Ctx.ForceFlag -or $buildStale -or $versionChanged -or (-not $lastStaged) -or ($publishTo.Count -gt 0)
+                        $needStage = $Ctx.ForceFlag -or $buildStale -or $stageStale -or ($publishTo.Count -gt 0)
                         if (-not $needStage) {
                             $row.Status = 'Up to date'
                             [void]$State.LogQueue.Enqueue(('No change - skipping: ' + $app))
@@ -8159,7 +8289,7 @@ function Invoke-MultiAppPipeline {
                             & $finish 'Skipped' 'up to date'
                             continue
                         }
-                        if ($Ctx.Action -eq 'StageAndPackage' -and $publishTo.Count -eq 0 -and -not $versionChanged -and -not $buildStale -and -not $Ctx.ForceFlag) {
+                        if ($Ctx.Action -eq 'StageAndPackage' -and $publishTo.Count -eq 0 -and -not $stageStale -and -not $buildStale -and -not $Ctx.ForceFlag) {
                             $row.Status = 'Up to date'
                             $counts['NoChange']++
                             & $finish 'Skipped' ($skipReasons -join '; ')
@@ -8187,7 +8317,7 @@ function Invoke-MultiAppPipeline {
                                 $stageOk = $true
                                 $row.Status = 'Staged'
                                 [void]$State.LogQueue.Enqueue(('Staged. Logs: ' + (Split-Path -Leaf $stg.OutLog)))
-                                try { Update-PackagerHistory -PackagerName $baseName -Event Staged -Version $latest -Result Updated } catch { }
+                                try { Update-PackagerHistory -PackagerName $baseName -Event Staged -Version $latest -Result Updated -Scope $oneClickStageScope } catch { }
                             } else {
                                 $row.Status = 'Stage error'
                                 $stderrLines = @($stg.StdErr -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -8362,10 +8492,12 @@ function Invoke-MultiAppPipeline {
                         $State.Step = ('One Click {0}/{1}: {2}' -f $i, $n, $app)
 
                         $lastChecked = $null; $lastKnown = $null; $lastStaged = $null; $lastPackaged = $null
+                        $fullEntry = $null
                         try {
                             $hist = Read-PackagerHistory
                             if ($hist.ContainsKey($baseName)) {
                                 $h = $hist[$baseName]
+                                $fullEntry = $h
                                 if ($h -is [hashtable]) {
                                     $lastChecked  = $h['LastChecked']
                                     $lastKnown    = $h['LastKnownVersion']
@@ -8482,8 +8614,16 @@ function Invoke-MultiAppPipeline {
                         }
 
                         $versionChanged = (-not $lastKnown) -or ($lastKnown -ne $latest)
-                        $neverStaged    = ($Ctx.Action -eq 'Stage'           -and -not $lastStaged)
-                        $neverPackaged  = ($Ctx.Action -eq 'StageAndPackage' -and -not $lastPackaged)
+                        # What a stage or a publish completed is not what a check
+                        # saw: a check of v2 after a stage of v1 leaves v2 to build.
+                        $fullStageScope   = [string]$planDownloadRoot
+                        $fullPackageScope = ('{0}|{1}|{2}' -f [string]$Ctx.SiteCode, [string]$Ctx.FileShareRoot, [string]$planProfileId)
+                        $actedVersion = switch ([string]$Ctx.Action) {
+                            'Stage'           { Get-PackagerHistoryActedVersion -Entry $fullEntry -Event Staged -Scope $fullStageScope }
+                            'StageAndPackage' { Get-PackagerHistoryActedVersion -Entry $fullEntry -Event Packaged -Scope $fullPackageScope }
+                            default           { $lastKnown }
+                        }
+                        $actionStale = (-not $actedVersion) -or ([string]$actedVersion -ne [string]$latest)
 
                         # A vendor-version match alone is not freshness: a
                         # changed profile revision or signing policy makes
@@ -8494,8 +8634,8 @@ function Invoke-MultiAppPipeline {
                                 -Version $latest -ProfileRevision $planRevision -PolicyDigest ([string]$Ctx.SigningDigest)
                             if ($null -ne $current -and -not $current) { $buildStale = $true }
                         }
-                        $shouldAct      = $versionChanged -or $Ctx.ForceFlag -or $neverStaged -or $neverPackaged -or $buildStale
-                        if ($buildStale -and -not $versionChanged) {
+                        $shouldAct      = $actionStale -or $Ctx.ForceFlag -or $buildStale
+                        if ($buildStale -and -not $actionStale) {
                             [void]$State.LogQueue.Enqueue(('Rebuilding {0} at the same version: profile revision or signing policy changed.' -f $app))
                         }
 
@@ -8545,7 +8685,7 @@ function Invoke-MultiAppPipeline {
                                     [void]$State.LogQueue.Enqueue(('Intunewin: ' + $stageIntuneWin.Message))
                                 }
                                 try {
-                                    if ($latest) { Update-PackagerHistory -PackagerName $baseName -Event Staged -Version $latest -Result Updated }
+                                    if ($latest) { Update-PackagerHistory -PackagerName $baseName -Event Staged -Version $latest -Result Updated -Scope $fullStageScope }
                                     else         { Update-PackagerHistory -PackagerName $baseName -Event Staged -Result Updated }
                                 } catch { }
                             } else {
@@ -8643,7 +8783,7 @@ function Invoke-MultiAppPipeline {
                             } elseif ($outcome.Kind -eq 'Success') {
                                 [void]$State.LogQueue.Enqueue(('{0}. Logs: {1}' -f $outcome.Status, (Split-Path -Leaf $pkg.OutLog)))
                                 try {
-                                    if ($latest) { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Version $latest -Result Updated }
+                                    if ($latest) { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Version $latest -Result Updated -Scope $fullPackageScope }
                                     else         { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Result Updated }
                                 } catch { }
                                 [void]$State.Succeeded.Enqueue($scrName)

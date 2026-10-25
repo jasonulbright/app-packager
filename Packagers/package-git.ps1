@@ -116,27 +116,29 @@ function Get-LatestGitRelease {
 
         $release = ConvertFrom-Json $json
 
-        # tag_name format: "v2.53.0.windows.1" -- strip prefix/suffix for clean semver
+        # tag_name format: "v2.53.0.windows.1"
         $tagName = $release.tag_name
-        $version = $tagName -replace '^v', '' -replace '\.windows\.\d+$', ''
 
-        if ([string]::IsNullOrWhiteSpace($version)) {
-            throw "Could not parse version from tag: $tagName"
-        }
-
-        # Find 64-bit installer EXE asset
+        # Find 64-bit installer EXE asset. Its name carries the build of a
+        # rebuilt release ("Git-2.53.0.2-64-bit.exe" for "v2.53.0.windows.2"),
+        # so the version comes from the asset, not from the tag.
         $downloadUrl = $null
         $fileName    = $null
+        $version     = $null
         foreach ($asset in $release.assets) {
-            if ($asset.name -match '^Git-[\d.]+-64-bit\.exe$') {
+            if ($asset.name -match '^Git-(?<ver>[\d.]+)-64-bit\.exe$') {
                 $downloadUrl = $asset.browser_download_url
                 $fileName    = $asset.name
+                $version     = $Matches['ver']
                 break
             }
         }
 
         if (-not $downloadUrl) {
             throw "Could not locate 64-bit EXE installer asset in release '$tagName'."
+        }
+        if ([string]::IsNullOrWhiteSpace($version)) {
+            throw "Could not parse version from asset: $fileName"
         }
 
         Write-Log "Latest Git for Windows version: $version" -Quiet:$Quiet
@@ -226,7 +228,11 @@ function Invoke-StageGit {
     $detectionScript = (
         '$reg = Get-ItemProperty ''HKLM:\SOFTWARE\GitForWindows'' -ErrorAction SilentlyContinue',
         'if ($reg -and $reg.CurrentVersion) {',
-        '    $v = ($reg.CurrentVersion -replace ''\.windows\.\d+$'', '''').Trim()',
+        '    $v = $reg.CurrentVersion.Trim()',
+        '    if ($v -match ''^(?<base>\d+(\.\d+)*)\.windows\.(?<build>\d+)$'') {',
+        '        $v = $Matches[''base'']',
+        '        if ([int]$Matches[''build''] -gt 1) { $v = $v + ''.'' + $Matches[''build''] }',
+        '    }',
         '    try {',
         ('        if ([version]$v -ge [version]"' + $version + '") {'),
         '            Write-Output "Installed: $($reg.CurrentVersion)"',

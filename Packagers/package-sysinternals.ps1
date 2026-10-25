@@ -186,14 +186,16 @@ function Invoke-StageSysinternals {
     $installPs1 = @(
         "`$zipPath = Join-Path `$PSScriptRoot '$ZipFileName'"
         "`$installDir = Join-Path `$env:ProgramFiles 'Sysinternals'"
-        "if (-not (Test-Path `$installDir)) { New-Item -Path `$installDir -ItemType Directory -Force | Out-Null }"
-        "Expand-Archive -Path `$zipPath -DestinationPath `$installDir -Force"
+        "try {"
+        "    if (-not (Test-Path `$installDir)) { New-Item -Path `$installDir -ItemType Directory -Force -ErrorAction Stop | Out-Null }"
+        "    Expand-Archive -Path `$zipPath -DestinationPath `$installDir -Force -ErrorAction Stop"
+        "} catch { [Console]::Error.WriteLine(`$_.Exception.Message); exit 1 }"
         "exit 0"
     ) -join "`r`n"
 
     $uninstallPs1 = @(
         "`$installDir = Join-Path `$env:ProgramFiles 'Sysinternals'"
-        "if (Test-Path `$installDir) { Remove-Item -Path `$installDir -Recurse -Force }"
+        "try { if (Test-Path `$installDir) { Remove-Item -Path `$installDir -Recurse -Force -ErrorAction Stop } } catch { [Console]::Error.WriteLine(`$_.Exception.Message); exit 1 }"
         "exit 0"
     ) -join "`r`n"
 

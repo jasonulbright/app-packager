@@ -15,14 +15,11 @@ ArpName: WinSCP*
 
 .DESCRIPTION
     Downloads the latest WinSCP installer from winscp.net, stages content to a
-    versioned local folder, temporarily installs locally to extract registry
-    metadata (DisplayName, Publisher, uninstall key), creates stage manifest with
-    registry-based detection (DisplayVersion), then uninstalls from the packaging
-    machine.
+    versioned local folder, and writes the stage manifest with file-version
+    detection of WinSCP.exe. The installer is never run on the packaging machine.
 
     Supports two-phase operation:
-      -StageOnly    Download, temp install for registry discovery, generate content
-                    wrappers and stage manifest, then uninstall
+      -StageOnly    Download, generate content wrappers and stage manifest
       -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
@@ -50,12 +47,12 @@ ArpName: WinSCP*
     Default: 30
 
 .PARAMETER StageOnly
-    Runs only the Stage phase: download, temp install for discovery, generate
-    content wrappers and stage manifest, then uninstall.
+    Runs only the Stage phase: download, generate content wrappers and stage
+    manifest.
 
 .PARAMETER PackageOnly
     Runs only the Package phase: read stage manifest, copy content to network,
-    create ConfigMgr application with registry-based detection.
+    create ConfigMgr application with file-version detection.
 
 .PARAMETER GetLatestVersionOnly
     Outputs only the latest available WinSCP version string and exits.
@@ -161,76 +158,6 @@ function Test-DownloadedInstaller {
     return $true
 }
 
-function Install-WinSCPForDiscovery {
-    param([Parameter(Mandatory)][string]$InstallerPath)
-
-    Write-Log "Installing WinSCP locally for registry discovery..."
-    Write-Log "Installer                    : $InstallerPath"
-
-    $p = Start-Process -FilePath $InstallerPath -ArgumentList "/VERYSILENT /NORESTART /ALLUSERS" -Wait -PassThru -ErrorAction Stop
-    Write-Log "Install exit code            : $($p.ExitCode)"
-
-    if ($p.ExitCode -ne 0) {
-        throw "Installer returned non-zero exit code: $($p.ExitCode)"
-    }
-}
-
-function Find-WinSCPUninstallEntry {
-    param([Parameter(Mandatory)][string]$ExpectedVersion)
-
-    $paths = @(
-        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
-        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
-    )
-
-    $candidates = @()
-    foreach ($p in $paths) {
-        $items = Get-ItemProperty -Path $p -ErrorAction SilentlyContinue
-        foreach ($it in $items) {
-            $dn = $it.DisplayName
-            if ([string]::IsNullOrWhiteSpace($dn)) { continue }
-            if ($dn -match '^WinSCP') {
-                $candidates += [pscustomobject]@{
-                    KeyName              = ($it.PSPath -replace '^Microsoft\.PowerShell\.Core\\Registry::HKEY_LOCAL_MACHINE\\', 'HKLM:\')
-                    DisplayName          = $dn
-                    DisplayVersion       = $it.DisplayVersion
-                    Publisher            = $it.Publisher
-                    UninstallString      = $it.UninstallString
-                    QuietUninstallString = $it.QuietUninstallString
-                }
-            }
-        }
-    }
-
-    Write-Log "WinSCP uninstall candidates  : $($candidates.Count)"
-
-    $match = $candidates | Where-Object { $_.DisplayVersion -eq $ExpectedVersion } | Select-Object -First 1
-    if ($match) { return $match }
-
-    return ($candidates | Select-Object -First 1)
-}
-
-function Uninstall-WinSCPFromDiscovery {
-    param(
-        [string]$QuietUninstallString,
-        [string]$UninstallString
-    )
-
-    $cmd = $QuietUninstallString
-    if ([string]::IsNullOrWhiteSpace($cmd)) { $cmd = $UninstallString }
-
-    if ([string]::IsNullOrWhiteSpace($cmd)) {
-        Write-Log "No uninstall command discovered; leaving WinSCP installed on packaging machine." -Level WARN
-        return
-    }
-
-    Write-Log "Uninstalling discovery install..."
-    Write-Log "Uninstall command            : $cmd"
-
-    $p = Start-Process -FilePath "cmd.exe" -ArgumentList "/c $cmd" -Wait -PassThru -ErrorAction Stop
-    Write-Log "Uninstall exit code          : $($p.ExitCode)"
-}
-
 
 # ---------------------------------------------------------------------------
 # Stage phase
@@ -317,39 +244,14 @@ function Invoke-StageWinSCP {
         -InstallPs1Content $installContent `
         -UninstallPs1Content $uninstallContent
 
-    # --- Temp install for registry discovery ---
-    Write-Log ""
-    Install-WinSCPForDiscovery -InstallerPath $localExe
-
-    $uninstallEntry = Find-WinSCPUninstallEntry -ExpectedVersion $version
-    if ($null -eq $uninstallEntry) {
-        throw "Could not find any WinSCP uninstall entry after install."
-    }
-
-    Write-Log "Registry DisplayName         : $($uninstallEntry.DisplayName)"
-    Write-Log "Registry DisplayVersion      : $($uninstallEntry.DisplayVersion)"
-    Write-Log "Registry Publisher           : $($uninstallEntry.Publisher)"
-    Write-Log "Registry Key                 : $($uninstallEntry.KeyName)"
-
-    $regRelative = ($uninstallEntry.KeyName -replace '^HKLM:\\', '')
-    if ([string]::IsNullOrWhiteSpace($regRelative)) {
-        throw "Failed to compute registry relative key path."
-    }
-
-    $publisher = $uninstallEntry.Publisher
-    if ([string]::IsNullOrWhiteSpace($publisher)) { $publisher = "Martin Prikryl" }
-
-    $appName = $uninstallEntry.DisplayName
-
-    # Uninstall discovery install
-    Write-Log ""
-    Uninstall-WinSCPFromDiscovery `
-        -QuietUninstallString $uninstallEntry.QuietUninstallString `
-        -UninstallString $uninstallEntry.UninstallString
-
     # --- Write stage manifest ---
-    Write-Log ""
-    Write-Log "Detection RegKey             : $regRelative"
+    # Nothing is installed on this machine: the product name follows the
+    # installer's own "WinSCP <version>" display name and detection reads the
+    # installed WinSCP.exe version.
+    $publisher = "Martin Prikryl"
+    $appName   = "WinSCP $version"
+
+    Write-Log "Detection file               : C:\Program Files (x86)\WinSCP\WinSCP.exe"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
