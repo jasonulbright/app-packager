@@ -189,33 +189,37 @@ function Invoke-StageVim {
     }
 
     # --- Generate content wrappers ---
-    # NSIS installer: /S for silent (must be uppercase)
+    # NSIS installer: /S for silent (must be uppercase). Without /allusers the
+    # installer aborts with exit code 666660 when no install scope is chosen.
     $wrapperContent = New-ExeWrapperContent `
         -InstallerFileName $installerFileName `
-        -InstallArgs "'/S'" `
+        -InstallArgs "'/S','/allusers'" `
         -UninstallCommand "placeholder" `
-        -UninstallArgs "'/S'"
+        -UninstallArgs "'/S','/allusers'"
 
-    # Custom uninstall wrapper: find the versioned subfolder dynamically
+    # The ARP key is named "Vim" and its UninstallString names the uninstaller
+    # in the install folder the installer chose.
     $uninstallPs1 = @(
-        "`$vimRoot = Join-Path `$env:ProgramFiles 'Vim'"
-        "`$vimDir = Get-ChildItem -Path `$vimRoot -Filter 'vim*' -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1"
-        "if (-not `$vimDir) { Write-Error 'Vim installation directory not found.'; exit 1 }"
-        "`$uninstaller = Join-Path `$vimDir.FullName 'uninstall-gui.exe'"
+        "`$cmd = `$null"
+        "foreach (`$root in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Vim', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Vim') {"
+        "    if (Test-Path -LiteralPath `$root) { `$cmd = (Get-ItemProperty -LiteralPath `$root).UninstallString; if (`$cmd) { break } }"
+        "}"
+        "if (-not `$cmd) { Write-Error 'Vim uninstall entry not found.'; exit 1 }"
+        "if (`$cmd -match '^`"([^`"]+)`"') { `$uninstaller = `$matches[1] } else { `$uninstaller = `$cmd.Trim() }"
         "if (-not (Test-Path -LiteralPath `$uninstaller)) { Write-Error 'Vim uninstaller not found.'; exit 1 }"
-        "`$proc = Start-Process -FilePath `$uninstaller -ArgumentList @('/S') -Wait -PassThru -NoNewWindow"
+        "`$proc = Start-Process -FilePath `$uninstaller -ArgumentList @('/S', '/allusers') -Wait -PassThru -NoNewWindow"
         "exit `$proc.ExitCode"
     ) -join "`r`n"
-
     Write-ContentWrappers -OutputPath $localContentPath `
         -InstallPs1Content $wrapperContent.Install `
         -UninstallPs1Content $uninstallPs1
 
     # --- Write stage manifest ---
-    # Vim ARP key uses major.minor format: "Vim 9.2" (stable across patch versions)
     $versionParts = $version.Split('.')
     $majorMinor = "{0}.{1}" -f $versionParts[0], $versionParts[1]
-    $arpRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Vim $majorMinor"
+    # The 9.2 installer names its uninstall key "Vim" without the major.minor
+    # suffix; only DisplayName ("Vim 9.2 (x64)") and DisplayVersion carry it.
+    $arpRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Vim"
 
     $appName   = "Vim $majorMinor (x64)"
     $publisher = "The Vim Project"
@@ -230,18 +234,19 @@ function Invoke-StageVim {
         SoftwareVersion = $version
         InstallerFile   = $installerFileName
         InstallerType   = "EXE"
-        InstallArgs     = "/S"
-        UninstallArgs   = "/S"
+        InstallArgs     = "/S /allusers"
+        UninstallArgs   = "/S /allusers"
         RunningProcess  = @("gvim", "vim")
         Detection       = @{
-            Type         = "File"
-            FilePath     = "C:\Program Files\Vim\vim$($majorMinor -replace '\.','')"
-            FileName     = "gvim.exe"
-            PropertyType = "Existence"
-            Is64Bit      = $true
+            Type                = "RegistryKeyValue"
+            RegistryKeyRelative = $arpRegistryKey
+            ValueName           = "DisplayVersion"
+            PropertyType        = "Version"
+            Operator            = "GreaterEquals"
+            ExpectedValue       = $version
+            Is64Bit             = $true
         }
     }
-
     Set-Content -LiteralPath (Join-Path $BaseDownloadRoot "staged-version.txt") -Value $version -Encoding ASCII -ErrorAction Stop
 
     Write-Log ""

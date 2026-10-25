@@ -15,7 +15,7 @@ ArpName: Positron*
 .DESCRIPTION
     Queries the GitHub releases API for the latest Positron release, downloads
     the system-level EXE installer from the Posit CDN, stages content to a
-    versioned local folder with file-existence detection metadata, and creates
+    versioned local folder with file-version detection metadata, and creates
     a ConfigMgr Application.
 
     Positron is an InnoSetup-based installer. Detection checks for
@@ -230,11 +230,13 @@ function Invoke-StagePositron {
         UninstallArgs   = "/VERYSILENT"
         RunningProcess  = @("Positron")
         Detection       = @{
-            Type         = "File"
-            FilePath     = $detectionPath
-            FileName     = "Positron.exe"
-            PropertyType = "Existence"
-            Is64Bit      = $true
+            Type          = "File"
+            FilePath      = $detectionPath
+            FileName      = "Positron.exe"
+            PropertyType  = "Version"
+            Operator      = "GreaterEquals"
+            ExpectedValue = ($version -replace '-.*$', '')
+            Is64Bit       = $true
         }
     }
 

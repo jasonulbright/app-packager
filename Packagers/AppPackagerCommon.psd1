@@ -37,6 +37,7 @@
         'Get-ProfileScopedVersionFolder'
 
         # MSI / ARP
+        'Get-BurnBundleId'
         'Get-MsiPropertyMap'
         'Find-UninstallEntry'
 

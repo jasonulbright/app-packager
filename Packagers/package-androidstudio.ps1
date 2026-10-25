@@ -16,8 +16,8 @@ ArpName: Android Studio
 .DESCRIPTION
     Reads the vendor release feed, selects the highest version on the Release
     channel, downloads the matching Windows installer, stages content to a
-    versioned local folder, and creates a ConfigMgr Application with file-existence
-    detection on the installed studio64.exe.
+    versioned local folder, and creates a ConfigMgr Application with script
+    detection on the build number in the installed product-info.json.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
@@ -162,6 +162,7 @@ function Resolve-AndroidStudioRelease {
             Version  = $latest.version
             Url      = $windowsInstaller.link
             FileName = ($windowsInstaller.link -split '/')[-1]
+            Build    = ([string]$latest.build) -replace '^[A-Za-z]+-', ''
             Checksum = $windowsInstaller.checksum
         }
     }
@@ -250,19 +251,50 @@ function Invoke-StageAndroidStudio {
         -UninstallCommand $uninstallExe `
         -UninstallArgs "'/S'"
 
+    # A complete silent install ends with exit code 1223 (operation canceled);
+    # the product files are present, so 1223 counts as success only when
+    # studio64.exe exists.
+    $installContent = $wrappers.Install -replace '(?m)^exit \$proc\.ExitCode\s*$', (
+        "`$code = `$proc.ExitCode`r`n" +
+        "if (`$code -eq 1223 -and (Test-Path -LiteralPath (Join-Path `$env:ProgramFiles 'Android\Android Studio\bin\studio64.exe'))) { `$code = 0 }`r`n" +
+        "exit `$code")
+    if ($installContent -eq $wrappers.Install) { throw "The install wrapper no longer ends with 'exit `$proc.ExitCode'." }
+
     Write-ContentWrappers -OutputPath $localContentPath `
-        -InstallPs1Content $wrappers.Install `
+        -InstallPs1Content $installContent `
         -UninstallPs1Content $wrappers.Uninstall
 
     # --- Write stage manifest ---
-    # studio64.exe carries the platform build number (261.x), not the product
-    # version the feed reports, so detection is existence-based and the
-    # versioned content path drives upgrades.
-    $detectionPath = Join-Path $InstallDir "bin"
+    # studio64.exe carries the platform build number without the release
+    # suffix and no usable file version, and the ARP DisplayVersion holds
+    # only year and release train (2026.2). product-info.json carries the
+    # full build number the release feed publishes, so the detection script
+    # compares that.
+    if ([string]::IsNullOrWhiteSpace($release.Build) -or $release.Build -notmatch '^\d+(\.\d+)+$') {
+        throw "The release feed gave no usable build number for Android Studio $($release.Version)."
+    }
+    $detectionScript = @(
+        '$root = if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }'
+        '$file = Join-Path $root ''Android\Android Studio\product-info.json'''
+        'if (-not (Test-Path -LiteralPath $file)) { exit 0 }'
+        'try {'
+        '    $info = Get-Content -LiteralPath $file -Raw -ErrorAction Stop | ConvertFrom-Json'
+        '    $have = @(([string]$info.buildNumber).Split(''.'') | ForEach-Object { [int64]$_ })'
+        ('    $need = @({0})' -f (($release.Build.Split('.') | ForEach-Object { [int64]$_ }) -join ', '))
+        '}'
+        'catch { exit 0 }'
+        '$result = 0'
+        'for ($i = 0; $i -lt [Math]::Max($have.Count, $need.Count); $i++) {'
+        '    $a = if ($i -lt $have.Count) { $have[$i] } else { 0 }'
+        '    $b = if ($i -lt $need.Count) { $need[$i] } else { 0 }'
+        '    if ($a -ne $b) { $result = if ($a -gt $b) { 1 } else { -1 }; break }'
+        '}'
+        'if ($result -ge 0) { Write-Output ''Installed'' }'
+        'exit 0'
+    ) -join "`r`n"
 
     Write-Log ""
-    Write-Log "Detection path               : $detectionPath"
-    Write-Log "Detection file               : studio64.exe"
+    Write-Log "Detection                    : product-info.json buildNumber >= $($release.Build)"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -277,11 +309,9 @@ function Invoke-StageAndroidStudio {
         UninstallCommand = $uninstallExe
         RunningProcess   = @("studio64")
         Detection        = @{
-            Type         = "File"
-            FilePath     = $detectionPath
-            FileName     = "studio64.exe"
-            PropertyType = "Existence"
-            Is64Bit      = $true
+            Type           = "Script"
+            ScriptLanguage = "PowerShell"
+            ScriptText     = $detectionScript
         }
     }
 
@@ -324,8 +354,7 @@ function Invoke-PackageAndroidStudio {
     Write-Log "AppName                      : $($manifest.AppName)"
     Write-Log "Publisher                    : $($manifest.Publisher)"
     Write-Log "SoftwareVersion              : $($manifest.SoftwareVersion)"
-    Write-Log "Detection Path               : $($manifest.Detection.FilePath)"
-    Write-Log "Detection File               : $($manifest.Detection.FileName)"
+    Write-Log "Detection Type               : $($manifest.Detection.Type)"
     Write-Log ""
 
     # --- Network share ---

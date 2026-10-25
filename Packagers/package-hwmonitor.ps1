@@ -17,8 +17,8 @@ ArpName: CPUID HWMonitor [0-9]* | HWMonitor [0-9]*
 .DESCRIPTION
     Reads the current version from the vendor product page, downloads the
     matching Inno Setup installer, stages content to a versioned local folder,
-    and creates a ConfigMgr Application with file-existence detection on the
-    installed HWMonitor_x64.exe.
+    and creates a ConfigMgr Application with registry-version detection on the
+    uninstall entry.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
@@ -97,7 +97,6 @@ $AppFolder    = "HWMonitor"
 
 $BaseDownloadRoot = Join-Path $DownloadRoot "HWMonitor"
 
-$InstallDir = "{0}\CPUID\HWMonitor" -f $env:ProgramFiles
 
 # --- Functions ---
 
@@ -285,8 +284,7 @@ exit $proc.ExitCode
     $publisher = "CPUID"
 
     Write-Log ""
-    Write-Log "Detection path               : $InstallDir"
-    Write-Log "Detection file               : HWMonitor_x64.exe"
+    Write-Log "Detection key                : Uninstall\CPUID HWMonitor_is1 DisplayVersion >= $version"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -300,11 +298,13 @@ exit $proc.ExitCode
         UninstallArgs   = "/VERYSILENT /NORESTART"
         RunningProcess  = @("HWMonitor", "HWMonitor_x64")
         Detection       = @{
-            Type         = "File"
-            FilePath     = $InstallDir
-            FileName     = "HWMonitor_x64.exe"
-            PropertyType = "Existence"
-            Is64Bit      = $true
+            Type                = "RegistryKeyValue"
+            RegistryKeyRelative = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CPUID HWMonitor_is1"
+            ValueName           = "DisplayVersion"
+            PropertyType        = "Version"
+            Operator            = "GreaterEquals"
+            ExpectedValue       = $version
+            Is64Bit             = $true
         }
     }
 
@@ -347,8 +347,8 @@ function Invoke-PackageHwMonitor {
     Write-Log "AppName                      : $($manifest.AppName)"
     Write-Log "Publisher                    : $($manifest.Publisher)"
     Write-Log "SoftwareVersion              : $($manifest.SoftwareVersion)"
-    Write-Log "Detection Path               : $($manifest.Detection.FilePath)"
-    Write-Log "Detection File               : $($manifest.Detection.FileName)"
+    Write-Log "Detection Key                : $($manifest.Detection.RegistryKeyRelative)"
+    Write-Log "Detection Value              : $($manifest.Detection.ValueName)"
     Write-Log ""
 
     # --- Network share ---

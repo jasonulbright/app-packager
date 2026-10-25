@@ -1,5 +1,45 @@
 # Changelog
 
+## [2026.10.25.0122] - 2026-10-25
+
+## 28 fixes and changes
+
+### Security
+
+- Fix several security issues.
+
+### Fixed
+
+- Detect 18 packagers by installed version instead of file presence.
+- Install Vim, pgAdmin 4 and AIMP silently on a clean computer.
+- Remove Anaconda files completely on uninstall.
+- Remove the AWS Session Manager plugin on uninstall.
+- Accept Android Studio install exit code 1223 as success.
+- Find the Vim uninstall entry under its real name.
+- Skip a batch item only when its build is current for that scope.
+- Refuse Intune targets in the command-line Package mode.
+- Stop a pinned version that differs from the vendor's current release.
+- Keep earlier WSUS updates when one approval fails.
+- End WSUS child processes that run too long.
+- Restore the previous App Packager files when an update fails.
+- Keep non-ASCII text in Workbench scripts.
+- Keep your own Workbench scripts when generated ones are replaced.
+- Keep the right profile when importing a Workbench bundle.
+- Require a trusted timestamp when keeping existing signatures.
+- List unfixed CVEs in HTML and Markdown reports.
+- Quote paths with spaces when starting processes.
+- Escape quotes and line breaks in drop-to-package names.
+- Report MSIX wrapper failures instead of continuing.
+- Send Intune app metadata once, with the final commit.
+- Label ARM64 builds correctly for ad-hoc MSI installs.
+
+### Changed
+
+- Store the PostgreSQL and MariaDB administrator password per computer, encrypted.
+- Build Options window panels when first shown.
+- Load GitHub status in the background.
+- Read the packager catalog once per change.
+- Update the installer analysis library.
 ## [2026.10.20.0121] - 2026-10-20
 
 ## 3 fixes

@@ -251,11 +251,13 @@ function Invoke-StagePdfStudioViewer {
         UninstallArgs    = "-q"
         RunningProcess   = @($layout.ProcessName)
         Detection        = @{
-            Type         = "File"
-            FilePath     = $layout.InstallDir
-            FileName     = $layout.LauncherName
-            PropertyType = "Existence"
-            Is64Bit      = $true
+            Type          = "File"
+            FilePath      = $layout.InstallDir
+            FileName      = $layout.LauncherName
+            PropertyType  = "Version"
+            Operator      = "GreaterEquals"
+            ExpectedValue = $version
+            Is64Bit       = $true
         }
     }
 

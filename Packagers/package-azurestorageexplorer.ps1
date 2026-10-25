@@ -280,11 +280,13 @@ exit $proc.ExitCode
         UninstallArgs   = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
         RunningProcess  = @("StorageExplorer")
         Detection       = @{
-            Type         = "File"
-            FilePath     = $InstallDir
-            FileName     = "StorageExplorer.exe"
-            PropertyType = "Existence"
-            Is64Bit      = $true
+            Type          = "File"
+            FilePath      = $InstallDir
+            FileName      = "StorageExplorer.exe"
+            PropertyType  = "Version"
+            Operator      = "GreaterEquals"
+            ExpectedValue = $version
+            Is64Bit       = $true
         }
     }
 

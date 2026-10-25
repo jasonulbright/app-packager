@@ -891,6 +891,43 @@ function Test-NetworkShareAccess {
 # ConfigMgr helpers
 # ---------------------------------------------------------------------------
 
+function Get-BurnBundleId {
+    param([Parameter(Mandatory)][string]$Path)
+
+    $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+    try {
+        $reader = New-Object System.IO.BinaryReader($stream)
+        if ($stream.Length -lt 0x40 -or $reader.ReadUInt16() -ne 0x5A4D) { return $null }
+        $stream.Position = 0x3C
+        $peOffset = $reader.ReadInt32()
+        if ($peOffset -lt 0 -or $peOffset + 24 -gt $stream.Length) { return $null }
+        $stream.Position = $peOffset
+        if ($reader.ReadUInt32() -ne 0x00004550) { return $null }
+        $stream.Position = $peOffset + 6
+        $sectionCount = $reader.ReadUInt16()
+        $stream.Position = $peOffset + 20
+        $optionalHeaderSize = $reader.ReadUInt16()
+        $sectionTable = $peOffset + 24 + $optionalHeaderSize
+        for ($i = 0; $i -lt $sectionCount; $i++) {
+            $entry = $sectionTable + (40 * $i)
+            if ($entry + 40 -gt $stream.Length) { return $null }
+            $stream.Position = $entry
+            $name = [System.Text.Encoding]::ASCII.GetString($reader.ReadBytes(8)).TrimEnd([char]0)
+            if ($name -ne '.wixburn') { continue }
+            $stream.Position = $entry + 20
+            $rawOffset = $reader.ReadUInt32()
+            if ($rawOffset + 24 -gt $stream.Length) { return $null }
+            $stream.Position = $rawOffset
+            if ($reader.ReadUInt32() -ne 0x00F14300) { return $null }
+            [void]$reader.ReadUInt32()
+            return ('{{{0}}}' -f ([guid]::new($reader.ReadBytes(16))).ToString().ToLowerInvariant())
+        }
+        return $null
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
 function Get-MsiPropertyMap {
     param([Parameter(Mandatory)][string]$MsiPath)
 
