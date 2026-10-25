@@ -100,10 +100,8 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-# The vendor's download host does not serve this path over TLS; the installer
-# is version-checked after download, so a tampered payload cannot reach the
-# staged folder without changing the recorded version and file hash.
-$ExeDownloadUrl   = "http://www.cutepdf.com/download/CuteWriter.exe"
+$ExeDownloadUrl   = "https://www.cutepdf.com/download/CuteWriter.exe"
+$ExpectedSignerCommonName = "Acro Software Inc."
 $CacheFileName    = "CuteWriter.exe"
 
 $VendorFolder = "Acro Software"
@@ -117,6 +115,24 @@ $BaseDownloadRoot = Join-Path $DownloadRoot "CutePDFWriter"
 $DetectionRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CutePDF Writer Installation"
 
 # --- Functions ---
+
+
+function Assert-CutePdfWriterSignature {
+    param([Parameter(Mandatory)][string]$ExePath, [switch]$Quiet)
+
+    $signature = Get-AuthenticodeSignature -LiteralPath $ExePath
+    if ($signature.Status -ne 'Valid') {
+        throw "Installer signature is $($signature.Status), not Valid: $ExePath"
+    }
+
+    $subject = if ($signature.SignerCertificate) { [string]$signature.SignerCertificate.Subject } else { '' }
+    $expected = [regex]::Escape($ExpectedSignerCommonName)
+    if ($subject -notmatch "(^|, )CN=$expected(,|$)") {
+        throw "Installer is signed by '$subject', not by '$ExpectedSignerCommonName': $ExePath"
+    }
+
+    if (-not $Quiet) { Write-Log "Installer signer             : $subject" }
+}
 
 
 function Get-CutePdfWriterExeVersion {
@@ -163,6 +179,12 @@ function Invoke-StageCutePdfWriter {
     Write-Log ""
     Write-Log "Downloading CutePDF Writer installer..."
     Invoke-DownloadWithRetry -Url $ExeDownloadUrl -OutFile $localExe
+
+    try { Assert-CutePdfWriterSignature -ExePath $localExe }
+    catch {
+        Remove-Item -LiteralPath $localExe -Force -ErrorAction SilentlyContinue
+        throw
+    }
 
     # --- Version ---
     $version = Get-CutePdfWriterExeVersion -ExePath $localExe
@@ -289,6 +311,11 @@ if ($GetLatestVersionOnly) {
 
         $localExe = Join-Path $BaseDownloadRoot $CacheFileName
         Invoke-DownloadWithRetry -Url $ExeDownloadUrl -OutFile $localExe -Quiet
+        try { Assert-CutePdfWriterSignature -ExePath $localExe -Quiet }
+        catch {
+            Remove-Item -LiteralPath $localExe -Force -ErrorAction SilentlyContinue
+            throw
+        }
 
         Write-Output (Get-CutePdfWriterExeVersion -ExePath $localExe)
         exit 0

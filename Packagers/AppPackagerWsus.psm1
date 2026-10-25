@@ -1069,6 +1069,37 @@ function Test-WsusBrokerNeeded {
     return $true
 }
 
+function ConvertTo-WsusProcessArgument {
+    <#
+    .SYNOPSIS
+        Quotes one value for a Windows command line.
+    .DESCRIPTION
+        Start-Process joins an ArgumentList with spaces and adds no quotes, so
+        a path with a space would reach the child as two arguments.
+    #>
+    param([AllowNull()][AllowEmptyString()][string]$Value)
+
+    if ($null -eq $Value -or $Value.Length -eq 0) { return '""' }
+    if ($Value -notmatch '[\s"]') { return $Value }
+    $builder = New-Object System.Text.StringBuilder
+    [void]$builder.Append('"')
+    $backslashes = 0
+    foreach ($character in $Value.ToCharArray()) {
+        if ($character -eq '\') { $backslashes++; continue }
+        if ($character -eq '"') {
+            if ($backslashes -gt 0) { [void]$builder.Append(('\' * ($backslashes * 2))) }
+            [void]$builder.Append('\"')
+            $backslashes = 0
+            continue
+        }
+        if ($backslashes -gt 0) { [void]$builder.Append(('\' * $backslashes)); $backslashes = 0 }
+        [void]$builder.Append($character)
+    }
+    if ($backslashes -gt 0) { [void]$builder.Append(('\' * ($backslashes * 2))) }
+    [void]$builder.Append('"')
+    return $builder.ToString()
+}
+
 function Invoke-WsusWindowsPowerShell {
     <#
     .SYNOPSIS
@@ -1119,16 +1150,20 @@ try {
     exit 0
 }
 catch {
-    $m = $_.Exception.Message
-    while ($_.Exception.InnerException -and $_.Exception -is [System.Management.Automation.MethodInvocationException]) { $m = $_.Exception.InnerException.Message; break }
-    [System.IO.File]::WriteAllText($ErrorPath, [string]$m, (New-Object System.Text.UTF8Encoding($false)))
+    $failure = $_.Exception
+    if ($failure.InnerException -and $failure -is [System.Management.Automation.MethodInvocationException]) { $failure = $failure.InnerException }
+    $data = @{}
+    foreach ($key in $failure.Data.Keys) { $data[[string]$key] = [string]$failure.Data[$key] }
+    $info = @{ Message = [string]$failure.Message; Data = $data }
+    [System.IO.File]::WriteAllText($ErrorPath, ($info | ConvertTo-Json -Depth 4 -Compress), (New-Object System.Text.UTF8Encoding($false)))
     exit 1
 }
 '@
         [System.IO.File]::WriteAllText($childPath, $child, (New-Object System.Text.UTF8Encoding($false)))
         $exe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-        $argList = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $childPath,
-            '-ModulePath', $modulePath, '-FunctionName', $FunctionName, '-InPath', $inPath, '-OutPath', $outPath, '-ErrorPath', $errPath, '-LogPath', $logPath)
+        $argList = @(@('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $childPath,
+            '-ModulePath', $modulePath, '-FunctionName', $FunctionName, '-InPath', $inPath, '-OutPath', $outPath, '-ErrorPath', $errPath, '-LogPath', $logPath) |
+            ForEach-Object { ConvertTo-WsusProcessArgument $_ })
         Write-WsusLog ('WSUS broker                   : {0} in Windows PowerShell' -f $FunctionName)
         # A child launched from PowerShell 7 inherits the 7.x module roots and
         # autoloads a Utility manifest without Get-FileHash; it gets the
@@ -1137,12 +1172,41 @@ catch {
         $env:PSModulePath = ((Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules'),
             (Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules'),
             (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Modules')) -join ';'
-        try { $proc = Start-Process -FilePath $exe -ArgumentList $argList -NoNewWindow -PassThru -Wait }
+        $timedOut = $false
+        try {
+            $proc = Start-Process -FilePath $exe -ArgumentList $argList -NoNewWindow -PassThru
+            # Without -Wait, Windows PowerShell 5.1 leaves ExitCode null unless the handle is read while the process runs.
+            $null = $proc.Handle
+            if (-not $proc.WaitForExit([int][Math]::Min([double]$TimeoutSeconds * 1000, [double][int]::MaxValue))) {
+                $timedOut = $true
+                try { & taskkill.exe /PID $proc.Id /T /F 2>&1 | Out-Null } catch { $null = $_ }
+                try { if (-not $proc.HasExited) { $proc.Kill() } } catch { $null = $_ }
+                $proc.WaitForExit()
+            }
+        }
         finally { $env:PSModulePath = $savedModulePath }
         if (Test-Path -LiteralPath $logPath) {
             foreach ($line in Get-Content -LiteralPath $logPath -Encoding UTF8) { if ($line) { Write-WsusLog $line } }
         }
-        if (Test-Path -LiteralPath $errPath) { throw ([System.IO.File]::ReadAllText($errPath)) }
+        if ($timedOut) { throw ('The Windows PowerShell child for {0} did not finish within {1} seconds and was stopped.' -f $FunctionName, $TimeoutSeconds) }
+        if (Test-Path -LiteralPath $errPath) {
+            # The child reports its error as JSON so Exception.Data, which the
+            # callers read to tell a refusal from a failure, survives the hop.
+            $raw = [System.IO.File]::ReadAllText($errPath)
+            $rebuilt = $null
+            try {
+                $info = $raw | ConvertFrom-Json -ErrorAction Stop
+                if ($info -and $info.PSObject.Properties['Message']) {
+                    $rebuilt = New-Object System.InvalidOperationException([string]$info.Message)
+                    if ($info.PSObject.Properties['Data'] -and $info.Data) {
+                        foreach ($entry in $info.Data.PSObject.Properties) { $rebuilt.Data[[string]$entry.Name] = [string]$entry.Value }
+                    }
+                }
+            }
+            catch { $rebuilt = $null }
+            if (-not $rebuilt) { $rebuilt = New-Object System.InvalidOperationException($raw) }
+            throw $rebuilt
+        }
         if ($proc.ExitCode -ne 0) { throw ('The Windows PowerShell child for {0} exited with code {1}.' -f $FunctionName, $proc.ExitCode) }
         # An empty or null child result must come back as no output, not as
         # one null object: a caller that wraps the call in @() counts it.
@@ -1980,15 +2044,24 @@ function Publish-WsusSoftwareUpdate {
         $warnings.Add('the update is declined on the server, so its approval and the decline of earlier versions were skipped')
     }
     else {
+        $approvalFailed = $false
         if ($settings.ApprovalGroup) {
             try {
                 if (-not $update) { throw ('the update is not visible on {0} after publishing' -f [string]$server.Name) }
                 Invoke-WsusUpdateApproval -Server $server -Update $update -GroupName $settings.ApprovalGroup
                 $result.Approved = $settings.ApprovalGroup
             }
-            catch { $warnings.Add(('approval for {0} failed: {1}' -f $settings.ApprovalGroup, (Get-WsusErrorMessage -ErrorRecord $_))) }
+            catch {
+                $approvalFailed = $true
+                $warnings.Add(('approval for {0} failed: {1}' -f $settings.ApprovalGroup, (Get-WsusErrorMessage -ErrorRecord $_)))
+            }
         }
-        if ($settings.DeclineSuperseded) {
+        # Earlier versions stay offered until the replacement is approved: a
+        # failed approval followed by a decline leaves computers with nothing.
+        if ($settings.DeclineSuperseded -and $approvalFailed) {
+            $warnings.Add('earlier versions were not declined because the approval failed')
+        }
+        elseif ($settings.DeclineSuperseded) {
             foreach ($old in $earlier) {
                 if ([bool]$old.IsDeclined) { continue }
                 try {

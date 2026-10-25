@@ -164,7 +164,7 @@ function New-TeamsUninstallWrapper {
         '    $proc = Start-Process -FilePath $bootstrapper -ArgumentList @(''-x'', ''-m'') -Wait -PassThru -NoNewWindow',
         '    exit $proc.ExitCode',
         '}',
-        'Get-AppxPackage -Name MSTeams -AllUsers | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue',
+        'try { Get-AppxPackage -Name MSTeams -AllUsers -ErrorAction Stop | Remove-AppxPackage -AllUsers -ErrorAction Stop } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }',
         'exit 0'
     ) -join "`r`n"
 }

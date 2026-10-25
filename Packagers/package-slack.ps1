@@ -313,18 +313,30 @@ if (-not (Test-Path -LiteralPath `$msixPath)) { Write-Error "MSIX not found: `$m
 `$sig = Get-AuthenticodeSignature -LiteralPath `$msixPath
 if (`$sig.Status -ne 'Valid') { Write-Error "MSIX signature not valid: `$(`$sig.Status)"; exit 2 }
 if (`$sig.SignerCertificate.Thumbprint -ne '$thumbprint') { Write-Error "MSIX signed by unexpected cert: `$(`$sig.SignerCertificate.Thumbprint)"; exit 3 }
-Add-AppxProvisionedPackage -Online -PackagePath `$msixPath -SkipLicense -Regions all | Out-Null
+try {
+    Add-AppxProvisionedPackage -Online -PackagePath `$msixPath -SkipLicense -Regions all -ErrorAction Stop | Out-Null
+}
+catch {
+    [Console]::Error.WriteLine(`$_.Exception.Message)
+    exit 1
+}
 exit 0
 "@
 
     $uninstallScript = @"
-`$prov = Get-AppxProvisionedPackage -Online |
-    Where-Object { `$_.DisplayName -eq '$identityName' }
-foreach (`$p in `$prov) {
-    Remove-AppxProvisionedPackage -Online -PackageName `$p.PackageName | Out-Null
+try {
+    `$prov = Get-AppxProvisionedPackage -Online -ErrorAction Stop |
+        Where-Object { `$_.DisplayName -eq '$identityName' }
+    foreach (`$p in `$prov) {
+        Remove-AppxProvisionedPackage -Online -PackageName `$p.PackageName -ErrorAction Stop | Out-Null
+    }
+    Get-AppxPackage -AllUsers -Name '$identityName' -ErrorAction Stop | ForEach-Object {
+        Remove-AppxPackage -Package `$_.PackageFullName -AllUsers -ErrorAction Stop
+    }
 }
-Get-AppxPackage -AllUsers -Name '$identityName' | ForEach-Object {
-    Remove-AppxPackage -Package `$_.PackageFullName -AllUsers
+catch {
+    [Console]::Error.WriteLine(`$_.Exception.Message)
+    exit 1
 }
 exit 0
 "@

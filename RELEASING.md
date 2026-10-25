@@ -9,11 +9,11 @@ Maintainer procedure for publishing a release. Run every command from the reposi
 - The full test suite passes under Windows PowerShell 5.1 with Pester 5, and again under PowerShell 7. Windows PowerShell is the shipping host and the build host; a failure under either host is a defect, and the fix must be host-neutral (no change that breaks 5.1):
 
 ```bash
-powershell -NoProfile -Command "Import-Module Pester -MinimumVersion 5.0; $r = Invoke-Pester -Path Tests, Packagers -PassThru -Output None; 'passed {0} failed {1}' -f $r.PassedCount, $r.FailedCount"
-pwsh -NoProfile -Command "Import-Module Pester -MinimumVersion 5.0; $r = Invoke-Pester -Path Tests, Packagers -PassThru -Output None; 'passed {0} failed {1}' -f $r.PassedCount, $r.FailedCount"
+powershell -NoProfile -Command 'Import-Module Pester -MinimumVersion 5.0; $r = Invoke-Pester -Path Tests, Packagers -PassThru -Output None; "result {0} passed {1} failed {2} failedContainers {3} failedBlocks {4}" -f $r.Result, $r.PassedCount, $r.FailedCount, $r.FailedContainersCount, $r.FailedBlocksCount'
+pwsh -NoProfile -Command 'Import-Module Pester -MinimumVersion 5.0; $r = Invoke-Pester -Path Tests, Packagers -PassThru -Output None; "result {0} passed {1} failed {2} failedContainers {3} failedBlocks {4}" -f $r.Result, $r.PassedCount, $r.FailedCount, $r.FailedContainersCount, $r.FailedBlocksCount'
 ```
 
-Any failure stops the release.
+Each run must print `result Passed` with all three failure counts at 0. A test file that fails to load raises `failedContainers`, not `failed`. Any other output stops the release.
 
 ## 2. Version
 

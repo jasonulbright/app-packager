@@ -2694,6 +2694,64 @@ Describe 'New-AdHocStage' {
         Test-Path $s.StagedPath | Should -BeTrue
     }
 
+    It 'keeps dot segments from escaping the staging root' {
+        $evil = $script:msiAnalysis.PSObject.Copy()
+        $evil.SoftwareVersion = '..'
+        $evil.AppName = '..'
+        $evil.Publisher = '..'
+        $evilRoot = Join-Path $TestDrive 'escape\a\b\c'
+        { New-AdHocStage -Analysis $evil -DownloadRoot $evilRoot } | Should -Throw '*usable path characters*'
+        Test-Path -LiteralPath (Join-Path $TestDrive 'escape') | Should -BeFalse
+
+        $s = New-AdHocStage -Analysis $script:msiAnalysis -DownloadRoot (Join-Path $TestDrive 'dots') -AppName 'App' -Publisher '..' -SoftwareVersion '1.0'
+        $s.VendorFolder | Should -Be 'Unknown'
+        $s.StagedPath | Should -BeLike (Join-Path $TestDrive 'dots\*')
+    }
+
+    It 'trims trailing dots and renames reserved device names' {
+        ConvertTo-SafePathSegment 'Name. ' | Should -Be 'Name'
+        ConvertTo-SafePathSegment '...' | Should -Be ''
+        ConvertTo-SafePathSegment 'CON' | Should -Be 'CON_'
+        ConvertTo-SafePathSegment 'a/../b' | Should -Be 'a..b'
+        ConvertTo-SafePathSegment $null | Should -Be ''
+    }
+
+    It 'refuses a path outside the root and a folder name that is not one segment' {
+        { Assert-PathUnderRoot -Path (Join-Path $TestDrive 'r\..\outside') -Root (Join-Path $TestDrive 'r') } | Should -Throw '*outside*'
+        { Assert-PathUnderRoot -Path (Join-Path $TestDrive 'r\inside\x') -Root (Join-Path $TestDrive 'r') } | Should -Not -Throw
+        { Assert-SafePathSegment -Value '..' -Label 'Vendor folder' } | Should -Throw
+        { Assert-SafePathSegment -Value 'a\b' -Label 'Vendor folder' } | Should -Throw
+        { Assert-SafePathSegment -Value 'Acme' -Label 'Vendor folder' } | Should -Not -Throw
+        { Get-NetworkContentPath -FileServerPath (Join-Path $TestDrive 'share') -VendorFolder '..' -AppFolder 'App' -Version '1.0' } | Should -Throw '*not a usable folder name*'
+        Test-Path -LiteralPath (Join-Path $TestDrive 'share') | Should -BeFalse
+    }
+
+    It 'passes MSI properties from the entered arguments into the wrappers' {
+        $s = New-AdHocStage -Analysis $script:msiAnalysis -DownloadRoot (Join-Path $TestDrive 'msi-args') `
+            -InstallArgs '/qn /norestart ALLUSERS=1 TRANSFORMS="my file.mst"' -UninstallArgs '/qn REBOOT=ReallySuppress'
+        $install = Get-Content (Join-Path $s.StagedPath 'install.ps1') -Raw
+        $install | Should -Match ([regex]::Escape("`$args += 'ALLUSERS=1'"))
+        $install | Should -Match ([regex]::Escape("`$args += 'TRANSFORMS=`"my file.mst`"'"))
+        $uninstall = Get-Content (Join-Path $s.StagedPath 'uninstall.ps1') -Raw
+        $uninstall | Should -Match ([regex]::Escape("`$args += 'REBOOT=ReallySuppress'"))
+        foreach ($w in 'install.ps1', 'uninstall.ps1') {
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $s.StagedPath $w), [ref]$null, [ref]$parseErrors) | Out-Null
+            $parseErrors.Count | Should -Be 0
+        }
+    }
+
+    It 'records ARM64 as arm64 for an MSI and an EXE' {
+        $armMsi = $script:msiAnalysis.PSObject.Copy(); $armMsi.Architecture = 'ARM64'
+        $m = Read-StageManifest -Path (New-AdHocStage -Analysis $armMsi -DownloadRoot (Join-Path $TestDrive 'arm-msi')).ManifestPath
+        $m.Architecture | Should -Be 'arm64'
+        $armExe = $script:exeAnalysis.PSObject.Copy(); $armExe.Architecture = 'ARM64'
+        $armExe.UninstallRegistryKey = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Gadget_is1'
+        $m = Read-StageManifest -Path (New-AdHocStage -Analysis $armExe -DownloadRoot (Join-Path $TestDrive 'arm-exe')).ManifestPath
+        $m.Architecture | Should -Be 'arm64'
+        $m.Detection.Is64Bit | Should -BeTrue
+    }
+
     It 'refuses to stage without a version' {
         $noVer = $script:msiAnalysis.PSObject.Copy()
         $noVer.SoftwareVersion = ''
@@ -2897,6 +2955,23 @@ Describe 'New-PackagerFromDrop' {
         $parseErrors = $null
         [System.Management.Automation.Language.Parser]::ParseFile($p, [ref]$null, [ref]$parseErrors) | Out-Null
         $parseErrors.Count | Should -Be 0
+    }
+
+    It 'keeps typographic quotes and line breaks in identity text out of the code' -ForEach @(
+        @{ Kind = 'msi' }
+        @{ Kind = 'exe' }
+    ) {
+        $hostile = "Acme$([char]0x201D); Write-Output 'AUDIT_MARKER'; #$([char]0x201C)`r`nWrite-Output 'AUDIT_MARKER2'"
+        $analysis = if ($Kind -eq 'msi') { $script:msiAnalysis.PSObject.Copy() } else { $script:exeAnalysis.PSObject.Copy() }
+        $analysis.Publisher = $hostile
+        $analysis.AppName = "Evil App $Kind"
+        $analysis.InstallArgs = "/S$([char]0x201E); Write-Output 'AUDIT_MARKER3'"
+        $p = New-PackagerFromDrop -Analysis $analysis -PackagersRoot (Join-Path $script:repo 'Packagers')
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($p, [ref]$null, [ref]$null)
+        $injected = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Write-Output' -and $n.Extent.Text -match 'AUDIT_MARKER' }, $true))
+        $injected.Count | Should -Be 0
+        $c = Get-Content -LiteralPath $p -Raw
+        $c | Should -Match 'AUDIT_MARKER'
     }
 
     It 'refuses to overwrite an existing packager' {
@@ -3465,8 +3540,39 @@ Describe 'Intune Win32 repeat publish' {
         $filterCall.Uri | Should -BeLike "*O''Reilly App*"
         # no create POST to the mobileApps collection happened
         @($global:g2 | Where-Object { $_.Method -eq 'POST' -and $_.Uri -match 'mobileApps$' }).Count | Should -Be 0
-        # two PATCHes: metadata update + committedContentVersion
-        @($global:g2 | Where-Object { $_.Method -eq 'PATCH' }).Count | Should -Be 2
+        # one PATCH, after the commit: the new metadata and committedContentVersion together
+        $patches = @($global:g2 | Where-Object { $_.Method -eq 'PATCH' })
+        $patches.Count | Should -Be 1
+        $patches[0].Body.committedContentVersion | Should -Be '7'
+        $patches[0].Body.installCommandLine | Should -Be 'install.bat'
+        $patches[0].Body.rules.Count | Should -BeGreaterThan 0
+        $commitIndex = [array]::IndexOf(@($global:g2 | ForEach-Object { "$($_.Method) $($_.Uri)" }), @($global:g2 | Where-Object { $_.Uri -like '*commit' } | ForEach-Object { "$($_.Method) $($_.Uri)" })[0])
+        $patchIndex = [array]::IndexOf(@($global:g2 | ForEach-Object { "$($_.Method) $($_.Uri)" }), "PATCH $($patches[0].Uri)")
+        $patchIndex | Should -BeGreaterThan $commitIndex
+    }
+
+    It 'leaves the existing app untouched when the upload fails' {
+        $global:g3 = [System.Collections.Generic.List[object]]::new()
+        Mock Get-MsGraphToken { 'tok' } -ModuleName AppPackagerCommon
+        Mock Invoke-AzureBlobUpload { throw 'upload failed' } -ModuleName AppPackagerCommon
+        Mock Start-Sleep { } -ModuleName AppPackagerCommon
+        Mock Invoke-GraphJson {
+            ([System.Collections.Generic.List[object]]$global:g3).Add(@{ Method = $Method; Uri = $Uri; Body = $Body })
+            $key = "$Method $Uri"
+            if ($key -match "GET .*mobileApps\?") { return [pscustomobject]@{ value = @([pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'existing-1' }) } }
+            if ($key -match 'POST .*contentVersions$')   { return [pscustomobject]@{ id = '8' } }
+            if ($key -match 'POST .*files$')             { return [pscustomobject]@{ id = 'f' } }
+            if ($key -match 'GET .*files/f$')            { return [pscustomobject]@{ uploadState = 'azureStorageUriRequestSuccess'; azureStorageUri = 'https://blob/z?sas=1' } }
+            throw "Unexpected Graph call: $key"
+        } -ModuleName AppPackagerCommon
+
+        $manifest = [pscustomobject]@{
+            AppName = 'Fixture App'; Publisher = 'P'
+            InstallCommandLine = 'install-new.bat'; UninstallCommandLine = ''
+            Detection = [pscustomobject]@{ Type='Script'; ScriptText='exit 0' }
+        }
+        { Publish-IntuneWin32App -TenantId 't' -ClientId 'c' -ClientSecret 's' -IntuneWinPath $script:iw2Path -Manifest $manifest } | Should -Throw '*upload failed*'
+        @($global:g3 | Where-Object { $_.Method -eq 'PATCH' }).Count | Should -Be 0
     }
 }
 

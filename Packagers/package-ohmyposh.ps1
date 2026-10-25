@@ -280,13 +280,19 @@ function Invoke-StageOhMyPosh {
     # Removal targets the identity recorded at stage time, so the uninstaller
     # does not depend on reading the manifest back out of the content folder.
     $uninstallScript = @"
-`$prov = Get-AppxProvisionedPackage -Online |
-    Where-Object { `$_.DisplayName -eq '$identityName' }
-foreach (`$p in `$prov) {
-    Remove-AppxProvisionedPackage -Online -PackageName `$p.PackageName | Out-Null
+try {
+    `$prov = Get-AppxProvisionedPackage -Online -ErrorAction Stop |
+        Where-Object { `$_.DisplayName -eq '$identityName' }
+    foreach (`$p in `$prov) {
+        Remove-AppxProvisionedPackage -Online -PackageName `$p.PackageName -ErrorAction Stop | Out-Null
+    }
+    Get-AppxPackage -AllUsers -Name '$identityName' -ErrorAction Stop | ForEach-Object {
+        Remove-AppxPackage -Package `$_.PackageFullName -AllUsers -ErrorAction Stop
+    }
 }
-Get-AppxPackage -AllUsers -Name '$identityName' | ForEach-Object {
-    Remove-AppxPackage -Package `$_.PackageFullName -AllUsers
+catch {
+    [Console]::Error.WriteLine(`$_.Exception.Message)
+    exit 1
 }
 exit 0
 "@

@@ -69,7 +69,7 @@ function Get-ReleaseMetadata {
         "https://api.github.com/repos/$script:Repo/releases/tags/v$($Version.TrimStart('v'))"
     }
 
-    $json = Invoke-InstallerDownloadText -Url $uri
+    $json = [string](Invoke-InstallerDownloadText -Url $uri)
     $json | ConvertFrom-Json
 }
 
@@ -83,7 +83,9 @@ function Invoke-InstallerDownloadText {
         $text = (& $curl.Source -L --fail --silent --show-error -A $script:UserAgent $Url) -join "`n"
         if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($text)) { return $text }
     }
-    Invoke-RestMethod -Uri $Url -Headers @{ 'User-Agent' = $script:UserAgent } -UseBasicParsing
+    $response = Invoke-WebRequest -Uri $Url -Headers @{ 'User-Agent' = $script:UserAgent } -UseBasicParsing
+    if ($response.Content -is [byte[]]) { return [System.Text.Encoding]::UTF8.GetString($response.Content) }
+    return [string]$response.Content
 }
 
 function Invoke-InstallerDownloadFile {
@@ -185,6 +187,41 @@ function Test-AppPackagerFolder {
     Test-Path -LiteralPath (Join-Path $Path 'start-apppackager.ps1')
 }
 
+function Copy-FolderContent {
+    param(
+        [Parameter(Mandatory)][string]$From,
+        [Parameter(Mandatory)][string]$To
+    )
+
+    New-Item -ItemType Directory -Path $To -Force | Out-Null
+    Get-ChildItem -LiteralPath $From -Force | Copy-Item -Destination $To -Recurse -Force -ErrorAction Stop
+}
+
+function Restore-PreviousInstall {
+    # Puts the saved tree back after a failed replacement. Returns $true only
+    # when every saved file is present again with its original size.
+    param(
+        [Parameter(Mandatory)][string]$InstallPath,
+        [Parameter(Mandatory)][string]$Previous
+    )
+
+    try {
+        Get-ChildItem -LiteralPath $InstallPath -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        Copy-FolderContent -From $Previous -To $InstallPath
+        foreach ($file in @(Get-ChildItem -LiteralPath $Previous -Recurse -File -Force)) {
+            $relative = $file.FullName.Substring($Previous.Length).TrimStart('\')
+            $restored = Join-Path $InstallPath $relative
+            if (-not (Test-Path -LiteralPath $restored -PathType Leaf) -or (Get-Item -LiteralPath $restored).Length -ne $file.Length) {
+                return $false
+            }
+        }
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
 function Invoke-Install {
     param(
         [Parameter(Mandatory)][string]$InstallPath,
@@ -197,6 +234,7 @@ function Invoke-Install {
 
     $work = Join-Path ([IO.Path]::GetTempPath()) ("apinstall-" + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $work -Force | Out-Null
+    $keepWork = $false
 
     try {
         if (-not [string]::IsNullOrWhiteSpace($ZipPath)) {
@@ -292,23 +330,46 @@ function Invoke-Install {
                 }
             }
 
-            Write-Step 'Removing previous version...'
-            Get-ChildItem -LiteralPath $InstallPath -Force | Remove-Item -Recurse -Force
+            Write-Step 'Saving previous version...'
+            $previous = Join-Path $work 'previous'
+            Copy-FolderContent -From $InstallPath -To $previous
         }
         else {
             New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
         }
 
-        Write-Step ("Installing to {0}..." -f $InstallPath)
-        Get-ChildItem -LiteralPath $stage -Force | Copy-Item -Destination $InstallPath -Recurse -Force
-
-        if ($preserved.Count -gt 0) {
-            Write-Step 'Restoring user state...'
-            foreach ($relative in $preserved) {
-                $dest = Join-Path $InstallPath $relative
-                New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force | Out-Null
-                Copy-Item -LiteralPath (Join-Path $backup $relative) -Destination $dest -Force
+        try {
+            if ($existing) {
+                Write-Step 'Removing previous version...'
+                Get-ChildItem -LiteralPath $InstallPath -Force | Remove-Item -Recurse -Force
             }
+
+            Write-Step ("Installing to {0}..." -f $InstallPath)
+            Copy-FolderContent -From $stage -To $InstallPath
+
+            if ($preserved.Count -gt 0) {
+                Write-Step 'Restoring user state...'
+                foreach ($relative in $preserved) {
+                    $dest = Join-Path $InstallPath $relative
+                    New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force | Out-Null
+                    Copy-Item -LiteralPath (Join-Path $backup $relative) -Destination $dest -Force -ErrorAction Stop
+                }
+            }
+        }
+        catch {
+            $failure = $_
+            if ($existing) {
+                Write-Step ("Update failed: {0}" -f $failure.Exception.Message)
+                Write-Step 'Restoring the previous version...'
+                if (Restore-PreviousInstall -InstallPath $InstallPath -Previous $previous) {
+                    Write-Step 'The previous version is back in place.'
+                }
+                else {
+                    $keepWork = $true
+                    Write-Step ("The previous version could not be fully restored. A complete copy and the saved user state are in: {0}" -f $work)
+                }
+            }
+            throw $failure
         }
 
         # Defence in depth: an alternate data stream inherited from a proxy or
@@ -321,7 +382,9 @@ function Invoke-Install {
         Write-Step ("Launch: {0}" -f (Join-Path $InstallPath 'start-apppackager.ps1'))
     }
     finally {
-        Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+        if (-not $keepWork) {
+            Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 

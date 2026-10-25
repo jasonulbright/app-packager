@@ -205,7 +205,7 @@ function New-GeoGebraInstallContent {
         '    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$productCode",',
         '    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$productCode"',
         ') | Where-Object { Test-Path -LiteralPath $_ }',
-        '$msiArgs = @(''/i'', $msiPath, ''/qn'', ''/norestart'', ''ALLUSERS=1'')',
+        '$msiArgs = @(''/i'', "`"$msiPath`"", ''/qn'', ''/norestart'', ''ALLUSERS=1'')',
         'if ($installed) { $msiArgs += @(''REINSTALL=ALL'', ''REINSTALLMODE=vomus'') }',
         '$proc = Start-Process -FilePath ''msiexec.exe'' -ArgumentList $msiArgs -Wait -PassThru -NoNewWindow',
         'exit $proc.ExitCode'

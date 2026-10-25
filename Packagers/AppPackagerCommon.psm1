@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Shared module for AppPackager packager scripts.
 
@@ -659,6 +659,62 @@ function Get-ProfileScopedVersionFolder {
     return ('{0}-{1}' -f $Version, $ProfileSuffix)
 }
 
+function ConvertTo-SafePathSegment {
+    <#
+    .SYNOPSIS
+        Turns an identity string into one folder name, or '' when nothing
+        usable remains.
+
+    .DESCRIPTION
+        Removes path separators, drive and wildcard characters and control
+        characters, collapses whitespace, and trims trailing dots and spaces
+        (Windows strips them, so the stored name would differ from the
+        requested one). A result made only of dots is refused, and a reserved
+        device name gets a trailing underscore, so the segment can never climb
+        out of or alias the folder it is joined to.
+    #>
+    param([AllowNull()][AllowEmptyString()][string]$Value)
+
+    if ($null -eq $Value) { return '' }
+    $segment = (($Value -replace '[\\/:*?"<>|\x00-\x1F]', '') -replace '\s+', ' ').Trim()
+    $segment = $segment.TrimEnd([char]'.', [char]' ')
+    if ($segment -eq '' -or $segment -match '^\.+$') { return '' }
+    if ($segment -match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$') { $segment += '_' }
+    return $segment
+}
+
+function Assert-SafePathSegment {
+    <#
+    .SYNOPSIS
+        Throws unless a value is one plain folder name.
+    #>
+    param(
+        [AllowNull()][AllowEmptyString()][string]$Value,
+        [Parameter(Mandatory)][string]$Label
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value) -or $Value -match '[\\/:*?"<>|\x00-\x1F]' -or $Value.Trim() -match '^\.+$') {
+        throw "$Label '$Value' is not a usable folder name."
+    }
+}
+
+function Assert-PathUnderRoot {
+    <#
+    .SYNOPSIS
+        Throws unless a path resolves to a location beneath a root folder.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Root
+    )
+
+    $fullRoot = [System.IO.Path]::GetFullPath($Root).TrimEnd([char]'\', [char]'/') + '\'
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    if (-not $fullPath.StartsWith($fullRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Path '$fullPath' is outside the root folder '$fullRoot'."
+    }
+}
+
 function Get-NetworkContentPath {
     <#
     .SYNOPSIS
@@ -683,6 +739,10 @@ function Get-NetworkContentPath {
         [ValidateSet('Nested', 'Flat')][string]$Layout = 'Nested',
         [AllowEmptyString()][string]$ProfileSuffix = (Get-ProfileContentScope).Suffix
     )
+
+    Assert-SafePathSegment -Value $VendorFolder -Label 'Vendor folder'
+    Assert-SafePathSegment -Value $AppFolder -Label 'Application folder'
+    Assert-SafePathSegment -Value $Version -Label 'Version folder'
 
     # The version segment carries the profile scope in both layouts, so the stage, the
     # integrity check, the network sync and the deployment type all resolve one path.
@@ -2499,7 +2559,8 @@ function New-MsiWrapperContent {
     param(
         [Parameter(Mandatory)][string]$MsiFileName,
         [string[]]$ExtraInstallArgs = @(),
-        [string[]]$PostInstallKillProcesses = @()
+        [string[]]$PostInstallKillProcesses = @(),
+        [string[]]$ExtraUninstallArgs = @()
     )
 
     # The filename lands inside a single-quoted literal in the generated
@@ -2523,11 +2584,16 @@ function New-MsiWrapperContent {
     $installLines += 'exit $exit'
     $install = $installLines -join "`r`n"
 
-    $uninstall = (
+    $uninstallLines = @(
         ('$msiPath = Join-Path $PSScriptRoot ''{0}''' -f $MsiFileName),
-        '$proc = Start-Process msiexec.exe -ArgumentList @(''/x'', "`"$msiPath`"", ''/qn'', ''/norestart'') -Wait -PassThru -NoNewWindow',
-        'exit $proc.ExitCode'
-    ) -join "`r`n"
+        '$args = @(''/x'', "`"$msiPath`"", ''/qn'', ''/norestart'')'
+    )
+    foreach ($extra in $ExtraUninstallArgs) {
+        $uninstallLines += ('$args += ''{0}''' -f (ConvertTo-SingleQuotedContent $extra))
+    }
+    $uninstallLines += '$proc = Start-Process msiexec.exe -ArgumentList $args -Wait -PassThru -NoNewWindow'
+    $uninstallLines += 'exit $proc.ExitCode'
+    $uninstall = $uninstallLines -join "`r`n"
 
     return @{
         Install   = $install
@@ -2585,7 +2651,7 @@ function New-MsixWrapperContent {
 
     if ($Provisioned) {
         $installBody = @(
-            'Add-AppxProvisionedPackage -Online -PackagePath $msixPath -SkipLicense | Out-Null'
+            'try { Add-AppxProvisionedPackage -Online -PackagePath $msixPath -SkipLicense -ErrorAction Stop | Out-Null } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }'
         )
         $uninstallBody = @(
             'Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem',
@@ -2604,14 +2670,16 @@ function New-MsixWrapperContent {
             '} finally { $zip.Dispose() }',
             '$identity = $manifest.Package.Identity',
             '$pkgFullName = ''{0}_{1}_{2}__{3}'' -f $identity.Name, $identity.Version, $identity.ProcessorArchitecture, $identity.PublisherId',
-            '$prov = Get-AppxProvisionedPackage -Online | Where-Object { $_.PackageName -eq $pkgFullName -or $_.DisplayName -eq $identity.Name }',
-            'if ($prov) { Remove-AppxProvisionedPackage -Online -PackageName $prov.PackageName | Out-Null }',
-            'Get-AppxPackage -AllUsers -Name $identity.Name | ForEach-Object { Remove-AppxPackage -Package $_.PackageFullName -AllUsers }',
+            '$prov = Get-AppxProvisionedPackage -Online -ErrorAction Stop | Where-Object { $_.PackageName -eq $pkgFullName -or $_.DisplayName -eq $identity.Name }',
+            'try {',
+            '    if ($prov) { Remove-AppxProvisionedPackage -Online -PackageName $prov.PackageName -ErrorAction Stop | Out-Null }',
+            '    Get-AppxPackage -AllUsers -Name $identity.Name -ErrorAction Stop | ForEach-Object { Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction Stop }',
+            '} catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }',
             'exit 0'
         )
     } else {
         $installBody = @(
-            'Add-AppxPackage -Path $msixPath'
+            'try { Add-AppxPackage -Path $msixPath -ErrorAction Stop } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }'
         )
         $uninstallBody = @(
             'Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem',
@@ -2625,7 +2693,7 @@ function New-MsixWrapperContent {
             '    try { [xml]$manifest = $reader.ReadToEnd() } finally { $reader.Dispose() }',
             '} finally { $zip.Dispose() }',
             '$name = $manifest.Package.Identity.Name',
-            'Get-AppxPackage -Name $name | Remove-AppxPackage',
+            'try { Get-AppxPackage -Name $name -ErrorAction Stop | Remove-AppxPackage -ErrorAction Stop } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }',
             'exit 0'
         )
     }
@@ -2726,6 +2794,91 @@ function New-ExeWrapperContent {
     }
 }
 
+function New-TargetSecretBlock {
+    <#
+    .SYNOPSIS
+        Returns install-script lines that give each target its own random
+        secret.
+
+    .DESCRIPTION
+        The generated lines create a 32 character random value on the target,
+        store it machine-protected (DPAPI, LocalMachine) in a folder that only
+        SYSTEM, Administrators and the installing account can read, and leave it
+        in the named variable for the installer argument list. A later run reuses the stored value so
+        the file always matches the product, but only from a folder that those
+        principals own and alone can access. If the secret cannot be generated,
+        stored or trusted, the script exits 1 before the installer starts.
+    #>
+    param(
+        [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9-]{1,64}$')][string]$FolderName,
+        [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9.-]{1,64}$')][string]$FileName,
+        [Parameter(Mandatory)][ValidatePattern('^[A-Za-z][A-Za-z0-9]{0,31}$')][string]$VariableName,
+        [string]$Label = 'product'
+    )
+
+    if ($Label -notmatch '^[A-Za-z0-9 ]{1,40}$') { throw "Label '$Label' is not usable." }
+
+    $lines = @(
+        'try {',
+        '    Add-Type -AssemblyName System.Security -ErrorAction Stop',
+        ('    $secretDir = Join-Path $env:ProgramData ''{0}''' -f $FolderName),
+        ('    $secretFile = Join-Path $secretDir ''{0}''' -f $FileName),
+        '    $trusted = @(''S-1-5-18'', ''S-1-5-32-544'', [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value)',
+        '    if (Test-Path -LiteralPath $secretDir) {',
+        '        # A folder that already exists is used only when SYSTEM, Administrators or this account own it and',
+        '        # are the only principals it grants access to; a standard user can create the folder first.',
+        '        $acl = Get-Acl -LiteralPath $secretDir',
+        '        $ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value',
+        '        if ($trusted -notcontains $ownerSid) { throw "the folder $secretDir is owned by $ownerSid" }',
+        '        foreach ($rule in $acl.Access) {',
+        '            $ruleSid = $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value',
+        '            if ($rule.AccessControlType -eq ''Allow'' -and $trusted -notcontains $ruleSid) { throw "the folder $secretDir grants access to $ruleSid" }',
+        '        }',
+        '    }',
+        '    else {',
+        '        New-Item -ItemType Directory -Path $secretDir -Force -ErrorAction Stop | Out-Null',
+        '        $grants = @(''*S-1-5-18:(OI)(CI)F'', ''*S-1-5-32-544:(OI)(CI)F'')',
+        '        if ($trusted[2] -ne ''S-1-5-18'') { $grants += (''*'' + $trusted[2] + '':(OI)(CI)F'') }',
+        '        & icacls.exe $secretDir /inheritance:r /grant:r $grants | Out-Null',
+        '        if ($LASTEXITCODE -ne 0) { Remove-Item -LiteralPath $secretDir -Recurse -Force -ErrorAction SilentlyContinue; throw "icacls failed with exit code $LASTEXITCODE" }',
+        '    }',
+        '    if (Test-Path -LiteralPath $secretFile) {',
+        '        $plain = [System.Security.Cryptography.ProtectedData]::Unprotect([System.IO.File]::ReadAllBytes($secretFile), $null, [System.Security.Cryptography.DataProtectionScope]::LocalMachine)',
+        ('        ${0} = [System.Text.Encoding]::UTF8.GetString($plain)' -f $VariableName),
+        '    }',
+        '    else {',
+        '        $alphabet = ''ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789''',
+        '        $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()',
+        '        $chars = New-Object char[] 32',
+        '        $byte = New-Object byte[] 1',
+        '        for ($index = 0; $index -lt $chars.Length; ) {',
+        '            $rng.GetBytes($byte)',
+        '            if ($byte[0] -lt (256 - (256 % $alphabet.Length))) { $chars[$index] = $alphabet[$byte[0] % $alphabet.Length]; $index++ }',
+        '        }',
+        '        $rng.Dispose()',
+        ('        ${0} = -join $chars' -f $VariableName),
+        ('        $protected = [System.Security.Cryptography.ProtectedData]::Protect([System.Text.Encoding]::UTF8.GetBytes(${0}), $null, [System.Security.Cryptography.DataProtectionScope]::LocalMachine)' -f $VariableName),
+        '        [System.IO.File]::WriteAllBytes($secretFile, $protected)',
+        '    }',
+        '}',
+        'catch {',
+        ('    Write-Error ("Could not create the {0} secret: " + $_.Exception.Message)' -f $Label),
+        '    exit 1',
+        '}'
+    )
+    return ($lines -join "`r`n")
+}
+
+function New-PostgreSqlSuperuserSecretBlock {
+    <#
+    .SYNOPSIS
+        Install-script lines that give each target its own PostgreSQL
+        superuser password in $pgSuperPassword.
+    #>
+    param([Parameter(Mandatory)][ValidatePattern('^\d{1,3}$')][string]$MajorVersion)
+
+    return (New-TargetSecretBlock -FolderName 'PostgreSQL-Superuser-Secret' -FileName ('postgresql-{0}.dpapi' -f $MajorVersion) -VariableName 'pgSuperPassword' -Label 'PostgreSQL superuser')
+}
 # ---------------------------------------------------------------------------
 # ConfigMgr application creation from manifest
 # ---------------------------------------------------------------------------
@@ -5254,6 +5407,51 @@ function Save-PackagerHistory {
     }
 }
 
+function Get-PackagerHistoryActedVersion {
+    <#
+    .SYNOPSIS
+        The version a history entry shows as done for one kind of run, or ''
+        when none is on record.
+
+    .DESCRIPTION
+        Checked: the newest version seen. Staged and Packaged: the version a
+        completed stage or publish recorded, for the same scope when both
+        sides name one. An entry written before these versions were recorded
+        counts only when its stage or publish is not older than its latest
+        check; otherwise a later check may have seen a newer version and the
+        entry cannot say which one was built.
+    #>
+    param(
+        $Entry,
+        [Parameter(Mandatory)][ValidateSet('Checked', 'Staged', 'Packaged')][string]$Event,
+        [string]$Scope = ''
+    )
+
+    if ($null -eq $Entry) { return '' }
+    $read = {
+        param($name)
+        if ($Entry -is [System.Collections.IDictionary]) { if ($Entry.Contains($name)) { return $Entry[$name] }; return $null }
+        if ($Entry.PSObject.Properties[$name]) { return $Entry.$name }
+        return $null
+    }
+
+    $known = [string](& $read 'LastKnownVersion')
+    if ($Event -eq 'Checked') { return $known }
+
+    $recorded = [string](& $read "Last${Event}Version")
+    if ($recorded) {
+        $recordedScope = [string](& $read "Last${Event}Scope")
+        if ($Scope -and $recordedScope -and $recordedScope -ne $Scope) { return '' }
+        return $recorded
+    }
+
+    $when = [string](& $read "Last$Event")
+    if (-not $when) { return '' }
+    $checked = [string](& $read 'LastChecked')
+    if ($checked -and [string]::CompareOrdinal($when, $checked) -lt 0) { return '' }
+    return $known
+}
+
 function Update-PackagerHistory {
     <#
     .SYNOPSIS
@@ -5276,13 +5474,18 @@ function Update-PackagerHistory {
         VulnChecked: the summary from Get-VulnerabilitySummary, stored as
         VulnSummary. CmChecked: a SiteCode entry, stored as LastCmSite.
         Ignored for other events.
+    .PARAMETER Scope
+        Staged and Packaged: where the version went (the staging root, or the
+        site and share). A later run compares it before it treats that version
+        as already done for its own destination.
     #>
     param(
         [Parameter(Mandatory)][string]$PackagerName,
         [Parameter(Mandatory)][ValidateSet('Checked','Staged','Packaged','CmChecked','VulnChecked')][string]$Event,
         [string]$Version,
         [ValidateSet('Checked','NoChange','Updated','Failed')][string]$Result,
-        [System.Collections.IDictionary]$Data
+        [System.Collections.IDictionary]$Data,
+        [string]$Scope = ''
     )
 
     $history = Read-PackagerHistory
@@ -5321,6 +5524,13 @@ function Update-PackagerHistory {
     }
     if ($Event -notin @('CmChecked', 'VulnChecked') -and $PSBoundParameters.ContainsKey('Version') -and -not [string]::IsNullOrWhiteSpace($Version)) {
         $entry['LastKnownVersion'] = $Version
+    }
+    # LastKnownVersion is the newest version seen; these two are the versions
+    # a stage or a publish actually completed for, which is what decides
+    # whether a run still has work to do.
+    if ($Event -in @('Staged', 'Packaged') -and -not [string]::IsNullOrWhiteSpace($Version)) {
+        $entry["Last${Event}Version"] = $Version
+        $entry["Last${Event}Scope"]   = $Scope
     }
     if ($PSBoundParameters.ContainsKey('Result')) {
         $entry['LastResult'] = $Result
@@ -5611,16 +5821,16 @@ function New-AdHocStage {
     # Folder-name sanitation: identity fields become path segments. A value
     # that sanitizes to nothing must not silently collapse into the parent
     # folder (Join-Path with '' returns the parent).
-    $sanitize = { param($s) (($s -replace '[\\/:*?"<>|]', '') -replace '\s+', ' ').Trim() }
-    $vendorFolder = & $sanitize $Publisher
-    $appFolder    = & $sanitize $AppName
-    $versionFolder = & $sanitize $SoftwareVersion
+    $vendorFolder = ConvertTo-SafePathSegment $Publisher
+    $appFolder    = ConvertTo-SafePathSegment $AppName
+    $versionFolder = ConvertTo-SafePathSegment $SoftwareVersion
     if ([string]::IsNullOrWhiteSpace($vendorFolder))  { $vendorFolder = 'Unknown' }
     if ([string]::IsNullOrWhiteSpace($appFolder))     { throw "Application name '$AppName' contains no usable path characters." }
     if ([string]::IsNullOrWhiteSpace($versionFolder)) { throw "Version '$SoftwareVersion' contains no usable path characters." }
 
     $baseRoot = Join-Path (Join-Path $DownloadRoot $vendorFolder) $appFolder
     $stagedPath = Join-Path $baseRoot $versionFolder
+    Assert-PathUnderRoot -Path $stagedPath -Root $DownloadRoot
     Initialize-Folder -Path $stagedPath
     $stagedInstaller = Join-Path $stagedPath $installerName
     Copy-Item -LiteralPath $Analysis.Path -Destination $stagedInstaller -Force
@@ -5634,7 +5844,16 @@ function New-AdHocStage {
         (($s -split '\s+') | Where-Object { $_ } | ForEach-Object { "'" + (ConvertTo-SingleQuotedContent $_) + "'" }) -join ', '
     }
     if ($isMsi) {
-        $wrapperContent = New-MsiWrapperContent -MsiFileName $installerName
+        # The wrapper already passes /i, /x, /qn and /norestart; whatever else
+        # the operator entered (MSI properties, transforms) rides along.
+        $toMsiExtras = {
+            param($s)
+            @([regex]::Matches([string]$s, '(?:[^\s"]+|"[^"]*")+') | ForEach-Object { $_.Value } |
+                Where-Object { $_ -notmatch '^(?i)[/-](qn|qb|qr|qf|q|quiet|passive|norestart|i|x)$' })
+        }
+        $wrapperContent = New-MsiWrapperContent -MsiFileName $installerName `
+            -ExtraInstallArgs (& $toMsiExtras $InstallArgs) `
+            -ExtraUninstallArgs (& $toMsiExtras $UninstallArgs)
     }
     else {
         if ([string]::IsNullOrWhiteSpace($UninstallCommand)) { $UninstallCommand = [string]$Analysis.UninstallCommand }
@@ -5707,7 +5926,7 @@ function New-AdHocStage {
         ProductCode     = [string]$Analysis.ProductCode
         # The workbench and the Intune adapter read architecture off the
         # manifest; a BYO app has no packager script header to fall back on.
-        Architecture    = $(if ($is64) { 'x64' } else { 'x86' })
+        Architecture    = $(if ([string]$Analysis.Architecture -match '^(?i)(arm64|aarch64)$') { 'arm64' } elseif ($is64) { 'x64' } else { 'x86' })
         RunningProcess  = @()
         AdHocSource     = [string]$Analysis.Path
         InstallContext  = if ($perUser) { 'PerUser' } else { 'PerMachine' }
@@ -5773,7 +5992,7 @@ function Invoke-AdHocPackage {
 
         # Version becomes a path segment; strip the same characters the stage
         # sanitized so local and network folder names agree.
-        $versionSegment = ((([string]$manifest.SoftwareVersion) -replace '[\\/:*?"<>|]', '') -replace '\s+', ' ').Trim()
+        $versionSegment = ConvertTo-SafePathSegment ([string]$manifest.SoftwareVersion)
         if ([string]::IsNullOrWhiteSpace($versionSegment)) {
             throw ("Manifest version '{0}' contains no usable path characters." -f $manifest.SoftwareVersion)
         }
@@ -5834,17 +6053,24 @@ function New-PackagerFromDrop {
     $target = Join-Path $PackagersRoot ("package-{0}.ps1" -f $slug)
     if (Test-Path -LiteralPath $target) { throw "Packager already exists: $target" }
 
-    $sanitize = { param($s) (($s -replace '[\\/:*?"<>|]', '') -replace '\s+', ' ').Trim() }
-    $vendorFolder = & $sanitize $Publisher
-    $appFolder    = & $sanitize $AppName
+    $vendorFolder = ConvertTo-SafePathSegment $Publisher
+    if ([string]::IsNullOrWhiteSpace($vendorFolder)) { $vendorFolder = 'Unknown' }
+    $appFolder    = ConvertTo-SafePathSegment $AppName
+    if ([string]::IsNullOrWhiteSpace($appFolder)) { throw "Application name '$AppName' contains no usable path characters." }
 
     # Identity values originate in the dropped file's own version resource /
     # MSI tables: untrusted text. Substitutions into live double-quoted
-    # literals must neutralize `, $, and " or the resource string executes
-    # as code the next time the generated packager runs; substitutions into
-    # the doc comment must not carry a comment terminator.
-    $escapeDq = { param($s) (([string]$s -replace '`', '``') -replace '\$', '`$') -replace '"', '`"' }
-    $escapeComment = { param($s) [string]$s -replace '#>', '# >' }
+    # literals must neutralize `, $, and every character PowerShell reads as a
+    # double quote (the typographic quotes U+201C to U+201F included) or the
+    # resource string executes as code the next time the generated packager
+    # runs; substitutions into the doc comment must not carry a comment
+    # terminator. Line breaks are flattened so a value stays on its own line.
+    $escapeDq = {
+        param($s)
+        $flat = [string]$s -replace '[\r\n\u0085\u2028\u2029]+', ' '
+        (($flat -replace '`', '``') -replace '\$', '`$') -replace '(["\u201C\u201D\u201E\u201F])', '`$1'
+    }
+    $escapeComment = { param($s) ([string]$s -replace '[\r\n\u0085\u2028\u2029]+', ' ') -replace '#>', '# >' }
     $appNameDq   = & $escapeDq $AppName
     $publisherDq = & $escapeDq $Publisher
     $appNameCmt   = & $escapeComment $AppName
@@ -6872,8 +7098,9 @@ function Publish-IntuneWin32App {
         detection rules from the stage manifest), create a content version
         and file entry, wait for the Azure Storage URI, upload the encrypted
         payload in blocks, commit with the package's fileEncryptionInfo,
-        wait for commit, and patch committedContentVersion. Assignment is
-        left to the operator in the Intune console.
+        wait for commit, and patch committedContentVersion. A repeat publish
+        sends the new metadata in that final patch, after the content is
+        committed. Assignment is left to the operator in the Intune console.
 
         Requires an Entra app registration with application permission
         DeviceManagementApps.ReadWrite.All (admin-consented).
@@ -7039,8 +7266,10 @@ function Publish-IntuneWin32App {
             if (-not [string]::IsNullOrWhiteSpace($kept)) { $appBody['notes'] = $identityTag + "`r`n" + $kept.Trim() }
         }
         $appId = [string]$existingApp.id
+        # The detection rules, commands and setup file describe the new content,
+        # so they reach the app in the same request that commits that content.
+        # A failed upload leaves the app as it was.
         Write-Log ("Updating Intune Win32 app    : {0} (app id {1})" -f $Manifest.AppName, $appId)
-        Invoke-GraphJson -Method PATCH -Uri "$GraphBase/deviceAppManagement/mobileApps/$appId" -Token $token -Body $appBody | Out-Null
     }
     else {
         Write-Log ("Creating Intune Win32 app    : {0}" -f $Manifest.AppName)
@@ -7099,10 +7328,14 @@ function Publish-IntuneWin32App {
         } until ([string]$file.uploadState -eq 'commitFileSuccess' -or (Get-Date) -gt $deadline)
         if ([string]$file.uploadState -ne 'commitFileSuccess') { throw "Timed out waiting for content commit (last state: $($file.uploadState))." }
 
-        Invoke-GraphJson -Method PATCH -Uri "$GraphBase/deviceAppManagement/mobileApps/$appId" -Token $token -Body @{
+        $finalBody = @{
             '@odata.type'           = '#microsoft.graph.win32LobApp'
             committedContentVersion = $contentId
-        } | Out-Null
+        }
+        if ($existingApp) {
+            foreach ($key in @($appBody.Keys)) { $finalBody[$key] = $appBody[$key] }
+        }
+        Invoke-GraphJson -Method PATCH -Uri "$GraphBase/deviceAppManagement/mobileApps/$appId" -Token $token -Body $finalBody | Out-Null
 
         Write-Log ("Published to Intune          : {0} (app id {1})" -f $Manifest.AppName, $appId)
         return $appId

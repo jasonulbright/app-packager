@@ -260,7 +260,7 @@ function Invoke-StageM365Visio {
         # Download Office source files
         Write-Log ""
         Write-Log "Downloading Office source files (this may take several minutes)..."
-        $dlProc = Start-Process -FilePath $setupExe -ArgumentList @('/download', $downloadXmlPath) -Wait -PassThru -NoNewWindow
+        $dlProc = Start-Process -FilePath $setupExe -ArgumentList @('/download', ('"{0}"' -f $downloadXmlPath)) -Wait -PassThru -NoNewWindow
         if ($dlProc.ExitCode -ne 0) {
             throw "ODT /download failed with exit code $($dlProc.ExitCode)."
         }
@@ -311,14 +311,14 @@ function Invoke-StageM365Visio {
     $installPs1 = @(
         '$setupPath = Join-Path $PSScriptRoot ''setup.exe''',
         '$configPath = Join-Path $PSScriptRoot ''install.xml''',
-        '$proc = Start-Process -FilePath $setupPath -ArgumentList @(''/configure'', $configPath) -Wait -PassThru -NoNewWindow -WorkingDirectory $PSScriptRoot',
+        '$proc = Start-Process -FilePath $setupPath -ArgumentList @(''/configure'', "`"$configPath`"") -Wait -PassThru -NoNewWindow -WorkingDirectory $PSScriptRoot',
         'exit $proc.ExitCode'
     ) -join "`r`n"
 
     $uninstallPs1 = @(
         '$setupPath = Join-Path $PSScriptRoot ''setup.exe''',
         '$configPath = Join-Path $PSScriptRoot ''uninstall.xml''',
-        '$proc = Start-Process -FilePath $setupPath -ArgumentList @(''/configure'', $configPath) -Wait -PassThru -NoNewWindow -WorkingDirectory $PSScriptRoot',
+        '$proc = Start-Process -FilePath $setupPath -ArgumentList @(''/configure'', "`"$configPath`"") -Wait -PassThru -NoNewWindow -WorkingDirectory $PSScriptRoot',
         'exit $proc.ExitCode'
     ) -join "`r`n"
 

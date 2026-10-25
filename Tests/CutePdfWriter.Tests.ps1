@@ -40,3 +40,43 @@ Describe 'CutePDF Writer detection' {
         $rules[0].check32BitOn64System | Should -BeFalse
     }
 }
+
+Describe 'CutePDF Writer installer source' {
+    BeforeAll {
+        $script:ExpectedSignerCommonName = 'Acro Software Inc.'
+        $fn = $script:Ast.Find({ param($n)
+            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Assert-CutePdfWriterSignature'
+        }, $true)
+        . ([scriptblock]::Create($fn.Extent.Text))
+        function Write-Log { param($Message, $Level) }
+    }
+
+    It 'downloads over HTTPS' {
+        $url = $script:Ast.Find({ param($n)
+            $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+            $n.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+            $n.Left.VariablePath.UserPath -eq 'ExeDownloadUrl'
+        }, $true)
+        $url.Right.Extent.Text | Should -Match '^"https://'
+    }
+
+    It 'accepts a valid signature from the vendor' {
+        Mock Get-AuthenticodeSignature { [pscustomobject]@{ Status = 'Valid'; SignerCertificate = [pscustomobject]@{ Subject = 'CN=Acro Software Inc., O=Acro Software Inc., C=US' } } }
+        { Assert-CutePdfWriterSignature -ExePath 'x.exe' } | Should -Not -Throw
+    }
+
+    It 'refuses an unsigned file' {
+        Mock Get-AuthenticodeSignature { [pscustomobject]@{ Status = 'NotSigned'; SignerCertificate = $null } }
+        { Assert-CutePdfWriterSignature -ExePath 'x.exe' } | Should -Throw '*NotSigned*'
+    }
+
+    It 'refuses a valid signature from another publisher' {
+        Mock Get-AuthenticodeSignature { [pscustomobject]@{ Status = 'Valid'; SignerCertificate = [pscustomobject]@{ Subject = 'CN=Other Software Inc., O=Other, C=US' } } }
+        { Assert-CutePdfWriterSignature -ExePath 'x.exe' } | Should -Throw '*not by*'
+    }
+
+    It 'refuses a subject that only contains the vendor name' {
+        Mock Get-AuthenticodeSignature { [pscustomobject]@{ Status = 'Valid'; SignerCertificate = [pscustomobject]@{ Subject = 'CN=Acro Software Inc. Fake, O=Other, C=US' } } }
+        { Assert-CutePdfWriterSignature -ExePath 'x.exe' } | Should -Throw '*not by*'
+    }
+}

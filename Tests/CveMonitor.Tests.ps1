@@ -69,7 +69,7 @@ BeforeAll {
         }
         $cve = [pscustomobject]@{ Id = 'CVE-2025-0001'; Score = 7.5; Severity = 'HIGH'; Vector = ''; Published = '2025-01-01'; LastModified = ''; Summary = 'x'; References = @(); Epss = 0.1; EpssPercentile = 0.5; Kev = $true; KevDateAdded = '2025-02-01'; EuvdId = ''; Source = 'NVD'; Matches = @(); Links = (Get-VulnerabilityLinks -CveId 'CVE-2025-0001' -Kev).Cve }
         $r = [pscustomobject]@{
-            Cpe = $Cpe; From = $CurrentVersion; To = $LatestVersion; Source = 'NVD'; QueriedAt = '2026-10-11T12:00:00Z'
+            Cpe = $Cpe; From = $CurrentVersion; To = $LatestVersion; Source = 'NVD'; QueriedAt = [DateTime]::UtcNow.AddHours(-1).ToString('yyyy-MM-ddTHH:mm:ssZ')
             Count = 1; MaxCvss = 7.5; MaxSeverity = 'HIGH'; KevCount = 1; MaxEpss = 0.1; UnfixedCount = 2; Error = $null
             Links = (Get-VulnerabilityLinks -Cpe $Cpe -VersionStart $CurrentVersion -VendorAdvisoryUrl $VendorAdvisoryUrl).Product
             Cves = @($cve); UnfixedCves = @()
@@ -210,22 +210,24 @@ Describe 'Invoke-CveMonitor' {
 Describe 'Get-CveReportRows marks a result that is not the current lookup' {
     BeforeAll {
         $script:NoteCpe = 'cpe:2.3:a:vendor:product:*:*:*:*:*:*:*:*'
+        $script:OldStamp = [DateTime]::UtcNow.AddHours(-3).ToString('yyyy-MM-ddTHH:mm:ssZ')
+        $script:NewStamp = [DateTime]::UtcNow.AddHours(-2).ToString('yyyy-MM-ddTHH:mm:ssZ')
         $result = [pscustomobject]@{
-            Cpe = $script:NoteCpe; From = '1.0'; To = '2.0'; Source = 'NVD'; QueriedAt = '2026-10-10T10:00:00Z'
+            Cpe = $script:NoteCpe; From = '1.0'; To = '2.0'; Source = 'NVD'; QueriedAt = $script:OldStamp
             Count = 2; MaxCvss = 7.5; MaxSeverity = 'HIGH'; KevCount = 0; MaxEpss = $null; Error = $null
             FixedInLatestCount = 1; FixedEarlierCount = 1; FixedUnknownCount = 0; NewestPublished = '2026-09-01'; LastNvdUpdate = '2026-09-02'
             Links = @{}; Cves = @(); UnfixedCves = @()
         }
         Save-VulnerabilityCache -Cache @{ ($script:NoteCpe + '|1.0|2.0') = $result } -CachePath (Get-VulnerabilityCachePath)
         $row = { param($count, $checked) [pscustomobject]@{ Application = 'App'; Vendor = 'V'; Script = 'package-app.ps1'; CurrentVersion = '1.0'; LatestVersion = '2.0'; Status = 'Update available'; Cpe = $script:NoteCpe; CveCount = $count; CveChecked = $checked } }
-        $script:NoteRows = Get-CveReportRows -Rows @((& $row 'Error' '2026-10-10T10:00:00Z'), (& $row '2' '2026-10-11T09:00:00Z'), (& $row '2' '2026-10-10T10:00:00Z'))
+        $script:NoteRows = Get-CveReportRows -Rows @((& $row 'Error' $script:OldStamp), (& $row '2' $script:NewStamp), (& $row '2' $script:OldStamp))
     }
     It 'keeps the last good result and says the latest lookup failed' {
         $script:NoteRows[0].Result.Count | Should -Be 2
-        $script:NoteRows[0].Note | Should -Be 'Last lookup failed; this is the result from 2026-10-10T10:00:00Z'
+        $script:NoteRows[0].Note | Should -Be "Last lookup failed; this is the result from $($script:OldStamp)"
     }
     It 'says when the grid holds a newer lookup than the cache' {
-        $script:NoteRows[1].Note | Should -Match '^Result from 2026-10-10T10:00:00Z; the lookup of 2026-10-11T09:00:00Z was not cached$'
+        $script:NoteRows[1].Note | Should -Match "^Result from $($script:OldStamp); the lookup of $($script:NewStamp) was not cached$"
     }
     It 'adds no note when the cache is the current lookup' {
         $script:NoteRows[2].Note | Should -Be ''
@@ -233,9 +235,9 @@ Describe 'Get-CveReportRows marks a result that is not the current lookup' {
     It 'prints the note beside the count in the HTML, Markdown and CSV reports' {
         $out = Export-VulnerabilityReport -Rows $script:NoteRows -Folder (Join-Path $TestDrive 'note-report') -Name 'n1' -Formats @('Html', 'Markdown', 'Csv')
         $html = [System.IO.File]::ReadAllText($out.Html)
-        $html | Should -Match "<td>2 <span class='note'>Last lookup failed; this is the result from 2026-10-10T10:00:00Z</span></td>"
+        $html | Should -Match "<td>2 <span class='note'>Last lookup failed; this is the result from $($script:OldStamp)</span></td>"
         $md = [System.IO.File]::ReadAllText($out.Markdown)
-        $md | Should -Match '\| 2 \(Last lookup failed; this is the result from 2026-10-10T10:00:00Z\) \|'
+        $md | Should -Match "\| 2 \(Last lookup failed; this is the result from $($script:OldStamp)\) \|"
         $apps = @(Import-Csv -LiteralPath $out.ApplicationsCsv)
         @($apps | Where-Object Note -like 'Last lookup failed*').Count | Should -Be 1
         @($apps | Where-Object Note -eq '').Count | Should -Be 1
