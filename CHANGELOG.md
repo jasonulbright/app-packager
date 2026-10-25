@@ -2,7 +2,7 @@
 
 ## [2026.10.25.0122] - 2026-10-25
 
-## 28 fixes and changes
+## 29 fixes and changes
 
 ### Security
 
@@ -16,6 +16,7 @@
 - Remove the AWS Session Manager plugin on uninstall.
 - Accept Android Studio install exit code 1223 as success.
 - Find the Vim uninstall entry under its real name.
+- Request the x64 build of Zoom Workplace.
 - Skip a batch item only when its build is current for that scope.
 - Refuse Intune targets in the command-line Package mode.
 - Stop a pinned version that differs from the vendor's current release.
