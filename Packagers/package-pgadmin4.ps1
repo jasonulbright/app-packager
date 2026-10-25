@@ -17,7 +17,7 @@ ArpName: pgAdmin 4*
 .DESCRIPTION
     Resolves the latest pgAdmin 4 Windows release from the vendor download page,
     downloads the x64 installer from the PostgreSQL FTP mirror, stages content to
-    a versioned local folder, and creates a ConfigMgr Application with file-existence
+    a versioned local folder, and creates a ConfigMgr Application with registry-version
     detection.
 
     The installer is an InnoSetup package installed silently for all users.
@@ -178,7 +178,7 @@ function Invoke-StagePgAdmin {
     # --- Generate content wrappers ---
     $wrapperContent = New-ExeWrapperContent `
         -InstallerFileName $installerFileName `
-        -InstallArgs "'/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-'" `
+        -InstallArgs "'/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/ALLUSERS'" `
         -UninstallCommand "$InstallPath\unins000.exe" `
         -UninstallArgs "'/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'"
 
@@ -197,14 +197,14 @@ function Invoke-StagePgAdmin {
         -UninstallPs1Content $customUninstall
 
     # --- Write stage manifest ---
-    $detectionPath = "$InstallPath\runtime"
+    # The ARP key name carries the major version: pgAdmin 4v9_is1.
+    $arpKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\pgAdmin 4v{0}_is1" -f $version.Split('.')[0]
 
     $appName   = "pgAdmin 4"
     $publisher = "pgAdmin Development Team"
 
     Write-Log ""
-    Write-Log "Detection path               : $detectionPath"
-    Write-Log "Detection file               : pgAdmin4.exe"
+    Write-Log "Detection key                : $arpKey DisplayVersion >= $version"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -214,15 +214,17 @@ function Invoke-StagePgAdmin {
         SoftwareVersion = $version
         InstallerFile   = $installerFileName
         InstallerType   = "EXE"
-        InstallArgs     = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-"
+        InstallArgs     = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /ALLUSERS"
         UninstallArgs   = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
         RunningProcess  = @("pgAdmin4")
         Detection       = @{
-            Type         = "File"
-            FilePath     = $detectionPath
-            FileName     = "pgAdmin4.exe"
-            PropertyType = "Existence"
-            Is64Bit      = $true
+            Type                = "RegistryKeyValue"
+            RegistryKeyRelative = $arpKey
+            ValueName           = "DisplayVersion"
+            PropertyType        = "Version"
+            Operator            = "GreaterEquals"
+            ExpectedValue       = $version
+            Is64Bit             = $true
         }
     }
 
@@ -262,8 +264,7 @@ function Invoke-PackagePgAdmin {
     Write-Log "AppName                      : $($manifest.AppName)"
     Write-Log "Publisher                    : $($manifest.Publisher)"
     Write-Log "SoftwareVersion              : $($manifest.SoftwareVersion)"
-    Write-Log "Detection Path               : $($manifest.Detection.FilePath)"
-    Write-Log "Detection File               : $($manifest.Detection.FileName)"
+    Write-Log "Detection Key                : $($manifest.Detection.RegistryKeyRelative)"
     Write-Log ""
 
     if (-not (Test-NetworkShareAccess -Path $FileServerPath)) {

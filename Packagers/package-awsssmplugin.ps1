@@ -17,7 +17,7 @@ ArpName: Session Manager Plugin*
 .DESCRIPTION
     Reads the current version from the vendor distribution bucket, downloads the
     matching WiX bundle installer, stages content to a versioned local folder,
-    and creates a ConfigMgr Application with file-existence detection on the
+    and creates a ConfigMgr Application with registry-version detection on the
     installed session-manager-plugin.exe.
 
     Supports two-phase operation:
@@ -101,7 +101,6 @@ $AppFolder    = "Session Manager Plugin"
 $BaseDownloadRoot  = Join-Path $DownloadRoot "Session Manager Plugin"
 $InstallerFileName = "SessionManagerPluginSetup.exe"
 
-$InstallDir = "{0}\Amazon\SessionManagerPlugin\bin" -f $env:ProgramFiles
 
 # --- Functions ---
 
@@ -203,8 +202,9 @@ function Invoke-StageSsmPlugin {
         -InstallArgs "'/install', '/quiet', '/norestart'" `
         -UninstallCommand 'unused'
 
-    # The bundle caches itself under a per-build GUID folder, so the ARP
-    # QuietUninstallString is the only value that names the right copy.
+    # The bundle caches itself under a per-build GUID folder, so the bundle
+    # entry's BundleCachePath is the only value that names the right copy; the
+    # MSI entry of the same name only holds a Windows Installer command.
     $uninstallContent = @'
 $keys = @(
     'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
@@ -215,14 +215,12 @@ foreach ($root in $keys) {
     if (-not (Test-Path -LiteralPath $root)) { continue }
     $hit = Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue |
         ForEach-Object { Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue } |
-        Where-Object { $_.DisplayName -like 'Session Manager Plugin*' } |
+        Where-Object { $_.DisplayName -like 'Session Manager Plugin*' -and $_.BundleCachePath } |
         Select-Object -First 1
     if ($hit) { break }
 }
 if (-not $hit) { exit 0 }
-$cmd = if ($hit.QuietUninstallString) { $hit.QuietUninstallString } else { $hit.UninstallString }
-if (-not $cmd) { exit 0 }
-if ($cmd -match '^"([^"]+)"') { $exe = $matches[1] } else { $exe = ($cmd -split '\s+/')[0].Trim() }
+$exe = $hit.BundleCachePath
 if (-not (Test-Path -LiteralPath $exe)) { exit 0 }
 $proc = Start-Process -FilePath $exe -ArgumentList @('/uninstall', '/quiet', '/norestart') -Wait -PassThru -NoNewWindow
 exit $proc.ExitCode
@@ -233,9 +231,14 @@ exit $proc.ExitCode
         -UninstallPs1Content $uninstallContent
 
     # --- Write stage manifest ---
+    # Every release registers under a new bundle id, which the bundle stores in
+    # its .wixburn header, so the key itself identifies the release.
+    $bundleId = Get-BurnBundleId -Path $localExe
+    if (-not $bundleId) { throw "Could not read the bundle id from $localExe." }
+    $arpKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$bundleId"
+
     Write-Log ""
-    Write-Log "Detection path               : $InstallDir"
-    Write-Log "Detection file               : session-manager-plugin.exe"
+    Write-Log "Detection key                : $arpKey DisplayVersion >= $version (32-bit view)"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -249,11 +252,13 @@ exit $proc.ExitCode
         UninstallArgs   = "/uninstall /quiet /norestart"
         RunningProcess  = @("session-manager-plugin")
         Detection       = @{
-            Type         = "File"
-            FilePath     = $InstallDir
-            FileName     = "session-manager-plugin.exe"
-            PropertyType = "Existence"
-            Is64Bit      = $true
+            Type                = "RegistryKeyValue"
+            RegistryKeyRelative = $arpKey
+            ValueName           = "DisplayVersion"
+            PropertyType        = "Version"
+            Operator            = "GreaterEquals"
+            ExpectedValue       = $version
+            Is64Bit             = $false
         }
     }
 
@@ -296,8 +301,7 @@ function Invoke-PackageSsmPlugin {
     Write-Log "AppName                      : $($manifest.AppName)"
     Write-Log "Publisher                    : $($manifest.Publisher)"
     Write-Log "SoftwareVersion              : $($manifest.SoftwareVersion)"
-    Write-Log "Detection Path               : $($manifest.Detection.FilePath)"
-    Write-Log "Detection File               : $($manifest.Detection.FileName)"
+    Write-Log "Detection Key                : $($manifest.Detection.RegistryKeyRelative)"
     Write-Log ""
 
     # --- Network share ---

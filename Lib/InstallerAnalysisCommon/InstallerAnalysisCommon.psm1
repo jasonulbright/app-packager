@@ -28,7 +28,16 @@
 # keeps a -Force reimport of this module from resetting SuiteCommon state
 # mid-session.
 if (-not (Get-Module SuiteCommon)) {
-    Import-Module (Join-Path $PSScriptRoot '..\Lib\SuiteCommon\SuiteCommon.psd1') -Global -DisableNameChecking
+    # Module folder is <root>\Module in this repository and <root>\Lib\InstallerAnalysisCommon
+    # when vendored; SuiteCommon is <root>\Lib\SuiteCommon in both layouts.
+    $suiteCommonManifest = @(
+        (Join-Path $PSScriptRoot '..\Lib\SuiteCommon\SuiteCommon.psd1'),
+        (Join-Path $PSScriptRoot '..\SuiteCommon\SuiteCommon.psd1')
+    ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if (-not $suiteCommonManifest) {
+        throw "SuiteCommon module not found relative to $PSScriptRoot."
+    }
+    Import-Module $suiteCommonManifest -Global -DisableNameChecking -ErrorAction Stop
 }
 
 # ---------------------------------------------------------------------------
@@ -5652,10 +5661,11 @@ function Export-AnalysisHtml {
         '</style>'
     ) -join "`r`n"
 
-    $headerRow = ($DataTable.Columns | ForEach-Object { "<th>$($_.ColumnName)</th>" }) -join ''
+    $encodedTitle = [System.Net.WebUtility]::HtmlEncode($ReportTitle)
+    $headerRow = ($DataTable.Columns | ForEach-Object { "<th>$([System.Net.WebUtility]::HtmlEncode([string]$_.ColumnName))</th>" }) -join ''
     $bodyRows = foreach ($row in $DataTable.Rows) {
         $cells = foreach ($col in $DataTable.Columns) {
-            $val = [string]$row[$col.ColumnName]
+            $val = [System.Net.WebUtility]::HtmlEncode([string]$row[$col.ColumnName])
             $cls = if ($col.Ordinal -eq 0) { ' class="prop"' } else { '' }
             "<td$cls>$val</td>"
         }
@@ -5663,8 +5673,8 @@ function Export-AnalysisHtml {
     }
 
     $html = @(
-        '<!DOCTYPE html>', '<html><head><meta charset="utf-8"><title>' + $ReportTitle + '</title>',
-        $css, '</head><body>', "<h1>$ReportTitle</h1>",
+        '<!DOCTYPE html>', '<html><head><meta charset="utf-8"><title>' + $encodedTitle + '</title>',
+        $css, '</head><body>', "<h1>$encodedTitle</h1>",
         "<div class='summary'>Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | Rows: $($DataTable.Rows.Count)</div>",
         "<table><thead><tr>$headerRow</tr></thead>",
         "<tbody>$($bodyRows -join "`r`n")</tbody></table>",

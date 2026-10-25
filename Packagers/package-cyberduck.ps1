@@ -17,7 +17,7 @@ ArpName: Cyberduck*
 .DESCRIPTION
     Resolves the latest Cyberduck release from the vendor Sparkle changelog feed,
     downloads the Windows installer, stages content to a versioned local folder,
-    and creates a ConfigMgr Application with file-existence detection.
+    and creates a ConfigMgr Application with file-version detection.
 
     The installer is a WiX burn bundle installed silently with /quiet. Bonjour is
     suppressed because it installs a separate machine-wide service that most
@@ -257,11 +257,13 @@ function Invoke-StageCyberduck {
         UninstallArgs   = "/uninstall /quiet /norestart"
         RunningProcess  = @("Cyberduck")
         Detection       = @{
-            Type         = "File"
-            FilePath     = $InstallPath
-            FileName     = "Cyberduck.exe"
-            PropertyType = "Existence"
-            Is64Bit      = $true
+            Type          = "File"
+            FilePath      = $InstallPath
+            FileName      = "Cyberduck.exe"
+            PropertyType  = "Version"
+            Operator      = "GreaterEquals"
+            ExpectedValue = $version
+            Is64Bit       = $true
         }
     }
 

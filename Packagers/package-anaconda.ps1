@@ -17,7 +17,7 @@ ArpName: Anaconda3 *
 .DESCRIPTION
     Resolves the latest Anaconda3 Windows x86_64 installer from the vendor
     archive index, stages content to a versioned local folder, and creates an
-    ConfigMgr Application with file-existence detection.
+    ConfigMgr Application with script detection on its uninstall entry.
 
     The installer is an NSIS package. It is installed for all users into
     C:\ProgramData\Anaconda3 with Python registration disabled so it does not
@@ -191,11 +191,16 @@ function Invoke-StageAnaconda {
 
     # The uninstaller lives inside the install directory and is absent on a
     # machine that never received the product; exit 0 keeps removal
-    # idempotent instead of failing the deployment type.
+    # idempotent instead of failing the deployment type. Without _?= the
+    # uninstaller copies itself to a temporary folder and returns at once, so
+    # the files are still present when the next install starts; _?= keeps it
+    # in place until the removal ends, and the leftover folder is deleted after.
     $customUninstall = (
-        ('$uninstaller = ''{0}\Uninstall-Anaconda3.exe''' -f $InstallPath),
+        ('$installDir = ''{0}''' -f $InstallPath),
+        '$uninstaller = Join-Path $installDir ''Uninstall-Anaconda3.exe''',
         'if (-not (Test-Path -LiteralPath $uninstaller)) { exit 0 }',
-        '$proc = Start-Process -FilePath $uninstaller -ArgumentList @(''/S'') -Wait -PassThru -NoNewWindow',
+        '$proc = Start-Process -FilePath $uninstaller -ArgumentList @(''/S'', (''_?={0}'' -f $installDir)) -Wait -PassThru -NoNewWindow',
+        'if ($proc.ExitCode -eq 0) { Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue }',
         'exit $proc.ExitCode'
     ) -join "`r`n"
 
@@ -208,10 +213,35 @@ function Invoke-StageAnaconda {
     $publisher = "Anaconda, Inc."
 
     Write-Log ""
-    Write-Log "Detection path               : $InstallPath"
-    Write-Log "Detection file               : python.exe"
-    Write-Log ""
+    # The ARP DisplayVersion is the archive name (2026.07-1), which is not a
+    # dotted number, and the entry key embeds the bundled Python version. The
+    # detection script reads every Anaconda3 entry and compares year, month
+    # and build as three numbers.
+    $versionMatch = [regex]::Match($version, '^(?<year>\d{4})\.(?<month>\d{2})-(?<build>\d+)$')
+    if (-not $versionMatch.Success) { throw "Anaconda version '$version' is not in the YYYY.MM-N form." }
+    $minimum = '{0}.{1}.{2}' -f $versionMatch.Groups['year'].Value, [int]$versionMatch.Groups['month'].Value, [int]$versionMatch.Groups['build'].Value
+    $detectionScript = @(
+        "`$minimum = [version]'$minimum'"
+        '$base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)'
+        '$uninstall = $base.OpenSubKey(''SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'')'
+        'if ($uninstall) {'
+        '    foreach ($name in $uninstall.GetSubKeyNames()) {'
+        '        $key = $null'
+        '        try { $key = $uninstall.OpenSubKey($name); $displayName = [string]$key.GetValue(''DisplayName''); $displayVersion = [string]$key.GetValue(''DisplayVersion'') }'
+        '        catch { continue }'
+        '        finally { if ($key) { $key.Close() } }'
+        '        if (-not $displayName.StartsWith(''Anaconda3 '', [StringComparison]::OrdinalIgnoreCase)) { continue }'
+        '        $m = [regex]::Match($displayVersion, ''^(\d{4})\.(\d{2})-(\d+)$'')'
+        '        if (-not $m.Success) { continue }'
+        '        if ([version]("{0}.{1}.{2}" -f $m.Groups[1].Value, [int]$m.Groups[2].Value, [int]$m.Groups[3].Value) -ge $minimum) { Write-Output ''Installed''; exit 0 }'
+        '    }'
+        '}'
+        'exit 0'
+    ) -join "`r`n"
 
+    Write-Log ""
+    Write-Log "Detection                    : Anaconda3 uninstall entry with DisplayVersion >= $version"
+    Write-Log ""
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
     Write-StageManifest -Path $manifestPath -ManifestData @{
         AppName         = $appName
@@ -223,11 +253,9 @@ function Invoke-StageAnaconda {
         UninstallArgs   = "/S"
         RunningProcess  = @("anaconda-navigator", "python", "jupyter-notebook")
         Detection       = @{
-            Type         = "File"
-            FilePath     = $InstallPath
-            FileName     = "python.exe"
-            PropertyType = "Existence"
-            Is64Bit      = $true
+            Type           = "Script"
+            ScriptLanguage = "PowerShell"
+            ScriptText     = $detectionScript
         }
     }
 
@@ -267,8 +295,7 @@ function Invoke-PackageAnaconda {
     Write-Log "AppName                      : $($manifest.AppName)"
     Write-Log "Publisher                    : $($manifest.Publisher)"
     Write-Log "SoftwareVersion              : $($manifest.SoftwareVersion)"
-    Write-Log "Detection Path               : $($manifest.Detection.FilePath)"
-    Write-Log "Detection File               : $($manifest.Detection.FileName)"
+    Write-Log "Detection Type               : $($manifest.Detection.Type)"
     Write-Log ""
 
     if (-not (Test-NetworkShareAccess -Path $FileServerPath)) {

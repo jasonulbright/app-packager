@@ -17,8 +17,8 @@ ArpName: CPUID CPU-Z [0-9]* | CPU-Z [0-9]*
 .DESCRIPTION
     Reads the current version from the vendor product page, downloads the
     matching English Inno Setup installer, stages content to a versioned local
-    folder, and creates a ConfigMgr Application with file-existence detection on
-    the installed cpuz_x64.exe.
+    folder, and creates a ConfigMgr Application with registry-version detection on
+    the uninstall entry.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
@@ -100,7 +100,6 @@ $AppFolder    = "CPU-Z"
 
 $BaseDownloadRoot = Join-Path $DownloadRoot "CPU-Z"
 
-$InstallDir = "{0}\CPUID\CPU-Z" -f $env:ProgramFiles
 
 # --- Functions ---
 
@@ -286,8 +285,7 @@ exit $proc.ExitCode
     $publisher = "CPUID"
 
     Write-Log ""
-    Write-Log "Detection path               : $InstallDir"
-    Write-Log "Detection file               : cpuz_x64.exe"
+    Write-Log "Detection key                : Uninstall\CPUID CPU-Z_is1 DisplayVersion >= $version"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -301,11 +299,13 @@ exit $proc.ExitCode
         UninstallArgs   = "/VERYSILENT /NORESTART"
         RunningProcess  = @("cpuz")
         Detection       = @{
-            Type         = "File"
-            FilePath     = $InstallDir
-            FileName     = "cpuz_x64.exe"
-            PropertyType = "Existence"
-            Is64Bit      = $true
+            Type                = "RegistryKeyValue"
+            RegistryKeyRelative = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CPUID CPU-Z_is1"
+            ValueName           = "DisplayVersion"
+            PropertyType        = "Version"
+            Operator            = "GreaterEquals"
+            ExpectedValue       = $version
+            Is64Bit             = $true
         }
     }
 
@@ -348,8 +348,8 @@ function Invoke-PackageCpuZ {
     Write-Log "AppName                      : $($manifest.AppName)"
     Write-Log "Publisher                    : $($manifest.Publisher)"
     Write-Log "SoftwareVersion              : $($manifest.SoftwareVersion)"
-    Write-Log "Detection Path               : $($manifest.Detection.FilePath)"
-    Write-Log "Detection File               : $($manifest.Detection.FileName)"
+    Write-Log "Detection Key                : $($manifest.Detection.RegistryKeyRelative)"
+    Write-Log "Detection Value              : $($manifest.Detection.ValueName)"
     Write-Log ""
 
     # --- Network share ---

@@ -17,7 +17,7 @@ ArpName: AIMP*
 .DESCRIPTION
     Resolves the current stable x64 installer through the vendor's download
     redirector, stages content to a versioned local folder, and creates an
-    ConfigMgr Application with file-existence detection on the installed AIMP.exe.
+    ConfigMgr Application with registry-version detection on the uninstall entry.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
@@ -103,7 +103,6 @@ $AppFolder    = "AIMP"
 
 $BaseDownloadRoot = Join-Path $DownloadRoot "AIMP"
 
-$InstallDir = "{0}\AIMP" -f $env:ProgramFiles
 
 # --- Functions ---
 
@@ -234,7 +233,7 @@ function Invoke-StageAimp {
 
     # --- Generate content wrappers ---
     $wrappers = New-ExeWrapperContent -InstallerFileName $installerFileName `
-        -InstallArgs "'/SILENT'" `
+        -InstallArgs "'/AUTO','/SILENT'" `
         -UninstallCommand 'unused'
 
     # The installer places its uninstaller in the install directory it chose,
@@ -256,7 +255,7 @@ foreach ($root in $keys) {
 if (-not $cmd) { exit 0 }
 if ($cmd -match '^"([^"]+)"') { $exe = $matches[1] } else { $exe = $cmd.Trim() }
 if (-not (Test-Path -LiteralPath $exe)) { exit 0 }
-$proc = Start-Process -FilePath $exe -ArgumentList @('/SILENT') -Wait -PassThru -NoNewWindow
+$proc = Start-Process -FilePath $exe -ArgumentList @('/AUTO','/SILENT') -Wait -PassThru -NoNewWindow
 exit $proc.ExitCode
 '@
 
@@ -266,8 +265,7 @@ exit $proc.ExitCode
 
     # --- Write stage manifest ---
     Write-Log ""
-    Write-Log "Detection path               : $InstallDir"
-    Write-Log "Detection file               : AIMP.exe"
+    Write-Log "Detection key                : Uninstall\AIMP DisplayVersion >= $version"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -277,15 +275,17 @@ exit $proc.ExitCode
         SoftwareVersion = $version
         InstallerFile   = $installerFileName
         InstallerType   = "EXE"
-        InstallArgs     = "/SILENT"
-        UninstallArgs   = "/SILENT"
+        InstallArgs     = "/AUTO /SILENT"
+        UninstallArgs   = "/AUTO /SILENT"
         RunningProcess  = @("AIMP")
         Detection       = @{
-            Type         = "File"
-            FilePath     = $InstallDir
-            FileName     = "AIMP.exe"
-            PropertyType = "Existence"
-            Is64Bit      = $true
+            Type                = "RegistryKeyValue"
+            RegistryKeyRelative = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\AIMP"
+            ValueName           = "DisplayVersion"
+            PropertyType        = "Version"
+            Operator            = "GreaterEquals"
+            ExpectedValue       = $version
+            Is64Bit             = $true
         }
     }
 
@@ -328,8 +328,8 @@ function Invoke-PackageAimp {
     Write-Log "AppName                      : $($manifest.AppName)"
     Write-Log "Publisher                    : $($manifest.Publisher)"
     Write-Log "SoftwareVersion              : $($manifest.SoftwareVersion)"
-    Write-Log "Detection Path               : $($manifest.Detection.FilePath)"
-    Write-Log "Detection File               : $($manifest.Detection.FileName)"
+    Write-Log "Detection Key                : $($manifest.Detection.RegistryKeyRelative)"
+    Write-Log "Detection Value              : $($manifest.Detection.ValueName)"
     Write-Log ""
 
     # --- Network share ---

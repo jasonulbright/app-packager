@@ -16,7 +16,7 @@ ArpName: none
 
 .DESCRIPTION
     Downloads the latest Sysinternals Suite ZIP from Microsoft, stages content to
-    a versioned local folder with file-existence detection metadata, and creates
+    a versioned local folder with registry-version detection metadata, and creates
     a ConfigMgr Application.
 
     Supports two-phase operation:
@@ -100,6 +100,7 @@ if ($StageOnly -and $PackageOnly) {
 # --- Configuration ---
 $ZipDownloadUrl = "https://download.sysinternals.com/files/SysinternalsSuite.zip"
 $ZipFileName    = "SysinternalsSuite.zip"
+$DetectionRegistryPath = 'HKLM:\SOFTWARE\App Packager\Sysinternals Suite'
 
 $VendorFolder = "Microsoft"
 $AppFolder    = "Sysinternals Suite"
@@ -189,13 +190,18 @@ function Invoke-StageSysinternals {
         "try {"
         "    if (-not (Test-Path `$installDir)) { New-Item -Path `$installDir -ItemType Directory -Force -ErrorAction Stop | Out-Null }"
         "    Expand-Archive -Path `$zipPath -DestinationPath `$installDir -Force -ErrorAction Stop"
+        "    New-Item -Path '$DetectionRegistryPath' -Force -ErrorAction Stop | Out-Null"
+        "    New-ItemProperty -Path '$DetectionRegistryPath' -Name Version -Value '$version' -PropertyType String -Force -ErrorAction Stop | Out-Null"
         "} catch { [Console]::Error.WriteLine(`$_.Exception.Message); exit 1 }"
         "exit 0"
     ) -join "`r`n"
 
     $uninstallPs1 = @(
         "`$installDir = Join-Path `$env:ProgramFiles 'Sysinternals'"
-        "try { if (Test-Path `$installDir) { Remove-Item -Path `$installDir -Recurse -Force -ErrorAction Stop } } catch { [Console]::Error.WriteLine(`$_.Exception.Message); exit 1 }"
+        "try {"
+        "    if (Test-Path `$installDir) { Remove-Item -Path `$installDir -Recurse -Force -ErrorAction Stop }"
+        "    if (Test-Path '$DetectionRegistryPath') { Remove-Item -Path '$DetectionRegistryPath' -Recurse -Force -ErrorAction Stop }"
+        "} catch { [Console]::Error.WriteLine(`$_.Exception.Message); exit 1 }"
         "exit 0"
     ) -join "`r`n"
 
@@ -204,13 +210,10 @@ function Invoke-StageSysinternals {
         -UninstallPs1Content $uninstallPs1
 
     # --- Write stage manifest ---
-    $detectionPath = "{0}\Sysinternals" -f $env:ProgramFiles
-
     $appName   = "Sysinternals Suite $version"
     $publisher = "Microsoft Corporation"
 
-    Write-Log "Detection path               : $detectionPath"
-    Write-Log "Detection file               : procmon.exe"
+    Write-Log "Detection key                : $DetectionRegistryPath Version >= $version"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -224,11 +227,13 @@ function Invoke-StageSysinternals {
         UninstallArgs   = ""
         RunningProcess  = @()
         Detection       = @{
-            Type         = "File"
-            FilePath     = $detectionPath
-            FileName     = "procmon.exe"
-            PropertyType = "Existence"
-            Is64Bit      = $true
+            Type                = "RegistryKeyValue"
+            RegistryKeyRelative = ($DetectionRegistryPath -replace '^HKLM:\\', '')
+            ValueName           = "Version"
+            PropertyType        = "Version"
+            Operator            = "GreaterEquals"
+            ExpectedValue       = $version
+            Is64Bit             = $true
         }
     }
 

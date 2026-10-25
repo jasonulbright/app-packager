@@ -109,10 +109,13 @@ $AppFolder    = "CutePDF Writer"
 
 $BaseDownloadRoot = Join-Path $DownloadRoot "CutePDFWriter"
 
-# DisplayVersion is a fixed marketing label with padding (" 4.0") that does not
-# follow the installer's ProductVersion, so no value comparison can match; the
-# key is removed with the product, so its existence is the installed state.
+# DisplayVersion is a fixed marketing label with padding (" 4.0") and the
+# installed files carry component versions that differ from the installer's
+# version, so the install writes the installer version under a marker key and
+# the uninstall removes it. The uninstall entry is the second condition, so a
+# product removed by other means is not detected.
 $DetectionRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CutePDF Writer Installation"
+$MarkerRegistryKey = "SOFTWARE\App Packager\CutePDF Writer"
 
 # --- Functions ---
 
@@ -152,8 +155,10 @@ function Get-CutePdfWriterExeVersion {
 function Get-CutePdfWriterUninstallContent {
     return (
         '$uninstaller = Join-Path ${env:ProgramFiles(x86)} ''CutePDF Writer\unInstcpw64.exe''',
-        'if (-not (Test-Path -LiteralPath $uninstaller)) { exit 0 }',
+        ('$marker = ''HKLM:\{0}''' -f $MarkerRegistryKey),
+        'if (-not (Test-Path -LiteralPath $uninstaller)) { Remove-Item -LiteralPath $marker -Recurse -Force -ErrorAction SilentlyContinue; exit 0 }',
         '$proc = Start-Process -FilePath $uninstaller -ArgumentList @(''/uninstall'', ''/s'') -Wait -PassThru -NoNewWindow',
+        'if ($proc.ExitCode -eq 0) { Remove-Item -LiteralPath $marker -Recurse -Force -ErrorAction SilentlyContinue }',
         'exit $proc.ExitCode'
     ) -join "`r`n"
 }
@@ -213,12 +218,16 @@ function Invoke-StageCutePdfWriter {
         -InstallArgs "'/SP-', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'" `
         -UninstallCommand 'unused'
 
+    $markerCommand = "if (`$proc.ExitCode -eq 0) {{ New-Item -Path 'HKLM:\{0}' -Force -ErrorAction Stop | Out-Null; New-ItemProperty -Path 'HKLM:\{0}' -Name Version -Value '{1}' -PropertyType String -Force -ErrorAction Stop | Out-Null }}" -f $MarkerRegistryKey, $version
+    $installContent = $wrapperContent.Install -replace '(?m)^exit \$proc\.ExitCode\s*$', ($markerCommand + "`r`nexit `$proc.ExitCode")
+    if ($installContent -eq $wrapperContent.Install) { throw "The install wrapper no longer ends with 'exit `$proc.ExitCode'." }
+
     Write-ContentWrappers -OutputPath $localContentPath `
-        -InstallPs1Content $wrapperContent.Install `
+        -InstallPs1Content $installContent `
         -UninstallPs1Content (Get-CutePdfWriterUninstallContent)
 
     # --- Write stage manifest ---
-    Write-Log "Detection key exists         : HKLM\$DetectionRegistryKey"
+    Write-Log "Detection                    : HKLM\$DetectionRegistryKey exists and HKLM\$MarkerRegistryKey Version >= $version"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -233,9 +242,23 @@ function Invoke-StageCutePdfWriter {
         UninstallArgs   = "/uninstall /s"
         RunningProcess  = @()
         Detection       = @{
-            Type                = "RegistryKey"
-            RegistryKeyRelative = $DetectionRegistryKey
-            Is64Bit             = $true
+            Type    = "Compound"
+            Clauses = @(
+                @{
+                    Type                = "RegistryKey"
+                    RegistryKeyRelative = $DetectionRegistryKey
+                    Is64Bit             = $true
+                },
+                @{
+                    Type                = "RegistryKeyValue"
+                    RegistryKeyRelative = $MarkerRegistryKey
+                    ValueName           = "Version"
+                    PropertyType        = "Version"
+                    Operator            = "GreaterEquals"
+                    ExpectedValue       = $version
+                    Is64Bit             = $true
+                }
+            )
         }
     }
 
@@ -276,7 +299,7 @@ function Invoke-PackageCutePdfWriter {
     Write-Log "AppName                      : $($manifest.AppName)"
     Write-Log "Publisher                    : $($manifest.Publisher)"
     Write-Log "SoftwareVersion              : $($manifest.SoftwareVersion)"
-    Write-Log "Detection Key                : $($manifest.Detection.RegistryKeyRelative)"
+    Write-Log "Detection Type               : $($manifest.Detection.Type)"
     Write-Log ""
 
     # --- Network share ---

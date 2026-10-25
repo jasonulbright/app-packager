@@ -1583,6 +1583,9 @@ function Show-CollectionPickerDialog {
 
     & $rebuildTree ''
 
+    # The highlighted collection is a candidate only. It becomes the result
+    # when ShowDialog returns $true; the Cancel button, the close button and
+    # Alt+F4 all leave DialogResult unset or $false.
     $script:PickerResult = $null
     $treePicker.Add_SelectedItemChanged({
         $node = $treePicker.SelectedItem
@@ -1604,13 +1607,15 @@ function Show-CollectionPickerDialog {
         }
     })
     $btnCancel.Add_Click({
-        $script:PickerResult = $null
         $dlg.DialogResult = $false
         $dlg.Close()
     })
 
-    [void]$dlg.ShowDialog()
-    return $script:PickerResult
+    $accepted = $dlg.ShowDialog()
+    $picked = $script:PickerResult
+    $script:PickerResult = $null
+    if ($accepted -eq $true) { return $picked }
+    return $null
 }
 
 # =============================================================================
@@ -1853,6 +1858,28 @@ function Get-SuiteUpdateDownload {
     }
 }
 
+function ConvertTo-SuiteNativeArgument {
+    # Start-Process joins -ArgumentList elements with single spaces and adds no
+    # quotes, so a path holding a space reaches the child as several arguments.
+    # This applies the CommandLineToArgvW rules: backslashes double only in
+    # front of a quote, and a trailing run doubles before the closing quote.
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Value)
+    $slash = [char]92
+    $builder = New-Object System.Text.StringBuilder
+    [void]$builder.Append('"')
+    $backslashes = 0
+    foreach ($ch in $Value.ToCharArray()) {
+        if ($ch -eq [char]'\') { $backslashes++; continue }
+        if ($ch -eq [char]'"') { [void]$builder.Append($slash, ($backslashes * 2 + 1)) }
+        else { [void]$builder.Append($slash, $backslashes) }
+        $backslashes = 0
+        [void]$builder.Append($ch)
+    }
+    [void]$builder.Append($slash, ($backslashes * 2))
+    [void]$builder.Append('"')
+    return $builder.ToString()
+}
+
 function Start-SuiteUpdateInstaller {
     <#
     .SYNOPSIS
@@ -1876,12 +1903,12 @@ function Start-SuiteUpdateInstaller {
         ('$p = Start-Process -FilePath ' + "'" + $quotedInstaller + "'" + ' -ArgumentList ' + "'/S'" + ' -PassThru -Wait')
     )
     if ($Relaunch) {
-        $quotedRelaunch = $Relaunch.Replace("'", "''")
+        $quotedRelaunch = (ConvertTo-SuiteNativeArgument -Value $Relaunch).Replace("'", "''")
         $lines += ('if ($p.ExitCode -eq 0) { Start-Process -FilePath ' + "'powershell.exe'" + ' -ArgumentList ' + "'-NoProfile','-ExecutionPolicy','Bypass','-File','" + $quotedRelaunch + "'" + ' }')
     }
     $bootstrap = Join-Path ([IO.Path]::GetTempPath()) ('suite-update-' + [guid]::NewGuid().ToString('N') + '.ps1')
     Set-Content -LiteralPath $bootstrap -Value ($lines -join "`r`n") -Encoding UTF8
-    Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', $bootstrap | Out-Null
+    Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', (ConvertTo-SuiteNativeArgument -Value $bootstrap) | Out-Null
     return $bootstrap
 }
 

@@ -17,7 +17,7 @@ ArpName: Rainmeter
 .DESCRIPTION
     Resolves the latest Rainmeter installer from the GitHub releases API, stages
     content to a versioned local folder, and creates a ConfigMgr Application with
-    file-existence detection.
+    file-version detection.
 
     The vendor ships a single installer that carries both architectures and
     selects one through /VERSION.
@@ -249,11 +249,13 @@ function Invoke-StageRainmeter {
         UninstallArgs   = "/S"
         RunningProcess  = @("Rainmeter")
         Detection       = @{
-            Type         = "File"
-            FilePath     = $InstallPath
-            FileName     = "Rainmeter.exe"
-            PropertyType = "Existence"
-            Is64Bit      = $true
+            Type          = "File"
+            FilePath      = $InstallPath
+            FileName      = "Rainmeter.exe"
+            PropertyType  = "Version"
+            Operator      = "GreaterEquals"
+            ExpectedValue = $version
+            Is64Bit       = $true
         }
     }
 

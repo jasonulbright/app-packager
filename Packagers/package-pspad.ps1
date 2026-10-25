@@ -17,7 +17,7 @@ ArpName: PSPad*
 .DESCRIPTION
     Resolves the current PSPad release from the vendor download page, downloads
     the x64 InnoSetup installer, stages content to a versioned local folder, and
-    creates a ConfigMgr Application with file-existence detection.
+    creates a ConfigMgr Application with file-version detection.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
@@ -249,11 +249,13 @@ function Invoke-StagePSPad {
         UninstallArgs   = "/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
         RunningProcess  = @("PSPad")
         Detection       = @{
-            Type         = "File"
-            FilePath     = $InstallPath
-            FileName     = "PSPad.exe"
-            PropertyType = "Existence"
-            Is64Bit      = $true
+            Type          = "File"
+            FilePath      = $InstallPath
+            FileName      = "PSPad.exe"
+            PropertyType  = "Version"
+            Operator      = "GreaterEquals"
+            ExpectedValue = $version
+            Is64Bit       = $true
         }
     }
 
