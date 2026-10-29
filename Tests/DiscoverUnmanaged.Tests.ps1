@@ -405,7 +405,7 @@ Describe 'Discover wiring in the GUI' {
 
     It 'places the Discover button right after Check ConfigMgr in the same style' {
         $script:Xaml | Should -Match '(?s)x:Name="btnCheckMECM".*?/>\s*(<!--[^>]*-->\s*)?<Button x:Name="btnDiscover"\s+Style="\{StaticResource WorkflowButtonStyle\}"'
-        $script:Xaml | Should -Match '(?s)x:Name="btnDiscover".*?<TextBlock Text="Discover unmanaged software" TextWrapping="Wrap"/>\s*</Button>'
+        $script:Xaml | Should -Match '(?s)x:Name="btnDiscover".*?<TextBlock Text="Discover Unmanaged Software" TextWrapping="Wrap"/>\s*</Button>'
     }
 
     It 'imports the discovery module in the GUI and in the background runspace' {
