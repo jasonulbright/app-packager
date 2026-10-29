@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026.10.29.0123] - 2026-10-29
+
+## 2 fixes
+
+### Fixed
+
+- Keep ConfigMgr discovery result tables intact when query output includes other values.
+- Capitalize Discover Unmanaged Software in its button and dialog.
+
 ## [2026.10.25.0122] - 2026-10-25
 
 ## 29 fixes and changes

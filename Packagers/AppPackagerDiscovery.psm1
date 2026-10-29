@@ -339,10 +339,14 @@ function Get-DiscoveryResultTable {
         strict mode when it is not exactly one DataSet.
     #>
     param($Result)
+    $tables = New-Object 'System.Collections.Generic.List[System.Data.DataTable]'
     foreach ($item in @($Result)) {
-        if ($item -is [System.Data.DataSet]) { foreach ($t in $item.Tables) { $t } }
-        elseif ($item -is [System.Data.DataTable]) { $item }
+        if ($item -is [System.Data.DataSet]) {
+            foreach ($table in $item.Tables) { [void]$tables.Add($table) }
+        }
+        elseif ($item -is [System.Data.DataTable]) { [void]$tables.Add($item) }
     }
+    return ,$tables
 }
 
 function Get-CMInventorySnapshot {
@@ -370,7 +374,7 @@ function Get-CMInventorySnapshot {
         throw (New-Object System.InvalidOperationException -ArgumentList $message, $_.Exception)
     }
 
-    $tables = @(Get-DiscoveryResultTable -Result $dataSet)
+    $tables = Get-DiscoveryResultTable -Result $dataSet
     if ($tables.Count -lt 2) {
         $shape = if ($null -eq $dataSet) { 'nothing' } else { (@($dataSet | ForEach-Object { if ($null -eq $_) { 'null' } else { $_.GetType().Name } }) -join ', ') }
         throw "The site database query on $Server returned an unexpected result: $($tables.Count) result table(s) found, received $shape."
