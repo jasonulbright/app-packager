@@ -190,7 +190,7 @@
                         <!-- The label wraps: one line is wider than the sidebar once its scroll bar shows. -->
                         <Button x:Name="btnDiscover"    Style="{StaticResource WorkflowButtonStyle}"
                                 ToolTip="Find hidden apps that hardware inventory shows installed on clients and that have no ConfigMgr application">
-                            <TextBlock Text="Discover unmanaged software" TextWrapping="Wrap"/>
+                            <TextBlock Text="Discover Unmanaged Software" TextWrapping="Wrap"/>
                         </Button>
                         <Button x:Name="btnCheckCve"    Content="Check CVEs"      Style="{StaticResource WorkflowButtonStyle}"
                                 ToolTip="Look up the CVEs fixed by updating each checked app from its ConfigMgr version to the latest version. Needs both versions and a CPE header."/>

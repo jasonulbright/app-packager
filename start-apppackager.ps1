@@ -9740,7 +9740,7 @@ function Show-DiscoveryDialog {
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
-    Title="Discover unmanaged software" Width="860" Height="520" MinWidth="700" MinHeight="360"
+    Title="Discover Unmanaged Software" Width="860" Height="520" MinWidth="700" MinHeight="360"
     WindowStartupLocation="CenterOwner" TitleCharacterCasing="Normal"
     ShowIconOnTitleBar="False" GlowBrush="{DynamicResource MahApps.Brushes.Accent}" BorderThickness="1">
     <Window.Resources>
