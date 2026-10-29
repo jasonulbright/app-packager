@@ -330,6 +330,21 @@ function Get-DiscoveryCellValue {
     return $value
 }
 
+function Get-DiscoveryResultTable {
+    <#
+    .SYNOPSIS
+        The result tables of a query result, in order. The result may arrive
+        as a DataSet, as its tables, or inside an array that also holds other
+        pipeline output; reading .Tables from the raw value throws under
+        strict mode when it is not exactly one DataSet.
+    #>
+    param($Result)
+    foreach ($item in @($Result)) {
+        if ($item -is [System.Data.DataSet]) { foreach ($t in $item.Tables) { $t } }
+        elseif ($item -is [System.Data.DataTable]) { $item }
+    }
+}
+
 function Get-CMInventorySnapshot {
     <#
     .SYNOPSIS
@@ -355,11 +370,13 @@ function Get-CMInventorySnapshot {
         throw (New-Object System.InvalidOperationException -ArgumentList $message, $_.Exception)
     }
 
-    if (-not $dataSet -or $dataSet.Tables.Count -lt 2) {
-        throw "The site database query on $Server returned an unexpected result."
+    $tables = @(Get-DiscoveryResultTable -Result $dataSet)
+    if ($tables.Count -lt 2) {
+        $shape = if ($null -eq $dataSet) { 'nothing' } else { (@($dataSet | ForEach-Object { if ($null -eq $_) { 'null' } else { $_.GetType().Name } }) -join ', ') }
+        throw "The site database query on $Server returned an unexpected result: $($tables.Count) result table(s) found, received $shape."
     }
 
-    $rows = @(foreach ($r in $dataSet.Tables[0].Rows) {
+    $rows = @(foreach ($r in $tables[0].Rows) {
         [pscustomobject]@{
             DisplayName  = [string](Get-DiscoveryCellValue $r 'DisplayName')
             Version      = [string](Get-DiscoveryCellValue $r 'Version')
@@ -367,7 +384,7 @@ function Get-CMInventorySnapshot {
         }
     })
 
-    $applications = @(foreach ($r in $dataSet.Tables[1].Rows) {
+    $applications = @(foreach ($r in $tables[1].Rows) {
             $name = [string](Get-DiscoveryCellValue $r 'DisplayName')
             if ($name) { $name }
         })

@@ -443,6 +443,22 @@ Describe 'Get-CMInventorySnapshot' {
         @($s.Applications).Count | Should -Be 0
     }
 
+    It 'reads the result tables when the query result arrives with other pipeline output' {
+        Mock -ModuleName AppPackagerDiscovery Invoke-DiscoverySqlQuery {
+            2
+            New-SnapshotDataSet -ArpRows @(, @(0, 'TortoiseGit', 'Pub', '2.19.1.0', 'x64')) -Applications @('TortoiseGit 2.19.1.0 (64 bit)')
+        }
+        $s = Get-CMInventorySnapshot -Server 's' -Database 'd'
+        @($s.Rows).Count | Should -Be 1
+        @($s.Applications) | Should -Be @('TortoiseGit 2.19.1.0 (64 bit)')
+    }
+
+    It 'names what it received when the query result holds no result tables' {
+        Mock -ModuleName AppPackagerDiscovery Invoke-DiscoverySqlQuery { 'oops' }
+        { Get-CMInventorySnapshot -Server 's' -Database 'd' } |
+            Should -Throw -ExpectedMessage '*0 result table(s)*received String*'
+    }
+
     It 'reports a denied login in plain words' {
         Mock -ModuleName AppPackagerDiscovery Invoke-DiscoverySqlQuery {
             throw [DiscoveryTestSqlError]::new(18456, "Login failed for user 'CONTOSO\jdoe'.")
