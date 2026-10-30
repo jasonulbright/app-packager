@@ -31,11 +31,21 @@ The maintainer writes the `CHANGELOG.md` entry. Commit the file exactly as writt
 
 Entry shape: `## [<ver>] - <yyyy-MM-dd>`, then `###` sections by kind of change. Bullets are verb-first, one change per line, at most 15 plain words, with no file names, ticket references or rationale. A bugfix-only release may be the single line `- Various bug fixes.`
 
-## 4. Tag and push
+## 4. Merge, tag and push
+
+Do the release work from sections 2 and 3 on a branch, not on `main`:
 
 ```bash
+git switch -c chore/release-<ver>
+git push -u origin chore/release-<ver>
+```
+
+Open a pull request into `main`. Wait for the CodeRabbit review and CI to finish, then squash-merge it. Do not push `main` directly. Then create the tag on the merged commit and push only the tag:
+
+```bash
+git switch main && git pull --ff-only origin main
 git tag -a v<ver> -m v<ver>
-git push origin main v<ver>
+git push origin v<ver>
 ```
 
 The tag is annotated and its message is the tag name.
