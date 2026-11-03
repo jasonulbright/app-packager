@@ -680,7 +680,7 @@ Describe 'Invoke-StageFinalization with a profile' {
             New-Item -ItemType Junction -Path $link -Target $realTarget -ErrorAction Stop | Out-Null
             $created = $true
         }
-        catch { }
+        catch { <# The test skips itself when the host cannot create a junction. #> $null = $_ }
         if (-not $created) {
             Set-ItResult -Skipped -Because 'this host cannot create a junction'
             return

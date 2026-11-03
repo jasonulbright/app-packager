@@ -1726,7 +1726,7 @@ function Get-MsiIconBytes {
     finally {
         foreach ($comObject in @($database, $installer)) {
             if ($comObject) {
-                try { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($comObject) } catch { }
+                try { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($comObject) } catch { <# Releasing or disposing an object is cleanup. #> $null = $_ }
             }
         }
     }
@@ -1907,7 +1907,7 @@ function Get-InstallerIcon {
         }
         finally {
             foreach ($disposable in @($bitmap, $sourceBitmap, $icon, $stream)) {
-                if ($disposable) { try { $disposable.Dispose() } catch { } }
+                if ($disposable) { try { $disposable.Dispose() } catch { <# Releasing or disposing an object is cleanup. #> $null = $_ } }
             }
         }
     }
@@ -1952,7 +1952,7 @@ function Get-InstallerIcon {
             catch { continue }
             finally {
                 foreach ($disposable in @($bitmap, $sourceBitmap, $icon, $stream)) {
-                    if ($disposable) { try { $disposable.Dispose() } catch { } }
+                    if ($disposable) { try { $disposable.Dispose() } catch { <# Releasing or disposing an object is cleanup. #> $null = $_ } }
                 }
             }
             if ((Get-Item -LiteralPath $pngPath).Length -le $maxIconBytes) {
@@ -4993,7 +4993,7 @@ function New-IntuneWinPackage {
         $stdOutTask = $proc.StandardOutput.ReadToEndAsync()
         $stdErrTask = $proc.StandardError.ReadToEndAsync()
         if (-not $proc.WaitForExit($TimeoutSec * 1000)) {
-            try { $proc.Kill() } catch { }
+            try { $proc.Kill() } catch { <# Killing a timed-out process is best-effort; the timeout is reported after. #> $null = $_ }
             throw ("IntuneWinAppUtil.exe did not finish within {0}s; process terminated." -f $TimeoutSec)
         }
         $sw.Stop()

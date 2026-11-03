@@ -441,7 +441,7 @@ function Invoke-StageAdobeReader {
         }
     }
     finally {
-        if ($extractProc) { try { $extractProc.Dispose() } catch { } }
+        if ($extractProc) { try { $extractProc.Dispose() } catch { <# Disposing the process object is cleanup. #> $null = $_ } }
     }
 
     if ($installPlan.Mode -eq 'FullExePlusPatch') {

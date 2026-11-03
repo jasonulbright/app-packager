@@ -197,7 +197,7 @@ function Invoke-StageWinSCP {
         Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localExe -ExtraCurlArgs @('-L', '--max-redirs', '10')
 
         if (-not (Test-DownloadedInstaller -Path $localExe)) {
-            try { Remove-Item -LiteralPath $localExe -Force -ErrorAction SilentlyContinue } catch {}
+            try { Remove-Item -LiteralPath $localExe -Force -ErrorAction SilentlyContinue } catch { <# Removing the invalid download is cleanup; the code throws a validation error right after. #> $null = $_ }
             throw "Downloaded file did not validate as installer (too small or HTML content)."
         }
 
