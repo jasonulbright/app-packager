@@ -199,7 +199,7 @@ function Set-CliArgumentList {
         [Parameter(Mandatory)][AllowEmptyString()][string[]]$Arguments
     )
     if ($StartInfo.GetType().GetProperty('ArgumentList')) {
-        try { $StartInfo.ArgumentList.Clear() } catch { }
+        try { $StartInfo.ArgumentList.Clear() } catch { <# Clearing the ArgumentList is best-effort; the next step sets the arguments. #> $null = $_ }
         foreach ($argument in $Arguments) { [void]$StartInfo.ArgumentList.Add($argument) }
         return
     }

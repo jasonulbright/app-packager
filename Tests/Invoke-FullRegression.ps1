@@ -117,8 +117,8 @@ function Invoke-RegressionProcess {
     $timedOut = $false
     if (-not $process.WaitForExit($TimeoutSec * 1000)) {
         $timedOut = $true
-        try { & taskkill.exe /PID $process.Id /T /F 2>&1 | Out-Null } catch { }
-        try { if (-not $process.HasExited) { $process.Kill() } } catch { }
+        try { & taskkill.exe /PID $process.Id /T /F 2>&1 | Out-Null } catch { <# Killing a timed-out process tree is best-effort; the code records the timeout. #> $null = $_ }
+        try { if (-not $process.HasExited) { $process.Kill() } } catch { <# Killing a timed-out process tree is best-effort; the code records the timeout. #> $null = $_ }
         $process.WaitForExit()
     }
 

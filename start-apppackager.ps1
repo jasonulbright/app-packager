@@ -382,7 +382,7 @@ function Read-Preferences {
             }
             $ttl = 0
             if ([int]::TryParse([string]$vu.CacheTtlMinutes, [ref]$ttl) -and $ttl -ge 0) { $defaults.Vulnerability.CacheTtlMinutes = $ttl }
-            if ($null -ne $vu.LookupAfterCheckCm) { try { $defaults.Vulnerability.LookupAfterCheckCm = [bool]$vu.LookupAfterCheckCm } catch { } }
+            if ($null -ne $vu.LookupAfterCheckCm) { try { $defaults.Vulnerability.LookupAfterCheckCm = [bool]$vu.LookupAfterCheckCm } catch { <# Reading a boolean setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
         }
 
         if ($null -ne $data.SiteCode)             { $defaults.SiteCode             = [string]$data.SiteCode }
@@ -434,7 +434,7 @@ function Read-Preferences {
             }
             foreach ($prop in @('DownloadThenInstall','NoUpdateInstaller','IncludeRecommended','IncludeOptional','RemoveOos','ForceClose')) {
                 if ($null -ne $ssms.$prop) {
-                    try { $defaults.SSMSInstallOptions.$prop = [bool]$ssms.$prop } catch { }
+                    try { $defaults.SSMSInstallOptions.$prop = [bool]$ssms.$prop } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ }
                 }
             }
             if ($null -ne $ssms.InstallPath) { $defaults.SSMSInstallOptions.InstallPath = [string]$ssms.InstallPath }
@@ -444,7 +444,7 @@ function Read-Preferences {
             $dbv = $data.DBeaverInstallOptions
             if ([string]$dbv.InstallScope -in @('System','User')) { $defaults.DBeaverInstallOptions.InstallScope = [string]$dbv.InstallScope }
             if ($null -ne $dbv.DisableAI) {
-                try { $defaults.DBeaverInstallOptions.DisableAI = [bool]$dbv.DisableAI } catch { }
+                try { $defaults.DBeaverInstallOptions.DisableAI = [bool]$dbv.DisableAI } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ }
             }
         }
 
@@ -481,10 +481,10 @@ function Read-Preferences {
         if ($null -ne $data.DiscoverySqlDatabase) { $defaults.DiscoverySqlDatabase = ([string]$data.DiscoverySqlDatabase).Trim() }
         $defaults.FirstRunCompleted = Resolve-FirstRunCompleted -StoredValue $data.FirstRunCompleted -PreferencesFileExisted $true
         if ($null -ne $data.IncludeVersionInTitle) {
-            try { $defaults.IncludeVersionInTitle = [bool]$data.IncludeVersionInTitle } catch { }
+            try { $defaults.IncludeVersionInTitle = [bool]$data.IncludeVersionInTitle } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ }
         }
         if ($null -ne $data.RemoveVersionFromTitle) {
-            try { $defaults.RemoveVersionFromTitle = [bool]$data.RemoveVersionFromTitle } catch { }
+            try { $defaults.RemoveVersionFromTitle = [bool]$data.RemoveVersionFromTitle } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ }
         }
 
         # AppFlow: 1-click Full Run settings. Schema is additive; missing key
@@ -520,7 +520,7 @@ function Read-Preferences {
             }
 
             if ($null -ne $af.ForceOnLaunch) {
-                try { $defaults.AppFlow.ForceOnLaunch = [bool]$af.ForceOnLaunch } catch { }
+                try { $defaults.AppFlow.ForceOnLaunch = [bool]$af.ForceOnLaunch } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ }
             }
 
             if ($null -ne $af.Destinations) {
@@ -537,7 +537,7 @@ function Read-Preferences {
             }
             if ($null -ne $af.DefaultDestinations) {
                 foreach ($name in @('ConfigMgr', 'WSUS', 'Intune')) {
-                    if ($null -ne $af.DefaultDestinations.PSObject.Properties[$name]) { try { $defaults.AppFlow.DefaultDestinations.$name = [bool]$af.DefaultDestinations.$name } catch { } }
+                    if ($null -ne $af.DefaultDestinations.PSObject.Properties[$name]) { try { $defaults.AppFlow.DefaultDestinations.$name = [bool]$af.DefaultDestinations.$name } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
                 }
             }
             elseif ($null -ne $data.Intune -and $null -ne $data.Intune.DeploymentTarget) {
@@ -555,25 +555,25 @@ function Read-Preferences {
         if ($null -ne $data.ContentDistribution) {
             $cd = $data.ContentDistribution
             if ($null -ne $cd.AutoDistribute) {
-                try { $defaults.ContentDistribution.AutoDistribute = [bool]$cd.AutoDistribute } catch { }
+                try { $defaults.ContentDistribution.AutoDistribute = [bool]$cd.AutoDistribute } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ }
             }
             if ($null -ne $cd.DPGroupName) {
                 $defaults.ContentDistribution.DPGroupName = [string]$cd.DPGroupName
             }
             if ($null -ne $cd.DeployToTestCollection) {
-                try { $defaults.ContentDistribution.DeployToTestCollection = [bool]$cd.DeployToTestCollection } catch { }
+                try { $defaults.ContentDistribution.DeployToTestCollection = [bool]$cd.DeployToTestCollection } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ }
             }
             if ($null -ne $cd.TestCollectionName) {
                 $defaults.ContentDistribution.TestCollectionName = [string]$cd.TestCollectionName
             }
             if ($null -ne $cd.CreateTestCollectionIfMissing) {
-                try { $defaults.ContentDistribution.CreateTestCollectionIfMissing = [bool]$cd.CreateTestCollectionIfMissing } catch { }
+                try { $defaults.ContentDistribution.CreateTestCollectionIfMissing = [bool]$cd.CreateTestCollectionIfMissing } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ }
             }
         }
 
         # Intune: .intunewin production and Graph publishing during Package.
         if ($null -ne $data.Intune) {
-            if ($null -ne $data.Intune.PublishToIntune) { try { $defaults.Intune.PublishToIntune = [bool]$data.Intune.PublishToIntune } catch { } }
+            if ($null -ne $data.Intune.PublishToIntune) { try { $defaults.Intune.PublishToIntune = [bool]$data.Intune.PublishToIntune } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
             if ([string]$data.Intune.DeploymentTarget -in @('MECM', 'MECMAndIntune', 'IntuneOnly', 'MECMAndWSUS', 'WSUSOnly')) {
                 $defaults.Intune.DeploymentTarget = [string]$data.Intune.DeploymentTarget
             }
@@ -652,7 +652,7 @@ function Read-Preferences {
         if ($null -ne $data.ScriptSigning) {
             $sign = $data.ScriptSigning
             foreach ($flag in @('SignDetection','SignRequirements','SignDeployment','RequireDetection','RequireRequirements','RequireDeployment','TimestampRequired')) {
-                if ($null -ne $sign.$flag) { try { $defaults.ScriptSigning.$flag = [bool]$sign.$flag } catch { } }
+                if ($null -ne $sign.$flag) { try { $defaults.ScriptSigning.$flag = [bool]$sign.$flag } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
             }
             if ($null -ne $sign.CertificateThumbprint) {
                 $thumb = ([string]$sign.CertificateThumbprint).Trim()
@@ -675,7 +675,7 @@ function Read-Preferences {
                 ModulePath      = ''
                 DetectedAt      = ''
             }
-            if ($null -ne $cm.Found)           { try { $stored.Found = [bool]$cm.Found } catch { } }
+            if ($null -ne $cm.Found)           { try { $stored.Found = [bool]$cm.Found } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
             if ($null -ne $cm.DisplayName)     { $stored.DisplayName     = [string]$cm.DisplayName }
             if ($null -ne $cm.DisplayVersion)  { $stored.DisplayVersion  = [string]$cm.DisplayVersion }
             if ($null -ne $cm.InstallLocation) { $stored.InstallLocation = [string]$cm.InstallLocation }
@@ -693,7 +693,7 @@ function Read-Preferences {
                 ExePath         = ''
                 DetectedAt      = ''
             }
-            if ($null -ne $sz.Found)           { try { $stored.Found = [bool]$sz.Found } catch { } }
+            if ($null -ne $sz.Found)           { try { $stored.Found = [bool]$sz.Found } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
             if ($null -ne $sz.DisplayName)     { $stored.DisplayName     = [string]$sz.DisplayName }
             if ($null -ne $sz.DisplayVersion)  { $stored.DisplayVersion  = [string]$sz.DisplayVersion }
             if ($null -ne $sz.InstallLocation) { $stored.InstallLocation = [string]$sz.InstallLocation }
@@ -709,7 +709,7 @@ function Read-Preferences {
                 ExePath        = ''
                 DetectedAt     = ''
             }
-            if ($null -ne $iw.Found)          { try { $stored.Found = [bool]$iw.Found } catch { } }
+            if ($null -ne $iw.Found)          { try { $stored.Found = [bool]$iw.Found } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
             if ($null -ne $iw.DisplayVersion) { $stored.DisplayVersion = [string]$iw.DisplayVersion }
             if ($null -ne $iw.ExePath)        { $stored.ExePath        = [string]$iw.ExePath }
             if ($null -ne $iw.DetectedAt)     { $stored.DetectedAt     = [string]$iw.DetectedAt }
@@ -720,7 +720,7 @@ function Read-Preferences {
         # systems from the settings it holds.
         if ($null -ne $data.Systems) {
             foreach ($system in @('ConfigMgr', 'Intune', 'Wsus')) {
-                if ($null -ne $data.Systems.$system) { try { $defaults.Systems.$system = [bool]$data.Systems.$system } catch { } }
+                if ($null -ne $data.Systems.$system) { try { $defaults.Systems.$system = [bool]$data.Systems.$system } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
             }
         } else {
             $defaults.Systems.Intune = -not [string]::IsNullOrWhiteSpace([string]$defaults.Intune.TenantId)
@@ -735,12 +735,12 @@ function Read-Preferences {
             if ($null -ne $ws.ServerName) { $defaults.Wsus.ServerName = ([string]$ws.ServerName).Trim() }
             $port = 0
             if ([int]::TryParse([string]$ws.PortNumber, [ref]$port) -and $port -ge 1 -and $port -le 65535) { $defaults.Wsus.PortNumber = $port }
-            if ($null -ne $ws.UseSsl) { try { $defaults.Wsus.UseSsl = [bool]$ws.UseSsl } catch { } }
+            if ($null -ne $ws.UseSsl) { try { $defaults.Wsus.UseSsl = [bool]$ws.UseSsl } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
             $classNames = @('Updates')
             if (Get-Command -Name Get-WsusClassificationNames -ErrorAction SilentlyContinue) { $classNames = @(Get-WsusClassificationNames) }
             if ([string]$ws.Classification -in $classNames) { $defaults.Wsus.Classification = [string]$ws.Classification }
             if ($null -ne $ws.ApprovalGroup) { $defaults.Wsus.ApprovalGroup = ([string]$ws.ApprovalGroup).Trim() }
-            if ($null -ne $ws.DeclineSuperseded) { try { $defaults.Wsus.DeclineSuperseded = [bool]$ws.DeclineSuperseded } catch { } }
+            if ($null -ne $ws.DeclineSuperseded) { try { $defaults.Wsus.DeclineSuperseded = [bool]$ws.DeclineSuperseded } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
         }
     }
     catch { }
@@ -814,7 +814,7 @@ function Invoke-DetectConfigMgrConsole {
         if (-not (Test-Path $hive)) { continue }
         $matchEntry = Get-ChildItem -LiteralPath $hive -ErrorAction SilentlyContinue |
             ForEach-Object {
-                try { Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction Stop } catch { }
+                try { Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction Stop } catch { <# Reading one uninstall registry key; an unreadable key is skipped. #> $null = $_ }
             } |
             Where-Object { $_.DisplayName -and $_.DisplayName -match 'Configuration Manager Console' } |
             Select-Object -First 1
@@ -888,7 +888,7 @@ function Invoke-DetectSevenZipCli {
         if (-not (Test-Path $hive)) { continue }
         $matchEntry = Get-ChildItem -LiteralPath $hive -ErrorAction SilentlyContinue |
             ForEach-Object {
-                try { Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction Stop } catch { }
+                try { Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction Stop } catch { <# Reading one uninstall registry key; an unreadable key is skipped. #> $null = $_ }
             } |
             Where-Object { $_.DisplayName -and $_.DisplayName -match '^7-Zip' } |
             Select-Object -First 1
@@ -948,7 +948,7 @@ function Get-GitHubApiAuthStatus {
                     $status = (& $gh.Source auth status 2>&1 | Out-String)
                     if ($status -match 'account\s+(\S+)') { $source = 'GitHub CLI login (gh.exe), account ' + $Matches[1] }
                 }
-                catch { }
+                catch { <# Reading the GitHub account name is optional display text. #> $null = $_ }
             }
         }
     }
@@ -963,7 +963,7 @@ function Get-GitHubApiAuthStatus {
             if ($headers -match '(?im)^x-ratelimit-remaining:\s*(\d+)') { $remaining = $Matches[1] }
         }
     }
-    catch { }
+    catch { <# Reading the GitHub rate limit is optional display information. #> $null = $_ }
 
     return [pscustomobject]@{
         Authenticated = -not [string]::IsNullOrWhiteSpace($source)
@@ -1006,7 +1006,7 @@ function Invoke-DetectIntuneWinAppUtil {
             $result.ExePath = [string]$c
             try {
                 $result.DisplayVersion = [string][System.Diagnostics.FileVersionInfo]::GetVersionInfo($c).FileVersion
-            } catch { }
+            } catch { <# Reading the file version of a tool is optional detail. #> $null = $_ }
             $result.Found = $true
             break
         }
@@ -1024,7 +1024,7 @@ try {
     $script:Prefs.DetectedTools.SevenZipCli      = Invoke-DetectSevenZipCli
     $script:Prefs.DetectedTools.IntuneWinAppUtil = Invoke-DetectIntuneWinAppUtil -KnownPath ([string]$script:Prefs.DetectedTools.IntuneWinAppUtil.ExePath)
     Save-Preferences -Prefs $script:Prefs
-} catch { }
+} catch { <# Refreshing tool detection at launch is best-effort; the earlier detection stays. #> $null = $_ }
 
 if ([string]::IsNullOrWhiteSpace($script:Prefs.CompanyName)) {
     $pkgPrefsPath = Join-Path (Join-Path $PSScriptRoot "Packagers") "packager-preferences.json"
@@ -1033,7 +1033,7 @@ if ([string]::IsNullOrWhiteSpace($script:Prefs.CompanyName)) {
             $pkgData = Get-Content -LiteralPath $pkgPrefsPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
             if ($pkgData.CompanyName) { $script:Prefs.CompanyName = [string]$pkgData.CompanyName }
         }
-        catch { }
+        catch { <# Reading the company name from the optional packager preferences file is a best-effort fallback. #> $null = $_ }
     }
 }
 
@@ -1409,22 +1409,22 @@ function Stop-DiscoveryRunspace {
     param($Job)
     if (-not $Job) { return }
     if ($Job.State.Cancellation) {
-        try { $Job.State.Cancellation.Cancel() } catch { }
+        try { $Job.State.Cancellation.Cancel() } catch { <# Stopping or disposing a discovery runspace object is best-effort cleanup. #> $null = $_ }
     }
     $command = $Job.State.Command
-    if ($command) { try { $command.Cancel() } catch { } }
+    if ($command) { try { $command.Cancel() } catch { <# Stopping or disposing a discovery runspace object is best-effort cleanup. #> $null = $_ } }
     if ($Job.Shell) {
         if ($Job.Handle -and -not $Job.State.Done) {
-            try { [void]$Job.Shell.BeginStop($null, $null) } catch { }
+            try { [void]$Job.Shell.BeginStop($null, $null) } catch { <# Stopping or disposing a discovery runspace object is best-effort cleanup. #> $null = $_ }
         }
         else {
-            if ($Job.Handle) { try { [void]$Job.Shell.EndInvoke($Job.Handle) } catch { } }
-            try { $Job.Shell.Dispose() } catch { }
+            if ($Job.Handle) { try { [void]$Job.Shell.EndInvoke($Job.Handle) } catch { <# Stopping or disposing a discovery runspace object is best-effort cleanup. #> $null = $_ } }
+            try { $Job.Shell.Dispose() } catch { <# Stopping or disposing a discovery runspace object is best-effort cleanup. #> $null = $_ }
         }
         $Job.Shell = $null
     }
     if ($Job.Runspace) {
-        try { $Job.Runspace.CloseAsync() } catch { try { $Job.Runspace.Dispose() } catch { } }
+        try { $Job.Runspace.CloseAsync() } catch { try { $Job.Runspace.Dispose() } catch { <# Stopping or disposing a discovery runspace object is best-effort cleanup. #> $null = $_ } }
         $Job.Runspace = $null
     }
 }
@@ -1564,7 +1564,7 @@ function Set-ProcessStartInfoArgumentList {
 
     $argumentListProperty = $StartInfo.GetType().GetProperty('ArgumentList')
     if ($argumentListProperty) {
-        try { $StartInfo.ArgumentList.Clear() } catch { }
+        try { $StartInfo.ArgumentList.Clear() } catch { <# Clearing the ArgumentList is best-effort; the next step sets the arguments. #> $null = $_ }
         foreach ($arg in $Arguments) {
             [void]$StartInfo.ArgumentList.Add($arg)
         }
@@ -1605,7 +1605,7 @@ function Get-PackagerFolderInfo {
             $info.DownloadSubfolder = $info[$subfolderVariable]
         }
     }
-    catch { }
+    catch { <# Scanning the packager for optional download folder hints; missing hints keep the default. #> $null = $_ }
     return $info
 }
 
@@ -2029,7 +2029,7 @@ function Invoke-PackagerGetLatestVersion {
         $stderrTask = $p.StandardError.ReadToEndAsync()
 
         if (-not $p.WaitForExit(30000)) {
-            try { $p.Kill() } catch {}
+            try { $p.Kill() } catch { <# Killing a timed-out process is best-effort; the code throws a timeout error right after. #> $null = $_ }
             throw "Packager timed out after 30 seconds."
         }
 
@@ -2057,7 +2057,7 @@ function Invoke-PackagerGetLatestVersion {
         return ([string]$version[0]).Trim()
     }
     finally {
-        if ($p) { try { $p.Dispose() } catch { } }
+        if ($p) { try { $p.Dispose() } catch { <# Disposing the process object is cleanup. #> $null = $_ } }
     }
 }
 
@@ -2077,7 +2077,7 @@ function Get-MecmCurrentVersionByCMName {
                     Import-Module $cmModule -Force -ErrorAction Stop
                 }
             }
-        } catch { }
+        } catch { <# Importing the ConfigMgr module is optional; the code throws later if the cmdlets are missing. #> $null = $_ }
     }
     if (-not (Get-Command -Name Get-CMApplication -ErrorAction SilentlyContinue)) {
         throw "ConfigMgr PowerShell cmdlets not available in this session."
@@ -2241,12 +2241,12 @@ function Invoke-ProcessWithStreaming {
         }
 
         if ($timedOut) {
-            try { $p.Kill() } catch { }
+            try { $p.Kill() } catch { <# Killing a timed-out process is best-effort; the code logs the timeout. #> $null = $_ }
             [void]$p.WaitForExit(5000)
             $outLines.Add("[ERROR] Packager idle for $IdleTimeoutSeconds seconds; killed by Invoke-ProcessWithStreaming.")
         }
         elseif (-not $p.WaitForExit(15000)) {
-            try { $p.Kill() } catch { }
+            try { $p.Kill() } catch { <# Killing a timed-out process is best-effort; the code logs the timeout. #> $null = $_ }
             [void]$p.WaitForExit(5000)
         }
 
@@ -2266,7 +2266,7 @@ function Invoke-ProcessWithStreaming {
         }
     }
     finally {
-        if ($p) { try { $p.Dispose() } catch { } }
+        if ($p) { try { $p.Dispose() } catch { <# Disposing the process object is cleanup. #> $null = $_ } }
     }
 }
 
@@ -2829,7 +2829,7 @@ function Get-SevenZipPathForContext {
         if ($script:Prefs -and $script:Prefs.DetectedTools -and $script:Prefs.DetectedTools.SevenZipCli -and $script:Prefs.DetectedTools.SevenZipCli.Found) {
             return [string]$script:Prefs.DetectedTools.SevenZipCli.ExePath
         }
-    } catch { }
+    } catch { <# Resolving the tool path from preferences is a safe lookup; an empty result means not detected. #> $null = $_ }
     return ''
 }
 
@@ -2885,7 +2885,7 @@ function Get-IntuneWinToolPathForContext {
         if ($script:Prefs -and $script:Prefs.DetectedTools -and $script:Prefs.DetectedTools.IntuneWinAppUtil -and $script:Prefs.DetectedTools.IntuneWinAppUtil.Found) {
             return [string]$script:Prefs.DetectedTools.IntuneWinAppUtil.ExePath
         }
-    } catch { }
+    } catch { <# Resolving the tool path from preferences is a safe lookup; an empty result means not detected. #> $null = $_ }
     return ''
 }
 
@@ -3054,6 +3054,7 @@ function Save-UpdateCheckCache {
         } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $path -Encoding UTF8
     } catch {
         # A cache that cannot be written only costs an extra query next launch.
+        $null = $_
     }
 }
 
@@ -3157,8 +3158,7 @@ function Start-UpdateCheck {
                 }
                 $State.Latest = $release.tag_name
                 $State.Url    = $release.html_url
-            } catch {
-            } finally {
+            } catch { <# Update check is optional and its cleanup calls are best-effort. #> $null = $_ } finally {
                 $State.Done = $true
             }
         }).AddArgument($script:UpdateCheckState).AddArgument($script:UpdateRepo).AddArgument($script:UpdateUserAgent)
@@ -3182,16 +3182,16 @@ function Start-UpdateCheck {
             } catch {
                 Add-LogLine -Message ("Update check failed: {0}" -f $_.Exception.Message)
             } finally {
-                try { $script:UpdateCheckPS.EndInvoke($script:UpdateCheckHandle) } catch { }
-                try { $script:UpdateCheckPS.Dispose() } catch { }
-                try { $script:UpdateCheckRunspace.Close() } catch { }
+                try { $script:UpdateCheckPS.EndInvoke($script:UpdateCheckHandle) } catch { <# Update check is optional and its cleanup calls are best-effort. #> $null = $_ }
+                try { $script:UpdateCheckPS.Dispose() } catch { <# Update check is optional and its cleanup calls are best-effort. #> $null = $_ }
+                try { $script:UpdateCheckRunspace.Close() } catch { <# Update check is optional and its cleanup calls are best-effort. #> $null = $_ }
                 $script:UpdateCheckPS = $null
                 $script:UpdateCheckRunspace = $null
             }
         })
         $script:UpdateCheckTimer.Start()
     } catch {
-        try { Add-LogLine -Message ("Update check skipped: {0}" -f $_.Exception.Message) } catch { }
+        try { Add-LogLine -Message ("Update check skipped: {0}" -f $_.Exception.Message) } catch { <# Update check is optional and its cleanup calls are best-effort. #> $null = $_ }
     }
 }
 
@@ -3930,7 +3930,7 @@ function Invoke-BatchUpdate {
                     if ($meta.UpdateCadenceDays -and [int]$meta.UpdateCadenceDays -ge 1) {
                         $cadenceDays = [int]$meta.UpdateCadenceDays
                     }
-                } catch { }
+                } catch { <# Reading the cadence from packager metadata is optional; the default cadence applies. #> $null = $_ }
             }
             if ($cadenceDays -lt 1) { $cadenceDays = $defaultCadenceDays }
 
@@ -3944,7 +3944,7 @@ function Invoke-BatchUpdate {
                     $results += [pscustomobject]@{ Name = $baseName; Action = 'Skipped'; OldVersion = $lastKnown; NewVersion = $null; Reason = ("cadence {0}d, {1}d remaining" -f $cadenceDays, $daysRemaining) }
                     continue
                 }
-            } catch { }
+            } catch { <# A failed cadence date check fails open, so the app is checked instead of skipped. #> $null = $_ }
         }
 
         # 1. Discover vendor's current version. On failure, don't update
@@ -4149,7 +4149,7 @@ function Invoke-BatchUpdate {
                     [Environment]::SetEnvironmentVariable($bridgeName, $batchBridgeSaved[$bridgeName], 'Process')
                 }
                 if ($pushedPackagerLocation) {
-                    try { Pop-Location } catch { }
+                    try { Pop-Location } catch { <# Restoring the previous location with Pop-Location is cleanup. #> $null = $_ }
                 }
                 if ($restoreSevenZipEnv) {
                     if ($null -ne $previousSevenZipEnv) {
@@ -4246,7 +4246,7 @@ function Get-CveNvdApiKey {
 
 function Get-CveCacheTtlMinutes {
     $ttl = 360
-    try { if ($null -ne $script:Prefs.Vulnerability.CacheTtlMinutes) { $ttl = [int]$script:Prefs.Vulnerability.CacheTtlMinutes } } catch { }
+    try { if ($null -ne $script:Prefs.Vulnerability.CacheTtlMinutes) { $ttl = [int]$script:Prefs.Vulnerability.CacheTtlMinutes } } catch { <# Reading the CVE cache lifetime is optional; the default value stays. #> $null = $_ }
     return $ttl
 }
 
@@ -4408,7 +4408,7 @@ function Invoke-CveMonitor {
     Write-Log ('[cve] {0} application(s) in scope' -f $items.Count) -Level INFO
 
     $history = @{}
-    try { $history = Read-PackagerHistory } catch { }
+    try { $history = Read-PackagerHistory } catch { <# Reading or writing packager history is bookkeeping; the main result does not depend on it. #> $null = $_ }
     $field = { param($entry, $name) if ($null -eq $entry) { $null } elseif ($entry -is [hashtable]) { $entry[$name] } elseif ($entry.PSObject.Properties[$name]) { $entry.PSObject.Properties[$name].Value } else { $null } }
 
     $rows = @()
@@ -4444,14 +4444,14 @@ function Invoke-CveMonitor {
                 $latest = Invoke-PackagerGetLatestVersion -PackagerPath $row.FullPath -SiteCode $SiteCode -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -M365Channel $M365Channel -M365DeployMode $M365DeployMode
                 $row.LatestVersion = $latest
                 $result = $(if ($prior -and $prior -eq $latest) { 'NoChange' } else { 'Updated' })
-                try { Update-PackagerHistory -PackagerName ([System.IO.Path]::GetFileNameWithoutExtension($row.Script)) -Event Checked -Version $latest -Result $result } catch { }
+                try { Update-PackagerHistory -PackagerName ([System.IO.Path]::GetFileNameWithoutExtension($row.Script)) -Event Checked -Version $latest -Result $result } catch { <# Reading or writing packager history is bookkeeping; the main result does not depend on it. #> $null = $_ }
             }
             catch {
                 Write-Log ('[cve] Latest failed for {0}: {1}' -f $row.Application, $_.Exception.Message) -Level WARN
                 $row.Status = 'Error'
                 $row.Failed = $true
                 $failed++
-                try { Update-PackagerHistory -PackagerName ([System.IO.Path]::GetFileNameWithoutExtension($row.Script)) -Event Checked -Result Failed } catch { }
+                try { Update-PackagerHistory -PackagerName ([System.IO.Path]::GetFileNameWithoutExtension($row.Script)) -Event Checked -Result Failed } catch { <# Reading or writing packager history is bookkeeping; the main result does not depend on it. #> $null = $_ }
             }
         }
     }
@@ -4464,12 +4464,12 @@ function Invoke-CveMonitor {
                 $res = Get-MecmCurrentVersionByCMName -SiteCode $SiteCode -ProviderMachineName $ProviderMachineName -CMName $row.CMName
                 if ($res.Found) {
                     $row.CurrentVersion = [string]$res.SoftwareVersion
-                    try { Update-PackagerHistory -PackagerName $base -Event CmChecked -Version ([string]$res.SoftwareVersion) -Data @{ SiteCode = $SiteCode } } catch { }
+                    try { Update-PackagerHistory -PackagerName $base -Event CmChecked -Version ([string]$res.SoftwareVersion) -Data @{ SiteCode = $SiteCode } } catch { <# Reading or writing packager history is bookkeeping; the main result does not depend on it. #> $null = $_ }
                 }
                 else {
                     $row.CurrentVersion = ''
                     $row.Status = 'Not found in ConfigMgr'
-                    try { Update-PackagerHistory -PackagerName $base -Event CmChecked -Version '' -Data @{ SiteCode = $SiteCode } } catch { }
+                    try { Update-PackagerHistory -PackagerName $base -Event CmChecked -Version '' -Data @{ SiteCode = $SiteCode } } catch { <# Reading or writing packager history is bookkeeping; the main result does not depend on it. #> $null = $_ }
                 }
             }
             catch {
@@ -4504,7 +4504,7 @@ function Invoke-CveMonitor {
                 $summary = Get-VulnerabilitySummary -Result $res
                 $row.CveCount = (Get-CveGridCells -Summary $summary -Cpe $row.Cpe).Count
                 if ($res.Error) { Write-Log ('[cve] {0}: {1}' -f $row.Application, $res.Error) -Level WARN; $failed++; continue }
-                try { Update-PackagerHistory -PackagerName $base -Event VulnChecked -Data $summary } catch { }
+                try { Update-PackagerHistory -PackagerName $base -Event VulnChecked -Data $summary } catch { <# Reading or writing packager history is bookkeeping; the main result does not depend on it. #> $null = $_ }
                 $lookedUp++
                 $cveTotal += [int]$res.Count
                 $kevTotal += [int]$res.KevCount
@@ -4609,7 +4609,7 @@ if ($BatchMode) {
             if ($sevenZipProbe -and $sevenZipProbe.Found) {
                 $sevenZipPath = [string]$sevenZipProbe.ExePath
             }
-        } catch { }
+        } catch { <# Reading or writing packager history is bookkeeping; the main result does not depend on it. #> $null = $_ }
     }
 
     Write-Log ("[batch] Starting: {0} app(s), OnUpdateFound={1}" -f $Apps.Count, $OnUpdateFound) -Level INFO
@@ -4748,7 +4748,7 @@ function Set-DialogChromeFromOwner {
         $Dialog.NonActiveWindowTitleBrush = $Owner.WindowTitleBrush
         $Dialog.GlowBrush                 = $Owner.GlowBrush
         $Dialog.NonActiveGlowBrush        = $Owner.GlowBrush
-    } catch { }
+    } catch { <# Copying window brush colors to the dialog is cosmetic. #> $null = $_ }
 }
 
 
@@ -4974,7 +4974,7 @@ $menuCopyCveIds.Add_Click({
     $res = Get-CveCachedResult -Row $row
     if (-not $res) { Add-LogLine -Message "No CVE lookup for this row yet. Run Check CVEs first."; return }
     $ids = @(foreach ($c in @($res.Cves)) { [string]$c.Id })
-    try { [System.Windows.Clipboard]::SetText(($ids -join "`r`n")) } catch { }
+    try { [System.Windows.Clipboard]::SetText(($ids -join "`r`n")) } catch { <# Copying text to the clipboard is a best-effort convenience. #> $null = $_ }
     Add-LogLine -Message ('{0} CVE id(s) copied.' -f $ids.Count)
 })
 
@@ -5630,23 +5630,23 @@ function New-MecmPreferencesPanel {
                 $ghTimer.Stop()
                 $txtGitHubStatus.Text = 'GitHub access could not be checked: no answer within 20 seconds.'
                 # Stopping a pipeline that waits on a network call blocks until it returns, so the stop is asynchronous.
-                try { [void]$ghShell.BeginStop($null, $null) } catch { }
-                try { [void]$ghRunspace.CloseAsync() } catch { }
+                try { [void]$ghShell.BeginStop($null, $null) } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ }
+                try { [void]$ghRunspace.CloseAsync() } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ }
                 return
             }
             $ghTimer.Stop()
             if ($ghState.Result) { & $showGitHubStatus $ghState.Result }
             else { $txtGitHubStatus.Text = 'GitHub access could not be checked.' }
-            try { $ghShell.EndInvoke($ghHandle) } catch { }
-            try { $ghShell.Dispose() } catch { }
-            try { $ghRunspace.Close() } catch { }
+            try { $ghShell.EndInvoke($ghHandle) } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ }
+            try { $ghShell.Dispose() } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ }
+            try { $ghRunspace.Close() } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ }
         }.GetNewClosure())
         $ghTimer.Start()
     }
     catch {
         $txtGitHubStatus.Text = 'GitHub access could not be checked.'
-        if ($ghShell) { try { [void]$ghShell.BeginStop($null, $null) } catch { } }
-        if ($ghRunspace) { try { [void]$ghRunspace.CloseAsync() } catch { } }
+        if ($ghShell) { try { [void]$ghShell.BeginStop($null, $null) } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ } }
+        if ($ghRunspace) { try { [void]$ghRunspace.CloseAsync() } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ } }
     }
     # The key box stays empty; an empty box keeps the saved key.
     $chkCveAfterCm.IsChecked = [bool]$script:Prefs.Vulnerability.LookupAfterCheckCm
@@ -6027,7 +6027,7 @@ function Show-PreviewDialog {
     $txt.Text = $Content
 
     $copy.Add_Click({
-        try { [System.Windows.Clipboard]::SetText($txt.Text) } catch { }
+        try { [System.Windows.Clipboard]::SetText($txt.Text) } catch { <# Copying text to the clipboard is a best-effort convenience. #> $null = $_ }
     }.GetNewClosure())
     $close.Add_Click({ $pvWin.Close() }.GetNewClosure())
 
@@ -7083,7 +7083,7 @@ function New-AboutPanel {
 
     $repoUrl = "https://github.com/$($script:UpdateRepo)"
     $runAboutRepo.Text = $script:UpdateRepo
-    $lnkAboutRepo.Add_Click({ try { Start-Process $repoUrl } catch { } }.GetNewClosure())
+    $lnkAboutRepo.Add_Click({ try { Start-Process $repoUrl } catch { <# Opening a link or file in the shell is a best-effort convenience. #> $null = $_ } }.GetNewClosure())
 
     $cache = Read-UpdateCheckCache
     $lastCheckText = 'Never'
@@ -7113,7 +7113,7 @@ function New-AboutPanel {
     }.GetNewClosure())
 
     $releasesUrl = "$repoUrl/releases"
-    $btnAboutReleases.Add_Click({ try { Start-Process $releasesUrl } catch { } }.GetNewClosure())
+    $btnAboutReleases.Add_Click({ try { Start-Process $releasesUrl } catch { <# Opening a link or file in the shell is a best-effort convenience. #> $null = $_ } }.GetNewClosure())
 
     return @{ Name = 'About'; Element = $element; Commit = { } }
 }
@@ -7523,7 +7523,7 @@ function Show-FirstRunWizard {
         if ($script:FirstRunDlgSaved) { return }
         if ([bool]$chkWizDontAsk.IsChecked) {
             $prefsRef.FirstRunCompleted = $true
-            try { Save-Preferences -Prefs $prefsRef } catch { }
+            try { Save-Preferences -Prefs $prefsRef } catch { <# Saving the first-run flag while the window closes is best-effort. #> $null = $_ }
         }
     })
 
@@ -7569,7 +7569,7 @@ function Invoke-RefreshGrid {
     # Pre-load persistent history so first render shows Latest + LastChecked
     # from prior sessions (Full Run + manual Check Latest both write here).
     $history = @{}
-    try { $history = Read-PackagerHistory } catch { }
+    try { $history = Read-PackagerHistory } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
 
     $present = @{}
     $hiddenCount = 0
@@ -7964,7 +7964,7 @@ function Invoke-MultiAppPipeline {
                         } catch {
                             $row.Status = 'Error'
                             [void]$State.LogQueue.Enqueue(('Error: ' + $_.Exception.Message))
-                            try { Update-PackagerHistory -PackagerName $baseName -Event Checked -Result Failed } catch { }
+                            try { Update-PackagerHistory -PackagerName $baseName -Event Checked -Result Failed } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
                             $counts['CheckFailed']++
                         }
                     }
@@ -8046,7 +8046,7 @@ function Invoke-MultiAppPipeline {
                                 try {
                                     if ($ver) { Update-PackagerHistory -PackagerName $baseName -Event Staged -Version $ver -Result Updated }
                                     else      { Update-PackagerHistory -PackagerName $baseName -Event Staged -Result Updated }
-                                } catch { }
+                                } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
                                 [void]$State.Succeeded.Enqueue($scrName)
                                 $counts['Staged']++
                             } else {
@@ -8138,7 +8138,7 @@ function Invoke-MultiAppPipeline {
                                 try {
                                     if ($ver) { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Version $ver -Result Updated }
                                     else      { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Result Updated }
-                                } catch { }
+                                } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
                                 [void]$State.Succeeded.Enqueue($scrName)
                                 $counts[$(if ($outcome.Published) { 'Published' } else { 'Packaged' })]++
                             } elseif ($res.ExitCode -eq 0) {
@@ -8177,7 +8177,7 @@ function Invoke-MultiAppPipeline {
                         $onExisting = $(if ([string]$Ctx.OnExisting -eq 'Overwrite') { 'Overwrite' } else { 'Skip' })
 
                         $hist = @{}
-                        try { $hist = Read-PackagerHistory } catch { }
+                        try { $hist = Read-PackagerHistory } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
                         $entry = $null
                         if ($hist.ContainsKey($baseName)) { $entry = $hist[$baseName] }
                         $lastKnown = $null; $lastStaged = $null
@@ -8229,7 +8229,7 @@ function Invoke-MultiAppPipeline {
                         try {
                             Update-PackagerHistory -PackagerName $baseName -Event Checked -Version $latest -Result $(if ($versionChanged) { 'Updated' } else { 'NoChange' })
                             $row.LastChecked = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-                        } catch { }
+                        } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
 
                         if ($Ctx.Action -eq 'Report') {
                             $row.Status = if ($versionChanged) { 'Update available' } else { 'Up to date' }
@@ -8317,7 +8317,7 @@ function Invoke-MultiAppPipeline {
                                 $stageOk = $true
                                 $row.Status = 'Staged'
                                 [void]$State.LogQueue.Enqueue(('Staged. Logs: ' + (Split-Path -Leaf $stg.OutLog)))
-                                try { Update-PackagerHistory -PackagerName $baseName -Event Staged -Version $latest -Result Updated -Scope $oneClickStageScope } catch { }
+                                try { Update-PackagerHistory -PackagerName $baseName -Event Staged -Version $latest -Result Updated -Scope $oneClickStageScope } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
                             } else {
                                 $row.Status = 'Stage error'
                                 $stderrLines = @($stg.StdErr -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -8461,7 +8461,7 @@ function Invoke-MultiAppPipeline {
                         }
 
                         if ($published -gt 0) {
-                            try { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Version $latest -Result Updated } catch { }
+                            try { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Version $latest -Result Updated } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
                             [void]$State.Succeeded.Enqueue($scrName)
                         }
                         if ($failed -gt 0) {
@@ -8510,7 +8510,7 @@ function Invoke-MultiAppPipeline {
                                     $lastPackaged = $h.LastPackaged
                                 }
                             }
-                        } catch { }
+                        } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
 
                         if ($Ctx.Action -eq 'Report' -and -not $Ctx.ForceFlag -and $lastChecked) {
                             $cadenceDays = 7
@@ -8531,7 +8531,7 @@ function Invoke-MultiAppPipeline {
                                     if ($meta.UpdateCadenceDays -and [int]$meta.UpdateCadenceDays -ge 1) {
                                         $cadenceDays = [int]$meta.UpdateCadenceDays
                                     }
-                                } catch { }
+                                } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
                             }
                             try {
                                 $nextDue = ([datetime]$lastChecked).ToUniversalTime().AddDays($cadenceDays)
@@ -8541,7 +8541,7 @@ function Invoke-MultiAppPipeline {
                                     $counts['Skipped']++
                                     continue
                                 }
-                            } catch { }
+                            } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
                         }
 
                         # 1. Check latest
@@ -8579,12 +8579,12 @@ function Invoke-MultiAppPipeline {
                                     $mecmRes = Get-MecmCurrentVersionByCMName -SiteCode $Ctx.SiteCode -ProviderMachineName $Ctx.ProviderMachineName -CMName $cmName
                                     if ($mecmRes.Found -and -not [string]::IsNullOrWhiteSpace([string]$mecmRes.SoftwareVersion)) {
                                         $row.CurrentVersion = [string]$mecmRes.SoftwareVersion
-                                        try { Update-PackagerHistory -PackagerName $baseName -Event CmChecked -Version ([string]$mecmRes.SoftwareVersion) -Data @{ SiteCode = [string]$Ctx.SiteCode } } catch { }
+                                        try { Update-PackagerHistory -PackagerName $baseName -Event CmChecked -Version ([string]$mecmRes.SoftwareVersion) -Data @{ SiteCode = [string]$Ctx.SiteCode } } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
                                         $cmp = Compare-SemVer -A ([string]$mecmRes.SoftwareVersion) -B $latest
                                         if ($cmp -eq 0) {
                                             $row.Status = 'Up to date (ConfigMgr)'
                                             [void]$State.LogQueue.Enqueue(('ConfigMgr already has {0} at {1} - skipping' -f $app, $latest))
-                                            try { Update-PackagerHistory -PackagerName $baseName -Event Checked -Version $latest -Result NoChange } catch { }
+                                            try { Update-PackagerHistory -PackagerName $baseName -Event Checked -Version $latest -Result NoChange } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
                                             $counts['NoChange']++
                                             continue
                                         }
@@ -8643,7 +8643,7 @@ function Invoke-MultiAppPipeline {
                         try {
                             Update-PackagerHistory -PackagerName $baseName -Event Checked -Version $latest -Result $histResult
                             $row.LastChecked = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-                        } catch { }
+                        } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
 
                         if ($Ctx.Action -eq 'Report') {
                             $row.Status = if ($versionChanged) { 'Update available' } else { 'Up to date' }
@@ -8687,7 +8687,7 @@ function Invoke-MultiAppPipeline {
                                 try {
                                     if ($latest) { Update-PackagerHistory -PackagerName $baseName -Event Staged -Version $latest -Result Updated -Scope $fullStageScope }
                                     else         { Update-PackagerHistory -PackagerName $baseName -Event Staged -Result Updated }
-                                } catch { }
+                                } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
                             } else {
                                 $row.Status = 'Stage error'
                                 $stderrLines = @($stg.StdErr -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -8785,7 +8785,7 @@ function Invoke-MultiAppPipeline {
                                 try {
                                     if ($latest) { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Version $latest -Result Updated -Scope $fullPackageScope }
                                     else         { Update-PackagerHistory -PackagerName $baseName -Event Packaged -Result Updated }
-                                } catch { }
+                                } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
                                 [void]$State.Succeeded.Enqueue($scrName)
                                 $counts[$(if ($outcome.Published) { 'Published' } else { 'StageAndPackage' })]++
                             } elseif ($pkg.ExitCode -eq 0) {
@@ -8876,8 +8876,8 @@ function Invoke-MultiAppPipeline {
         }
 
         # Re-render the grid so row.Status flips done in the bg are visible.
-        try { $dataGrid.Items.Refresh() } catch { }
-        if ($script:BgContext -and $script:BgContext.ContainsKey('OneClickTick')) { try { & $script:BgContext.OneClickTick } catch { } }
+        try { $dataGrid.Items.Refresh() } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
+        if ($script:BgContext -and $script:BgContext.ContainsKey('OneClickTick')) { try { & $script:BgContext.OneClickTick } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ } }
 
         if ($script:BgState -and $script:BgState.Done) {
             $doneState = $script:BgState
@@ -8931,7 +8931,7 @@ function Invoke-MultiAppPipeline {
             if ($doneState.Succeeded -and $script:BgOperation -ne 'Stage') {
                 Clear-SucceededSelection -Rows $script:PackagerData -Scripts $doneState.Succeeded.ToArray()
             }
-            try { $dataGrid.Items.Refresh() } catch { }
+            try { $dataGrid.Items.Refresh() } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
             $progressOverlay.Visibility = [System.Windows.Visibility]::Collapsed
             $window.Cursor = $null
             Set-ActionButtonsEnabled -Enabled $true
@@ -9659,13 +9659,13 @@ $btnCheckMECM.Add_Click({
                 if (-not $res.Found) {
                     $row.CurrentVersion = ""
                     $row.Status = "Not found in ConfigMgr"
-                    try { Update-PackagerHistory -PackagerName $baseName -Event CmChecked -Version '' -Data @{ SiteCode = $siteCodeValue } } catch { }
+                    try { Update-PackagerHistory -PackagerName $baseName -Event CmChecked -Version '' -Data @{ SiteCode = $siteCodeValue } } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
                     Add-LogLine -Message "Not found."
                     continue
                 }
 
                 $row.CurrentVersion = [string]$res.SoftwareVersion
-                try { Update-PackagerHistory -PackagerName $baseName -Event CmChecked -Version ([string]$res.SoftwareVersion) -Data @{ SiteCode = $siteCodeValue } } catch { }
+                try { Update-PackagerHistory -PackagerName $baseName -Event CmChecked -Version ([string]$res.SoftwareVersion) -Data @{ SiteCode = $siteCodeValue } } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
 
                 $latest = [string]$row.LatestVersion
                 if (-not [string]::IsNullOrWhiteSpace($latest) -and -not [string]::IsNullOrWhiteSpace($res.SoftwareVersion)) {
@@ -9950,7 +9950,7 @@ function Start-DiscoveryScan {
                 Complete-DiscoveryScan -Result $result
             }
             catch {
-                try { $script:DiscoveryTimer.Stop() } catch { }
+                try { $script:DiscoveryTimer.Stop() } catch { <# Stopping the discovery timer is cleanup inside the error path. #> $null = $_ }
                 Stop-DiscoveryRunspace -Job $script:DiscoveryJob
                 $script:DiscoveryJob = $null
                 Set-ActionButtonsEnabled -Enabled $true
@@ -10427,7 +10427,7 @@ function Show-CveDetailDialog {
     $btnCopy.Add_Click({
         $ids = @()
         if ($state.Result) { foreach ($c in @($state.Result.Cves)) { $ids += [string]$c.Id } }
-        try { [System.Windows.Clipboard]::SetText(($ids -join "`r`n")) } catch { }
+        try { [System.Windows.Clipboard]::SetText(($ids -join "`r`n")) } catch { <# Copying text to the clipboard is a best-effort convenience. #> $null = $_ }
         Add-LogLine -Message ('{0} CVE id(s) copied.' -f $ids.Count)
     }.GetNewClosure())
 
@@ -10515,7 +10515,7 @@ function Get-OneClickPlanApps {
             $meta = Get-PackagerMetadata -Path ([string]$row.FullPath)
             if ($meta.UpdateCadenceDays) { $cadence = [int]$meta.UpdateCadenceDays }
             $wsusUnsupported = ($meta.WsusSupport -eq 'No')
-        } catch { }
+        } catch { <# Reading packager metadata for the cadence and WSUS flag is optional; defaults apply. #> $null = $_ }
         [pscustomobject]@{
             Packager        = $base
             Application     = [string]$row.Application
@@ -10673,7 +10673,7 @@ function Show-OneClickPlanDialog {
     $appByName = @{}
     foreach ($a in $apps) { $appByName[$a.Packager] = $a }
     $history = @{}
-    try { $history = Read-PackagerHistory } catch { }
+    try { $history = Read-PackagerHistory } catch { <# Reading packager history is optional; an empty history is the fallback. #> $null = $_ }
     $logFolder = Get-AppLogFolder
     $reportFolder = Get-OneClickReportFolder -LogFolder $logFolder
     $state = @{ Running = $false; ReportPath = ''; Started = $null }
@@ -10734,7 +10734,7 @@ function Show-OneClickPlanDialog {
         $txtScope.Visibility = $(if ($scopeParts.Count) { 'Visible' } else { 'Collapsed' })
         if ($summary.Blocking.Count -gt 0) { $txtBlocking.Text = 'Not ready: ' + ($summary.Blocking -join '; '); $txtBlocking.Visibility = 'Visible' } else { $txtBlocking.Visibility = 'Collapsed' }
         $btnRun.IsEnabled = (@($planRows | Where-Object { $_.Include }).Count -gt 0 -and -not $state.Running)
-        try { $gridPlan.Items.Refresh() } catch { }
+        try { $gridPlan.Items.Refresh() } catch { <# Refreshing the grid view is cosmetic. #> $null = $_ }
     }.GetNewClosure()
 
     # A destination box or Include changed: recompute the plan. Click fires
@@ -10853,7 +10853,7 @@ function Show-OneClickPlanDialog {
                 }
                 if ($pr['Version'] -and $r.Version -ne $pr['Version']) { $r.Version = $pr['Version'] }
             }
-            try { $gridPlan.Items.Refresh() } catch { }
+            try { $gridPlan.Items.Refresh() } catch { <# Refreshing the grid view is cosmetic. #> $null = $_ }
         }.GetNewClosure()
 
         $done = {
@@ -10912,10 +10912,10 @@ function Show-OneClickPlanDialog {
         }
     }.GetNewClosure())
 
-    $btnOpenReport.Add_Click({ if ($state.ReportPath -and (Test-Path -LiteralPath $state.ReportPath)) { try { Start-Process $state.ReportPath } catch { } } }.GetNewClosure())
+    $btnOpenReport.Add_Click({ if ($state.ReportPath -and (Test-Path -LiteralPath $state.ReportPath)) { try { Start-Process $state.ReportPath } catch { <# Opening a link or file in the shell is a best-effort convenience. #> $null = $_ } } }.GetNewClosure())
     $btnHistory.Add_Click({
         if (-not (Test-Path -LiteralPath $reportFolder)) { [void](New-Item -ItemType Directory -Path $reportFolder -Force) }
-        try { Start-Process explorer.exe -ArgumentList ('"' + $reportFolder + '"') } catch { }
+        try { Start-Process explorer.exe -ArgumentList ('"' + $reportFolder + '"') } catch { <# Opening a link or file in the shell is a best-effort convenience. #> $null = $_ }
     }.GetNewClosure())
     $btnClose.Add_Click({ if (-not $state.Running) { $dlg.Close() } }.GetNewClosure())
     $dlg.Add_Closing({ param($sender, $e) if ($state.Running) { $e.Cancel = $true } }.GetNewClosure())
@@ -11067,10 +11067,10 @@ function Get-WorkbenchInheritedSettings {
     try {
         $globals.EstimatedRuntimeMins = [int]$script:Prefs.EstimatedRuntimeMins
         $globals.MaximumRuntimeMins   = [int]$script:Prefs.MaximumRuntimeMins
-    } catch { }
+    } catch { <# Reading runtime minutes from preferences is optional; the defaults stay. #> $null = $_ }
 
     $resolved = $null
-    try { $resolved = Resolve-EffectiveSettings -GlobalDefaults $globals -BaseManifest $null -Profile $null } catch { }
+    try { $resolved = Resolve-EffectiveSettings -GlobalDefaults $globals -BaseManifest $null -Profile $null } catch { <# Reading runtime minutes from preferences is optional; the defaults stay. #> $null = $_ }
 
     $pick = {
         param([string]$field, $fallback)
@@ -11463,7 +11463,7 @@ function Get-WorkbenchRunPlanForContext {
                     else { $member = $appBlock.DisplayName }
                     if ($member) { $title = [string]$member }
                 }
-            } catch { }
+            } catch { <# Reading the display name from the profile is optional; the fallback title stays. #> $null = $_ }
         }
 
         $snapshotPath = ''
@@ -11889,7 +11889,7 @@ function Show-ApplicationWorkbench {
         $chipMecm.Text = 'ConfigMgr: Not validated'
         $chipIntune.Text = 'Intune: Not validated'
         if ($wb.ProfileId -ne 'default') {
-            try { [void](Save-Draft -ApplicationId ([string]$wb.Application.ApplicationId) -ProfileId $wb.ProfileId -Draft ([pscustomobject]$wb.Profile)) } catch { }
+            try { [void](Save-Draft -ApplicationId ([string]$wb.Application.ApplicationId) -ProfileId $wb.ProfileId -Draft ([pscustomobject]$wb.Profile)) } catch { <# Saving a draft copy of the profile is best-effort autosave. #> $null = $_ }
         }
     }
 
@@ -11897,7 +11897,7 @@ function Show-ApplicationWorkbench {
         foreach ($d in $fieldDescriptors) {
             if (-not $d.SourceLabel) { continue }
             $inheritedValue = $null
-            try { $inheritedValue = $wb.Inherited.($d.InheritedKey) } catch { }
+            try { $inheritedValue = $wb.Inherited.($d.InheritedKey) } catch { <# Reading an inherited value for an indicator is optional; an empty value is shown. #> $null = $_ }
             $d.SourceLabel.Text = Get-WorkbenchFieldSourceText -Profile $wb.Profile -Path $d.Path -InheritedValue $inheritedValue
         }
         $lblInstallModeSrc.Text = Get-WorkbenchFieldSourceText -Profile $wb.Profile -Path ($wb.ScriptTarget + '.Mode') -InheritedValue 'Generated'
@@ -12092,7 +12092,7 @@ function Show-ApplicationWorkbench {
         foreach ($d in $fieldDescriptors) {
             if (-not (Test-WorkbenchOverridePresent -Profile $wb.Profile -Path $d.Path)) { continue }
             $inheritedValue = ''
-            try { $inheritedValue = [string]$wb.Inherited.($d.InheritedKey) } catch { }
+            try { $inheritedValue = [string]$wb.Inherited.($d.InheritedKey) } catch { <# Reading an inherited value for an indicator is optional; an empty value is shown. #> $null = $_ }
             $custom = Get-WorkbenchOverrideValue -Profile $wb.Profile -Path $d.Path
             $diff.Add([pscustomobject]@{
                 Field   = $d.Path
@@ -12218,7 +12218,7 @@ function Show-ApplicationWorkbench {
             $previewPath = ''
             if (-not $iconPresent) {
                 $downloadRoot = ''
-                try { $downloadRoot = [string]$script:Prefs.DownloadRoot } catch { }
+                try { $downloadRoot = [string]$script:Prefs.DownloadRoot } catch { <# Reading the download root for the icon preview is optional. #> $null = $_ }
                 $previewPath = Get-WorkbenchInheritedIconPath -ScriptPath ([string]$wb.Application.ScriptPath) -DownloadRoot $downloadRoot
                 $txtIconState.Text = $(if ($previewPath) { 'Inherited from the packager: ' + $previewPath } else { 'Inherited from the packager. No staged icon or icon pack entry was found.' })
             }
@@ -12235,14 +12235,14 @@ function Show-ApplicationWorkbench {
                     $bmp.UriSource = New-Object System.Uri($previewPath)
                     $bmp.EndInit()
                     $imgIcon.Source = $bmp
-                } catch { }
+                } catch { <# Loading the icon preview image is cosmetic. #> $null = $_ }
             }
             $txtAppNote.Text = 'The displayed title is separate from the stable identity: renaming a profile never renames an existing site application, and the output folder keeps the packager name.'
 
             $cboReqTemplate.Items.Clear()
             try {
                 foreach ($c in @((Get-ConditionTemplates).Conditions)) { [void]$cboReqTemplate.Items.Add([string]$c.Id) }
-            } catch { }
+            } catch { <# Filling the optional condition template list; an empty list is acceptable. #> $null = $_ }
             if ($cboReqTemplate.Items.Count -gt 0) { $cboReqTemplate.SelectedIndex = 0 }
             & $loadSiteConditions
 
@@ -12296,7 +12296,7 @@ function Show-ApplicationWorkbench {
         $wb.Profile = $stored
         if ($wb.ProfileId -ne 'default') {
             $draft = $null
-            try { $draft = Get-Draft -ApplicationId ([string]$application.ApplicationId) -ProfileId $wb.ProfileId } catch { }
+            try { $draft = Get-Draft -ApplicationId ([string]$application.ApplicationId) -ProfileId $wb.ProfileId } catch { <# Restoring a saved draft is optional; the stored profile stays. #> $null = $_ }
             if ($draft) {
                 $answer = Show-ThemedMessage -Owner $win -Title 'Recover Draft' `
                     -Message ('Unsaved changes to "' + [string]$stored.Name + '" were found from an earlier session. Recover them?') `
@@ -12485,7 +12485,7 @@ function Show-ApplicationWorkbench {
         }
         $wb.Profile = ConvertTo-WorkbenchUiHashtable -InputObject $saved
         $wb.ProfileId = [string]$wb.Profile['ProfileId']
-        try { [void](Remove-Draft -ApplicationId ([string]$wb.Application.ApplicationId) -ProfileId $wb.ProfileId) } catch { }
+        try { [void](Remove-Draft -ApplicationId ([string]$wb.Application.ApplicationId) -ProfileId $wb.ProfileId) } catch { <# Removing the draft file is cleanup after a save or discard. #> $null = $_ }
         $wb.Baseline = ($wb.Profile | ConvertTo-Json -Depth 12 -Compress)
         $wb.Dirty = $false
         & $loadProfileList $wb.ProfileId
@@ -12503,7 +12503,7 @@ function Show-ApplicationWorkbench {
         switch ($answer) {
             'Save'    { return [bool](& $saveProfile '') }
             'Discard' {
-                try { [void](Remove-Draft -ApplicationId ([string]$wb.Application.ApplicationId) -ProfileId $wb.ProfileId) } catch { }
+                try { [void](Remove-Draft -ApplicationId ([string]$wb.Application.ApplicationId) -ProfileId $wb.ProfileId) } catch { <# Removing the draft file is cleanup after a save or discard. #> $null = $_ }
                 $wb.Dirty = $false
                 return $true
             }

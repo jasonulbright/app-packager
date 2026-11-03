@@ -296,6 +296,7 @@ function script:Find-SquirrelNupkgRefs {
                 }
             } catch [System.Text.RegularExpressions.RegexMatchTimeoutException] {
                 # Window-level safety net. Skip this occurrence and continue.
+                $null = $_
             }
             $offset = $end
         }

@@ -431,8 +431,8 @@ function Invoke-ChildProcessBatch {
                 $timedOut = $true
                 # Kill the tree: a packager's own children (curl.exe, the Office
                 # Deployment Tool) would otherwise outlive the timed-out host.
-                try { & taskkill.exe /PID $entry.Proc.Id /T /F 2>&1 | Out-Null } catch { }
-                try { if (-not $entry.Proc.HasExited) { $entry.Proc.Kill() } } catch { }
+                try { & taskkill.exe /PID $entry.Proc.Id /T /F 2>&1 | Out-Null } catch { <# Killing a timed-out process tree is best-effort; the code records the timeout. #> $null = $_ }
+                try { if (-not $entry.Proc.HasExited) { $entry.Proc.Kill() } } catch { <# Killing a timed-out process tree is best-effort; the code records the timeout. #> $null = $_ }
             }
             $entry.Proc.WaitForExit()
             $results[$entry.Job.Key] = [pscustomobject]@{

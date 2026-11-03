@@ -196,7 +196,7 @@ function Resolve-BleachBitInstallerUrl {
             }
         }
     }
-    catch { }
+    catch { <# Resolving the installer URL from the page is optional; the code logs a warning and uses the known fallback host. #> $null = $_ }
 
     Write-Log "Falling back to known host   : $fallback" -Level WARN -Quiet:$Quiet
     return $fallback

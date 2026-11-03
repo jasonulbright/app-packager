@@ -831,7 +831,7 @@ function Get-OneClickReportList {
                 JsonPath     = $file.FullName
             }
         }
-        catch { }
+        catch { <# An unreadable report file is skipped when listing past reports. #> $null = $_ }
     }
     return @($items)
 }

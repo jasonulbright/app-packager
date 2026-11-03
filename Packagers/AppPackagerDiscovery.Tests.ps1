@@ -234,7 +234,7 @@ Describe 'Get-DiscoverySiteDefinition' {
         Mock -ModuleName AppPackagerDiscovery Get-DiscoveryCimSiteDefinition { throw 'Access is denied. (HRESULT 0x80070005) CM01.contoso.com' }
         $verbose = InModuleScope AppPackagerDiscovery {
             $VerbosePreference = 'Continue'
-            $records = & { try { Get-DiscoverySiteDefinition -ProviderMachineName 'CM01.contoso.com' -SiteCode 'MCM' } catch { } } 4>&1
+            $records = & { try { Get-DiscoverySiteDefinition -ProviderMachineName 'CM01.contoso.com' -SiteCode 'MCM' } catch { <# The test expects a throw and only checks the verbose stream. #> $null = $_ } } 4>&1
             @($records | Where-Object { $_ -is [System.Management.Automation.VerboseRecord] } | ForEach-Object { $_.Message })
         }
         @($verbose).Count | Should -Be 2
