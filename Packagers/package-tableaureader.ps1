@@ -22,11 +22,10 @@ ArpName: Tableau Reader*
     instead.
 
     The installer is a WiX Burn bundle. Detection searches the bundle's
-    32-bit uninstall entries by display name and compares DisplayVersion with
+    64-bit uninstall entries by display name and compares DisplayVersion with
     the installer's ProductVersion, because the entry key changes with every
-    release. Uninstall runs the executable named in that entry's
-    QuietUninstallString with /uninstall /quiet /norestart, never the 64-bit
-    MSI entry.
+    release. Uninstall runs that entry's QuietUninstallString as written,
+    never the hidden MSI entry.
 
     Supports two-phase operation:
       -StageOnly    Download the installer, generate content wrappers, write manifest
@@ -108,7 +107,6 @@ $ProductLabel       = "Tableau Reader"
 $InstallerFilter    = "TableauReader-64bit-*.exe"
 $DisplayNamePattern = "Tableau Reader*"
 $InstallSwitches    = @('/install', '/quiet', '/norestart', 'ACCEPTEULA=1', 'SENDTELEMETRY=0')
-$UninstallSwitches  = @('/uninstall', '/quiet', '/norestart')
 $RunningProcesses   = @('tabreader')
 $ReleasePageUrl     = "https://www.tableau.com/support/releases"
 # {0} is the hyphenated release (2026-2-2), {1} the dotted one (2026.2.2).
@@ -212,19 +210,19 @@ function Get-TableauLocalInstaller {
 function New-TableauBundleSearchText {
     <#
     .SYNOPSIS
-        Returns script text that enumerates the bundle's 32-bit uninstall
+        Returns script text that enumerates the bundle's 64-bit uninstall
         entries matching the display name pattern.
     .DESCRIPTION
-        The bundle writes its entry to the 32-bit view with a
+        The bundle writes its entry to the 64-bit view with a
         QuietUninstallString that runs the cached bundle executable; the MSI
-        it installs writes a hidden 64-bit entry that must not be used. The
-        view is opened explicitly so the script behaves the same in a 32-bit
-        or 64-bit host.
+        it installs writes a hidden entry with no QuietUninstallString that
+        must not be used. The view is opened explicitly so the script behaves
+        the same in a 32-bit or 64-bit host.
     #>
     param([Parameter(Mandatory)][string]$Pattern)
 
     return (
-        '$base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry32)',
+        '$base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)',
         '$un = $base.OpenSubKey(''SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'')',
         '$bundles = @()',
         'if ($un) {',
@@ -262,15 +260,14 @@ function New-TableauDetectionScript {
 function New-TableauUninstallScript {
     param([Parameter(Mandatory)][string]$Pattern)
 
-    $switchList = ($UninstallSwitches | ForEach-Object { "'$_'" }) -join ', '
     return (
         (New-TableauBundleSearchText -Pattern $Pattern),
         'if ($bundles.Count -eq 0) { exit 0 }',
         '$exitCode = 0',
         'foreach ($b in $bundles) {',
-        '    $exe = ($b.QuietUninstall -replace ''^\s*"([^"]+)".*$'', ''$1'').Trim()',
-        '    if (-not $exe.EndsWith(''.exe'', [StringComparison]::OrdinalIgnoreCase) -or -not (Test-Path -LiteralPath $exe)) { Write-Error ("Bundle uninstaller not found: " + $b.QuietUninstall); $exitCode = 1; continue }',
-        ('    $proc = Start-Process -FilePath $exe -ArgumentList @({0}) -Wait -PassThru -NoNewWindow' -f $switchList),
+        '    $m = [regex]::Match($b.QuietUninstall, ''^\s*"(?<exe>[^"]+\.exe)"\s+(?<args>.+)$'', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)',
+        '    if (-not $m.Success -or -not (Test-Path -LiteralPath $m.Groups[''exe''].Value)) { Write-Error ("Bundle uninstaller not found: " + $b.QuietUninstall); $exitCode = 1; continue }',
+        '    $proc = Start-Process -FilePath $m.Groups[''exe''].Value -ArgumentList $m.Groups[''args''].Value -Wait -PassThru -NoNewWindow',
         '    if ($proc.ExitCode -ne 0) { $exitCode = $proc.ExitCode }',
         '}',
         'exit $exitCode'
@@ -347,7 +344,7 @@ function Invoke-StageTableau {
         -UninstallPs1Content (New-TableauUninstallScript -Pattern $DisplayNamePattern)
 
     Write-Log ""
-    Write-Log "Detection                    : 32-bit bundle entry '$DisplayNamePattern', DisplayVersion >= $productVersion"
+    Write-Log "Detection                    : 64-bit bundle entry '$DisplayNamePattern', DisplayVersion >= $productVersion"
     Write-Log ""
 
     # --- Write stage manifest ---
@@ -359,7 +356,7 @@ function Invoke-StageTableau {
         InstallerFile   = $installerFileName
         InstallerType   = "EXE"
         InstallArgs     = ($InstallSwitches -join ' ')
-        UninstallArgs   = ($UninstallSwitches -join ' ')
+        UninstallArgs   = ''
         RunningProcess  = $RunningProcesses
         Detection       = @{
             Type           = "Script"
