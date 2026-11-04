@@ -11,7 +11,7 @@ Describe '<Name>' -ForEach @(
 
         foreach ($assign in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Parent -is [System.Management.Automation.Language.NamedBlockAst] }, $false)) {
             $target = $assign.Left.Extent.Text
-            if ($target -in @('$InstallerFilter', '$DisplayNamePattern', '$InstallSwitches', '$UninstallSwitches', '$DownloadUrlTemplate')) {
+            if ($target -in @('$InstallerFilter', '$DisplayNamePattern', '$InstallSwitches', '$DownloadUrlTemplate')) {
                 . ([scriptblock]::Create($assign.Extent.Text))
             }
         }
@@ -50,21 +50,35 @@ Describe '<Name>' -ForEach @(
     It 'installs with the production switches' {
         @($InstallSwitches)[0..4] | Should -Be @('/install', '/quiet', '/norestart', 'ACCEPTEULA=1', $(if ($RemoveInstalled) { 'REMOVEINSTALLEDAPP=1' } else { 'SENDTELEMETRY=0' }))
         ($InstallSwitches -contains 'REMOVEINSTALLEDAPP=1') | Should -Be $RemoveInstalled
-        $UninstallSwitches | Should -Be @('/uninstall', '/quiet', '/norestart')
     }
 
-    It 'detects through the 32-bit bundle entry with the installer version as the minimum' {
+    It 'detects through the 64-bit bundle entry with the installer version as the minimum' {
         $script = New-TableauDetectionScript -Pattern $Pattern -MinimumVersion '26.2.1782'
-        $script | Should -Match 'RegistryView\]::Registry32'
+        $script | Should -Match 'RegistryView\]::Registry64'
+        $script | Should -Not -Match 'Registry32'
         $script | Should -Match ([regex]::Escape("-like '$Pattern'"))
         $script | Should -Match ([regex]::Escape("[version]'26.2.1782'"))
     }
 
-    It 'uninstalls through the QuietUninstallString executable, never the MSI' {
+    It 'uninstalls by running the QuietUninstallString as written, never the MSI' {
         $script = New-TableauUninstallScript -Pattern $Pattern
+        $script | Should -Match 'RegistryView\]::Registry64'
+        $script | Should -Not -Match 'Registry32'
         $script | Should -Match 'QuietUninstallString'
-        $script | Should -Match ([regex]::Escape("@('/uninstall', '/quiet', '/norestart')"))
+        $script | Should -Match ([regex]::Escape("-ArgumentList `$m.Groups['args'].Value -Wait"))
+        $script | Should -Not -Match '/norestart'
         $script | Should -Not -Match '(?i)msiexec'
-        $script | Should -Not -Match 'Registry64'
+    }
+
+    It 'generates an uninstall script that parses and runs the registry string unchanged' {
+        $script = New-TableauUninstallScript -Pattern $Pattern
+        $tokens = $null; $errors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseInput($script, [ref]$tokens, [ref]$errors)
+        $errors | Should -BeNullOrEmpty
+        $quiet = '"C:\ProgramData\Package Cache\{00000000-0000-0000-0000-000000000000}\setup.exe" /burn.clean.room /uninstall /quiet'
+        $m = [regex]::Match($quiet, '^\s*"(?<exe>[^"]+\.exe)"\s+(?<args>.+)$', 'IgnoreCase')
+        $m.Groups['exe'].Value | Should -Be 'C:\ProgramData\Package Cache\{00000000-0000-0000-0000-000000000000}\setup.exe'
+        $m.Groups['args'].Value | Should -Be '/burn.clean.room /uninstall /quiet'
+        $script | Should -Match ([regex]::Escape('''^\s*"(?<exe>[^"]+\.exe)"\s+(?<args>.+)$'''))
     }
 }
