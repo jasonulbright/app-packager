@@ -70,15 +70,30 @@ Describe '<Name>' -ForEach @(
         $script | Should -Not -Match '(?i)msiexec'
     }
 
-    It 'generates an uninstall script that parses and runs the registry string unchanged' {
+    It 'generates an uninstall script that parses' {
         $script = New-TableauUninstallScript -Pattern $Pattern
         $tokens = $null; $errors = $null
         [void][System.Management.Automation.Language.Parser]::ParseInput($script, [ref]$tokens, [ref]$errors)
         $errors | Should -BeNullOrEmpty
-        $quiet = '"C:\ProgramData\Package Cache\{00000000-0000-0000-0000-000000000000}\setup.exe" /burn.clean.room /uninstall /quiet'
-        $m = [regex]::Match($quiet, '^\s*"(?<exe>[^"]+\.exe)"\s+(?<args>.+)$', 'IgnoreCase')
-        $m.Groups['exe'].Value | Should -Be 'C:\ProgramData\Package Cache\{00000000-0000-0000-0000-000000000000}\setup.exe'
-        $m.Groups['args'].Value | Should -Be '/burn.clean.room /uninstall /quiet'
-        $script | Should -Match ([regex]::Escape('''^\s*"(?<exe>[^"]+\.exe)"\s+(?<args>.+)$'''))
+    }
+
+    It 'launches the executable and the arguments of the QuietUninstallString' {
+        $exe = Join-Path $TestDrive 'bundle setup.exe'
+        Set-Content -LiteralPath $exe -Value 'x'
+        $search = New-TableauBundleSearchText -Pattern $Pattern
+        $body = (New-TableauUninstallScript -Pattern $Pattern).Substring($search.Length) -replace 'exit \$exitCode\s*$', '$exitCode'
+        $stub = '$bundles = @([pscustomobject]@{ DisplayName = ''x''; DisplayVersion = ''1.0''; QuietUninstall = ''"' + $exe + '" /burn.clean.room /uninstall /quiet'' })'
+        $global:TableauLaunch = $null
+        function global:Start-Process {
+            param($FilePath, $ArgumentList, [switch]$Wait, [switch]$PassThru, [switch]$NoNewWindow)
+            $global:TableauLaunch = @{ FilePath = $FilePath; ArgumentList = $ArgumentList; Wait = [bool]$Wait }
+            [pscustomobject]@{ ExitCode = 0 }
+        }
+        try { $result = & ([scriptblock]::Create($stub + "`r`n" + $body)) }
+        finally { Remove-Item -LiteralPath Function:\global:Start-Process -ErrorAction SilentlyContinue }
+        $result | Should -Be 0
+        $global:TableauLaunch.FilePath | Should -Be $exe
+        $global:TableauLaunch.ArgumentList | Should -Be '/burn.clean.room /uninstall /quiet'
+        $global:TableauLaunch.Wait | Should -BeTrue
     }
 }
