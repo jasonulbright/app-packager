@@ -1,5 +1,15 @@
 # Changelog
 
+## [2026.11.04.0124] - 2026-11-04
+
+## 3 fixes
+
+### Fixed
+
+- Detect and uninstall Tableau Desktop from the 64-bit registry.
+- Detect and uninstall Tableau Prep Builder from the 64-bit registry.
+- Detect and uninstall Tableau Reader from the 64-bit registry.
+
 ## [2026.10.29.0123] - 2026-10-29
 
 ## 2 fixes
