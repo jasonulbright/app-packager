@@ -1,5 +1,17 @@
 # Changelog
 
+## [2026.11.05.0125] - 2026-11-05
+
+## 5 additions
+
+### Added
+
+- Convert an existing ConfigMgr application to Intune Win32 apps.
+- Make one Intune app for each convertible deployment type of an application.
+- Keep ConfigMgr's first-match order between deployment types with Intune requirement rules.
+- Convert Or and grouped detection to one Intune detection script.
+- List dependencies and supersedence of a converted application in a file.
+
 ## [2026.11.04.0124] - 2026-11-04
 
 ## 3 fixes

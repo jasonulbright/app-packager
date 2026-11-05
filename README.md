@@ -28,7 +28,7 @@ Installs the latest release into `%LOCALAPPDATA%\AppPackager`. Only a zip crosse
 On an unrestricted network, the installer can do the whole flow itself — resolve the release from the GitHub API, download, verify SHA-256, extract:
 
 ```powershell
-curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.11.04.0124
+curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.11.05.0125
 ```
 
 Omitting `-ZipPath` makes it download and checksum-verify the requested release; `-InstallPath` picks the folder and `-Version` pins a release. `-Force` is required to replace a non-empty folder that holds no existing AppPackager install. If even the curl download is blocked, fetch the zip in a browser and run the same `-ZipPath` command against it.
@@ -379,6 +379,7 @@ AppPackager has no service and no backend. Every network call comes from one of 
 | The packager script | A version lookup, then the installer download. The GUI starts `Packagers\package-<app>.ps1` as a child `powershell.exe` with `-GetLatestVersionOnly` (Check latest, One Click) or `-StageOnly` (Stage). The script calls `curl.exe` against the vendor site; 92 packagers read `https://api.github.com/repos/<owner>/<repo>/releases/latest`. | The `GitHub API URL` and `Download URL` lines in the packager log under `Logs\`. |
 | `Get-GitHubApiCurlArgs` in `Packagers\AppPackagerCommon.psm1` | The bearer token every GitHub call carries: `GITHUB_TOKEN`, then `GH_TOKEN`, then `gh auth token`. Without a token the calls are anonymous, 60 per hour per address. | Options, ConfigMgr Preferences, the GitHub API row. |
 | `start-apppackager.ps1` | The update check: `https://api.github.com/repos/jasonulbright/app-packager/releases/latest`, once per 24 hours at launch, cached in `%LOCALAPPDATA%\AppPackager\update-check.json`. The icon pack and Content Prep downloads from the Options window. The `rate_limit` probe behind the GitHub API row. | The log pane at launch. |
+| Convert a ConfigMgr application to Intune (`Convert-CMApplicationToIntune.ps1`) | Reads the application from the ConfigMgr site with `Get-CMApplication`, read-only. With `-Package` it downloads `IntuneWinAppUtil.exe` once from the Microsoft GitHub repository and checks its signature. With `-Publish` it calls Microsoft Graph v1.0 (`deviceAppManagement/mobileApps`) and Azure Storage, as the Package phase does. | The log and the conversion report. |
 | The Package phase | Writes to the file share and the ConfigMgr provider, or to Intune through Microsoft Graph, or to the WSUS server. No vendor call. | The log pane. |
 | Check CVEs (`Packagers\AppPackagerVulnerability.psm1`) | One NVD call per checked app: `https://services.nvd.nist.gov/rest/json/cves/2.0` with the app's CPE and version range, paged at 2000 records; `https://cvedb.shodan.io/cves` with the ConfigMgr version when NVD fails; `https://api.first.org/data/v1/epss` with up to 100 CVE ids per call; the CISA KEV catalog `https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json` once per day. Every call carries the `AppPackager` user agent and the NVD key from Preferences when one is set. Nothing is sent to the other CVE sites; the report and the CVE window only link to them. The scheduled monitor adds one POST of the run summary (counts and report paths, no CVE text) to the webhook URL in `monitor-config.json`, when one is set. | The `GET <url> -> HTTP <code>` and `POST <url> -> HTTP <code>` lines in the log pane or the monitor log. |
 | Discover unmanaged software (`Packagers\AppPackagerDiscovery.psm1`) | One SQL connection to the ConfigMgr site database with Windows authentication and read-only intent. Parameterized `SELECT` statements on the views `v_GS_ADD_REMOVE_PROGRAMS`, `v_GS_ADD_REMOVE_PROGRAMS_64`, `v_Applications` and `v_ConfigurationItems`. AppPackager receives distinct display names, versions and architectures, plus ConfigMgr application titles. No per-client inventory or client counts leave the database. Nothing is written. | The `Discover unmanaged software:` lines in the log pane. |
@@ -441,6 +442,54 @@ Or drive one application through a workbench profile without the GUI:
 | `-Comment` | Administrative comment stored on the application |
 
 It creates the run snapshot, sets the child environment and launches the packager exactly as the GUI does, so a scheduled build and a button click produce the same content. A WSUS target publishes the manifest staged in the same run, so `MECMAndWSUS` needs `-Stage` and `-Package` together. The result object carries a `Wsus` block. A failed publish sets exit code 1. A failed approval or decline after a successful publish also sets exit code 1, and `Wsus.Warnings` names it. A `custom:` script lives under `<workbench data root>\scripts`, outside the install folder, and must import `AppPackagerCommon.psd1` by its full path; it builds from the command line only, since the main grid lists the `Packagers` folder.
+
+### Convert a ConfigMgr application to Intune
+
+`Convert-CMApplicationToIntune.ps1` reads an application that already exists in ConfigMgr and turns it into Intune Win32 apps. The application does not need to come from App Packager. The conversion only reads the site: it never changes the application.
+
+```powershell
+# Plan the conversion and copy the content. Nothing is published.
+.\Convert-CMApplicationToIntune.ps1 -ApplicationName 'Contoso Viewer' -SiteCode MCM -OutputRoot D:\Converted
+
+# Also build the .intunewin files
+.\Convert-CMApplicationToIntune.ps1 -ApplicationName 'Contoso Viewer' -SiteCode MCM -OutputRoot D:\Converted -Package
+
+# Build and publish through Microsoft Graph, with the tenant values saved in Options
+.\Convert-CMApplicationToIntune.ps1 -ApplicationName 'Contoso Viewer' -SiteCode MCM -OutputRoot D:\Converted -Publish -UseSavedSettings
+```
+
+Run it on a computer with the ConfigMgr console. The output folder holds one folder per application, and in it:
+
+| File or folder | Content |
+|---|---|
+| `<deployment type>\Content` | A copy of the deployment type's content |
+| `<deployment type>\stage-manifest.json` | The Intune app: commands, rules, return codes, minimum hardware |
+| `<deployment type>\Package\*.intunewin` | The package, with `-Package` |
+| `conversion-report.txt` | What converted, and every finding |
+| `relationships.json` | Dependencies and supersedence found in the application |
+
+How each part converts:
+
+| ConfigMgr | Intune |
+|---|---|
+| Windows Installer and script deployment types | One Win32 app each |
+| App-V, MSIX, web, Mac and mobile deployment types | Not converted. The report names them. |
+| MSI product code | Product code rule |
+| File, folder, registry key and registry value clauses joined by And, including And groups | Native rules, with the 32-bit and 64-bit view kept |
+| Or, wildcards, dates, sizes and prefix comparisons, or a group that holds one of these | One PowerShell detection script with the same logic (see `-NativeDetectionOnly`) |
+| Script detection | The same script |
+| Operating system architecture, memory, processors | Native app properties |
+| Operating system language, Windows 11 floors, "none of" rules | A requirement script |
+| Return codes and restart behavior | Return codes and restart behavior |
+| Install for system or user | Install behavior system or user |
+| Dependencies and supersedence | Listed in `relationships.json`. Microsoft Graph v1.0 has no resource for them, so create them in the Intune admin center. |
+| Maximum run time | Recorded in the manifest. Graph v1.0 has no property for it. |
+
+An application with several deployment types becomes several Intune apps, named `<application> - <deployment type>`. ConfigMgr installs the first deployment type, by priority, whose requirements pass. Intune evaluates each app on its own, so two apps could both install. The default strategy `PerDeploymentType` prevents that: each app gets a requirement script that is false when a higher-priority deployment type applies. Apps with disjoint architectures need no script. A deployment type that a higher-priority type always shadows is not converted. A deployment type below a requirement that cannot be evaluated outside ConfigMgr stops the conversion of that type; the strategy `AssignByGroup` converts it without the exclusion, and each app then goes to its own device group.
+
+A deployment type with a requirement that has no Intune equivalent, such as a custom global condition, is not converted, because the Intune app would install on devices where ConfigMgr skips that type. `-AllowUntranslatedRequirements` converts it without that requirement.
+
+The apps carry the identity tag `AppPackager:cm:<application>/<deployment type>` in their notes, so a repeat run updates the same apps.
 
 All packager scripts accept the same core parameters:
 
@@ -1088,6 +1137,7 @@ app-packager/
   MainWindow.xaml                    # WPF window layout
   WorkbenchWindow.xaml               # Application Workbench window layout
   Invoke-AppPackagerBuild.ps1        # Command-line build entry point (one app, one profile)
+  Convert-CMApplicationToIntune.ps1  # Converts an existing ConfigMgr application to Intune Win32 apps
   install.ps1                        # Installer and in-place updater (see Install)
   AppPackager.preferences.json       # Persisted GUI preferences (auto-created)
   AppPackager.windowstate.json       # Persisted window state, theme, debug cols (auto-created)
@@ -1115,6 +1165,8 @@ app-packager/
     AppPackagerVulnerability.psd1    # Module manifest
     AppPackagerDiscovery.psm1        # Discover unmanaged software: site database query and matching
     AppPackagerDiscovery.psd1        # Module manifest
+    AppPackagerCmImport.psm1         # ConfigMgr application to Intune Win32 apps: reader, rule translation, variants
+    AppPackagerCmImport.psd1         # Module manifest
     package-7zip.ps1                 # One script per application (312 total)
     package-chrome.ps1
     ...
