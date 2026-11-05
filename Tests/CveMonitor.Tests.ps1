@@ -21,7 +21,7 @@ BeforeAll {
     $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RepoRoot 'start-apppackager.ps1'), [ref]$tokens, [ref]$errors)
     if ($errors) { throw ($errors.Message -join '; ') }
     $script:Ast = $ast
-    foreach ($name in 'Invoke-CveMonitor', 'Get-CveGridCells', 'Get-CveCachedResult', 'Get-CveReportRows', 'Compare-SemVer', 'Remove-ExpiredCveReports', 'ConvertTo-CveVersionKey', 'ConvertTo-CvePairKey', 'Clear-StaleCveCells', 'Set-CveCellsPair', 'Get-CveSkipReason') {
+    foreach ($name in 'Invoke-CveMonitor', 'Get-CveGridCells', 'Get-CveCachedResult', 'Find-CveSessionResult', 'Get-CveReportRows', 'Compare-SemVer', 'Remove-ExpiredCveReports', 'ConvertTo-CveVersionKey', 'ConvertTo-CvePairKey', 'Clear-StaleCveCells', 'Set-CveCellsPair', 'Get-CveSkipReason') {
         $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }.GetNewClosure(), $false)
         if (-not $fn) { throw "function $name not found" }
         . ([scriptblock]::Create($fn.Extent.Text))
@@ -323,17 +323,27 @@ Describe 'A stored summary belongs to one product' {
 }
 
 Describe 'One comparer decides whether an update exists' {
-    It 'gives the CVE check the same answer as the grid for the same pair' {
-        $pairs = @(
-            @('1.0', '2.0'), @('2.0', '1.0'), @('8.9.8', '8.9.8.1'), @('26.2.2.2', '26.2.2'), @('31', '31.0.1'), @('140.17.0esr', '140.17.1'),
-            @('20240101000000', '20250101000000'), @('build 0143', 'build 0144'), @('11.0.30+7', '11.0.31')
-        )
-        foreach ($pair in $pairs) {
-            $gridSaysUpdate = ((Compare-SemVer -A $pair[0] -B $pair[1]) -lt 0)
-            $reason = Get-CveSkipReason -Cpe 'cpe:2.3:a:v:p:*:*:*:*:*:*:*:*' -Current $pair[0] -Latest $pair[1]
-            ($reason -eq '') | Should -Be $gridSaysUpdate -Because ('{0} to {1}' -f $pair[0], $pair[1])
-            if (-not $gridSaysUpdate) { $reason | Should -Be 'No update' }
-        }
+    It 'decides <Current> to <Latest> as update: <Update>, in the grid and in the CVE check' -ForEach @(
+        @{ Current = '1.0'; Latest = '2.0'; Update = $true }
+        @{ Current = '2.0'; Latest = '1.0'; Update = $false }
+        @{ Current = '8.9.8'; Latest = '8.9.8.1'; Update = $true }
+        @{ Current = '26.2.2.2'; Latest = '26.2.2'; Update = $false }
+        @{ Current = '31'; Latest = '31.0.1'; Update = $true }
+        @{ Current = '140.17.0esr'; Latest = '140.17.1'; Update = $true }
+        @{ Current = '11.0.30+7'; Latest = '11.0.31'; Update = $true }
+        @{ Current = '20240101000000'; Latest = '20250101000000'; Update = $true }
+        @{ Current = '20250101000000'; Latest = '20240101000000'; Update = $false }
+        @{ Current = 'build 0143'; Latest = 'build 0144'; Update = $false }
+    ) {
+        ((Compare-SemVer -A $Current -B $Latest) -lt 0) | Should -Be $Update
+        $reason = Get-CveSkipReason -Cpe 'cpe:2.3:a:v:p:*:*:*:*:*:*:*:*' -Current $Current -Latest $Latest
+        ($reason -eq '') | Should -Be $Update
+        if (-not $Update) { $reason | Should -Be 'No update' }
+    }
+    It 'compares the strict form over all four parts' {
+        Compare-SemVer -A '1.2.3.4' -B '1.2.3.5' -Strict | Should -Be (-1)
+        Compare-SemVer -A '1.2.3.5' -B '1.2.3' -Strict | Should -Be 1
+        Compare-SemVer -A '20250101000000.1' -B '20250101000000.1' -Strict | Should -Be 0
     }
     It 'names the missing input first' {
         Get-CveSkipReason -Cpe '' -Current '1' -Latest '2' | Should -Be 'CPE missing'
@@ -401,5 +411,38 @@ Describe 'CVE cells follow the version pair they describe' {
             if (-not $next -or $next.Extent.Text -notmatch '^Clear-StaleCveCells\b') { $missing += $a.Extent.StartLineNumber }
         }
         $missing | Should -BeNullOrEmpty -Because ('lines without a Clear-StaleCveCells call right after the assignment: ' + ($missing -join ', '))
+    }
+}
+
+Describe 'Detail and report read the result of this session first' {
+    BeforeAll {
+        $script:SCpe = 'cpe:2.3:a:vendor:sessionprod:*:*:*:*:*:*:*:*'
+        $script:SRow = { param($count) [pscustomobject]@{ Application = 'S'; Vendor = 'V'; Script = 'package-s.ps1'; CurrentVersion = '1.0'; LatestVersion = '2.0'; Status = 'Update available'; Cpe = $script:SCpe; CveCount = $count; CveChecked = '' } }
+        $script:SResult = [pscustomobject]@{
+            Cpe = $script:SCpe; From = '1.0'; To = '2.0'; Source = 'NVD'; QueriedAt = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+            Count = 4; MaxCvss = 5.0; MaxSeverity = 'MEDIUM'; KevCount = 0; MaxEpss = $null; Error = $null
+            FixedInLatestCount = 4; FixedEarlierCount = 0; FixedUnknownCount = 0; NewestPublished = ''; LastNvdUpdate = ''
+            Links = @{}; Cves = @(); UnfixedCves = @()
+        }
+        $cache = Join-Path $env:LOCALAPPDATA 'AppPackager\vuln-cache.json'
+        if (Test-Path -LiteralPath $cache) { Remove-Item -LiteralPath $cache -Force }
+    }
+    AfterEach { $script:CveSessionResults = $null }
+
+    It 'returns the session result when the cache holds none' {
+        $script:CveSessionResults = @{ 'package-s.ps1' = $script:SResult }
+        (Get-CveCachedResult -Row (& $script:SRow '4')).Count | Should -Be 4
+    }
+    It 'ignores a session result for another CPE or version pair' {
+        $script:CveSessionResults = @{ 'package-s.ps1' = $script:SResult }
+        $other = & $script:SRow '4'
+        $other.LatestVersion = '3.0'
+        Get-CveCachedResult -Row $other | Should -BeNullOrEmpty
+    }
+    It 'keeps the failure note for a row whose latest lookup failed' {
+        $script:CveSessionResults = @{ 'package-s.ps1' = $script:SResult }
+        $rows = Get-CveReportRows -Rows @((& $script:SRow 'Error')) -Results $script:CveSessionResults
+        $rows[0].Result.Count | Should -Be 4
+        $rows[0].Note | Should -Match '^Last lookup failed'
     }
 }

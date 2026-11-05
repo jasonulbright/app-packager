@@ -1968,27 +1968,29 @@ function Compare-SemVer {
         [switch]$Strict
     )
     try {
-        # [version] rejects a single number such as NetBeans "31", a build
-        # suffix ("11.0.30+7") and a channel suffix ("140.17.0esr" as
-        # ConfigMgr held it before the packager recorded the number alone).
-        # A fifth number (a build suffix recorded as ".1" by an earlier
-        # Liberica packager) is dropped: [version] holds four.
-        $va = [version]((((($A -replace '[+-].*$', '') -replace '[A-Za-z]+$', '') -replace '^((\d+\.){3}\d+)\..*$', '$1') -replace '^(\d+)$', '$1.0'))
-        $vb = [version]((((($B -replace '[+-].*$', '') -replace '[A-Za-z]+$', '') -replace '^((\d+\.){3}\d+)\..*$', '$1') -replace '^(\d+)$', '$1.0'))
-
-        # Unset Build/Revision on [version] is -1.
-        $count = 4
-        if (-not $Strict) {
-            $count = 2
-            if ($vb.Build -ge 0) { $count = 3 }
-            if ($vb.Revision -ge 0) { $count = 4 }
+        # Each side is reduced the way [version] needs: no build suffix
+        # ("11.0.30+7"), no channel suffix ("140.17.0esr"), at most four
+        # numbers, a single number ("31") padded to "31.0". The parts are
+        # compared as numbers without [version], which holds only Int32: a
+        # build stamp such as 20250101000000 is above it.
+        $reduce = {
+            param([string]$v)
+            $v = ((($v -replace '[+-].*$', '') -replace '[A-Za-z]+$', '') -replace '^((\d+\.){3}\d+)\..*$', '$1') -replace '^(\d+)$', '$1.0'
+            if ($v -notmatch '^\d+(\.\d+){1,3}$') { throw 'not a version' }
+            $parts = @($v -split '\.' | ForEach-Object { [decimal]$_ })
+            ,$parts
         }
-        $aParts = @($va.Major, $va.Minor, [Math]::Max($va.Build, 0), [Math]::Max($va.Revision, 0))
-        $bParts = @($vb.Major, $vb.Minor, [Math]::Max($vb.Build, 0), [Math]::Max($vb.Revision, 0))
+        $pa = & $reduce $A
+        $pb = & $reduce $B
 
+        # Parts a version does not carry count as zero.
+        $count = 4
+        if (-not $Strict) { $count = [Math]::Max(2, $pb.Count) }
         for ($i = 0; $i -lt $count; $i++) {
-            if ($aParts[$i] -lt $bParts[$i]) { return -1 }
-            if ($aParts[$i] -gt $bParts[$i]) { return  1 }
+            $x = $(if ($i -lt $pa.Count) { $pa[$i] } else { [decimal]0 })
+            $y = $(if ($i -lt $pb.Count) { $pb[$i] } else { [decimal]0 })
+            if ($x -lt $y) { return -1 }
+            if ($x -gt $y) { return  1 }
         }
         return 0
     }
@@ -4380,6 +4382,18 @@ function Get-CveGridCells {
     return $cells
 }
 
+function Find-CveSessionResult {
+    # The result of a lookup this session made for the row: same script, same
+    # CPE, same version pair, and no error. $null when there is none.
+    param([Parameter(Mandatory)]$Row, $Results)
+    if (-not $Results -or -not $Results.ContainsKey([string]$Row.Script)) { return $null }
+    $candidate = $Results[[string]$Row.Script]
+    if ($candidate -and -not $candidate.Error -and [string]$candidate.Cpe -eq [string]$Row.Cpe -and
+        [string]$candidate.From -eq (ConvertTo-VulnerabilityVersion -Version ([string]$Row.CurrentVersion)) -and
+        [string]$candidate.To -eq (ConvertTo-VulnerabilityVersion -Version ([string]$Row.LatestVersion))) { return $candidate }
+    return $null
+}
+
 function Get-CveCachedResult {
     # The cached lookup for a grid row, or $null when none was run for the
     # row's CPE and version pair. -Cache takes a loaded cache so a loop
@@ -4390,6 +4404,9 @@ function Get-CveCachedResult {
     $from = ConvertTo-VulnerabilityVersion -Version ([string]$Row.CurrentVersion)
     $to   = ConvertTo-VulnerabilityVersion -Version ([string]$Row.LatestVersion)
     if (-not $from -or -not $to) { return $null }
+    # A lookup of this session comes first: its cache write can have failed.
+    $session = Find-CveSessionResult -Row $Row -Results $script:CveSessionResults
+    if ($session) { return (ConvertTo-VulnerabilityResultObject -Result $session) }
     if ($null -eq $Cache) { $Cache = Read-VulnerabilityCache }
     $key = '{0}|{1}|{2}' -f $cpe, $from, $to
     if (-not $Cache.ContainsKey($key)) { return $null }
@@ -4407,18 +4424,14 @@ function Get-CveReportRows {
     param([Parameter(Mandatory)][AllowEmptyCollection()][array]$Rows, [hashtable]$Results = $null, [switch]$MarkCached)
     $cache = Read-VulnerabilityCache
     $out = foreach ($row in $Rows) {
-        $res = $null
-        $own = $false
-        if ($Results -and $Results.ContainsKey([string]$row.Script)) {
-            $candidate = $Results[[string]$row.Script]
-            if ($candidate -and -not $candidate.Error -and [string]$candidate.Cpe -eq [string]$row.Cpe -and
-                [string]$candidate.From -eq (ConvertTo-VulnerabilityVersion -Version ([string]$row.CurrentVersion)) -and
-                [string]$candidate.To -eq (ConvertTo-VulnerabilityVersion -Version ([string]$row.LatestVersion))) { $res = $candidate; $own = $true }
-        }
+        $res = Find-CveSessionResult -Row $row -Results $Results
+        $own = [bool]$res
         if (-not $res) { $res = Get-CveCachedResult -Row $row -Cache $cache }
         $note = ''
         $count = [string]$row.CveCount
-        if ($own) { $note = '' }
+        # A row whose latest lookup failed keeps the failure note, also when
+        # an earlier lookup of this session is the result shown.
+        if ($own -and $count -ne 'Error') { $note = '' }
         elseif (-not $res -and $count -and $count -notmatch '^\d+$') { $note = $count }
         elseif (-not $res) { $note = 'Not checked' }
         # The cache holds the last good lookup. A row whose latest lookup
