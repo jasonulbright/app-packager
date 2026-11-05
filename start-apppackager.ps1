@@ -8409,11 +8409,19 @@ function Invoke-MultiAppPipeline {
                         # What the site holds now, read once: the publish record
                         # below says only what this tool published earlier.
                         $observedCm = ''
+                        $observedUnknown = $false
                         if ($Ctx.Action -eq 'StageAndPackage' -and 'ConfigMgr' -in $wanted -and -not $Ctx.ForceFlag -and $Ctx.AdminUiFound -and -not [string]::IsNullOrWhiteSpace([string]$row.CMName)) {
                             try {
                                 $siteRes = Get-MecmCurrentVersionByCMName -SiteCode $Ctx.SiteCode -ProviderMachineName $Ctx.ProviderMachineName -CMName ([string]$row.CMName)
-                                if ($siteRes.Found) { $observedCm = [string]$siteRes.SoftwareVersion }
+                                if ($siteRes.Found -and -not [string]::IsNullOrWhiteSpace([string]$siteRes.SoftwareVersion)) {
+                                    $observedCm = [string]$siteRes.SoftwareVersion
+                                    # The grid and the history learn what the site holds, as the FullRun check does.
+                                    $row.CurrentVersion = $observedCm
+                                    Clear-StaleCveCells -Row $row
+                                    try { Update-PackagerHistory -PackagerName $baseName -Event CmChecked -Version $observedCm -Data @{ SiteCode = [string]$Ctx.SiteCode } } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
+                                }
                             } catch {
+                                $observedUnknown = $true
                                 [void]$State.LogQueue.Enqueue(('ConfigMgr site version for {0} not read: {1}' -f $app, $_.Exception.Message))
                             }
                         }
@@ -8427,6 +8435,13 @@ function Invoke-MultiAppPipeline {
                                     continue
                                 }
                                 if ($d -eq 'ConfigMgr') {
+                                    # With Overwrite, the package step replaces what the site holds without comparing versions;
+                                    # a site that could not be read is not overwritten.
+                                    if ($observedUnknown -and $onExisting -eq 'Overwrite' -and -not $Ctx.ForceFlag) {
+                                        $skipReasons += 'ConfigMgr: site version could not be read'
+                                        if ($pr) { $pr.('Result' + $d) = 'site version could not be read' }
+                                        continue
+                                    }
                                     $siteSkip = Get-OneClickObservedSkipReason -Destination $d -Observed $observedCm -Latest ([string]$latest) -Force:([bool]$Ctx.ForceFlag)
                                     if ($siteSkip) {
                                         $skipReasons += $siteSkip

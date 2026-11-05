@@ -36,6 +36,8 @@ Describe 'The site version decides a One Click skip, not the publish record alon
         $oneClick = $text.Substring($start)
         $oneClick | Should -Match 'Get-MecmCurrentVersionByCMName'
         $oneClick | Should -Match 'Get-OneClickObservedSkipReason'
+        $oneClick | Should -Match 'observedUnknown'
+        $oneClick | Should -Match 'Event CmChecked'
     }
 }
 
