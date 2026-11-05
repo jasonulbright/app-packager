@@ -7802,7 +7802,7 @@ function Test-PipelineBusy {
     # The state stays set until the completion tick has run every hook and
     # cleared it; Done alone leaves a gap in which a new run would drop
     # the pending hooks.
-    [bool]($null -ne $script:BgState)
+    [bool]($null -ne $script:BgState) -or [bool]$script:CmImportRunning
 }
 
 function Invoke-MultiAppPipeline {
@@ -9446,7 +9446,7 @@ function Invoke-DropIntake {
     # The action buttons are disabled while a pipeline runs, but the window
     # itself still receives drops; starting a second pipeline here would
     # hard-stop the running one mid-flight.
-    if ($script:BgState -and -not [bool]$script:BgState.Done) {
+    if (($script:BgState -and -not [bool]$script:BgState.Done) -or $script:CmImportRunning) {
         [void](Show-ThemedMessage -Owner $window -Title 'Pipeline Running' `
             -Message 'A pipeline is already running. Wait for it to finish (or cancel it), then drop the installer again.' `
             -Buttons OK -Icon Info)
@@ -9993,6 +9993,32 @@ $btnDiscover.Add_Click({
 })
 
 # --- 2c. Convert a ConfigMgr application to Intune ---
+# True while the conversion child runs. Test-PipelineBusy, the drop intake and
+# the window close handler read it.
+$script:CmImportRunning = $false
+
+function Get-CmImportChildEnvironment {
+    # The environment values the conversion child needs so that it finds the
+    # console module and the SMS Provider that the GUI found. A value that the
+    # parent already has stays as it is: the child inherits it.
+    param(
+        [AllowEmptyString()][string]$ModulePath = '',
+        [AllowEmptyString()][string]$ProviderMachineName = '',
+        [AllowEmptyString()][string]$ParentAdminUiPath = '',
+        [AllowEmptyString()][string]$ParentProvider = ''
+    )
+
+    $values = [ordered]@{}
+    # The child looks for ConfigurationManager.psd1 in the parent of SMS_ADMIN_UI_PATH.
+    if (-not $ParentAdminUiPath -and $ModulePath) {
+        $values['SMS_ADMIN_UI_PATH'] = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($ModulePath), 'i386')
+    }
+    if ($ProviderMachineName.Trim() -and -not $ParentProvider) {
+        $values['APP_PACKAGER_CM_PROVIDER'] = $ProviderMachineName.Trim()
+    }
+    return $values
+}
+
 function Get-CmImportRunSpec {
     # Checks the dialog values and builds the command line of
     # Convert-CMApplicationToIntune.ps1. It touches no WPF type and starts
@@ -10022,7 +10048,9 @@ function Get-CmImportRunSpec {
     if ($name -match '[\x00-\x1F]') { return (& $fail 'The application name holds a control character.') }
     if ($site -notmatch '^[A-Za-z0-9]{3}$') { return (& $fail 'The site code is three letters or digits.') }
     if (-not $root) { return (& $fail 'Enter the output folder.') }
-    if (-not [System.IO.Path]::IsPathRooted($root) -or $root -match '[\x00-\x1F]') { return (& $fail 'The output folder must be a full path.') }
+    # IsPathRooted throws on these characters in Windows PowerShell 5.1, so they are checked first.
+    if ($root -match '[\x00-\x1F"<>|]') { return (& $fail 'The output folder holds a character that a path cannot use.') }
+    if (-not [System.IO.Path]::IsPathRooted($root)) { return (& $fail 'The output folder must be a full path.') }
 
     $preview = ($Mode -eq 'Preview')
     $doPublish = (-not $preview -and $Publish)
@@ -10237,26 +10265,32 @@ function Show-CmImportDialog {
 function Start-CmImportRun {
     param([Parameter(Mandatory)]$Spec, [AllowEmptyString()][string]$OutputRoot = '')
 
-    $logFolder = Join-Path $PSScriptRoot 'Logs'
-    if (-not (Test-Path -LiteralPath $logFolder)) { New-Item -ItemType Directory -Path $logFolder -Force | Out-Null }
-    $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
-    $outLog = Join-Path $logFolder ("convert-cmapp-{0}.out.log" -f $stamp)
-    $errLog = Join-Path $logFolder ("convert-cmapp-{0}.err.log" -f $stamp)
-
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = 'powershell.exe'
-    $psi.WorkingDirectory = $PSScriptRoot
-    Set-ProcessStartInfoArgumentList -StartInfo $psi -Arguments @($Spec.Arguments)
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $psi.UseShellExecute = $false
-    $psi.CreateNoWindow = $true
-
-    Add-LogLine -Message ('Convert ConfigMgr App to Intune: ' + $Spec.Summary)
-    $txtStatus.Text = 'Converting the ConfigMgr application...'
     Set-ActionButtonsEnabled -Enabled $false
     $window.Cursor = [System.Windows.Input.Cursors]::Wait
+    $script:CmImportRunning = $true
     try {
+        $logFolder = Join-Path $PSScriptRoot 'Logs'
+        if (-not (Test-Path -LiteralPath $logFolder)) { New-Item -ItemType Directory -Path $logFolder -Force | Out-Null }
+        $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+        $outLog = Join-Path $logFolder ("convert-cmapp-{0}.out.log" -f $stamp)
+        $errLog = Join-Path $logFolder ("convert-cmapp-{0}.err.log" -f $stamp)
+
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = 'powershell.exe'
+        $psi.WorkingDirectory = $PSScriptRoot
+        Set-ProcessStartInfoArgumentList -StartInfo $psi -Arguments @($Spec.Arguments)
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $childEnvironment = Get-CmImportChildEnvironment `
+            -ModulePath $(if ($script:Prefs.DetectedTools -and $script:Prefs.DetectedTools.ConfigMgrConsole) { [string]$script:Prefs.DetectedTools.ConfigMgrConsole.ModulePath } else { '' }) `
+            -ProviderMachineName ([string]$script:Prefs.ProviderMachineName) `
+            -ParentAdminUiPath ([string]$env:SMS_ADMIN_UI_PATH) -ParentProvider ([string]$env:APP_PACKAGER_CM_PROVIDER)
+        foreach ($name in $childEnvironment.Keys) { $psi.EnvironmentVariables[$name] = [string]$childEnvironment[$name] }
+
+        Add-LogLine -Message ('Convert ConfigMgr App to Intune: ' + $Spec.Summary)
+        $txtStatus.Text = 'Converting the ConfigMgr application...'
         # A content copy can print nothing for a long time, so the idle limit is one hour.
         $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -LogTextBox $txtLog -IdleTimeoutSeconds 3600
         $text = Get-CmImportOutcomeText -ExitCode ([int]$result.ExitCode) -StdErr ([string]$result.StdErr) -Mode ([string]$Spec.Mode) -OutputRoot $OutputRoot
@@ -10269,6 +10303,7 @@ function Start-CmImportRun {
         $txtStatus.Text = $message
     }
     finally {
+        $script:CmImportRunning = $false
         $window.Cursor = $null
         Set-ActionButtonsEnabled -Enabled $true
     }
@@ -14276,6 +14311,14 @@ $window.Add_ContentRendered({
 })
 
 $window.Add_Closing({
+    param($closingSender, $closingArgs)
+    # The conversion child would go on without a window, so closing waits for it.
+    if ($script:CmImportRunning) {
+        $closingArgs.Cancel = $true
+        [void](Show-ThemedMessage -Owner $window -Title 'Conversion Running' `
+            -Message 'A ConfigMgr conversion is running. Wait for it to finish, then close the window.' -Buttons OK -Icon Info)
+        return
+    }
     if ($script:UpdateCheckTimer) { $script:UpdateCheckTimer.Stop(); $script:UpdateCheckTimer = $null }
     if ($script:DiscoveryTimer) { $script:DiscoveryTimer.Stop(); $script:DiscoveryTimer = $null }
     Stop-DiscoveryRunspace -Job $script:DiscoveryJob

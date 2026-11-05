@@ -3,7 +3,7 @@ BeforeAll {
     $script:GuiPath = Join-Path $PSScriptRoot '..\start-apppackager.ps1'
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($script:GuiPath, [ref]$t, [ref]$e)
     if ($e) { throw ($e.Message -join '; ') }
-    foreach ($name in 'Get-SidebarSystemState', 'Get-CmImportRunSpec', 'Get-CmImportOutcomeText') {
+    foreach ($name in 'Get-SidebarSystemState', 'Get-CmImportRunSpec', 'Get-CmImportOutcomeText', 'Get-CmImportChildEnvironment', 'Test-PipelineBusy') {
         $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
         if (-not $fn) { throw "function $name not found" }
         . ([scriptblock]::Create($fn.Extent.Text))
@@ -178,5 +178,63 @@ Describe 'Get-CmImportOutcomeText' {
 
     It 'points to the log when there is no error text' {
         Get-CmImportOutcomeText -ExitCode 3 -StdErr '' | Should -BeExactly 'Convert ConfigMgr App to Intune failed with exit code 3. The log has the details.'
+    }
+}
+
+Describe 'Get-CmImportRunSpec output folder characters' {
+    It 'refuses a character that IsPathRooted throws on, with a note instead of an exception' {
+        foreach ($bad in 'D:\Out"put', 'D:\Out<put', 'D:\Out>put', 'D:\Out|put', "D:\Out`tput") {
+            { Get-CmImportRunSpec -ApplicationName 'App' -SiteCode 'MCM' -OutputRoot $bad -ScriptPath 'C:\AP\x.ps1' } | Should -Not -Throw
+            $spec = Get-CmImportRunSpec -ApplicationName 'App' -SiteCode 'MCM' -OutputRoot $bad -ScriptPath 'C:\AP\x.ps1'
+            $spec.Ok | Should -BeFalse -Because "output folder '$bad'"
+            $spec.Error | Should -BeLike 'The output folder holds a character*'
+        }
+    }
+}
+
+Describe 'Get-CmImportChildEnvironment' {
+    It 'points SMS_ADMIN_UI_PATH at the detected console folder when the parent has none' {
+        $env1 = Get-CmImportChildEnvironment -ModulePath 'E:\Apps\CM Console\bin\ConfigurationManager.psd1'
+        $env1['SMS_ADMIN_UI_PATH'] | Should -BeExactly 'E:\Apps\CM Console\bin\i386'
+        (Split-Path -Parent $env1['SMS_ADMIN_UI_PATH']) | Should -BeExactly 'E:\Apps\CM Console\bin'
+    }
+
+    It 'leaves SMS_ADMIN_UI_PATH alone when the parent already has it' {
+        $env1 = Get-CmImportChildEnvironment -ModulePath 'E:\Apps\bin\ConfigurationManager.psd1' -ParentAdminUiPath 'C:\CM\AdminConsole\bin\i386'
+        $env1.Contains('SMS_ADMIN_UI_PATH') | Should -BeFalse
+    }
+
+    It 'passes the provider from the preferences unless the parent has one' {
+        (Get-CmImportChildEnvironment -ProviderMachineName ' cm01.contoso.com ')['APP_PACKAGER_CM_PROVIDER'] | Should -BeExactly 'cm01.contoso.com'
+        (Get-CmImportChildEnvironment -ProviderMachineName 'cm01' -ParentProvider 'cm02').Contains('APP_PACKAGER_CM_PROVIDER') | Should -BeFalse
+    }
+
+    It 'returns nothing when there is nothing to pass' {
+        @((Get-CmImportChildEnvironment).Keys).Count | Should -Be 0
+    }
+}
+
+Describe 'The conversion run blocks other work' {
+    It 'makes Test-PipelineBusy true while the conversion runs' {
+        $script:BgState = $null
+        $script:CmImportRunning = $false
+        Test-PipelineBusy | Should -BeFalse
+        $script:CmImportRunning = $true
+        Test-PipelineBusy | Should -BeTrue
+        $script:CmImportRunning = $false
+    }
+
+    It 'sets the flag around the child process and clears it in finally' {
+        $gui = Get-Content -LiteralPath $script:GuiPath -Raw
+        $run = [regex]::Match($gui, '(?s)function Start-CmImportRun \{.*?\r?\n\}\r?\n').Value
+        $run | Should -Match '\$script:CmImportRunning = \$true\s+try \{'
+        $run | Should -Match '(?s)finally \{\s+\$script:CmImportRunning = \$false'
+        $run | Should -Match '(?s)try \{\s+\$logFolder'
+    }
+
+    It 'stops the drop intake and the window close while the conversion runs' {
+        $gui = Get-Content -LiteralPath $script:GuiPath -Raw
+        $gui | Should -Match '\$script:CmImportRunning\) \{\s+\[void\]\(Show-ThemedMessage -Owner \$window -Title ''Pipeline Running'''
+        $gui | Should -Match '(?s)\$window\.Add_Closing\(\{\s+param\(\$closingSender, \$closingArgs\).*?if \(\$script:CmImportRunning\) \{\s+\$closingArgs\.Cancel = \$true'
     }
 }
