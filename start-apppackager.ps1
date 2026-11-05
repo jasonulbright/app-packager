@@ -4253,12 +4253,85 @@ function Get-CveCacheTtlMinutes {
 function Get-CveRunContext {
     # The background context of one Check CVEs run. KevCatalog is filled by
     # the first row that needs it and shared by the rest of the run.
+    # CveSession keeps the results of every Check CVEs run of this session, so a
+    # report uses them when a cache write failed.
+    if ($null -eq $script:CveSessionResults) { $script:CveSessionResults = [hashtable]::Synchronized(@{}) }
     @{
+        CveSession      = $script:CveSessionResults
         NvdApiKey       = Get-CveNvdApiKey
         CacheTtlMinutes = Get-CveCacheTtlMinutes
         KevCatalog      = $null
         ForceRefresh    = $false
     }
+}
+
+function ConvertTo-CveVersionKey {
+    # The same reduction the vulnerability module applies to a version before
+    # it becomes a cache key, inline so the grid needs no module.
+    param([AllowNull()][AllowEmptyString()][string]$Version)
+    if ([string]::IsNullOrWhiteSpace($Version)) { return '' }
+    $v = ((($Version.Trim() -replace '[+-].*$', '') -replace '[A-Za-z]+$', '') -replace '^((\d+\.){3}\d+)\..*$', '$1')
+    if ($v -notmatch '^\d+(\.\d+){0,3}$') { return '' }
+    return $v
+}
+
+function ConvertTo-CvePairKey {
+    # "from|to" for a version pair, or '' when a version is not numeric.
+    param([AllowNull()][AllowEmptyString()][string]$Current, [AllowNull()][AllowEmptyString()][string]$Latest)
+    $from = ConvertTo-CveVersionKey -Version $Current
+    $to = ConvertTo-CveVersionKey -Version $Latest
+    if (-not $from -or -not $to) { return '' }
+    return ('{0}|{1}' -f $from, $to)
+}
+
+function Set-CveCellsPair {
+    # A row remembers the version pair its CVE cells describe. Without -Pair
+    # the pair is the one the row holds now.
+    param([Parameter(Mandatory)]$Row, [AllowEmptyString()][string]$Pair)
+    if (-not $PSBoundParameters.ContainsKey('Pair')) { $Pair = ConvertTo-CvePairKey -Current ([string]$Row.CurrentVersion) -Latest ([string]$Row.LatestVersion) }
+    if ($Row.PSObject.Properties['CvePair']) { $Row.CvePair = $Pair }
+    else { Add-Member -InputObject $Row -NotePropertyName CvePair -NotePropertyValue $Pair }
+}
+
+function Clear-StaleCveCells {
+    # Check Latest, Check ConfigMgr and One Click change the versions of a
+    # row. The CVE cells and the CVE count in the status describe the pair
+    # the row held when they were filled; for any other pair they are wrong,
+    # so they are cleared.
+    param([Parameter(Mandatory)]$Row)
+    $cellNames = @('CveCount', 'CveCvss', 'CveKev', 'CveEpss', 'CveChecked', 'CveFixed', 'CveNewest', 'CveUpdated')
+    $filled = $false
+    foreach ($n in $cellNames) { if ($Row.PSObject.Properties[$n] -and [string]$Row.$n) { $filled = $true } }
+    if (-not $filled) { return }
+    $stored = $(if ($Row.PSObject.Properties['CvePair']) { [string]$Row.CvePair } else { '' })
+    if ($stored -eq (ConvertTo-CvePairKey -Current ([string]$Row.CurrentVersion) -Latest ([string]$Row.LatestVersion))) { return }
+    foreach ($n in $cellNames) { if ($Row.PSObject.Properties[$n]) { $Row.$n = '' } }
+    if ($Row.PSObject.Properties['CveCount'] -and $Row.PSObject.Properties['Cpe'] -and [string]::IsNullOrWhiteSpace([string]$Row.Cpe)) { $Row.CveCount = 'CPE missing' }
+    if ($Row.PSObject.Properties['Status'] -and [string]$Row.Status) { $Row.Status = ([string]$Row.Status -replace '^(Update available) \(.*\)$', '$1') }
+    Set-CveCellsPair -Row $Row -Pair ''
+}
+
+function Get-CveSkipReason {
+    # Why Check CVEs skips a row, or '' when the row has an update to look
+    # up. The update decision is the grid's: Compare-SemVer.
+    param([AllowNull()][AllowEmptyString()][string]$Cpe, [AllowNull()][AllowEmptyString()][string]$Current, [AllowNull()][AllowEmptyString()][string]$Latest)
+    if ([string]::IsNullOrWhiteSpace($Cpe)) { return 'CPE missing' }
+    if ([string]::IsNullOrWhiteSpace($Current)) { return 'No ConfigMgr version' }
+    if ([string]::IsNullOrWhiteSpace($Latest)) { return 'No latest version' }
+    if ((Compare-SemVer -A $Current -B $Latest) -ge 0) { return 'No update' }
+    return ''
+}
+
+function Remove-ExpiredCveReports {
+    # Deletes the report files older than KeepDays. Only the names the report
+    # writer produces (Export-VulnerabilityReport with its default name) are
+    # deleted; any other file in the folder stays.
+    param([Parameter(Mandatory)][string]$Folder, [int]$KeepDays)
+    if ($KeepDays -le 0 -or -not (Test-Path -LiteralPath $Folder)) { return }
+    $cutoff = (Get-Date).AddDays(-$KeepDays)
+    Get-ChildItem -LiteralPath $Folder -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^cve-report-\d{8}-\d{6}(-applications\.csv|-cves\.csv|\.json|\.html|\.xlsx|\.md)$' -and $_.LastWriteTime -lt $cutoff } |
+        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
 }
 
 function Get-CveGridCells {
@@ -4273,18 +4346,14 @@ function Get-CveGridCells {
     $cells = [pscustomobject]@{ Cpe = [string]$Cpe; Count = ''; Cvss = ''; Kev = ''; Epss = ''; Checked = ''; Text = ''; Fixed = ''; Newest = ''; Updated = '' }
     if ([string]::IsNullOrWhiteSpace($Cpe)) { $cells.Count = 'CPE missing'; return $cells }
     if ($null -eq $Summary) { return $cells }
+    # A summary records the CPE it was looked up for. After the CPE of the
+    # packager changed, the count of the old product is not shown under the
+    # new one. A summary written before the CPE was recorded has none.
+    $storedCpe = [string](& $get 'Cpe')
+    if ($storedCpe -and $storedCpe -ne [string]$Cpe) { return $cells }
     if ($PSBoundParameters.ContainsKey('CurrentVersion') -or $PSBoundParameters.ContainsKey('LatestVersion')) {
-        # The same reduction the module applies to a version before it
-        # becomes a cache key, inline so the grid needs no module.
-        $norm = {
-            param([string]$v)
-            if ([string]::IsNullOrWhiteSpace($v)) { return '' }
-            $v = ((($v.Trim() -replace '[+-].*$', '') -replace '[A-Za-z]+$', '') -replace '^((\d+\.){3}\d+)\..*$', '$1')
-            if ($v -notmatch '^\d+(\.\d+){0,3}$') { return '' }
-            $v
-        }
-        $from = & $norm $CurrentVersion
-        $to = & $norm $LatestVersion
+        $from = ConvertTo-CveVersionKey -Version $CurrentVersion
+        $to = ConvertTo-CveVersionKey -Version $LatestVersion
         if (-not $from -or -not $to -or [string](& $get 'From') -ne $from -or [string](& $get 'To') -ne $to) { return $cells }
     }
     $cells.Checked = [string](& $get 'QueriedAt')
@@ -4330,19 +4399,34 @@ function Get-CveCachedResult {
 function Get-CveReportRows {
     # Always an array, also for zero rows (the comma keeps an empty array
     # from unrolling into $null).
-    param([Parameter(Mandatory)][AllowEmptyCollection()][array]$Rows)
+    # -Results holds the lookups of this run by script name. A result of the
+    # run is exported as it is, also when the cache write failed; the cache
+    # serves only a row the run did not look up. -MarkCached says so in the
+    # note of such a row (the monitor; the grid keeps the history of earlier
+    # sessions on purpose).
+    param([Parameter(Mandatory)][AllowEmptyCollection()][array]$Rows, [hashtable]$Results = $null, [switch]$MarkCached)
     $cache = Read-VulnerabilityCache
     $out = foreach ($row in $Rows) {
-        $res = Get-CveCachedResult -Row $row -Cache $cache
+        $res = $null
+        $own = $false
+        if ($Results -and $Results.ContainsKey([string]$row.Script)) {
+            $candidate = $Results[[string]$row.Script]
+            if ($candidate -and -not $candidate.Error -and [string]$candidate.Cpe -eq [string]$row.Cpe -and
+                [string]$candidate.From -eq (ConvertTo-VulnerabilityVersion -Version ([string]$row.CurrentVersion)) -and
+                [string]$candidate.To -eq (ConvertTo-VulnerabilityVersion -Version ([string]$row.LatestVersion))) { $res = $candidate; $own = $true }
+        }
+        if (-not $res) { $res = Get-CveCachedResult -Row $row -Cache $cache }
         $note = ''
         $count = [string]$row.CveCount
-        if (-not $res -and $count -and $count -notmatch '^\d+$') { $note = $count }
+        if ($own) { $note = '' }
+        elseif (-not $res -and $count -and $count -notmatch '^\d+$') { $note = $count }
         elseif (-not $res) { $note = 'Not checked' }
         # The cache holds the last good lookup. A row whose latest lookup
         # failed, or whose lookup is newer than the cache (its cache write
         # failed), says so instead of passing the old result off as current.
         elseif ($count -eq 'Error') { $note = ('Last lookup failed; this is the result from {0}' -f $res.QueriedAt) }
         elseif ([string]$row.CveChecked -and [string]$row.CveChecked -gt [string]$res.QueriedAt) { $note = ('Result from {0}; the lookup of {1} was not cached' -f $res.QueriedAt, [string]$row.CveChecked) }
+        elseif ($MarkCached) { $note = 'From the cache; not looked up in this run' }
         [pscustomobject]@{
             Application    = [string]$row.Application
             Vendor         = [string]$row.Vendor
@@ -4431,6 +4515,7 @@ function Invoke-CveMonitor {
             LatestVersion  = [string](& $field $entry 'LastKnownVersion')
             Status         = 'Ready'
             CveCount       = $cells.Count
+            CvePair        = $(if ($cells.Checked) { ConvertTo-CvePairKey -Current $cm -Latest ([string](& $field $entry 'LastKnownVersion')) } else { '' })
             Failed         = $false
         }
     }
@@ -4443,6 +4528,7 @@ function Invoke-CveMonitor {
                 $prior = [string]$row.LatestVersion
                 $latest = Invoke-PackagerGetLatestVersion -PackagerPath $row.FullPath -SiteCode $SiteCode -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -M365Channel $M365Channel -M365DeployMode $M365DeployMode
                 $row.LatestVersion = $latest
+                Clear-StaleCveCells -Row $row
                 $result = $(if ($prior -and $prior -eq $latest) { 'NoChange' } else { 'Updated' })
                 try { Update-PackagerHistory -PackagerName ([System.IO.Path]::GetFileNameWithoutExtension($row.Script)) -Event Checked -Version $latest -Result $result } catch { <# Reading or writing packager history is bookkeeping; the main result does not depend on it. #> $null = $_ }
             }
@@ -4464,10 +4550,12 @@ function Invoke-CveMonitor {
                 $res = Get-MecmCurrentVersionByCMName -SiteCode $SiteCode -ProviderMachineName $ProviderMachineName -CMName $row.CMName
                 if ($res.Found) {
                     $row.CurrentVersion = [string]$res.SoftwareVersion
+                    Clear-StaleCveCells -Row $row
                     try { Update-PackagerHistory -PackagerName $base -Event CmChecked -Version ([string]$res.SoftwareVersion) -Data @{ SiteCode = $SiteCode } } catch { <# Reading or writing packager history is bookkeeping; the main result does not depend on it. #> $null = $_ }
                 }
                 else {
                     $row.CurrentVersion = ''
+                    Clear-StaleCveCells -Row $row
                     $row.Status = 'Not found in ConfigMgr'
                     try { Update-PackagerHistory -PackagerName $base -Event CmChecked -Version '' -Data @{ SiteCode = $SiteCode } } catch { <# Reading or writing packager history is bookkeeping; the main result does not depend on it. #> $null = $_ }
                 }
@@ -4493,6 +4581,7 @@ function Invoke-CveMonitor {
     Write-Log ('[cve] {0} application(s) with an update' -f $updates.Count) -Level INFO
 
     $lookedUp = 0; $cveTotal = 0; $kevTotal = 0
+    $ownResults = @{}
     if (-not $SkipCve -and $updates.Count -gt 0) {
         $kev = $null
         foreach ($row in $updates) {
@@ -4505,6 +4594,7 @@ function Invoke-CveMonitor {
                 $row.CveCount = (Get-CveGridCells -Summary $summary -Cpe $row.Cpe).Count
                 if ($res.Error) { Write-Log ('[cve] {0}: {1}' -f $row.Application, $res.Error) -Level WARN; $failed++; continue }
                 try { Update-PackagerHistory -PackagerName $base -Event VulnChecked -Data $summary } catch { <# Reading or writing packager history is bookkeeping; the main result does not depend on it. #> $null = $_ }
+                $ownResults[[string]$row.Script] = $res
                 $lookedUp++
                 $cveTotal += [int]$res.Count
                 $kevTotal += [int]$res.KevCount
@@ -4519,7 +4609,7 @@ function Invoke-CveMonitor {
         }
     }
 
-    $reportRows = Get-CveReportRows -Rows $rows
+    $reportRows = Get-CveReportRows -Rows $rows -Results $ownResults -MarkCached
     $paths = Export-VulnerabilityReport -Rows $reportRows -Folder $ReportFolder -Formats $Formats -Name $ReportName -Title 'AppPackager CVE report'
     foreach ($p in @($paths.PSObject.Properties | ForEach-Object { [string]$_.Value })) { if ($p) { Write-Log ('[cve] Report: {0}' -f $p) -Level INFO } }
 
@@ -4539,12 +4629,8 @@ function Invoke-CveMonitor {
     if (($WebhookUrl -or $DropFolder) -and ($NotifyAlways -or $updates.Count -gt 0)) {
         $null = Send-VulnerabilityNotification -Paths $paths -Summary $summaryOut -WebhookUrl $WebhookUrl -DropFolder $DropFolder
     }
-    if ($KeepReportDays -gt 0) {
-        $cutoff = (Get-Date).AddDays(-$KeepReportDays)
-        Get-ChildItem -LiteralPath $ReportFolder -Filter 'cve-report-*' -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.LastWriteTime -lt $cutoff } |
-            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
-    }
+    Remove-ExpiredCveReports -Folder $ReportFolder -KeepDays $KeepReportDays
+
     Write-Log ('[cve] Monitor finished: {0} application(s), {1} with an update, {2} looked up, {3} CVE(s), {4} in KEV, {5} failed' -f $rows.Count, $updates.Count, $lookedUp, $cveTotal, $kevTotal, $failed) -Level INFO
     return $summaryOut
 }
@@ -7623,14 +7709,20 @@ function Invoke-RefreshGrid {
             $row.Description = $m.Description
             $row.Cpe         = $cve.Cpe
             $row.AdvisoryUrl = $advisory
-            if (-not [string]$row.LatestVersion) { $row.LatestVersion = $latestStored }
+            if (-not [string]$row.LatestVersion) {
+                $row.LatestVersion = $latestStored
+                Clear-StaleCveCells -Row $row
+            }
             if (-not [string]$row.LastChecked)   { $row.LastChecked   = $lastChecked }
             if (-not [string]$row.CveChecked -and -not [string]$row.CveCount) {
                 $row.CveCount = $cve.Count; $row.CveCvss = $cve.Cvss; $row.CveKev = $cve.Kev; $row.CveEpss = $cve.Epss; $row.CveChecked = $cve.Checked
                 $row.CveFixed = $cve.Fixed; $row.CveNewest = $cve.Newest; $row.CveUpdated = $cve.Updated
+                Set-CveCellsPair -Row $row -Pair $(if ($cve.Checked) { ConvertTo-CvePairKey -Current $cmStored -Latest $latestStored } else { '' })
+                Clear-StaleCveCells -Row $row
             }
             if ($DiscardSiteResults -or ([string]$m.Status).StartsWith('Read error')) {
                 $row.CurrentVersion = ""
+                Clear-StaleCveCells -Row $row
                 $row.Status         = $m.Status
                 $row.CveCount = $cve.Count; $row.CveCvss = ''; $row.CveKev = ''; $row.CveEpss = ''; $row.CveChecked = ''
                 $row.CveFixed = ''; $row.CveNewest = ''; $row.CveUpdated = ''
@@ -7660,6 +7752,7 @@ function Invoke-RefreshGrid {
                 CveFixed       = $cve.Fixed
                 CveNewest      = $cve.Newest
                 CveUpdated     = $cve.Updated
+                CvePair        = $(if ($cve.Checked) { ConvertTo-CvePairKey -Current $cmStored -Latest $latestStored } else { '' })
                 AdvisoryUrl    = $advisory
             }
             $script:GridSessionRows[[string]$m.Script] = $row
@@ -7943,6 +8036,7 @@ function Invoke-MultiAppPipeline {
                                 -M365Channel $Ctx.M365Channel `
                                 -M365DeployMode $Ctx.M365DeployMode
                             $row.LatestVersion = $latest
+                            Clear-StaleCveCells -Row $row
 
                             $current = [string]$row.CurrentVersion
                             if (-not [string]::IsNullOrWhiteSpace($current)) {
@@ -7989,10 +8083,11 @@ function Invoke-MultiAppPipeline {
                         if ([string]::IsNullOrWhiteSpace($cpe)) { $reason = 'CPE missing' }
                         elseif ([string]::IsNullOrWhiteSpace($current)) { $reason = 'No ConfigMgr version' }
                         elseif ([string]::IsNullOrWhiteSpace($latest)) { $reason = 'No latest version' }
-                        elseif ((Compare-VulnerabilityVersionValue -A $current -B $latest) -ge 0) { $reason = 'No update' }
+                        else { $reason = Get-CveSkipReason -Cpe $cpe -Current $current -Latest $latest }
                         if ($reason) {
                             $row.CveCount = $reason
                             $row.CveCvss = ''; $row.CveKev = ''; $row.CveFixed = ''; $row.CveNewest = ''; $row.CveUpdated = ''
+                            Set-CveCellsPair -Row $row
                             [void]$State.LogQueue.Enqueue(('Skipped: {0}.' -f $reason))
                             $counts['Skipped']++
                             continue
@@ -8003,10 +8098,12 @@ function Invoke-MultiAppPipeline {
                                 -ApiKey ([string]$Ctx.NvdApiKey) -CacheTtlMinutes ([int]$Ctx.CacheTtlMinutes) -KevCatalog $Ctx.KevCatalog -Force:([bool]$Ctx.ForceRefresh) `
                                 -VendorAdvisoryUrl $(if ($row.PSObject.Properties['AdvisoryUrl']) { [string]$row.AdvisoryUrl } else { '' })
                             $State.CveResults[$scrName] = $res
+                            if ($Ctx.CveSession -and -not $res.Error) { $Ctx.CveSession[$scrName] = $res }
                             $summary = Get-VulnerabilitySummary -Result $res
                             $cells = Get-CveGridCells -Summary $summary -Cpe $cpe
                             $row.CveCount = $cells.Count; $row.CveCvss = $cells.Cvss; $row.CveKev = $cells.Kev; $row.CveEpss = $cells.Epss; $row.CveChecked = $cells.Checked
                             $row.CveFixed = $cells.Fixed; $row.CveNewest = $cells.Newest; $row.CveUpdated = $cells.Updated
+                            Set-CveCellsPair -Row $row
                             if ($res.Error) {
                                 # A failed lookup is shown, not recorded: the
                                 # history keeps the last good summary.
@@ -8210,6 +8307,7 @@ function Invoke-MultiAppPipeline {
                                 -M365Channel $Ctx.M365Channel `
                                 -M365DeployMode $Ctx.M365DeployMode
                             $row.LatestVersion = $latest
+                            Clear-StaleCveCells -Row $row
                             if ($pr) { $pr.Version = [string]$latest }
                             [void]$State.LogQueue.Enqueue(('Latest: ' + $latest))
                         } catch {
@@ -8568,6 +8666,7 @@ function Invoke-MultiAppPipeline {
                                 -M365Channel $Ctx.M365Channel `
                                 -M365DeployMode $Ctx.M365DeployMode
                             $row.LatestVersion = $latest
+                            Clear-StaleCveCells -Row $row
                             [void]$State.LogQueue.Enqueue(('Latest: ' + $latest))
                         } catch {
                             $row.Status = 'Check error'
@@ -8589,6 +8688,7 @@ function Invoke-MultiAppPipeline {
                                     $mecmRes = Get-MecmCurrentVersionByCMName -SiteCode $Ctx.SiteCode -ProviderMachineName $Ctx.ProviderMachineName -CMName $cmName
                                     if ($mecmRes.Found -and -not [string]::IsNullOrWhiteSpace([string]$mecmRes.SoftwareVersion)) {
                                         $row.CurrentVersion = [string]$mecmRes.SoftwareVersion
+                                        Clear-StaleCveCells -Row $row
                                         try { Update-PackagerHistory -PackagerName $baseName -Event CmChecked -Version ([string]$mecmRes.SoftwareVersion) -Data @{ SiteCode = [string]$Ctx.SiteCode } } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
                                         $cmp = Compare-SemVer -A ([string]$mecmRes.SoftwareVersion) -B $latest
                                         if ($cmp -eq 0) {
@@ -9668,6 +9768,7 @@ $btnCheckMECM.Add_Click({
                 $baseName = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script)
                 if (-not $res.Found) {
                     $row.CurrentVersion = ""
+                    Clear-StaleCveCells -Row $row
                     $row.Status = "Not found in ConfigMgr"
                     try { Update-PackagerHistory -PackagerName $baseName -Event CmChecked -Version '' -Data @{ SiteCode = $siteCodeValue } } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
                     Add-LogLine -Message "Not found."
@@ -9675,6 +9776,7 @@ $btnCheckMECM.Add_Click({
                 }
 
                 $row.CurrentVersion = [string]$res.SoftwareVersion
+                Clear-StaleCveCells -Row $row
                 try { Update-PackagerHistory -PackagerName $baseName -Event CmChecked -Version ([string]$res.SoftwareVersion) -Data @{ SiteCode = $siteCodeValue } } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
 
                 $latest = [string]$row.LatestVersion
@@ -10515,7 +10617,7 @@ function Open-ExternalUrl {
 
 function Write-CveReportForRows {
     param([Parameter(Mandatory)][AllowEmptyCollection()][array]$Rows, [string]$Name = '')
-    $reportRows = Get-CveReportRows -Rows $Rows
+    $reportRows = Get-CveReportRows -Rows $Rows -Results $script:CveSessionResults
     $paths = Export-VulnerabilityReport -Rows $reportRows -Folder (Get-CveReportFolder) -Name $Name -Title 'AppPackager CVE report'
     Add-LogLine -Message ('CVE report: {0}' -f $paths.Html)
     Add-LogLine -Message ('CVE report: {0}' -f $paths.ApplicationsCsv)
