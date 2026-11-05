@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026.11.05.0126] - 2026-11-05
+
+## 1 addition
+
+### Added
+
+- Convert a ConfigMgr application to Intune from the sidebar of the app.
+
 ## [2026.11.05.0125] - 2026-11-05
 
 ## 5 additions

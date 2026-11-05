@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.11.05.0125
+    Version    : 2026.11.05.0126
     Updated    : 2026-09-09
 #>
 
@@ -4688,6 +4688,7 @@ $btnPublishIntune = $window.FindName('btnPublishIntune')
 $btnPublishWsus  = $window.FindName('btnPublishWsus')
 $btnWsusUpdates  = $window.FindName('btnWsusUpdates')
 $btnAddInstaller = $window.FindName('btnAddInstaller')
+$btnConvertCm    = $window.FindName('btnConvertCm')
 $btnWorkbench    = $window.FindName('btnWorkbench')
 $btnFullRun      = $window.FindName('btnFullRun')
 $btnOptions      = $window.FindName('btnOptions')
@@ -4722,7 +4723,7 @@ $btnCancelPipeline = $window.FindName('btnCancelPipeline')
 [ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($window, "Dark.Steel")
 
 # Palette and button/label theming come from SuiteCommon.
-$script:WorkflowButtons = @($btnFullRun, $btnCheckLatest, $btnCheckMECM, $btnDiscover, $btnCheckCve, $btnStage, $btnPackage, $btnPublishIntune, $btnPublishWsus, $btnWsusUpdates, $btnCveReport)
+$script:WorkflowButtons = @($btnFullRun, $btnCheckLatest, $btnCheckMECM, $btnDiscover, $btnConvertCm, $btnCheckCve, $btnStage, $btnPackage, $btnPublishIntune, $btnPublishWsus, $btnWsusUpdates, $btnCveReport)
 $script:OptionsButtons  = @($btnOptions)
 
 Initialize-SuiteTheme -Window $window `
@@ -4998,6 +4999,7 @@ function Set-ActionButtonsEnabled {
     $btnCheckLatest.IsEnabled   = $Enabled
     $btnCheckMECM.IsEnabled     = $Enabled
     $btnDiscover.IsEnabled      = $Enabled
+    $btnConvertCm.IsEnabled     = $Enabled
     $btnCheckCve.IsEnabled      = $Enabled
     $btnCveReport.IsEnabled     = $Enabled
     $btnStage.IsEnabled         = $Enabled
@@ -5047,7 +5049,15 @@ function Get-SidebarSystemState {
     if (-not $mecmInUse) { $discoverReason = 'ConfigMgr is ' + $notInUse }
     elseif ([string]::IsNullOrWhiteSpace($siteCode) -and -not $sqlOverride) { $discoverReason = 'Set the site code, or the SQL server and database, in Options, ConfigMgr Preferences.' }
 
+    # The conversion reads the application with the console cmdlets. The dialog
+    # asks for the site code, so a blank saved site code does not block it.
+    $convertReason = ''
+    if (-not $mecmInUse) { $convertReason = 'ConfigMgr is ' + $notInUse }
+    elseif (-not $consoleFound) { $convertReason = 'Needs the ConfigMgr console on this computer.' }
+
     return @{
+        ConvertCmEnabled     = (-not $convertReason)
+        ConvertCmToolTip     = $(if ($convertReason) { 'Convert ConfigMgr App to Intune: ' + $convertReason } else { 'Convert an existing ConfigMgr application to Intune Win32 apps, one app for each deployment type. It reads ConfigMgr and changes nothing there.' })
         DiscoverEnabled      = (-not $discoverReason)
         DiscoverToolTip      = $(if ($discoverReason) { 'Discover unmanaged software: ' + $discoverReason } else { 'Find hidden apps that hardware inventory shows installed on clients and that have no ConfigMgr application' })
         CheckMecmEnabled     = (-not $mecmReason)
@@ -5072,7 +5082,7 @@ function Update-SidebarForSystems {
     # setting unless this assignment also enables it; a running pipeline
     # keeps every button disabled through $script:ActionButtonsEnabled.
     $pairs = @(
-        @($btnCheckMECM, 'CheckMecm'), @($btnDiscover, 'Discover'), @($btnPackage, 'Mecm'), @($btnPublishIntune, 'Intune'),
+        @($btnCheckMECM, 'CheckMecm'), @($btnDiscover, 'Discover'), @($btnConvertCm, 'ConvertCm'), @($btnPackage, 'Mecm'), @($btnPublishIntune, 'Intune'),
         @($btnPublishWsus, 'Wsus'), @($btnWsusUpdates, 'WsusUpdates')
     )
     foreach ($pair in $pairs) {
@@ -7792,7 +7802,7 @@ function Test-PipelineBusy {
     # The state stays set until the completion tick has run every hook and
     # cleared it; Done alone leaves a gap in which a new run would drop
     # the pending hooks.
-    [bool]($null -ne $script:BgState)
+    [bool]($null -ne $script:BgState) -or [bool]$script:CmImportRunning
 }
 
 function Invoke-MultiAppPipeline {
@@ -9436,7 +9446,7 @@ function Invoke-DropIntake {
     # The action buttons are disabled while a pipeline runs, but the window
     # itself still receives drops; starting a second pipeline here would
     # hard-stop the running one mid-flight.
-    if ($script:BgState -and -not [bool]$script:BgState.Done) {
+    if (($script:BgState -and -not [bool]$script:BgState.Done) -or $script:CmImportRunning) {
         [void](Show-ThemedMessage -Owner $window -Title 'Pipeline Running' `
             -Message 'A pipeline is already running. Wait for it to finish (or cancel it), then drop the installer again.' `
             -Buttons OK -Icon Info)
@@ -9980,6 +9990,343 @@ $btnDiscover.Add_Click({
         return
     }
     Start-DiscoveryScan
+})
+
+# --- 2c. Convert a ConfigMgr application to Intune ---
+# True while the conversion child runs. Test-PipelineBusy, the drop intake and
+# the window close handler read it.
+$script:CmImportRunning = $false
+
+function Get-CmImportChildEnvironment {
+    # The environment values the conversion child needs so that it finds the
+    # console module and the SMS Provider that the GUI found. A value that the
+    # parent already has stays as it is: the child inherits it.
+    param(
+        [AllowEmptyString()][string]$ModulePath = '',
+        [AllowEmptyString()][string]$ProviderMachineName = '',
+        [AllowEmptyString()][string]$ParentAdminUiPath = '',
+        [AllowEmptyString()][string]$ParentProvider = ''
+    )
+
+    $values = [ordered]@{}
+    # The child looks for ConfigurationManager.psd1 in the parent of SMS_ADMIN_UI_PATH.
+    if (-not $ParentAdminUiPath -and $ModulePath) {
+        $values['SMS_ADMIN_UI_PATH'] = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($ModulePath), 'i386')
+    }
+    if ($ProviderMachineName.Trim() -and -not $ParentProvider) {
+        $values['APP_PACKAGER_CM_PROVIDER'] = $ProviderMachineName.Trim()
+    }
+    return $values
+}
+
+function Get-CmImportRunSpec {
+    # Checks the dialog values and builds the command line of
+    # Convert-CMApplicationToIntune.ps1. It touches no WPF type and starts
+    # nothing, so a test runs it headless. Preview writes the reports and
+    # copies no content. Publish implies Package.
+    param(
+        [AllowEmptyString()][string]$ApplicationName = '',
+        [AllowEmptyString()][string]$SiteCode = '',
+        [AllowEmptyString()][string]$OutputRoot = '',
+        [ValidateSet('PerDeploymentType', 'AssignByGroup')][string]$VariantStrategy = 'PerDeploymentType',
+        [bool]$NativeDetectionOnly = $false,
+        [bool]$AllowUntranslatedRequirements = $false,
+        [bool]$Package = $false,
+        [bool]$Publish = $false,
+        [bool]$IntuneReady = $false,
+        [ValidateSet('Preview', 'Convert')][string]$Mode = 'Convert',
+        [AllowEmptyString()][string]$ScriptPath = '',
+        [AllowEmptyString()][string]$ToolPath = ''
+    )
+
+    $fail = { param([string]$Message) [pscustomobject]@{ Ok = $false; Error = $Message; Arguments = @(); Summary = '' } }
+    $name = $ApplicationName.Trim()
+    $site = $SiteCode.Trim()
+    $root = $OutputRoot.Trim()
+
+    if (-not $name) { return (& $fail 'Enter the exact name of the ConfigMgr application.') }
+    if ($name -match '[\x00-\x1F]') { return (& $fail 'The application name holds a control character.') }
+    if ($site -notmatch '^[A-Za-z0-9]{3}$') { return (& $fail 'The site code is three letters or digits.') }
+    if (-not $root) { return (& $fail 'Enter the output folder.') }
+    # IsPathRooted throws on these characters in Windows PowerShell 5.1, so they are checked first.
+    if ($root -match '[\x00-\x1F"<>|]') { return (& $fail 'The output folder holds a character that a path cannot use.') }
+    if (-not [System.IO.Path]::IsPathRooted($root)) { return (& $fail 'The output folder must be a full path.') }
+
+    $preview = ($Mode -eq 'Preview')
+    $doPublish = (-not $preview -and $Publish)
+    $doPackage = (-not $preview -and ($Package -or $Publish))
+    if ($doPublish -and -not $IntuneReady) {
+        return (& $fail 'Publish needs the Intune tenant, client and secret. Set them in Options, ConfigMgr Preferences.')
+    }
+
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $ScriptPath,
+        '-ApplicationName', $name, '-SiteCode', $site, '-OutputRoot', $root, '-VariantStrategy', $VariantStrategy)
+    if ($NativeDetectionOnly) { $arguments += '-NativeDetectionOnly' }
+    if ($AllowUntranslatedRequirements) { $arguments += '-AllowUntranslatedRequirements' }
+    if ($preview) { $arguments += '-SkipContent' }
+    if ($doPackage) {
+        $arguments += '-Package'
+        if ($ToolPath) { $arguments += @('-ToolPath', $ToolPath) }
+    }
+    if ($doPublish) { $arguments += @('-Publish', '-UseSavedSettings') }
+
+    $summary = $(if ($preview) { "Preview of '{0}' on site {1}: reports only, no content copied." } elseif ($doPublish) { "Conversion of '{0}' on site {1}: copy, build and publish to Intune." } elseif ($doPackage) { "Conversion of '{0}' on site {1}: copy and build." } else { "Conversion of '{0}' on site {1}: copy content." }) -f $name, $site.ToUpperInvariant()
+    return [pscustomobject]@{ Ok = $true; Error = ''; Arguments = $arguments; Summary = $summary; Mode = $Mode }
+}
+
+function Get-CmImportOutcomeText {
+    # The status line after the child process ends.
+    param([int]$ExitCode, [AllowEmptyString()][string]$StdErr = '', [string]$Mode = 'Convert', [AllowEmptyString()][string]$OutputRoot = '')
+
+    if ($ExitCode -eq 0) {
+        if ($Mode -eq 'Preview') { return ('Preview finished. The report is in ' + $OutputRoot + '.') }
+        return ('Conversion finished. The output is in ' + $OutputRoot + '.')
+    }
+    $firstError = ''
+    foreach ($line in @($StdErr -split "`r?`n")) {
+        if ($line.Trim()) { $firstError = $line.Trim(); break }
+    }
+    if ($firstError) { return ('Convert ConfigMgr App to Intune failed: ' + $firstError) }
+    return ('Convert ConfigMgr App to Intune failed with exit code {0}. The log has the details.' -f $ExitCode)
+}
+
+function Show-CmImportDialog {
+    param(
+        [AllowNull()]$Owner,
+        [AllowEmptyString()][string]$SiteCode = '',
+        [AllowEmptyString()][string]$OutputRoot = '',
+        [bool]$IntuneReady = $false,
+        [AllowEmptyString()][string]$ScriptPath = '',
+        [AllowEmptyString()][string]$ToolPath = '',
+        # Test hook: receives the window internals instead of showing the window.
+        [scriptblock]$Probe = $null
+    )
+
+    $dlgXaml = @'
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="Convert ConfigMgr App to Intune" Width="640" Height="560" MinWidth="560" MinHeight="520"
+    WindowStartupLocation="CenterOwner" TitleCharacterCasing="Normal"
+    ShowIconOnTitleBar="False" GlowBrush="{DynamicResource MahApps.Brushes.Accent}" BorderThickness="1">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="16,12,16,8">
+                <TextBlock FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
+                           Text="Reads the application from the ConfigMgr site and makes one Intune Win32 app for each deployment type. Nothing changes in ConfigMgr. Preview writes the report only. Convert also copies the content."/>
+
+                <TextBlock Text="ConfigMgr application name" FontSize="12" FontWeight="SemiBold" Margin="0,12,0,4"/>
+                <TextBox x:Name="txtCmApp" FontSize="13" Controls:TextBoxHelper.Watermark="The exact name, as the console shows it"
+                         ToolTip="The exact name of the ConfigMgr application"/>
+
+                <TextBlock Text="Site code" FontSize="12" FontWeight="SemiBold" Margin="0,10,0,4"/>
+                <TextBox x:Name="txtCmSite" FontSize="13" Width="120" HorizontalAlignment="Left" MaxLength="3"
+                         ToolTip="The three-character ConfigMgr site code"/>
+
+                <TextBlock Text="Output folder" FontSize="12" FontWeight="SemiBold" Margin="0,10,0,4"/>
+                <DockPanel>
+                    <Button x:Name="btnCmBrowse" Content="Browse..." DockPanel.Dock="Right" MinWidth="90" Height="28" Margin="8,0,0,0"
+                            Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    <TextBox x:Name="txtCmOutput" FontSize="13"
+                             ToolTip="One folder for each application is made here. It holds the content, the reports and the manifests."/>
+                </DockPanel>
+
+                <TextBlock Text="Deployment types" FontSize="12" FontWeight="SemiBold" Margin="0,10,0,4"/>
+                <ComboBox x:Name="cmbCmStrategy" FontSize="13" SelectedIndex="0">
+                    <ComboBoxItem Content="First match wins, like ConfigMgr (recommended)" Tag="PerDeploymentType"/>
+                    <ComboBoxItem Content="Assign each app by group" Tag="AssignByGroup"/>
+                </ComboBox>
+                <TextBlock x:Name="txtCmStrategyHelp" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
+                           Text="Each app after the first gets a requirement script that is false when an earlier deployment type applies."/>
+
+                <CheckBox x:Name="chkCmNative" Content="Native detection rules only" Margin="0,12,0,0"
+                          ToolTip="Refuse a detection that needs a PowerShell script in Intune (Or, wildcards, dates, sizes)."/>
+                <CheckBox x:Name="chkCmUntranslated" Content="Convert deployment types with requirements Intune cannot check" Margin="0,6,0,0"
+                          ToolTip="The Intune app then installs on devices where ConfigMgr skips that deployment type."/>
+                <CheckBox x:Name="chkCmPackage" Content="Build the .intunewin files" Margin="0,6,0,0"
+                          ToolTip="Uses the Win32 Content Prep Tool. Used by Convert only."/>
+                <CheckBox x:Name="chkCmPublish" Content="Publish the apps to Intune" Margin="0,6,0,0"
+                          ToolTip="Uses the Intune tenant, client and secret saved in Options. Used by Convert only."/>
+
+                <TextBlock x:Name="txtCmNote" FontSize="12" TextWrapping="Wrap" Margin="0,12,0,0" Foreground="#FFE07A5F" Visibility="Collapsed"/>
+            </StackPanel>
+        </ScrollViewer>
+        <Border Grid.Row="1" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
+            <WrapPanel Margin="16,10,16,10" HorizontalAlignment="Right">
+                <Button x:Name="btnCmPreview" Content="Preview" MinWidth="110" Height="32" Margin="0,0,8,0"
+                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        ToolTip="Write the plan and the report. Copies no content."/>
+                <Button x:Name="btnCmConvert" Content="Convert" MinWidth="110" Height="32" Margin="0,0,8,0"
+                        Style="{DynamicResource MahApps.Styles.Button.Square.Accent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        ToolTip="Copy the content and make the Intune app folders"/>
+                <Button x:Name="btnCmCancel" Content="Cancel" MinWidth="100" Height="32" IsCancel="True"
+                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            </WrapPanel>
+        </Border>
+    </Grid>
+</Controls:MetroWindow>
+'@
+    [xml]$xml = $dlgXaml
+    $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
+    Install-TitleBarDragFallback -Window $dlg
+    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
+
+    $txtApp = $dlg.FindName('txtCmApp')
+    $txtSite = $dlg.FindName('txtCmSite')
+    $txtOutput = $dlg.FindName('txtCmOutput')
+    $btnBrowse = $dlg.FindName('btnCmBrowse')
+    $cmbStrategy = $dlg.FindName('cmbCmStrategy')
+    $txtStrategyHelp = $dlg.FindName('txtCmStrategyHelp')
+    $chkNative = $dlg.FindName('chkCmNative')
+    $chkUntranslated = $dlg.FindName('chkCmUntranslated')
+    $chkPackage = $dlg.FindName('chkCmPackage')
+    $chkPublish = $dlg.FindName('chkCmPublish')
+    $txtNote = $dlg.FindName('txtCmNote')
+    $btnPreview = $dlg.FindName('btnCmPreview')
+    $btnConvert = $dlg.FindName('btnCmConvert')
+    $btnCancel = $dlg.FindName('btnCmCancel')
+
+    $txtSite.Text = $SiteCode
+    $txtOutput.Text = $OutputRoot
+    if (-not $IntuneReady) {
+        $chkPublish.IsEnabled = $false
+        $chkPublish.ToolTip = 'Set Tenant ID, Client ID and Client Secret in Options, ConfigMgr Preferences.'
+        [System.Windows.Controls.ToolTipService]::SetShowOnDisabled($chkPublish, $true)
+    }
+
+    $state = @{ Action = 'Cancel'; Spec = $null }
+    $syncPublish = {
+        # Publish needs the .intunewin files, so it keeps Package checked.
+        if ($chkPublish.IsChecked) { $chkPackage.IsChecked = $true; $chkPackage.IsEnabled = $false }
+        else { $chkPackage.IsEnabled = $true }
+    }.GetNewClosure()
+    $chkPublish.Add_Checked($syncPublish)
+    $chkPublish.Add_Unchecked($syncPublish)
+    $cmbStrategy.Add_SelectionChanged({
+        $txtStrategyHelp.Text = $(if ([string]$cmbStrategy.SelectedItem.Tag -eq 'AssignByGroup') {
+            'Each app carries only its own requirements. Assign each app to its own device group.'
+        } else {
+            'Each app after the first gets a requirement script that is false when an earlier deployment type applies.'
+        })
+    }.GetNewClosure())
+
+    $run = {
+        param([string]$Mode)
+        $spec = Get-CmImportRunSpec -ApplicationName $txtApp.Text -SiteCode $txtSite.Text -OutputRoot $txtOutput.Text `
+            -VariantStrategy ([string]$cmbStrategy.SelectedItem.Tag) -NativeDetectionOnly ([bool]$chkNative.IsChecked) `
+            -AllowUntranslatedRequirements ([bool]$chkUntranslated.IsChecked) -Package ([bool]$chkPackage.IsChecked) `
+            -Publish ([bool]$chkPublish.IsChecked) -IntuneReady $IntuneReady -Mode $Mode -ScriptPath $ScriptPath -ToolPath $ToolPath
+        if (-not $spec.Ok) {
+            $txtNote.Text = $spec.Error
+            $txtNote.Visibility = 'Visible'
+            return
+        }
+        $state.Action = $Mode
+        $state.Spec = $spec
+        $state.OutputRoot = $txtOutput.Text.Trim()
+        $dlg.Close()
+    }.GetNewClosure()
+    $btnPreview.Add_Click({ & $run 'Preview' }.GetNewClosure())
+    $btnConvert.Add_Click({ & $run 'Convert' }.GetNewClosure())
+    $btnCancel.Add_Click({ $dlg.Close() }.GetNewClosure())
+    $btnBrowse.Add_Click({
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+        $picker = New-Object System.Windows.Forms.FolderBrowserDialog
+        if ($txtOutput.Text -and (Test-Path -LiteralPath $txtOutput.Text -PathType Container)) { $picker.SelectedPath = $txtOutput.Text }
+        if ($picker.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $txtOutput.Text = $picker.SelectedPath }
+    }.GetNewClosure())
+
+    if ($Probe) {
+        & $Probe @{ Window = $dlg; App = $txtApp; Site = $txtSite; Output = $txtOutput; Strategy = $cmbStrategy; StrategyHelp = $txtStrategyHelp
+            Native = $chkNative; Untranslated = $chkUntranslated; Package = $chkPackage; Publish = $chkPublish; Note = $txtNote
+            Preview = $btnPreview; Convert = $btnConvert; Cancel = $btnCancel; State = $state }
+    }
+    else {
+        if ($Owner) { $dlg.Owner = $Owner }
+        [void]$dlg.ShowDialog()
+    }
+    return [pscustomobject]@{ Action = [string]$state.Action; Spec = $state.Spec; OutputRoot = [string]$state.OutputRoot }
+}
+
+function Start-CmImportRun {
+    param([Parameter(Mandatory)]$Spec, [AllowEmptyString()][string]$OutputRoot = '')
+
+    Set-ActionButtonsEnabled -Enabled $false
+    $window.Cursor = [System.Windows.Input.Cursors]::Wait
+    $script:CmImportRunning = $true
+    try {
+        $logFolder = Join-Path $PSScriptRoot 'Logs'
+        if (-not (Test-Path -LiteralPath $logFolder)) { New-Item -ItemType Directory -Path $logFolder -Force | Out-Null }
+        $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+        $outLog = Join-Path $logFolder ("convert-cmapp-{0}.out.log" -f $stamp)
+        $errLog = Join-Path $logFolder ("convert-cmapp-{0}.err.log" -f $stamp)
+
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = 'powershell.exe'
+        $psi.WorkingDirectory = $PSScriptRoot
+        Set-ProcessStartInfoArgumentList -StartInfo $psi -Arguments @($Spec.Arguments)
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $childEnvironment = Get-CmImportChildEnvironment `
+            -ModulePath $(if ($script:Prefs.DetectedTools -and $script:Prefs.DetectedTools.ConfigMgrConsole) { [string]$script:Prefs.DetectedTools.ConfigMgrConsole.ModulePath } else { '' }) `
+            -ProviderMachineName ([string]$script:Prefs.ProviderMachineName) `
+            -ParentAdminUiPath ([string]$env:SMS_ADMIN_UI_PATH) -ParentProvider ([string]$env:APP_PACKAGER_CM_PROVIDER)
+        foreach ($name in $childEnvironment.Keys) { $psi.EnvironmentVariables[$name] = [string]$childEnvironment[$name] }
+
+        Add-LogLine -Message ('Convert ConfigMgr App to Intune: ' + $Spec.Summary)
+        $txtStatus.Text = 'Converting the ConfigMgr application...'
+        # A content copy can print nothing for a long time, so the idle limit is one hour.
+        $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -LogTextBox $txtLog -IdleTimeoutSeconds 3600
+        $text = Get-CmImportOutcomeText -ExitCode ([int]$result.ExitCode) -StdErr ([string]$result.StdErr) -Mode ([string]$Spec.Mode) -OutputRoot $OutputRoot
+        Add-LogLine -Message $text
+        $txtStatus.Text = $text
+    }
+    catch {
+        $message = 'Convert ConfigMgr App to Intune failed: ' + $_.Exception.Message
+        Add-LogLine -Message $message
+        $txtStatus.Text = $message
+    }
+    finally {
+        $script:CmImportRunning = $false
+        $window.Cursor = $null
+        Set-ActionButtonsEnabled -Enabled $true
+    }
+}
+
+$btnConvertCm.Add_Click({
+    if (Test-PipelineBusy) {
+        Add-LogLine -Message 'Convert ConfigMgr App to Intune: another run is in progress. Wait for it to finish.'
+        return
+    }
+    $sidebar = Get-SidebarSystemState -Prefs $script:Prefs
+    if (-not $sidebar.ConvertCmEnabled) {
+        Add-LogLine -Message $sidebar.ConvertCmToolTip
+        $txtStatus.Text = $sidebar.ConvertCmToolTip
+        return
+    }
+    $defaultOutput = ''
+    if (-not [string]::IsNullOrWhiteSpace([string]$script:Prefs.DownloadRoot)) { $defaultOutput = Join-Path ([string]$script:Prefs.DownloadRoot) 'ConfigMgrImport' }
+    $choice = Show-CmImportDialog -Owner $window -SiteCode ([string]$script:Prefs.SiteCode) -OutputRoot $defaultOutput `
+        -IntuneReady ([bool]$sidebar.IntuneEnabled) -ScriptPath (Join-Path $PSScriptRoot 'Convert-CMApplicationToIntune.ps1') `
+        -ToolPath (Get-IntuneWinToolPathForContext)
+    if ($choice.Action -eq 'Cancel') { return }
+    Start-CmImportRun -Spec $choice.Spec -OutputRoot $choice.OutputRoot
 })
 
 # --- 3. Stage Packages ---
@@ -13964,6 +14311,14 @@ $window.Add_ContentRendered({
 })
 
 $window.Add_Closing({
+    param($closingSender, $closingArgs)
+    # The conversion child would go on without a window, so closing waits for it.
+    if ($script:CmImportRunning) {
+        $closingArgs.Cancel = $true
+        [void](Show-ThemedMessage -Owner $window -Title 'Conversion Running' `
+            -Message 'A ConfigMgr conversion is running. Wait for it to finish, then close the window.' -Buttons OK -Icon Info)
+        return
+    }
     if ($script:UpdateCheckTimer) { $script:UpdateCheckTimer.Stop(); $script:UpdateCheckTimer = $null }
     if ($script:DiscoveryTimer) { $script:DiscoveryTimer.Stop(); $script:DiscoveryTimer = $null }
     Stop-DiscoveryRunspace -Job $script:DiscoveryJob
