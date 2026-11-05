@@ -965,23 +965,30 @@ Describe 'A required signature must come from the configured certificate' {
 }
 
 Describe 'The ANSI encoding is the system code page on every host' {
+    BeforeAll {
+        # The system code page from the operating system, apart from the module.
+        Add-Type -Namespace '' -Name 'AnsiTestNative' -MemberDefinition '[System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern uint GetACP();' -ErrorAction SilentlyContinue
+        $script:Acp = [int][AnsiTestNative]::GetACP()
+        if ('System.Text.CodePagesEncodingProvider' -as [type]) { [System.Text.Encoding]::RegisterProvider([System.Text.CodePagesEncodingProvider]::Instance) }
+    }
     It 'names the ANSI code page of the system' {
         $enc = InModuleScope AppPackagerSigning { Get-SigningAnsiEncoding }
-        $enc.CodePage | Should -Be ([System.Globalization.CultureInfo]::CurrentCulture.TextInfo.ANSICodePage)
+        $enc.CodePage | Should -Be ($script:Acp)
     }
 
     It 'writes an ANSI script with the ANSI bytes' {
         $path = Join-Path $script:Root 'ansi-write.ps1'
         $text = "Write-Output 'caf" + [char]0xE9 + "'"
         InModuleScope AppPackagerSigning -Parameters @{ Path = $path; Text = $text } { param($Path, $Text) Write-SigningScriptFile -Path $Path -Text $Text -EncodingName 'ANSI' }
-        $expected = [System.Text.Encoding]::GetEncoding([System.Globalization.CultureInfo]::CurrentCulture.TextInfo.ANSICodePage).GetBytes($text)
+        $expected = [System.Text.Encoding]::GetEncoding($script:Acp).GetBytes($text)
         [System.IO.File]::ReadAllBytes($path) | Should -Be $expected
     }
 
     It 'reads a BOMless non-UTF-8 script as ANSI' {
-        $bytes = [System.Text.Encoding]::GetEncoding([System.Globalization.CultureInfo]::CurrentCulture.TextInfo.ANSICodePage).GetBytes("Write-Output 'caf" + [char]0xE9 + "'")
+        # A fixture that is not UTF-8 in any locale: a high byte, then an ASCII byte.
+        $bytes = [byte[]](0x57, 0xE9, 0x28)
         $info = InModuleScope AppPackagerSigning -Parameters @{ Bytes = $bytes } { param($Bytes) Get-SigningEncodingInfo -Bytes $Bytes }
         $info.Name | Should -Be 'ANSI'
-        $info.Encoding.CodePage | Should -Be ([System.Globalization.CultureInfo]::CurrentCulture.TextInfo.ANSICodePage)
+        $info.Encoding.CodePage | Should -Be ($script:Acp)
     }
 }

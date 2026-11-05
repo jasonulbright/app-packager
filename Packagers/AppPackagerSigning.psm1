@@ -307,9 +307,14 @@ function Get-SigningAnsiEncoding {
     # The ANSI code page of the system. Windows PowerShell 5.1 reads a BOMless
     # script in it. [Encoding]::Default is that code page only in Windows
     # PowerShell; in PowerShell 7 it is UTF-8.
+    # The system code page, not the culture of the process: the two differ when
+    # the user culture is not the system locale.
     try {
+        if (-not ('AppPackagerSigningNative' -as [type])) {
+            Add-Type -Namespace '' -Name 'AppPackagerSigningNative' -MemberDefinition '[System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern uint GetACP();' -ErrorAction Stop
+        }
         if ('System.Text.CodePagesEncodingProvider' -as [type]) { [System.Text.Encoding]::RegisterProvider([System.Text.CodePagesEncodingProvider]::Instance) }
-        return [System.Text.Encoding]::GetEncoding([System.Globalization.CultureInfo]::CurrentCulture.TextInfo.ANSICodePage)
+        return [System.Text.Encoding]::GetEncoding([int][AppPackagerSigningNative]::GetACP())
     }
     catch { return [System.Text.Encoding]::Default }
 }
