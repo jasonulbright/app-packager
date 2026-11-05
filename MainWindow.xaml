@@ -214,6 +214,12 @@
                         <Button x:Name="btnAddInstaller" Content="Add Installer..." Style="{StaticResource WorkflowButtonStyle}"
                                 ToolTip="Bring your own setup: pick an .msi or .exe you downloaded yourself (login- or EULA-walled vendors) and package it through the analyzed-manifest flow. Dropping the file anywhere on this window does the same thing."/>
 
+                        <!-- The label wraps: one line is wider than the sidebar once its scroll bar shows. -->
+                        <Button x:Name="btnConvertCm" Style="{StaticResource WorkflowButtonStyle}"
+                                ToolTip="Convert an existing ConfigMgr application to Intune Win32 apps, one app for each deployment type. It reads ConfigMgr and changes nothing there.">
+                            <TextBlock Text="Convert ConfigMgr App to Intune" TextWrapping="Wrap"/>
+                        </Button>
+
                         <!-- Unified OPTIONS button (replaces the OPTIONS section header + 4 individual buttons) -->
                         <Button x:Name="btnOptions"       Content="Options"                Style="{StaticResource OptionsButtonStyle}"
                                 Margin="8,16,8,3"
