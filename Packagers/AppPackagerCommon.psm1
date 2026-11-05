@@ -6998,6 +6998,19 @@ function ConvertTo-IntuneWin32Rules {
     return @(& $mapOne $det $type)
 }
 
+function Test-IntuneManifestHasRules {
+    <#
+    .SYNOPSIS
+        True when the manifest carries finished Graph rules.
+    .DESCRIPTION
+        A manifest converted from a ConfigMgr application holds IntuneRules:
+        the detection and requirement rules already in Graph form, so the
+        publisher sends them as they are.
+    #>
+    param([Parameter(Mandatory)][pscustomobject]$Manifest)
+    return ($Manifest.PSObject.Properties['IntuneRules'] -and @($Manifest.IntuneRules).Count -gt 0)
+}
+
 function Get-IntuneCompatibilityFindings {
     <#
     .SYNOPSIS
@@ -7042,11 +7055,15 @@ function Get-IntuneCompatibilityFindings {
         & $add 'Blocking' 'InteractiveInstall' 'This deployment type allows the user to interact with the installation. Intune runs Win32 installs silently, so an interactive profile cannot be published.'
     }
 
-    try {
-        [void](ConvertTo-IntuneWin32Rules -Manifest $Manifest)
-    }
-    catch {
-        & $add 'Blocking' 'DetectionNotMappable' $_.Exception.Message
+    # A manifest built from an existing ConfigMgr application carries finished
+    # Graph rules (IntuneRules); there is no detection block to map.
+    if (-not (Test-IntuneManifestHasRules -Manifest $Manifest)) {
+        try {
+            [void](ConvertTo-IntuneWin32Rules -Manifest $Manifest)
+        }
+        catch {
+            & $add 'Blocking' 'DetectionNotMappable' $_.Exception.Message
+        }
     }
 
     $requirements = @()
@@ -7056,7 +7073,13 @@ function Get-IntuneCompatibilityFindings {
     }
 
     $architecture = [string]$Manifest.Architecture
-    if ([string]::IsNullOrWhiteSpace($architecture)) {
+    if ($Manifest.PSObject.Properties['IntuneAllowedArchitectures'] -and -not [string]::IsNullOrWhiteSpace([string]$Manifest.IntuneAllowedArchitectures)) {
+        $unknownArchitectures = @(([string]$Manifest.IntuneAllowedArchitectures -split ',') | Where-Object { @('x86', 'x64', 'arm64') -notcontains $_.Trim() })
+        if ($unknownArchitectures.Count -gt 0) {
+            & $add 'Blocking' 'ArchitectureUnsupported' ("Architecture '{0}' has no allowedArchitectures value in the Graph v1.0 Win32 app resource (x86, x64, arm64)." -f ($unknownArchitectures -join ', '))
+        }
+    }
+    elseif ([string]::IsNullOrWhiteSpace($architecture)) {
         & $add 'Review' 'ArchitectureUnresolved' 'The manifest declares no architecture, so the published app keeps the publisher default rather than a value resolved from the installer.'
     }
     elseif (@('x86', 'x64', 'arm64') -notcontains (Get-IntuneAllowedArchitecture -Architecture $architecture)) {
@@ -7177,7 +7200,9 @@ function Publish-IntuneWin32App {
         throw ("This application cannot be published to Intune: {0}" -f (($blocking | ForEach-Object { "$($_.Code): $($_.Message)" }) -join ' | '))
     }
 
-    $rules = @(ConvertTo-IntuneWin32Rules -Manifest $Manifest)
+    $rules = @()
+    if (Test-IntuneManifestHasRules -Manifest $Manifest) { $rules = @($Manifest.IntuneRules) }
+    else { $rules = @(ConvertTo-IntuneWin32Rules -Manifest $Manifest) }
 
     $installCommand = if (-not [string]::IsNullOrWhiteSpace([string]$Manifest.InstallCommandLine)) { [string]$Manifest.InstallCommandLine } else { 'install.bat' }
     $uninstallCommand = if (-not [string]::IsNullOrWhiteSpace([string]$Manifest.UninstallCommandLine)) { [string]$Manifest.UninstallCommandLine } else { 'uninstall.bat' }
@@ -7193,6 +7218,10 @@ function Publish-IntuneWin32App {
     # unmappable value was already refused by the compatibility findings.
     $resolvedArchitecture = Get-IntuneAllowedArchitecture -Architecture ([string]$Manifest.Architecture)
     if ([string]::IsNullOrWhiteSpace($resolvedArchitecture)) { $resolvedArchitecture = $Architecture }
+    # A converted ConfigMgr application names the architecture set itself.
+    if ($Manifest.PSObject.Properties['IntuneAllowedArchitectures'] -and -not [string]::IsNullOrWhiteSpace([string]$Manifest.IntuneAllowedArchitectures)) {
+        $resolvedArchitecture = (([string]$Manifest.IntuneAllowedArchitectures -split ',') | ForEach-Object { $_.Trim() }) -join ','
+    }
 
     $token = Get-MsGraphToken -TenantId $TenantId -ClientId $ClientId -ClientSecret $ClientSecret
 
@@ -7264,6 +7293,37 @@ function Publish-IntuneWin32App {
             @{ returnCode = 1618; type = 'retry' }
         )
     }
+    # A converted ConfigMgr application keeps its own return codes, restart
+    # behavior and minimum hardware values (Graph v1.0 properties).
+    if ($Manifest.PSObject.Properties['IntuneReturnCodes'] -and @($Manifest.IntuneReturnCodes).Count -gt 0) {
+        $appBody['returnCodes'] = @($Manifest.IntuneReturnCodes | ForEach-Object { @{ returnCode = [int]$_.returnCode; type = [string]$_.type } })
+    }
+    if ($Manifest.PSObject.Properties['IntuneRestartBehavior'] -and -not [string]::IsNullOrWhiteSpace([string]$Manifest.IntuneRestartBehavior)) {
+        $appBody['installExperience']['deviceRestartBehavior'] = [string]$Manifest.IntuneRestartBehavior
+    }
+    if ($Manifest.PSObject.Properties['IntuneMinimums'] -and $Manifest.IntuneMinimums) {
+        $minimumPairs = @()
+        if ($Manifest.IntuneMinimums -is [System.Collections.IDictionary]) { $minimumPairs = @($Manifest.IntuneMinimums.GetEnumerator() | ForEach-Object { [pscustomobject]@{ Name = [string]$_.Key; Value = $_.Value } }) }
+        else { $minimumPairs = @($Manifest.IntuneMinimums.PSObject.Properties | ForEach-Object { [pscustomobject]@{ Name = $_.Name; Value = $_.Value } }) }
+        foreach ($minimum in $minimumPairs) {
+            if (@('MinimumMemoryInMB', 'MinimumNumberOfProcessors', 'MinimumCpuSpeedInMHz', 'MinimumFreeDiskSpaceInMB') -contains $minimum.Name) {
+                $appBody[$minimum.Name.Substring(0, 1).ToLowerInvariant() + $minimum.Name.Substring(1)] = [int]$minimum.Value
+            }
+        }
+    }
+
+    # "Any Windows architecture" has a documented value only on
+    # applicableArchitectures (a combination of x86 and x64); allowedArchitectures
+    # takes one architecture. A converted application that ran on both sends the
+    # documented property.
+    if ($Manifest.PSObject.Properties['IntuneAllowedArchitectures'] -and -not [string]::IsNullOrWhiteSpace([string]$Manifest.IntuneAllowedArchitectures)) {
+        $architectureSet = @($resolvedArchitecture -split ',' | ForEach-Object { $_.Trim() } | Sort-Object -Unique)
+        if ($architectureSet.Count -eq 2 -and $architectureSet -contains 'x86' -and $architectureSet -contains 'x64') {
+            $appBody.Remove('allowedArchitectures')
+            $appBody['applicableArchitectures'] = 'x86,x64'
+        }
+    }
+
     # largeIcon is a mimeContent (type + base64 bytes) on the app entity, not a
     # separate upload. An unresolvable icon leaves the property unset rather
     # than failing the publish.

@@ -1,4 +1,4 @@
-Describe '<Name>' -ForEach @(
+﻿Describe '<Name>' -ForEach @(
         @{ Name = 'package-tableaureader.ps1';  Filter = 'TableauReader-64bit-*.exe';  Pattern = 'Tableau Reader*'; Sample = 'TableauReader-64bit-2026-2-2.exe';  RemoveInstalled = $false ; Url = 'https://downloads.tableau.com/tssoftware/TableauReader-64bit-2026-2-2.exe' }
         @{ Name = 'package-tableauprep.ps1';    Filter = 'TableauPrep-*.exe';          Pattern = 'Tableau Prep*';   Sample = 'TableauPrep-2026-2-2.exe';          RemoveInstalled = $false ; Url = 'https://downloads.tableau.com/tssoftware/TableauPrep-2026-2-2.exe' }
         @{ Name = 'package-tableaudesktop.ps1'; Filter = 'TableauDesktop-64bit-*.exe'; Pattern = 'Tableau 20*';     Sample = 'TableauDesktop-64bit-2026-2-2.exe'; RemoveInstalled = $true ; Url = 'https://downloads.tableau.com/esdalt/2026.2.2/TableauDesktop-64bit-2026-2-2.exe' }
@@ -83,17 +83,15 @@ Describe '<Name>' -ForEach @(
         $search = New-TableauBundleSearchText -Pattern $Pattern
         $body = (New-TableauUninstallScript -Pattern $Pattern).Substring($search.Length) -replace 'exit \$exitCode\s*$', '$exitCode'
         $stub = '$bundles = @([pscustomobject]@{ DisplayName = ''x''; DisplayVersion = ''1.0''; QuietUninstall = ''"' + $exe + '" /burn.clean.room /uninstall /quiet'' })'
-        $global:TableauLaunch = $null
-        function global:Start-Process {
-            param($FilePath, $ArgumentList, [switch]$Wait, [switch]$PassThru, [switch]$NoNewWindow)
-            $global:TableauLaunch = @{ FilePath = $FilePath; ArgumentList = $ArgumentList; Wait = [bool]$Wait }
+        $script:TableauLaunch = $null
+        Mock Start-Process {
+            $script:TableauLaunch = @{ FilePath = $FilePath; ArgumentList = $ArgumentList; Wait = [bool]$Wait }
             [pscustomobject]@{ ExitCode = 0 }
         }
-        try { $result = & ([scriptblock]::Create($stub + "`r`n" + $body)) }
-        finally { Remove-Item -LiteralPath Function:\global:Start-Process -ErrorAction SilentlyContinue }
+        $result = & ([scriptblock]::Create($stub + "`r`n" + $body))
         $result | Should -Be 0
-        $global:TableauLaunch.FilePath | Should -Be $exe
-        $global:TableauLaunch.ArgumentList | Should -Be '/burn.clean.room /uninstall /quiet'
-        $global:TableauLaunch.Wait | Should -BeTrue
+        $script:TableauLaunch.FilePath | Should -Be $exe
+        $script:TableauLaunch.ArgumentList | Should -Be '/burn.clean.room /uninstall /quiet'
+        $script:TableauLaunch.Wait | Should -BeTrue
     }
 }
