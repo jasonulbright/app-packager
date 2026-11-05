@@ -11,7 +11,7 @@ BeforeAll {
         $fn.Extent.Text
     }
     . ([scriptblock]::Create((Get-ScriptFunctionText 'Import-BackgroundWorkerModule')))
-    $script:LookupText = Get-ScriptFunctionText 'Get-MecmCurrentVersionByCMName'
+    $script:LookupText = (Get-ScriptFunctionText 'Test-MecmDriveRoot') + [Environment]::NewLine + (Get-ScriptFunctionText 'Get-MecmCurrentVersionByCMName')
 
     # The runspace has no ConfigMgr module: these stand in for the site drive
     # and for a site where only a decorated title exists.
