@@ -127,3 +127,36 @@ Describe 'Discover provider name' {
         Resolve-DiscoveryProviderName -Preference $null -SiteCode '' | Should -Be ''
     }
 }
+
+Describe 'The site definition lookup tries WinRM when DCOM returns no instance' {
+    BeforeEach {
+        $script:Protocols = @()
+        Mock -ModuleName AppPackagerDiscovery New-DiscoveryCimSession {
+            $script:Protocols += $Protocol
+            $s = [pscustomobject]@{ Protocol = $Protocol }
+            Add-Member -InputObject $s -MemberType ScriptMethod -Name Dispose -Value { } -PassThru
+        }
+    }
+
+    It 'uses the WinRM answer when DCOM answers with no instance' {
+        Mock -ModuleName AppPackagerDiscovery Get-DiscoveryCimSiteDefinition {
+            if ($CimSession.Protocol -eq 'Dcom') { return $null }
+            [pscustomobject]@{ SQLServerName = 'sql01'; SQLDatabaseName = 'CM_MCM' }
+        }
+        $d = InModuleScope AppPackagerDiscovery { Get-DiscoverySiteDefinition -ProviderMachineName 'cm01' -SiteCode 'MCM' }
+        $d.SQLServerName | Should -Be 'sql01'
+        $script:Protocols | Should -Be @('Dcom', 'Wsman')
+    }
+
+    It 'stops at DCOM when DCOM returns the instance' {
+        Mock -ModuleName AppPackagerDiscovery Get-DiscoveryCimSiteDefinition { [pscustomobject]@{ SQLServerName = 'sql01'; SQLDatabaseName = 'CM_MCM' } }
+        $null = InModuleScope AppPackagerDiscovery { Get-DiscoverySiteDefinition -ProviderMachineName 'cm01' -SiteCode 'MCM' }
+        $script:Protocols | Should -Be @('Dcom')
+    }
+
+    It 'throws when neither protocol returns an instance' {
+        Mock -ModuleName AppPackagerDiscovery Get-DiscoveryCimSiteDefinition { $null }
+        { InModuleScope AppPackagerDiscovery { Get-DiscoverySiteDefinition -ProviderMachineName 'cm01' -SiteCode 'MCM' } } | Should -Throw '*could not be read*'
+        $script:Protocols | Should -Be @('Dcom', 'Wsman')
+    }
+}

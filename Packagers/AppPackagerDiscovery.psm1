@@ -101,7 +101,11 @@ function Get-DiscoverySiteDefinition {
         $session = $null
         try {
             $session = New-DiscoveryCimSession -ComputerName $ProviderMachineName -Protocol $protocol
-            return (Get-DiscoveryCimSiteDefinition -CimSession $session -SiteCode $SiteCode)
+            $definition = Get-DiscoveryCimSiteDefinition -CimSession $session -SiteCode $SiteCode
+            # A protocol that answers with no instance is not an answer; the
+            # next protocol is tried.
+            if ($null -ne $definition) { return $definition }
+            Write-Verbose "Site definition lookup over $protocol returned no instance."
         }
         catch {
             Write-Verbose "Site definition lookup over $protocol failed."
