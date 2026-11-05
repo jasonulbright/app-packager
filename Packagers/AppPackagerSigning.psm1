@@ -227,7 +227,9 @@ function Get-SigningTokenFindings {
     # PowerShell accepts U+2013, U+2014 and U+2015 as the parameter dash, cmd
     # removes a caret before the host sees the argument, and a parameter can
     # arrive quoted or inside a quoted argument string.
-    $normalized = ($Text -replace '\^', '') -replace ('[{0}{1}{2}]' -f [char]0x2013, [char]0x2014, [char]0x2015), '-'
+    # A backtick inside a name (-Executi`onPolicy) is removed by PowerShell
+    # before the argument reaches the child, so it is removed here too.
+    $normalized = (($Text -replace '\^', '') -replace '`', '') -replace ('[{0}{1}{2}]' -f [char]0x2013, [char]0x2014, [char]0x2015), '-'
     foreach ($raw in ($normalized -split '[\s=:,;()]+')) {
         if ([string]::IsNullOrWhiteSpace($raw)) { continue }
         $token = $raw.TrimStart('"', "'", '`')
@@ -301,6 +303,22 @@ function Test-SigningThirdPartyFile {
     return $false
 }
 
+function Get-SigningAnsiEncoding {
+    # The ANSI code page of the system. Windows PowerShell 5.1 reads a BOMless
+    # script in it. [Encoding]::Default is that code page only in Windows
+    # PowerShell; in PowerShell 7 it is UTF-8.
+    # The system code page, not the culture of the process: the two differ when
+    # the user culture is not the system locale.
+    try {
+        if (-not ('AppPackagerSigningNative' -as [type])) {
+            Add-Type -Namespace '' -Name 'AppPackagerSigningNative' -MemberDefinition '[System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern uint GetACP();' -ErrorAction Stop
+        }
+        if ('System.Text.CodePagesEncodingProvider' -as [type]) { [System.Text.Encoding]::RegisterProvider([System.Text.CodePagesEncodingProvider]::Instance) }
+        return [System.Text.Encoding]::GetEncoding([int][AppPackagerSigningNative]::GetACP())
+    }
+    catch { return [System.Text.Encoding]::Default }
+}
+
 function Write-SigningScriptFile {
     <#
         Materializes script text under the stage root. Text that already
@@ -325,7 +343,7 @@ function Write-SigningScriptFile {
             'UTF16LE'   { New-Object System.Text.UnicodeEncoding($false, $true) }
             'UTF16BE'   { New-Object System.Text.UnicodeEncoding($true, $true) }
             'ASCII'     { New-Object System.Text.ASCIIEncoding }
-            'ANSI'      { [System.Text.Encoding]::Default }
+            'ANSI'      { Get-SigningAnsiEncoding }
             default     { $utf8NoBom }
         }
         [void]$candidates.Add($named)
@@ -373,7 +391,7 @@ function Get-SigningEncodingInfo {
         return [pscustomobject]@{ Name = 'UTF8NoBOM'; HasBom = $false; Encoding = (New-Object System.Text.UTF8Encoding($false)) }
     }
     catch {
-        return [pscustomobject]@{ Name = 'ANSI'; HasBom = $false; Encoding = [System.Text.Encoding]::Default }
+        return [pscustomobject]@{ Name = 'ANSI'; HasBom = $false; Encoding = (Get-SigningAnsiEncoding) }
     }
 }
 
@@ -947,6 +965,16 @@ function Invoke-ScriptSigning {
     }
 
     $existing = Test-ScriptSignature -Path $Path
+    if ($existing.SignatureIntact -and -not $signSwitch -and -not $PreserveExisting -and
+        $policy.CertificateThumbprint -and [string]$existing.Thumbprint -and $existing.Thumbprint.ToUpperInvariant() -ne $policy.CertificateThumbprint) {
+        # Require without automatic signing accepts a signature only from the
+        # configured certificate. A preserved third-party file keeps its own.
+        $result.Status = 'Failed'
+        $result.Thumbprint = $existing.Thumbprint
+        $result.Sha256 = Get-SigningFileSha256 -Path $Path
+        $result.Reason = "The $Category script is signed with certificate $($existing.Thumbprint), not the configured certificate $($policy.CertificateThumbprint)."
+        return $result
+    }
     if ($existing.SignatureIntact -and ($PreserveExisting -or -not $signSwitch)) {
         # A preserved signature meets the same timestamp rule as one made here.
         if ($policy.TimestampRequired -and -not $existing.Timestamped) {
