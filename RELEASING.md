@@ -17,7 +17,7 @@ Each run must print `result Passed` with all three failure counts at 0. A test f
 
 - The Graph audit is done and recorded. App Packager calls Microsoft Graph v1.0 with raw REST, so the audit checks what the code sends, not cmdlets:
   1. Download the public v1.0 `$metadata` (`https://graph.microsoft.com/v1.0/$metadata`, about 1.8 MB, no sign-in). Parse it as XML in memory and record its SHA-256 hash.
-  2. If the hash equals the hash of the last audit and the Graph changelog has no new entry for Intune apps since then, the result is Pass. Record one line and go on.
+  2. If the hash equals the hash of the last audit, the Graph changelog has no new entry for Intune apps since then, and `Publish-IntuneWin32App`, `ConvertTo-IntuneWin32Rules` and `AppPackagerCmImport.psm1` are unchanged since that audit, the result is Pass. Record one line and go on.
   3. Otherwise check that every type, property and enum member that `Publish-IntuneWin32App`, `ConvertTo-IntuneWin32Rules` and `AppPackagerCmImport.psm1` use still exists, and that none carries an `Org.OData.Core.V1.Revisions` deprecation note with a removal date.
   4. Read the Microsoft Graph changelog and the Intune what's-new page since the last audit. Check the permission table of the Create win32LobApp page.
   5. Result **Action** (something in use is removed, renamed, changed or deprecated) stops the release. **Opportunity** (a new v1.0 property closes a known gap, for example a maximum run time) becomes a work item and does not stop the release. Any `beta` URI is a finding.

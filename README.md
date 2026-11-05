@@ -475,8 +475,8 @@ How each part converts:
 | Windows Installer and script deployment types | One Win32 app each |
 | App-V, MSIX, web, Mac and mobile deployment types | Not converted. The report names them. |
 | MSI product code | Product code rule |
-| File, folder, registry key and registry value clauses joined by And | Native rules, with the 32-bit and 64-bit view kept |
-| Or, groups, wildcards, dates, sizes and prefix comparisons | One PowerShell detection script with the same logic (see `-NativeDetectionOnly`) |
+| File, folder, registry key and registry value clauses joined by And, including And groups | Native rules, with the 32-bit and 64-bit view kept |
+| Or, wildcards, dates, sizes and prefix comparisons, or a group that holds one of these | One PowerShell detection script with the same logic (see `-NativeDetectionOnly`) |
 | Script detection | The same script |
 | Operating system architecture, memory, processors | Native app properties |
 | Operating system language, Windows 11 floors, "none of" rules | A requirement script |
@@ -486,6 +486,8 @@ How each part converts:
 | Maximum run time | Recorded in the manifest. Graph v1.0 has no property for it. |
 
 An application with several deployment types becomes several Intune apps, named `<application> - <deployment type>`. ConfigMgr installs the first deployment type, by priority, whose requirements pass. Intune evaluates each app on its own, so two apps could both install. The default strategy `PerDeploymentType` prevents that: each app gets a requirement script that is false when a higher-priority deployment type applies. Apps with disjoint architectures need no script. A deployment type that a higher-priority type always shadows is not converted. A deployment type below a requirement that cannot be evaluated outside ConfigMgr stops the conversion of that type; the strategy `AssignByGroup` converts it without the exclusion, and each app then goes to its own device group.
+
+A deployment type with a requirement that has no Intune equivalent, such as a custom global condition, is not converted, because the Intune app would install on devices where ConfigMgr skips that type. `-AllowUntranslatedRequirements` converts it without that requirement.
 
 The apps carry the identity tag `AppPackager:cm:<application>/<deployment type>` in their notes, so a repeat run updates the same apps.
 

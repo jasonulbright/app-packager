@@ -7057,7 +7057,23 @@ function Get-IntuneCompatibilityFindings {
 
     # A manifest built from an existing ConfigMgr application carries finished
     # Graph rules (IntuneRules); there is no detection block to map.
-    if (-not (Test-IntuneManifestHasRules -Manifest $Manifest)) {
+    if (Test-IntuneManifestHasRules -Manifest $Manifest) {
+        $finishedRules = @($Manifest.IntuneRules | Where-Object { $_ })
+        if (@($finishedRules | Where-Object { [string]$_.ruleType -eq 'detection' }).Count -eq 0) {
+            & $add 'Blocking' 'DetectionMissing' 'The finished Intune rules hold no detection rule, so Intune could not tell whether the app is installed.'
+        }
+        # The finished script rules are not signed. A policy that requires signed
+        # detection or requirement scripts refuses them before any Graph call.
+        $signingPolicy = Resolve-CommonSigningPolicy
+        foreach ($finishedRule in $finishedRules) {
+            if ([string]$finishedRule.'@odata.type' -ne '#microsoft.graph.win32LobAppPowerShellScriptRule') { continue }
+            $requiredFlag = $(if ([string]$finishedRule.ruleType -eq 'detection') { 'RequireDetection' } else { 'RequireRequirements' })
+            if (Get-PolicyFlag -Policy $signingPolicy -Name $requiredFlag) {
+                & $add 'Blocking' 'ConvertedScriptNotSigned' ("The signing policy requires signed {0} scripts. The converted {0} script is not signed." -f [string]$finishedRule.ruleType)
+            }
+        }
+    }
+    else {
         try {
             [void](ConvertTo-IntuneWin32Rules -Manifest $Manifest)
         }

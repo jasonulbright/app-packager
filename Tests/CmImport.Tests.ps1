@@ -611,6 +611,12 @@ Describe 'Publish-IntuneWin32App with a converted manifest' {
         $create.Body['minimumMemoryInMB'] | Should -Be 4096
         $create.Body['minimumNumberOfProcessors'] | Should -Be 2
         $create.Body['rules'].Count | Should -Be 1
+        $fileRule = $create.Body['rules'][0]
+        $fileRule['@odata.type'] | Should -Be '#microsoft.graph.win32LobAppFileSystemRule'
+        $fileRule['operationType'] | Should -Be 'exists'
+        $fileRule['fileOrFolderName'] | Should -Be 'app.exe'
+        $fileRule['path'] | Should -Be 'C:\Program Files\ImpTestMisc'
+        $fileRule['check32BitOn64System'] | Should -BeTrue
         $create.Body['returnCodes'].Count | Should -Be 5
         $create.Body['installExperience']['deviceRestartBehavior'] | Should -Be 'basedOnReturnCode'
         $create.Body['displayName'] | Should -Be 'IMPTEST Misc Reqs'
@@ -672,7 +678,7 @@ Describe 'Convert-CMApplicationToIntune.ps1' {
 
     It 'takes the documented parameters' {
         $names = @($script:WrapperAst.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
-        foreach ($expected in 'ApplicationName', 'SiteCode', 'OutputRoot', 'VariantStrategy', 'NativeDetectionOnly', 'SkipContent', 'Package', 'Publish', 'UseSavedSettings', 'TenantId', 'ClientId', 'ClientSecret', 'ToolPath') {
+        foreach ($expected in 'ApplicationName', 'SiteCode', 'OutputRoot', 'VariantStrategy', 'NativeDetectionOnly', 'AllowUntranslatedRequirements', 'SkipContent', 'Package', 'Publish', 'UseSavedSettings', 'TenantId', 'ClientId', 'ClientSecret', 'ToolPath') {
             $names | Should -Contain $expected
         }
     }
@@ -723,5 +729,146 @@ Describe 'Convert-CMApplicationToIntune' {
         $xml = (Get-Content -LiteralPath (Join-Path $script:FixtureRoot 'clauses.app.xml') -Raw -Encoding UTF8).Replace('\\cm01.contoso.com\ImpTest\x64\', $source + '\')
         Mock New-IntuneWinPackage -ModuleName AppPackagerCmImport { [pscustomobject]@{ IntuneWinPath = (Join-Path $TestDrive 'x.intunewin') } }
         { Convert-CMApplicationToIntune -ApplicationName 'IMPTEST Clauses' -OutputRoot (Join-Path $TestDrive 'run3') -Xml $xml -Publish -ToolPath 'x' } | Should -Throw '*TenantId*'
+    }
+}
+
+Describe 'Edge cases found in review' {
+    BeforeAll {
+        function Get-FixtureXml([string]$Name) { Get-Content -LiteralPath (Join-Path $script:FixtureRoot "$Name.app.xml") -Raw -Encoding UTF8 }
+        $script:RuleNamespace = 'http://schemas.microsoft.com/SystemsCenterConfigurationManager/2009/06/14/Rules'
+        function New-OsRuleXml([string]$PlatformId) {
+            '<Rule xmlns="{0}" id="Rule_extra" Severity="None" NonCompliantWhenSettingIsNotFound="false"><Annotation><DisplayName Text="extra"/><Description Text=""/></Annotation><OperatingSystemExpression><Operator>OneOf</Operator><Operands><RuleExpression RuleId="{1}"/></Operands></OperatingSystemExpression></Rule>' -f $script:RuleNamespace, $PlatformId
+        }
+        function New-DiskRuleXml {
+            '<Rule xmlns="{0}" id="Rule_disk" Severity="None" NonCompliantWhenSettingIsNotFound="false"><Annotation><DisplayName Text="Disk"/><Description Text=""/></Annotation><Expression><Operator>GreaterEquals</Operator><Operands><GlobalSettingReference AuthoringScopeId="GLOBAL" LogicalName="FreeDiskSpace" DataType="Int64" SettingLogicalName="x" SettingSourceType="CIM" Method="Value"/><ConstantValue Value="5" DataType="Int64"/></Operands></Expression></Rule>' -f $script:RuleNamespace
+        }
+    }
+
+    It 'doubles typographic single quotes in generated scripts' {
+        $leaf = New-TestLeaf -Source File -Property Exists -Path 'C:\X' -Name ("a{0}b{1}c.txt" -f [char]0x2019, [char]0x2018)
+        $text = New-IntuneExpressionDetectionScript -Tree $leaf
+        Test-ParsesCleanly $text | Should -BeTrue
+        $text.Contains(("a{0}{0}b{1}{1}c.txt" -f [char]0x2019, [char]0x2018)) | Should -BeTrue
+    }
+
+    It 'keeps the bitness of a script detector' {
+        $xml = (Get-FixtureXml 'script-detect') -replace '(<Arg Name="RunAs32Bit" Type="Boolean">)false(</Arg></Args></DetectAction>)', '${1}true${2}'
+        $model = ConvertFrom-CMApplicationDigest -Xml $xml
+        $model.DeploymentTypes[0].Detection.RunAs32Bit | Should -BeTrue
+        $rule = (New-CMImportPlan -Model $model).DeploymentTypes[0].Manifest.IntuneRules | Where-Object { $_['ruleType'] -eq 'detection' }
+        $rule['runAs32Bit'] | Should -BeTrue
+        (New-CMImportPlan -Model (Read-Fixture 'script-detect')).DeploymentTypes[0].Manifest.IntuneRules[0]['runAs32Bit'] | Should -BeFalse
+    }
+
+    It 'orders the deployment types by the application list' {
+        $doc = New-Object System.Xml.XmlDocument
+        $doc.LoadXml((Get-FixtureXml 'multi-arch'))
+        $ns = New-Object System.Xml.XmlNamespaceManager($doc.NameTable)
+        $ns.AddNamespace('a', 'http://schemas.microsoft.com/SystemCenterConfigurationManager/2009/AppMgmtDigest')
+        $list = $doc.SelectSingleNode('/a:AppMgmtDigest/a:Application/a:DeploymentTypes', $ns)
+        $first = $list.FirstChild
+        [void]$list.RemoveChild($first)
+        [void]$list.AppendChild($first)
+        $model = ConvertFrom-CMApplicationDigest -Xml $doc.OuterXml
+        @($model.DeploymentTypes.Name) | Should -Be @('Multi - x86', 'Multi - x64')
+        @($model.DeploymentTypes.Priority) | Should -Be @(1, 2)
+    }
+
+    It 'does not convert a registry key comparison that is not an existence test' {
+        $xml = (Get-FixtureXml 'clauses') -replace '(<Operator>)Equals(</Operator><Operands><SettingReference [^>]*SettingSourceType="RegistryKey")', '${1}GreaterThan${2}'
+        $dt = (New-CMImportPlan -Model (ConvertFrom-CMApplicationDigest -Xml $xml)).DeploymentTypes[0]
+        $dt.Convert | Should -BeFalse
+        $dt.Findings.Code | Should -Contain 'DetectionNotConvertible'
+    }
+
+    It 'blocks a detection expression that has no conditions' {
+        $result = ConvertTo-IntuneDetectionRules -Detection ([pscustomobject]@{ Method = 'Enhanced'; Tree = (New-TestGroup 'And' @()) })
+        $result.Rules.Count | Should -Be 0
+        ($result.Findings | Where-Object { $_.Severity -eq 'Blocking' }).Code | Should -Be 'DetectionMissing'
+    }
+
+    It 'keeps the larger memory and processor minimum' {
+        $memory = { param([long]$Bytes) [pscustomobject]@{ Kind = 'Global'; DisplayName = 'm'; Operator = 'GreaterEquals'; PlatformIds = @(); LogicalName = 'TotalPhysicalMemory'; Values = @([string]$Bytes); DataType = 'Int64'; Reason = '' } }
+        $cpu = { param([int]$Count) [pscustomobject]@{ Kind = 'Global'; DisplayName = 'c'; Operator = 'GreaterEquals'; PlatformIds = @(); LogicalName = 'NumberOfProcessors'; Values = @([string]$Count); DataType = 'Int64'; Reason = '' } }
+        $model = ConvertTo-IntuneRequirementModel -Requirements @((& $memory 4294967296), (& $memory 2147483648), (& $cpu 4), (& $cpu 2))
+        $model.Native['MinimumMemoryInMB'] | Should -Be 4096
+        $model.Native['MinimumNumberOfProcessors'] | Should -Be 4
+        $reverse = ConvertTo-IntuneRequirementModel -Requirements @((& $memory 2147483648), (& $memory 4294967296))
+        $reverse.Native['MinimumMemoryInMB'] | Should -Be 4096
+    }
+
+    It 'does not convert a deployment type whose operating system rules share no architecture' {
+        $xml = (Get-FixtureXml 'misc-reqs') -replace '</Requirements>', ((New-OsRuleXml 'Windows/All_x86_Windows_10_higher') + '</Requirements>')
+        $model = ConvertFrom-CMApplicationDigest -Xml $xml
+        (ConvertTo-IntuneRequirementModel -Requirements @($model.DeploymentTypes[0].Requirements)).Architectures.Count | Should -Be 0
+        $dt = (New-CMImportPlan -Model $model).DeploymentTypes[0]
+        $dt.Convert | Should -BeFalse
+        $dt.Findings.Code | Should -Contain 'ArchitectureConflict'
+        $dt.Findings.Code | Should -Not -Contain 'ArchitectureNotConstrained'
+    }
+
+    It 'does not convert a deployment type with a requirement it cannot translate, unless allowed' {
+        $xml = (Get-FixtureXml 'misc-reqs') -replace '</Requirements>', ((New-DiskRuleXml) + '</Requirements>')
+        $model = ConvertFrom-CMApplicationDigest -Xml $xml
+        $blocked = (New-CMImportPlan -Model $model).DeploymentTypes[0]
+        $blocked.Convert | Should -BeFalse
+        ($blocked.Findings | Where-Object { $_.Code -eq 'RequirementsNotTranslated' }).Severity | Should -Be 'Blocking'
+        $allowed = (New-CMImportPlan -Model $model -AllowUntranslatedRequirements).DeploymentTypes[0]
+        $allowed.Convert | Should -BeTrue
+        ($allowed.Findings | Where-Object { $_.Code -eq 'RequirementsNotTranslated' }).Severity | Should -Be 'Review'
+    }
+
+    It 'finds a setup file in a subfolder of the content' {
+        Get-ImpSetupFile -InstallCommand '.\bin\setup.exe /S' -ContentFiles @('bin\setup.exe', 'a.txt') | Should -Be 'bin\setup.exe'
+        Get-ImpSetupFile -InstallCommand 'setup.exe /S' -ContentFiles @('tools\setup.exe', 'a.txt') | Should -Be 'tools\setup.exe'
+        Get-ImpSetupFile -InstallCommand 'msiexec /i "pkg/app.msi" /qn' -ContentFiles @('pkg\app.msi') | Should -Be 'pkg\app.msi'
+        Get-ImpSetupFile -InstallCommand 'setup.exe' -ContentFiles @('a\setup.exe', 'b\setup.exe') | Should -Be ''
+    }
+
+    It 'refuses two deployment types that map to one folder' {
+        $plan = New-CMImportPlan -Model (Read-Fixture 'multi-arch')
+        $plan.DeploymentTypes[0].Name = 'A/B'
+        $plan.DeploymentTypes[1].Name = 'A:B'
+        { Export-CMImportStage -Plan $plan -OutputRoot (Join-Path $TestDrive 'collision') -SkipContent } | Should -Throw '*same folder*'
+    }
+
+    It 'passes the staged icon to the publisher' {
+        $png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+        $source = Join-Path $TestDrive 'icon-content'
+        New-Item -ItemType Directory -Force -Path $source | Out-Null
+        Set-Content -LiteralPath (Join-Path $source 'install.bat') -Value 'exit /b 0'
+        $xml = (Get-FixtureXml 'clauses').Replace('\\cm01.contoso.com\ImpTest\x64\', $source + '\')
+        $xml = $xml.Replace('<Version>1.0</Version></Info>', ('<Version>1.0</Version><Icon Id="i"><Data>{0}</Data></Icon></Info>' -f $png))
+        $script:SeenIcon = $null
+        Mock New-IntuneWinPackage -ModuleName AppPackagerCmImport { [pscustomobject]@{ IntuneWinPath = (Join-Path $TestDrive 'x.intunewin') } }
+        Mock Publish-IntuneWin32App -ModuleName AppPackagerCmImport { $script:SeenIcon = $IconPath; 'id-1' }
+        [void](Convert-CMApplicationToIntune -ApplicationName 'IMPTEST Clauses' -OutputRoot (Join-Path $TestDrive 'icon-run') -Xml $xml -Publish -ToolPath 'x' -TenantId t -ClientId c -ClientSecret s)
+        $script:SeenIcon | Should -Not -BeNullOrEmpty
+        Test-Path -LiteralPath $script:SeenIcon | Should -BeTrue
+    }
+
+    It 'checks the publish credentials before it copies anything' {
+        $source = Join-Path $TestDrive 'early-content'
+        New-Item -ItemType Directory -Force -Path $source | Out-Null
+        Set-Content -LiteralPath (Join-Path $source 'install.bat') -Value 'exit /b 0'
+        $xml = (Get-FixtureXml 'clauses').Replace('\\cm01.contoso.com\ImpTest\x64\', $source + '\')
+        { Convert-CMApplicationToIntune -ApplicationName 'IMPTEST Clauses' -OutputRoot (Join-Path $TestDrive 'early-run') -Xml $xml -Publish -ToolPath 'x' } | Should -Throw '*TenantId*'
+        Test-Path -LiteralPath (Join-Path $TestDrive 'early-run') | Should -BeFalse
+    }
+
+    It 'refuses unsigned converted scripts when the signing policy requires signatures' {
+        Mock Resolve-CommonSigningPolicy -ModuleName AppPackagerCommon { [pscustomobject]@{ RequireDetection = $true; RequireRequirements = $true } }
+        $orManifest = (New-CMImportPlan -Model (Read-Fixture 'or-detect')).DeploymentTypes[0].Manifest
+        @(Get-IntuneCompatibilityFindings -Manifest $orManifest | Where-Object { $_.Code -eq 'ConvertedScriptNotSigned' }).Count | Should -Be 1
+        $nativeManifest = (New-CMImportPlan -Model (Read-Fixture 'clauses')).DeploymentTypes[0].Manifest
+        @(Get-IntuneCompatibilityFindings -Manifest $nativeManifest | Where-Object { $_.Code -eq 'ConvertedScriptNotSigned' }).Count | Should -Be 0
+        $langManifest = (New-CMImportPlan -Model (Read-Fixture 'multi-lang')).DeploymentTypes[1].Manifest
+        @(Get-IntuneCompatibilityFindings -Manifest $langManifest | Where-Object { $_.Code -eq 'ConvertedScriptNotSigned' }).Count | Should -Be 1
+    }
+
+    It 'blocks finished rules that hold no detection rule' {
+        $manifest = (New-CMImportPlan -Model (Read-Fixture 'multi-lang')).DeploymentTypes[1].Manifest
+        $manifest.IntuneRules = @($manifest.IntuneRules | Where-Object { $_['ruleType'] -eq 'requirement' })
+        (Get-IntuneCompatibilityFindings -Manifest $manifest | Where-Object { $_.Severity -eq 'Blocking' }).Code | Should -Contain 'DetectionMissing'
     }
 }

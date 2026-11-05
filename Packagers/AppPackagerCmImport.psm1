@@ -35,7 +35,8 @@ function ConvertTo-ImpSingleQuoted {
     # A value as the inside of a PowerShell single-quoted string.
     param([AllowNull()][string]$Value)
     if ($null -eq $Value) { return '' }
-    return $Value.Replace("'", "''")
+    # PowerShell ends a single-quoted string at U+2018 to U+201B as well as at the apostrophe.
+    return [regex]::Replace($Value, '[''\u2018\u2019\u201A\u201B]', '$0$0')
 }
 
 function Get-ImpChildren {
@@ -227,6 +228,10 @@ function ConvertFrom-CMDetectionExpression {
             $leaf.Hive = $setting.Hive
             $leaf.Key = $setting.Key
             $leaf.Property = 'Exists'
+            if (($mapped -ne 'IsEquals' -and $mapped -ne 'NotEquals') -or $expected -notmatch '^(?i:true|false)$') {
+                $leaf.Supported = $false
+                $leaf.Reason = 'A registry key comparison other than exists or does not exist is not converted.'
+            }
             $want = ($expected -eq 'true')
             if ($mapped -eq 'NotEquals') { $want = -not $want }
             $leaf.Expected = [string]$want
@@ -255,15 +260,17 @@ function ConvertFrom-CMDeploymentTypeDetection {
     switch ($method) {
         'Script' {
             $scriptNode = Get-ImpChild -Node $CustomData -Name 'DetectionScript'
+            $detectArgs = Get-ImpArgMap -ActionNode (Get-ImpChild -Node $Installer -Name 'DetectAction')
             return [pscustomobject]@{
                 Method = 'Script'; Tree = $null
                 ScriptText = (Get-ImpText $scriptNode); ScriptLanguage = (Get-ImpAttribute -Node $scriptNode -Name 'Language')
+                RunAs32Bit = ([string](Get-ImpMapValue -Map $detectArgs -Name 'RunAs32Bit' -Default 'false') -eq 'true')
                 ProductCode = ''; ProductVersion = ''
             }
         }
         'ProductCode' {
             return [pscustomobject]@{
-                Method = 'ProductCode'; Tree = $null; ScriptText = ''; ScriptLanguage = ''
+                Method = 'ProductCode'; Tree = $null; ScriptText = ''; ScriptLanguage = ''; RunAs32Bit = $false
                 ProductCode = (Get-ImpText (Get-ImpChild -Node $CustomData -Name 'ProductCode'))
                 ProductVersion = (Get-ImpText (Get-ImpChild -Node $CustomData -Name 'ProductVersion'))
             }
@@ -275,10 +282,10 @@ function ConvertFrom-CMDeploymentTypeDetection {
             $expression = Get-ImpChild -Node $rule -Name 'Expression'
             $tree = $null
             if ($expression) { $tree = ConvertFrom-CMDetectionExpression -Expression $expression -Settings $settings }
-            return [pscustomobject]@{ Method = 'Enhanced'; Tree = $tree; ScriptText = ''; ScriptLanguage = ''; ProductCode = ''; ProductVersion = '' }
+            return [pscustomobject]@{ Method = 'Enhanced'; Tree = $tree; ScriptText = ''; ScriptLanguage = ''; RunAs32Bit = $false; ProductCode = ''; ProductVersion = '' }
         }
         default {
-            return [pscustomobject]@{ Method = $(if ($method) { $method } else { 'None' }); Tree = $null; ScriptText = ''; ScriptLanguage = ''; ProductCode = ''; ProductVersion = '' }
+            return [pscustomobject]@{ Method = $(if ($method) { $method } else { 'None' }); Tree = $null; ScriptText = ''; ScriptLanguage = ''; RunAs32Bit = $false; ProductCode = ''; ProductVersion = '' }
         }
     }
 }
@@ -409,7 +416,15 @@ function ConvertFrom-CMApplicationDigest {
 
     $deploymentTypes = @()
     $priority = 0
-    foreach ($dtNode in (Get-ImpChildren -Node $root -Name 'DeploymentType')) {
+    # The application lists its deployment types in priority order. The
+    # definitions follow in the same order in a stored document; the list
+    # decides if they ever differ.
+    $definitions = @(Get-ImpChildren -Node $root -Name 'DeploymentType')
+    $order = @(Get-ImpChildren -Node (Get-ImpChild -Node $app -Name 'DeploymentTypes') -Name 'DeploymentType' | ForEach-Object { Get-ImpAttribute -Node $_ -Name 'LogicalName' })
+    if ($order.Count -gt 0) {
+        $definitions = @($definitions | Sort-Object -Property @{ Expression = { $position = [array]::IndexOf($order, (Get-ImpAttribute -Node $_ -Name 'LogicalName')); if ($position -lt 0) { [int]::MaxValue } else { $position } } })
+    }
+    foreach ($dtNode in $definitions) {
         $priority++
         $installer = Get-ImpChild -Node $dtNode -Name 'Installer'
         $technology = Get-ImpText (Get-ImpChild -Node $dtNode -Name 'Technology')
@@ -752,7 +767,7 @@ function ConvertTo-IntuneDetectionRules {
                 & $add 'Blocking' 'DetectionLanguageNotSupported' ("The detection script language '{0}' is not supported. Intune runs PowerShell detection scripts only." -f $Detection.ScriptLanguage)
                 return [pscustomobject]@{ Rules = @(); Mode = 'Script'; Findings = @($findings.ToArray()) }
             }
-            return [pscustomobject]@{ Rules = @((New-ImpScriptRule -Text $Detection.ScriptText -RuleType detection)); Mode = 'Script'; Findings = @() }
+            return [pscustomobject]@{ Rules = @((New-ImpScriptRule -Text $Detection.ScriptText -RuleType detection -RunAs32Bit ([bool]$Detection.RunAs32Bit))); Mode = 'Script'; Findings = @() }
         }
         'Enhanced' {
             if ($null -eq $Detection.Tree) {
@@ -760,6 +775,10 @@ function ConvertTo-IntuneDetectionRules {
                 return [pscustomobject]@{ Rules = @(); Mode = 'Native'; Findings = @($findings.ToArray()) }
             }
             $leaves = @(Get-ImpLeaves -Tree $Detection.Tree)
+            if ($leaves.Count -eq 0) {
+                & $add 'Blocking' 'DetectionMissing' 'The detection expression has no conditions.'
+                return [pscustomobject]@{ Rules = @(); Mode = 'Native'; Findings = @($findings.ToArray()) }
+            }
             $unsupported = @($leaves | Where-Object { -not $_.Supported })
             if ($unsupported.Count -gt 0) {
                 & $add 'Blocking' 'DetectionNotConvertible' $unsupported[0].Reason
@@ -848,6 +867,7 @@ function ConvertTo-IntuneRequirementModel {
     $scriptOnly = New-Object System.Collections.Generic.List[object]
     $unrecognized = New-Object System.Collections.Generic.List[object]
     $architectures = $null
+    $architectureConstrained = $false
 
     foreach ($rule in $Requirements) {
         switch ($rule.Kind) {
@@ -868,6 +888,7 @@ function ConvertTo-IntuneRequirementModel {
                 if ($archSet -contains '') { $archSet = @() }
                 $builds = @($pairs | ForEach-Object { $_.MinimumBuild } | Select-Object -Unique)
                 if ($archSet.Count -gt 0) {
+                    $architectureConstrained = $true
                     $architectures = $(if ($null -eq $architectures) { $archSet } else { @($architectures | Where-Object { $archSet -contains $_ }) })
                 }
                 # A uniform Windows 10 floor is the Intune baseline. Mixed floors
@@ -886,13 +907,18 @@ function ConvertTo-IntuneRequirementModel {
                     'TotalPhysicalMemory' {
                         $bytes = [int64]$rule.Values[0]
                         $predicates.Add([pscustomobject]@{ Type = 'Memory'; Comparison = $comparison; Value = $bytes })
-                        if ($rule.Operator -eq 'GreaterEquals') { $native['MinimumMemoryInMB'] = [int][math]::Ceiling($bytes / 1MB) }
+                        if ($rule.Operator -eq 'GreaterEquals') {
+                            $megabytes = [int][math]::Ceiling($bytes / 1MB)
+                            if (-not $native.ContainsKey('MinimumMemoryInMB') -or $megabytes -gt $native['MinimumMemoryInMB']) { $native['MinimumMemoryInMB'] = $megabytes }
+                        }
                         else { $scriptOnly.Add($predicates[$predicates.Count - 1]) }
                     }
                     'NumberOfProcessors' {
                         $count = [int]$rule.Values[0]
                         $predicates.Add([pscustomobject]@{ Type = 'Processors'; Comparison = $comparison; Value = $count })
-                        if ($rule.Operator -eq 'GreaterEquals') { $native['MinimumNumberOfProcessors'] = $count }
+                        if ($rule.Operator -eq 'GreaterEquals') {
+                            if (-not $native.ContainsKey('MinimumNumberOfProcessors') -or $count -gt $native['MinimumNumberOfProcessors']) { $native['MinimumNumberOfProcessors'] = $count }
+                        }
                         else { $scriptOnly.Add($predicates[$predicates.Count - 1]) }
                     }
                     'OSLanguage' {
@@ -915,6 +941,7 @@ function ConvertTo-IntuneRequirementModel {
 
     return [pscustomobject]@{
         Architectures = $architectures
+        ArchitectureConstrained = $architectureConstrained
         Native        = $native
         Predicates    = @($predicates.ToArray())
         ScriptOnly    = @($scriptOnly.ToArray())
@@ -1078,15 +1105,27 @@ function Get-ImpSetupFile {
 
     $files = @($ContentFiles)
     $lookup = @{}
-    foreach ($file in $files) { $lookup[$file.ToLowerInvariant()] = $file }
+    foreach ($file in $files) { $lookup[($file -replace '/', '\').ToLowerInvariant()] = $file }
 
-    $program = Get-ImpFirstToken -CommandLine $InstallCommand
-    $leaf = [System.IO.Path]::GetFileName($program)
-    if ($leaf -and $lookup.ContainsKey($leaf.ToLowerInvariant())) { return $lookup[$leaf.ToLowerInvariant()] }
+    # A named file matches by its path relative to the content first (for
+    # example .\bin\setup.exe against bin\setup.exe), then by file name when
+    # exactly one file of the content has that name.
+    $findFile = {
+        param([string]$Reference)
+        if (-not $Reference) { return '' }
+        $relative = ($Reference.Trim('"') -replace '/', '\') -replace '^(\.\\)+', ''
+        if ($lookup.ContainsKey($relative.ToLowerInvariant())) { return $lookup[$relative.ToLowerInvariant()] }
+        $name = [System.IO.Path]::GetFileName($relative)
+        $sameName = @($files | Where-Object { [System.IO.Path]::GetFileName($_) -ieq $name })
+        if ($name -and $sameName.Count -eq 1) { return $sameName[0] }
+        return ''
+    }
 
+    $found = & $findFile (Get-ImpFirstToken -CommandLine $InstallCommand)
+    if ($found) { return $found }
     foreach ($match in [regex]::Matches($InstallCommand, '(?i)"([^"]+\.(?:msi|msp|exe|bat|cmd|ps1|vbs))"|(\S+\.(?:msi|msp|exe|bat|cmd|ps1|vbs))')) {
-        $candidate = [System.IO.Path]::GetFileName(($match.Groups[1].Value + $match.Groups[2].Value))
-        if ($candidate -and $lookup.ContainsKey($candidate.ToLowerInvariant())) { return $lookup[$candidate.ToLowerInvariant()] }
+        $found = & $findFile ($match.Groups[1].Value + $match.Groups[2].Value)
+        if ($found) { return $found }
     }
     foreach ($extension in '.msi', '.exe', '.bat', '.cmd', '.ps1') {
         $hit = @($files | Where-Object { $_ -notmatch '[\\/]' -and $_.EndsWith($extension, [StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1)
@@ -1125,7 +1164,8 @@ function New-CMImportPlan {
     param(
         [Parameter(Mandatory)]$Model,
         [ValidateSet('PerDeploymentType', 'AssignByGroup')][string]$VariantStrategy = 'PerDeploymentType',
-        [switch]$NativeDetectionOnly
+        [switch]$NativeDetectionOnly,
+        [switch]$AllowUntranslatedRequirements
     )
 
     $dts = @($Model.DeploymentTypes)
@@ -1194,7 +1234,11 @@ function New-CMImportPlan {
         if (-not $blocked) {
             $rules += @($detectionResult.Rules)
             foreach ($key in $reqModel.Native.Keys) { $nativeMinimums[$key] = $reqModel.Native[$key] }
-            if ($null -ne $reqModel.Architectures -and @($reqModel.Architectures).Count -gt 0) {
+            if ($reqModel.ArchitectureConstrained -and @($reqModel.Architectures).Count -eq 0) {
+                & $add 'Blocking' 'ArchitectureConflict' 'The operating system requirements share no architecture. ConfigMgr never installs this deployment type.'
+                $blocked = $true
+            }
+            elseif ($reqModel.ArchitectureConstrained) {
                 $allowedArchitectures = (@($reqModel.Architectures) -join ',')
             }
             else {
@@ -1203,7 +1247,7 @@ function New-CMImportPlan {
                 $allowedArchitectures = 'x86,x64'
                 & $add 'Info' 'ArchitectureNotConstrained' 'The deployment type names no architecture. The Intune app allows x86 and x64.'
             }
-            $architectureSet = @($allowedArchitectures -split ',' | Sort-Object -Unique)
+            $architectureSet = @($allowedArchitectures -split ',' | Where-Object { $_ } | Sort-Object -Unique)
             if ($architectureSet -contains 'arm64') {
                 & $add 'Review' 'Arm64ValueUnverified' 'The Graph v1.0 metadata lists the architectures x86, x64 and arm for allowedArchitectures; the documentation lists arm64. Check the published app on an ARM64 device.'
             }
@@ -1219,7 +1263,13 @@ function New-CMImportPlan {
                 }
             }
             if ($reqModel.Unrecognized.Count -gt 0) {
-                & $add 'Review' 'RequirementsNotTranslated' ("{0} requirement rule(s) have no Intune equivalent. The Intune app does not gate on them." -f $reqModel.Unrecognized.Count)
+                if ($AllowUntranslatedRequirements) {
+                    & $add 'Review' 'RequirementsNotTranslated' ("{0} requirement rule(s) have no Intune equivalent. The Intune app does not gate on them, so it can install on devices where ConfigMgr skips this deployment type." -f $reqModel.Unrecognized.Count)
+                }
+                else {
+                    & $add 'Blocking' 'RequirementsNotTranslated' ("{0} requirement rule(s) have no Intune equivalent. The Intune app would install on devices where ConfigMgr skips this deployment type. Use -AllowUntranslatedRequirements to convert it without them." -f $reqModel.Unrecognized.Count)
+                    $blocked = $true
+                }
             }
             if (@($reqModel.Predicates | Where-Object { $_.Type -eq 'OsPlatform' -and @($_.Pairs | Where-Object { $_.MinimumBuild -lt 19044 }).Count -gt 0 }).Count -gt 0) {
                 & $add 'Info' 'WindowsFloorRaised' 'ConfigMgr allowed Windows 10 releases that Microsoft no longer supports. The Intune app keeps its minimum release (Windows10_21H2).'
@@ -1432,9 +1482,14 @@ function Export-CMImportStage {
     $appFolder = Join-Path $OutputRoot (ConvertTo-ImpSafeName $Plan.ApplicationName)
     New-Item -ItemType Directory -Force -Path $appFolder | Out-Null
     $staged = @()
+    $folderOwners = @{}
     foreach ($dt in $Plan.DeploymentTypes) {
         if (-not $dt.Convert) { continue }
         $folder = Join-Path $appFolder (ConvertTo-ImpSafeName $dt.Name)
+        if ($folderOwners.ContainsKey($folder.ToLowerInvariant())) {
+            throw ("Deployment types '{0}' and '{1}' map to the same folder '{2}'. Rename one in ConfigMgr." -f $folderOwners[$folder.ToLowerInvariant()], $dt.Name, $folder)
+        }
+        $folderOwners[$folder.ToLowerInvariant()] = $dt.Name
         $contentFolder = Join-Path $folder 'Content'
         if (-not $SkipContent) {
             if (-not $dt.ContentLocation) { throw "Deployment type '$($dt.Name)' has no content location." }
@@ -1495,6 +1550,7 @@ function Convert-CMApplicationToIntune {
         [string]$SiteCode,
         [ValidateSet('PerDeploymentType', 'AssignByGroup')][string]$VariantStrategy = 'PerDeploymentType',
         [switch]$NativeDetectionOnly,
+        [switch]$AllowUntranslatedRequirements,
         [switch]$SkipContent,
         [switch]$Package,
         [string]$ToolPath = '',
@@ -1506,6 +1562,7 @@ function Convert-CMApplicationToIntune {
     )
 
     if ($Publish -and -not $Package) { $Package = $true }
+    if ($Publish -and -not ($TenantId -and $ClientId -and $ClientSecret)) { throw '-Publish needs TenantId, ClientId and ClientSecret.' }
     Initialize-CMImportDependencies
     $fromSite = (-not $Xml)
     if ($fromSite) {
@@ -1515,7 +1572,7 @@ function Convert-CMApplicationToIntune {
         $Xml = Get-CMApplicationDigest -ApplicationName $ApplicationName
     }
     $model = ConvertFrom-CMApplicationDigest -Xml $Xml
-    $plan = New-CMImportPlan -Model $model -VariantStrategy $VariantStrategy -NativeDetectionOnly:$NativeDetectionOnly
+    $plan = New-CMImportPlan -Model $model -VariantStrategy $VariantStrategy -NativeDetectionOnly:$NativeDetectionOnly -AllowUntranslatedRequirements:$AllowUntranslatedRequirements
     if ($fromSite) {
         try { Resolve-CMImportReferenceNames -Plan $plan } catch { Write-ImpLog ("Reference names stay as logical names: {0}" -f $_.Exception.Message) 'WARN' }
     }
@@ -1532,9 +1589,9 @@ function Convert-CMApplicationToIntune {
             $built = New-IntuneWinPackage -ToolPath $ToolPath -ContentFolder $item.ContentFolder -SetupFile $item.SetupFile -OutputFolder (Join-Path $item.Folder 'Package') -OutputName ((ConvertTo-ImpSafeName $item.Name) + '.intunewin')
             $record = [pscustomobject]@{ Name = $item.Name; IntuneWinPath = $built.IntuneWinPath; AppId = '' }
             if ($Publish) {
-                if (-not ($TenantId -and $ClientId -and $ClientSecret)) { throw '-Publish needs TenantId, ClientId and ClientSecret.' }
                 $manifest = Get-Content -LiteralPath $item.ManifestPath -Raw | ConvertFrom-Json
-                $record.AppId = Publish-IntuneWin32App -TenantId $TenantId -ClientId $ClientId -ClientSecret $ClientSecret -IntuneWinPath $built.IntuneWinPath -Manifest $manifest -Description ([string]$model.Description)
+                $iconPath = $(if ($model.IconBase64) { Join-Path $item.Folder 'app-icon.png' } else { '' })
+                $record.AppId = Publish-IntuneWin32App -TenantId $TenantId -ClientId $ClientId -ClientSecret $ClientSecret -IntuneWinPath $built.IntuneWinPath -IconPath $iconPath -Manifest $manifest -Description ([string]$model.Description)
             }
             $published += $record
         }

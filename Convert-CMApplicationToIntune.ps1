@@ -35,6 +35,11 @@
     Refuse a detection that needs a PowerShell script in Intune (Or, groups, and
     comparisons without a native rule).
 
+.PARAMETER AllowUntranslatedRequirements
+    Convert a deployment type that has a requirement with no Intune equivalent (for
+    example a custom global condition). The Intune app then installs on devices where
+    ConfigMgr skips that deployment type. Without this switch the type is not converted.
+
 .PARAMETER SkipContent
     Plan and write the reports without copying content.
 
@@ -62,6 +67,7 @@ param(
     [Parameter(Mandatory)][string]$OutputRoot,
     [ValidateSet('PerDeploymentType', 'AssignByGroup')][string]$VariantStrategy = 'PerDeploymentType',
     [switch]$NativeDetectionOnly,
+    [switch]$AllowUntranslatedRequirements,
     [switch]$SkipContent,
     [switch]$Package,
     [switch]$Publish,
@@ -107,6 +113,7 @@ $params = @{
     ClientSecret    = $plain
 }
 if ($NativeDetectionOnly) { $params['NativeDetectionOnly'] = $true }
+if ($AllowUntranslatedRequirements) { $params['AllowUntranslatedRequirements'] = $true }
 if ($SkipContent) { $params['SkipContent'] = $true }
 if ($Package) { $params['Package'] = $true }
 if ($Publish) { $params['Publish'] = $true }
