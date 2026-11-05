@@ -2063,6 +2063,28 @@ function Invoke-PackagerGetLatestVersion {
     }
 }
 
+function Test-MecmDriveRoot {
+    # True when the root of a site drive is the provider that was asked for.
+    # A short name and its fully qualified name are the same machine. With no
+    # provider asked for, any root passes.
+    param([AllowNull()][AllowEmptyString()][string]$Root, [AllowNull()][AllowEmptyString()][string]$Provider)
+    if ([string]::IsNullOrWhiteSpace($Provider)) { return $true }
+    $a = ([string]$Root).Trim().TrimEnd('\').ToLowerInvariant()
+    $b = $Provider.Trim().TrimEnd('\').ToLowerInvariant()
+    return ($a -eq $b -or $a.StartsWith($b + '.') -or $b.StartsWith($a + '.'))
+}
+
+function Get-OneClickObservedSkipReason {
+    # The reason a One Click run skips a destination because the site holds a
+    # newer version than the vendor reports, or ''. The publish record says
+    # what this tool published; the site says what is there now. A forced run
+    # publishes anyway.
+    param([string]$Destination, [AllowNull()][AllowEmptyString()][string]$Observed, [AllowNull()][AllowEmptyString()][string]$Latest, [switch]$Force)
+    if ($Force -or [string]::IsNullOrWhiteSpace($Observed) -or [string]::IsNullOrWhiteSpace($Latest)) { return '' }
+    if ((Compare-SemVer -A $Observed -B $Latest) -gt 0) { return ('{0}: site holds {1}, newer than {2}' -f $Destination, $Observed, $Latest) }
+    return ''
+}
+
 function Get-MecmCurrentVersionByCMName {
     param(
         [Parameter(Mandatory)][string]$SiteCode,
@@ -2092,6 +2114,13 @@ function Get-MecmCurrentVersionByCMName {
 
     $existingDrive = Get-PSDrive -Name $SiteCode -PSProvider CMSite -ErrorAction SilentlyContinue
     $connected = $false
+
+    # A drive that opens but points at another provider would attribute the
+    # answer to a provider that did not give it. It is replaced.
+    if ($existingDrive -and -not (Test-MecmDriveRoot -Root ([string]$existingDrive.Root) -Provider $ProviderMachineName)) {
+        Remove-PSDrive -Name $SiteCode -Force -ErrorAction SilentlyContinue
+        $existingDrive = $null
+    }
 
     if ($existingDrive) {
         try {
@@ -8377,6 +8406,17 @@ function Invoke-MultiAppPipeline {
                         # build republishes even when the version matches.
                         $publishTo = @()
                         $skipReasons = @()
+                        # What the site holds now, read once: the publish record
+                        # below says only what this tool published earlier.
+                        $observedCm = ''
+                        if ($Ctx.Action -eq 'StageAndPackage' -and 'ConfigMgr' -in $wanted -and -not $Ctx.ForceFlag -and $Ctx.AdminUiFound -and -not [string]::IsNullOrWhiteSpace([string]$row.CMName)) {
+                            try {
+                                $siteRes = Get-MecmCurrentVersionByCMName -SiteCode $Ctx.SiteCode -ProviderMachineName $Ctx.ProviderMachineName -CMName ([string]$row.CMName)
+                                if ($siteRes.Found) { $observedCm = [string]$siteRes.SoftwareVersion }
+                            } catch {
+                                [void]$State.LogQueue.Enqueue(('ConfigMgr site version for {0} not read: {1}' -f $app, $_.Exception.Message))
+                            }
+                        }
                         if ($Ctx.Action -eq 'StageAndPackage') {
                             foreach ($d in $wanted) {
                                 $instance = [string]$(if ($Ctx.InstanceKeys) { $Ctx.InstanceKeys[$d] } else { '' })
@@ -8385,6 +8425,14 @@ function Invoke-MultiAppPipeline {
                                     $skipReasons += ('{0}: published {1} is newer than {2}' -f $d, $rec.Version, $latest)
                                     if ($pr) { $pr.('Result' + $d) = ('published {0} is newer than {1}' -f $rec.Version, $latest) }
                                     continue
+                                }
+                                if ($d -eq 'ConfigMgr') {
+                                    $siteSkip = Get-OneClickObservedSkipReason -Destination $d -Observed $observedCm -Latest ([string]$latest) -Force:([bool]$Ctx.ForceFlag)
+                                    if ($siteSkip) {
+                                        $skipReasons += $siteSkip
+                                        if ($pr) { $pr.('Result' + $d) = $siteSkip }
+                                        continue
+                                    }
                                 }
                                 $sameBuild = (-not $buildKey) -or (-not $rec) -or (-not $rec.Build) -or ($rec.Build -eq $buildKey)
                                 if (-not $Ctx.ForceFlag -and -not $buildStale -and $sameBuild -and $rec -and $rec.Version -eq [string]$latest) {
