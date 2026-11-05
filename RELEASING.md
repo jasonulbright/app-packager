@@ -5,7 +5,7 @@ Maintainer procedure for publishing a release. Run every command from the reposi
 ## 1. Preconditions
 
 - On `main`, working tree clean, `main` level with `origin/main`.
-- Every commit to `main` is part of a release. A commit that is not followed by a tag in the same session, including a documentation-only commit, blocks the suite installer build until the next release. Hold such edits and commit them with the next release.
+- Every commit to `main` is part of a release. A commit that is not followed by a tag in the same session, including a documentation-only commit, blocks the suite installer build until the next release. Do not hold such edits: merge them and release in the same session.
 - The full test suite passes under Windows PowerShell 5.1 with Pester 5, and again under PowerShell 7. Windows PowerShell is the shipping host and the build host; a failure under either host is a defect, and the fix must be host-neutral (no change that breaks 5.1):
 
 ```bash
@@ -37,11 +37,21 @@ The maintainer writes the `CHANGELOG.md` entry. Commit the file exactly as writt
 
 Entry shape: `## [<ver>] - <yyyy-MM-dd>`, then `###` sections by kind of change. Bullets are verb-first, one change per line, at most 15 plain words, with no file names, ticket references or rationale. A bugfix-only release may be the single line `- Various bug fixes.`
 
-## 4. Tag and push
+## 4. Merge, tag and push
+
+Do the release work from sections 2 and 3 on a branch, not on `main`:
 
 ```bash
+git switch -c chore/release-<ver>
+git push -u origin chore/release-<ver>
+```
+
+Open a pull request into `main`. Wait for the CodeRabbit review and CI to finish, then squash-merge it. Do not push `main` directly. Then create the tag on the merged commit and push only the tag:
+
+```bash
+git switch main && git pull --ff-only origin main
 git tag -a v<ver> -m v<ver>
-git push origin main v<ver>
+git push origin v<ver>
 ```
 
 The tag is annotated and its message is the tag name.

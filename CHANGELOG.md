@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026.11.05.0127] - 2026-11-05
+
+## 1 change
+
+### Changed
+
+- Document the pull request flow for releases.
+
 ## [2026.11.05.0126] - 2026-11-05
 
 ## 1 addition
