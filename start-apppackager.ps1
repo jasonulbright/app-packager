@@ -5233,6 +5233,73 @@ function Update-SidebarForSystems {
     }
 }
 
+# --- One busy display for every long action -----------------------------------
+# A run over a list of apps (Invoke-MultiAppPipeline) shows the overlay with
+# "Verb N/M: name". An action on the UI thread uses the same overlay through
+# these functions: Show-BusyIndicator, then Set-BusyStep per item, then
+# Hide-BusyIndicator in a finally block. The wait cursor is part of the display
+# and is never set alone. A dialog that the overlay cannot cover reports in its
+# own status line through Set-DialogBusyStatus.
+function Update-UiNow {
+    # Lets WPF draw what was just changed before a long call blocks the thread.
+    [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke(
+        [System.Windows.Threading.DispatcherPriority]::Render,
+        [Action]{ }
+    )
+}
+
+function Format-BusyStep {
+    param([Parameter(Mandatory)][string]$Verb, [Parameter(Mandatory)][int]$Index, [Parameter(Mandatory)][int]$Total, [AllowEmptyString()][string]$Name = '')
+    '{0} {1}/{2}: {3}' -f $Verb, $Index, $Total, $Name
+}
+
+function Show-BusyIndicator {
+    param(
+        [Parameter(Mandatory)][string]$Title,
+        [string]$Step = 'Starting...',
+        [switch]$AllowCancel
+    )
+    $txtProgressTitle.Text = $Title
+    $txtProgressStep.Text = $Step
+    # These actions cannot pause. Cancel stays only where the action can stop.
+    $btnPausePipeline.Visibility = [System.Windows.Visibility]::Collapsed
+    if ($AllowCancel) {
+        $btnCancelPipeline.Visibility = [System.Windows.Visibility]::Visible
+        $btnCancelPipeline.IsEnabled = $true
+    }
+    else {
+        $btnCancelPipeline.Visibility = [System.Windows.Visibility]::Collapsed
+    }
+    $progressOverlay.Visibility = [System.Windows.Visibility]::Visible
+    $window.Cursor = [System.Windows.Input.Cursors]::Wait
+    Update-UiNow
+}
+
+function Set-BusyStep {
+    param([Parameter(Mandatory)][string]$Text)
+    $txtProgressStep.Text = $Text
+    Update-UiNow
+}
+
+function Hide-BusyIndicator {
+    $progressOverlay.Visibility = [System.Windows.Visibility]::Collapsed
+    $window.Cursor = $null
+    $btnPausePipeline.Visibility = [System.Windows.Visibility]::Visible
+    $btnPausePipeline.Content = 'Pause'
+    $btnPausePipeline.IsEnabled = $true
+    $btnCancelPipeline.Visibility = [System.Windows.Visibility]::Visible
+    $btnCancelPipeline.IsEnabled = $false
+}
+
+function Set-DialogBusyStatus {
+    # For a dialog or option page: the status line says what runs, and the
+    # wait cursor is an addition to it.
+    param([Parameter(Mandatory)]$Dialog, [Parameter(Mandatory)]$Control, [Parameter(Mandatory)][string]$Text)
+    $Dialog.Cursor = [System.Windows.Input.Cursors]::Wait
+    $Control.Text = $Text
+    Update-UiNow
+}
+
 $btnPausePipeline.Add_Click({
     if (-not $script:BgState -or $script:BgState.Done) { return }
 
@@ -7947,8 +8014,8 @@ function Test-PipelineBusy {
     # session state, so $script: resolves here where a closure cannot.
     # The state stays set until the completion tick has run every hook and
     # cleared it; Done alone leaves a gap in which a new run would drop
-    # the pending hooks.
-    [bool]($null -ne $script:BgState) -or [bool]$script:CmImportRunning
+    # the pending hooks. A discovery scan shows the same display, so it counts.
+    [bool]($null -ne $script:BgState) -or [bool]$script:CmImportRunning -or [bool]($null -ne $script:DiscoveryJob)
 }
 
 function Invoke-MultiAppPipeline {
@@ -9633,7 +9700,7 @@ function Invoke-DropIntake {
     # The action buttons are disabled while a pipeline runs, but the window
     # itself still receives drops; starting a second pipeline here would
     # hard-stop the running one mid-flight.
-    if (($script:BgState -and -not [bool]$script:BgState.Done) -or $script:CmImportRunning) {
+    if (($script:BgState -and -not [bool]$script:BgState.Done) -or $script:CmImportRunning -or $null -ne $script:DiscoveryJob) {
         [void](Show-ThemedMessage -Owner $window -Title 'Pipeline Running' `
             -Message 'A pipeline is already running. Wait for it to finish (or cancel it), then drop the installer again.' `
             -Buttons OK -Icon Info)
@@ -9668,17 +9735,20 @@ function Invoke-DropIntake {
     }
 
     $jobs = @()
+    $installerTotal = @($installers).Count
+    $installerIndex = 0
     foreach ($installer in $installers) {
-        $window.Cursor = [System.Windows.Input.Cursors]::Wait
+        $installerIndex++
+        Show-BusyIndicator -Title 'Analyzing dropped installers' -Step (Format-BusyStep -Verb 'Analyze' -Index $installerIndex -Total $installerTotal -Name (Split-Path -Leaf $installer))
         try {
             $analysis = Get-InstallerAnalysis -Path $installer
         }
         catch {
-            $window.Cursor = $null
+            Hide-BusyIndicator
             Add-LogLine -Message ('Analysis failed for {0}: {1}' -f (Split-Path -Leaf $installer), $_.Exception.Message)
             continue
         }
-        $window.Cursor = $null
+        Hide-BusyIndicator
         Add-LogLine -Message ('Analyzed drop: {0} ({1}, {2})' -f $analysis.FileName, $analysis.InstallerType, $analysis.Confidence)
 
         $choice = Show-DropIntakeDialog -Owner $window -Analysis $analysis `
@@ -9831,16 +9901,16 @@ $btnCheckMECM.Add_Click({
     }
 
     Set-ActionButtonsEnabled -Enabled $false
-    $window.Cursor = [System.Windows.Input.Cursors]::Wait
+    Show-BusyIndicator -Title 'Checking ConfigMgr'
 
     try {
         $txtStatus.Text = "Querying ConfigMgr for selected products..."
 
+        $cmTotal = @($selectedRows).Count
+        $cmIndex = 0
         foreach ($row in $selectedRows) {
-            [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke(
-                [System.Windows.Threading.DispatcherPriority]::Background,
-                [Action]{ }
-            )
+            $cmIndex++
+            Set-BusyStep -Text (Format-BusyStep -Verb 'ConfigMgr' -Index $cmIndex -Total $cmTotal -Name ([string]$row.Application))
 
             $app    = [string]$row.Application
             $cmName = [string]$row.CMName
@@ -9890,6 +9960,7 @@ $btnCheckMECM.Add_Click({
             }
         }
 
+        Hide-BusyIndicator
         Select-OnlyUpdateAvailable
         $dataGrid.Items.Refresh()
 
@@ -9910,7 +9981,7 @@ $btnCheckMECM.Add_Click({
         if ([bool]$script:Prefs.Vulnerability.LookupAfterCheckCm) { $script:CveAfterCmRows = $selectedRows }
     }
     finally {
-        $window.Cursor = $null
+        Hide-BusyIndicator
         Set-ActionButtonsEnabled -Enabled $true
     }
     # The CVE lookup starts after this handler released the buttons; it
@@ -10096,8 +10167,7 @@ function Complete-DiscoveryScan {
     param($Result)
 
     Set-ActionButtonsEnabled -Enabled $true
-    $btnCancelPipeline.IsEnabled = $false
-    $window.Cursor = $null
+    Hide-BusyIndicator
     if (-not $Result -or -not $Result.Ok) {
         $message = 'Discover unmanaged software: ' + $(if ($Result -and $Result.Error) { [string]$Result.Error } else { 'the query returned no result.' })
         Add-LogLine -Message $message
@@ -10141,8 +10211,7 @@ function Start-DiscoveryScan {
     }
 
     Set-ActionButtonsEnabled -Enabled $false
-    $btnCancelPipeline.IsEnabled = $true
-    $window.Cursor = [System.Windows.Input.Cursors]::Wait
+    Show-BusyIndicator -Title 'Discovering unmanaged software' -Step 'Reading the Add/Remove Programs inventory from the site database...' -AllowCancel
     $txtStatus.Text = 'Reading Add/Remove Programs inventory from the ConfigMgr site database...'
     Add-LogLine -Message 'Discover unmanaged software: reading hardware inventory from the ConfigMgr site database.'
 
@@ -10172,8 +10241,7 @@ function Start-DiscoveryScan {
                 Stop-DiscoveryRunspace -Job $script:DiscoveryJob
                 $script:DiscoveryJob = $null
                 Set-ActionButtonsEnabled -Enabled $true
-                $btnCancelPipeline.IsEnabled = $false
-                $window.Cursor = $null
+                Hide-BusyIndicator
                 Add-LogLine -Message ('Discover unmanaged software: ' + $_.Exception.Message)
             }
         })
@@ -10474,7 +10542,7 @@ function Start-CmImportRun {
     param([Parameter(Mandatory)]$Spec, [AllowEmptyString()][string]$OutputRoot = '')
 
     Set-ActionButtonsEnabled -Enabled $false
-    $window.Cursor = [System.Windows.Input.Cursors]::Wait
+    Show-BusyIndicator -Title 'Converting a ConfigMgr application' -Step 'Starting the conversion...'
     $script:CmImportRunning = $true
     try {
         $logFolder = Join-Path $PSScriptRoot 'Logs'
@@ -10499,6 +10567,7 @@ function Start-CmImportRun {
 
         Add-LogLine -Message ('Convert ConfigMgr App to Intune: ' + $Spec.Summary)
         $txtStatus.Text = 'Converting the ConfigMgr application...'
+        Set-BusyStep -Text 'Converting the ConfigMgr application. The log shows the progress.'
         # A content copy can print nothing for a long time, so the idle limit is one hour.
         $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -LogTextBox $txtLog -IdleTimeoutSeconds 3600
         $text = Get-CmImportOutcomeText -ExitCode ([int]$result.ExitCode) -StdErr ([string]$result.StdErr) -Mode ([string]$Spec.Mode) -OutputRoot $OutputRoot
@@ -10512,7 +10581,7 @@ function Start-CmImportRun {
     }
     finally {
         $script:CmImportRunning = $false
-        $window.Cursor = $null
+        Hide-BusyIndicator
         Set-ActionButtonsEnabled -Enabled $true
     }
 }
@@ -11035,7 +11104,7 @@ $btnCveReport.Add_Click({
         Add-LogLine -Message "No rows to report."
         return
     }
-    $window.Cursor = [System.Windows.Input.Cursors]::Wait
+    Show-BusyIndicator -Title 'Writing the CVE report' -Step ('Writing the report for {0} application(s)...' -f $rows.Count)
     try {
         $txtStatus.Text = "Writing the CVE report..."
         $paths = Write-CveReportForRows -Rows $rows
@@ -11046,7 +11115,7 @@ $btnCveReport.Add_Click({
         Add-LogLine -Message ('CVE report failed: ' + $_.Exception.Message)
         $txtStatus.Text = "CVE report failed."
     }
-    finally { $window.Cursor = $null }
+    finally { Hide-BusyIndicator }
 })
 
 # --- 5. One Click ---
@@ -14006,7 +14075,7 @@ function Show-WsusPublishedUpdatesDialog {
     $cboGroup.Text = [string]$Settings.ApprovalGroup
 
     $load = {
-        $dlg.Cursor = [System.Windows.Input.Cursors]::Wait
+        Set-DialogBusyStatus -Dialog $dlg -Control $txtSummary -Text ('Reading the updates from {0}...' -f [string]$Settings.ServerName)
         try {
             $rows = @(Get-WsusPublishedUpdates -Settings $Settings -IncludeOtherPublishers:($chkOther.IsChecked -eq $true))
             $gridUpdates.ItemsSource = $rows
@@ -14041,7 +14110,7 @@ function Show-WsusPublishedUpdatesDialog {
         }
         $ids = [guid[]]@($selected | ForEach-Object { [guid][string]$_.PackageId })
         $outcomes = @()
-        $dlg.Cursor = [System.Windows.Input.Cursors]::Wait
+        Set-DialogBusyStatus -Dialog $dlg -Control $txtSummary -Text ('{0}: working on {1} update(s)...' -f $Action, $selected.Count)
         try { $outcomes = @(Set-WsusPublishedUpdateState -Settings $Settings -PackageId $ids -Action $Action -GroupName $group) }
         catch { $outcomes = @([pscustomobject]@{ Title = ''; Ok = $false; Message = $_.Exception.Message }) }
         finally { $dlg.Cursor = $null }
@@ -14364,7 +14433,7 @@ function New-WsusPanel {
     $runOnServer = {
         param([scriptblock]$Action, $Extra)
         $window = [System.Windows.Window]::GetWindow($element)
-        if ($window) { $window.Cursor = [System.Windows.Input.Cursors]::Wait }
+        if ($window) { Set-DialogBusyStatus -Dialog $window -Control $txtWsusStatus -Text 'Contacting the WSUS server...' }
         try {
             $settings = & $readSettings
             if ([string]::IsNullOrWhiteSpace([string]$settings.ServerName)) { throw 'Enter the WSUS server first.' }
