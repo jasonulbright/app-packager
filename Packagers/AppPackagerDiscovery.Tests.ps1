@@ -255,12 +255,11 @@ Describe 'Get-DiscoverySiteDefinition' {
         Should -Invoke -ModuleName AppPackagerDiscovery Get-DiscoveryCimSiteDefinition -Times 0
     }
 
-    It 'returns nothing over DCOM when the provider has no definition for the site' {
+    It 'tries WinRM after DCOM returns no definition and disposes both sessions' {
         Mock -ModuleName AppPackagerDiscovery Get-DiscoveryCimSiteDefinition { }
-        $d = InModuleScope AppPackagerDiscovery { Get-DiscoverySiteDefinition -ProviderMachineName 'cm01' -SiteCode 'MCM' }
-        $d | Should -BeNullOrEmpty
-        Should -Invoke -ModuleName AppPackagerDiscovery New-DiscoveryCimSession -Times 0 -ParameterFilter { $Protocol -eq 'Wsman' }
-        @($script:Disposed) | Should -Be @('Dcom')
+        { InModuleScope AppPackagerDiscovery { Get-DiscoverySiteDefinition -ProviderMachineName 'cm01' -SiteCode 'MCM' } } | Should -Throw '*could not be read*'
+        Should -Invoke -ModuleName AppPackagerDiscovery New-DiscoveryCimSession -Times 1 -ParameterFilter { $Protocol -eq 'Wsman' }
+        @($script:Disposed) | Should -Be @('Dcom', 'Wsman')
     }
 }
 
