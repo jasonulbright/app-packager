@@ -56,3 +56,38 @@ Describe 'GitHub Desktop install wrapper waits for the detection key' {
         $script:Wrapper | Should -Match 'exit 4'
     }
 }
+
+Describe 'GitHub Desktop install wrapper needs both outputs' {
+    BeforeAll {
+        $t = $null; $e = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\Packagers\package-githubdesktop.ps1'), [ref]$t, [ref]$e)
+        $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'New-GitHubDesktopInstallWrapper' }, $false)
+        $script:InstallerFileName = 'GitHubDesktopSetup-x64.exe'
+        . ([scriptblock]::Create($fn.Extent.Text))
+        $wrapperAst = [System.Management.Automation.Language.Parser]::ParseInput((New-GitHubDesktopInstallWrapper), [ref]$t, [ref]$e)
+        $while = $wrapperAst.Find({ param($n) $n -is [System.Management.Automation.Language.WhileStatementAst] }, $true)
+        # The loop runs while this condition is true.
+        $script:WaitCondition = [scriptblock]::Create('param($installedExe, $arpKey) ' + $while.Condition.Extent.Text)
+        $script:ExeFile = Join-Path $TestDrive 'GitHubDesktop.exe'
+        Set-Content -LiteralPath $script:ExeFile -Value 'x'
+        $script:KeyPath = 'HKCU:\Software\AppPackagerTest-' + [guid]::NewGuid().ToString('N')
+        $script:MissingExe = Join-Path $TestDrive 'missing.exe'
+        $script:MissingKey = 'HKCU:\Software\AppPackagerTest-' + [guid]::NewGuid().ToString('N')
+        New-Item -Path $script:KeyPath -Force | Out-Null
+        New-ItemProperty -Path $script:KeyPath -Name DisplayVersion -Value '3.6.6' -PropertyType String | Out-Null
+    }
+    AfterAll { Remove-Item -Path $script:KeyPath -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'stops waiting when the program file and the key both exist' {
+        (& $script:WaitCondition $script:ExeFile $script:KeyPath) | Should -BeFalse
+    }
+    It 'keeps waiting when only the program file exists' {
+        (& $script:WaitCondition $script:ExeFile $script:MissingKey) | Should -BeTrue
+    }
+    It 'keeps waiting when only the key exists' {
+        (& $script:WaitCondition $script:MissingExe $script:KeyPath) | Should -BeTrue
+    }
+    It 'keeps waiting when neither exists' {
+        (& $script:WaitCondition $script:MissingExe $script:MissingKey) | Should -BeTrue
+    }
+}

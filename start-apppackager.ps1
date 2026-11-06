@@ -4479,6 +4479,8 @@ function Get-CveReportRows {
             Cpe            = [string]$row.Cpe
             Note           = $note
             Result         = $res
+            # True when the result is a lookup of this run, whatever the note says.
+            FromRun        = $own
         }
     }
     return ,@($out)
@@ -4659,7 +4661,7 @@ function Invoke-CveMonitor {
     $reportRows = Get-CveReportRows -Rows $rows -Results $ownResults -MarkCached
     # A result that this run did not look up comes from the cache; the count
     # keeps it apart from the lookups of the run.
-    $cachedCount = @($reportRows | Where-Object { $_.Result -and [string]$_.Note -like 'From the cache*' }).Count
+    $cachedCount = @($reportRows | Where-Object { $_.Result -and -not $_.FromRun }).Count
     $paths = Export-VulnerabilityReport -Rows $reportRows -Folder $ReportFolder -Formats $Formats -Name $ReportName -Title 'AppPackager CVE report'
     foreach ($p in @($paths.PSObject.Properties | ForEach-Object { [string]$_.Value })) { if ($p) { Write-Log ('[cve] Report: {0}' -f $p) -Level INFO } }
 

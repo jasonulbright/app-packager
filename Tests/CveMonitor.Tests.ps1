@@ -465,6 +465,16 @@ Describe 'The monitor counts cached results apart and logs the ConfigMgr query' 
         ($script:Log | Where-Object { $_ -like '*Monitor finished*' }) | Should -Match '1 from the cache'
     }
 
+    It 'counts an older cached result that stands in for a failed lookup' {
+        $null = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ReportFolder $script:Reports -Apps 'package-alpha'
+        $script:CveFail = $true
+        try {
+            $s = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ReportFolder $script:Reports -Apps 'package-alpha'
+        }
+        finally { $script:CveFail = $false }
+        $s.LookedUp | Should -Be 0
+        $s.Cached | Should -Be 1
+    }
     It 'reports no cached result when the run looked every application up itself' {
         $s = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ReportFolder $script:Reports -Apps 'package-alpha'
         $s.LookedUp | Should -Be 1
