@@ -117,3 +117,35 @@ Describe 'No long action sets the wait cursor alone' {
         $alone | Should -BeNullOrEmpty
     }
 }
+
+Describe 'A running discovery blocks other runs that use the display' {
+    BeforeAll {
+        foreach ($name in 'Test-PipelineBusy', 'Invoke-DropIntake') {
+            $fn = $script:Ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }.GetNewClosure(), $false)
+            if (-not $fn) { throw "function $name not found" }
+            . ([scriptblock]::Create($fn.Extent.Text))
+        }
+        function Show-ThemedMessage { param($Owner, $Title, $Message, $Buttons, $Icon) $script:Shown += $Title; 'OK' }
+        function Add-LogLine { param([string]$Message) $script:Lines += $Message }
+    }
+    BeforeEach {
+        $script:BgState = $null; $script:CmImportRunning = $false; $script:DiscoveryJob = $null
+        $script:Shown = @(); $script:Lines = @()
+        $script:window = [pscustomobject]@{}
+        $window = $script:window
+    }
+
+    It 'is not busy when nothing runs' {
+        Test-PipelineBusy | Should -BeFalse
+    }
+    It 'is busy while the discovery job runs' {
+        $script:DiscoveryJob = [pscustomobject]@{ Name = 'job' }
+        Test-PipelineBusy | Should -BeTrue
+    }
+    It 'refuses an installer drop while the discovery job runs' {
+        $script:DiscoveryJob = [pscustomobject]@{ Name = 'job' }
+        Invoke-DropIntake -Paths @('C:\x\setup.exe')
+        $script:Shown | Should -Be @('Pipeline Running')
+        $script:Lines | Should -BeNullOrEmpty
+    }
+}

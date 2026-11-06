@@ -8014,8 +8014,8 @@ function Test-PipelineBusy {
     # session state, so $script: resolves here where a closure cannot.
     # The state stays set until the completion tick has run every hook and
     # cleared it; Done alone leaves a gap in which a new run would drop
-    # the pending hooks.
-    [bool]($null -ne $script:BgState) -or [bool]$script:CmImportRunning
+    # the pending hooks. A discovery scan shows the same display, so it counts.
+    [bool]($null -ne $script:BgState) -or [bool]$script:CmImportRunning -or [bool]($null -ne $script:DiscoveryJob)
 }
 
 function Invoke-MultiAppPipeline {
@@ -9700,7 +9700,7 @@ function Invoke-DropIntake {
     # The action buttons are disabled while a pipeline runs, but the window
     # itself still receives drops; starting a second pipeline here would
     # hard-stop the running one mid-flight.
-    if (($script:BgState -and -not [bool]$script:BgState.Done) -or $script:CmImportRunning) {
+    if (($script:BgState -and -not [bool]$script:BgState.Done) -or $script:CmImportRunning -or $null -ne $script:DiscoveryJob) {
         [void](Show-ThemedMessage -Owner $window -Title 'Pipeline Running' `
             -Message 'A pipeline is already running. Wait for it to finish (or cancel it), then drop the installer again.' `
             -Buttons OK -Icon Info)

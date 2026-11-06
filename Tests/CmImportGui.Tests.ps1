@@ -234,7 +234,7 @@ Describe 'The conversion run blocks other work' {
 
     It 'stops the drop intake and the window close while the conversion runs' {
         $gui = Get-Content -LiteralPath $script:GuiPath -Raw
-        $gui | Should -Match '\$script:CmImportRunning\) \{\s+\[void\]\(Show-ThemedMessage -Owner \$window -Title ''Pipeline Running'''
+        $gui | Should -Match '\$script:CmImportRunning( -or \$null -ne \$script:DiscoveryJob)?\) \{\s+\[void\]\(Show-ThemedMessage -Owner \$window -Title ''Pipeline Running'''
         $gui | Should -Match '(?s)\$window\.Add_Closing\(\{\s+param\(\$closingSender, \$closingArgs\).*?if \(\$script:CmImportRunning\) \{\s+\$closingArgs\.Cancel = \$true'
     }
 }
