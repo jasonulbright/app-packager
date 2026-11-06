@@ -1,5 +1,20 @@
 # Changelog
 
+## [2026.11.05.0129] - 2026-11-05
+
+## 5 fixes and changes
+
+### Fixed
+
+- Wait for the GitHub Desktop uninstall entry before the install reports success.
+- Count CVE results not looked up in the run apart in the monitor summary.
+- Log the ConfigMgr query of the CVE monitor.
+
+### Changed
+
+- Show the same progress display for long actions in the main window.
+- Cancel Discover unmanaged software from the progress display.
+
 ## [2026.11.05.0128] - 2026-11-05
 
 ## 12 fixes
