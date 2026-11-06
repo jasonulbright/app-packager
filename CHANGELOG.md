@@ -1,5 +1,24 @@
 # Changelog
 
+## [2026.11.05.0128] - 2026-11-05
+
+## 12 fixes
+
+### Fixed
+
+- Stop two sessions from overwriting each other's CVE cache.
+- Report a Shodan 404 as a lookup error, not an empty list.
+- Mark a truncated NVD result as incomplete.
+- Reject a CVE response that lacks required fields.
+- Harden CVE lookup requests.
+- Harden CVE report files.
+- Show CVE counts in the grid only for the product that the lookup used.
+- Remove expired CVE reports and use one version comparer in the CVE views.
+- Check the observed site version in One Click; keep the site drive on the provider.
+- Widen the CVE grid columns so the headers are no longer cut off.
+- Try WinRM when DCOM returns no site definition during discovery.
+- Report a Discover choice that was not saved or refreshed.
+
 ## [2026.11.05.0127] - 2026-11-05
 
 ## 1 change
