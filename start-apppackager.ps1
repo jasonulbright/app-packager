@@ -4479,6 +4479,8 @@ function Get-CveReportRows {
             Cpe            = [string]$row.Cpe
             Note           = $note
             Result         = $res
+            # True when the result is a lookup of this run, whatever the note says.
+            FromRun        = $own
         }
     }
     return ,@($out)
@@ -4585,17 +4587,20 @@ function Invoke-CveMonitor {
     }
 
     if (-not $SkipMecm) {
+        $cmFound = 0; $cmMissing = 0; $cmFailed = 0
         foreach ($row in $rows) {
             if ($row.Failed) { continue }
             $base = [System.IO.Path]::GetFileNameWithoutExtension($row.Script)
             try {
                 $res = Get-MecmCurrentVersionByCMName -SiteCode $SiteCode -ProviderMachineName $ProviderMachineName -CMName $row.CMName
                 if ($res.Found) {
+                    $cmFound++
                     $row.CurrentVersion = [string]$res.SoftwareVersion
                     Clear-StaleCveCells -Row $row
                     try { Update-PackagerHistory -PackagerName $base -Event CmChecked -Version ([string]$res.SoftwareVersion) -Data @{ SiteCode = $SiteCode } } catch { <# Reading or writing packager history is bookkeeping; the main result does not depend on it. #> $null = $_ }
                 }
                 else {
+                    $cmMissing++
                     $row.CurrentVersion = ''
                     Clear-StaleCveCells -Row $row
                     $row.Status = 'Not found in ConfigMgr'
@@ -4604,11 +4609,13 @@ function Invoke-CveMonitor {
             }
             catch {
                 Write-Log ('[cve] ConfigMgr failed for {0}: {1}' -f $row.Application, $_.Exception.Message) -Level WARN
+                $cmFailed++
                 $row.Status = 'Error'
                 $row.Failed = $true
                 $failed++
             }
         }
+        Write-Log ('[cve] ConfigMgr query: site {0}, provider {1}: {2} found, {3} not found, {4} failed' -f $SiteCode, $(if ($ProviderMachineName) { $ProviderMachineName } else { '(default)' }), $cmFound, $cmMissing, $cmFailed) -Level INFO
     }
 
     foreach ($row in $rows) {
@@ -4652,6 +4659,9 @@ function Invoke-CveMonitor {
     }
 
     $reportRows = Get-CveReportRows -Rows $rows -Results $ownResults -MarkCached
+    # A result that this run did not look up comes from the cache; the count
+    # keeps it apart from the lookups of the run.
+    $cachedCount = @($reportRows | Where-Object { $_.Result -and -not $_.FromRun }).Count
     $paths = Export-VulnerabilityReport -Rows $reportRows -Folder $ReportFolder -Formats $Formats -Name $ReportName -Title 'AppPackager CVE report'
     foreach ($p in @($paths.PSObject.Properties | ForEach-Object { [string]$_.Value })) { if ($p) { Write-Log ('[cve] Report: {0}' -f $p) -Level INFO } }
 
@@ -4660,6 +4670,7 @@ function Invoke-CveMonitor {
         Total    = $rows.Count
         Updates  = $updates.Count
         LookedUp = $lookedUp
+        Cached   = $cachedCount
         Cves     = $cveTotal
         Kev      = $kevTotal
         Failed   = $failed
@@ -4673,7 +4684,7 @@ function Invoke-CveMonitor {
     }
     Remove-ExpiredCveReports -Folder $ReportFolder -KeepDays $KeepReportDays
 
-    Write-Log ('[cve] Monitor finished: {0} application(s), {1} with an update, {2} looked up, {3} CVE(s), {4} in KEV, {5} failed' -f $rows.Count, $updates.Count, $lookedUp, $cveTotal, $kevTotal, $failed) -Level INFO
+    Write-Log ('[cve] Monitor finished: {0} application(s), {1} with an update, {2} looked up, {3} from the cache, {4} CVE(s), {5} in KEV, {6} failed' -f $rows.Count, $updates.Count, $lookedUp, $cachedCount, $cveTotal, $kevTotal, $failed) -Level INFO
     return $summaryOut
 }
 

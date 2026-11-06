@@ -176,17 +176,20 @@ function Assert-PayloadIsExecutable {
 
 function New-GitHubDesktopInstallWrapper {
     # The Squirrel setup parent exits within seconds while child processes
-    # finish the install; without polling for GitHubDesktop.exe the deployment
-    # reports success against an empty install folder.
+    # finish the install; without polling the deployment reports success against
+    # an empty install folder. Detection reads the per-user uninstall key, which
+    # appears after GitHubDesktop.exe; ConfigMgr evaluates detection when this
+    # script returns, so the wait covers both.
     return (
         ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $InstallerFileName),
         'if (-not (Test-Path -LiteralPath $exePath)) { Write-Error "Missing GitHub Desktop installer"; exit 2 }',
         '$proc = Start-Process -FilePath $exePath -ArgumentList @(''-s'') -Wait -PassThru -NoNewWindow',
         '$installedExe = Join-Path $env:LOCALAPPDATA ''GitHubDesktop\GitHubDesktop.exe''',
+        '$arpKey = ''HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\GitHubDesktop''',
         '$deadline = (Get-Date).AddMinutes(5)',
-        'while (-not (Test-Path -LiteralPath $installedExe)) {',
+        'while (-not ((Test-Path -LiteralPath $installedExe) -and (Get-ItemProperty -LiteralPath $arpKey -Name DisplayVersion -ErrorAction SilentlyContinue))) {',
         '    if ((Get-Date) -gt $deadline) {',
-        '        Write-Error "GitHub Desktop install did not produce $installedExe within 5 minutes"',
+        '        Write-Error "GitHub Desktop install did not produce $installedExe and its uninstall entry within 5 minutes"',
         '        exit 4',
         '    }',
         '    Start-Sleep -Seconds 5',

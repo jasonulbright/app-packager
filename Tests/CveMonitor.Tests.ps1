@@ -446,3 +446,53 @@ Describe 'Detail and report read the result of this session first' {
         $rows[0].Note | Should -Match '^Last lookup failed'
     }
 }
+Describe 'The monitor counts cached results apart and logs the ConfigMgr query' {
+    BeforeEach {
+        $script:Log = @(); $script:LatestCalls = @(); $script:CmCalls = @(); $script:CveCalls = @(); $script:Notified = @(); $script:CveFail = $false; $script:CveNoCache = $false
+        $script:Reports = Join-Path $TestDrive ('reports-' + [guid]::NewGuid().ToString('N'))
+        foreach ($f in 'app-history.json', 'vuln-cache.json') {
+            $p = Join-Path $env:LOCALAPPDATA ('AppPackager\' + $f)
+            if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force }
+        }
+    }
+
+    It 'reports the results taken from the cache when the CVE lookup is skipped' {
+        $null = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ReportFolder $script:Reports -Apps 'package-alpha'
+        $script:Log = @()
+        $s = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ReportFolder $script:Reports -Apps 'package-alpha' -SkipCve
+        $s.LookedUp | Should -Be 0
+        $s.Cached | Should -Be 1
+        ($script:Log | Where-Object { $_ -like '*Monitor finished*' }) | Should -Match '1 from the cache'
+    }
+
+    It 'counts an older cached result that stands in for a failed lookup' {
+        $null = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ReportFolder $script:Reports -Apps 'package-alpha'
+        $script:CveFail = $true
+        try {
+            $s = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ReportFolder $script:Reports -Apps 'package-alpha'
+        }
+        finally { $script:CveFail = $false }
+        $s.LookedUp | Should -Be 0
+        $s.Cached | Should -Be 1
+    }
+    It 'reports no cached result when the run looked every application up itself' {
+        $s = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ReportFolder $script:Reports -Apps 'package-alpha'
+        $s.LookedUp | Should -Be 1
+        $s.Cached | Should -Be 0
+    }
+
+    It 'logs one line for the ConfigMgr query with the site, the provider and the counts' {
+        $null = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ProviderMachineName 'cm01.contoso.test' -ReportFolder $script:Reports -Apps 'package-alpha', 'package-delta' -SkipLatest
+        $line = @($script:Log | Where-Object { $_ -like '*ConfigMgr query*' })
+        $line.Count | Should -Be 1
+        $line[0] | Should -Match 'MCM'
+        $line[0] | Should -Match 'cm01\.contoso\.test'
+        $line[0] | Should -Match '1 found'
+        $line[0] | Should -Match '1 not found'
+    }
+
+    It 'logs no ConfigMgr query line when the query is skipped' {
+        $null = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ReportFolder $script:Reports -Apps 'package-alpha' -SkipMecm
+        @($script:Log | Where-Object { $_ -like '*ConfigMgr query*' }).Count | Should -Be 0
+    }
+}
