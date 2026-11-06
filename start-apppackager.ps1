@@ -10046,15 +10046,34 @@ function Invoke-DiscoveryChoice {
     switch ([string]$Choice.Action) {
         { $_ -in @('EnableSelected', 'EnableAll') } {
             $count = Enable-DiscoveredApplication -Prefs $script:Prefs -Script @($Choice.Scripts)
-            Save-Preferences -Prefs $script:Prefs
-            Invoke-RefreshGrid
-            Add-LogLine -Message ("Discover unmanaged software: {0} app(s) added to the grid. Manage them in Product Filter." -f $count)
-            $txtStatus.Text = ("{0} app(s) added to the grid." -f $count)
+            # A choice that is not saved holds for this session only; a grid
+            # that is not rebuilt does not show it. Each failure is said.
+            $problems = @()
+            try { Save-Preferences -Prefs $script:Prefs }
+            catch { $problems += ('The choice was not saved and holds for this session only: {0}' -f $_.Exception.Message) }
+            try { Invoke-RefreshGrid }
+            catch { $problems += ('The grid was not refreshed: {0}' -f $_.Exception.Message) }
+            if ($problems.Count -eq 0) {
+                Add-LogLine -Message ("Discover unmanaged software: {0} app(s) added to the grid. Manage them in Product Filter." -f $count)
+                $txtStatus.Text = ("{0} app(s) added to the grid." -f $count)
+            }
+            else {
+                $text = ("{0} app(s) enabled. {1}" -f $count, ($problems -join ' '))
+                Add-LogLine -Message ('Discover unmanaged software: ' + $text)
+                $txtStatus.Text = $text
+            }
         }
         'Dismiss' {
             $count = Add-DiscoveryDismissed -Prefs $script:Prefs -Script @($Choice.Scripts)
-            Save-Preferences -Prefs $script:Prefs
-            Add-LogLine -Message ("Discover unmanaged software: {0} app(s) will not be offered again. Clear the list in Options, ConfigMgr Preferences." -f $count)
+            try {
+                Save-Preferences -Prefs $script:Prefs
+                Add-LogLine -Message ("Discover unmanaged software: {0} app(s) will not be offered again. Clear the list in Options, ConfigMgr Preferences." -f $count)
+            }
+            catch {
+                $text = ('The dismissal was not saved and holds for this session only: {0}' -f $_.Exception.Message)
+                Add-LogLine -Message ('Discover unmanaged software: ' + $text)
+                $txtStatus.Text = $text
+            }
         }
         default {
             Add-LogLine -Message 'Discover unmanaged software: no change.'
