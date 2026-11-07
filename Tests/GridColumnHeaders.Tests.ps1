@@ -53,3 +53,34 @@ Describe 'Grid column headers' {
         $short | Should -BeNullOrEmpty
     }
 }
+
+Describe 'Grid column headers in the dialogs of the start script' {
+    BeforeAll {
+        # The dialog grids are written as XAML text inside start-apppackager.ps1. Read each column tag that has a literal header.
+        # The header style of a dialog grid keeps 12 on each side and 16 for the sort arrow: 40 beside the text. The main grid keeps more.
+        $script:DialogHeaderRoom = 40
+        $script:ScriptText = [IO.File]::ReadAllText((Join-Path (Split-Path -Parent $PSScriptRoot) 'start-apppackager.ps1'))
+        $script:DialogColumns = @([regex]::Matches($script:ScriptText, '<DataGrid(?:Text|Template)Column\b[^>]*>') | ForEach-Object { $_.Value } | Where-Object { $_ -match '\sHeader="[^"{][^"]*"' })
+        function Get-ColumnAttribute([string]$Tag, [string]$Name) { $m = [regex]::Match($Tag, '\s' + $Name + '="([^"]*)"'); if ($m.Success) { $m.Groups[1].Value } else { '' } }
+    }
+
+    It 'finds the column tags of the dialogs' {
+        $script:DialogColumns.Count | Should -BeGreaterThan 10
+    }
+
+    It 'gives every titled column of a dialog grid a MinWidth that holds its header in capitals' {
+        $short = @()
+        foreach ($tag in $script:DialogColumns) {
+            $header = Get-ColumnAttribute $tag 'Header'
+            if ([string]::IsNullOrWhiteSpace($header)) { continue }
+            $need = [math]::Ceiling((& $script:Measure $header.ToUpperInvariant()) + $script:DialogHeaderRoom)
+            $min = 0.0
+            [void][double]::TryParse((Get-ColumnAttribute $tag 'MinWidth'), [System.Globalization.NumberStyles]::Float, [cultureinfo]::InvariantCulture, [ref]$min)
+            $width = 0.0
+            $isFixed = [double]::TryParse((Get-ColumnAttribute $tag 'Width'), [System.Globalization.NumberStyles]::Float, [cultureinfo]::InvariantCulture, [ref]$width)
+            if ($min -lt $need) { $short += ('{0}: MinWidth {1}, needs {2}' -f $header, $min, $need) }
+            elseif ($isFixed -and $width -lt $min) { $short += ('{0}: Width {1} is below MinWidth {2}' -f $header, $width, $min) }
+        }
+        $short | Should -BeNullOrEmpty
+    }
+}
