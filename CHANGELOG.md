@@ -2,11 +2,19 @@
 
 ## [2026.11.07.0128] - 2026-11-07
 
-## 2 sidebar buttons follow the light theme
+## 5 theme fixes and 1 change
 
 ### Fixed
 
 - Recolor the Workbench and Add Installer buttons when the theme changes.
+- Show the selected item in the Workbench and Options lists in readable colors.
+- Show disabled Workbench fields without a light grey block in the dark theme.
+- Wrap the Workbench action buttons so the last button is not cut off.
+- Dim the title bar of a dialog when it loses focus, like its owner.
+
+### Changed
+
+- Draw Workbench and dialog buttons with a thin light outline.
 
 ## [2026.11.05.0127] - 2026-11-05
 
