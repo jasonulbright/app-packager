@@ -129,3 +129,14 @@ Describe 'Dialog title bar' {
         $text | Should -Match '\$Dialog\.NonActiveGlowBrush\s*=\s*\$Owner\.NonActiveGlowBrush'
     }
 }
+
+Describe 'Options panels' {
+    # The panels are loaded into the Options window and resolve ApButton from it.
+    It 'defines the button styles in the window that hosts the panels' {
+        $panelsUseIt = @($script:Blocks | Where-Object { $_.Text -notmatch '^\s*<Controls:MetroWindow' -and $_.Text -match '\{DynamicResource ApButton' }).Count + 0
+        $options = @($script:Windows | Where-Object { $_.Text -match 'x:Name="lstNav"' })
+        $options.Count | Should -Be 1
+        $options[0].Text | Should -Match 'x:Key="ApButton"'
+        $options[0].Text | Should -Match 'x:Key="ApButtonAccent"'
+    }
+}
