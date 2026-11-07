@@ -4,6 +4,11 @@ BeforeAll {
         Get-Item (Join-Path $root 'start-apppackager.ps1')
         Get-ChildItem (Join-Path $root 'Packagers') -Filter '*.psm1' -File
     )
+    function Get-RegisteredButtonName([string]$Shell) {
+        foreach ($m in [regex]::Matches($Shell, '(?m)^\s*\$script:(?:WorkflowButtons|OptionsButtons)\s*=\s*@\(([^)]*)\)')) {
+            [regex]::Matches($m.Groups[1].Value, '\$(\w+)') | ForEach-Object { $_.Groups[1].Value }
+        }
+    }
 }
 
 Describe 'Button theme' {
@@ -30,12 +35,21 @@ Describe 'Button theme' {
         $styled = foreach ($m in [regex]::Matches($xaml, '<Button\b[^>]*>', 'Singleline')) {
             if ($m.Value -match 'Style="\{StaticResource (Workflow|Options)ButtonStyle\}"' -and $m.Value -match 'x:Name="(\w+)"') { $Matches[1] }
         }
-        $registered = foreach ($m in [regex]::Matches($shell, '(?m)^\s*\$script:(?:WorkflowButtons|OptionsButtons)\s*=\s*@\(([^)]*)\)')) {
-            [regex]::Matches($m.Groups[1].Value, '\$(\w+)') | ForEach-Object { $_.Groups[1].Value }
-        }
+        $registered = Get-RegisteredButtonName $shell
+
         @($styled).Count | Should -BeGreaterThan 10
         $missing = @($styled | Where-Object { $_ -notin @($registered) })
         $missing | Should -BeNullOrEmpty
+    }
+
+    # A name in a comment is not registered at run time.
+    It 'ignores button names in comments of the registered lists' {
+        $shell = "`$script:WorkflowButtons = @(`$btnA,`n    # `$btnB,`n    <# `$btnC #> `$btnD)"
+        $names = @(Get-RegisteredButtonName $shell)
+        $names | Should -Contain 'btnA'
+        $names | Should -Contain 'btnD'
+        $names | Should -Not -Contain 'btnB'
+        $names | Should -Not -Contain 'btnC'
     }
 
     It 'gives every code-built Button a Style' {
