@@ -17,6 +17,11 @@ BeforeAll {
         param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Set-DialogChromeFromOwner'
     }, $true)
 
+    function Get-GridCell($Element) {
+        $attr = { param($name, $default) $v = $Element.GetAttribute($name); if ($v) { [int]$v } else { $default } }
+        $r = & $attr 'Grid.Row' 0; $c = & $attr 'Grid.Column' 0
+        @{ R0 = $r; R1 = $r + (& $attr 'Grid.RowSpan' 1) - 1; C0 = $c; C1 = $c + (& $attr 'Grid.ColumnSpan' 1) - 1 }
+    }
     function Get-StyleBlock([string]$Xaml, [string]$Key) {
         $m = [regex]::Match($Xaml, '<Style\s+x:Key="' + $Key + '"[^>]*>.*?</Style>', 'Singleline')
         if ($m.Success) { $m.Value } else { '' }
@@ -178,13 +183,7 @@ Describe 'Workbench footer' {
         $ns.AddNamespace('x', 'http://schemas.microsoft.com/winfx/2006/xaml')
         $msg = $x.SelectSingleNode('//p:TextBlock[@x:Name="txtSaveState"]', $ns)
         $panel = $x.SelectSingleNode('//p:Button[@x:Name="btnSave"]', $ns).ParentNode
-        $cell = {
-            param($e)
-            $get = { param($n, $d) $v = $e.GetAttribute($n); if ($v) { [int]$v } else { $d } }
-            $r = & $get 'Grid.Row' 0; $c = & $get 'Grid.Column' 0
-            @{ R0 = $r; R1 = $r + (& $get 'Grid.RowSpan' 1) - 1; C0 = $c; C1 = $c + (& $get 'Grid.ColumnSpan' 1) - 1 }
-        }
-        $a = & $cell $msg; $b = & $cell $panel
+        $a = Get-GridCell $msg; $b = Get-GridCell $panel
         $rowsOverlap = ($a.R0 -le $b.R1) -and ($b.R0 -le $a.R1)
         $colsOverlap = ($a.C0 -le $b.C1) -and ($b.C0 -le $a.C1)
         ($rowsOverlap -and $colsOverlap) | Should -BeFalse

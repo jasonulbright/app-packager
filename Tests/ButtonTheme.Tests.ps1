@@ -5,9 +5,18 @@ BeforeAll {
         Get-ChildItem (Join-Path $root 'Packagers') -Filter '*.psm1' -File
     )
     function Get-RegisteredButtonName([string]$Shell) {
-        # Comments do not register a button at run time.
-        $Shell = [regex]::Replace($Shell, '(?s)<#.*?#>', '')
-        $Shell = [regex]::Replace($Shell, '(?m)(^|[\s,(;])#.*$', '$1')
+        # Comments do not register a button at run time. The parser tells a
+        # comment from a hash sign inside a string.
+        $tokens = $null; $errors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseInput($Shell, [ref]$tokens, [ref]$errors)
+        $chars = $Shell.ToCharArray()
+        foreach ($token in $tokens) {
+            if ($token.Kind -ne [System.Management.Automation.Language.TokenKind]::Comment) { continue }
+            for ($i = $token.Extent.StartOffset; $i -lt $token.Extent.EndOffset; $i++) {
+                if ($chars[$i] -ne "`n" -and $chars[$i] -ne "`r") { $chars[$i] = ' ' }
+            }
+        }
+        $Shell = -join $chars
         foreach ($m in [regex]::Matches($Shell, '(?m)^\s*\$script:(?:WorkflowButtons|OptionsButtons)\s*=\s*@\(([^)]*)\)')) {
             [regex]::Matches($m.Groups[1].Value, '\$(\w+)') | ForEach-Object { $_.Groups[1].Value }
         }
