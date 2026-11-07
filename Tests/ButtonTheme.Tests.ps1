@@ -64,6 +64,28 @@ Describe 'Button theme' {
         $names | Should -Not -Contain 'btnB'
     }
 
+    It 'ignores a comment after an opening parenthesis' {
+        $shell = '$script:WorkflowButtons = @(#$btnB
+    $btnA)'
+        $names = @(Get-RegisteredButtonName $shell)
+        $names | Should -Contain 'btnA'
+        $names | Should -Not -Contain 'btnB'
+    }
+
+    It 'ignores a comment after a semicolon' {
+        $shell = '$script:OptionsButtons = @($btnA);#$btnB'
+        $names = @(Get-RegisteredButtonName $shell)
+        $names | Should -Contain 'btnA'
+        $names | Should -Not -Contain 'btnB'
+    }
+
+    # A hash sign inside a quoted string starts no comment.
+    It 'keeps names that follow a quoted string with a hash sign' {
+        $shell = '$script:WorkflowButtons = @($buttonByKey[''Status,#FFF''], $btnWorkbench)'
+        $names = @(Get-RegisteredButtonName $shell)
+        $names | Should -Contain 'btnWorkbench'
+    }
+
     It 'gives every code-built Button a Style' {
         $unstyled = foreach ($f in $script:Sources) {
             $lines = [IO.File]::ReadAllLines($f.FullName)
