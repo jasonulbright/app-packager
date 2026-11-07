@@ -5,13 +5,13 @@ BeforeAll {
         Get-ChildItem (Join-Path $root 'Packagers') -Filter '*.psm1' -File
     )
     function Get-RegisteredButtonName([string]$Shell) {
-        # Comments do not register a button at run time. The parser tells a
-        # comment from a hash sign inside a string.
+        # The parser tells a comment from a hash sign inside a string.
         $tokens = $null; $errors = $null
         [void][System.Management.Automation.Language.Parser]::ParseInput($Shell, [ref]$tokens, [ref]$errors)
         $chars = $Shell.ToCharArray()
         foreach ($token in $tokens) {
-            if ($token.Kind -ne [System.Management.Automation.Language.TokenKind]::Comment) { continue }
+            # Comments and quoted strings register nothing.
+            if ($token.Kind -notin @([System.Management.Automation.Language.TokenKind]::Comment, [System.Management.Automation.Language.TokenKind]::StringLiteral, [System.Management.Automation.Language.TokenKind]::StringExpandable)) { continue }
             for ($i = $token.Extent.StartOffset; $i -lt $token.Extent.EndOffset; $i++) {
                 if ($chars[$i] -ne "`n" -and $chars[$i] -ne "`r") { $chars[$i] = ' ' }
             }
