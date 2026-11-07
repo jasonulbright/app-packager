@@ -7,7 +7,7 @@ BeforeAll {
     function Get-RegisteredButtonName([string]$Shell) {
         # Comments do not register a button at run time.
         $Shell = [regex]::Replace($Shell, '(?s)<#.*?#>', '')
-        $Shell = [regex]::Replace($Shell, '(?m)(^|\s)#.*$', '$1')
+        $Shell = [regex]::Replace($Shell, '(?m)(^|[\s,(;])#.*$', '$1')
         foreach ($m in [regex]::Matches($Shell, '(?m)^\s*\$script:(?:WorkflowButtons|OptionsButtons)\s*=\s*@\(([^)]*)\)')) {
             [regex]::Matches($m.Groups[1].Value, '\$(\w+)') | ForEach-Object { $_.Groups[1].Value }
         }
@@ -56,8 +56,8 @@ Describe 'Button theme' {
     }
 
     It 'ignores a comment that follows a comma without a space' {
-        $shell = "$script:OptionsButtons = @($btnA,#$btnB
-    $btnC)"
+        $shell = '$script:OptionsButtons = @($btnA,#$btnB
+    $btnC)'
         $names = @(Get-RegisteredButtonName $shell)
         $names | Should -Contain 'btnA'
         $names | Should -Contain 'btnC'

@@ -4743,7 +4743,7 @@ function Set-DialogChromeFromOwner {
     )
     $theme = [ControlzEx.Theming.ThemeManager]::Current.DetectTheme($Owner)
     if ($theme) { [ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($Dialog, $theme) }
-    $Dialog.Owner = $Owner
+    if (-not [object]::ReferenceEquals($Dialog.Owner, $Owner)) { $Dialog.Owner = $Owner }
     try {
         $Dialog.WindowTitleBrush          = $Owner.WindowTitleBrush
         $Dialog.NonActiveWindowTitleBrush = $Owner.NonActiveWindowTitleBrush
@@ -4765,6 +4765,11 @@ $toggleTheme.Add_Toggled({
         Set-ButtonTheme -IsDark $false
     }
     Update-TitleBarBrushes
+    # A modeless dialog (the CVE detail window) stays open across the toggle:
+    # re-apply the theme and the title, glow and inactive brushes of the owner.
+    foreach ($owned in @($window.OwnedWindows)) {
+        if ($owned -is [MahApps.Metro.Controls.MetroWindow]) { Set-DialogChromeFromOwner -Dialog $owned -Owner $window }
+    }
 })
 
 # =============================================================================

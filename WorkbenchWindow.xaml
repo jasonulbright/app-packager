@@ -817,11 +817,11 @@
                 </Border>
             </StackPanel>
 
-            <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" x:Name="txtSaveState" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"
+            <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" x:Name="txtSaveState" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"
                        Foreground="{DynamicResource MahApps.Brushes.Gray1}" Text="No unsaved changes."/>
 
             <!-- Wraps to a second line when the window is narrow. A StackPanel in an Auto column clipped the last button. -->
-            <WrapPanel Grid.Row="0" Grid.RowSpan="2" Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0,0,0">
+            <WrapPanel Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0,0,0">
                 <Button x:Name="btnUseDefaults" Content="Use defaults" Style="{StaticResource WbButton}" MinWidth="106" Margin="0,3,8,3"
                         ToolTip="Clear every override in this profile and inherit the packager defaults."/>
                 <Button x:Name="btnSave" Content="Save" Style="{StaticResource WbButton}" Margin="0,3,8,3"/>
