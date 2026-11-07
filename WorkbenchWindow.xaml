@@ -20,21 +20,41 @@
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
-            <Style x:Key="WbButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+            <!-- Dialog and Workbench buttons: 1 px light outline instead of the 2 px
+                 foreground outline of the MahApps Square style. Hover and pressed
+                 fills come from the Square template; the accent outline marks keyboard focus. -->
+            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="WbButton" TargetType="Button" BasedOn="{StaticResource ApButton}">
                 <Setter Property="MinWidth" Value="100"/>
                 <Setter Property="Height" Value="32"/>
                 <Setter Property="FontSize" Value="12"/>
                 <Setter Property="Margin" Value="0,0,8,0"/>
                 <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
             </Style>
-            <Style x:Key="WbAccentButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+            <Style x:Key="WbAccentButton" TargetType="Button" BasedOn="{StaticResource ApButtonAccent}">
                 <Setter Property="MinWidth" Value="100"/>
                 <Setter Property="Height" Value="32"/>
                 <Setter Property="FontSize" Value="12"/>
                 <Setter Property="Margin" Value="0,0,8,0"/>
                 <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
             </Style>
-            <Style x:Key="WbInlineButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+            <Style x:Key="WbInlineButton" TargetType="Button" BasedOn="{StaticResource ApButton}">
                 <Setter Property="MinWidth" Value="100"/>
                 <Setter Property="Height" Value="28"/>
                 <Setter Property="FontSize" Value="12"/>
@@ -61,12 +81,30 @@
                 <Setter Property="Height" Value="28"/>
                 <Setter Property="VerticalContentAlignment" Value="Center"/>
                 <Setter Property="Margin" Value="0,0,0,6"/>
+                <Style.Resources>
+                    <!-- MahApps paints a disabled field with translucent white in both themes: a flat light block on Dark. -->
+                    <SolidColorBrush x:Key="MahApps.Brushes.Control.Disabled" Color="{DynamicResource MahApps.Colors.Gray10}" Opacity="0.85"/>
+                </Style.Resources>
+                <Style.Triggers>
+                    <Trigger Property="IsEnabled" Value="False">
+                        <Setter Property="Opacity" Value="0.7"/>
+                    </Trigger>
+                </Style.Triggers>
             </Style>
             <Style x:Key="WbCombo" TargetType="ComboBox" BasedOn="{StaticResource MahApps.Styles.ComboBox}">
                 <Setter Property="FontSize" Value="12"/>
                 <Setter Property="Height" Value="28"/>
                 <Setter Property="VerticalContentAlignment" Value="Center"/>
                 <Setter Property="Margin" Value="0,0,0,6"/>
+                <Style.Resources>
+                    <!-- MahApps paints a disabled field with translucent white in both themes: a flat light block on Dark. -->
+                    <SolidColorBrush x:Key="MahApps.Brushes.Control.Disabled" Color="{DynamicResource MahApps.Colors.Gray10}" Opacity="0.85"/>
+                </Style.Resources>
+                <Style.Triggers>
+                    <Trigger Property="IsEnabled" Value="False">
+                        <Setter Property="Opacity" Value="0.7"/>
+                    </Trigger>
+                </Style.Triggers>
             </Style>
             <Style x:Key="WbCode" TargetType="TextBox" BasedOn="{StaticResource MahApps.Styles.TextBox}">
                 <Setter Property="FontFamily" Value="Cascadia Code, Consolas, Courier New"/>
@@ -77,6 +115,15 @@
                 <Setter Property="VerticalContentAlignment" Value="Top"/>
                 <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
                 <Setter Property="HorizontalScrollBarVisibility" Value="Auto"/>
+                <Style.Resources>
+                    <!-- MahApps paints a disabled field with translucent white in both themes: a flat light block on Dark. -->
+                    <SolidColorBrush x:Key="MahApps.Brushes.Control.Disabled" Color="{DynamicResource MahApps.Colors.Gray10}" Opacity="0.85"/>
+                </Style.Resources>
+                <Style.Triggers>
+                    <Trigger Property="IsEnabled" Value="False">
+                        <Setter Property="Opacity" Value="0.7"/>
+                    </Trigger>
+                </Style.Triggers>
             </Style>
             <Style x:Key="WbGutter" TargetType="TextBox" BasedOn="{StaticResource WbCode}">
                 <Setter Property="IsReadOnly" Value="True"/>
@@ -162,7 +209,7 @@
 
             <ListBox Grid.Column="0" x:Name="lstSections" BorderThickness="0" Padding="0,8,0,0">
                 <ListBox.ItemContainerStyle>
-                    <Style TargetType="ListBoxItem">
+                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource MahApps.Styles.ListBoxItem}">
                         <Setter Property="Padding" Value="16,10,16,10"/>
                         <Setter Property="FontSize" Value="13"/>
                     </Style>
@@ -773,21 +820,22 @@
             <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" x:Name="txtSaveState" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"
                        Foreground="{DynamicResource MahApps.Brushes.Gray1}" Text="No unsaved changes."/>
 
-            <StackPanel Grid.Row="0" Grid.RowSpan="2" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button x:Name="btnUseDefaults" Content="Use defaults" Style="{StaticResource WbButton}" MinWidth="106"
+            <!-- Wraps to a second line when the window is narrow. A StackPanel in an Auto column clipped the last button. -->
+            <WrapPanel Grid.Row="0" Grid.RowSpan="2" Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0,0,0">
+                <Button x:Name="btnUseDefaults" Content="Use defaults" Style="{StaticResource WbButton}" MinWidth="106" Margin="0,3,8,3"
                         ToolTip="Clear every override in this profile and inherit the packager defaults."/>
-                <Button x:Name="btnSave" Content="Save" Style="{StaticResource WbButton}"/>
-                <Button x:Name="btnSaveAs" Content="Save as..." Style="{StaticResource WbButton}"/>
-                <Button x:Name="btnValidate" Content="Validate" Style="{StaticResource WbButton}"/>
-                <Button x:Name="btnStage" Content="Stage" Style="{StaticResource WbButton}"/>
-                <TextBlock Text="Publish to:" FontSize="12" VerticalAlignment="Center" Margin="8,0,8,0"/>
-                <Button x:Name="btnPublishMecm" Content="ConfigMgr" Style="{StaticResource WbAccentButton}" MinWidth="90"
+                <Button x:Name="btnSave" Content="Save" Style="{StaticResource WbButton}" Margin="0,3,8,3"/>
+                <Button x:Name="btnSaveAs" Content="Save as..." Style="{StaticResource WbButton}" Margin="0,3,8,3"/>
+                <Button x:Name="btnValidate" Content="Validate" Style="{StaticResource WbButton}" Margin="0,3,8,3"/>
+                <Button x:Name="btnStage" Content="Stage" Style="{StaticResource WbButton}" Margin="0,3,8,3"/>
+                <TextBlock Text="Publish to:" FontSize="12" VerticalAlignment="Center" Margin="8,3,8,3"/>
+                <Button x:Name="btnPublishMecm" Content="ConfigMgr" Style="{StaticResource WbAccentButton}" MinWidth="90" Margin="0,3,8,3"
                         ToolTip="Build a ConfigMgr Application from the selected build"/>
-                <Button x:Name="btnPublishIntune" Content="Intune" Style="{StaticResource WbAccentButton}" MinWidth="80"
+                <Button x:Name="btnPublishIntune" Content="Intune" Style="{StaticResource WbAccentButton}" MinWidth="80" Margin="0,3,8,3"
                         ToolTip="Stage this profile, build its .intunewin, and publish it to Intune"/>
-                <Button x:Name="btnPublishWsus" Content="WSUS" Style="{StaticResource WbAccentButton}" MinWidth="80" Margin="0"
+                <Button x:Name="btnPublishWsus" Content="WSUS" Style="{StaticResource WbAccentButton}" MinWidth="80" Margin="0,3,0,3"
                         ToolTip="Stage this profile and publish its installer to WSUS"/>
-            </StackPanel>
+            </WrapPanel>
         </Grid>
     </Grid>
 </Controls:MetroWindow>
