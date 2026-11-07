@@ -21,6 +21,23 @@ Describe 'Button theme' {
         @($unstyled) | Should -BeNullOrEmpty
     }
 
+    # The sidebar styles carry fixed dark colors. Set-ButtonTheme recolors them
+    # for the light theme, but only for buttons in the registered lists. A button
+    # that uses the style and is missing from the list stays black on white.
+    It 'registers every sidebar button for the theme change' {
+        $xaml = [IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\MainWindow.xaml'))
+        $shell = [IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\start-apppackager.ps1'))
+        $styled = foreach ($m in [regex]::Matches($xaml, '<Button\b[^>]*>', 'Singleline')) {
+            if ($m.Value -match 'Style="\{StaticResource (Workflow|Options)ButtonStyle\}"' -and $m.Value -match 'x:Name="(\w+)"') { $Matches[1] }
+        }
+        $registered = foreach ($m in [regex]::Matches($shell, '(?m)^\s*\$script:(?:WorkflowButtons|OptionsButtons)\s*=\s*@\(([^)]*)\)')) {
+            [regex]::Matches($m.Groups[1].Value, '\$(\w+)') | ForEach-Object { $_.Groups[1].Value }
+        }
+        @($styled).Count | Should -BeGreaterThan 10
+        $missing = @($styled | Where-Object { $_ -notin @($registered) })
+        $missing | Should -BeNullOrEmpty
+    }
+
     It 'gives every code-built Button a Style' {
         $unstyled = foreach ($f in $script:Sources) {
             $lines = [IO.File]::ReadAllLines($f.FullName)
