@@ -5,6 +5,9 @@ BeforeAll {
         Get-ChildItem (Join-Path $root 'Packagers') -Filter '*.psm1' -File
     )
     function Get-RegisteredButtonName([string]$Shell) {
+        # Comments do not register a button at run time.
+        $Shell = [regex]::Replace($Shell, '(?s)<#.*?#>', '')
+        $Shell = [regex]::Replace($Shell, '(?m)(^|\s)#.*$', '$1')
         foreach ($m in [regex]::Matches($Shell, '(?m)^\s*\$script:(?:WorkflowButtons|OptionsButtons)\s*=\s*@\(([^)]*)\)')) {
             [regex]::Matches($m.Groups[1].Value, '\$(\w+)') | ForEach-Object { $_.Groups[1].Value }
         }
