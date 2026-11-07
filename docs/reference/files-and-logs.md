@@ -23,7 +23,7 @@ None.
 | Path | Content |
 |---|---|
 | `Logs\` | One log for each packager run, for example `package-7zip-stage-<date>-<time>.out.log`. The window shows the same lines. The log keeps the full text. |
-| `Logs\Reports\cve-report-<timestamp>.*` | The CVE report: HTML, two CSV files, a workbook, a Markdown file and a JSON file. |
+| `Logs\Reports\cve-report-<timestamp>.html`, `...-applications.csv`, `...-cves.csv`, and the workbook, Markdown and JSON files | The CVE report. |
 | `Logs\OneClick\one-click-<timestamp>.md`, `.json` | The report of each One Click run. |
 | `<Download Root>\<App>\<Version>\` | The staged content of an application, with `stage-manifest.json`. |
 | `<File Share Root>\Applications\<Vendor>\<Application>\<Version>\` | The packaged content on the share, for the default layout. |

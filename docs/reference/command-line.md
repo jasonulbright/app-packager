@@ -17,6 +17,8 @@ Use it for a scheduled build, for a test of one packager, or to see what the win
 
 ## Steps
 
+Change to the install folder (by default %LOCALAPPDATA%\AppPackager) or to the repository folder before you run the commands.
+
 ### Run a packager
 
 ```powershell

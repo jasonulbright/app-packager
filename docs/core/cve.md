@@ -33,7 +33,7 @@ The CVE count in the grid opens a window with every CVE and its links.
 ### Write the CVE report
 
 1. Check the rows. With no row checked, the report covers all rows.
-2. Select **CVE Report**. The tool writes the files under `Logs\Reports\cve-report-<timestamp>`: an HTML page, two CSV files, a workbook, a Markdown file and a JSON file. The status bar says `CVE report written`.
+2. Select **CVE Report**. The tool writes these files in the folder `Logs\Reports`: an HTML page, two CSV files, a workbook, a Markdown file and a JSON file. Each name starts with `cve-report-<timestamp>`. The status bar says `CVE report written`.
 
 ![The window after CVE Report](../images/cve-report-written.png)
 

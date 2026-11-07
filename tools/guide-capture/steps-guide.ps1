@@ -5,6 +5,7 @@
 $dataDir = Join-Path $env:LOCALAPPDATA 'AppPackager'
 Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
 $dl = 'C:\guide\dl'
+Remove-Item $dl -Recurse -Force -ErrorAction SilentlyContinue
 # Close the browser window of an earlier CVE report, so that it cannot match a lookup.
 Add-Type -AssemblyName UIAutomationClient
 foreach ($old in @([System.Windows.Automation.AutomationElement]::RootElement.FindAll('Children', [System.Windows.Automation.Condition]::TrueCondition)) | Where-Object { $_.Current.Name -like 'AppPackager CVE report*' }) { try { $old.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close() } catch { $null = $_ } }
@@ -31,7 +32,17 @@ function Answer([string]$shot, [string]$button) {
     if (-not $b) { throw "No $button in $shot. Nothing was answered. Windows: $(WinList)" }
     Invoke-El $b; Start-Sleep -Seconds 1
 }
-function Check-Row([int]$index) { Click-At 255 (110 + 28 * $index); Start-Sleep -Milliseconds 400 }
+# Check a grid row through UI Automation, so that the display scaling cannot move the click, and verify the state.
+function Check-Row([int]$index) {
+    $rows = @((Get-El $win 'dataGrid').FindAll('Descendants', (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::DataItem))))
+    if ($rows.Count -le $index) { throw 'The grid has no row ' + $index }
+    $box = $rows[$index].FindFirst('Descendants', (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::CheckBox)))
+    if (-not $box) { throw 'The row has no check box.' }
+    $toggle = $box.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+    if ($toggle.Current.ToggleState -ne 'On') { $toggle.Toggle() }
+    Start-Sleep -Milliseconds 400
+    if ($toggle.Current.ToggleState -ne 'On') { throw 'The row is not checked.' }
+}
 function Close-Win($w) { $w.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close(); Start-Sleep -Seconds 2 }
 
 Section 'setup' {

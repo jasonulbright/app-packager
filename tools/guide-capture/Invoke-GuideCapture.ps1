@@ -69,7 +69,7 @@ try {
             if (Test-Path $d) { Remove-Item $d -Recurse -Force }
             New-Item -ItemType Directory $d, 'C:\guide\ui' -Force | Out-Null
         } -ArgumentList $dest, $app
-        foreach ($item in Get-ChildItem -LiteralPath $repo -Force | Where-Object { $_.Name -notin '.git', '.claude', '.github', '.vs', '.vscode', '.idea', 'node_modules', 'TestOutput', 'Logs', 'History', 'Reports', 'screenshots', 'TestResults', 'docs', 'Tests', 'tools', 'Samples', 'CATALOG-PARITY.csv' -and $_.Name -notlike '*.prefs.json' -and $_.Name -notlike '*.windowstate.json' -and $_.Name -notlike '*.lastscan.json' -and $_.Name -notlike '*.suppressions.json' -and $_.Name -notlike '*.local.*' -and $_.Name -notlike '*.png' }) {
+        foreach ($item in Get-ChildItem -LiteralPath $repo -Force | Where-Object { $_.Name -notin '.git', '.claude', '.github', '.vs', '.vscode', '.idea', 'node_modules', 'TestOutput', 'Logs', 'History', 'Reports', 'screenshots', 'TestResults', 'docs', 'Tests', 'tools', 'Samples', 'CATALOG-PARITY.csv' -and $_.Name -notlike '*.prefs.json' -and $_.Name -notlike '*.windowstate.json' -and $_.Name -notlike '*.lastscan.json' -and $_.Name -notlike '*.suppressions.json' -and $_.Name -notlike '*.local.*' -and $_.Name -notlike '.env*' -and $_.Name -notlike 'secrets*' -and $_.Name -notlike '*.pfx' -and $_.Name -notlike '*.key' -and $_.Name -notlike '*.png' }) {
             Copy-Item -LiteralPath $item.FullName -Destination "$dest\$($item.Name)" -ToSession $session -Recurse -Force
         }
         Copy-Item (Join-Path $here 'guilib.ps1') 'C:\guide\ui\guilib.ps1' -ToSession $session -Force
@@ -81,14 +81,14 @@ try {
             Remove-Item C:\guide\ui\out -Recurse -Force -ErrorAction SilentlyContinue
             $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File C:\guide\ui\main.ps1 -App `"$a`""
             $pr = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest
-            Register-ScheduledTask -TaskName GuideShots -Action $act -Principal $pr -Force | Out-Null
-            Start-ScheduledTask GuideShots
+            Register-ScheduledTask -TaskName GuideShots-AppPackager -Action $act -Principal $pr -Force | Out-Null
+            Start-ScheduledTask GuideShots-AppPackager
         } -ArgumentList $app, $LogonUser
         $end = (Get-Date).AddMinutes($Minutes)
         $done = $false
         do {
             Start-Sleep 5
-            $state = Invoke-Command $session { [pscustomobject]@{ Done = (Test-Path C:\guide\ui\out\finished.flag); Task = (Get-ScheduledTask GuideShots -ErrorAction SilentlyContinue).State; Result = (Get-ScheduledTaskInfo GuideShots -ErrorAction SilentlyContinue).LastTaskResult } }
+            $state = Invoke-Command $session { [pscustomobject]@{ Done = (Test-Path C:\guide\ui\out\finished.flag); Task = (Get-ScheduledTask GuideShots-AppPackager -ErrorAction SilentlyContinue).State; Result = (Get-ScheduledTaskInfo GuideShots-AppPackager -ErrorAction SilentlyContinue).LastTaskResult } }
             $done = $state.Done
             # The task is not running any more, no finished flag exists and the last result is an error: stop now.
             if (-not $done -and $state.Task -eq 'Ready' -and $state.Result -notin 0, 267009, 267011) { throw ("The capture task stopped with result {0}: {1}" -f $state.Result, $run.Steps) }
@@ -106,7 +106,8 @@ try {
     }
     # A failed step stops the capture before any guide image is replaced.
     if ($failed.Count) { throw ("The capture failed. No image was replaced.`n" + ($failed -join "`n")) }
-    $captured = @(Get-ChildItem $tmp -Recurse -Filter *.png)
+    # A failure screenshot is evidence for the operator, not a guide image.
+    $captured = @(Get-ChildItem $tmp -Recurse -Filter *.png | Where-Object { $_.Name -notlike 'fail-*' })
     $capturedNames = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     $duplicate = New-Object System.Collections.Generic.List[string]
     foreach ($png in $captured) { if (-not $capturedNames.Add($png.Name)) { $duplicate.Add($png.Name) } }
@@ -121,7 +122,7 @@ try {
 finally {
     # Each cleanup runs on its own, so that a failed cleanup cannot replace the original error.
     if ($session) {
-        try { Invoke-Command $session { Unregister-ScheduledTask GuideShots -Confirm:$false -ErrorAction SilentlyContinue } } catch { Write-Warning "Cleanup of the scheduled task failed: $($_.Exception.Message)" }
+        try { Invoke-Command $session { Unregister-ScheduledTask GuideShots-AppPackager -Confirm:$false -ErrorAction SilentlyContinue } } catch { Write-Warning "Cleanup of the scheduled task failed: $($_.Exception.Message)" }
         try { Invoke-Command $session { Remove-Item C:\guide -Recurse -Force -ErrorAction SilentlyContinue } } catch { Write-Warning "Cleanup of C:\guide failed: $($_.Exception.Message)" }
         try { Remove-PSSession $session } catch { Write-Warning "Closing the session failed: $($_.Exception.Message)" }
     }

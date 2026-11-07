@@ -29,7 +29,7 @@ Use it after a change that alters a window, and before a release.
 3. Open every changed image and check it.
 4. Run the documentation test: `Invoke-Pester .\Tests\Documentation.Tests.ps1`.
 
-A second run does the missing-console test on a copy of the tool whose console detection reports `not found`. The command removes the saved settings and the staged files of the lab account before and after each run.
+A second run does the missing-console test on a copy of the tool whose console detection reports `not found`. The command removes the saved settings of the lab account and the staging folder `C:\guide\dl` before and after each run, so that an earlier stage cannot be reused.
 
 ## Limits
 

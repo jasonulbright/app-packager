@@ -22,13 +22,13 @@ Use it when you must keep many applications current in Configuration Manager, In
 
 ### Install the tool
 
-From a PowerShell prompt, run the command of the README. It downloads the release zip, checks it and installs it in `%LOCALAPPDATA%\AppPackager`.
+From a PowerShell prompt, run the command of the README. It downloads the release zip and installs it in `%LOCALAPPDATA%\AppPackager`. The installer checks the zip only when a matching `checksums.txt` is beside it.
 
 ```powershell
 curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -ZipPath "$env:TEMP\ap.zip"
 ```
 
-Start the tool with `start-apppackager.ps1`. Nothing goes to the network or to the site when the window opens.
+Start the tool with `start-apppackager.ps1`. The window opens with no vendor call and no site call. A background update check can contact GitHub once in 24 hours. See [Network](reference/network.md).
 
 ### Answer the Setup window
 

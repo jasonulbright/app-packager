@@ -9,7 +9,7 @@ BeforeAll {
 
     function Get-DocLink {
         param ([System.IO.FileInfo]$Page)
-        $strText = [regex]::Replace((Get-Content -LiteralPath $Page.FullName -Raw), '(?s)```.*?```', '')
+        $strText = [regex]::Replace([regex]::Replace((Get-Content -LiteralPath $Page.FullName -Raw), '(?s)```.*?```', ''), '(?s)<!--.*?-->', '')
         foreach ($objMatch in [regex]::Matches($strText, '(?<!\!)\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)')) {
             [pscustomobject]@{ Page = $Page; Target = $objMatch.Groups[1].Value; Kind = 'Link' }
         }
