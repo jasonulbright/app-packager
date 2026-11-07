@@ -88,6 +88,32 @@ Describe 'Button theme' {
         $names | Should -Not -Contain 'btnB'
     }
 
+    # A quoted name is a string, not the button variable.
+    It 'ignores a quoted button-like name beside a valid variable' {
+        $shell = '$script:WorkflowButtons = @(''$btnQuoted'', $btnA)'
+        $names = @(Get-RegisteredButtonName $shell)
+        $names | Should -Contain 'btnA'
+        $names | Should -Not -Contain 'btnQuoted'
+    }
+
+    # Each registered variable must hold the button of the same name. A name
+    # list alone passes when $btnWorkbench points at another control.
+    It 'binds every registered button variable to its own XAML button' {
+        $shell = [IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\start-apppackager.ps1'))
+        $registered = @(Get-RegisteredButtonName $shell)
+        $registered | Should -Contain 'btnWorkbench'
+        $registered | Should -Contain 'btnAddInstaller'
+        $bad = foreach ($name in $registered) {
+            if ($shell -notmatch ('(?m)^\$' + $name + '\s*=\s*\$window\.FindName\(''' + $name + '''\)')) { $name }
+        }
+        @($bad) | Should -BeNullOrEmpty
+    }
+
+    It 'finds a variable bound to another control' {
+        $shell = '$btnWorkbench = $window.FindName(''btnOther'')'
+        ($shell -match '(?m)^\$btnWorkbench\s*=\s*\$window\.FindName\(''btnWorkbench''\)') | Should -BeFalse
+    }
+
     # A hash sign inside a quoted string starts no comment.
     It 'keeps names that follow a quoted string with a hash sign' {
         $shell = '$script:WorkflowButtons = @($buttonByKey[''Status,#FFF''], $btnWorkbench)'

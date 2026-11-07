@@ -22,6 +22,11 @@ BeforeAll {
         $r = & $attr 'Grid.Row' 0; $c = & $attr 'Grid.Column' 0
         @{ R0 = $r; R1 = $r + (& $attr 'Grid.RowSpan' 1) - 1; C0 = $c; C1 = $c + (& $attr 'Grid.ColumnSpan' 1) - 1 }
     }
+    # The Opacity a style sets while the control is disabled; 1 when it sets none.
+    function Get-DisabledOpacity([string]$Style) {
+        $m = [regex]::Match($Style, '<Trigger\s+Property="IsEnabled"\s+Value="False">.*?<Setter\s+Property="Opacity"\s+Value="([0-9.]+)"', 'Singleline')
+        if ($m.Success) { [double]::Parse($m.Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture) } else { 1.0 }
+    }
     function Get-StyleBlock([string]$Xaml, [string]$Key) {
         $m = [regex]::Match($Xaml, '<Style\s+x:Key="' + $Key + '"[^>]*>.*?</Style>', 'Singleline')
         if ($m.Success) { $m.Value } else { '' }
@@ -55,10 +60,15 @@ Describe 'Disabled field fill' {
         $style | Should -Not -BeNullOrEmpty
         $style | Should -Match 'x:Key="MahApps\.Brushes\.Control\.Disabled"'
         $style | Should -Match 'Property="IsEnabled" Value="False"'
+        (Get-DisabledOpacity $style) | Should -BeLessThan 1
         # The override takes its color from the active theme, not a fixed value.
         $style | Should -Match '\{DynamicResource MahApps\.Colors\.'
     }
-}
+
+    It 'reads a disabled opacity of 1 as not dimmed' {
+        $style = '<Style><Style.Triggers><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="1"/></Trigger></Style.Triggers></Style>'
+        (Get-DisabledOpacity $style) | Should -Be 1
+    }}
 
 Describe 'Action row layout' {
     # A horizontal StackPanel in an Auto column never wraps, so the last button
