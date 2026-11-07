@@ -131,12 +131,62 @@ Describe 'Dialog title bar' {
 }
 
 Describe 'Options panels' {
-    # The panels are loaded into the Options window and resolve ApButton from it.
-    It 'defines the button styles in the window that hosts the panels' {
-        $panelsUseIt = @($script:Blocks | Where-Object { $_.Text -notmatch '^\s*<Controls:MetroWindow' -and $_.Text -match '\{DynamicResource ApButton' }).Count + 0
+    # The panels are loaded into the Options window and resolve ApButton from
+    # its Window.Resources, so the styles must sit there, not in a child.
+    It 'declares the button styles in the Window.Resources of every dialog window that uses them' {
+        $bad = @()
+        foreach ($w in $script:Windows) {
+            if ($w.Text -notmatch 'x:Key="ApButton"') { continue }
+            try { $x = [xml]$w.Text } catch { continue }
+            $ns = New-Object System.Xml.XmlNamespaceManager $x.NameTable
+            $ns.AddNamespace('p', 'http://schemas.microsoft.com/winfx/2006/xaml/presentation')
+            $ns.AddNamespace('x', 'http://schemas.microsoft.com/winfx/2006/xaml')
+            foreach ($key in 'ApButton', 'ApButtonAccent') {
+                $style = $x.SelectSingleNode('/*/p:Window.Resources/p:ResourceDictionary/p:Style[@x:Key="' + $key + '"]', $ns)
+                if (-not $style) { $bad += ('{0}:{1}' -f $key, $w.Line) }
+            }
+        }
+        $bad | Should -BeNullOrEmpty
+    }
+
+    It 'gives the Options window, which hosts the panels, both button styles' {
         $options = @($script:Windows | Where-Object { $_.Text -match 'x:Name="lstNav"' })
         $options.Count | Should -Be 1
         $options[0].Text | Should -Match 'x:Key="ApButton"'
         $options[0].Text | Should -Match 'x:Key="ApButtonAccent"'
+    }
+}
+
+Describe 'Modeless dialogs' {
+    # A modeless dialog stays open while the theme toggles. The toggle handler
+    # re-applies the owner chrome, including the inactive brushes, to it.
+    It 'syncs the owned windows when the theme toggles' {
+        $m = [regex]::Match($script:Shell, '(?s)\$toggleTheme\.Add_Toggled\(\{.*?\n\}\)')
+        $m.Success | Should -BeTrue
+        $m.Value | Should -Match 'OwnedWindows'
+        $m.Value | Should -Match 'Set-DialogChromeFromOwner'
+    }
+}
+
+Describe 'Workbench footer' {
+    # The save-state message and the action buttons must sit in grid cells
+    # that do not intersect, so a wrapped button line cannot cover the message.
+    It 'keeps the save-state message out of the action buttons cells' {
+        $x = [xml]$script:WorkbenchXaml
+        $ns = New-Object System.Xml.XmlNamespaceManager $x.NameTable
+        $ns.AddNamespace('p', 'http://schemas.microsoft.com/winfx/2006/xaml/presentation')
+        $ns.AddNamespace('x', 'http://schemas.microsoft.com/winfx/2006/xaml')
+        $msg = $x.SelectSingleNode('//p:TextBlock[@x:Name="txtSaveState"]', $ns)
+        $panel = $x.SelectSingleNode('//p:Button[@x:Name="btnSave"]', $ns).ParentNode
+        $cell = {
+            param($e)
+            $get = { param($n, $d) $v = $e.GetAttribute($n); if ($v) { [int]$v } else { $d } }
+            $r = & $get 'Grid.Row' 0; $c = & $get 'Grid.Column' 0
+            @{ R0 = $r; R1 = $r + (& $get 'Grid.RowSpan' 1) - 1; C0 = $c; C1 = $c + (& $get 'Grid.ColumnSpan' 1) - 1 }
+        }
+        $a = & $cell $msg; $b = & $cell $panel
+        $rowsOverlap = ($a.R0 -le $b.R1) -and ($b.R0 -le $a.R1)
+        $colsOverlap = ($a.C0 -le $b.C1) -and ($b.C0 -le $a.C1)
+        ($rowsOverlap -and $colsOverlap) | Should -BeFalse
     }
 }

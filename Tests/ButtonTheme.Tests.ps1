@@ -55,6 +55,15 @@ Describe 'Button theme' {
         $names | Should -Not -Contain 'btnC'
     }
 
+    It 'ignores a comment that follows a comma without a space' {
+        $shell = "$script:OptionsButtons = @($btnA,#$btnB
+    $btnC)"
+        $names = @(Get-RegisteredButtonName $shell)
+        $names | Should -Contain 'btnA'
+        $names | Should -Contain 'btnC'
+        $names | Should -Not -Contain 'btnB'
+    }
+
     It 'gives every code-built Button a Style' {
         $unstyled = foreach ($f in $script:Sources) {
             $lines = [IO.File]::ReadAllLines($f.FullName)
