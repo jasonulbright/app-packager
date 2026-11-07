@@ -1,5 +1,19 @@
 # Changelog
 
+## [2026.11.07.0130] - 2026-11-07
+
+## 46 images in a user guide
+
+### Fixed
+
+- Show the full header of every column in the grids of the dialogs.
+- Widen the Options window so that the application names stay readable.
+
+### Added
+
+- Add the user guide with images of the running window.
+- Add one command that regenerates every image of the guide on a lab computer.
+
 ## [2026.11.05.0129] - 2026-11-05
 
 ## 5 fixes and changes
