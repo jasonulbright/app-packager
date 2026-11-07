@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026.11.07.0128] - 2026-11-07
+
+## 2 sidebar buttons follow the light theme
+
+### Fixed
+
+- Recolor the Workbench and Add Installer buttons when the theme changes.
+
 ## [2026.11.05.0127] - 2026-11-05
 
 ## 1 change
