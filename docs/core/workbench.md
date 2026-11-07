@@ -13,7 +13,7 @@ Use it to change the install command, the detection rule, the requirements, the 
 ## Requirements
 
 - A packager in the grid. The Workbench opens on the checked row.
-- Nothing else. The Workbench sends nothing over the network. Its Stage and Publish buttons run the same packager and the same Package phase as the main window.
+- Nothing else. Editing a profile sends nothing over the network. The Stage and Publish buttons run the same packager and the same Package phase as the main window, so they make the same calls. See [Network](../reference/network.md).
 
 ## Steps
 

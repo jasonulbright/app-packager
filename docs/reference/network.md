@@ -23,7 +23,7 @@ Use it to open the firewall for the tool, or to check the traffic.
 | Publish to Intune, Convert with publishing | Microsoft Graph v1.0 and Azure Storage. `IntuneWinAppUtil.exe` is downloaded once from the Microsoft GitHub repository and its signature is checked. | Those actions. |
 | Publish to WSUS | The WSUS API port of the server. | Publish to WSUS, WSUS Updates. |
 
-The Application Workbench sends nothing.
+Editing a profile in the Application Workbench sends nothing. The Stage and Publish buttons of the Workbench make the same calls as the main window.
 
 ## Steps
 

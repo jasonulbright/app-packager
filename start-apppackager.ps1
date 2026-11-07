@@ -6042,7 +6042,7 @@ function New-AppFlowPanel {
               GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0" BorderThickness="0"
               IsTextSearchEnabled="True" TextSearch.TextPath="Application">
         <DataGrid.Columns>
-            <DataGridTemplateColumn MinWidth="97" Header="Track" Width="97" CanUserSort="True" SortMemberPath="Tracked">
+            <DataGridTemplateColumn MinWidth="82" Header="Track" Width="82" CanUserSort="True" SortMemberPath="Tracked">
                 <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
                         <CheckBox IsChecked="{Binding Tracked, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
@@ -6050,30 +6050,30 @@ function New-AppFlowPanel {
                     </DataTemplate>
                 </DataGridTemplateColumn.CellTemplate>
             </DataGridTemplateColumn>
-            <DataGridTextColumn MinWidth="140" Header="Application" Width="*" Binding="{Binding Application}" IsReadOnly="True"/>
-            <DataGridTextColumn MinWidth="109" Header="Vendor" Width="150" Binding="{Binding Vendor}" IsReadOnly="True"/>
-            <DataGridTemplateColumn MinWidth="134" Header="ConfigMgr" Width="134" CanUserSort="True" SortMemberPath="ConfigMgr">
+            <DataGridTextColumn MinWidth="125" Header="Application" Width="*" Binding="{Binding Application}" IsReadOnly="True"/>
+            <DataGridTextColumn MinWidth="94" Header="Vendor" Width="150" Binding="{Binding Vendor}" IsReadOnly="True"/>
+            <DataGridTemplateColumn MinWidth="119" Header="ConfigMgr" Width="119" CanUserSort="True" SortMemberPath="ConfigMgr">
                 <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
                         <CheckBox IsChecked="{Binding ConfigMgr, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </DataTemplate>
                 </DataGridTemplateColumn.CellTemplate>
             </DataGridTemplateColumn>
-            <DataGridTemplateColumn MinWidth="93" Header="WSUS" Width="93" CanUserSort="True" SortMemberPath="WSUS">
+            <DataGridTemplateColumn MinWidth="78" Header="WSUS" Width="78" CanUserSort="True" SortMemberPath="WSUS">
                 <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
                         <CheckBox IsChecked="{Binding WSUS, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </DataTemplate>
                 </DataGridTemplateColumn.CellTemplate>
             </DataGridTemplateColumn>
-            <DataGridTemplateColumn MinWidth="104" Header="Intune" Width="104" CanUserSort="True" SortMemberPath="Intune">
+            <DataGridTemplateColumn MinWidth="89" Header="Intune" Width="89" CanUserSort="True" SortMemberPath="Intune">
                 <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
                         <CheckBox IsChecked="{Binding Intune, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </DataTemplate>
                 </DataGridTemplateColumn.CellTemplate>
             </DataGridTemplateColumn>
-            <DataGridTextColumn MinWidth="160" Header="Cadence (days)" Width="160" Binding="{Binding CadenceDisplay, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"/>
+            <DataGridTextColumn MinWidth="145" Header="Cadence (days)" Width="145" Binding="{Binding CadenceDisplay, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"/>
         </DataGrid.Columns>
     </DataGrid>
 </DockPanel>
@@ -10040,8 +10040,8 @@ function Show-DiscoveryDialog {
             <DataGrid.Columns>
                 <DataGridCheckBoxColumn Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="40"/>
                 <DataGridTextColumn Header="Application" Binding="{Binding Name}" Width="*" MinWidth="200" IsReadOnly="True"/>
-                <DataGridTextColumn MinWidth="109" Header="Vendor" Binding="{Binding Vendor}" Width="180" IsReadOnly="True"/>
-                <DataGridTextColumn MinWidth="171" Header="Inventory name" Binding="{Binding MatchedName}" Width="220" IsReadOnly="True"/>
+                <DataGridTextColumn MinWidth="94" Header="Vendor" Binding="{Binding Vendor}" Width="180" IsReadOnly="True"/>
+                <DataGridTextColumn MinWidth="156" Header="Inventory name" Binding="{Binding MatchedName}" Width="220" IsReadOnly="True"/>
             </DataGrid.Columns>
         </DataGrid>
         <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
@@ -10884,13 +10884,13 @@ function Show-CveDetailDialog {
         <DataGrid Grid.Row="1" x:Name="gridCves" AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
                   SelectionMode="Single" RowHeaderWidth="0" IsReadOnly="True">
             <DataGrid.Columns>
-                <DataGridTextColumn MinWidth="79" Header="CVE" Binding="{Binding Id}" Width="140"/>
-                <DataGridTextColumn MinWidth="87" Header="CVSS" Binding="{Binding Cvss}" Width="110"/>
-                <DataGridTextColumn MinWidth="85" Header="EPSS" Binding="{Binding Epss}" Width="85"/>
-                <DataGridTextColumn MinWidth="80" Header="KEV" Binding="{Binding Kev}" Width="80"/>
-                <DataGridTextColumn MinWidth="109" Header="Fixed in" Binding="{Binding FixedIn}" Width="110"/>
-                <DataGridTextColumn MinWidth="126" Header="Published" Binding="{Binding Published}" Width="126"/>
-                <DataGridTextColumn MinWidth="119" Header="Modified" Binding="{Binding Modified}" Width="119"/>
+                <DataGridTextColumn MinWidth="64" Header="CVE" Binding="{Binding Id}" Width="140"/>
+                <DataGridTextColumn MinWidth="72" Header="CVSS" Binding="{Binding Cvss}" Width="110"/>
+                <DataGridTextColumn MinWidth="70" Header="EPSS" Binding="{Binding Epss}" Width="70"/>
+                <DataGridTextColumn MinWidth="65" Header="KEV" Binding="{Binding Kev}" Width="65"/>
+                <DataGridTextColumn MinWidth="94" Header="Fixed in" Binding="{Binding FixedIn}" Width="110"/>
+                <DataGridTextColumn MinWidth="111" Header="Published" Binding="{Binding Published}" Width="111"/>
+                <DataGridTextColumn MinWidth="104" Header="Modified" Binding="{Binding Modified}" Width="104"/>
                 <DataGridTextColumn x:Name="colSummary" Header="Summary" Binding="{Binding Summary}" Width="*" MinWidth="260"/>
                 <DataGridTemplateColumn Header="Links" Width="380" MinWidth="300">
                     <DataGridTemplateColumn.CellTemplate>
@@ -11201,7 +11201,7 @@ function Show-OneClickPlanDialog {
         <DataGrid Grid.Row="1" x:Name="gridPlan" AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
                   SelectionMode="Single" RowHeaderWidth="0">
             <DataGrid.Columns>
-                <DataGridTemplateColumn MinWidth="110" x:Name="colInclude" Header="Include" Width="110">
+                <DataGridTemplateColumn MinWidth="95" x:Name="colInclude" Header="Include" Width="95">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <CheckBox IsChecked="{Binding Include, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" Tag="Include" HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -11209,35 +11209,35 @@ function Show-OneClickPlanDialog {
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
                 <DataGridTextColumn Header="Application" Binding="{Binding Application}" Width="*" MinWidth="160" IsReadOnly="True"/>
-                <DataGridTextColumn MinWidth="111" Header="Version" Binding="{Binding Version}" Width="111" IsReadOnly="True"/>
-                <DataGridTemplateColumn MinWidth="134" x:Name="colMecm" Header="ConfigMgr" Width="134">
+                <DataGridTextColumn MinWidth="96" Header="Version" Binding="{Binding Version}" Width="96" IsReadOnly="True"/>
+                <DataGridTemplateColumn MinWidth="119" x:Name="colMecm" Header="ConfigMgr" Width="119">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <CheckBox IsChecked="{Binding ConfigMgr, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" Tag="ConfigMgr" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTemplateColumn MinWidth="93" x:Name="colWsus" Header="WSUS" Width="93">
+                <DataGridTemplateColumn MinWidth="78" x:Name="colWsus" Header="WSUS" Width="78">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <CheckBox IsChecked="{Binding WSUS, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" Tag="WSUS" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTemplateColumn MinWidth="104" x:Name="colIntune" Header="Intune" Width="104">
+                <DataGridTemplateColumn MinWidth="89" x:Name="colIntune" Header="Intune" Width="89">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <CheckBox IsChecked="{Binding Intune, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" Tag="Intune" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn MinWidth="160" x:Name="colLast" Header="Last published" Binding="{Binding LastPublished}" Width="160" IsReadOnly="True"/>
-                <DataGridTextColumn MinWidth="117" x:Name="colPlanned" Header="Planned" Binding="{Binding Planned}" Width="280" IsReadOnly="True"/>
-                <DataGridTextColumn MinWidth="85" x:Name="colStep" Header="Step" Binding="{Binding Step}" Width="130" IsReadOnly="True" Visibility="Collapsed"/>
-                <DataGridTextColumn x:Name="colResultMecm" Header="ConfigMgr result" Binding="{Binding ResultConfigMgr}" Width="1.2*" MinWidth="183" IsReadOnly="True" Visibility="Collapsed"/>
+                <DataGridTextColumn MinWidth="145" x:Name="colLast" Header="Last published" Binding="{Binding LastPublished}" Width="145" IsReadOnly="True"/>
+                <DataGridTextColumn MinWidth="102" x:Name="colPlanned" Header="Planned" Binding="{Binding Planned}" Width="280" IsReadOnly="True"/>
+                <DataGridTextColumn MinWidth="70" x:Name="colStep" Header="Step" Binding="{Binding Step}" Width="130" IsReadOnly="True" Visibility="Collapsed"/>
+                <DataGridTextColumn x:Name="colResultMecm" Header="ConfigMgr result" Binding="{Binding ResultConfigMgr}" Width="1.2*" MinWidth="168" IsReadOnly="True" Visibility="Collapsed"/>
                 <DataGridTextColumn x:Name="colResultWsus" Header="WSUS result" Binding="{Binding ResultWSUS}" Width="1.2*" MinWidth="180" IsReadOnly="True" Visibility="Collapsed"/>
                 <DataGridTextColumn x:Name="colResultIntune" Header="Intune result" Binding="{Binding ResultIntune}" Width="1.2*" MinWidth="180" IsReadOnly="True" Visibility="Collapsed"/>
-                <DataGridTextColumn MinWidth="108" x:Name="colReason" Header="Reason" Binding="{Binding Reason}" Width="230" IsReadOnly="True"/>
+                <DataGridTextColumn MinWidth="93" x:Name="colReason" Header="Reason" Binding="{Binding Reason}" Width="230" IsReadOnly="True"/>
             </DataGrid.Columns>
         </DataGrid>
         <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
@@ -14025,13 +14025,13 @@ function Show-WsusPublishedUpdatesDialog {
                   CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Title" Binding="{Binding Title}" Width="*" MinWidth="280"/>
-                <DataGridTextColumn MinWidth="86" Header="Type" Binding="{Binding PackageType}" Width="86"/>
-                <DataGridTextColumn MinWidth="112" Header="Created" Binding="{Binding CreatedText}" Width="125"/>
-                <DataGridTextColumn MinWidth="153" Header="Approved for" Binding="{Binding ApprovedGroups}" Width="153"/>
-                <DataGridTextColumn MinWidth="118" Header="Declined" Binding="{Binding Declined}" Width="118"/>
-                <DataGridTextColumn MinWidth="136" Header="Superseded" Binding="{Binding Superseded}" Width="136"/>
-                <DataGridTextColumn MinWidth="108" Header="Expired" Binding="{Binding Expired}" Width="108"/>
-                <DataGridTextColumn MinWidth="131" Header="Package ID" Binding="{Binding PackageId}" Width="240"/>
+                <DataGridTextColumn MinWidth="71" Header="Type" Binding="{Binding PackageType}" Width="71"/>
+                <DataGridTextColumn MinWidth="97" Header="Created" Binding="{Binding CreatedText}" Width="125"/>
+                <DataGridTextColumn MinWidth="138" Header="Approved for" Binding="{Binding ApprovedGroups}" Width="138"/>
+                <DataGridTextColumn MinWidth="103" Header="Declined" Binding="{Binding Declined}" Width="103"/>
+                <DataGridTextColumn MinWidth="121" Header="Superseded" Binding="{Binding Superseded}" Width="121"/>
+                <DataGridTextColumn MinWidth="93" Header="Expired" Binding="{Binding Expired}" Width="93"/>
+                <DataGridTextColumn MinWidth="116" Header="Package ID" Binding="{Binding PackageId}" Width="240"/>
             </DataGrid.Columns>
         </DataGrid>
         <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">

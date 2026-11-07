@@ -12,7 +12,7 @@ Use it to choose the applications that an action works on, and to read the resul
 
 ## Requirements
 
-None. The window loads the packager scripts from disk. It makes no network call and no site call when it opens.
+None. The window loads the packager scripts from disk. It makes no vendor call and no site call when it opens. A background update check can contact GitHub once in 24 hours. See [Network](../reference/network.md).
 
 ## Steps
 

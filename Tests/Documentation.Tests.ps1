@@ -68,7 +68,7 @@ Describe 'User guide' {
     }
 
     It 'links the guide from the README' {
-        $strReadme = [regex]::Replace((Get-Content -LiteralPath (Join-Path -Path $script:strRepositoryRoot -ChildPath 'README.md') -Raw), '(?s)```.*?```', '')
+        $strReadme = [regex]::Replace([regex]::Replace((Get-Content -LiteralPath (Join-Path -Path $script:strRepositoryRoot -ChildPath 'README.md') -Raw), '(?s)```.*?```', ''), '(?s)<!--.*?-->', '')
         $strReadme | Should -Match '\]\(docs/index\.md\)'
     }
 }

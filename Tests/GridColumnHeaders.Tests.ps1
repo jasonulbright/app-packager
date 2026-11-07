@@ -57,6 +57,8 @@ Describe 'Grid column headers' {
 Describe 'Grid column headers in the dialogs of the start script' {
     BeforeAll {
         # The dialog grids are written as XAML text inside start-apppackager.ps1. Read each column tag that has a literal header.
+        # The header style of a dialog grid keeps 12 on each side and 16 for the sort arrow: 40 beside the text. The main grid keeps more.
+        $script:DialogHeaderRoom = 40
         $script:ScriptText = [IO.File]::ReadAllText((Join-Path (Split-Path -Parent $PSScriptRoot) 'start-apppackager.ps1'))
         $script:DialogColumns = @([regex]::Matches($script:ScriptText, '<DataGrid(?:Text|Template)Column\b[^>]*>') | ForEach-Object { $_.Value } | Where-Object { $_ -match '\sHeader="[^"{][^"]*"' })
         function Get-ColumnAttribute([string]$Tag, [string]$Name) { $m = [regex]::Match($Tag, '\s' + $Name + '="([^"]*)"'); if ($m.Success) { $m.Groups[1].Value } else { '' } }
@@ -71,7 +73,7 @@ Describe 'Grid column headers in the dialogs of the start script' {
         foreach ($tag in $script:DialogColumns) {
             $header = Get-ColumnAttribute $tag 'Header'
             if ([string]::IsNullOrWhiteSpace($header)) { continue }
-            $need = [math]::Ceiling((& $script:Measure $header.ToUpperInvariant()) + $script:HeaderRoom)
+            $need = [math]::Ceiling((& $script:Measure $header.ToUpperInvariant()) + $script:DialogHeaderRoom)
             $min = 0.0
             [void][double]::TryParse((Get-ColumnAttribute $tag 'MinWidth'), [System.Globalization.NumberStyles]::Float, [cultureinfo]::InvariantCulture, [ref]$min)
             $width = 0.0
