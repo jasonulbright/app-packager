@@ -20,7 +20,8 @@ BeforeAll {
     $tokens = $null; $errors = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RepoRoot 'start-apppackager.ps1'), [ref]$tokens, [ref]$errors)
     if ($errors) { throw ($errors.Message -join '; ') }
-    foreach ($name in 'Invoke-CveMonitor', 'Get-CveGridCells', 'Get-CveCachedResult', 'Get-CveReportRows', 'Compare-SemVer') {
+    $script:Ast = $ast
+    foreach ($name in 'Invoke-CveMonitor', 'Get-CveGridCells', 'Get-CveCachedResult', 'Find-CveSessionResult', 'Get-CveReportRows', 'Compare-SemVer', 'Remove-ExpiredCveReports', 'ConvertTo-CveVersionKey', 'ConvertTo-CvePairKey', 'Clear-StaleCveCells', 'Set-CveCellsPair', 'Get-CveSkipReason') {
         $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }.GetNewClosure(), $false)
         if (-not $fn) { throw "function $name not found" }
         . ([scriptblock]::Create($fn.Extent.Text))
@@ -74,10 +75,12 @@ BeforeAll {
             Links = (Get-VulnerabilityLinks -Cpe $Cpe -VersionStart $CurrentVersion -VendorAdvisoryUrl $VendorAdvisoryUrl).Product
             Cves = @($cve); UnfixedCves = @()
         }
-        # The monitor reads the report rows back from the cache the way the GUI does.
-        $cache = Read-VulnerabilityCache
-        $cache[('{0}|{1}|{2}' -f $Cpe, $CurrentVersion, $LatestVersion)] = $r
-        Save-VulnerabilityCache -Cache $cache
+        # The GUI reads a result back from the cache; a failed cache write leaves the old entry.
+        if (-not $script:CveNoCache) {
+            $cache = Read-VulnerabilityCache
+            $cache[('{0}|{1}|{2}' -f $Cpe, $CurrentVersion, $LatestVersion)] = $r
+            Save-VulnerabilityCache -Cache $cache
+        }
         return $r
     }
     function Send-VulnerabilityNotification {
@@ -93,7 +96,7 @@ AfterAll {
 
 Describe 'Invoke-CveMonitor' {
     BeforeEach {
-        $script:Log = @(); $script:LatestCalls = @(); $script:CmCalls = @(); $script:CveCalls = @(); $script:Notified = @(); $script:CveFail = $false
+        $script:Log = @(); $script:LatestCalls = @(); $script:CmCalls = @(); $script:CveCalls = @(); $script:Notified = @(); $script:CveFail = $false; $script:CveNoCache = $false
         $script:Reports = Join-Path $TestDrive ('reports-' + [guid]::NewGuid().ToString('N'))
         $hist = Join-Path $env:LOCALAPPDATA 'AppPackager\app-history.json'
         if (Test-Path -LiteralPath $hist) { Remove-Item -LiteralPath $hist -Force }
@@ -241,5 +244,255 @@ Describe 'Get-CveReportRows marks a result that is not the current lookup' {
         $apps = @(Import-Csv -LiteralPath $out.ApplicationsCsv)
         @($apps | Where-Object Note -like 'Last lookup failed*').Count | Should -Be 1
         @($apps | Where-Object Note -eq '').Count | Should -Be 1
+    }
+}
+
+Describe 'Report pruning deletes only what the writer produces' {
+    It 'removes old report files by their exact names and leaves every other file' {
+        $folder = Join-Path $TestDrive 'prune'
+        New-Item -ItemType Directory -Path $folder -Force | Out-Null
+        $mine = @('cve-report-20200101-000000.html', 'cve-report-20200101-000000.json', 'cve-report-20200101-000000.md', 'cve-report-20200101-000000.xlsx', 'cve-report-20200101-000000-applications.csv', 'cve-report-20200101-000000-cves.csv')
+        $others = @('cve-report-notes.docx', 'cve-report-20200101-000000.txt', 'cve-report-20200101-000000.html.bak', 'cve-report-budget.xlsx', 'other.html')
+        foreach ($n in $mine + $others) {
+            $path = Join-Path $folder $n
+            [System.IO.File]::WriteAllText($path, 'x')
+            (Get-Item -LiteralPath $path).LastWriteTime = (Get-Date).AddDays(-100)
+        }
+        $recent = Join-Path $folder 'cve-report-20990101-000000.html'
+        [System.IO.File]::WriteAllText($recent, 'x')
+        Remove-ExpiredCveReports -Folder $folder -KeepDays 30
+        foreach ($n in $mine) { Test-Path -LiteralPath (Join-Path $folder $n) | Should -BeFalse }
+        foreach ($n in $others) { Test-Path -LiteralPath (Join-Path $folder $n) | Should -BeTrue }
+        Test-Path -LiteralPath $recent | Should -BeTrue
+    }
+}
+
+Describe 'The monitor exports its own results' {
+    BeforeEach {
+        $script:Log = @(); $script:LatestCalls = @(); $script:CmCalls = @(); $script:CveCalls = @(); $script:Notified = @(); $script:CveFail = $false; $script:CveNoCache = $false
+        $script:Reports = Join-Path $TestDrive ('reports-' + [guid]::NewGuid().ToString('N'))
+        $hist = Join-Path $env:LOCALAPPDATA 'AppPackager\app-history.json'
+        if (Test-Path -LiteralPath $hist) { Remove-Item -LiteralPath $hist -Force }
+        $cache = Join-Path $env:LOCALAPPDATA 'AppPackager\vuln-cache.json'
+        if (Test-Path -LiteralPath $cache) { Remove-Item -LiteralPath $cache -Force }
+    }
+
+    It 'reports the fresh result when the cache write failed, not an older entry' {
+        $alpha = 'cpe:2.3:a:v:alpha:*:*:*:*:*:*:*:*'
+        $old = [pscustomobject]@{
+            Cpe = $alpha; From = '1.0'; To = '2.0'; Source = 'NVD'; QueriedAt = [DateTime]::UtcNow.AddHours(-30).ToString('yyyy-MM-ddTHH:mm:ssZ')
+            Count = 5; MaxCvss = 9.1; MaxSeverity = 'CRITICAL'; KevCount = 0; MaxEpss = $null; Error = $null
+            FixedInLatestCount = 0; FixedEarlierCount = 5; FixedUnknownCount = 0; NewestPublished = '2020-01-01'; LastNvdUpdate = '2020-01-01'
+            Links = @{}; Cves = @(); UnfixedCves = @()
+        }
+        Save-VulnerabilityCache -Cache @{ ($alpha + '|1.0|2.0') = $old } -CachePath (Get-VulnerabilityCachePath) -KeepDays 0
+        $script:CveNoCache = $true
+        $s = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ReportFolder $script:Reports -Apps 'package-alpha'
+        $apps = @(Import-Csv -LiteralPath $s.Paths.ApplicationsCsv)
+        ($apps | Where-Object Application -eq 'Alpha').CVEs | Should -Be '1'
+        ($apps | Where-Object Application -eq 'Alpha').Note | Should -Be ''
+    }
+
+    It 'marks a cached result for an application the run did not look up' {
+        $null = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ReportFolder $script:Reports -Apps 'package-alpha'
+        $s = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ReportFolder $script:Reports -Apps 'package-alpha' -SkipCve -SkipLatest -SkipMecm
+        $script:CveCalls.Count | Should -Be 1
+        $apps = @(Import-Csv -LiteralPath $s.Paths.ApplicationsCsv)
+        ($apps | Where-Object Application -eq 'Alpha').Note | Should -Be 'From the cache; not looked up in this run'
+    }
+}
+
+Describe 'A stored summary belongs to one product' {
+    BeforeAll {
+        $script:SummaryFor = { param($cpe) @{ QueriedAt = '2026-11-01T00:00:00Z'; From = '1.0'; To = '2.0'; Cpe = $cpe; Count = 3; KevCount = 0; MaxCvss = 7.5; MaxSeverity = 'HIGH'; MaxEpss = $null; FixedInLatestCount = 1; NewestPublished = ''; LastNvdUpdate = '' } }
+    }
+    It 'shows the count under the CPE it was looked up for' {
+        $cells = Get-CveGridCells -Summary (& $script:SummaryFor 'cpe:2.3:a:v:old:*:*:*:*:*:*:*:*') -Cpe 'cpe:2.3:a:v:old:*:*:*:*:*:*:*:*' -CurrentVersion '1.0' -LatestVersion '2.0'
+        $cells.Count | Should -Be '3'
+    }
+    It 'shows nothing after the CPE of the packager changed' {
+        $cells = Get-CveGridCells -Summary (& $script:SummaryFor 'cpe:2.3:a:v:old:*:*:*:*:*:*:*:*') -Cpe 'cpe:2.3:a:v:new:*:*:*:*:*:*:*:*' -CurrentVersion '1.0' -LatestVersion '2.0'
+        $cells.Count | Should -Be ''
+        $cells.Checked | Should -Be ''
+    }
+    It 'still shows a summary stored before the CPE was recorded' {
+        $legacy = & $script:SummaryFor 'x'
+        $legacy.Remove('Cpe')
+        (Get-CveGridCells -Summary $legacy -Cpe 'cpe:2.3:a:v:new:*:*:*:*:*:*:*:*' -CurrentVersion '1.0' -LatestVersion '2.0').Count | Should -Be '3'
+    }
+}
+
+Describe 'One comparer decides whether an update exists' {
+    It 'decides <Current> to <Latest> as update: <Update>, in the grid and in the CVE check' -ForEach @(
+        @{ Current = '1.0'; Latest = '2.0'; Update = $true }
+        @{ Current = '2.0'; Latest = '1.0'; Update = $false }
+        @{ Current = '8.9.8'; Latest = '8.9.8.1'; Update = $true }
+        @{ Current = '26.2.2.2'; Latest = '26.2.2'; Update = $false }
+        @{ Current = '31'; Latest = '31.0.1'; Update = $true }
+        @{ Current = '140.17.0esr'; Latest = '140.17.1'; Update = $true }
+        @{ Current = '11.0.30+7'; Latest = '11.0.31'; Update = $true }
+        @{ Current = '20240101000000'; Latest = '20250101000000'; Update = $true }
+        @{ Current = '20250101000000'; Latest = '20240101000000'; Update = $false }
+        @{ Current = 'build 0143'; Latest = 'build 0144'; Update = $false }
+    ) {
+        ((Compare-SemVer -A $Current -B $Latest) -lt 0) | Should -Be $Update
+        $reason = Get-CveSkipReason -Cpe 'cpe:2.3:a:v:p:*:*:*:*:*:*:*:*' -Current $Current -Latest $Latest
+        ($reason -eq '') | Should -Be $Update
+        if (-not $Update) { $reason | Should -Be 'No update' }
+    }
+    It 'compares the strict form over all four parts' {
+        Compare-SemVer -A '1.2.3.4' -B '1.2.3.5' -Strict | Should -Be (-1)
+        Compare-SemVer -A '1.2.3.5' -B '1.2.3' -Strict | Should -Be 1
+        Compare-SemVer -A '20250101000000.1' -B '20250101000000.1' -Strict | Should -Be 0
+    }
+    It 'names the missing input first' {
+        Get-CveSkipReason -Cpe '' -Current '1' -Latest '2' | Should -Be 'CPE missing'
+        Get-CveSkipReason -Cpe 'cpe:2.3:a:v:p' -Current '' -Latest '2' | Should -Be 'No ConfigMgr version'
+        Get-CveSkipReason -Cpe 'cpe:2.3:a:v:p' -Current '1' -Latest '' | Should -Be 'No latest version'
+    }
+    It 'leaves no use of the vulnerability module comparer in the application script' {
+        $script:Ast.Extent.Text | Should -Not -Match 'Compare-VulnerabilityVersionValue'
+    }
+}
+
+Describe 'CVE cells follow the version pair they describe' {
+    BeforeAll {
+        $script:NewRow = {
+            param($cur, $lat)
+            $r = [pscustomobject]@{ Cpe = 'cpe:2.3:a:v:p:*:*:*:*:*:*:*:*'; CurrentVersion = $cur; LatestVersion = $lat; Status = 'Update available (3 CVEs, 1 in KEV)'
+                CveCount = '3'; CveCvss = '7.5 HIGH'; CveKev = 'Yes'; CveEpss = '1.0%'; CveChecked = '2026-11-01T00:00:00Z'; CveFixed = '1 of 3'; CveNewest = '2026-01-01'; CveUpdated = '2026-01-02' }
+            Set-CveCellsPair -Row $r
+            $r
+        }
+    }
+    It 'keeps the cells while the pair is the same, also when the text of a version differs' {
+        $r = & $script:NewRow '1.0' '2.0'
+        $r.LatestVersion = '2.0+build5'
+        Clear-StaleCveCells -Row $r
+        $r.CveCount | Should -Be '3'
+        $r.Status | Should -Be 'Update available (3 CVEs, 1 in KEV)'
+    }
+    It 'clears the cells and the status suffix when the latest version changes' {
+        $r = & $script:NewRow '1.0' '2.0'
+        $r.LatestVersion = '3.0'
+        Clear-StaleCveCells -Row $r
+        foreach ($p in 'CveCount', 'CveCvss', 'CveKev', 'CveEpss', 'CveChecked', 'CveFixed', 'CveNewest', 'CveUpdated') { $r.$p | Should -Be '' -Because $p }
+        $r.Status | Should -Be 'Update available'
+    }
+    It 'clears the cells when the ConfigMgr version changes' {
+        $r = & $script:NewRow '1.0' '2.0'
+        $r.CurrentVersion = '1.5'
+        Clear-StaleCveCells -Row $r
+        $r.CveCount | Should -Be ''
+    }
+    It 'keeps the missing-CPE text of a row with no CPE' {
+        $r = & $script:NewRow '1.0' '2.0'
+        $r.Cpe = ''
+        $r.LatestVersion = '3.0'
+        Clear-StaleCveCells -Row $r
+        $r.CveCount | Should -Be 'CPE missing'
+    }
+    It 'runs after every place that changes the version of a row' {
+        $assignments = $script:Ast.FindAll({
+                param($n)
+                $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                $n.Left -is [System.Management.Automation.Language.MemberExpressionAst] -and
+                $n.Left.Expression -is [System.Management.Automation.Language.VariableExpressionAst] -and $n.Left.Expression.VariablePath.UserPath -eq 'row' -and
+                "$($n.Left.Member)" -in 'CurrentVersion', 'LatestVersion'
+            }, $true)
+        $assignments.Count | Should -BeGreaterThan 5
+        $missing = @()
+        foreach ($a in $assignments) {
+            $block = $a.Parent
+            if ($block -isnot [System.Management.Automation.Language.StatementBlockAst] -and $block -isnot [System.Management.Automation.Language.NamedBlockAst]) { $missing += $a.Extent.StartLineNumber; continue }
+            $statements = @($block.Statements)
+            $at = [array]::IndexOf($statements, $a)
+            $next = $(if ($at -ge 0 -and $at + 1 -lt $statements.Count) { $statements[$at + 1] } else { $null })
+            if (-not $next -or $next.Extent.Text -notmatch '^Clear-StaleCveCells\b') { $missing += $a.Extent.StartLineNumber }
+        }
+        $missing | Should -BeNullOrEmpty -Because ('lines without a Clear-StaleCveCells call right after the assignment: ' + ($missing -join ', '))
+    }
+}
+
+Describe 'Detail and report read the result of this session first' {
+    BeforeAll {
+        $script:SCpe = 'cpe:2.3:a:vendor:sessionprod:*:*:*:*:*:*:*:*'
+        $script:SRow = { param($count) [pscustomobject]@{ Application = 'S'; Vendor = 'V'; Script = 'package-s.ps1'; CurrentVersion = '1.0'; LatestVersion = '2.0'; Status = 'Update available'; Cpe = $script:SCpe; CveCount = $count; CveChecked = '' } }
+        $script:SResult = [pscustomobject]@{
+            Cpe = $script:SCpe; From = '1.0'; To = '2.0'; Source = 'NVD'; QueriedAt = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+            Count = 4; MaxCvss = 5.0; MaxSeverity = 'MEDIUM'; KevCount = 0; MaxEpss = $null; Error = $null
+            FixedInLatestCount = 4; FixedEarlierCount = 0; FixedUnknownCount = 0; NewestPublished = ''; LastNvdUpdate = ''
+            Links = @{}; Cves = @(); UnfixedCves = @()
+        }
+        $cache = Join-Path $env:LOCALAPPDATA 'AppPackager\vuln-cache.json'
+        if (Test-Path -LiteralPath $cache) { Remove-Item -LiteralPath $cache -Force }
+    }
+    AfterEach { $script:CveSessionResults = $null }
+
+    It 'returns the session result when the cache holds none' {
+        $script:CveSessionResults = @{ 'package-s.ps1' = $script:SResult }
+        (Get-CveCachedResult -Row (& $script:SRow '4')).Count | Should -Be 4
+    }
+    It 'ignores a session result for another CPE or version pair' {
+        $script:CveSessionResults = @{ 'package-s.ps1' = $script:SResult }
+        $other = & $script:SRow '4'
+        $other.LatestVersion = '3.0'
+        Get-CveCachedResult -Row $other | Should -BeNullOrEmpty
+    }
+    It 'keeps the failure note for a row whose latest lookup failed' {
+        $script:CveSessionResults = @{ 'package-s.ps1' = $script:SResult }
+        $rows = Get-CveReportRows -Rows @((& $script:SRow 'Error')) -Results $script:CveSessionResults
+        $rows[0].Result.Count | Should -Be 4
+        $rows[0].Note | Should -Match '^Last lookup failed'
+    }
+}
+Describe 'The monitor counts cached results apart and logs the ConfigMgr query' {
+    BeforeEach {
+        $script:Log = @(); $script:LatestCalls = @(); $script:CmCalls = @(); $script:CveCalls = @(); $script:Notified = @(); $script:CveFail = $false; $script:CveNoCache = $false
+        $script:Reports = Join-Path $TestDrive ('reports-' + [guid]::NewGuid().ToString('N'))
+        foreach ($f in 'app-history.json', 'vuln-cache.json') {
+            $p = Join-Path $env:LOCALAPPDATA ('AppPackager\' + $f)
+            if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force }
+        }
+    }
+
+    It 'reports the results taken from the cache when the CVE lookup is skipped' {
+        $null = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ReportFolder $script:Reports -Apps 'package-alpha'
+        $script:Log = @()
+        $s = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ReportFolder $script:Reports -Apps 'package-alpha' -SkipCve
+        $s.LookedUp | Should -Be 0
+        $s.Cached | Should -Be 1
+        ($script:Log | Where-Object { $_ -like '*Monitor finished*' }) | Should -Match '1 from the cache'
+    }
+
+    It 'counts an older cached result that stands in for a failed lookup' {
+        $null = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ReportFolder $script:Reports -Apps 'package-alpha'
+        $script:CveFail = $true
+        try {
+            $s = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ReportFolder $script:Reports -Apps 'package-alpha'
+        }
+        finally { $script:CveFail = $false }
+        $s.LookedUp | Should -Be 0
+        $s.Cached | Should -Be 1
+    }
+    It 'reports no cached result when the run looked every application up itself' {
+        $s = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ReportFolder $script:Reports -Apps 'package-alpha'
+        $s.LookedUp | Should -Be 1
+        $s.Cached | Should -Be 0
+    }
+
+    It 'logs one line for the ConfigMgr query with the site, the provider and the counts' {
+        $null = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ProviderMachineName 'cm01.contoso.test' -ReportFolder $script:Reports -Apps 'package-alpha', 'package-delta' -SkipLatest
+        $line = @($script:Log | Where-Object { $_ -like '*ConfigMgr query*' })
+        $line.Count | Should -Be 1
+        $line[0] | Should -Match 'MCM'
+        $line[0] | Should -Match 'cm01\.contoso\.test'
+        $line[0] | Should -Match '1 found'
+        $line[0] | Should -Match '1 not found'
+    }
+
+    It 'logs no ConfigMgr query line when the query is skipped' {
+        $null = Invoke-CveMonitor -PackagersRoot 'C:\x' -SiteCode 'MCM' -ReportFolder $script:Reports -Apps 'package-alpha' -SkipMecm
+        @($script:Log | Where-Object { $_ -like '*ConfigMgr query*' }).Count | Should -Be 0
     }
 }

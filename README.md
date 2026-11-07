@@ -7,6 +7,8 @@
 
 Automated application packaging for Microsoft Configuration Manager (ConfigMgr) and Intune: 312 enterprise applications, each one click from vendor download to deployed app. AppPackager checks the vendor for the latest version, downloads and verifies the installer, generates silent install/uninstall wrappers and detection rules, and creates the ConfigMgr Application — or builds the `.intunewin` and publishes it to Intune via Graph, or publishes the installer to WSUS as a locally published update, no ConfigMgr site required. Drag any unknown `.msi`/`.exe` onto the window and it analyzes and packages that too. A companion version monitor flags stale deployments and looks up their CVEs. Built entirely in PowerShell 5.1 — the version that ships in the box on every supported Windows release, oldest to newest. Nothing to install, no add-ons, no agents, no subscription.
 
+Read the [user guide](docs/index.md) for every window, dialog and setting.
+
 This is the class of work commercial third-party patching catalogs sell as a subscription. AppPackager covers a comparable application set — the coverage decision for each of 933 reviewed catalog entries is documented in [CATALOG-PARITY.csv](CATALOG-PARITY.csv) — runs entirely inside your environment, and is MIT-licensed.
 
 ## Install
@@ -28,7 +30,7 @@ Installs the latest release into `%LOCALAPPDATA%\AppPackager`. Only a zip crosse
 On an unrestricted network, the installer can do the whole flow itself — resolve the release from the GitHub API, download, verify SHA-256, extract:
 
 ```powershell
-curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.11.07.0128
+curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.11.07.0131
 ```
 
 Omitting `-ZipPath` makes it download and checksum-verify the requested release; `-InstallPath` picks the folder and `-Version` pins a release. `-Force` is required to replace a non-empty folder that holds no existing AppPackager install. If even the curl download is blocked, fetch the zip in a browser and run the same `-ZipPath` command against it.

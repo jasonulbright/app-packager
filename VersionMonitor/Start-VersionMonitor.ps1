@@ -25,7 +25,9 @@
     Do not query ConfigMgr; use the ConfigMgr versions from app-history.json.
 
 .PARAMETER SkipNVD
-    Do not look CVEs up; write the version report only.
+    Do not look CVEs up. The report still shows the results of earlier
+    lookups from the cache; each one is marked 'From the cache' and the
+    summary counts them apart.
 
 .PARAMETER Apps
     Packager base names (package-chrome, package-7zip) to limit the run.

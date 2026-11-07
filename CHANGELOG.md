@@ -1,6 +1,6 @@
 # Changelog
 
-## [2026.11.07.0128] - 2026-11-07
+## [2026.11.07.0131] - 2026-11-07
 
 ## 5 theme fixes and 1 change
 
@@ -15,6 +15,54 @@
 ### Changed
 
 - Draw Workbench and dialog buttons with a thin light outline.
+
+## [2026.11.07.0130] - 2026-11-07
+
+## 46 images in a user guide
+
+### Fixed
+
+- Show the full header of every column in the grids of the dialogs.
+- Widen the Options window so that the application names stay readable.
+
+### Added
+
+- Add the user guide with images of the running window.
+- Add one command that regenerates every image of the guide on a lab computer.
+
+## [2026.11.05.0129] - 2026-11-05
+
+## 5 fixes and changes
+
+### Fixed
+
+- Wait for the GitHub Desktop uninstall entry before the install reports success.
+- Count CVE results not looked up in the run apart in the monitor summary.
+- Log the ConfigMgr query of the CVE monitor.
+
+### Changed
+
+- Show the same progress display for long actions in the main window.
+- Cancel Discover unmanaged software from the progress display.
+
+## [2026.11.05.0128] - 2026-11-05
+
+## 12 fixes
+
+### Fixed
+
+- Stop two sessions from overwriting each other's CVE cache.
+- Report a Shodan 404 as a lookup error, not an empty list.
+- Mark a truncated NVD result as incomplete.
+- Reject a CVE response that lacks required fields.
+- Harden CVE lookup requests.
+- Harden CVE report files.
+- Hide a saved CVE count when its recorded product differs from the packager.
+- Remove expired CVE reports and use one version comparer in the CVE views.
+- Check the observed site version in One Click; keep the site drive on the provider.
+- Widen the CVE grid columns so the headers are no longer cut off.
+- Try WinRM when DCOM returns no site definition during discovery.
+- Report a Discover choice that was not saved or refreshed.
 
 ## [2026.11.05.0127] - 2026-11-05
 

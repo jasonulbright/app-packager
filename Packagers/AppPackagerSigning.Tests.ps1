@@ -913,3 +913,82 @@ Describe 'Requirement script names' {
             Should -Throw '*already uses*'
     }
 }
+
+Describe 'Launcher audit sees through a backtick in a parameter name' {
+    It 'finds <Spelling>' -ForEach @(
+        @{ Spelling = 'powershell.exe -Executi`onPolicy Bypass -File x.ps1'; Code = 'LauncherExecutionPolicy' }
+        @{ Spelling = 'powershell.exe -E`p Bypass -File x.ps1'; Code = 'LauncherExecutionPolicy' }
+        @{ Spelling = 'powershell.exe -Encoded`Command ZQB4AGkAdAAgADAA'; Code = 'LauncherEncodedCommand' }
+        @{ Spelling = 'powershell.exe -e`nc ZQB4AGkAdAAgADAA'; Code = 'LauncherEncodedCommand' }
+    ) {
+        $findings = @(InModuleScope AppPackagerSigning -Parameters @{ Text = $Spelling } { param($Text) Get-SigningTokenFindings -Text $Text })
+        @($findings | Where-Object { $_.Code -eq $Code }).Count | Should -BeGreaterThan 0
+    }
+}
+
+Describe 'A required signature must come from the configured certificate' {
+    BeforeAll {
+        $script:OtherCert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=AppPackager Unit Test Other Signer' -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddDays(1)
+    }
+    AfterAll {
+        Remove-Item -LiteralPath ('Cert:\CurrentUser\My\' + $script:OtherCert.Thumbprint) -Force -DeleteKey -ErrorAction SilentlyContinue
+    }
+    BeforeEach {
+        $script:CaseDir = Join-Path $script:Root ('c3-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        New-Item -ItemType Directory -Path $script:CaseDir -Force | Out-Null
+        $script:CasePath = Join-Path $script:CaseDir 'detect.ps1'
+        Set-Content -LiteralPath $script:CasePath -Value "Write-Output 'Detected'`r`nexit 0" -Encoding ASCII
+        $null = Invoke-ScriptSigning -Path $script:CasePath -Category Detection -Policy (& $script:Policy $true $false $false) -Certificate $script:OtherCert
+    }
+
+    It 'refuses a signature from another certificate when automatic signing is off' {
+        $r = Invoke-ScriptSigning -Path $script:CasePath -Category Detection -Policy (& $script:Policy $false $false $false -RD $true)
+        $r.Status | Should -Be 'Failed'
+        $r.Reason | Should -Match 'certificate'
+        $r.Thumbprint | Should -Be $script:OtherCert.Thumbprint.ToUpperInvariant()
+    }
+
+    It 'accepts the signature of the configured certificate' {
+        $mine = Join-Path $script:CaseDir 'mine.ps1'
+        Set-Content -LiteralPath $mine -Value "Write-Output 'Detected'`r`nexit 0" -Encoding ASCII
+        $null = Invoke-ScriptSigning -Path $mine -Category Detection -Policy (& $script:Policy $true $false $false)
+        (Invoke-ScriptSigning -Path $mine -Category Detection -Policy (& $script:Policy $false $false $false -RD $true)).Status | Should -Be 'ExistingSignatureValid'
+    }
+
+    It 'accepts any signer when the policy names no certificate' {
+        (Invoke-ScriptSigning -Path $script:CasePath -Category Detection -Policy (& $script:Policy $false $false $false -RD $true -Thumb '')).Status | Should -Be 'ExistingSignatureValid'
+    }
+
+    It 'keeps the signature of a third-party file that is preserved' {
+        (Invoke-ScriptSigning -Path $script:CasePath -Category Deployment -Policy (& $script:Policy $false $false $true) -PreserveExisting).Status | Should -Be 'ExistingSignatureValid'
+    }
+}
+
+Describe 'The ANSI encoding is the system code page on every host' {
+    BeforeAll {
+        # The system code page from the operating system, apart from the module.
+        Add-Type -Namespace '' -Name 'AnsiTestNative' -MemberDefinition '[System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern uint GetACP();' -ErrorAction SilentlyContinue
+        $script:Acp = [int][AnsiTestNative]::GetACP()
+        if ('System.Text.CodePagesEncodingProvider' -as [type]) { [System.Text.Encoding]::RegisterProvider([System.Text.CodePagesEncodingProvider]::Instance) }
+    }
+    It 'names the ANSI code page of the system' {
+        $enc = InModuleScope AppPackagerSigning { Get-SigningAnsiEncoding }
+        $enc.CodePage | Should -Be ($script:Acp)
+    }
+
+    It 'writes an ANSI script with the ANSI bytes' {
+        $path = Join-Path $script:Root 'ansi-write.ps1'
+        $text = "Write-Output 'caf" + [char]0xE9 + "'"
+        InModuleScope AppPackagerSigning -Parameters @{ Path = $path; Text = $text } { param($Path, $Text) Write-SigningScriptFile -Path $Path -Text $Text -EncodingName 'ANSI' }
+        $expected = [System.Text.Encoding]::GetEncoding($script:Acp).GetBytes($text)
+        [System.IO.File]::ReadAllBytes($path) | Should -Be $expected
+    }
+
+    It 'reads a BOMless non-UTF-8 script as ANSI' {
+        # A fixture that is not UTF-8 in any locale: a high byte, then an ASCII byte.
+        $bytes = [byte[]](0x57, 0xE9, 0x28)
+        $info = InModuleScope AppPackagerSigning -Parameters @{ Bytes = $bytes } { param($Bytes) Get-SigningEncodingInfo -Bytes $Bytes }
+        $info.Name | Should -Be 'ANSI'
+        $info.Encoding.CodePage | Should -Be ($script:Acp)
+    }
+}
