@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.11.07.0130
+    Version    : 2026.11.07.0131
     Updated    : 2026-09-09
 #>
 
@@ -4862,7 +4862,7 @@ $btnCancelPipeline = $window.FindName('btnCancelPipeline')
 [ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($window, "Dark.Steel")
 
 # Palette and button/label theming come from SuiteCommon.
-$script:WorkflowButtons = @($btnFullRun, $btnCheckLatest, $btnCheckMECM, $btnDiscover, $btnConvertCm, $btnCheckCve, $btnStage, $btnPackage, $btnPublishIntune, $btnPublishWsus, $btnWsusUpdates, $btnCveReport)
+$script:WorkflowButtons = @($btnFullRun, $btnCheckLatest, $btnCheckMECM, $btnDiscover, $btnConvertCm, $btnCheckCve, $btnStage, $btnPackage, $btnPublishIntune, $btnPublishWsus, $btnWsusUpdates, $btnCveReport, $btnWorkbench, $btnAddInstaller)
 $script:OptionsButtons  = @($btnOptions)
 
 Initialize-SuiteTheme -Window $window `
@@ -4882,12 +4882,12 @@ function Set-DialogChromeFromOwner {
     )
     $theme = [ControlzEx.Theming.ThemeManager]::Current.DetectTheme($Owner)
     if ($theme) { [ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($Dialog, $theme) }
-    $Dialog.Owner = $Owner
+    if (-not [object]::ReferenceEquals($Dialog.Owner, $Owner)) { $Dialog.Owner = $Owner }
     try {
         $Dialog.WindowTitleBrush          = $Owner.WindowTitleBrush
-        $Dialog.NonActiveWindowTitleBrush = $Owner.WindowTitleBrush
+        $Dialog.NonActiveWindowTitleBrush = $Owner.NonActiveWindowTitleBrush
         $Dialog.GlowBrush                 = $Owner.GlowBrush
-        $Dialog.NonActiveGlowBrush        = $Owner.GlowBrush
+        $Dialog.NonActiveGlowBrush        = $Owner.NonActiveGlowBrush
     } catch { <# Copying window brush colors to the dialog is cosmetic. #> $null = $_ }
 }
 
@@ -4904,6 +4904,11 @@ $toggleTheme.Add_Toggled({
         Set-ButtonTheme -IsDark $false
     }
     Update-TitleBarBrushes
+    # A modeless dialog (the CVE detail window) stays open across the toggle:
+    # re-apply the theme and the title, glow and inactive brushes of the owner.
+    foreach ($owned in @($window.OwnedWindows)) {
+        if ($owned -is [MahApps.Metro.Controls.MetroWindow]) { Set-DialogChromeFromOwner -Dialog $owned -Owner $window }
+    }
 })
 
 # =============================================================================
@@ -5644,7 +5649,7 @@ function New-MecmPreferencesPanel {
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <TextBlock Grid.Column="0" x:Name="txtIntuneWinStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
-        <Button Grid.Column="1" x:Name="btnIntuneWinDownload" Content="Download" FontSize="11" Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" Padding="10,2" VerticalAlignment="Center" Visibility="Collapsed"/>
+        <Button Grid.Column="1" x:Name="btnIntuneWinDownload" Content="Download" FontSize="11" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" Padding="10,2" VerticalAlignment="Center" Visibility="Collapsed"/>
     </Grid>
 
     <TextBlock Grid.Row="21" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Packager icon pack for IconSource External packagers. Installs into Packagers\Icons and is read at stage time."/>
@@ -5655,8 +5660,8 @@ function New-MecmPreferencesPanel {
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <TextBlock Grid.Column="0" x:Name="txtIconPackStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
-        <Button Grid.Column="1" x:Name="btnIconPackDownload" Content="Download packager icon pack" FontSize="11" Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" Padding="10,2" VerticalAlignment="Center" ToolTip="Fetches the latest pack release, verifies its sha256 against checksums.txt, and extracts it into Packagers\Icons. Existing icons with the same name are replaced."/>
-        <Button Grid.Column="2" x:Name="btnIconPackFromFile" Content="Install from file..." FontSize="11" Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="6,0,0,0" Padding="10,2" VerticalAlignment="Center" ToolTip="Installs an icon pack from a local or UNC icon-pack.zip when the release download is blocked (proxy/SSL inspection). A checksums.txt beside the zip is verified when present."/>
+        <Button Grid.Column="1" x:Name="btnIconPackDownload" Content="Download packager icon pack" FontSize="11" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" Padding="10,2" VerticalAlignment="Center" ToolTip="Fetches the latest pack release, verifies its sha256 against checksums.txt, and extracts it into Packagers\Icons. Existing icons with the same name are replaced."/>
+        <Button Grid.Column="2" x:Name="btnIconPackFromFile" Content="Install from file..." FontSize="11" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="6,0,0,0" Padding="10,2" VerticalAlignment="Center" ToolTip="Installs an icon pack from a local or UNC icon-pack.zip when the release download is blocked (proxy/SSL inspection). A checksums.txt beside the zip is verified when present."/>
     </Grid>
 
     <TextBlock Grid.Row="22" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
@@ -5680,7 +5685,7 @@ function New-MecmPreferencesPanel {
     <StackPanel Grid.Row="30" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
         <TextBlock x:Name="txtDiscoveryDismissed" FontSize="13" VerticalAlignment="Center" Margin="0,0,12,0"/>
         <Button x:Name="btnClearDiscoveryDismissed" Content="Clear list" MinWidth="90" Height="28"
-                Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                 ToolTip="Offer every hidden app again in the next discovery. Applies on OK."/>
     </StackPanel>
 </Grid>
@@ -6213,12 +6218,31 @@ function Show-PreviewDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
+            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
+                 MahApps Square style. Hover and pressed fills come from the Square template;
+                 the accent outline marks keyboard focus. -->
+            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>        </ResourceDictionary>
     </Window.Resources>
     <DockPanel Margin="12">
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-            <Button x:Name="btnCopy"  Content="Copy"  MinWidth="90" Height="32" Margin="0,0,8,0" Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnClose" Content="Close" MinWidth="90" Height="32" IsDefault="True" IsCancel="True" Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnCopy"  Content="Copy"  MinWidth="90" Height="32" Margin="0,0,8,0" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnClose" Content="Close" MinWidth="90" Height="32" IsDefault="True" IsCancel="True" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
         <TextBox x:Name="txtContent"
                  IsReadOnly="True"
@@ -6263,8 +6287,8 @@ function New-ProductFilterPanel {
         <TextBlock Grid.Column="0" Text="Select which applications appear in the main grid. Uncheck to hide."
                    FontSize="12" Foreground="{DynamicResource MahApps.Brushes.Gray3}" VerticalAlignment="Center" TextWrapping="Wrap"/>
         <StackPanel Grid.Column="1" Orientation="Horizontal">
-            <Button x:Name="btnSelAll"  Content="Select All"  MinWidth="90" Height="28" Margin="6,0,0,0" Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnSelNone" Content="Select None" MinWidth="90" Height="28" Margin="6,0,0,0" Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnSelAll"  Content="Select All"  MinWidth="90" Height="28" Margin="6,0,0,0" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnSelNone" Content="Select None" MinWidth="90" Height="28" Margin="6,0,0,0" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
     </Grid>
     <TreeView x:Name="treeApps" />
@@ -6364,10 +6388,10 @@ function New-PackagerPreferencesPanel {
            xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro">
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,4">
         <Button x:Name="btnM365Preview" Content="M365 Preview" MinWidth="120" Height="30" Margin="0,0,8,0"
-                Style="{DynamicResource MahApps.Styles.Button.Square}"
+                Style="{DynamicResource ApButton}"
                 Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         <Button x:Name="btnCwaPreview"  Content="CWA Preview"  MinWidth="120" Height="30"
-                Style="{DynamicResource MahApps.Styles.Button.Square}"
+                Style="{DynamicResource ApButton}"
                 Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
     </StackPanel>
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -6628,7 +6652,7 @@ function New-PackagerPreferencesPanel {
     $btnBc5KeyBrowse.Content = 'Browse...'
     $btnBc5KeyBrowse.MinWidth = 90
     $btnBc5KeyBrowse.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
-    $btnBc5KeyBrowse.SetResourceReference([System.Windows.FrameworkElement]::StyleProperty, 'MahApps.Styles.Button.Square')
+    $btnBc5KeyBrowse.SetResourceReference([System.Windows.FrameworkElement]::StyleProperty, 'ApButton')
     [MahApps.Metro.Controls.ControlsHelper]::SetContentCharacterCasing($btnBc5KeyBrowse, [System.Windows.Controls.CharacterCasing]::Normal)
     $spBc5Key = New-Object System.Windows.Controls.StackPanel
     $spBc5Key.Orientation = [System.Windows.Controls.Orientation]::Horizontal
@@ -6662,7 +6686,7 @@ function New-PackagerPreferencesPanel {
             $lspBrowse.Content = 'Browse...'
             $lspBrowse.MinWidth = 90
             $lspBrowse.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
-            $lspBrowse.SetResourceReference([System.Windows.FrameworkElement]::StyleProperty, 'MahApps.Styles.Button.Square')
+            $lspBrowse.SetResourceReference([System.Windows.FrameworkElement]::StyleProperty, 'ApButton')
             [MahApps.Metro.Controls.ControlsHelper]::SetContentCharacterCasing($lspBrowse, [System.Windows.Controls.CharacterCasing]::Normal)
             $lspRow = New-Object System.Windows.Controls.StackPanel
             $lspRow.Orientation = [System.Windows.Controls.Orientation]::Horizontal
@@ -7094,12 +7118,31 @@ function Show-CommandOverrideDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <Style x:Key="DialogButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
+                 MahApps Square style. Hover and pressed fills come from the Square template;
+                 the accent outline marks keyboard focus. -->
+            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>            <Style x:Key="DialogButton" TargetType="Button" BasedOn="{StaticResource ApButton}">
                 <Setter Property="MinWidth" Value="110"/><Setter Property="Height" Value="32"/>
                 <Setter Property="Margin" Value="0,0,8,0"/>
                 <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
             </Style>
-            <Style x:Key="DialogAccentButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+            <Style x:Key="DialogAccentButton" TargetType="Button" BasedOn="{StaticResource ApButtonAccent}">
                 <Setter Property="MinWidth" Value="110"/><Setter Property="Height" Value="32"/>
                 <Setter Property="Margin" Value="0,0,8,0"/>
                 <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
@@ -7185,12 +7228,31 @@ function Show-ExistingConflictDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <Style x:Key="DialogButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
+                 MahApps Square style. Hover and pressed fills come from the Square template;
+                 the accent outline marks keyboard focus. -->
+            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>            <Style x:Key="DialogButton" TargetType="Button" BasedOn="{StaticResource ApButton}">
                 <Setter Property="MinWidth" Value="120"/><Setter Property="Height" Value="32"/>
                 <Setter Property="Margin" Value="0,0,8,0"/>
                 <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
             </Style>
-            <Style x:Key="DialogAccentButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+            <Style x:Key="DialogAccentButton" TargetType="Button" BasedOn="{StaticResource ApButtonAccent}">
                 <Setter Property="MinWidth" Value="120"/><Setter Property="Height" Value="32"/>
                 <Setter Property="Margin" Value="0,0,8,0"/>
                 <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
@@ -7271,10 +7333,10 @@ function New-AboutPanel {
         </Grid>
         <StackPanel Orientation="Horizontal">
             <Button x:Name="btnAboutUpdate" Content="Update now" MinWidth="110" Height="30" Margin="0,0,8,0"
-                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                     ToolTip="Download and install the latest release, then close and relaunch AppPackager"/>
             <Button x:Name="btnAboutReleases" Content="Release notes" MinWidth="110" Height="30"
-                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                     ToolTip="Open the releases page on GitHub"/>
         </StackPanel>
     </StackPanel>
@@ -7360,7 +7422,26 @@ function Show-OptionsDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
+            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
+                 MahApps Square style. Hover and pressed fills come from the Square template;
+                 the accent outline marks keyboard focus. -->
+            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>        </ResourceDictionary>
     </Window.Resources>
     <Grid>
         <Grid.ColumnDefinitions>
@@ -7375,7 +7456,7 @@ function Show-OptionsDialog {
 
         <ListBox Grid.Column="0" Grid.Row="0" x:Name="lstNav" BorderThickness="0" Padding="0,8,0,0">
             <ListBox.ItemContainerStyle>
-                <Style TargetType="ListBoxItem">
+                <Style TargetType="ListBoxItem" BasedOn="{StaticResource MahApps.Styles.ListBoxItem}">
                     <Setter Property="Padding" Value="16,10,16,10"/>
                     <Setter Property="FontSize" Value="13"/>
                 </Style>
@@ -7389,8 +7470,8 @@ function Show-OptionsDialog {
         <Border Grid.Column="0" Grid.ColumnSpan="3" Grid.Row="1"
                 BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="20,12,20,12">
-                <Button x:Name="btnOK"     Content="OK"     MinWidth="90" Height="32" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource MahApps.Styles.Button.Square.Accent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-                <Button x:Name="btnCancel" Content="Cancel" MinWidth="90" Height="32" IsCancel="True" Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <Button x:Name="btnOK"     Content="OK"     MinWidth="90" Height="32" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource ApButtonAccent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <Button x:Name="btnCancel" Content="Cancel" MinWidth="90" Height="32" IsCancel="True" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             </StackPanel>
         </Border>
     </Grid>
@@ -7503,7 +7584,26 @@ function Show-FirstRunWizard {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
+            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
+                 MahApps Square style. Hover and pressed fills come from the Square template;
+                 the accent outline marks keyboard focus. -->
+            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>        </ResourceDictionary>
     </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
@@ -7612,8 +7712,8 @@ function Show-FirstRunWizard {
                           Controls:ControlsHelper.ContentCharacterCasing="Normal"
                           ToolTip="Suppresses this wizard on future launches even when nothing is configured here. Saving always suppresses it."/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button x:Name="btnWizSave" Content="Save" MinWidth="90" Height="32" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource MahApps.Styles.Button.Square.Accent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-                    <Button x:Name="btnWizSkip" Content="Skip" MinWidth="90" Height="32" IsCancel="True" Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    <Button x:Name="btnWizSave" Content="Save" MinWidth="90" Height="32" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource ApButtonAccent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    <Button x:Name="btnWizSkip" Content="Skip" MinWidth="90" Height="32" IsCancel="True" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -9244,7 +9344,26 @@ function Show-DropIntakeDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
+            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
+                 MahApps Square style. Hover and pressed fills come from the Square template;
+                 the accent outline marks keyboard focus. -->
+            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>        </ResourceDictionary>
     </Window.Resources>
     <Grid Margin="20,16,20,16">
         <Grid.RowDefinitions>
@@ -9305,12 +9424,12 @@ function Show-DropIntakeDialog {
                   Content="I verified the predicted silent switches and detection for this installer"/>
 
         <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-            <Button x:Name="btnDropSaveApplication" Content="Save as Application" MinWidth="150" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource MahApps.Styles.Button.Square}"
+            <Button x:Name="btnDropSaveApplication" Content="Save as Application" MinWidth="150" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource ApButton}"
                     ToolTip="Keep this installer as a durable application so it reopens in the Application Workbench without a download script. Its update source stays manual."/>
-            <Button x:Name="btnDropSavePackager" Content="Save as Packager" MinWidth="130" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource MahApps.Styles.Button.Square}"/>
-            <Button x:Name="btnDropStage" Content="Stage" MinWidth="90" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource MahApps.Styles.Button.Square}"/>
-            <Button x:Name="btnDropStagePackage" Content="Stage + Package" MinWidth="130" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource MahApps.Styles.Button.Square.Accent}"/>
-            <Button x:Name="btnDropCancel" Content="Cancel" MinWidth="90" Height="32" IsCancel="True" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource MahApps.Styles.Button.Square}"/>
+            <Button x:Name="btnDropSavePackager" Content="Save as Packager" MinWidth="130" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource ApButton}"/>
+            <Button x:Name="btnDropStage" Content="Stage" MinWidth="90" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource ApButton}"/>
+            <Button x:Name="btnDropStagePackage" Content="Stage + Package" MinWidth="130" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource ApButtonAccent}"/>
+            <Button x:Name="btnDropCancel" Content="Cancel" MinWidth="90" Height="32" IsCancel="True" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource ApButton}"/>
         </StackPanel>
     </Grid>
 </Controls:MetroWindow>
@@ -10020,7 +10139,26 @@ function Show-DiscoveryDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
+            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
+                 MahApps Square style. Hover and pressed fills come from the Square template;
+                 the accent outline marks keyboard focus. -->
+            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>        </ResourceDictionary>
     </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
@@ -10047,16 +10185,16 @@ function Show-DiscoveryDialog {
         <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
             <WrapPanel Margin="16,10,16,10" HorizontalAlignment="Right">
                 <Button x:Name="btnEnableSelected" Content="Enable selected" MinWidth="130" Height="32" Margin="0,0,8,0"
-                        Style="{DynamicResource MahApps.Styles.Button.Square.Accent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        Style="{DynamicResource ApButtonAccent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Show the checked apps in the main grid"/>
                 <Button x:Name="btnEnableAll" Content="Enable all" MinWidth="110" Height="32" Margin="0,0,8,0"
-                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Show every app in this list in the main grid"/>
                 <Button x:Name="btnNotNow" Content="Not now" MinWidth="100" Height="32" Margin="0,0,8,0" IsCancel="True"
-                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Close without a change. The next discovery offers these apps again."/>
                 <Button x:Name="btnDismiss" Content="Don't ask again for selected" MinWidth="200" Height="32"
-                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Keep the checked apps hidden and leave them out of later discoveries. Clear the list in Options, ConfigMgr Preferences."/>
             </WrapPanel>
         </Border>
@@ -10393,7 +10531,26 @@ function Show-CmImportDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
+            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
+                 MahApps Square style. Hover and pressed fills come from the Square template;
+                 the accent outline marks keyboard focus. -->
+            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>        </ResourceDictionary>
     </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
@@ -10416,7 +10573,7 @@ function Show-CmImportDialog {
                 <TextBlock Text="Output folder" FontSize="12" FontWeight="SemiBold" Margin="0,10,0,4"/>
                 <DockPanel>
                     <Button x:Name="btnCmBrowse" Content="Browse..." DockPanel.Dock="Right" MinWidth="90" Height="28" Margin="8,0,0,0"
-                            Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                            Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                     <TextBox x:Name="txtCmOutput" FontSize="13"
                              ToolTip="One folder for each application is made here. It holds the content, the reports and the manifests."/>
                 </DockPanel>
@@ -10444,13 +10601,13 @@ function Show-CmImportDialog {
         <Border Grid.Row="1" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
             <WrapPanel Margin="16,10,16,10" HorizontalAlignment="Right">
                 <Button x:Name="btnCmPreview" Content="Preview" MinWidth="110" Height="32" Margin="0,0,8,0"
-                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Write the plan and the report. Copies no content."/>
                 <Button x:Name="btnCmConvert" Content="Convert" MinWidth="110" Height="32" Margin="0,0,8,0"
-                        Style="{DynamicResource MahApps.Styles.Button.Square.Accent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        Style="{DynamicResource ApButtonAccent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Copy the content and make the Intune app folders"/>
                 <Button x:Name="btnCmCancel" Content="Cancel" MinWidth="100" Height="32" IsCancel="True"
-                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             </WrapPanel>
         </Border>
     </Grid>
@@ -10848,7 +11005,26 @@ function Show-CveDetailDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <Style x:Key="LinkButton" TargetType="Button">
+            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
+                 MahApps Square style. Hover and pressed fills come from the Square template;
+                 the accent outline marks keyboard focus. -->
+            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>            <Style x:Key="LinkButton" TargetType="Button">
                 <Setter Property="Background" Value="Transparent"/>
                 <Setter Property="BorderThickness" Value="0"/>
                 <Setter Property="Padding" Value="4,0"/>
@@ -10911,15 +11087,15 @@ function Show-CveDetailDialog {
         <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
             <DockPanel Margin="16,10,16,10">
                 <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" MinWidth="90" Height="32"
-                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 <StackPanel Orientation="Horizontal">
                     <Button x:Name="btnRefresh" Content="Refresh" MinWidth="110" Height="32" Margin="0,0,8,0"
-                            Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                             ToolTip="Look the CVEs up again, bypassing the cache"/>
                     <Button x:Name="btnCopy" Content="Copy CVE IDs" MinWidth="110" Height="32" Margin="0,0,8,0"
-                            Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                            Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                     <Button x:Name="btnExport" Content="Export report" MinWidth="110" Height="32" Margin="0,0,8,0"
-                            Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                             ToolTip="Write the HTML, CSV and JSON report for this app under Logs\Reports and open the HTML"/>
                 </StackPanel>
             </DockPanel>
@@ -11182,7 +11358,26 @@ function Show-OneClickPlanDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
+            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
+                 MahApps Square style. Hover and pressed fills come from the Square template;
+                 the accent outline marks keyboard focus. -->
+            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>        </ResourceDictionary>
     </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
@@ -11243,17 +11438,17 @@ function Show-OneClickPlanDialog {
         <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
             <DockPanel Margin="16,10,16,10">
                 <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" MinWidth="90" Height="32"
-                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 <Button x:Name="btnOpenReport" DockPanel.Dock="Right" Content="Open report" MinWidth="110" Height="32" Margin="0,0,8,0" IsEnabled="False"
-                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 <Button x:Name="btnHistory" DockPanel.Dock="Right" Content="Run history" MinWidth="110" Height="32" Margin="0,0,8,0"
-                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Opens the folder with the reports of earlier runs."/>
                 <StackPanel Orientation="Horizontal">
                     <Button x:Name="btnRun" Content="Run" MinWidth="110" Height="32" Margin="0,0,8,0"
-                            Style="{DynamicResource MahApps.Styles.Button.Square.Accent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                            Style="{DynamicResource ApButtonAccent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                     <Button x:Name="btnPlanOnly" Content="Plan only" MinWidth="110" Height="32" Margin="0,0,16,0"
-                            Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                             ToolTip="Writes the plan as a report without running anything."/>
                     <CheckBox x:Name="chkForce" Content="Force: ignore the cadence and publish again" FontSize="12" VerticalAlignment="Center"
                               Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
@@ -11866,19 +12061,38 @@ function Show-WorkbenchUnsavedDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
+            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
+                 MahApps Square style. Hover and pressed fills come from the Square template;
+                 the accent outline marks keyboard focus. -->
+            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>        </ResourceDictionary>
     </Window.Resources>
     <StackPanel Margin="18,16,18,14">
         <TextBlock x:Name="txtUnsaved" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,16"/>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="btnUnsavedSave" Content="Save" MinWidth="100" Height="30" Margin="0,0,8,0"
-                    Style="{DynamicResource MahApps.Styles.Button.Square.Accent}"
+                    Style="{DynamicResource ApButtonAccent}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <Button x:Name="btnUnsavedDiscard" Content="Discard" MinWidth="100" Height="30" Margin="0,0,8,0"
-                    Style="{DynamicResource MahApps.Styles.Button.Square}"
+                    Style="{DynamicResource ApButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <Button x:Name="btnUnsavedCancel" Content="Cancel" MinWidth="100" Height="30" IsCancel="True"
-                    Style="{DynamicResource MahApps.Styles.Button.Square}"
+                    Style="{DynamicResource ApButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
     </StackPanel>
@@ -11923,17 +12137,36 @@ function Show-WorkbenchNameDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
+            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
+                 MahApps Square style. Hover and pressed fills come from the Square template;
+                 the accent outline marks keyboard focus. -->
+            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>        </ResourceDictionary>
     </Window.Resources>
     <StackPanel Margin="18,16,18,14">
         <TextBlock x:Name="txtNamePrompt" FontSize="12" Margin="0,0,0,8"/>
         <TextBox x:Name="txtNameValue" FontSize="12" Height="28" Margin="0,0,0,16"/>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="btnNameOk" Content="OK" MinWidth="90" Height="30" Margin="0,0,8,0" IsDefault="True"
-                    Style="{DynamicResource MahApps.Styles.Button.Square.Accent}"
+                    Style="{DynamicResource ApButtonAccent}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <Button x:Name="btnNameCancel" Content="Cancel" MinWidth="90" Height="30" IsCancel="True"
-                    Style="{DynamicResource MahApps.Styles.Button.Square}"
+                    Style="{DynamicResource ApButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
     </StackPanel>
@@ -13752,7 +13985,7 @@ function New-ScriptSigningPanel {
             <ComboBox  Grid.Row="1" Grid.Column="1" x:Name="cboSignCertificate" FontSize="12" Height="28" Margin="0,0,0,6"
                        ToolTip="Selected by thumbprint. A renewed certificate is a new thumbprint and needs reselecting here."/>
             <Button    Grid.Row="1" Grid.Column="2" x:Name="btnSignRefresh" Content="Refresh" MinWidth="100" Height="28" Margin="8,0,0,6"
-                       Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                       Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
             <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" x:Name="txtSignCertDetail" FontSize="11" TextWrapping="Wrap"
                        Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,8"/>
@@ -13768,7 +14001,7 @@ function New-ScriptSigningPanel {
 
         <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
             <Button x:Name="btnSignTest" Content="Test signing configuration" MinWidth="200" Height="28" Margin="0,0,10,0"
-                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                     ToolTip="Signs and verifies a temporary file with the selected certificate. Nothing is published."/>
         </StackPanel>
         <TextBlock x:Name="txtSignTestResult" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
@@ -13961,14 +14194,33 @@ function Show-WsusPasswordPrompt {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
+            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
+                 MahApps Square style. Hover and pressed fills come from the Square template;
+                 the accent outline marks keyboard focus. -->
+            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>        </ResourceDictionary>
     </Window.Resources>
     <StackPanel Margin="20,16,20,16">
         <TextBlock x:Name="txtPrompt" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,10"/>
         <PasswordBox x:Name="pwdValue" FontSize="13" Margin="0,0,0,14"/>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="btnOk" Content="OK" MinWidth="90" Height="32" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource MahApps.Styles.Button.Square.Accent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnCancel" Content="Cancel" MinWidth="90" Height="32" IsCancel="True" Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnOk" Content="OK" MinWidth="90" Height="32" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource ApButtonAccent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnCancel" Content="Cancel" MinWidth="90" Height="32" IsCancel="True" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
     </StackPanel>
 </Controls:MetroWindow>
@@ -14007,7 +14259,26 @@ function Show-WsusPublishedUpdatesDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
+            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
+                 MahApps Square style. Hover and pressed fills come from the Square template;
+                 the accent outline marks keyboard focus. -->
+            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>        </ResourceDictionary>
     </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
@@ -14037,26 +14308,26 @@ function Show-WsusPublishedUpdatesDialog {
         <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
             <DockPanel Margin="16,10,16,10">
                 <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" MinWidth="90" Height="32" IsCancel="True"
-                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 <Button x:Name="btnCatalog" DockPanel.Dock="Right" Content="Catalog Import" MinWidth="120" Height="32" Margin="0,0,8,0"
-                        Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Import Microsoft updates that do not synchronize automatically, by catalog update ID or link."/>
                 <StackPanel Orientation="Horizontal">
                     <ComboBox x:Name="cboGroup" IsEditable="True" Width="200" Height="30" FontSize="12" Margin="0,0,8,0"
                               ToolTip="Computer group for Approve. The list loads from the server."/>
                     <Button x:Name="btnApprove" Content="Approve for group" MinWidth="130" Height="32" Margin="0,0,8,0"
-                            Style="{DynamicResource MahApps.Styles.Button.Square.Accent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                            Style="{DynamicResource ApButtonAccent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                     <Button x:Name="btnDecline" Content="Decline" MinWidth="90" Height="32" Margin="0,0,8,0"
-                            Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                             ToolTip="Declined updates are not offered to any client. Approving again reverses it."/>
                     <Button x:Name="btnExpire" Content="Expire" MinWidth="90" Height="32" Margin="0,0,8,0"
-                            Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                             ToolTip="Expires the update on the server permanently. Clients stop seeing it; it cannot be approved again."/>
                     <Button x:Name="btnRemove" Content="Remove" MinWidth="90" Height="32" Margin="0,0,8,0"
-                            Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                             ToolTip="Declines the update and deletes it from the WSUS database. It cannot be undone."/>
                     <Button x:Name="btnRefresh" Content="Refresh" MinWidth="90" Height="32"
-                            Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                            Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 </StackPanel>
             </DockPanel>
         </Border>
@@ -14153,7 +14424,26 @@ function Show-WsusCatalogImportDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
+            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
+                 MahApps Square style. Hover and pressed fills come from the Square template;
+                 the accent outline marks keyboard focus. -->
+            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+                <Setter Property="BorderThickness" Value="1"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>        </ResourceDictionary>
     </Window.Resources>
     <Grid Margin="16,12,16,12">
         <Grid.RowDefinitions>
@@ -14170,17 +14460,17 @@ function Show-WsusCatalogImportDialog {
                  Controls:TextBoxHelper.Watermark="12345678-90ab-cdef-1234-567890abcdef"/>
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,8">
             <Button x:Name="btnImport" Content="Import" MinWidth="110" Height="32" Margin="0,0,8,0"
-                    Style="{DynamicResource MahApps.Styles.Button.Square.Accent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    Style="{DynamicResource ApButtonAccent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <Button x:Name="btnLoadFile" Content="Load IDs from file..." MinWidth="150" Height="32" Margin="0,0,8,0"
-                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <Button x:Name="btnOpenCatalog" Content="Open the catalog" MinWidth="130" Height="32"
-                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
         <TextBox Grid.Row="3" x:Name="txtResults" IsReadOnly="True" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"
                  VerticalScrollBarVisibility="Auto"/>
         <DockPanel Grid.Row="4" Margin="0,10,0,0">
             <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" MinWidth="90" Height="32" IsCancel="True"
-                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <TextBlock x:Name="txtStatus" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap"/>
         </DockPanel>
     </Grid>
@@ -14295,7 +14585,7 @@ function New-WsusPanel {
                           ToolTip="Connect to the WSUS administration API over HTTPS."/>
             </StackPanel>
             <Button Grid.Row="1" Grid.Column="2" x:Name="btnWsusTest" Content="Test connection" MinWidth="130" Height="28" Margin="8,0,0,6"
-                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" x:Name="txtWsusStatus" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"/>
         </Grid>
 
@@ -14304,13 +14594,13 @@ function New-WsusPanel {
                    Text="Test the connection to read the server's signing certificate."/>
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
             <Button x:Name="btnWsusCertCreate" Content="Create self-signed..." MinWidth="150" Height="28" Margin="0,0,8,0"
-                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                     ToolTip="Has the WSUS server create and use a self-signed signing certificate."/>
             <Button x:Name="btnWsusCertImport" Content="Import PFX..." MinWidth="120" Height="28" Margin="0,0,8,0"
-                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                     ToolTip="Sets a code-signing certificate with its private key from a PFX file, for example one issued by your PKI."/>
             <Button x:Name="btnWsusCertExport" Content="Export certificate..." MinWidth="150" Height="28"
-                    Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                     ToolTip="Saves the public signing certificate (.cer) for distribution to clients by Group Policy."/>
         </StackPanel>
         <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,12"
@@ -14338,7 +14628,7 @@ function New-WsusPanel {
             <ComboBox  Grid.Row="2" Grid.Column="1" x:Name="cboWsusGroup" IsEditable="True" FontSize="12" Height="28" Margin="0,0,0,6"
                        ToolTip="Computer group the update is approved for right after it publishes. Leave empty to approve later from WSUS Updates in the sidebar: the WSUS console does not list locally published updates."/>
             <Button    Grid.Row="2" Grid.Column="2" x:Name="btnWsusGroups" Content="Load groups" MinWidth="110" Height="28" Margin="8,0,0,6"
-                       Style="{DynamicResource MahApps.Styles.Button.Square}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                       Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <CheckBox  Grid.Row="3" Grid.Column="1" x:Name="chkWsusDecline" FontSize="12" Margin="0,0,0,6"
                        Content="Decline earlier versions of the same application after publishing" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                        ToolTip="Declines the AppPackager updates of the same application that have a lower version. Approving one again reverses it."/>
