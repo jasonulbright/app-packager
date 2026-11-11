@@ -74,7 +74,7 @@ if (Test-GroupSelected 'Lint') {
 $pesterGroups = [ordered]@{
     Modules = @(Get-ChildItem -LiteralPath (Join-Path $root 'Packagers') -Filter '*.Tests.ps1' -File -Recurse)
     Smoke   = @(Get-ChildItem -LiteralPath (Join-Path $root 'Tests') -Filter 'PackagerSmoke.Tests.ps1' -File)
-    Tests   = @(Get-ChildItem -LiteralPath (Join-Path $root 'Tests') -Filter '*.Tests.ps1' -File -Recurse | Where-Object { $_.Name -ne 'PackagerSmoke.Tests.ps1' -and $_.FullName -notmatch '[\/]Fixtures[\/]' })
+    Tests   = @(Get-ChildItem -LiteralPath (Join-Path $root 'Tests') -Filter '*.Tests.ps1' -File -Recurse | Where-Object { $_.Name -ne 'PackagerSmoke.Tests.ps1' -and $_.FullName -notmatch '[\\/]Fixtures[\\/]' })
 }
 foreach ($name in $pesterGroups.Keys) {
     if (-not (Test-GroupSelected $name)) { continue }
