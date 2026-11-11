@@ -1,0 +1,85 @@
+name: Checks
+
+# Lint and Pester tests (Invoke-Checks.ps1) on Windows PowerShell 5.1 and PowerShell 7.
+# The suite has 68 test files and a packager smoke test over every packager, so the Pester tests
+# run in three groups (Modules, Smoke, Tests) in separate jobs on each host.
+# Window probes run only on Windows PowerShell 5.1, with SUITE_ALLOW_WINDOW_TESTS set to 1.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Force -Scope CurrentUser
+      - name: Run the lint
+        shell: pwsh
+        run: .\Invoke-Checks.ps1 -Group Lint
+
+  windows-powershell:
+    name: Windows PowerShell 5.1 (${{ matrix.group }})
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [Modules, Smoke, Tests]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Install Pester
+        shell: powershell
+        run: Install-Module Pester -RequiredVersion 5.7.1 -Force -Scope CurrentUser -SkipPublisherCheck
+      - name: Run the checks
+        shell: powershell
+        run: .\Invoke-Checks.ps1 -Group ${{ matrix.group }}
+
+  powershell-7:
+    name: PowerShell 7 (${{ matrix.group }})
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [Modules, Smoke, Tests]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Install Pester
+        shell: pwsh
+        run: Install-Module Pester -RequiredVersion 5.7.1 -Force -Scope CurrentUser -SkipPublisherCheck
+      - name: Run the checks
+        shell: pwsh
+        run: .\Invoke-Checks.ps1 -Group ${{ matrix.group }}
+
+  window-probes:
+    name: Window probes (Windows PowerShell 5.1)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      SUITE_ALLOW_WINDOW_TESTS: '1'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Run the window probes
+        shell: powershell
+        run: .\Invoke-Checks.ps1 -Group Probes
