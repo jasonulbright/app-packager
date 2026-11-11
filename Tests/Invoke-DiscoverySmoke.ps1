@@ -35,6 +35,10 @@ function global:Add-LogLine { param([string]$Message) $global:Log += $Message }
 function global:Save-Preferences { param($Prefs) $global:Saves++ }
 function global:Invoke-RefreshGrid { param([switch]$DiscardSiteResults) $global:Refreshes++ }
 function global:Set-ActionButtonsEnabled { param([bool]$Enabled) $global:ButtonsEnabled = $Enabled }
+# The scan shows and hides the busy overlay. The probe has no overlay.
+function global:Show-BusyIndicator { param([string]$Title, [string]$Step, [switch]$AllowCancel) }
+function global:Set-BusyStep { param([string]$Text) }
+function global:Hide-BusyIndicator { }
 foreach ($stub in 'Get-GitHubApiAuthStatus', 'Get-IconPackManifestPath', 'Get-IconPackStatusText', 'Get-IntuneWinToolCachePath', 'Install-IconPack',
                   'Install-IconPackFromFile', 'Install-IntuneWinAppUtil', 'Invoke-DetectIntuneWinAppUtil', 'Read-IconPackManifest') {
     Set-Item -Path ('function:global:' + $stub) -Value { }

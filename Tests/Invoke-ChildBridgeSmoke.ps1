@@ -86,7 +86,7 @@ try {
     $newManifest = & $writeStage '2.0.0' '20260202-000000-bbbbbbbb'
 
     $selected = Assert-WorkbenchBuildSelection -BuildId '20260202-000000-bbbbbbbb' -DownloadRoot $downloadRoot -PackagerPath $fixturePath
-    & $assert ([string]$selected.Path -eq $newManifest) 'the newest build resolves to its own manifest'
+    & $assert ([string]$selected.Path -eq $newManifest) ('the newest build resolves to its own manifest: got ' + [string]$selected.Path + ' expected ' + $newManifest)
 
     $refused = $null
     try { [void](Assert-WorkbenchBuildSelection -BuildId '20260101-000000-aaaaaaaa' -DownloadRoot $downloadRoot -PackagerPath $fixturePath) }
