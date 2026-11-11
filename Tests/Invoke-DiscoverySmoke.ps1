@@ -18,7 +18,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $roo
 if ($errors) { throw ($errors.Message -join '; ') }
 foreach ($name in @('Show-DiscoveryDialog', 'Get-DiscoveryPromptText', 'Invoke-DiscoveryChoice', 'Enable-DiscoveredApplication',
                     'Add-DiscoveryDismissed', 'Resolve-DiscoveryButton', 'Complete-DiscoveryScan', 'Read-Preferences', 'Resolve-FirstRunCompleted', 'New-MecmPreferencesPanel',
-                    'Invoke-DiscoveryScan', 'Start-DiscoveryRunspace', 'Get-DiscoveryRunspaceState', 'Stop-DiscoveryRunspace', 'Stop-DiscoveryScan')) {
+                    'Hide-BusyIndicator', 'Invoke-DiscoveryScan', 'Start-DiscoveryRunspace', 'Get-DiscoveryRunspaceState', 'Stop-DiscoveryRunspace', 'Stop-DiscoveryScan')) {
     $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
     if (-not $fn) { throw ('function not found: ' + $name) }
     # Global, the way the shell publishes its functions: a GetNewClosure
@@ -35,10 +35,13 @@ function global:Add-LogLine { param([string]$Message) $global:Log += $Message }
 function global:Save-Preferences { param($Prefs) $global:Saves++ }
 function global:Invoke-RefreshGrid { param([switch]$DiscardSiteResults) $global:Refreshes++ }
 function global:Set-ActionButtonsEnabled { param([bool]$Enabled) $global:ButtonsEnabled = $Enabled }
-# The scan shows and hides the busy overlay. The probe has no overlay. Hide-BusyIndicator disables the Cancel button, as the real one does.
+# The scan shows and hides the busy overlay. The probe has no overlay window: Show-BusyIndicator and Set-BusyStep are stubs.
+# Hide-BusyIndicator is the real function from the shell. It runs against plain controls.
 function global:Show-BusyIndicator { param([string]$Title, [string]$Step, [switch]$AllowCancel) }
 function global:Set-BusyStep { param([string]$Text) }
-function global:Hide-BusyIndicator { $global:btnCancelPipeline.IsEnabled = $false }
+$global:progressOverlay = New-Object System.Windows.Controls.Border
+$global:window = New-Object System.Windows.Controls.Border
+$global:btnPausePipeline = New-Object System.Windows.Controls.Button
 foreach ($stub in 'Get-GitHubApiAuthStatus', 'Get-IconPackManifestPath', 'Get-IconPackStatusText', 'Get-IntuneWinToolCachePath', 'Install-IconPack',
                   'Install-IconPackFromFile', 'Install-IntuneWinAppUtil', 'Invoke-DetectIntuneWinAppUtil', 'Read-IconPackManifest') {
     Set-Item -Path ('function:global:' + $stub) -Value { }

@@ -86,7 +86,7 @@ try {
     $newManifest = & $writeStage '2.0.0' '20260202-000000-bbbbbbbb'
 
     $selected = Assert-WorkbenchBuildSelection -BuildId '20260202-000000-bbbbbbbb' -DownloadRoot $downloadRoot -PackagerPath $fixturePath
-    # The temp folder can be an 8.3 short path, so the two spellings differ. Compare the build folder and the file name.
+    # The temp folder can be an 8.3 short path, so the two spellings differ. Compare the version folder and the file name.
     $sameManifest = { param([string]$A, [string]$B) (Split-Path -Leaf $A) -eq (Split-Path -Leaf $B) -and (Split-Path -Leaf (Split-Path -Parent $A)) -eq (Split-Path -Leaf (Split-Path -Parent $B)) }
     & $assert (& $sameManifest ([string]$selected.Path) $newManifest) 'the newest build resolves to its own manifest'
 

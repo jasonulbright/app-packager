@@ -216,6 +216,8 @@ function Test-FirstRunWizardNeeded {
 }
 
 function Read-Preferences {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '', Justification = 'A key that an earlier build saved in plain text is protected on read.')]
+    param()
     $defaults = [pscustomobject]@{
         SiteCode             = "MCM"
         ProviderMachineName  = ""

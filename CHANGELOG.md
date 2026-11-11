@@ -12,7 +12,8 @@
 
 ### Fixed
 
-- Fix the CVE dialog probe, the Discover probe and the child bridge probe so they run on a clean computer.
+- Fix the CVE dialog probe and the discovery probe. They did not load functions that the app now calls.
+- Fix the child bridge probe. It failed when the temp folder path was in 8.3 short form.
 
 ## [2026.11.07.0131] - 2026-11-07
 

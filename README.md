@@ -1344,7 +1344,7 @@ Common loads two further modules at import, so packagers get them without any ch
 
 The tests use Pester 5.7.1 and PSScriptAnalyzer 1.25.0. They need no ConfigMgr site and no vendor download. The `Checks` workflow runs `Invoke-Checks.ps1` in GitHub Actions on each pull request and each push to `main`. It runs the lint, the Pester tests in three groups (Modules, Smoke, Tests) on Windows PowerShell 5.1 and on PowerShell 7, and the window probes on Windows PowerShell 5.1.
 
-To run a group by hand, use a lab computer only:
+To run a group by hand, use a test computer. The window probes open windows. The Adobe and TeamViewer probes are always skipped, because they need a local installer:
 
 ```powershell
 .\Invoke-Checks.ps1 -Group Modules   # or Lint, Smoke, Tests, Probes, All

@@ -17,7 +17,7 @@
                in an STA thread. They open windows, so they run only when
                SUITE_ALLOW_WINDOW_TESTS is 1. Without it the group is skipped.
       All      Lint, Modules, Smoke, Tests and Probes.
-    A failed test fails the run. A group that finds no test fails too.
+    A failed test fails the run. A group that finds no file or no test fails too.
     Nothing here contacts a vendor, a lab computer or a certificate trust store.
 
 .PARAMETER Group
@@ -52,15 +52,14 @@ if (Test-GroupSelected 'Lint') {
             $top = ($relative -split '[\\/]')[0]
             $skipFolders -notcontains $top -and $relative -notlike 'Tests*\Fixtures\*' -and $relative -notlike 'Tests*/Fixtures/*'
         })
+    if ($targets.Count -eq 0) { Write-Host 'Lint: no file found.'; $failed = $true }
     $settings = Join-Path $root 'Tests\PSScriptAnalyzerSettings.psd1'
     # Test files pass state to mock bodies through a global variable, and they define variables in BeforeAll that the It blocks read. Both are intended.
-    $testOnlyExclude = 'PSAvoidGlobalVars', 'PSUseDeclaredVarsMoreThanAssignments'
-    # The tests build a throwaway password as a SecureString from plain text. The start script protects a key that an earlier build saved in plain text.
-    # Both are by design, so the rule is off for every file.
-    $allExclude = 'PSAvoidUsingConvertToSecureStringWithPlainText'
+    # The tests also build a throwaway password as a SecureString from plain text.
+    $testOnlyExclude = 'PSAvoidGlobalVars', 'PSUseDeclaredVarsMoreThanAssignments', 'PSAvoidUsingConvertToSecureStringWithPlainText'
     $findings = @(foreach ($t in $targets) {
-            if ($t.Name -like '*.Tests.ps1' -or $t.FullName -like '*\Tests\*') { Invoke-ScriptAnalyzer -Path $t.FullName -Settings $settings -ExcludeRule ($testOnlyExclude + $allExclude) }
-            else { Invoke-ScriptAnalyzer -Path $t.FullName -Settings $settings -ExcludeRule $allExclude }
+            if ($t.Name -like '*.Tests.ps1' -or $t.FullName -like '*\Tests\*') { Invoke-ScriptAnalyzer -Path $t.FullName -Settings $settings -ExcludeRule $testOnlyExclude }
+            else { Invoke-ScriptAnalyzer -Path $t.FullName -Settings $settings }
         })
     $blocking = @($findings | Where-Object { $_.Severity -eq 'Error' })
     Write-Host ('Lint: {0} files, {1} findings, {2} with severity Error' -f $targets.Count, $findings.Count, $blocking.Count)
@@ -73,9 +72,9 @@ if (Test-GroupSelected 'Lint') {
 
 # ---- Pester groups ---------------------------------------------------------
 $pesterGroups = [ordered]@{
-    Modules = @(Get-ChildItem -LiteralPath (Join-Path $root 'Packagers') -Filter '*.Tests.ps1' -File)
+    Modules = @(Get-ChildItem -LiteralPath (Join-Path $root 'Packagers') -Filter '*.Tests.ps1' -File -Recurse)
     Smoke   = @(Get-ChildItem -LiteralPath (Join-Path $root 'Tests') -Filter 'PackagerSmoke.Tests.ps1' -File)
-    Tests   = @(Get-ChildItem -LiteralPath (Join-Path $root 'Tests') -Filter '*.Tests.ps1' -File | Where-Object { $_.Name -ne 'PackagerSmoke.Tests.ps1' })
+    Tests   = @(Get-ChildItem -LiteralPath (Join-Path $root 'Tests') -Filter '*.Tests.ps1' -File -Recurse | Where-Object { $_.Name -ne 'PackagerSmoke.Tests.ps1' -and $_.FullName -notmatch '[\/]Fixtures[\/]' })
 }
 foreach ($name in $pesterGroups.Keys) {
     if (-not (Test-GroupSelected $name)) { continue }
@@ -102,6 +101,12 @@ foreach ($name in $pesterGroups.Keys) {
 if (Test-GroupSelected 'Probes') {
     if ($env:SUITE_ALLOW_WINDOW_TESTS -ne '1') {
         Write-Host 'Window probes skipped: SUITE_ALLOW_WINDOW_TESTS is not 1.'
+        # A CI job that asks for the Probes group must run them.
+        if ($Group -eq 'Probes' -and $env:GITHUB_ACTIONS -eq 'true') { Write-Host 'The CI job did not set SUITE_ALLOW_WINDOW_TESTS.'; $failed = $true }
+    }
+    elseif (@(Get-ChildItem -LiteralPath (Join-Path $root 'Tests') -Filter 'Invoke-*Smoke.ps1' -File | Where-Object { $_.Name -ne 'Invoke-PackagerSmoke.ps1' }).Count -eq 0) {
+        Write-Host 'Window probes: no probe file found.'
+        $failed = $true
     }
     else {
         # Invoke-FullRegression.ps1 runs each probe in its own STA child process with a time limit.
