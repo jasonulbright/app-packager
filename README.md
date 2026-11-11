@@ -30,7 +30,7 @@ Installs the latest release into `%LOCALAPPDATA%\AppPackager`. Only a zip crosse
 On an unrestricted network, the installer can do the whole flow itself — resolve the release from the GitHub API, download, verify SHA-256, extract:
 
 ```powershell
-curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.11.07.0131
+curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.11.11.0132
 ```
 
 Omitting `-ZipPath` makes it download and checksum-verify the requested release; `-InstallPath` picks the folder and `-Version` pins a release. `-Force` is required to replace a non-empty folder that holds no existing AppPackager install. If even the curl download is blocked, fetch the zip in a browser and run the same `-ZipPath` command against it.
@@ -1339,6 +1339,18 @@ Common loads two further modules at import, so packagers get them without any ch
 **`AppPackagerOneClick.psm1`** loads in the GUI and the command-line build: the One Click plan per application and destination, the cadence gate, the destinations a run publishes to, and the Markdown and JSON run report.
 
 **`AppPackagerWsus.psm1`** loads only in the GUI, its background runspace, and the command-line build; packager scripts never publish. It holds the WSUS settings validation, the manifest-to-applicability-rule mapping, the compatibility findings, the publish flow, the signing-certificate operations, the published-update management, and the catalog import. Every WSUS API call sits in one adapter section, so the module imports on a computer without the WSUS console.
+
+## Testing
+
+The tests use Pester 5.7.1 and PSScriptAnalyzer 1.25.0. They need no ConfigMgr site and no vendor download. The `Checks` workflow runs `Invoke-Checks.ps1` in GitHub Actions on each pull request and each push to `main`. It runs the lint, the Pester tests in three groups (Modules, Smoke, Tests) on Windows PowerShell 5.1 and on PowerShell 7, and the window probes on Windows PowerShell 5.1.
+
+To run a group by hand, use a test computer. The window probes open windows. The Adobe and TeamViewer probes are always skipped, because they need a local installer:
+
+```powershell
+.\Invoke-Checks.ps1 -Group Modules   # or Lint, Smoke, Tests, Probes, All
+```
+
+The window probes run only when the environment variable `SUITE_ALLOW_WINDOW_TESTS` is `1`. The lint fails on a finding of severity Error. It counts the older Warning and Information findings by rule. `Tests\README.md` describes each test file.
 
 ## License
 

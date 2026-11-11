@@ -86,7 +86,9 @@ try {
     $newManifest = & $writeStage '2.0.0' '20260202-000000-bbbbbbbb'
 
     $selected = Assert-WorkbenchBuildSelection -BuildId '20260202-000000-bbbbbbbb' -DownloadRoot $downloadRoot -PackagerPath $fixturePath
-    & $assert ([string]$selected.Path -eq $newManifest) 'the newest build resolves to its own manifest'
+    # The temp folder can be an 8.3 short path, so the two spellings differ. Compare the version folder and the file name.
+    $sameManifest = { param([string]$A, [string]$B) (Split-Path -Leaf $A) -eq (Split-Path -Leaf $B) -and (Split-Path -Leaf (Split-Path -Parent $A)) -eq (Split-Path -Leaf (Split-Path -Parent $B)) }
+    & $assert (& $sameManifest ([string]$selected.Path) $newManifest) 'the newest build resolves to its own manifest'
 
     $refused = $null
     try { [void](Assert-WorkbenchBuildSelection -BuildId '20260101-000000-aaaaaaaa' -DownloadRoot $downloadRoot -PackagerPath $fixturePath) }

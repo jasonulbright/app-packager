@@ -15,7 +15,7 @@ $tokens = $null
 $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'start-apppackager.ps1'), [ref]$tokens, [ref]$errors)
 if ($errors) { throw ($errors.Message -join '; ') }
-foreach ($name in @('Show-CveDetailDialog', 'ConvertTo-CveDialogRows', 'Get-CveGridCells', 'Get-CveReportRows', 'Write-CveReportForRows', 'Open-ExternalUrl')) {
+foreach ($name in @('Show-CveDetailDialog', 'ConvertTo-CveDialogRows', 'Get-CveGridCells', 'Find-CveSessionResult', 'Get-CveReportRows', 'Write-CveReportForRows', 'Open-ExternalUrl')) {
     $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
     if (-not $fn) { throw "function $name not found" }
     Set-Item -Path ('function:global:' + $name) -Value ([scriptblock]::Create($fn.Body.Extent.Text.Trim('{', '}')))

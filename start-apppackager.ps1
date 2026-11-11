@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.11.07.0131
+    Version    : 2026.11.11.0132
     Updated    : 2026-09-09
 #>
 
@@ -216,6 +216,8 @@ function Test-FirstRunWizardNeeded {
 }
 
 function Read-Preferences {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '', Justification = 'A key that an earlier build saved in plain text is protected on read.')]
+    param()
     $defaults = [pscustomobject]@{
         SiteCode             = "MCM"
         ProviderMachineName  = ""

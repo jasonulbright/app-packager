@@ -1,5 +1,20 @@
 # Changelog
 
+## [2026.11.11.0132] - 2026-11-11
+
+## 68 test files run in CI on 2 PowerShell versions
+
+### Added
+
+- Add the GitHub Actions workflow `checks.yml`: lint, Pester tests in three groups on Windows PowerShell 5.1 and PowerShell 7, and the window probes.
+- Add `Invoke-Checks.ps1`, the command that the `Checks` workflow runs.
+- Add a Testing section to the README.
+
+### Fixed
+
+- Fix the CVE dialog probe and the discovery probe. They did not load functions that the app now calls.
+- Fix the child bridge probe. It failed when the temp folder path was in 8.3 short form.
+
 ## [2026.11.07.0131] - 2026-11-07
 
 ## 5 theme fixes and 1 change
