@@ -6,7 +6,7 @@ Maintainer procedure for publishing a release. Run every command from the reposi
 
 - On `main`, working tree clean, `main` level with `origin/main`.
 - Every commit to `main` is part of a release. A commit that is not followed by a tag in the same session, including a documentation-only commit, blocks the suite installer build until the next release. Do not hold such edits: merge them and release in the same session.
-- The full test suite passes under Windows PowerShell 5.1 with Pester 5, and again under PowerShell 7. Windows PowerShell is the shipping host and the build host; a failure under either host is a defect, and the fix must be host-neutral (no change that breaks 5.1):
+- The `Checks` workflow passes on the release pull request: lint, the Pester groups on Windows PowerShell 5.1 and on PowerShell 7, and the window probes. The workflow runs `Invoke-Checks.ps1`. The commands below are the manual form of the same Pester run. Windows PowerShell is the shipping host and the build host; a failure under either host is a defect, and the fix must be host-neutral (no change that breaks 5.1):
 
 ```bash
 powershell -NoProfile -Command 'Import-Module Pester -MinimumVersion 5.0; $r = Invoke-Pester -Path Tests, Packagers -PassThru -Output None; "result {0} passed {1} failed {2} failedContainers {3} failedBlocks {4}" -f $r.Result, $r.PassedCount, $r.FailedCount, $r.FailedContainersCount, $r.FailedBlocksCount'
@@ -62,7 +62,7 @@ Build from the tag, never from the working tree. Use an output folder outside th
 
 ```bash
 OUT=<folder outside the repo>
-git archive --format=zip v<ver> -o "$OUT/AppPackager-<ver>.zip" -- . ":(exclude)Tests" ":(exclude)*.Tests.ps1" ":(exclude)RELEASING.md"
+git archive --format=zip v<ver> -o "$OUT/AppPackager-<ver>.zip" -- . ":(exclude)Tests" ":(exclude)*.Tests.ps1" ":(exclude)RELEASING.md" ":(exclude)Invoke-Checks.ps1" ":(exclude).github"
 cp "$OUT/AppPackager-<ver>.zip" "$OUT/AppPackager.zip"
 (cd "$OUT" && sha256sum -b AppPackager-<ver>.zip AppPackager.zip > checksums.txt)
 git show v<ver>:install.ps1 | unix2dos > "$OUT/install.ps1"
@@ -76,7 +76,7 @@ git show v<ver>:install.ps1 | unix2dos > "$OUT/install.ps1"
 Check the zip before publishing. This must print 0:
 
 ```bash
-unzip -Z1 "$OUT/AppPackager.zip" | grep -c -E '^Tests/|\.Tests\.ps1$|^RELEASING\.md$'
+unzip -Z1 "$OUT/AppPackager.zip" | grep -c -E '^Tests/|\.Tests\.ps1$|^RELEASING\.md$|^Invoke-Checks\.ps1$|^\.github/'
 ```
 
 ## 6. Release notes
