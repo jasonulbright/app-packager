@@ -1,5 +1,28 @@
 # Changelog
 
+## [2026.11.12.0133] - 2026-11-12
+
+## 21 corrected CPE names and a new CVE lookup
+
+### Fixed
+
+- Find the CVEs that NVD lists with one exact version or with no version range.
+- Compare versions with pre-release words, patch letters and four parts correctly.
+- Correct the CPE name of 21 packagers so that the lookup finds their CVEs.
+- Show the time of a CVE lookup in the same form on PowerShell 7.
+
+### Changed
+
+- Show the CVEs of the ConfigMgr version, also for a row with no update.
+- Show how many CVEs the update fixes in the column **Fixed by update**.
+- Show the status `Fixed`, `Open` or `No version` for each CVE in the CVE window.
+- Show `Not in NVD` when NVD holds no record under the product name.
+- List NVD records with no version apart and do not count them.
+- Read all NVD records of a product one time and use them for six hours.
+- Use the saved NVD records when NVD does not answer.
+- Save each CVE result in its own file. The old cache file is removed.
+- Accept more than one CPE name in a packager header. A CVE counts one time.
+
 ## [2026.11.11.0132] - 2026-11-11
 
 ## 68 test files run in CI on 2 PowerShell versions

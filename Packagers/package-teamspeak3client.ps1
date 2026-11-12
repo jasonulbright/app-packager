@@ -3,7 +3,7 @@ Vendor: TeamSpeak Systems GmbH
 App: TeamSpeak 3 Client
 CMName: TeamSpeak 3 Client
 VendorUrl: https://teamspeak.com/
-CPE: cpe:2.3:a:teamspeak:teamspeak3_client:*:*:*:*:*:*:*:*
+CPE: cpe:2.3:a:teamspeak:teamspeak3:*:*:*:*:client:*:*:*
 ReleaseNotesUrl: https://teamspeak.com/en/downloads/
 DownloadPageUrl: https://teamspeak.com/en/downloads/
 IconSource: Installer

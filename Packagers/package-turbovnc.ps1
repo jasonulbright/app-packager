@@ -3,7 +3,7 @@ Vendor: The VirtualGL Project
 App: TurboVNC
 CMName: TurboVNC
 VendorUrl: https://turbovnc.org/
-CPE: cpe:2.3:a:virtualgl:turbovnc:*:*:*:*:*:*:*:*
+CPE: cpe:2.3:a:turbovnc:turbovnc:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/TurboVNC/turbovnc/releases
 DownloadPageUrl: https://github.com/TurboVNC/turbovnc/releases/latest
 IconSource: External

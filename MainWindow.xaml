@@ -343,7 +343,7 @@
                     </DataGridTemplateColumn>
                     <DataGridTextColumn x:Name="colCveCvss" Header="Max CVSS" Width="120" MinWidth="120" Binding="{Binding CveCvss}" IsReadOnly="True"/>
                     <DataGridTextColumn x:Name="colCveKev" Header="KEV" Width="80" MinWidth="80" Binding="{Binding CveKev}" IsReadOnly="True"/>
-                    <DataGridTextColumn x:Name="colCveFixed" Header="Fixed by update" Width="160" MinWidth="160" Binding="{Binding CveFixed}" IsReadOnly="True"/>
+                    <DataGridTextColumn x:Name="colCveFixed" Header="Fixed by update" Width="170" MinWidth="170" Binding="{Binding CveFixed}" IsReadOnly="True"/>
                     <DataGridTextColumn x:Name="colCveNewest" Header="Newest CVE" Width="135" MinWidth="135" Binding="{Binding CveNewest}" IsReadOnly="True"/>
                     <DataGridTextColumn x:Name="colCveEpss" Header="Max EPSS" Width="120" MinWidth="120" Binding="{Binding CveEpss}" IsReadOnly="True" Visibility="Collapsed"/>
                     <DataGridTextColumn x:Name="colCveUpdated" Header="NVD updated" Width="150" MinWidth="150" Binding="{Binding CveUpdated}" IsReadOnly="True" Visibility="Collapsed"/>

@@ -5366,7 +5366,7 @@ function Get-LatestCorrettoRelease {
 #     "LastResult":       "Updated",    # Checked | NoChange | Updated | Failed
 #     "LastCmChecked":    "2026-04-19T17:00:00Z",
 #     "LastCmVersion":    "139.0.7258.66",
-#     "VulnSummary":      { "QueriedAt", "From", "To", "Source", "Count", "MaxCvss", "MaxSeverity", "KevCount", "MaxEpss", "Error" }
+#     "VulnSummary":      { ... }       # Get-VulnerabilitySummary of AppPackagerVulnerability.psm1
 #   },
 #   ...
 # }

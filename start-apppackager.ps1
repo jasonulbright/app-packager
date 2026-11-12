@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.11.11.0132
+    Version    : 2026.11.12.0133
     Updated    : 2026-09-09
 #>
 
@@ -4396,13 +4396,29 @@ function Get-CveGridCells {
         $to = ConvertTo-CveVersionKey -Version $LatestVersion
         if ((-not $from -and -not $to) -or [string](& $get 'From') -ne $from -or [string](& $get 'To') -ne $to) { return $cells }
     }
-    $cells.Checked = [string](& $get 'QueriedAt')
+    # PowerShell 7 reads the time text of the history file back as a
+    # DateTime; the cell keeps the text the lookup writes, which the report
+    # compares with the time of the cached result.
+    $checked = & $get 'QueriedAt'
+    if ($checked -is [datetime]) {
+        $stamp = [datetime]$checked
+        if ($stamp.Kind -eq [System.DateTimeKind]::Unspecified) { $stamp = [datetime]::SpecifyKind($stamp, [System.DateTimeKind]::Utc) }
+        $checked = $stamp.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [cultureinfo]::InvariantCulture)
+    }
+    $cells.Checked = [string]$checked
     if (& $get 'Error') { $cells.Count = 'Error'; return $cells }
     $count = [int](& $get 'Count')
     $kevCount = [int](& $get 'KevCount')
     $update = ([string](& $get 'Mode') -eq 'Update')
-    $cells.Count = [string]$count
-    if ($count -eq 0) { $cells.Text = 'no CVE' }
+    # NVD answered and holds no record under the product name of the CPE
+    # header: the product has no known CVE, or NVD files it under another
+    # name. The 0 is not a finding about the version, so the cell says so
+    # (Test-VulnerabilityProductUnknown of the vulnerability module).
+    $records = & $get 'ProductRecords'
+    $unknown = ($null -ne $records -and "$records" -ne '' -and [int]$records -eq 0)
+    $cells.Count = $(if ($unknown) { 'Not in NVD' } else { [string]$count })
+    if ($unknown) { $cells.Text = 'product not in NVD' }
+    elseif ($count -eq 0) { $cells.Text = 'no CVE' }
     else {
         $cells.Text = '{0} CVE{1}' -f $count, $(if ($count -eq 1) { '' } else { 's' })
         if ($update) { $cells.Text = 'fixes {0} of {1}' -f [int](& $get 'FixedCount'), $cells.Text }
@@ -4464,7 +4480,7 @@ function Get-CveReportRows {
         # A row whose latest lookup failed keeps the failure note, also when
         # an earlier lookup of this session is the result shown.
         if ($own -and $count -ne 'Error') { $note = '' }
-        elseif (-not $res -and $count -and $count -notmatch '^\d+$') { $note = $count }
+        elseif (-not $res -and $count -and $count -notmatch '^\d+$' -and $count -ne 'Not in NVD') { $note = $count }
         elseif (-not $res) { $note = 'Not checked' }
         # The cache holds the last good lookup. A row whose latest lookup
         # failed, or whose lookup is newer than the cache (its cache write
@@ -11150,7 +11166,7 @@ function Show-CveDetailDialog {
         if (-not $res) {
             $txtRange.Text = ('ConfigMgr {0}, latest {1}' -f $(if ([string]$Row.CurrentVersion) { [string]$Row.CurrentVersion } else { '-' }), $(if ([string]$Row.LatestVersion) { [string]$Row.LatestVersion } else { '-' }))
             $reason = [string]$Row.CveCount
-            if (-not $reason -or $reason -match '^\d+$') { $reason = 'Not checked. Run Check CVEs for this app. A lookup needs the ConfigMgr version or the latest version.' }
+            if (-not $reason -or $reason -match '^\d+$' -or $reason -eq 'Not in NVD') { $reason = 'Not checked. Run Check CVEs for this app. A lookup needs the ConfigMgr version or the latest version.' }
             $txtNote.Text = $reason
             $txtNote.Visibility = 'Visible'
             $links = @()

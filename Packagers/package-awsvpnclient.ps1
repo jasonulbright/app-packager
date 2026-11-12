@@ -3,7 +3,7 @@ Vendor: Amazon
 App: AWS VPN Client
 CMName: AWS VPN Client
 VendorUrl: https://aws.amazon.com/vpn/client-vpn-download/
-CPE: cpe:2.3:a:amazon:aws_vpn_client:*:*:*:*:*:*:*:*
+CPE: cpe:2.3:a:amazon:aws_client_vpn:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://docs.aws.amazon.com/vpn/latest/clientvpn-user/release-notes.html
 DownloadPageUrl: https://aws.amazon.com/vpn/client-vpn-download/
 IconSource: Installer

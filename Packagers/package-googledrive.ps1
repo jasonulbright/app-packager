@@ -3,7 +3,7 @@ Vendor: Google
 App: Google Drive for desktop
 CMName: Google Drive
 VendorUrl: https://www.google.com/drive/download/
-CPE: cpe:2.3:a:google:drive_for_desktop:*:*:*:*:*:*:*:*
+CPE: cpe:2.3:a:google:drive:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://support.google.com/a/answer/7577057
 DownloadPageUrl: https://support.google.com/a/answer/7577057
 IconSource: Installer

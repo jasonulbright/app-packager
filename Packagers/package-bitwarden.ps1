@@ -3,7 +3,7 @@ Vendor: Bitwarden Inc.
 App: Bitwarden Desktop (x64)
 CMName: Bitwarden
 VendorUrl: https://bitwarden.com/
-CPE: cpe:2.3:a:bitwarden:desktop:*:*:*:*:*:*:*:*
+CPE: cpe:2.3:a:bitwarden:bitwarden:*:*:*:*:desktop:*:*:*
 ReleaseNotesUrl: https://github.com/bitwarden/clients/releases
 DownloadPageUrl: https://bitwarden.com/download/
 SecurityAdvisoryUrl: https://www.bitwarden.com/help/security/

@@ -3,7 +3,7 @@ Vendor: UltiMaker
 App: UltiMaker Cura
 CMName: UltiMaker Cura
 VendorUrl: https://ultimaker.com/software/ultimaker-cura/
-CPE: cpe:2.3:a:ultimaker:cura:*:*:*:*:*:*:*:*
+CPE: cpe:2.3:a:ultimaker:ultimaker_cura:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/Ultimaker/Cura/releases
 DownloadPageUrl: https://github.com/Ultimaker/Cura/releases/latest
 IconSource: Installer

@@ -3,7 +3,7 @@ Vendor: Mozilla
 App: Mozilla Firefox ESR
 CMName: Mozilla Firefox ESR
 VendorUrl: https://www.mozilla.org/firefox/enterprise/
-CPE: cpe:2.3:a:mozilla:firefox_esr:*:*:*:*:*:*:*:*
+CPE: cpe:2.3:a:mozilla:firefox_esr:*:*:*:*:*:*:*:* cpe:2.3:a:mozilla:firefox:*:*:*:*:esr:*:*:*
 ReleaseNotesUrl: https://www.mozilla.org/en-US/firefox/organizations/notes/
 DownloadPageUrl: https://www.mozilla.org/en-US/firefox/enterprise/
 SecurityAdvisoryUrl: https://www.mozilla.org/en-US/security/known-vulnerabilities/firefox/
