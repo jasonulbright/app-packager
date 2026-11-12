@@ -3,7 +3,7 @@ Vendor: Henri Wahl
 App: Nagstamon
 CMName: Nagstamon
 VendorUrl: https://nagstamon.de/
-CPE: cpe:2.3:a:nagstamon:nagstamon:*:*:*:*:*:*:*:*
+CPE: cpe:2.3:a:henri_wahl:nagstamon:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/HenriWahl/Nagstamon/releases
 DownloadPageUrl: https://nagstamon.de/download/
 IconSource: Installer

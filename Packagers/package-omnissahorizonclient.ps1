@@ -3,7 +3,7 @@ Vendor: Omnissa
 App: Omnissa Horizon Client
 CMName: Omnissa Horizon Client
 VendorUrl: https://www.omnissa.com/
-CPE: cpe:2.3:a:omnissa:horizon_client:*:*:*:*:*:*:*:*
+CPE: cpe:2.3:a:omnissa:horizon_client:*:*:*:*:*:*:*:* cpe:2.3:a:vmware:horizon_client:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://docs.omnissa.com/category/HorizonClientforWindowsReleaseNotes
 DownloadPageUrl: https://customerconnect.omnissa.com/downloads/info/slug/virtual_desktop_and_apps/omnissa_horizon_clients/8
 IconSource: Installer

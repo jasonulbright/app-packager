@@ -3,7 +3,7 @@ Vendor: John MacFarlane
 App: Pandoc
 CMName: Pandoc
 VendorUrl: https://pandoc.org/
-CPE: cpe:2.3:a:johnmacfarlane:pandoc:*:*:*:*:*:*:*:*
+CPE: cpe:2.3:a:pandoc:pandoc:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/jgm/pandoc/releases
 DownloadPageUrl: https://pandoc.org/installing.html
 IconSource: None

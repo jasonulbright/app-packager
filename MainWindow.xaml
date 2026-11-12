@@ -193,7 +193,7 @@
                             <TextBlock Text="Discover Unmanaged Software" TextWrapping="Wrap"/>
                         </Button>
                         <Button x:Name="btnCheckCve"    Content="Check CVEs"      Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="Look up the CVEs fixed by updating each checked app from its ConfigMgr version to the latest version. Needs both versions and a CPE header."/>
+                                ToolTip="Look up the CVEs that affect the ConfigMgr version of each checked app, and how many of them the latest version fixes. Needs a CPE header and one version; without a ConfigMgr version the latest version is examined."/>
                         <Button x:Name="btnStage"       Content="Stage Packages"  Style="{StaticResource WorkflowButtonStyle}"
                                 ToolTip="Download and extract each checked app into the local staging root"/>
                         <Button x:Name="btnPackage"     Content="Publish to ConfigMgr" Style="{StaticResource WorkflowButtonStyle}"
@@ -343,7 +343,7 @@
                     </DataGridTemplateColumn>
                     <DataGridTextColumn x:Name="colCveCvss" Header="Max CVSS" Width="120" MinWidth="120" Binding="{Binding CveCvss}" IsReadOnly="True"/>
                     <DataGridTextColumn x:Name="colCveKev" Header="KEV" Width="80" MinWidth="80" Binding="{Binding CveKev}" IsReadOnly="True"/>
-                    <DataGridTextColumn x:Name="colCveFixed" Header="In latest" Width="120" MinWidth="120" Binding="{Binding CveFixed}" IsReadOnly="True"/>
+                    <DataGridTextColumn x:Name="colCveFixed" Header="Fixed by update" Width="170" MinWidth="170" Binding="{Binding CveFixed}" IsReadOnly="True"/>
                     <DataGridTextColumn x:Name="colCveNewest" Header="Newest CVE" Width="135" MinWidth="135" Binding="{Binding CveNewest}" IsReadOnly="True"/>
                     <DataGridTextColumn x:Name="colCveEpss" Header="Max EPSS" Width="120" MinWidth="120" Binding="{Binding CveEpss}" IsReadOnly="True" Visibility="Collapsed"/>
                     <DataGridTextColumn x:Name="colCveUpdated" Header="NVD updated" Width="150" MinWidth="150" Binding="{Binding CveUpdated}" IsReadOnly="True" Visibility="Collapsed"/>

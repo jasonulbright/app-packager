@@ -30,7 +30,8 @@ None.
 | `<Output folder>\ConfigMgrImport\<application>\` | The plan, the report and the content of a conversion to Intune. |
 | `%LOCALAPPDATA%\AppPackager\app-history.json` | The history of the checks. |
 | `%LOCALAPPDATA%\AppPackager\update-check.json` | The result of the daily update check. |
-| `%LOCALAPPDATA%\AppPackager\vuln-cache.json` | The CVE results, cached for six hours. |
+| `%LOCALAPPDATA%\AppPackager\vuln-results\` | The CVE results, one file for each CPE and version pair, used for six hours. |
+| `%LOCALAPPDATA%\AppPackager\vuln-products\` | The NVD records of each product, used for six hours. |
 | `%LOCALAPPDATA%\AppPackagerData\Workbench\` | The Workbench profiles and the build records. |
 
 ## Limits

@@ -2,9 +2,25 @@ BeforeAll {
     $t = $null; $e = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\start-apppackager.ps1'), [ref]$t, [ref]$e)
     if ($e) { throw ($e.Message -join '; ') }
-    foreach ($name in 'Invoke-RefreshGrid', 'Get-SiteIdentityKey', 'Clear-SucceededSelection', 'Get-CveGridCells', 'Select-OnlyUpdateAvailable', 'Compare-SemVer') {
+    # The grid refresh calls the CVE cell helpers; a helper that is not lifted
+    # fails the refresh with "The term ... is not recognized".
+    foreach ($name in 'Invoke-RefreshGrid', 'Get-SiteIdentityKey', 'Clear-SucceededSelection', 'Get-CveGridCells', 'ConvertTo-CveVersionKey', 'ConvertTo-CvePairKey', 'Set-CveCellsPair', 'Clear-StaleCveCells', 'Select-OnlyUpdateAvailable', 'Compare-SemVer') {
         $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }.GetNewClosure(), $false)
+        if (-not $fn) { throw "function $name not found" }
         . ([scriptblock]::Create($fn.Extent.Text))
+    }
+
+    $script:ChromeCpe = 'cpe:2.3:a:google:chrome:*:*:*:*:*:*:*:*'
+    # The history summary of one lookup: 4 CVEs affect 129.0, and 130.0 fixes 3 of them.
+    $script:NewChromeSummary = {
+        param([hashtable]$Set = @{})
+        $s = [ordered]@{
+            Schema = 2; QueriedAt = '2026-10-11T12:00:00Z'; Cpe = $script:ChromeCpe; From = '129.0'; To = '130.0'; Mode = 'Update'; Source = 'NVD'
+            Count = 4; FixedCount = 3; OpenCount = 1; UnversionedCount = 0; MaxCvss = 8.8; MaxSeverity = 'HIGH'; KevCount = 1; FixedKevCount = 1
+            MaxEpss = 0.3; NewestPublished = '2026-09-30'; LastNvdUpdate = '2026-10-08'; ProductRecords = 40; Error = $null
+        }
+        foreach ($k in $Set.Keys) { $s[$k] = $Set[$k] }
+        [pscustomobject]$s
     }
 
     function Update-GridFilter { }
@@ -12,8 +28,8 @@ BeforeAll {
         @{
             'package-chrome' = @{
                 LastKnownVersion = $script:ChromeLatest; LastChecked = 'yesterday'
-                LastCmVersion = '129.0'; LastCmSite = 'MCM'; LastCmChecked = 'yesterday'
-                VulnSummary = [pscustomobject]@{ QueriedAt = '2026-10-11T12:00:00Z'; From = '129.0'; To = '130.0'; Source = 'NVD'; Count = 4; MaxCvss = 8.8; MaxSeverity = 'HIGH'; KevCount = 1; MaxEpss = 0.3; Error = $null; FixedInLatestCount = 1; FixedEarlierCount = 3; FixedUnknownCount = 0; NewestPublished = '2026-09-30'; LastNvdUpdate = '2026-10-08' }
+                LastCmVersion = $script:ChromeCm; LastCmSite = $script:ChromeCmSite; LastCmChecked = 'yesterday'
+                VulnSummary = $script:ChromeSummary
             }
             'package-firefox' = @{ LastCmVersion = '140.0'; LastCmSite = 'OLD' }
         }
@@ -21,7 +37,7 @@ BeforeAll {
     function Get-Packagers {
         param($Root)
         @(
-            [pscustomobject]@{ Script = 'package-chrome.ps1'; Vendor = 'Google'; Application = 'Chrome'; Status = 'Ready'; CMName = 'Google Chrome'; FullPath = 'x'; VendorUrl = ''; Description = ''; CPE = 'cpe:2.3:a:google:chrome:*:*:*:*:*:*:*:*'; SecurityAdvisoryUrl = 'https://chromereleases.googleblog.com/' }
+            [pscustomobject]@{ Script = 'package-chrome.ps1'; Vendor = 'Google'; Application = 'Chrome'; Status = 'Ready'; CMName = 'Google Chrome'; FullPath = 'x'; VendorUrl = ''; Description = ''; CPE = $script:ChromeCpe; SecurityAdvisoryUrl = 'https://chromereleases.googleblog.com/' }
             # Get-Packagers always sets CPE, empty when the header has none.
             [pscustomobject]@{ Script = 'package-firefox.ps1'; Vendor = 'Mozilla'; Application = 'Firefox'; Status = $script:FirefoxStatus; CMName = 'Mozilla Firefox'; FullPath = 'y'; VendorUrl = ''; Description = ''; CPE = ''; SecurityAdvisoryUrl = '' }
         )
@@ -34,6 +50,9 @@ Describe 'Grid refresh keeps session results' {
     BeforeEach {
         $script:FirefoxStatus = 'Ready'
         $script:ChromeLatest = '130.0'
+        $script:ChromeCm = '129.0'
+        $script:ChromeCmSite = 'MCM'
+        $script:ChromeSummary = & $script:NewChromeSummary
         $script:Prefs = [pscustomobject]@{ HiddenApplications = @(); SiteCode = 'MCM' }
         $script:GridSessionRows = $null
         $script:PackagerData = New-Object System.Collections.ObjectModel.ObservableCollection[object]
@@ -86,12 +105,101 @@ Describe 'Grid refresh keeps session results' {
         $chrome.CveKev | Should -Be 'Yes'
         $chrome.CveEpss | Should -Match '^30'
         $chrome.CveChecked | Should -Be '2026-10-11T12:00:00Z'
-        $chrome.CveFixed | Should -Be '1 of 4'
+        # The update removes 3 of the 4 CVEs that affect the ConfigMgr version.
+        $chrome.CveFixed | Should -Be '3 of 4'
         $chrome.CveNewest | Should -Be '2026-09-30'
         $chrome.CveUpdated | Should -Be '2026-10-08'
-        $chrome.Status | Should -Be 'Update available (4 CVEs, 1 in KEV)'
+        $chrome.Status | Should -Be 'Update available (fixes 3 of 4 CVEs, 1 in KEV)'
+        $chrome.CvePair | Should -BeExactly '129.0|130.0'
         $chrome.AdvisoryUrl | Should -Be 'https://chromereleases.googleblog.com/'
         ($script:PackagerData | Where-Object Script -eq 'package-firefox.ps1').AdvisoryUrl | Should -Be ''
+    }
+
+    It 'shows no count for a history summary of the former layout' {
+        # The former layout has no Schema field. Its Count is the number of CVEs between two versions.
+        $script:ChromeSummary = [pscustomobject]@{ QueriedAt = '2026-10-11T12:00:00Z'; From = '129.0'; To = '130.0'; Cpe = $script:ChromeCpe; Source = 'NVD'; Count = 4; MaxCvss = 8.8; MaxSeverity = 'HIGH'; KevCount = 1; MaxEpss = 0.3; Error = $null; FixedInLatestCount = 1; FixedEarlierCount = 3; FixedUnknownCount = 0; NewestPublished = '2026-09-30'; LastNvdUpdate = '2026-10-08' }
+        $script:GridSessionRows = $null
+        $script:PackagerData = New-Object System.Collections.ObjectModel.ObservableCollection[object]
+        Invoke-RefreshGrid
+        $chrome = $script:PackagerData | Where-Object Script -eq 'package-chrome.ps1'
+        $chrome.CurrentVersion | Should -Be '129.0'
+        $chrome.LatestVersion | Should -Be '130.0'
+        foreach ($p in 'CveCount', 'CveCvss', 'CveKev', 'CveEpss', 'CveChecked', 'CveFixed', 'CveNewest', 'CveUpdated') { $chrome.$p | Should -Be '' -Because $p }
+        $chrome.CvePair | Should -BeExactly ''
+        $chrome.Status | Should -Be 'Update available'
+    }
+
+    It 'shows no count for a history summary of another product' {
+        $script:ChromeSummary = & $script:NewChromeSummary @{ Cpe = 'cpe:2.3:a:google:chrome_frame:*:*:*:*:*:*:*:*' }
+        $script:GridSessionRows = $null
+        $script:PackagerData = New-Object System.Collections.ObjectModel.ObservableCollection[object]
+        Invoke-RefreshGrid
+        $chrome = $script:PackagerData | Where-Object Script -eq 'package-chrome.ps1'
+        $chrome.CveCount | Should -Be ''
+        $chrome.CveChecked | Should -Be ''
+        $chrome.Status | Should -Be 'Update available'
+    }
+
+    It 'shows the open CVEs of an up-to-date application with no fixed count' {
+        $script:ChromeCm = '130.0'
+        $script:ChromeSummary = & $script:NewChromeSummary @{ From = '130.0'; To = '130.0'; Mode = 'Deployed'; Count = 2; FixedCount = 0; OpenCount = 2; KevCount = 0; FixedKevCount = 0 }
+        $script:GridSessionRows = $null
+        $script:PackagerData = New-Object System.Collections.ObjectModel.ObservableCollection[object]
+        Invoke-RefreshGrid
+        $chrome = $script:PackagerData | Where-Object Script -eq 'package-chrome.ps1'
+        $chrome.CveCount | Should -Be '2'
+        $chrome.CveFixed | Should -Be ''
+        $chrome.CveKev | Should -Be ''
+        $chrome.CvePair | Should -BeExactly '130.0|130.0'
+        $chrome.Status | Should -Be 'Up to date'
+    }
+
+    It 'shows the CVEs of the latest version when the site holds no version' {
+        # The ConfigMgr version of the history came from another site and is not used.
+        $script:ChromeCmSite = 'OLD'
+        $script:ChromeSummary = & $script:NewChromeSummary @{ From = ''; To = '130.0'; Mode = 'Latest'; Count = 1; FixedCount = 0; OpenCount = 1; KevCount = 0; FixedKevCount = 0 }
+        $script:GridSessionRows = $null
+        $script:PackagerData = New-Object System.Collections.ObjectModel.ObservableCollection[object]
+        Invoke-RefreshGrid
+        $chrome = $script:PackagerData | Where-Object Script -eq 'package-chrome.ps1'
+        $chrome.CurrentVersion | Should -Be ''
+        $chrome.CveCount | Should -Be '1'
+        $chrome.CveFixed | Should -Be ''
+        $chrome.CvePair | Should -BeExactly '|130.0'
+        $chrome.Status | Should -Be 'Ready'
+    }
+
+    It 'shows no count of a ConfigMgr version when the site holds no version' {
+        $script:ChromeCmSite = 'OLD'
+        $script:GridSessionRows = $null
+        $script:PackagerData = New-Object System.Collections.ObjectModel.ObservableCollection[object]
+        Invoke-RefreshGrid
+        $chrome = $script:PackagerData | Where-Object Script -eq 'package-chrome.ps1'
+        $chrome.CurrentVersion | Should -Be ''
+        $chrome.CveCount | Should -Be ''
+        $chrome.CveChecked | Should -Be ''
+    }
+
+    It 'fills the empty CVE cells of a kept row from the history' {
+        $chrome = $script:PackagerData | Where-Object Script -eq 'package-chrome.ps1'
+        $chrome.CurrentVersion = '129.0'; $chrome.LatestVersion = '130.0'
+        foreach ($p in 'CveCount', 'CveCvss', 'CveKev', 'CveEpss', 'CveChecked', 'CveFixed', 'CveNewest', 'CveUpdated') { $chrome.$p = '' }
+        Invoke-RefreshGrid
+        $chrome = $script:PackagerData | Where-Object Script -eq 'package-chrome.ps1'
+        $chrome.CveCount | Should -Be '4'
+        $chrome.CveFixed | Should -Be '3 of 4'
+        $chrome.CvePair | Should -BeExactly '129.0|130.0'
+    }
+
+    It 'does not fill a kept row from a history summary of other versions' {
+        # The kept row holds 129.0 and 131.0; the history summary covers 129.0 to 130.0.
+        $chrome = $script:PackagerData | Where-Object Script -eq 'package-chrome.ps1'
+        foreach ($p in 'CveCount', 'CveCvss', 'CveKev', 'CveEpss', 'CveChecked', 'CveFixed', 'CveNewest', 'CveUpdated') { $chrome.$p = '' }
+        Invoke-RefreshGrid
+        $chrome = $script:PackagerData | Where-Object Script -eq 'package-chrome.ps1'
+        $chrome.LatestVersion | Should -Be '131.0'
+        foreach ($p in 'CveCount', 'CveCvss', 'CveKev', 'CveEpss', 'CveChecked', 'CveFixed', 'CveNewest', 'CveUpdated') { $chrome.$p | Should -Be '' -Because $p }
+        $chrome.CvePair | Should -BeExactly ''
     }
 
     It 'leaves the ConfigMgr version empty when the history came from another site' {
@@ -138,7 +246,7 @@ Describe 'Grid refresh keeps session results' {
     It 'selects rows whose status carries the CVE count' {
         $chrome = $script:PackagerData | Where-Object Script -eq 'package-chrome.ps1'
         $firefox = $script:PackagerData | Where-Object Script -eq 'package-firefox.ps1'
-        $chrome.Status = 'Update available (3 CVEs, 1 in KEV)'
+        $chrome.Status = 'Update available (fixes 2 of 3 CVEs, 1 in KEV)'
         $firefox.Status = 'Up to date'
         $script:dataGrid = [pscustomobject]@{ ItemsSource = @($chrome, $firefox) }
         Select-OnlyUpdateAvailable

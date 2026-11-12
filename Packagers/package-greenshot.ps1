@@ -3,7 +3,7 @@ Vendor: Greenshot
 App: Greenshot
 CMName: Greenshot
 VendorUrl: https://getgreenshot.org/
-CPE: cpe:2.3:a:greenshot:greenshot:*:*:*:*:*:*:*:*
+CPE: cpe:2.3:a:getgreenshot:greenshot:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/greenshot/greenshot/releases
 DownloadPageUrl: https://getgreenshot.org/downloads/
 IconSource: Installer

@@ -3,7 +3,7 @@ Vendor: ownCloud GmbH
 App: ownCloud Desktop Client
 CMName: ownCloud Desktop Client
 VendorUrl: https://owncloud.com/desktop-app/
-CPE: cpe:2.3:a:owncloud:owncloud_desktop:*:*:*:*:*:*:*:*
+CPE: cpe:2.3:a:owncloud:owncloud_desktop_client:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/owncloud/client/releases
 DownloadPageUrl: https://owncloud.com/desktop-app/
 IconSource: Installer

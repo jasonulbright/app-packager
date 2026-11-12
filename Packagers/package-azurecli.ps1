@@ -3,7 +3,7 @@ Vendor: Microsoft
 App: Azure CLI (x64)
 CMName: Azure CLI
 VendorUrl: https://learn.microsoft.com/cli/azure/
-CPE: cpe:2.3:a:microsoft:azure_cli:*:*:*:*:*:*:*:*
+CPE: cpe:2.3:a:microsoft:azure_command-line_interface:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://learn.microsoft.com/cli/azure/release-notes-azure-cli
 DownloadPageUrl: https://learn.microsoft.com/cli/azure/install-azure-cli-windows
 SecurityAdvisoryUrl: https://msrc.microsoft.com/update-guide

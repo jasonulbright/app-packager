@@ -3,7 +3,7 @@ Vendor: Anaconda, Inc.
 App: Anaconda Distribution
 CMName: Anaconda
 VendorUrl: https://www.anaconda.com/
-CPE: cpe:2.3:a:anaconda:anaconda:*:*:*:*:*:*:*:*
+CPE: cpe:2.3:a:anaconda:anaconda3:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://docs.anaconda.com/anaconda/release-notes/
 DownloadPageUrl: https://repo.anaconda.com/archive/
 SecurityAdvisoryUrl: https://www.anaconda.com/security

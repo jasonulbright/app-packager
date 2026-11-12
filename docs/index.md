@@ -13,7 +13,7 @@ AppPackager packages 312 enterprise applications for Configuration Manager, Intu
 - [Stage and Publish to ConfigMgr](core/stage-publish.md): build the content locally, then create the application on the site.
 - [Publish to Intune and Publish to WSUS](core/publish-intune-wsus.md): the other two destinations.
 - [Discover Unmanaged Software](core/discover.md): find software that clients run and the site does not manage.
-- [Check CVEs and the CVE report](core/cve.md): the vulnerabilities that an update fixes.
+- [Check CVEs and the CVE report](core/cve.md): the vulnerabilities of the version on the site, and the ones that an update fixes.
 - [One Click](core/one-click.md): the unattended run of the apps that you track.
 - [Application Workbench](core/workbench.md): change how one application is built, without editing its script.
 - [Add Installer](core/add-installer.md): package an installer that you drop on the window.

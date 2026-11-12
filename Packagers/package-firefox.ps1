@@ -4,7 +4,7 @@ App: Mozilla Firefox
 CMName: Mozilla Firefox
 SupportsVariants: Architecture, Language
 VendorUrl: https://www.mozilla.org/firefox/enterprise/
-CPE: cpe:2.3:a:mozilla:firefox:*:*:*:*:*:*:*:*
+CPE: cpe:2.3:a:mozilla:firefox:*:*:*:*:-:*:*:*
 ReleaseNotesUrl: https://www.mozilla.org/en-US/firefox/releases/
 DownloadPageUrl: https://www.mozilla.org/en-US/firefox/enterprise/
 SecurityAdvisoryUrl: https://www.mozilla.org/en-US/security/known-vulnerabilities/firefox/
