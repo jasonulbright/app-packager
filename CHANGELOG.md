@@ -6,7 +6,7 @@
 
 ### Added
 
-- Add images of the CVE grid and the CVE window for Google Chrome in both themes.
+- Add images of the Chrome CVE grid and CVE window in both themes.
 - Add the switch -OnlyCveChrome to the image capture command.
 
 ### Changed

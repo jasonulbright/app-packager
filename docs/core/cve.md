@@ -65,7 +65,7 @@ Select the count in the **CVEs** column. The window shows one line that states t
 
 **Refresh** looks the CVEs up again and ignores the saved result. **Copy CVE IDs** copies the IDs of the CVEs that affect the examined version. **Export report** writes the report for this application. Only `https` links open.
 
-The next images show the check for Google Chrome. The site version is 157.0.8103.40 and the latest version is 158.0.8127.37. The main window shows 17 CVEs, a maximum CVSS of 9.6, one CVE in the KEV catalog, and `17 of 17` in **Fixed by update**.
+The next images show the check for Google Chrome. The ConfigMgr version is 157.0.8103.40 and the latest version is 158.0.8127.37. The main window shows 17 CVEs, a maximum CVSS of 9.6, one CVE in the KEV catalog, and `17 of 17` in **Fixed by update**.
 
 ![The main window after Check CVEs for Google Chrome 157.0.8103.40 in the dark theme](../images/cve-chrome-grid.png)
 
@@ -144,7 +144,7 @@ Some NVD records name a product with no version and no range. Most of them are o
 - The tool saves the records of each product in `%LOCALAPPDATA%\AppPackager\vuln-products` and the result of each lookup in `%LOCALAPPDATA%\AppPackager\vuln-results`. It uses both for six hours. A second lookup of the same product with other versions makes no NVD request in that time.
 - The result is as correct as the NVD record. When NVD lists a wrong range for a CVE, the tool reports that CVE for the wrong versions.
 - A CVE that NVD has not yet analyzed has no version data and does not show.
-- The first screenshots on this page show an application with no CVE. The Chrome screenshots use a site version that the capture wrote to the packager history, and the NVD records of 2026-11-12.
+- The first screenshots on this page show an application with no CVE. The Chrome screenshots use a ConfigMgr version that the capture wrote to the packager history, and the NVD records of 2026-11-12.
 
 ## Troubleshooting
 

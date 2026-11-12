@@ -36,7 +36,7 @@ A second run does the missing-console test on a copy of the tool whose console d
 ## Limits
 
 - The capture needs an interactive session on the lab computer. A locked session breaks it.
-- The images show the data of the lab site.
+- The images show the data of the lab site, except the Chrome CVE images.
 
 ## Troubleshooting
 
