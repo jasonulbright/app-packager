@@ -93,7 +93,7 @@ $cases = @(
     @{ Name = 'Setup and Options both save the systems in use';        Actual = { ([regex]::Matches($source, '\$prefsRef\.Systems\.ConfigMgr\s*=')).Count -eq 2 }; Expected = $true }
     @{ Name = 'the publish and One Click paths fall back to the packager default site code'; Actual = { ([regex]::Matches($source, 'if \(\[string\]::IsNullOrWhiteSpace\(\$siteCodeValue\)\) \{ \$siteCodeValue = ''MCM'' \}')).Count -ge 2 }; Expected = $true }
     @{ Name = 'Setup without ConfigMgr saves an empty site code'; Actual = { $source -match '\} else \{\s+#[^\n]*\n\s+#[^\n]*\n\s+\$prefsRef\.SiteCode = ''''\s+\}' }; Expected = $true }
-    @{ Name = 'Check Latest runs without a site code when ConfigMgr is not in use'; Actual = { $source -match 'if \(\$script:Prefs\.Systems\.ConfigMgr\) \{\s+Add-LogLine -Message \"SiteCode is required' }; Expected = $true }
+    @{ Name = 'Check Latest runs without a site code when ConfigMgr is not in use'; Actual = { $source -match 'if \(\$script:Prefs\.Systems\.ConfigMgr\) \{\s+Add-LogLine -Message \"The site code is required' }; Expected = $true }
     @{ Name = 'the sidebar refresh is wired to launch, Options, Setup and the button reset'; Actual = { $callCount -ge 5 }; Expected = $true }
     @{ Name = 'the retired target-driven refresh is gone';      Actual = { $source -notmatch 'Update-SidebarForDeploymentTarget|Get-SidebarTargetState' }; Expected = $true }
     @{ Name = 'the sidebar refresh enables a button whose system became configured'; Actual = { $source -match '\$button\.IsEnabled = \(\[bool\]\$script:ActionButtonsEnabled -and \[bool\]\$state\[' }; Expected = $true }

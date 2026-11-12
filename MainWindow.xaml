@@ -20,92 +20,198 @@
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- Sidebar button template: shade-lift on Pressed instead of the MahApps
-                 Square default (which inverts colors via VSM and renders white text
-                 invisible on the dark-theme sidebar). Foreground stays White;
-                 #3A3A3A reads correctly under either theme during the brief press.
-                 See reference_srl_wpf_brand.md S11. -->
-            <ControlTemplate x:Key="SidebarButtonTemplate" TargetType="Button">
+            <!-- The shared styles. Every dialog and the Application Workbench take the styles with the keys of
+                 SharedStyleKey (Get-SharedStyleXaml in start-apppackager.ps1), so that each style exists once.
+                 No color literal is allowed in a Style or a ControlTemplate: the colors come from the MahApps
+                 theme resources and from SuiteCommon (Set-ButtonTheme sets the sidebar buttons), so the same
+                 markup works in the dark and in the light theme. -->
+
+            <!-- The one button template. Hover shows the theme foreground as border color. Pressed swaps the
+                 theme foreground and the theme background. No state changes the opacity, because an opacity below 1
+                 washes the text out. -->
+            <ControlTemplate x:Key="ThemedButtonTemplate" TargetType="Button">
                 <Border x:Name="Bd"
                         Background="{TemplateBinding Background}"
                         BorderBrush="{TemplateBinding BorderBrush}"
                         BorderThickness="{TemplateBinding BorderThickness}"
                         SnapsToDevicePixels="True">
-                    <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                    <ContentPresenter x:Name="Cp"
+                                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                       VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                       Margin="{TemplateBinding Padding}"
                                       RecognizesAccessKey="True"
                                       SnapsToDevicePixels="True"/>
                 </Border>
                 <ControlTemplate.Triggers>
-                    <Trigger Property="IsPressed" Value="True">
-                        <Setter TargetName="Bd" Property="Background">
-                            <Setter.Value>
-                                <SolidColorBrush Color="#3A3A3A"/>
-                            </Setter.Value>
-                        </Setter>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
                     </Trigger>
-                    <Trigger Property="IsEnabled" Value="False">
-                        <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                    </Trigger>
+                    <Trigger Property="IsPressed" Value="True">
+                        <Setter TargetName="Bd" Property="Background" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                        <Setter TargetName="Cp" Property="TextElement.Foreground" Value="{DynamicResource MahApps.Brushes.ThemeBackground}"/>
                     </Trigger>
                 </ControlTemplate.Triggers>
             </ControlTemplate>
 
-            <!-- Workflow button style: theme-aware (dark: black bg, light: Windows blue) -->
-            <Style x:Key="WorkflowButtonStyle" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="Template" Value="{StaticResource SidebarButtonTemplate}"/>
-                <Setter Property="Height" Value="42"/>
-                <Setter Property="Margin" Value="8,3,8,3"/>
-                <Setter Property="Padding" Value="12,0,12,0"/>
-                <Setter Property="HorizontalContentAlignment" Value="Left"/>
-                <Setter Property="FontSize" Value="13"/>
-                <Setter Property="FontWeight" Value="Bold"/>
-                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
-                <Setter Property="Foreground" Value="White"/>
-                <Setter Property="Background">
-                    <Setter.Value>
-                        <SolidColorBrush Color="#1E1E1E"/>
-                    </Setter.Value>
-                </Setter>
-                <Setter Property="BorderBrush">
-                    <Setter.Value>
-                        <SolidColorBrush Color="#555555"/>
-                    </Setter.Value>
-                </Setter>
+            <!-- The one button style. A disabled button shows MahApps.Brushes.Gray.MouseOver text and a Gray2 border
+                 (4.5:1 or more in both themes), because the MahApps disabled state fades the text. -->
+            <Style x:Key="ThemedButtonStyle" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="Template" Value="{StaticResource ThemedButtonTemplate}"/>
+                <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
                 <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
+                <Style.Triggers>
+                    <Trigger Property="IsEnabled" Value="False">
+                        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray.MouseOver}"/>
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray2}"/>
+                    </Trigger>
+                </Style.Triggers>
             </Style>
 
-            <!-- Options button style: theme-aware (dark: black bg, light: Windows blue) -->
-            <Style x:Key="OptionsButtonStyle" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="Template" Value="{StaticResource SidebarButtonTemplate}"/>
+            <!-- The sidebar buttons. SuiteCommon (Set-ButtonTheme) sets their colors for the dark and the light theme. -->
+            <Style x:Key="WorkflowButtonStyle" TargetType="Button" BasedOn="{StaticResource ThemedButtonStyle}">
                 <Setter Property="Height" Value="42"/>
                 <Setter Property="Margin" Value="8,3,8,3"/>
                 <Setter Property="Padding" Value="12,0,12,0"/>
                 <Setter Property="HorizontalContentAlignment" Value="Left"/>
                 <Setter Property="FontSize" Value="13"/>
                 <Setter Property="FontWeight" Value="Bold"/>
-                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
-                <Setter Property="Foreground" Value="White"/>
-                <Setter Property="Background">
-                    <Setter.Value>
-                        <SolidColorBrush Color="#1E1E1E"/>
-                    </Setter.Value>
-                </Setter>
-                <Setter Property="BorderBrush">
-                    <Setter.Value>
-                        <SolidColorBrush Color="#555555"/>
-                    </Setter.Value>
-                </Setter>
-                <Setter Property="BorderThickness" Value="1"/>
+            </Style>
+
+            <Style x:Key="OptionsButtonStyle" TargetType="Button" BasedOn="{StaticResource WorkflowButtonStyle}"/>
+
+            <!-- The primary button: the theme highlight with white text (IdealForeground). The border is the theme
+                 foreground, because the highlight alone is below 3:1 on the dark theme. -->
+            <Style x:Key="DialogAccentButton" TargetType="Button" BasedOn="{StaticResource ThemedButtonStyle}">
+                <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.Highlight}"/>
+                <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.IdealForeground}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                <Setter Property="MinWidth" Value="90"/>
+                <Setter Property="Height" Value="32"/>
+                <Setter Property="Padding" Value="14,0,14,0"/>
+                <Setter Property="Margin" Value="0,0,8,0"/>
+                <Style.Triggers>
+                    <Trigger Property="IsEnabled" Value="False">
+                        <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.ThemeBackground}"/>
+                        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray.MouseOver}"/>
+                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray2}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+
+            <!-- The one secondary style, for Cancel, Browse and every other button that is not primary: a gray fill,
+                 the theme text color and a visible border. It has the size of the primary style. -->
+            <Style x:Key="DialogButton" TargetType="Button" BasedOn="{StaticResource ThemedButtonStyle}">
+                <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.Gray10}"/>
+                <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                <Setter Property="MinWidth" Value="90"/>
+                <Setter Property="Height" Value="32"/>
+                <Setter Property="Padding" Value="14,0,14,0"/>
+                <Setter Property="Margin" Value="0,0,8,0"/>
+            </Style>
+
+            <!-- The secondary style at the height of a form row. Same colors, same template. -->
+            <Style x:Key="InlineButtonStyle" TargetType="Button" BasedOn="{StaticResource DialogButton}">
+                <Setter Property="Height" Value="28"/>
+                <Setter Property="FontSize" Value="12"/>
+            </Style>
+
+            <!-- A link in a grid cell or a list: no fill and no border, the text keeps its underline. -->
+            <Style x:Key="LinkButtonStyle" TargetType="Button" BasedOn="{StaticResource ThemedButtonStyle}">
+                <Setter Property="Background" Value="{x:Null}"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Padding" Value="2,0,2,0"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="HorizontalAlignment" Value="Left"/>
+                <Setter Property="VerticalAlignment" Value="Center"/>
+            </Style>
+
+            <!-- A link in a grid cell: the text takes the foreground of its cell, so that it stays white on a selected row. -->
+            <Style x:Key="GridLinkButtonStyle" TargetType="Button" BasedOn="{StaticResource LinkButtonStyle}">
+                <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=DataGridCell}}"/>
+            </Style>
+
+            <!-- Selected and highlighted items: white text (IdealForeground) on the theme highlight, in both themes. -->
+            <Style x:Key="ThemedListBoxItemStyle" TargetType="ListBoxItem" BasedOn="{StaticResource MahApps.Styles.ListBoxItem}">
+                <Setter Property="Controls:ItemHelper.DisabledForegroundBrush" Value="{DynamicResource MahApps.Brushes.Gray.MouseOver}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsSelected" Value="True">
+                        <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.Highlight}"/>
+                        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.IdealForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style TargetType="ListBoxItem" BasedOn="{StaticResource ThemedListBoxItemStyle}"/>
+
+            <Style x:Key="ThemedComboBoxItemStyle" TargetType="ComboBoxItem" BasedOn="{StaticResource MahApps.Styles.ComboBoxItem}">
+                <Style.Triggers>
+                    <Trigger Property="IsSelected" Value="True">
+                        <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.Highlight}"/>
+                        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.IdealForeground}"/>
+                    </Trigger>
+                    <Trigger Property="IsHighlighted" Value="True">
+                        <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.Highlight}"/>
+                        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.IdealForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style TargetType="ComboBoxItem" BasedOn="{StaticResource ThemedComboBoxItemStyle}"/>
+
+            <Style x:Key="ThemedTreeViewItemStyle" TargetType="TreeViewItem" BasedOn="{StaticResource MahApps.Styles.TreeViewItem}">
+                <Style.Triggers>
+                    <Trigger Property="IsSelected" Value="True">
+                        <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.Highlight}"/>
+                        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.IdealForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style TargetType="TreeViewItem" BasedOn="{StaticResource ThemedTreeViewItemStyle}"/>
+
+            <!-- A check box in a selected tree item shows white text, like the item. -->
+            <Style TargetType="CheckBox" BasedOn="{StaticResource MahApps.Styles.CheckBox}">
+                <Setter Property="Controls:CheckBoxHelper.ForegroundUncheckedDisabled" Value="{DynamicResource MahApps.Brushes.Gray.MouseOver}"/>
+                <Setter Property="Controls:CheckBoxHelper.ForegroundCheckedDisabled" Value="{DynamicResource MahApps.Brushes.Gray.MouseOver}"/>
+                <Setter Property="Controls:CheckBoxHelper.ForegroundIndeterminateDisabled" Value="{DynamicResource MahApps.Brushes.Gray.MouseOver}"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=TreeViewItem}}" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.IdealForeground}"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="GridRowStyle" TargetType="DataGridRow" BasedOn="{StaticResource MahApps.Styles.DataGridRow}">
+                <Style.Triggers>
+                    <Trigger Property="IsSelected" Value="True">
+                        <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.Highlight}"/>
+                        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.IdealForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="GridCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource MahApps.Styles.DataGridCell}">
+                <Style.Triggers>
+                    <Trigger Property="IsSelected" Value="True">
+                        <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.Highlight}"/>
+                        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.IdealForeground}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="PaddedGridCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource GridCellStyle}">
+                <Setter Property="Padding" Value="6,0,6,0"/>
             </Style>
 
             <!-- Section header: Gray1 is the only theme-adaptive MahApps grey brush.
                  Gray2 is static #7F7F7F and fails WCAG AA (3.83:1 dark, 4.00:1 light).
                  Gray1 resolves to #F9F9F9 on dark (15.28:1, AAA) and #333333 on
-                 light (12.63:1, AAA). See reference_srl_wpf_brand.md. -->
+                 light (12.63:1, AAA). Titles are bold in both themes. -->
             <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="11"/>
-                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="FontWeight" Value="Bold"/>
                 <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray1}"/>
                 <Setter Property="Margin" Value="12,16,0,6"/>
             </Style>
@@ -119,9 +225,7 @@
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <!-- ═══════════════════════════════════════ -->
-        <!-- LEFT SIDEBAR                            -->
-        <!-- ═══════════════════════════════════════ -->
+        <!-- LEFT SIDEBAR -->
         <Border Grid.Column="0">
             <DockPanel>
                 <!-- App title -->
@@ -135,15 +239,14 @@
                         <Separator Margin="0,0,0,8"/>
                         <TextBlock FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6">
                             <Hyperlink x:Name="lnkUpdateAvailable"
-                                       ToolTip="Open the latest release page on GitHub">
+                                       ToolTip="Open the latest release page on GitHub.">
                                 <Run x:Name="runUpdateText" Text="Update available"/>
                             </Hyperlink>
                         </TextBlock>
-                        <Button x:Name="btnUpdateNow" Content="Update now"
-                                Height="28" FontSize="12" HorizontalContentAlignment="Center"
-                                Style="{DynamicResource MahApps.Styles.Button.Square}"
-                                Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                                ToolTip="Download and install the latest release, then close and relaunch AppPackager"/>
+                        <Button x:Name="btnUpdateNow" Content="Update Now"
+                                Style="{StaticResource DialogButton}"
+                                Margin="0"
+                                ToolTip="Install the latest release, then close and relaunch AppPackager."/>
                     </StackPanel>
                     <Separator Margin="0,8,0,10"/>
                     <DockPanel LastChildFill="False" Margin="0,0,0,6">
@@ -155,7 +258,7 @@
                                                OnContent="" OffContent=""
                                                Margin="0,0,0,0"
                                                MinWidth="0"
-                                               ToolTip="Show extra debug columns (Last Checked, etc.)"/>
+                                               ToolTip="Show the debug columns of the grid."/>
                     </DockPanel>
                     <DockPanel LastChildFill="False">
                         <TextBlock x:Name="txtThemeLabel" Text="Dark Theme"
@@ -166,12 +269,12 @@
                                                OnContent="" OffContent=""
                                                Margin="0,0,0,0"
                                                MinWidth="0"
-                                               ToolTip="Toggle dark / light theme"/>
+                                               ToolTip="Switch between the dark and the light theme."/>
                     </DockPanel>
                     <TextBlock x:Name="txtAppVersion" Text=""
                                FontSize="11" Margin="0,10,0,0"
                                Foreground="{DynamicResource MahApps.Brushes.Gray3}"
-                               ToolTip="Installed AppPackager version. Options &gt; About has the details."/>
+                               ToolTip="The installed AppPackager version."/>
                 </StackPanel>
 
                 <!-- Scrollable sidebar content -->
@@ -179,54 +282,54 @@
                     <StackPanel>
 
                         <Button x:Name="btnFullRun"     Content="One Click"       Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="One Click check (and optionally Stage / Package) against your tracked apps. Configure tracked apps, action, and cadence in One Click Settings."/>
+                                ToolTip="Check the tracked apps and, if set, stage and package them."/>
                         <!-- Top margin 16 visually isolates the automated One Click workflow
                              from the manual 4-button chain below. Mirrors the OPTIONS gap. -->
                         <Button x:Name="btnCheckLatest" Content="Check Latest"    Style="{StaticResource WorkflowButtonStyle}"
                                 Margin="8,16,8,3"
-                                ToolTip="Query each checked app's vendor source for the latest available version"/>
+                                ToolTip="Query the vendor source of each checked app for the latest version."/>
                         <Button x:Name="btnCheckMECM"   Content="Check ConfigMgr" Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="Query ConfigMgr for the currently deployed version of each checked app"/>
+                                ToolTip="Query ConfigMgr for the deployed version of each checked app."/>
                         <!-- The label wraps: one line is wider than the sidebar once its scroll bar shows. -->
                         <Button x:Name="btnDiscover"    Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="Find hidden apps that hardware inventory shows installed on clients and that have no ConfigMgr application">
+                                ToolTip="Find installed software that has no ConfigMgr application.">
                             <TextBlock Text="Discover Unmanaged Software" TextWrapping="Wrap"/>
                         </Button>
                         <Button x:Name="btnCheckCve"    Content="Check CVEs"      Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="Look up the CVEs that affect the ConfigMgr version of each checked app, and how many of them the latest version fixes. Needs a CPE header and one version; without a ConfigMgr version the latest version is examined."/>
+                                ToolTip="Look up the CVEs of the ConfigMgr version of each checked app."/>
                         <Button x:Name="btnStage"       Content="Stage Packages"  Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="Download and extract each checked app into the local staging root"/>
+                                ToolTip="Download and extract each checked app into the staging root."/>
                         <Button x:Name="btnPackage"     Content="Publish to ConfigMgr" Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="Build a ConfigMgr Application and Deployment Type for every checked app"/>
+                                ToolTip="Build a ConfigMgr application and deployment type for each checked app."/>
                         <Button x:Name="btnPublishIntune" Content="Publish to Intune" Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="Stage every checked app, build its .intunewin, and publish it to Intune"/>
+                                ToolTip="Stage each checked app, build its .intunewin file and publish it to Intune."/>
                         <Button x:Name="btnPublishWsus" Content="Publish to WSUS"  Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="Stage every checked app and publish its installer to WSUS as an update for computers that have an older version"/>
+                                ToolTip="Stage each checked app and publish its installer to WSUS."/>
                         <Button x:Name="btnWsusUpdates" Content="WSUS Updates"     Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="List the updates AppPackager published to WSUS; approve, decline, expire or remove them, or import from the Microsoft Update Catalog"/>
+                                ToolTip="List the updates that AppPackager published to WSUS."/>
                         <Button x:Name="btnCveReport"   Content="CVE Report"       Style="{StaticResource WorkflowButtonStyle}"
                                 Margin="8,16,8,3"
-                                ToolTip="Write the CVE report for the checked apps (all apps when none is checked) as HTML, CSV and JSON under Logs\Reports, then open the HTML"/>
+                                ToolTip="Write the CVE report of the checked apps as HTML, CSV and JSON."/>
 
                         <Button x:Name="btnWorkbench"   Content="Application Workbench" Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="Edit one application's commands, scripts, detection, requirements, timing, icon and extra source files, then save it as a named profile. Opening or saving deploys nothing."/>
+                                ToolTip="Edit one application and save it as a named profile."/>
 
                         <Button x:Name="btnAddInstaller" Content="Add Installer..." Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="Bring your own setup: pick an .msi or .exe you downloaded yourself (login- or EULA-walled vendors) and package it through the analyzed-manifest flow. Dropping the file anywhere on this window does the same thing."/>
+                                ToolTip="Package an .msi or .exe file that you downloaded yourself."/>
 
                         <!-- The label wraps: one line is wider than the sidebar once its scroll bar shows. -->
                         <Button x:Name="btnConvertCm" Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="Convert an existing ConfigMgr application to Intune Win32 apps, one app for each deployment type. It reads ConfigMgr and changes nothing there.">
+                                ToolTip="Convert a ConfigMgr application to Intune Win32 apps without a change in ConfigMgr.">
                             <TextBlock Text="Convert ConfigMgr App to Intune" TextWrapping="Wrap"/>
                         </Button>
 
-                        <!-- Unified OPTIONS button (replaces the OPTIONS section header + 4 individual buttons) -->
+                        <!-- Unified Options button (replaces the Options section header + 4 individual buttons) -->
                         <Button x:Name="btnOptions"       Content="Options"                Style="{StaticResource OptionsButtonStyle}"
                                 Margin="8,16,8,3"
-                                ToolTip="ConfigMgr Preferences, Packager Preferences, One Click Settings, Product Filter - all in one window"/>
+                                ToolTip="Open the ConfigMgr, packager, One Click and product filter settings."/>
 
-                        <!-- ADMINISTRATIVE COMMENT -->
-                        <TextBlock Text="COMMENT" Style="{StaticResource SectionHeaderStyle}"/>
+                        <!-- Administrative comment -->
+                        <TextBlock Text="Comment" Style="{StaticResource SectionHeaderStyle}"/>
                         <TextBox x:Name="txtComment"
                                  Margin="8,0,8,12"
                                  Height="84"
@@ -234,7 +337,7 @@
                                  AcceptsReturn="True"
                                  TextWrapping="Wrap"
                                  VerticalScrollBarVisibility="Auto"
-                                 Controls:TextBoxHelper.Watermark="Optional note for ConfigMgr app description (e.g. ticket number)"
+                                 Controls:TextBoxHelper.Watermark="Optional note for the ConfigMgr app description, for example a ticket number"
                                  FontSize="12"/>
 
                     </StackPanel>
@@ -245,9 +348,7 @@
         <!-- Sidebar / content separator -->
         <Border Grid.Column="1" Background="{DynamicResource MahApps.Brushes.Gray8}"/>
 
-        <!-- ═══════════════════════════════════════ -->
-        <!-- MAIN CONTENT AREA                       -->
-        <!-- ═══════════════════════════════════════ -->
+        <!-- MAIN CONTENT AREA -->
         <Grid Grid.Column="2">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -261,7 +362,7 @@
             <TextBox x:Name="txtGridFilter" Grid.Row="0"
                      Margin="4,4,4,0"
                      FontSize="12"
-                     Controls:TextBoxHelper.Watermark="Filter by application, vendor, or status"
+                     Controls:TextBoxHelper.Watermark="Filter by application, vendor or status"
                      Controls:TextBoxHelper.ClearTextButton="True"/>
 
             <!-- DataGrid -->
@@ -279,7 +380,9 @@
                       Margin="4,4,4,0"
                       ColumnHeaderHeight="32"
                       IsTextSearchEnabled="True"
-                      TextSearch.TextPath="Application">
+                      TextSearch.TextPath="Application"
+                      RowStyle="{StaticResource GridRowStyle}"
+                      CellStyle="{StaticResource PaddedGridCellStyle}">
 
                 <DataGrid.ColumnHeaderStyle>
                     <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource MahApps.Styles.DataGridColumnHeader}">
@@ -287,12 +390,6 @@
                         <Setter Property="HorizontalContentAlignment" Value="Left"/>
                     </Style>
                 </DataGrid.ColumnHeaderStyle>
-
-                <DataGrid.CellStyle>
-                    <Style TargetType="DataGridCell" BasedOn="{StaticResource MahApps.Styles.DataGridCell}">
-                        <Setter Property="Padding" Value="6,0,6,0"/>
-                    </Style>
-                </DataGrid.CellStyle>
 
                 <DataGrid.Columns>
                     <DataGridTemplateColumn x:Name="colSelected" Width="44" MinWidth="44" CanUserSort="False">
@@ -309,7 +406,7 @@
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"
                                        Margin="5,0,0,0"
-                                       ToolTip="Click to cycle selection. Glyph shows current state: empty = none, filled = all, half = updates only."/>
+                                       ToolTip="Click to cycle the selection: none, all, or updates only."/>
                         </DataGridTemplateColumn.Header>
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
@@ -332,10 +429,8 @@
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <!-- The count inherits the cell's foreground so it stays readable on a selected row. -->
-                                <Button Tag="CveLink" Background="Transparent" BorderThickness="0" Padding="2,0" Cursor="Hand"
-                                        HorizontalAlignment="Left" VerticalAlignment="Center"
-                                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=DataGridCell}}"
-                                        ToolTip="Open the CVE list with links for this app">
+                                <Button Tag="CveLink" Style="{StaticResource GridLinkButtonStyle}"
+                                        ToolTip="Open the CVE list with links for this app.">
                                     <TextBlock Text="{Binding CveCount}" TextDecorations="Underline"/>
                                 </Button>
                             </DataTemplate>
@@ -343,10 +438,10 @@
                     </DataGridTemplateColumn>
                     <DataGridTextColumn x:Name="colCveCvss" Header="Max CVSS" Width="120" MinWidth="120" Binding="{Binding CveCvss}" IsReadOnly="True"/>
                     <DataGridTextColumn x:Name="colCveKev" Header="KEV" Width="80" MinWidth="80" Binding="{Binding CveKev}" IsReadOnly="True"/>
-                    <DataGridTextColumn x:Name="colCveFixed" Header="Fixed by update" Width="170" MinWidth="170" Binding="{Binding CveFixed}" IsReadOnly="True"/>
+                    <DataGridTextColumn x:Name="colCveFixed" Header="Fixed by Update" Width="170" MinWidth="170" Binding="{Binding CveFixed}" IsReadOnly="True"/>
                     <DataGridTextColumn x:Name="colCveNewest" Header="Newest CVE" Width="135" MinWidth="135" Binding="{Binding CveNewest}" IsReadOnly="True"/>
                     <DataGridTextColumn x:Name="colCveEpss" Header="Max EPSS" Width="120" MinWidth="120" Binding="{Binding CveEpss}" IsReadOnly="True" Visibility="Collapsed"/>
-                    <DataGridTextColumn x:Name="colCveUpdated" Header="NVD updated" Width="150" MinWidth="150" Binding="{Binding CveUpdated}" IsReadOnly="True" Visibility="Collapsed"/>
+                    <DataGridTextColumn x:Name="colCveUpdated" Header="NVD Updated" Width="150" MinWidth="150" Binding="{Binding CveUpdated}" IsReadOnly="True" Visibility="Collapsed"/>
                     <DataGridTextColumn x:Name="colCveChecked" Header="CVEs Checked (UTC)" Width="190" MinWidth="190" Binding="{Binding CveChecked}" IsReadOnly="True" Visibility="Collapsed"/>
                     <DataGridTextColumn x:Name="colCMName" Header="CMName" Width="140" MinWidth="115" Binding="{Binding CMName}" IsReadOnly="True" Visibility="Collapsed"/>
                     <DataGridTextColumn x:Name="colScript" Header="Script" Width="180" MinWidth="100" Binding="{Binding Script}" IsReadOnly="True" Visibility="Collapsed"/>
@@ -363,8 +458,8 @@
             <!-- Log output drawer -->
             <Border Grid.Row="3">
                 <DockPanel>
-                    <TextBlock x:Name="lblLogOutput" DockPanel.Dock="Top" Text="LOG OUTPUT"
-                               FontSize="10" FontWeight="SemiBold"
+                    <TextBlock x:Name="lblLogOutput" DockPanel.Dock="Top" Text="Log Output"
+                               FontSize="11" FontWeight="Bold"
                                Margin="8,6,0,4"/>
                     <TextBox x:Name="txtLog"
                              IsReadOnly="True"
@@ -400,7 +495,7 @@
                     <Controls:ProgressRing IsActive="True" Width="56" Height="56"
                                            Foreground="{DynamicResource MahApps.Brushes.Accent}"/>
                     <TextBlock x:Name="txtProgressTitle" Text="Working..."
-                               FontSize="18" FontWeight="SemiBold"
+                               FontSize="18" FontWeight="Bold"
                                HorizontalAlignment="Center" Margin="0,14,0,0"/>
                     <TextBlock x:Name="txtProgressStep" Text=""
                                FontSize="12"
@@ -411,19 +506,13 @@
                                 Margin="0,16,0,0">
                         <Button x:Name="btnPausePipeline"
                                 Content="Pause"
-                                Width="96"
-                                Height="32"
-                                Margin="0,0,8,0"
-                                Style="{DynamicResource MahApps.Styles.Button.Square}"
-                                Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                                ToolTip="Pause after the current app finishes"/>
+                                Style="{StaticResource DialogButton}"
+                                ToolTip="Pause after the current app finishes."/>
                         <Button x:Name="btnCancelPipeline"
-                                Content="Cancel after current app"
-                                Width="160"
-                                Height="32"
-                                Style="{DynamicResource MahApps.Styles.Button.Square}"
-                                Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                                ToolTip="Stop the run after the current app finishes"/>
+                                Content="Cancel After Current App"
+                                Style="{StaticResource DialogButton}"
+                                Margin="0"
+                                ToolTip="Stop the run after the current app finishes."/>
                     </StackPanel>
                 </StackPanel>
             </Border>

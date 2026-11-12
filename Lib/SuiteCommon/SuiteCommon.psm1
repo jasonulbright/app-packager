@@ -558,17 +558,23 @@ function Read-SuiteSettings {
         [Parameter(Mandatory)][hashtable]$Defaults
     )
 
+    # Never use .Keys / .Values / .Count on a settings hashtable: a setting
+    # with that name makes the dot access return the setting's value, not the
+    # collection. GetEnumerator() and the indexer are not shadowed.
     $settings = @{}
-    foreach ($k in $Defaults.Keys) { $settings[$k] = $Defaults[$k] }
+    foreach ($entry in $Defaults.GetEnumerator()) { $settings[$entry.Key] = $entry.Value }
 
     if (Test-Path -LiteralPath $Path) {
         try {
             # -Encoding UTF8: on 5.1 the default decoder mangles non-ASCII in
             # BOM-less UTF-8 files (hand-edited settings) without any error.
             $loaded = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-            foreach ($k in @($settings.Keys)) {
-                $val = $loaded.$k
-                if ($null -ne $val) { $settings[$k] = $val }
+            # PSObject.Properties reads only real JSON properties. A dot access
+            # such as $loaded.Count returns 1 on PowerShell 7 when the file has
+            # no such property.
+            foreach ($k in @($Defaults.GetEnumerator() | ForEach-Object { $_.Key })) {
+                $prop = $loaded.PSObject.Properties[$k]
+                if ($prop -and $null -ne $prop.Value) { $settings[$k] = $prop.Value }
             }
         } catch { $null = $_ }
     }
@@ -941,7 +947,7 @@ function Initialize-SuiteTheme {
         TitleBarActive    = $bc.ConvertFrom('#0078D4')
         TitleBarInactive  = $bc.ConvertFrom('#4BA3E0')
         DarkButtonBg      = $bc.ConvertFrom('#1E1E1E')
-        DarkButtonBorder  = $bc.ConvertFrom('#555555')
+        DarkButtonBorder  = $bc.ConvertFrom('#8C8C8C')
         DarkActiveBg      = $bc.ConvertFrom('#3A3A3A')
         DarkActiveBorder  = $bc.ConvertFrom('#F9F9F9')
         LightWfBg         = $bc.ConvertFrom('#0078D4')
@@ -952,6 +958,7 @@ function Initialize-SuiteTheme {
         LightOptBorder    = $bc.ConvertFrom('#006CBE')
         LogLabelDark      = $bc.ConvertFrom('#B0B0B0')
         LogLabelLight     = $bc.ConvertFrom('#595959')
+        OnBlue            = $bc.ConvertFrom('#FFFFFF')
     }
     if ($Brushes) { foreach ($k in $Brushes.Keys) { $b[$k] = $Brushes[$k] } }
     $script:SuiteTheme = @{
@@ -995,6 +1002,71 @@ function Update-TitleBarBrushes {
     }
 }
 
+# Light theme paints buttons blue. A plain MahApps Square button keeps the dark
+# theme text brush there, so the text is black on blue. Every blue-background
+# control gets white text (OnBlue) in light mode and its own brush back in dark mode.
+function Set-ThemeForeground {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Mutates in-window brush properties only.')]
+    param($Control, [bool]$IsDark, $OnBlue)
+    if ($null -eq $Control -or -not $Control.PSObject.Properties['Foreground']) { return }
+    if ($IsDark) {
+        if ($Control -is [System.Windows.DependencyObject]) { $Control.ClearValue([System.Windows.Controls.Control]::ForegroundProperty) }
+        else { $Control.Foreground = $null }
+    }
+    else { $Control.Foreground = $OnBlue }
+}
+
+# Field titles are bold; field values stay in the normal body style. The site
+# code and the SMS provider (site server) titles are 14 pt bold. The same in
+# light and dark mode: a theme changes colors only, never font size, weight,
+# style or decoration. The title of a box is the TextBlock or Label next to it:
+# the left neighbour in a Grid row (or the cell above), or the previous child
+# of a StackPanel or DockPanel.
+$script:ConnectionBoxNames = @('txtSiteCode', 'txtSmsProvider', 'txtProvider', 'txtSiteServer', 'txtWizSiteCode', 'txtWizProvider')
+$script:FieldTitleFontSize = 14.0
+
+function Find-FieldTitle {
+    param($Box)
+    $parent = $null
+    try { $parent = $Box.Parent } catch { $parent = $null }
+    if ($null -eq $parent) { return $null }
+    $isTitle = { param($c) ($c -is [System.Windows.Controls.TextBlock]) -or ($c -is [System.Windows.Controls.Label]) }
+    if ($parent -is [System.Windows.Controls.Grid]) {
+        $row = [System.Windows.Controls.Grid]::GetRow($Box); $col = [System.Windows.Controls.Grid]::GetColumn($Box)
+        $cands = @()
+        foreach ($c in $parent.Children) {
+            if ($c -eq $Box -or -not (& $isTitle $c)) { continue }
+            $r = [System.Windows.Controls.Grid]::GetRow($c); $k = [System.Windows.Controls.Grid]::GetColumn($c)
+            if ($r -eq $row -and $k -lt $col) { $cands += [pscustomobject]@{ E = $c; D = ($col - $k) } }
+            elseif ($k -eq $col -and $r -lt $row) { $cands += [pscustomobject]@{ E = $c; D = 100 + ($row - $r) } }
+        }
+        if ($cands.Count) { return ($cands | Sort-Object D | Select-Object -First 1).E }
+        return $null
+    }
+    if ($parent -is [System.Windows.Controls.Panel]) {
+        $prev = $null
+        foreach ($c in $parent.Children) { if ($c -eq $Box) { break }; $prev = $c }
+        if ($null -ne $prev -and (& $isTitle $prev)) { return $prev }
+    }
+    return $null
+}
+
+function Set-ConnectionTextTheme {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Mutates in-window font properties only.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'IsDark', Justification='Kept so every theme helper takes the same arguments; fonts do not depend on the theme.')]
+    param($Window, [bool]$IsDark)
+    if ($null -eq $Window -or -not $Window.PSObject.Methods['FindName']) { return }
+    foreach ($name in $script:ConnectionBoxNames) {
+        $box = $null
+        try { $box = $Window.FindName($name) } catch { $box = $null }
+        if ($null -eq $box) { continue }
+        $title = Find-FieldTitle -Box $box
+        if ($null -eq $title) { continue }
+        $title.FontSize   = [Math]::Max([double]$title.FontSize, $script:FieldTitleFontSize)
+        $title.FontWeight = [System.Windows.FontWeights]::Bold
+    }
+}
+
 function Update-SidebarButtonTheme {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Mutates in-window brush properties only.')]
     param(
@@ -1017,6 +1089,7 @@ function Update-SidebarButtonTheme {
             $v.Button.Background      = $bg
             $v.Button.BorderBrush     = if ($v.Name -eq $ActiveView) { $activeBorder } else { $border }
             $v.Button.BorderThickness = $thickness
+            Set-ThemeForeground -Control $v.Button -IsDark $IsDark -OnBlue $b.OnBlue
         }
         $idleBg = $bg
     }
@@ -1030,16 +1103,19 @@ function Update-SidebarButtonTheme {
             $v.Button.Background      = if ($isActive) { $activeBg } else { $idleBg }
             $v.Button.BorderBrush     = $border
             $v.Button.BorderThickness = $thickness
+            Set-ThemeForeground -Control $v.Button -IsDark $IsDark -OnBlue $b.OnBlue
         }
     }
     if ($ctx.OptionsButton) {
         $ctx.OptionsButton.Background      = $idleBg
         $ctx.OptionsButton.BorderBrush     = $border
         $ctx.OptionsButton.BorderThickness = $thickness
+        Set-ThemeForeground -Control $ctx.OptionsButton -IsDark $IsDark -OnBlue $b.OnBlue
     }
     if ($ctx.LogLabel) {
         $ctx.LogLabel.Foreground = if ($IsDark) { $b.LogLabelDark } else { $b.LogLabelLight }
     }
+    Set-ConnectionTextTheme -Window $ctx.Window -IsDark $IsDark
 }
 
 function Set-ButtonTheme {
@@ -1049,15 +1125,16 @@ function Set-ButtonTheme {
     if ($null -eq $IsDark) { $IsDark = [bool](& $ctx.IsDarkGetter) }
     $b = $ctx.Brushes
     if ($IsDark) {
-        foreach ($btn in @($ctx.WorkflowButtons)) { $btn.Background = $b.DarkButtonBg; $btn.BorderBrush = $b.DarkButtonBorder }
-        foreach ($btn in @($ctx.OptionsButtons))  { $btn.Background = $b.DarkButtonBg; $btn.BorderBrush = $b.DarkButtonBorder }
+        foreach ($btn in @($ctx.WorkflowButtons)) { $btn.Background = $b.DarkButtonBg; $btn.BorderBrush = $b.DarkButtonBorder; Set-ThemeForeground -Control $btn -IsDark $true -OnBlue $b.OnBlue }
+        foreach ($btn in @($ctx.OptionsButtons))  { $btn.Background = $b.DarkButtonBg; $btn.BorderBrush = $b.DarkButtonBorder; Set-ThemeForeground -Control $btn -IsDark $true -OnBlue $b.OnBlue }
         if ($ctx.LogLabel) { $ctx.LogLabel.Foreground = $b.LogLabelDark }
     }
     else {
-        foreach ($btn in @($ctx.WorkflowButtons)) { $btn.Background = $b.LightWfBg;  $btn.BorderBrush = $b.LightWfBorder }
-        foreach ($btn in @($ctx.OptionsButtons))  { $btn.Background = $b.LightOptBg; $btn.BorderBrush = $b.LightOptBorder }
+        foreach ($btn in @($ctx.WorkflowButtons)) { $btn.Background = $b.LightWfBg;  $btn.BorderBrush = $b.LightWfBorder; Set-ThemeForeground -Control $btn -IsDark $false -OnBlue $b.OnBlue }
+        foreach ($btn in @($ctx.OptionsButtons))  { $btn.Background = $b.LightOptBg; $btn.BorderBrush = $b.LightOptBorder; Set-ThemeForeground -Control $btn -IsDark $false -OnBlue $b.OnBlue }
         if ($ctx.LogLabel) { $ctx.LogLabel.Foreground = $b.LogLabelLight }
     }
+    Set-ConnectionTextTheme -Window $ctx.Window -IsDark $IsDark
 }
 
 function Set-DialogTheme {
