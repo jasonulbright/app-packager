@@ -1293,6 +1293,15 @@ function Invoke-DiscoveryScan {
         [hashtable]$OperationState
     )
 
+    # The scan function travels to a runspace as text, so its helper sits inside it. A message that the tool throws
+    # itself passes. Any other error is raw text: it goes to the log file and the result gets a fixed sentence.
+    function Get-ScanErrorText {
+        param($ErrorRecord)
+        $ex = $ErrorRecord.Exception
+        if ($null -ne $ex -and $ErrorRecord.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::OperationStopped -and $null -eq $ex.InnerException) { return [string]$ex.Message }
+        if ($null -ne $ex) { try { Write-Log ('Discovery scan failed: {0}' -f $ex.Message) -Level ERROR } catch { $null = $_ } }
+        return 'the query failed. See the log file.'
+    }
     $result = [pscustomobject]@{ Ok = $false; Error = ''; Server = ''; Database = ''; StatusText = ''; Candidates = @() }
     try {
         if (-not (Get-Command -Name 'Get-CMInventorySnapshot' -ErrorAction SilentlyContinue)) {
@@ -1326,9 +1335,8 @@ function Invoke-DiscoveryScan {
         $result.Ok = $true
     }
     catch {
-        # The scan runs in its own runspace, where Get-UserErrorText does not exist. The raw text goes to the log file.
-        try { Write-Log ('Discovery scan failed: {0}' -f $_.Exception.Message) -Level ERROR } catch { $null = $_ }
-        $result.Error = 'the query failed. See the log file.'
+        # The scan runs in its own runspace, where Get-UserErrorText does not exist. Get-ScanErrorText is the same rule.
+        $result.Error = Get-ScanErrorText -ErrorRecord $_
         $result.Candidates = @()
     }
     return $result
@@ -4959,11 +4967,13 @@ function Get-UserErrorText {
         [Parameter(Mandatory)][string]$Fallback
     )
     $ex = $ErrorRecord.Exception
+    # A refusal that the tool builds itself carries its reason for the user in Data (WsusRefusal).
+    if ($null -ne $ex -and $null -ne $ex.Data -and $ex.Data.Contains('WsusRefusal')) { return [string]$ex.Message }
     if ($null -ne $ex -and $ErrorRecord.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::OperationStopped -and
         $ex.GetType().FullName -eq 'System.Management.Automation.RuntimeException' -and $null -eq $ex.InnerException) {
         return [string]$ex.Message
     }
-    if ($null -ne $ex) { Write-Log ('Error detail kept out of the window: {0}' -f $ex.Message) -Level ERROR }
+    if ($null -ne $ex) { try { Write-Log ('Error detail kept out of the window: {0}' -f $ex.Message) -Level ERROR } catch { $null = $_ } }
     return $Fallback
 }
 function Get-HttpStatusCode {

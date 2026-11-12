@@ -791,7 +791,7 @@
                 <Button x:Name="btnSaveAs" Content="Save As..." Style="{StaticResource DialogButton}" Margin="0,3,8,3"/>
                 <Button x:Name="btnValidate" Content="Validate" Style="{StaticResource DialogButton}" Margin="0,3,8,3"/>
                 <Button x:Name="btnStage" Content="Stage" Style="{StaticResource DialogButton}" Margin="0,3,8,3"/>
-                <TextBlock Text="Publish to:" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="8,3,8,3"/>
+                <TextBlock Text="Publish To:" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="8,3,8,3"/>
                 <Button x:Name="btnPublishMecm" Content="ConfigMgr" Style="{StaticResource DialogAccentButton}" Margin="0,3,8,3"
                         ToolTip="Build a ConfigMgr application from the selected build."/>
                 <Button x:Name="btnPublishIntune" Content="Intune" Style="{StaticResource DialogAccentButton}" Margin="0,3,8,3"
