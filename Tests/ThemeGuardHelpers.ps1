@@ -100,16 +100,17 @@ function Get-AppScriptFile {
 function Get-XamlDocument {
     $docs = @()
     foreach ($f in @(Get-ChildItem -LiteralPath $script:RepoRoot -Filter '*.xaml' -File -Recurse | Where-Object { (Get-RelativeRepoPath $_.FullName) -notmatch $script:ExcludedFolder })) {
-        $text = (Get-Content -LiteralPath $f.FullName -Raw).Replace($script:SharedStyleMarker, (Get-SharedStyleXaml))
-        $docs += [PSCustomObject]@{ Source = $f.Name; Text = $text; Kind = 'file' }
+        $raw = Get-Content -LiteralPath $f.FullName -Raw
+        $docs += [PSCustomObject]@{ Source = $f.Name; Text = $raw.Replace($script:SharedStyleMarker, (Get-SharedStyleXaml)); Kind = 'file'; RawText = $raw }
     }
     $path = Join-Path $script:RepoRoot 'start-apppackager.ps1'
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
     $nodes = @($ast.FindAll({ param($n) ($n -is [System.Management.Automation.Language.StringConstantExpressionAst] -or $n -is [System.Management.Automation.Language.ExpandableStringExpressionAst]) -and $n.Value -match 'xmlns="http://schemas\.microsoft\.com/winfx/2006/xaml/presentation"' }, $true))
     foreach ($n in $nodes) {
-        $text = ([string]$n.Value).Replace($script:SharedStyleMarker, (Get-SharedStyleXaml))
+        $raw = [string]$n.Value
+        $text = $raw.Replace($script:SharedStyleMarker, (Get-SharedStyleXaml))
         $kind = if ($text -match '^\s*<Controls:MetroWindow') { 'window' } else { 'panel' }
-        $docs += [PSCustomObject]@{ Source = ('start-apppackager.ps1:{0}' -f $n.Extent.StartLineNumber); Text = $text; Kind = $kind }
+        $docs += [PSCustomObject]@{ Source = ('start-apppackager.ps1:{0}' -f $n.Extent.StartLineNumber); Text = $text; Kind = $kind; RawText = $raw }
     }
     return $docs
 }
@@ -119,7 +120,9 @@ function Find-StyleNode {
     param($Doc, [string]$Key)
     $q = "//*[local-name()='Style' or local-name()='ControlTemplate'][@*[local-name()='Key']='{0}']" -f $Key
     $n = $Doc.SelectSingleNode($q)
-    if (-not $n -and $script:MainDoc) { $n = $script:MainDoc.SelectSingleNode($q) }
+    # Only a panel (its host window holds the styles) falls back to the shared styles. A window must hold them itself.
+    $rootName = if ($Doc.DocumentElement) { $Doc.DocumentElement.LocalName } else { '' }
+    if (-not $n -and $script:MainDoc -and $rootName -notin 'MetroWindow', 'Window') { $n = $script:MainDoc.SelectSingleNode($q) }
     return $n
 }
 
@@ -214,22 +217,27 @@ function Get-LiteralColorOutsideStyle {
             if ($a.Name -match '^xmlns' -or $a.NamespaceURI -eq 'http://www.w3.org/2000/xmlns/') { continue }
             if ((Get-PropertyLeaf $a.Name) -notmatch '(Brush|Background|Foreground|Fill|Stroke|Color)$') { continue }
             if ($a.Value -match '^\s*#[0-9A-Fa-f]{3,8}\s*$' -and $script:AllowedHexOutsideStyle -notcontains $a.Value.Trim()) { '{0}: <{1}> {2}="{3}"' -f $Source, $el.LocalName, $a.Name, $a.Value }
-            elseif ($a.Value -match '^\s*[A-Za-z]+\s*$' -and $a.LocalName -ne 'Color' -and $a.LocalName -ne 'LastChildFill') { '{0}: <{1}> {2}="{3}"' -f $Source, $el.LocalName, $a.Name, $a.Value }
+            elseif ($a.Value -match '^\s*[A-Za-z]+\s*$' -and $a.LocalName -ne 'LastChildFill') { '{0}: <{1}> {2}="{3}"' -f $Source, $el.LocalName, $a.Name, $a.Value }
         }
     }
 }
 
-# One text per state trigger that sets the opacity, and one per Opacity attribute on a control with a blue or text role.
+# One text per state trigger (Trigger, MultiTrigger, DataTrigger) that sets the opacity, and one per Opacity attribute on a text
+# element, a button, a brush, or any element that has a blue background.
 function Get-OpacityInStateTrigger {
     param([string]$Text)
     [xml]$x = $Text
-    foreach ($trigger in @($x.SelectNodes("//*[local-name()='Trigger' or local-name()='DataTrigger']"))) {
+    foreach ($trigger in @($x.SelectNodes("//*[local-name()='Trigger' or local-name()='DataTrigger' or local-name()='MultiTrigger' or local-name()='MultiDataTrigger']"))) {
         if ($trigger.LocalName -eq 'Trigger' -and $trigger.GetAttribute('Property') -notin 'IsMouseOver', 'IsPressed', 'IsEnabled', 'IsKeyboardFocused', 'IsSelected', 'IsHighlighted') { continue }
-        foreach ($s in @($trigger.SelectNodes("*[local-name()='Setter'][@Property='Opacity']"))) { 'Trigger {0} sets Opacity {1}' -f $trigger.GetAttribute('Property'), $s.GetAttribute('Value') }
+        foreach ($s in @($trigger.SelectNodes("*[local-name()='Setter'][@Property='Opacity' or substring(@Property, string-length(@Property) - 7) = '.Opacity']"))) { '{0} sets Opacity {1}' -f $trigger.LocalName, $s.GetAttribute('Value') }
     }
-    foreach ($el in @($x.SelectNodes("//*[local-name()='TextBlock' or local-name()='Button'][@Opacity]"))) { '<{0}> sets Opacity {1}' -f $el.LocalName, $el.GetAttribute('Opacity') }
+    foreach ($el in @($x.SelectNodes('//*[@Opacity]'))) {
+        $isText = $el.LocalName -in 'TextBlock', 'Button', 'Label', 'TextBox'
+        $isBlue = Test-BlueBrush $el.GetAttribute('Background')
+        if ($isText -or $isBlue) { '<{0}> sets Opacity {1}' -f $el.LocalName, $el.GetAttribute('Opacity') }
+        elseif ($el.LocalName -match 'Brush$') { '<{0}> sets Opacity {1} on a brush' -f $el.LocalName, $el.GetAttribute('Opacity') }
+    }
 }
-
 # One text per button problem: no style, a style that does not end at ThemedButtonStyle, a local size attribute,
 # a literal color attribute, a template of its own.
 function Get-ButtonViolation {

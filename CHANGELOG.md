@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Show white text on every blue background in the light theme.
+- Show the Site Code and SMS Provider titles in bold 14 pt in both themes.
+- Show field labels and headers in bold. Use Title Case for buttons, headers and dialog titles.
+- Use one short sentence for each tooltip, in Configuration Manager words.
+- Keep raw error text out of the window and the log pane. The log file holds it.
+- Show notes in the theme text color, with no reduced opacity.
+- Show a visible border on hover for every button.
+
+### Changed
+
+- Use one themed button style in the window, the dialogs and the Workbench.
+- Define the shared styles one time. The dialogs and the Workbench take them at run time.
+- Write the window log to a daily file in the Logs folder.
+- Let the image capture take the lab lock and work in its own folder.
+
+### Added
+
+- Add guard tests for the theme, the fonts, the button styles, Title Case and error text.
+- Require Pester 5.1.0 in every test file.
+
+### Known limit
+
+- In the light theme a disabled sidebar button keeps white text. The fix belongs in SuiteCommon.
+
 ## [2026.11.12.0134] - 2026-11-12
 
 ## 4 images of a Chrome CVE check
@@ -13,26 +41,6 @@
 
 - Keep files of other sessions in the lab folder when the image capture ends.
 
-## [Unreleased]
-
-### Fixed
-
-- Show white text on every blue background in the light theme: the sidebar buttons, the primary buttons, the selected rows of the grids, and the selected and highlighted items of the lists, trees and combo boxes, in the window, in every dialog and in the Application Workbench.
-- Show the Site Code and SMS Provider titles in bold at 14 pt in both themes. The value boxes keep the body style. The label "Provider Machine" is now "SMS Provider".
-- Show field labels and section headers in bold, in both themes. Use Title Case for buttons, column headers, labels and dialog titles.
-- Use one short sentence for each tooltip, in Configuration Manager words.
-- Keep raw exception text out of the window and the log pane. A message that the tool throws itself still shows. Any other error shows a fixed sentence and the text goes to the log file.
-- Show the notes of the dialogs and the hints in the theme text color, not in a fixed color or with a reduced opacity.
-
-### Changed
-
-- Use one themed button style in the window, in every dialog and in the Workbench. Hover, pressed and disabled change colors, never the opacity. Cancel, Browse and the other secondary buttons use one gray style. The primary buttons use the theme highlight with white text. No button sets its own height, width or padding.
-- Define the shared styles one time, in `MainWindow.xaml`. The dialogs and the Workbench take them at run time.
-
-### Added
-
-- Add `Theme.Guard.Tests.ps1` and `ThemeGuardHelpers.ps1`. They check the white text on blue, the equal fonts in both themes, the bold titles, the shared button style, the banned words, Title Case, one-sentence tooltips and raw exception text.
-- Require Pester 5.1.0 in every test file.
 ## [2026.11.12.0133] - 2026-11-12
 
 ## 21 corrected CPE names and a new CVE lookup

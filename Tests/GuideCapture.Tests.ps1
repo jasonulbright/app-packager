@@ -30,7 +30,7 @@ Describe 'The capture tool takes the lab lock and keeps to its own folder' {
     }
 
     It 'takes the lock with New-Item and an IOException catch' {
-        $script:Code | Should -Match "New-Item -ItemType File -Path \`$path -ErrorAction Stop"
+        $script:Code | Should -Match 'New-Item -ItemType File -Path \$path -Value \$token -ErrorAction Stop'
         $script:Code | Should -Match 'catch \[System\.IO\.IOException\]'
         $script:Code | Should -Match "\`$lockPath = 'C:\\guide\\capture\.lock'"
     }
@@ -58,7 +58,13 @@ Describe 'The capture tool takes the lab lock and keeps to its own folder' {
     It 'handles an empty lock file as a lock' {
         # The holder creates the file first and writes its token second. An empty file is a lock, never an error.
         $script:Code | Should -Match '\[string\]\(Get-Content -LiteralPath \$path -Raw'
-        $script:Code | Should -Match 'Set-Content -LiteralPath \$path -Value \$token'
+        $script:Code | Should -Match 'New-Item -ItemType File -Path \$path -Value \$token -ErrorAction Stop'
+        $script:Code | Should -Not -Match 'Set-Content -LiteralPath \$path -Value \$token'
+    }
+
+    It 'deletes the renamed file when the move back fails, and treats the lock as busy' {
+        $script:Code | Should -Match 'try \{ Move-Item -LiteralPath \$stale -Destination \$path -ErrorAction Stop \}'
+        $script:Code | Should -Match 'catch \{ Remove-Item -LiteralPath \$stale -Force'
     }
 
     It 'opens the session inside the try block' {

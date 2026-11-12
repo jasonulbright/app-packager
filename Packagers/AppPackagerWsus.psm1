@@ -1198,6 +1198,8 @@ catch {
                 $info = $raw | ConvertFrom-Json -ErrorAction Stop
                 if ($info -and $info.PSObject.Properties['Message']) {
                     $rebuilt = New-Object System.InvalidOperationException([string]$info.Message)
+                    # The child wrote this text for the user. UserMessage lets PowerShell 7 show it, where a rethrown exception has no OperationStopped category.
+                    $rebuilt.Data['UserMessage'] = '1'
                     if ($info.PSObject.Properties['Data'] -and $info.Data) {
                         foreach ($entry in $info.Data.PSObject.Properties) { $rebuilt.Data[[string]$entry.Name] = [string]$entry.Value }
                     }
@@ -1906,6 +1908,7 @@ function Publish-WsusSoftwareUpdate {
         # apart from a failed server call.
         $refusal = New-Object System.InvalidOperationException(('This application cannot be published to WSUS: {0}' -f (($blocking | ForEach-Object { '{0}: {1}' -f $_.Code, $_.Message }) -join ' | ')))
         $refusal.Data['WsusRefusal'] = (@($blocking | ForEach-Object { [string]$_.Code }) -join ',')
+        $refusal.Data['UserMessage'] = '1'
         throw $refusal
     }
 

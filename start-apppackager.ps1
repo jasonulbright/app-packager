@@ -1298,8 +1298,10 @@ function Invoke-DiscoveryScan {
     function Get-ScanErrorText {
         param($ErrorRecord)
         $ex = $ErrorRecord.Exception
+        if ($null -ne $ex -and $null -ne $ex.Data -and $ex.Data.Contains('UserMessage')) { return [string]$ex.Message }
         if ($null -ne $ex -and $ErrorRecord.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::OperationStopped -and $null -eq $ex.InnerException) { return [string]$ex.Message }
-        if ($null -ne $ex) { try { Write-Log ('Discovery scan failed: {0}' -f $ex.Message) -Level ERROR } catch { $null = $_ } }
+        # The runspace has no log file yet. The shell passes the path in an environment variable.
+        if ($null -ne $ex) { try { if ($env:APPPACKAGER_LOG_PATH) { Initialize-Logging -LogPath $env:APPPACKAGER_LOG_PATH -Attach }; Write-Log ('Discovery scan failed: {0}' -f $ex.Message) -Level ERROR } catch { $null = $_ } }
         return 'the query failed. See the log file.'
     }
     $result = [pscustomobject]@{ Ok = $false; Error = ''; Server = ''; Database = ''; StatusText = ''; Candidates = @() }
@@ -1392,7 +1394,7 @@ function Start-DiscoveryRunspace {
                 $State.Result = Invoke-DiscoveryScan @ScanArgs
             }
             catch {
-                try { Write-Log ('Discovery scan failed: {0}' -f $_.Exception.Message) -Level ERROR } catch { $null = $_ }
+                try { if ($env:APPPACKAGER_LOG_PATH) { Initialize-Logging -LogPath $env:APPPACKAGER_LOG_PATH -Attach }; Write-Log ('Discovery scan failed: {0}' -f $_.Exception.Message) -Level ERROR } catch { $null = $_ }
                 $State.Result = [pscustomobject]@{ Ok = $false; Error = 'the query failed. See the log file.'; Server = ''; Database = ''; StatusText = ''; Candidates = @() }
             }
             finally { $State.Done = $true }
@@ -4730,6 +4732,35 @@ function Invoke-CveMonitor {
     return $summaryOut
 }
 
+# User-facing error text. These functions sit above the -BatchMode block, because the batch catch blocks call them.
+function Get-HttpStatusCode {
+    # The HTTP status code of a web error, or $null. A number is no exception text.
+    param([Parameter(Mandatory)]$ErrorRecord)
+    $response = $ErrorRecord.Exception.Response
+    if ($null -eq $response) { return $null }
+    return [int]$response.StatusCode
+}
+
+function Get-UserErrorText {
+    # The text of an error that the window may show. A message that this tool throws itself (throw 'text') is
+    # written for the user and passes through. Any other error (a ConfigMgr, WMI, file or .NET exception) is raw
+    # exception text: it goes to the log file and the caller gets the fallback sentence.
+    # Only a throw statement has the category OperationStopped. An engine error has another category.
+    # An exception that the tool builds itself carries Data['UserMessage'] (or Data['WsusRefusal']): its text is for the
+    # user too. PowerShell 7 gives a rethrown exception object no OperationStopped category, so the marker is needed.
+    param(
+        [Parameter(Mandatory)]$ErrorRecord,
+        [Parameter(Mandatory)][string]$Fallback
+    )
+    $ex = $ErrorRecord.Exception
+    if ($null -ne $ex -and $null -ne $ex.Data -and ($ex.Data.Contains('UserMessage') -or $ex.Data.Contains('WsusRefusal'))) { return [string]$ex.Message }
+    if ($null -ne $ex -and $ErrorRecord.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::OperationStopped -and
+        $ex.GetType().FullName -eq 'System.Management.Automation.RuntimeException' -and $null -eq $ex.InnerException) {
+        return [string]$ex.Message
+    }
+    if ($null -ne $ex) { try { Write-Log ('Error detail kept out of the window: {0}' -f $ex.Message) -Level ERROR } catch { $null = $_ } }
+    return $Fallback
+}
 if ($BatchMode) {
     if ($LogPath) { Initialize-Logging -LogPath $LogPath }
 
@@ -4829,6 +4860,17 @@ if ($BatchMode) {
 # =============================================================================
 $script:PackagerData = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
 
+# =============================================================================
+# Log file of the window
+# =============================================================================
+# The window logs to a daily file under Logs. Get-UserErrorText and the background runspaces write the raw text of an
+# error there, so that the window can say "See the log file." and the file holds the reason. -Attach appends.
+$script:GuiLogPath = Join-Path (Join-Path $PSScriptRoot 'Logs') ('AppPackager-{0}.log' -f (Get-Date -Format 'yyyyMMdd'))
+try {
+    Initialize-Logging -LogPath $script:GuiLogPath -Attach
+    $env:APPPACKAGER_LOG_PATH = $script:GuiLogPath
+}
+catch { $script:GuiLogPath = $null }
 # =============================================================================
 # Parse XAML and create window
 # =============================================================================
@@ -4963,32 +5005,6 @@ function Expand-SharedStyle {
     return $Xaml.Replace($marker, (Get-SharedStyleXaml))
 }
 
-function Get-HttpStatusCode {
-    # The HTTP status code of a web error, or $null. A number is no exception text.
-    param([Parameter(Mandatory)]$ErrorRecord)
-    $response = $ErrorRecord.Exception.Response
-    if ($null -eq $response) { return $null }
-    return [int]$response.StatusCode
-}
-function Get-UserErrorText {
-    # The text of an error that the window may show. A message that this tool throws itself (throw 'text') is
-    # written for the user and passes through. Any other error (a ConfigMgr, WMI, file or .NET exception) is raw
-    # exception text: it goes to the log file and the caller gets the fallback sentence.
-    # Only a throw statement has the category OperationStopped. An engine error has another category.
-    param(
-        [Parameter(Mandatory)]$ErrorRecord,
-        [Parameter(Mandatory)][string]$Fallback
-    )
-    $ex = $ErrorRecord.Exception
-    # A refusal that the tool builds itself carries its reason for the user in Data (WsusRefusal).
-    if ($null -ne $ex -and $null -ne $ex.Data -and $ex.Data.Contains('WsusRefusal')) { return [string]$ex.Message }
-    if ($null -ne $ex -and $ErrorRecord.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::OperationStopped -and
-        $ex.GetType().FullName -eq 'System.Management.Automation.RuntimeException' -and $null -eq $ex.InnerException) {
-        return [string]$ex.Message
-    }
-    if ($null -ne $ex) { try { Write-Log ('Error detail kept out of the window: {0}' -f $ex.Message) -Level ERROR } catch { $null = $_ } }
-    return $Fallback
-}
 $toggleTheme.Add_Toggled({
     if ($toggleTheme.IsOn) {
         [ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($window, "Dark.Steel")
@@ -8058,6 +8074,14 @@ function Initialize-BackgroundWorker {
     $script:BgRunspace.Open()
 
     Import-BackgroundWorkerModule -Runspace $script:BgRunspace -Root $PSScriptRoot
+
+    # The runspace writes to the same log file as the window.
+    if ($script:GuiLogPath) {
+        $logPS = [powershell]::Create()
+        $logPS.Runspace = $script:BgRunspace
+        [void]$logPS.AddScript({ param($Path) Initialize-Logging -LogPath $Path -Attach }).AddArgument($script:GuiLogPath)
+        try { [void]$logPS.Invoke() } catch { $null = $_ } finally { $logPS.Dispose() }
+    }
 
     # Reflect the inline helpers from this script into the bg runspace so
     # the per-app loop can call them directly. Single source of truth: the

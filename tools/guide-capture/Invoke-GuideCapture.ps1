@@ -100,8 +100,8 @@ try {
         $deadline = (Get-Date).AddMinutes($waitMinutes)
         while ($true) {
             try {
-                $null = New-Item -ItemType File -Path $path -ErrorAction Stop
-                Set-Content -LiteralPath $path -Value $token
+                # The token goes in with the file, in one call. A failure of a second write could not be told from a held lock.
+                $null = New-Item -ItemType File -Path $path -Value $token -ErrorAction Stop
                 return $true
             }
             catch [System.IO.IOException] {
@@ -114,7 +114,12 @@ try {
                         Move-Item -LiteralPath $path -Destination $stale -ErrorAction Stop
                         $moved = Get-Item -LiteralPath $stale -ErrorAction Stop
                         if (((Get-Date) - $moved.LastWriteTime).TotalMinutes -gt $staleMinutes) { Remove-Item -LiteralPath $stale -Force -ErrorAction SilentlyContinue }
-                        else { Move-Item -LiteralPath $stale -Destination $path -ErrorAction SilentlyContinue }
+                        else {
+                            # The holder touched the lock. It goes back to its name. When another capture took the name in the
+                            # meantime, the renamed file is deleted. Either way the lock is busy: the loop sleeps and tries again.
+                            try { Move-Item -LiteralPath $stale -Destination $path -ErrorAction Stop }
+                            catch { Remove-Item -LiteralPath $stale -Force -ErrorAction SilentlyContinue }
+                        }
                     }
                     catch { $null = $_ }
                 }

@@ -26,7 +26,8 @@
                  theme resources and from SuiteCommon (Set-ButtonTheme sets the sidebar buttons), so the same
                  markup works in the dark and in the light theme. -->
 
-            <!-- The one button template. Hover shows the theme foreground as border color. Pressed swaps the
+            <!-- The one button template. Hover shows the theme foreground as a 2 px border, so that it is visible also on a
+                 button whose border has the theme foreground color already. Pressed swaps the
                  theme foreground and the theme background. No state changes the opacity, because an opacity below 1
                  washes the text out. -->
             <ControlTemplate x:Key="ThemedButtonTemplate" TargetType="Button">
@@ -45,9 +46,11 @@
                 <ControlTemplate.Triggers>
                     <Trigger Property="IsMouseOver" Value="True">
                         <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                        <Setter TargetName="Bd" Property="BorderThickness" Value="2"/>
                     </Trigger>
                     <Trigger Property="IsKeyboardFocused" Value="True">
                         <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                        <Setter TargetName="Bd" Property="BorderThickness" Value="2"/>
                     </Trigger>
                     <Trigger Property="IsPressed" Value="True">
                         <Setter TargetName="Bd" Property="Background" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
@@ -73,7 +76,11 @@
                 </Style.Triggers>
             </Style>
 
-            <!-- The sidebar buttons. SuiteCommon (Set-ButtonTheme) sets their colors for the dark and the light theme. -->
+            <!-- The sidebar buttons. SuiteCommon (Set-ButtonTheme) sets their colors for the dark and the light theme.
+                 Known limit of the vendored SuiteCommon: in the light theme Set-ThemeForeground sets a local white
+                 foreground. A local value beats the gray text of the disabled trigger, so a disabled sidebar button would
+                 keep white text on blue and look enabled. AppPackager disables the sidebar buttons while a run is active.
+                 The owner of the fix is app-packager-suite. See Tests\KnownThemeLimits.ps1. -->
             <Style x:Key="WorkflowButtonStyle" TargetType="Button" BasedOn="{StaticResource ThemedButtonStyle}">
                 <Setter Property="Height" Value="42"/>
                 <Setter Property="Margin" Value="8,3,8,3"/>

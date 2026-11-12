@@ -369,7 +369,7 @@ The optional **Administrative Comment** field sits in the sidebar below the Opti
 - **Selection cycle header** — clicking the checkbox column header cycles none → all → updates only → none; selection acts on the rows the filter shows and the glyph reflects the current bulk state
 - **Pause / Resume / Cancel** — long multi-app runs can pause after the current app, resume, or cancel without hiding the log drawer
 - **Real-time log streaming** — Stage, Package, and One Click stream packager output line-by-line into the log pane as it runs; the UI keeps the newest 4,000 lines while disk logs remain complete
-- **CVE columns** — CVEs (the CVEs that affect the ConfigMgr version), Max CVSS, KEV, Fixed by update (how many of them the latest release removes) and Newest CVE per row after Check CVEs; the CVE count opens a window with every CVE and its links. See [CVE lookup](#cve-lookup).
+- **CVE columns** — CVEs (the CVEs that affect the ConfigMgr version), Max CVSS, KEV, Fixed by Update (how many of them the latest release removes) and Newest CVE per row after Check CVEs; the CVE count opens a window with every CVE and its links. See [CVE lookup](#cve-lookup).
 - **Debug Columns toggle** — exposes CMName, Script filename, Vendor URL, Last Checked, CVEs Checked (ISO 8601 UTC), Max EPSS and NVD updated columns for deeper inspection
 - **Tooltips** on all interactive controls — hover over any field or button for a description of its purpose
 

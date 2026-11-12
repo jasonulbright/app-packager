@@ -34,10 +34,26 @@ Describe 'The scans find the documents' {
 
     It 'expands the shared style marker in every window of the start script' {
         $script:XamlDocs | ForEach-Object { $_.Text | Should -Not -Match '<!--SHARED_STYLES-->' }
-        $intMarker = ([regex]::Matches($script:ShellText, [regex]::Escape($script:SharedStyleMarker))).Count - 1
-        $intMarker | Should -BeGreaterOrEqual 14
+        $intMarker = ([regex]::Matches($script:ShellText, [regex]::Escape($script:SharedStyleMarker))).Count 
+        $intMarker | Should -BeGreaterOrEqual 15
         $script:ShellText | Should -Match 'function Expand-SharedStyle'
         $script:ShellText | Should -Match 'function Get-SharedStyleXaml'
+    }
+
+    It 'has the shared style marker in the raw text of every window of the start script (15) and of the Workbench' {
+        $windows = @($script:XamlDocs | Where-Object { $_.Kind -eq 'window' })
+        $windows.Count | Should -Be 15
+        foreach ($w in $windows) { $w.RawText | Should -Match '<!--SHARED_STYLES-->' -Because $w.Source }
+        $wb = @($script:XamlDocs | Where-Object { $_.Source -eq 'WorkbenchWindow.xaml' })[0]
+        $wb.RawText | Should -Match '<!--SHARED_STYLES-->'
+    }
+
+    It 'does not let a window without the marker take the styles of the main window (the check itself)' {
+        $ns = 'xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"'
+        [xml]$window = "<Window $ns><Window.Resources><Style x:Key=`"Own`" TargetType=`"Button`"/></Window.Resources><Button Style=`"{DynamicResource ThemedButtonStyle}`"/></Window>"
+        [xml]$panel = "<DockPanel $ns><Button Style=`"{DynamicResource ThemedButtonStyle}`"/></DockPanel>"
+        (Find-StyleNode -Doc $window -Key 'ThemedButtonStyle') | Should -BeNullOrEmpty
+        (Find-StyleNode -Doc $panel -Key 'ThemedButtonStyle') | Should -Not -BeNullOrEmpty
     }
 
     It 'lists in the start script the same shared styles as the helper' {
@@ -429,6 +445,11 @@ Describe 'Every button takes the shared themed style (d)' {
         @(Get-OpacityInStateTrigger -Text $bad).Count | Should -Be 1
         @(Get-OpacityInStateTrigger -Text $ok).Count | Should -Be 0
         @(Get-OpacityInStateTrigger -Text "<TextBlock $ns Opacity=`"0.75`"/>").Count | Should -Be 1
+        @(Get-OpacityInStateTrigger -Text "<Border $ns Background=`"{DynamicResource MahApps.Brushes.Highlight}`" Opacity=`"0.5`"/>").Count | Should -Be 1
+        @(Get-OpacityInStateTrigger -Text "<SolidColorBrush $ns Color=`"{DynamicResource MahApps.Colors.Gray10}`" Opacity=`"0.85`"/>").Count | Should -Be 1
+        $multi = "<ControlTemplate $ns TargetType=`"Button`"><ControlTemplate.Triggers><MultiTrigger><MultiTrigger.Conditions><Condition Property=`"IsMouseOver`" Value=`"True`"/></MultiTrigger.Conditions><Setter Property=`"Opacity`" Value=`"0.8`"/></MultiTrigger></ControlTemplate.Triggers></ControlTemplate>"
+        @(Get-OpacityInStateTrigger -Text $multi).Count | Should -Be 1
+        @(Get-LiteralColorOutsideStyle -Text "<Border $ns><Border.Background><SolidColorBrush Color=`"Red`"/></Border.Background></Border>" -Source 's').Count | Should -Be 1
     }
 
     It 'documents the one secondary style and the one primary style, with equal sizes and theme colors only' {
@@ -479,6 +500,26 @@ Describe 'Every button takes the shared themed style (d)' {
     }
 }
 
+Describe 'Known theme limits are documented (d)' {
+    It 'documents each known limit with a reason and an owner, in the list and in MainWindow.xaml' {
+        . "$PSScriptRoot\KnownThemeLimits.ps1"
+        @($script:KnownThemeLimit).Count | Should -BeGreaterOrEqual 1
+        foreach ($l in $script:KnownThemeLimit) {
+            foreach ($field in 'Id', 'Where', 'Reason', 'Source') { [string]$l[$field] | Should -Not -BeNullOrEmpty -Because ('{0} needs {1}' -f $l.Id, $field) }
+            ([string]$l.Reason).Length | Should -BeGreaterOrEqual 60
+        }
+        $main = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'MainWindow.xaml') -Raw
+        $main | Should -Match 'Known limit of the vendored SuiteCommon'
+        $main | Should -Match 'KnownThemeLimits\.ps1'
+        (Get-Content -LiteralPath $script:SuitePath -Raw) | Should -Match '\.Foreground\s*=\s*\$OnBlue'
+    }
+
+    It 'shows hover with a 2 px border, so that it differs from the rest state of every button style' {
+        $tpl = $script:MainDoc.SelectSingleNode("//*[local-name()='ControlTemplate'][@*[local-name()='Key']='ThemedButtonTemplate']")
+        $hover = @($tpl.SelectNodes(".//*[local-name()='Trigger'][@Property='IsMouseOver']/*[local-name()='Setter']") | ForEach-Object { '{0}={1}' -f $_.GetAttribute('Property'), $_.GetAttribute('Value') })
+        ($hover -join ' ') | Should -Match 'BorderThickness=2'
+    }
+}
 Describe 'Titles are in Title Case (e)' {
     It 'recognizes Title Case (the check itself)' {
         Test-TitleCase 'Stage Packages' | Should -BeTrue

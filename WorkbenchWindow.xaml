@@ -45,7 +45,7 @@
                 <Setter Property="Margin" Value="0,0,0,6"/>
                 <Style.Resources>
                     <!-- MahApps paints a disabled field with translucent white in both themes: a flat light block on Dark. -->
-                    <SolidColorBrush x:Key="MahApps.Brushes.Control.Disabled" Color="{DynamicResource MahApps.Colors.Gray10}" Opacity="0.85"/>
+                    <SolidColorBrush x:Key="MahApps.Brushes.Control.Disabled" Color="{DynamicResource MahApps.Colors.Gray10}"/>
                 </Style.Resources>
                 <Style.Triggers>
                     <Trigger Property="IsEnabled" Value="False">
@@ -61,7 +61,7 @@
                 <Setter Property="Margin" Value="0,0,0,6"/>
                 <Style.Resources>
                     <!-- MahApps paints a disabled field with translucent white in both themes: a flat light block on Dark. -->
-                    <SolidColorBrush x:Key="MahApps.Brushes.Control.Disabled" Color="{DynamicResource MahApps.Colors.Gray10}" Opacity="0.85"/>
+                    <SolidColorBrush x:Key="MahApps.Brushes.Control.Disabled" Color="{DynamicResource MahApps.Colors.Gray10}"/>
                 </Style.Resources>
                 <Style.Triggers>
                     <Trigger Property="IsEnabled" Value="False">
@@ -80,7 +80,7 @@
                 <Setter Property="HorizontalScrollBarVisibility" Value="Auto"/>
                 <Style.Resources>
                     <!-- MahApps paints a disabled field with translucent white in both themes: a flat light block on Dark. -->
-                    <SolidColorBrush x:Key="MahApps.Brushes.Control.Disabled" Color="{DynamicResource MahApps.Colors.Gray10}" Opacity="0.85"/>
+                    <SolidColorBrush x:Key="MahApps.Brushes.Control.Disabled" Color="{DynamicResource MahApps.Colors.Gray10}"/>
                 </Style.Resources>
                 <Style.Triggers>
                     <Trigger Property="IsEnabled" Value="False">

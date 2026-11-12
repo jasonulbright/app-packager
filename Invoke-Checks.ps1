@@ -58,7 +58,7 @@ if (Test-GroupSelected 'Lint') {
     # The tests also build a throwaway password as a SecureString from plain text.
     $testOnlyExclude = 'PSAvoidGlobalVars', 'PSUseDeclaredVarsMoreThanAssignments', 'PSAvoidUsingConvertToSecureStringWithPlainText'
     $findings = @(foreach ($t in $targets) {
-            if ($t.Name -like '*.Tests.ps1' -or $t.FullName -like '*\Tests\*') { Invoke-ScriptAnalyzer -Path $t.FullName -Settings $settings -ExcludeRule $testOnlyExclude }
+            if ($t.Name -like '*.Tests.ps1' -or $t.FullName.Substring($root.Length).TrimStart('\', '/') -like 'Tests[\/]*') { Invoke-ScriptAnalyzer -Path $t.FullName -Settings $settings -ExcludeRule $testOnlyExclude }
             else { Invoke-ScriptAnalyzer -Path $t.FullName -Settings $settings }
         })
     $blocking = @($findings | Where-Object { $_.Severity -eq 'Error' })
@@ -74,7 +74,7 @@ if (Test-GroupSelected 'Lint') {
 $pesterGroups = [ordered]@{
     Modules = @(Get-ChildItem -LiteralPath (Join-Path $root 'Packagers') -Filter '*.Tests.ps1' -File -Recurse)
     Smoke   = @(Get-ChildItem -LiteralPath (Join-Path $root 'Tests') -Filter 'PackagerSmoke.Tests.ps1' -File)
-    Tests   = @(Get-ChildItem -LiteralPath (Join-Path $root 'Tests') -Filter '*.Tests.ps1' -File -Recurse | Where-Object { $_.Name -ne 'PackagerSmoke.Tests.ps1' -and $_.FullName -notmatch '[\\/]Fixtures[\\/]' })
+    Tests   = @(Get-ChildItem -LiteralPath (Join-Path $root 'Tests') -Filter '*.Tests.ps1' -File -Recurse | Where-Object { $_.Name -ne 'PackagerSmoke.Tests.ps1' -and $_.FullName.Substring($root.Length) -notmatch '[\\/]Fixtures[\\/]' })
 }
 foreach ($name in $pesterGroups.Keys) {
     if (-not (Test-GroupSelected $name)) { continue }
