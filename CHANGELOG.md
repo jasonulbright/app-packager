@@ -10,6 +10,9 @@
 - Compare versions with pre-release words, patch letters and four parts correctly.
 - Correct the CPE name of 21 packagers so that the lookup finds their CVEs.
 - Show the time of a CVE lookup in the same form on PowerShell 7.
+- Keep a patch of the ConfigMgr version when the latest version has fewer parts.
+- Keep a CVE open when the latest version has no version data in the record.
+- Replace a damaged KEV catalog copy and write the catalog through a temporary file.
 
 ### Changed
 

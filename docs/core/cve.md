@@ -7,8 +7,8 @@ Check CVEs lists the vulnerabilities that affect the version of an application o
 For each checked application, the tool reads every record that the National Vulnerability Database (NVD) holds for the product. The product is the CPE name in the packager. The tool then decides, from the affected versions of each record, which records apply:
 
 - A CVE **affects** a version when a record names that version, or names a version range that holds it.
-- A CVE is **Fixed** when it affects the version on the site and does not affect the latest version. The update removes it.
-- A CVE is **Open** when it affects the version on the site and no known update removes it. This is the case when the latest version has it too, or when the site already has the latest version.
+- A CVE is **Fixed** when it affects the version on the site and the latest version is not affected. The update removes it.
+- A CVE is **Open** when it affects the version on the site and no known update removes it. This is the case when the latest version has it too, when the site already has the latest version, or when the record names the latest version with no version data.
 - A record with **no version** names the product and states no version or range. NVD does not say which versions it affects. The tool lists such a record apart and does not count it.
 
 The tool adds the EPSS score and the flag of the Known Exploited Vulnerabilities (KEV) catalog to each CVE.
@@ -107,7 +107,7 @@ Some products have no CVE record under their own name because NVD files the vuln
 - A pre-release word sorts before the release: `2.0.0-rc1` is before `2.0.0`. A patch letter sorts after it: `1.1.1w` is after `1.1.1k`, and `7.60c` is after `7.60`.
 - Channel words such as `esr` and `lts` do not change the order.
 - The text after a `+` is a build label and is not used: `11.0.30+7` is release `11.0.30`.
-- A ConfigMgr version from an MSI can have more parts than the vendor version, for example `26.2.2.2` against `26.2.2`. The tool compares the ConfigMgr version with the part count of the latest version.
+- A ConfigMgr version from an MSI can have a fourth build part that the vendor version does not, for example `26.2.2.2` against `26.2.2`. The tool drops that build part only. A patch of the vendor line stays: `131.0.3` against latest `132.0` is examined as `131.0.3`.
 
 ### Records with no version
 
