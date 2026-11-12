@@ -4939,24 +4939,37 @@ function Set-DialogChromeFromOwner {
 
 # The styles that every dialog and the Application Workbench take from MainWindow.xaml, so that each style exists once.
 # A dialog marks the place with <!--SHARED_STYLES--> in its resource dictionary. Expand-SharedStyle replaces the marker
-# with the styles of SharedStyleKey, and with the implicit item styles (ListBoxItem, ComboBoxItem, TreeViewItem, CheckBox).
-$script:SharedStyleMarker = '<!--SHARED_STYLES-->'
-$script:SharedStyleKey = @('ThemedButtonTemplate', 'ThemedButtonStyle', 'DialogAccentButton', 'DialogButton', 'InlineButtonStyle', 'LinkButtonStyle', 'GridLinkButtonStyle', 'ThemedListBoxItemStyle', 'ThemedComboBoxItemStyle', 'ThemedTreeViewItemStyle', 'GridRowStyle', 'GridCellStyle', 'PaddedGridCellStyle')
-$script:SharedStyleType = @('ListBoxItem', 'ComboBoxItem', 'TreeViewItem', 'CheckBox')
-$script:SharedStyleText = $null
-
+# with the styles of the key list below and with the implicit item styles (ListBoxItem, ComboBoxItem, TreeViewItem, CheckBox).
+# The functions hold no script variable but the cache, so that a window probe can publish them as they are.
 function Get-SharedStyleXaml {
     if ($null -ne $script:SharedStyleText) { return $script:SharedStyleText }
-    [xml]$main = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'MainWindow.xaml') -Raw
+    $keys = @('ThemedButtonTemplate', 'ThemedButtonStyle', 'DialogAccentButton', 'DialogButton', 'InlineButtonStyle', 'LinkButtonStyle', 'GridLinkButtonStyle', 'ThemedListBoxItemStyle', 'ThemedComboBoxItemStyle', 'ThemedTreeViewItemStyle', 'GridRowStyle', 'GridCellStyle', 'PaddedGridCellStyle')
+    $types = @('ListBoxItem', 'ComboBoxItem', 'TreeViewItem', 'CheckBox')
+    $base = if ($script:SharedStyleRootOverride) { $script:SharedStyleRootOverride } else { $PSScriptRoot }
+    [xml]$main = Get-Content -LiteralPath (Join-Path $base 'MainWindow.xaml') -Raw
     $nodes = @($main.SelectNodes("//*[local-name()='ResourceDictionary']/*[local-name()='ControlTemplate' or local-name()='Style']") | Where-Object {
             $key = $_.GetAttribute('Key', 'http://schemas.microsoft.com/winfx/2006/xaml')
-            ($key -and ($script:SharedStyleKey -contains $key)) -or (-not $key -and ($script:SharedStyleType -contains $_.GetAttribute('TargetType')))
+            ($key -and ($keys -contains $key)) -or (-not $key -and ($types -contains $_.GetAttribute('TargetType')))
         })
-    if ($nodes.Count -lt $script:SharedStyleKey.Count) { throw 'MainWindow.xaml does not hold every shared style.' }
+    if ($nodes.Count -lt $keys.Count) { throw 'MainWindow.xaml does not hold every shared style.' }
     $script:SharedStyleText = (($nodes | ForEach-Object { $_.OuterXml }) -join [Environment]::NewLine)
     return $script:SharedStyleText
 }
 
+function Expand-SharedStyle {
+    param([Parameter(Mandatory)][string]$Xaml)
+    $marker = '<!--SHARED_STYLES-->'
+    if (-not $Xaml.Contains($marker)) { return $Xaml }
+    return $Xaml.Replace($marker, (Get-SharedStyleXaml))
+}
+
+function Get-HttpStatusCode {
+    # The HTTP status code of a web error, or $null. A number is no exception text.
+    param([Parameter(Mandatory)]$ErrorRecord)
+    $response = $ErrorRecord.Exception.Response
+    if ($null -eq $response) { return $null }
+    return [int]$response.StatusCode
+}
 function Get-UserErrorText {
     # The text of an error that the window may show. A message that this tool throws itself (throw 'text') is
     # written for the user and passes through. Any other error (a ConfigMgr, WMI, file or .NET exception) is raw
@@ -4976,19 +4989,6 @@ function Get-UserErrorText {
     if ($null -ne $ex) { try { Write-Log ('Error detail kept out of the window: {0}' -f $ex.Message) -Level ERROR } catch { $null = $_ } }
     return $Fallback
 }
-function Get-HttpStatusCode {
-    # The HTTP status code of a web error, or $null. A number is no exception text.
-    param([Parameter(Mandatory)]$ErrorRecord)
-    $response = $ErrorRecord.Exception.Response
-    if ($null -eq $response) { return $null }
-    return [int]$response.StatusCode
-}
-function Expand-SharedStyle {
-    param([Parameter(Mandatory)][string]$Xaml)
-    if (-not $Xaml.Contains($script:SharedStyleMarker)) { return $Xaml }
-    return $Xaml.Replace($script:SharedStyleMarker, (Get-SharedStyleXaml))
-}
-
 $toggleTheme.Add_Toggled({
     if ($toggleTheme.IsOn) {
         [ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($window, "Dark.Steel")
@@ -5746,7 +5746,7 @@ function New-MecmPreferencesPanel {
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <TextBlock Grid.Column="0" x:Name="txtIntuneWinStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
-        <Button Grid.Column="1" x:Name="btnIntuneWinDownload" Content="Download" Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" VerticalAlignment="Center" Visibility="Collapsed"/>
+        <Button Grid.Column="1" x:Name="btnIntuneWinDownload" Content="Download" Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" VerticalAlignment="Center" Visibility="Collapsed"/>
     </Grid>
 
     <TextBlock Grid.Row="21" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Shows the state of the packager icon pack."/>
@@ -5757,8 +5757,8 @@ function New-MecmPreferencesPanel {
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <TextBlock Grid.Column="0" x:Name="txtIconPackStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
-        <Button Grid.Column="1" x:Name="btnIconPackDownload" Content="Download Packager Icon Pack" Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" VerticalAlignment="Center" ToolTip="Download the icon pack and extract it into Packagers\Icons."/>
-        <Button Grid.Column="2" x:Name="btnIconPackFromFile" Content="Install from File..." Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="6,0,0,0" VerticalAlignment="Center" ToolTip="Install the icon pack from a local or UNC zip file."/>
+        <Button Grid.Column="1" x:Name="btnIconPackDownload" Content="Download Packager Icon Pack" Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" VerticalAlignment="Center" ToolTip="Download the icon pack and extract it into Packagers\Icons."/>
+        <Button Grid.Column="2" x:Name="btnIconPackFromFile" Content="Install from File..." Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="6,0,0,0" VerticalAlignment="Center" ToolTip="Install the icon pack from a local or UNC zip file."/>
     </Grid>
 
     <TextBlock Grid.Row="22" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
@@ -5782,7 +5782,7 @@ function New-MecmPreferencesPanel {
     <StackPanel Grid.Row="30" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
         <TextBlock x:Name="txtDiscoveryDismissed" FontSize="13" VerticalAlignment="Center" Margin="0,0,12,0"/>
         <Button x:Name="btnClearDiscoveryDismissed" Content="Clear List"
-                Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                 ToolTip="Offer each hidden app again in the next discovery."/>
     </StackPanel>
 </Grid>
@@ -6319,8 +6319,8 @@ function Show-PreviewDialog {
     </Window.Resources>
     <DockPanel Margin="12">
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-            <Button x:Name="btnCopy"  Content="Copy" Margin="0,0,8,0" Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnClose" Content="Close" IsDefault="True" IsCancel="True" Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnCopy"  Content="Copy" Margin="0,0,8,0" Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnClose" Content="Close" IsDefault="True" IsCancel="True" Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
         <TextBox x:Name="txtContent"
                  IsReadOnly="True"
@@ -6365,8 +6365,8 @@ function New-ProductFilterPanel {
         <TextBlock Grid.Column="0" Text="Select which applications appear in the main grid. Uncheck to hide."
                    FontSize="12" Foreground="{DynamicResource MahApps.Brushes.Gray3}" VerticalAlignment="Center" TextWrapping="Wrap"/>
         <StackPanel Grid.Column="1" Orientation="Horizontal">
-            <Button x:Name="btnSelAll"  Content="Select All" Margin="6,0,0,0" Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnSelNone" Content="Select None" Margin="6,0,0,0" Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnSelAll"  Content="Select All" Margin="6,0,0,0" Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnSelNone" Content="Select None" Margin="6,0,0,0" Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
     </Grid>
     <TreeView ItemContainerStyle="{DynamicResource ThemedTreeViewItemStyle}" x:Name="treeApps" />
@@ -6466,10 +6466,10 @@ function New-PackagerPreferencesPanel {
            xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro">
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,4">
         <Button x:Name="btnM365Preview" Content="M365 Preview" Margin="0,0,8,0"
-                Style="{StaticResource DialogButton}"
+                Style="{DynamicResource DialogButton}"
                 Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         <Button x:Name="btnCwaPreview"  Content="CWA Preview"
-                Style="{StaticResource DialogButton}"
+                Style="{DynamicResource DialogButton}"
                 Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
     </StackPanel>
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -7214,9 +7214,9 @@ function Show-CommandOverrideDialog {
         <TextBox   x:Name="txtUninstall" Grid.Row="4" FontSize="12" FontFamily="Consolas" Margin="0,0,0,16"
                    Controls:TextBoxHelper.Watermark="uninstall.bat (packager default)"/>
         <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="btnRevert" Content="Revert to Default" Style="{StaticResource DialogButton}"/>
-            <Button x:Name="btnSave"   Content="Save"              Style="{StaticResource DialogAccentButton}" IsDefault="True"/>
-            <Button x:Name="btnCancel" Content="Cancel"            Style="{StaticResource DialogButton}" IsCancel="True"/>
+            <Button x:Name="btnRevert" Content="Revert to Default" Style="{DynamicResource DialogButton}"/>
+            <Button x:Name="btnSave"   Content="Save"              Style="{DynamicResource DialogAccentButton}" IsDefault="True"/>
+            <Button x:Name="btnCancel" Content="Cancel"            Style="{DynamicResource DialogButton}" IsCancel="True"/>
         </StackPanel>
     </Grid>
 </Controls:MetroWindow>
@@ -7289,9 +7289,9 @@ function Show-ExistingConflictDialog {
         <CheckBox  x:Name="chkAll" Grid.Row="1" FontSize="12" Margin="0,0,0,16"
                    Content="Do this for all remaining conflicts in this run"/>
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="btnSkip"      Content="Skip"          Style="{StaticResource DialogButton}"/>
-            <Button x:Name="btnOverwrite" Content="Overwrite"     Style="{StaticResource DialogAccentButton}" IsDefault="True"/>
-            <Button x:Name="btnCancel"    Content="Cancel Run"    Style="{StaticResource DialogButton}" IsCancel="True"/>
+            <Button x:Name="btnSkip"      Content="Skip"          Style="{DynamicResource DialogButton}"/>
+            <Button x:Name="btnOverwrite" Content="Overwrite"     Style="{DynamicResource DialogAccentButton}" IsDefault="True"/>
+            <Button x:Name="btnCancel"    Content="Cancel Run"    Style="{DynamicResource DialogButton}" IsCancel="True"/>
         </StackPanel>
     </Grid>
 </Controls:MetroWindow>
@@ -7353,10 +7353,10 @@ function New-AboutPanel {
         </Grid>
         <StackPanel Orientation="Horizontal">
             <Button x:Name="btnAboutUpdate" Content="Update Now" Margin="0,0,8,0"
-                    Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                     ToolTip="Install the latest release and restart AppPackager."/>
             <Button x:Name="btnAboutReleases" Content="Release Notes"
-                    Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                     ToolTip="Open the releases page on GitHub."/>
         </StackPanel>
     </StackPanel>
@@ -7471,8 +7471,8 @@ function Show-OptionsDialog {
         <Border Grid.Column="0" Grid.ColumnSpan="3" Grid.Row="1"
                 BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="20,12,20,12">
-                <Button x:Name="btnOK"     Content="OK" Margin="0,0,8,0" IsDefault="True" Style="{StaticResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-                <Button x:Name="btnCancel" Content="Cancel" IsCancel="True" Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <Button x:Name="btnOK"     Content="OK" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <Button x:Name="btnCancel" Content="Cancel" IsCancel="True" Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             </StackPanel>
         </Border>
     </Grid>
@@ -7694,8 +7694,8 @@ function Show-FirstRunWizard {
                           Controls:ControlsHelper.ContentCharacterCasing="Normal"
                           ToolTip="Do not show this wizard again."/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button x:Name="btnWizSave" Content="Save" Margin="0,0,8,0" IsDefault="True" Style="{StaticResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-                    <Button x:Name="btnWizSkip" Content="Skip" IsCancel="True" Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    <Button x:Name="btnWizSave" Content="Save" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    <Button x:Name="btnWizSkip" Content="Skip" IsCancel="True" Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -9382,12 +9382,12 @@ function Show-DropIntakeDialog {
                   Content="I verified the predicted silent switches and detection for this installer"/>
 
         <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-            <Button x:Name="btnDropSaveApplication" Content="Save as Application" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{StaticResource DialogButton}"
+            <Button x:Name="btnDropSaveApplication" Content="Save as Application" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource DialogButton}"
                     ToolTip="Save this installer as an application that opens in the Application Workbench."/>
-            <Button x:Name="btnDropSavePackager" Content="Save as Packager" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{StaticResource DialogButton}"/>
-            <Button x:Name="btnDropStage" Content="Stage" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{StaticResource DialogButton}"/>
-            <Button x:Name="btnDropStagePackage" Content="Stage and Package" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{StaticResource DialogAccentButton}"/>
-            <Button x:Name="btnDropCancel" Content="Cancel" IsCancel="True" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{StaticResource DialogButton}"/>
+            <Button x:Name="btnDropSavePackager" Content="Save as Packager" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource DialogButton}"/>
+            <Button x:Name="btnDropStage" Content="Stage" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource DialogButton}"/>
+            <Button x:Name="btnDropStagePackage" Content="Stage and Package" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource DialogAccentButton}"/>
+            <Button x:Name="btnDropCancel" Content="Cancel" IsCancel="True" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource DialogButton}"/>
         </StackPanel>
     </Grid>
 </Controls:MetroWindow>
@@ -10124,16 +10124,16 @@ function Show-DiscoveryDialog {
         <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
             <WrapPanel Margin="16,10,16,10" HorizontalAlignment="Right">
                 <Button x:Name="btnEnableSelected" Content="Enable Selected" Margin="0,0,8,0"
-                        Style="{StaticResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Show the checked apps in the main grid."/>
                 <Button x:Name="btnEnableAll" Content="Enable All" Margin="0,0,8,0"
-                        Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Show every app of this list in the main grid."/>
                 <Button x:Name="btnNotNow" Content="Not Now" Margin="0,0,8,0" IsCancel="True"
-                        Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Close and offer these apps again in the next discovery."/>
                 <Button x:Name="btnDismiss" Content="Don't Ask Again for Selected"
-                        Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Hide the checked apps in this and later discoveries."/>
             </WrapPanel>
         </Border>
@@ -10493,7 +10493,7 @@ function Show-CmImportDialog {
                 <TextBlock Text="Output Folder" FontSize="12" FontWeight="Bold" Margin="0,10,0,4"/>
                 <DockPanel>
                     <Button x:Name="btnCmBrowse" Content="Browse..." DockPanel.Dock="Right" Margin="8,0,0,0"
-                            Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                            Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                     <TextBox x:Name="txtCmOutput" FontSize="13"
                              ToolTip="The folder that holds one subfolder for each application."/>
                 </DockPanel>
@@ -10521,13 +10521,13 @@ function Show-CmImportDialog {
         <Border Grid.Row="1" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
             <WrapPanel Margin="16,10,16,10" HorizontalAlignment="Right">
                 <Button x:Name="btnCmPreview" Content="Preview" Margin="0,0,8,0"
-                        Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Write the plan and the report without a copy of the content."/>
                 <Button x:Name="btnCmConvert" Content="Convert" Margin="0,0,8,0"
-                        Style="{StaticResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Copy the content and make the Intune app folders."/>
                 <Button x:Name="btnCmCancel" Content="Cancel" IsCancel="True"
-                        Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             </WrapPanel>
         </Border>
     </Grid>
@@ -10992,15 +10992,15 @@ function Show-CveDetailDialog {
         <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
             <DockPanel Margin="16,10,16,10">
                 <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close"
-                        Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 <StackPanel Orientation="Horizontal">
                     <Button x:Name="btnRefresh" Content="Refresh" Margin="0,0,8,0"
-                            Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                             ToolTip="Look up the CVEs again and skip the cache."/>
                     <Button x:Name="btnCopy" Content="Copy CVE IDs" Margin="0,0,8,0"
-                            Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                            Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                     <Button x:Name="btnExport" Content="Export Report" Margin="0,0,8,0"
-                            Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                             ToolTip="Write the report of this app and open the HTML file."/>
                 </StackPanel>
             </DockPanel>
@@ -11323,17 +11323,17 @@ function Show-OneClickPlanDialog {
         <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
             <DockPanel Margin="16,10,16,10">
                 <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close"
-                        Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 <Button x:Name="btnOpenReport" DockPanel.Dock="Right" Content="Open Report" Margin="0,0,8,0" IsEnabled="False"
-                        Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 <Button x:Name="btnHistory" DockPanel.Dock="Right" Content="Run History" Margin="0,0,8,0"
-                        Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Opens the folder with the reports of earlier runs."/>
                 <StackPanel Orientation="Horizontal">
                     <Button x:Name="btnRun" Content="Run" Margin="0,0,8,0"
-                            Style="{StaticResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                            Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                     <Button x:Name="btnPlanOnly" Content="Plan Only" Margin="0,0,16,0"
-                            Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                             ToolTip="Writes the plan as a report without running anything."/>
                     <CheckBox x:Name="chkForce" Content="Force: ignore the cadence and publish again" FontSize="12" VerticalAlignment="Center"
                               Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
@@ -11952,13 +11952,13 @@ function Show-WorkbenchUnsavedDialog {
         <TextBlock x:Name="txtUnsaved" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,16"/>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="btnUnsavedSave" Content="Save" Margin="0,0,8,0"
-                    Style="{StaticResource DialogAccentButton}"
+                    Style="{DynamicResource DialogAccentButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <Button x:Name="btnUnsavedDiscard" Content="Discard" Margin="0,0,8,0"
-                    Style="{StaticResource DialogButton}"
+                    Style="{DynamicResource DialogButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <Button x:Name="btnUnsavedCancel" Content="Cancel" IsCancel="True"
-                    Style="{StaticResource DialogButton}"
+                    Style="{DynamicResource DialogButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
     </StackPanel>
@@ -12010,10 +12010,10 @@ function Show-WorkbenchNameDialog {
         <TextBox x:Name="txtNameValue" FontSize="12" Height="28" Margin="0,0,0,16"/>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="btnNameOk" Content="OK" Margin="0,0,8,0" IsDefault="True"
-                    Style="{StaticResource DialogAccentButton}"
+                    Style="{DynamicResource DialogAccentButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <Button x:Name="btnNameCancel" Content="Cancel" IsCancel="True"
-                    Style="{StaticResource DialogButton}"
+                    Style="{DynamicResource DialogButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
     </StackPanel>
@@ -13832,7 +13832,7 @@ function New-ScriptSigningPanel {
             <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="1" Grid.Column="1" x:Name="cboSignCertificate" FontSize="12" Height="28" Margin="0,0,0,6"
                        ToolTip="Select the certificate by its thumbprint."/>
             <Button    Grid.Row="1" Grid.Column="2" x:Name="btnSignRefresh" Content="Refresh" Margin="8,0,0,6"
-                       Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                       Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
             <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" x:Name="txtSignCertDetail" FontSize="11" TextWrapping="Wrap"
                        Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,8"/>
@@ -13848,7 +13848,7 @@ function New-ScriptSigningPanel {
 
         <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
             <Button x:Name="btnSignTest" Content="Test Signing Configuration" Margin="0,0,10,0"
-                    Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                     ToolTip="Sign and verify a temporary file with the selected certificate."/>
         </StackPanel>
         <TextBlock x:Name="txtSignTestResult" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
@@ -14047,8 +14047,8 @@ function Show-WsusPasswordPrompt {
         <TextBlock x:Name="txtPrompt" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,10"/>
         <PasswordBox x:Name="pwdValue" FontSize="13" Margin="0,0,0,14"/>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="btnOk" Content="OK" Margin="0,0,8,0" IsDefault="True" Style="{StaticResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnCancel" Content="Cancel" IsCancel="True" Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnOk" Content="OK" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnCancel" Content="Cancel" IsCancel="True" Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
     </StackPanel>
 </Controls:MetroWindow>
@@ -14117,26 +14117,26 @@ function Show-WsusPublishedUpdatesDialog {
         <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
             <DockPanel Margin="16,10,16,10">
                 <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" IsCancel="True"
-                        Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 <Button x:Name="btnCatalog" DockPanel.Dock="Right" Content="Catalog Import" Margin="0,0,8,0"
-                        Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Import Microsoft updates that do not synchronize automatically, by catalog update ID or link."/>
                 <StackPanel Orientation="Horizontal">
                     <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" x:Name="cboGroup" IsEditable="True" Width="200" Height="30" FontSize="12" Margin="0,0,8,0"
                               ToolTip="The computer group that Approve uses."/>
                     <Button x:Name="btnApprove" Content="Approve for Group" Margin="0,0,8,0"
-                            Style="{StaticResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                            Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                     <Button x:Name="btnDecline" Content="Decline" Margin="0,0,8,0"
-                            Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                             ToolTip="Decline the update so that no client gets it."/>
                     <Button x:Name="btnExpire" Content="Expire" Margin="0,0,8,0"
-                            Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                             ToolTip="Expire the update on the server for good."/>
                     <Button x:Name="btnRemove" Content="Remove" Margin="0,0,8,0"
-                            Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                             ToolTip="Decline the update and delete it from the WSUS database."/>
                     <Button x:Name="btnRefresh" Content="Refresh"
-                            Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                            Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 </StackPanel>
             </DockPanel>
         </Border>
@@ -14250,17 +14250,17 @@ function Show-WsusCatalogImportDialog {
                  Controls:TextBoxHelper.Watermark="12345678-90ab-cdef-1234-567890abcdef"/>
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,8">
             <Button x:Name="btnImport" Content="Import" Margin="0,0,8,0"
-                    Style="{StaticResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <Button x:Name="btnLoadFile" Content="Load IDs from File..." Margin="0,0,8,0"
-                    Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <Button x:Name="btnOpenCatalog" Content="Open the Catalog"
-                    Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
         <TextBox Grid.Row="3" x:Name="txtResults" IsReadOnly="True" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"
                  VerticalScrollBarVisibility="Auto"/>
         <DockPanel Grid.Row="4" Margin="0,10,0,0">
             <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" IsCancel="True"
-                    Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <TextBlock x:Name="txtStatus" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap"/>
         </DockPanel>
     </Grid>
@@ -14375,7 +14375,7 @@ function New-WsusPanel {
                           ToolTip="Connect to the WSUS administration API over HTTPS."/>
             </StackPanel>
             <Button Grid.Row="1" Grid.Column="2" x:Name="btnWsusTest" Content="Test Connection" Margin="8,0,0,6"
-                    Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" x:Name="txtWsusStatus" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"/>
         </Grid>
 
@@ -14384,13 +14384,13 @@ function New-WsusPanel {
                    Text="Test the connection to read the server's signing certificate."/>
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
             <Button x:Name="btnWsusCertCreate" Content="Create Self-Signed..." Margin="0,0,8,0"
-                    Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                     ToolTip="Has the WSUS server create and use a self-signed signing certificate."/>
             <Button x:Name="btnWsusCertImport" Content="Import PFX..." Margin="0,0,8,0"
-                    Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                     ToolTip="Import a code-signing certificate from a PFX file."/>
             <Button x:Name="btnWsusCertExport" Content="Export Certificate..."
-                    Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                     ToolTip="Saves the public signing certificate (.cer) for distribution to clients by Group Policy."/>
         </StackPanel>
         <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,12"
@@ -14418,7 +14418,7 @@ function New-WsusPanel {
             <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="2" Grid.Column="1" x:Name="cboWsusGroup" IsEditable="True" FontSize="12" Height="28" Margin="0,0,0,6"
                        ToolTip="The computer group that gets the update at once, or empty to approve later."/>
             <Button    Grid.Row="2" Grid.Column="2" x:Name="btnWsusGroups" Content="Load Groups" Margin="8,0,0,6"
-                       Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                       Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <CheckBox  Grid.Row="3" Grid.Column="1" x:Name="chkWsusDecline" FontSize="12" Margin="0,0,0,6"
                        Content="Decline earlier versions of the same application after publishing" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                        ToolTip="Decline the earlier versions of the application in WSUS."/>

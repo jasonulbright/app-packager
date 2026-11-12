@@ -40,6 +40,11 @@ $end = $source.IndexOf('[void]$dlg.ShowDialog()', $start)
 if ($start -lt 0 -or $end -lt 0) { throw 'Cannot locate wizard event registrations.' }
 $registrations = [scriptblock]::Create($source.Substring($start, $end - $start))
 
+# The wizard shows a fixed sentence for an error that the tool did not throw. The probe uses the real function.
+$uet = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-UserErrorText' }, $false)
+function Write-Log { param([string]$Message, [string]$Level) }
+. ([scriptblock]::Create($uet.Extent.Text))
+
 function Save-Preferences {
     param($Prefs)
     if ($script:SaveFails) { throw 'Simulated preference write failure' }

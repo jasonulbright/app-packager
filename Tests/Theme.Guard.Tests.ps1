@@ -34,14 +34,14 @@ Describe 'The scans find the documents' {
 
     It 'expands the shared style marker in every window of the start script' {
         $script:XamlDocs | ForEach-Object { $_.Text | Should -Not -Match '<!--SHARED_STYLES-->' }
-        $intMarker = ([regex]::Matches($script:ShellText, [regex]::Escape($script:SharedStyleMarker))).Count
+        $intMarker = ([regex]::Matches($script:ShellText, [regex]::Escape($script:SharedStyleMarker))).Count - 1
         $intMarker | Should -BeGreaterOrEqual 14
         $script:ShellText | Should -Match 'function Expand-SharedStyle'
         $script:ShellText | Should -Match 'function Get-SharedStyleXaml'
     }
 
     It 'lists in the start script the same shared styles as the helper' {
-        $strKeys = [regex]::Match($script:ShellText, '\$script:SharedStyleKey = @\(([^)]*)\)').Groups[1].Value
+        $strKeys = [regex]::Match($script:ShellText, '(?s)function Get-SharedStyleXaml.*?\$keys = @\(([^)]*)\)').Groups[1].Value
         $arrShell = @([regex]::Matches($strKeys, "'(\w+)'") | ForEach-Object { $_.Groups[1].Value })
         $arrShell.Count | Should -BeGreaterOrEqual 12
         $strHelper = Get-Content -LiteralPath "$PSScriptRoot\ThemeGuardHelpers.ps1" -Raw

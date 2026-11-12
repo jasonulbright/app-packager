@@ -4,6 +4,7 @@
 # line, the blocking line, a destination change, and the plan-only report.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+$script:SharedStyleRootOverride = $root
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 Add-Type -Path (Join-Path $root 'Lib\ControlzEx.dll')
@@ -15,7 +16,7 @@ $tokens = $null
 $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'start-apppackager.ps1'), [ref]$tokens, [ref]$errors)
 if ($errors) { throw ($errors.Message -join '; ') }
-foreach ($name in @('Show-OneClickPlanDialog', 'Get-OneClickPlanApps', 'New-AppFlowPanel', 'ConvertTo-DeploymentTargetName')) {
+foreach ($name in @('Expand-SharedStyle', 'Get-SharedStyleXaml', 'Show-OneClickPlanDialog', 'Get-OneClickPlanApps', 'New-AppFlowPanel', 'ConvertTo-DeploymentTargetName')) {
     $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
     if (-not $fn) { throw "function $name not found" }
     # Published globally, the way the shell publishes them for its closure handlers.

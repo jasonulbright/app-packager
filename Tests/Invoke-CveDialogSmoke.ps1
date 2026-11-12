@@ -5,6 +5,7 @@
 # not-checked states, the Refresh conditions, and the export.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+$script:SharedStyleRootOverride = $root
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 Add-Type -Path (Join-Path $root 'Lib\ControlzEx.dll')
@@ -17,7 +18,7 @@ $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'start-apppackager.ps1'), [ref]$tokens, [ref]$errors)
 if ($errors) { throw ($errors.Message -join '; ') }
 # The window handlers are closures; a closure resolves a command in the global scope only.
-foreach ($name in @('Show-CveDetailDialog', 'ConvertTo-CveDialogRows', 'Get-CveGridCells', 'ConvertTo-CveVersionKey', 'ConvertTo-CvePairKey', 'Get-CveSkipReason', 'Find-CveSessionResult', 'Get-CveCachedResult', 'Get-CveReportRows', 'Write-CveReportForRows', 'Open-ExternalUrl')) {
+foreach ($name in @('Expand-SharedStyle', 'Get-SharedStyleXaml', 'Show-CveDetailDialog', 'ConvertTo-CveDialogRows', 'Get-CveGridCells', 'ConvertTo-CveVersionKey', 'ConvertTo-CvePairKey', 'Get-CveSkipReason', 'Find-CveSessionResult', 'Get-CveCachedResult', 'Get-CveReportRows', 'Write-CveReportForRows', 'Open-ExternalUrl')) {
     $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
     if (-not $fn) { throw "function $name not found" }
     Set-Item -Path ('function:global:' + $name) -Value ([scriptblock]::Create($fn.Body.Extent.Text.Trim('{', '}')))

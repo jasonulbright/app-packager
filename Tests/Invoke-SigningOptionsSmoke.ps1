@@ -4,6 +4,7 @@
 # nothing behind. No certificate store is written and no dialog opens.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+$script:SharedStyleRootOverride = $root
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 Add-Type -Path (Join-Path $root 'Lib\ControlzEx.dll')
@@ -13,7 +14,7 @@ $tokens = $null
 $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'start-apppackager.ps1'), [ref]$tokens, [ref]$errors)
 if ($errors) { throw ($errors.Message -join '; ') }
-foreach ($name in @('New-ScriptSigningPanel', 'Read-Preferences', 'Resolve-FirstRunCompleted',
+foreach ($name in @('Expand-SharedStyle', 'Get-SharedStyleXaml', 'New-ScriptSigningPanel', 'Read-Preferences', 'Resolve-FirstRunCompleted',
                     'Get-WorkbenchCommand', 'Get-WorkbenchSigningPolicy', 'Get-WorkbenchSigningPolicyJson', 'Get-WorkbenchSigningPolicyDigest')) {
     $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
     if (-not $fn) { throw ('function not found: ' + $name) }
