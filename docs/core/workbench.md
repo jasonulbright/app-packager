@@ -53,7 +53,7 @@ The **Application** page sets the display name, the publisher, the description, 
 
 ### Save, validate and build
 
-The buttons at the bottom are **Use defaults**, **Save**, **Save as...**, **Validate** and **Stage**. **Save** updates the active profile. **Save as...** copies it under a new name. The profile `default` is the packager as shipped. After **Validate**, the three status boxes show the result for the content build, for ConfigMgr and for Intune. **Publish to** sends the build to ConfigMgr or to Intune.
+The buttons at the bottom are **Use Defaults**, **Save**, **Save as...**, **Validate** and **Stage**. **Save** updates the active profile. **Save as...** copies it under a new name. The profile `default` is the packager as shipped. After **Validate**, the three status boxes show the result for the content build, for ConfigMgr and for Intune. **Publish to** sends the build to ConfigMgr or to Intune.
 
 This guide opened and read the pages. It did not save a profile and did not select a Publish button of the Workbench.
 
@@ -63,7 +63,7 @@ This guide opened and read the pages. It did not save a profile and did not sele
 |---|---|
 | Application, Profile, Build | Pick what the window shows. |
 | Reset (each field) | Returns a field to the inherited value. |
-| **Use defaults** | Returns the profile to the packager defaults. |
+| **Use Defaults** | Returns the profile to the packager defaults. |
 | **Save**, **Save as...** | Keep the changes in a profile. |
 | **Validate** | Checks the profile. |
 | **Stage** | Builds the content. |

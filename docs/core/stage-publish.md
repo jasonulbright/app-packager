@@ -43,7 +43,7 @@ When the tool finds `IntuneWinAppUtil.exe`, Stage also builds a `.intunewin` fil
 
 1. Check the rows. Each row must be staged. A row that is not staged is staged first.
 2. Select **Publish to ConfigMgr**. The tool checks that the **File Share Root** is reachable, copies the content and creates the application.
-3. If the site already has an application with the same title, a dialog asks: **Overwrite**, **Skip** or **Cancel run**. Overwrite replaces the deployment types and keeps the application and its deployments.
+3. If the site already has an application with the same title, a dialog asks: **Overwrite**, **Skip** or **Cancel Run**. Overwrite replaces the deployment types and keeps the application and its deployments.
 
 When the share cannot be reached, the run stops before it copies anything and before it changes the site. The row status shows `Package error` and the log names the path. This guide used a share that does not exist, on purpose, so it created no application.
 
@@ -55,13 +55,13 @@ This guide did not run a publish to a real share. A successful publish was not c
 
 | Setting (Options > ConfigMgr Preferences) | Effect |
 |---|---|
-| Site Code, Provider Machine | The site that receives the application. |
+| Site Code, SMS Provider | The site that receives the application. |
 | File Share Root, Content Layout | The share and the folder shape of the content: **Nested** or flat. |
 | Download Root | The local folder of Stage. |
 | Est. Runtime, Max Runtime | The runtime values of the deployment type. |
-| Fallback DPs, Neighbor/default DP | The content options of the deployment type. |
+| Fallback DPs, Neighbor/Default DP | The content options of the deployment type. |
 | Auto-distribute, DP Group | Distribute the content to a distribution point group after Package. |
-| Test deployment, Test collection | Deploy to a test collection after the distribution. |
+| Test Deployment, Test Collection | Deploy to a test collection after the distribution. |
 | Include version in application name, Remove version from application name | The title rule of the application. |
 
 ## Limits
@@ -76,7 +76,7 @@ This guide did not run a publish to a real share. A successful publish was not c
 |---|---|---|
 | The log says `Network root path not accessible: <path>`. | The File Share Root does not exist or you have no access. | Correct the path in **Options > ConfigMgr Preferences**. Check the rights. |
 | Stage ends with `Failed`. | The download failed, or the vendor changed the page. | Open the log file that the log line names. |
-| A dialog asks about an existing application. | The title exists on the site. | Choose Overwrite, Skip or Cancel run. |
+| A dialog asks about an existing application. | The title exists on the site. | Choose Overwrite, Skip or Cancel Run. |
 
 ## Links
 

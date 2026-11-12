@@ -1,3 +1,4 @@
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 BeforeAll {
     $script:PackagerPath = Join-Path $PSScriptRoot '..\Packagers\package-firefoxesr.ps1'
     $t = $null; $e = $null

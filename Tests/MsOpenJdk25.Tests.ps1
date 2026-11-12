@@ -1,3 +1,4 @@
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 Describe 'Microsoft Build of OpenJDK 25 parsers in <Script>' -ForEach @(
     @{ Script = 'package-ms-openjdk25-msi.ps1' }
     @{ Script = 'package-ms-openjdk25-msi-user.ps1' }

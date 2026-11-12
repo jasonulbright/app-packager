@@ -31,9 +31,9 @@ Use it to find out which packagers are worth turning on for your site.
 ![The window while Discover runs](../images/discover-running.png)
 
 2. Wait for the end. When the tool finds candidates, a window shows `Discovered N apps. Enable console view?` with the application, the vendor and the inventory name. Choose a button:
-   - **Enable selected** shows the checked applications in the grid.
-   - **Enable all** shows every application of the list.
-   - **Not now** closes the window. The next discovery offers the applications again.
+   - **Enable Selected** shows the checked applications in the grid.
+   - **Enable All** shows every application of the list.
+   - **Not Now** closes the window. The next discovery offers the applications again.
    - **Don't ask again for selected** hides the checked applications from later discoveries.
 3. When there are no candidates, no window opens. The status line shows the result of the inventory.
 
@@ -44,7 +44,7 @@ Use it to find out which packagers are worth turning on for your site.
 | Setting (Options > ConfigMgr Preferences) | Effect |
 |---|---|
 | Discovery SQL, Discovery DB | The SQL server and the database. Leave both empty to use the values of the site. |
-| Not offered | Shows how many applications Discover leaves out. **Clear list** empties it. |
+| Not Offered | Shows how many applications Discover leaves out. **Clear List** empties it. |
 
 ## Limits
 

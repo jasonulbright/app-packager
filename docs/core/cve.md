@@ -49,7 +49,7 @@ Use it to decide which updates are urgent, and to see which vulnerabilities stay
 | **CVEs** | The number of CVEs that affect the examined version. `Not in NVD` means that NVD holds no record under the product name. See [A product that NVD does not know](#a-product-that-nvd-does-not-know). Select the cell to open the CVE window. |
 | **Max CVSS** | The highest CVSS score among those CVEs, with its severity. |
 | **KEV** | `Yes` when one of those CVEs is in the KEV catalog. |
-| **Fixed by update** | `5 of 15`: the update to the latest version removes 5 of the 15 CVEs. Empty when the row has no update. |
+| **Fixed by Update** | `5 of 15`: the update to the latest version removes 5 of the 15 CVEs. Empty when the row has no update. |
 | **Newest CVE** | The most recent publication date among those CVEs. |
 
 The **Status** column of a row with an update shows the same result in words, for example `Update available (fixes 5 of 15 CVEs, 1 in KEV)`.
@@ -61,17 +61,17 @@ Select the count in the **CVEs** column. The window shows one line that states t
 | Column | Content |
 |---|---|
 | **Status** | `Fixed`, `Open` or `No version`. |
-| **Fixed in** | The end of the affected version range that NVD records for the product, for example `24.09`. `after 0.80` means that NVD gives an inclusive end only. For a Fixed CVE this is the fix that the site version lacks. For an Open CVE this is the fix that the latest version lacks. It is usually the fix version of the vendor, but the vendor did not confirm it. |
+| **Fixed In** | The end of the affected version range that NVD records for the product, for example `24.09`. `after 0.80` means that NVD gives an inclusive end only. For a Fixed CVE this is the fix that the site version lacks. For an Open CVE this is the fix that the latest version lacks. It is usually the fix version of the vendor, but the vendor did not confirm it. |
 
 **Refresh** looks the CVEs up again and ignores the saved result. **Copy CVE IDs** copies the IDs of the CVEs that affect the examined version. **Export report** writes the report for this application. Only `https` links open.
 
-The next images show the check for Google Chrome. The ConfigMgr version is 157.0.8103.40 and the latest version is 158.0.8127.37. The main window shows 17 CVEs, a maximum CVSS of 9.6, one CVE in the KEV catalog, and `17 of 17` in **Fixed by update**.
+The next images show the check for Google Chrome. The ConfigMgr version is 157.0.8103.40 and the latest version is 158.0.8127.37. The main window shows 17 CVEs, a maximum CVSS of 9.6, one CVE in the KEV catalog, and `17 of 17` in **Fixed by Update**.
 
 ![The main window after Check CVEs for Google Chrome 157.0.8103.40 in the dark theme](../images/cve-chrome-grid.png)
 
 ![The main window after Check CVEs for Google Chrome 157.0.8103.40 in the light theme](../images/light-cve-chrome-grid.png)
 
-The CVE window for Chrome 157.0.8103.40 with the latest version 158.0.8127.37 is sorted by CVSS. CVE-2026-126859 has CVSS 9.6 and the status `Fixed`: the update fixes it, and **Fixed in** shows 157.0.8103.78. CVE-2026-125347 also has CVSS 9.6 and is fixed.
+The CVE window for Chrome 157.0.8103.40 with the latest version 158.0.8127.37 is sorted by CVSS. CVE-2026-126859 has CVSS 9.6 and the status `Fixed`: the update fixes it, and **Fixed In** shows 157.0.8103.78. CVE-2026-125347 also has CVSS 9.6 and is fixed.
 
 ![The CVE window for Google Chrome 157.0.8103.40 in the dark theme](../images/cve-chrome-window.png)
 
@@ -135,7 +135,7 @@ Some NVD records name a product with no version and no range. Most of them are o
 
 | Setting (Options > ConfigMgr Preferences) | Effect |
 |---|---|
-| NVD API key | Raises the NVD limit from 5 to 50 requests in 30 seconds. The variable `NVD_API_KEY` does the same. |
+| NVD API Key | Raises the NVD limit from 5 to 50 requests in 30 seconds. The variable `NVD_API_KEY` does the same. |
 | Look up CVEs after Check ConfigMgr | Chains Check CVEs after Check ConfigMgr. |
 
 ## Limits

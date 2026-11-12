@@ -1,3 +1,4 @@
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 BeforeAll {
     Import-Module (Join-Path $PSScriptRoot '..\Packagers\AppPackagerCommon.psd1') -Force
     $script:Path = Join-Path $PSScriptRoot '..\Packagers\package-aspnethostingbundle10.ps1'

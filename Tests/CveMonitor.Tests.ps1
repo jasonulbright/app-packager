@@ -1,5 +1,4 @@
-#Requires -Modules Pester
-
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 <#
 .SYNOPSIS
     Headless CVE monitor and the CVE helpers of the grid, from

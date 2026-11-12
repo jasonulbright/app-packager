@@ -1,3 +1,4 @@
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 BeforeDiscovery {
     $script:LtsrCases = @(
         @{ Name = 'package-citrixworkspace-ltsr-x86';   Architecture = 'x86';   LocalSource = 'Optional'; Catalog = '$true';  Is64Bit = $false }

@@ -28,7 +28,7 @@ Use it to keep a fixed set of applications current with one click, or from a sch
 
 1. Select **One Click**. The plan window opens. It has one row for each tracked application: the version of the last check, the destination boxes, the version last published to each destination, the planned steps and the reason for each skip.
 2. Read the count line, for example `12 application(s), 2 skipped: 9 to ConfigMgr, 4 to WSUS, 0 to Intune`.
-3. Select **Plan only** to keep the plan without a run, or start the run.
+3. Select **Plan Only** to keep the plan without a run, or start the run.
 
 When no application is tracked, the button shows the message `One Click Not Configured` and no plan opens. The lab of this guide had no tracked application, so this guide captured that message and not the plan window. It did not start a run, and it did not check the plan window.
 

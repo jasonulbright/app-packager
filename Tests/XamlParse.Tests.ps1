@@ -1,3 +1,4 @@
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 BeforeAll {
     $root = Join-Path $PSScriptRoot '..'
     $script:Blocks = foreach ($path in @(Join-Path $root 'start-apppackager.ps1') + @(Get-ChildItem (Join-Path $root 'Packagers') -Filter '*.psm1' -File | ForEach-Object FullName)) {

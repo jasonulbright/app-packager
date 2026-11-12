@@ -1,5 +1,4 @@
-#Requires -Modules Pester
-
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 <#
 .SYNOPSIS
     A rebuilt vendor installer is a different release.

@@ -1,5 +1,4 @@
-#Requires -Modules Pester
-
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 <#
 .SYNOPSIS
     What the first open of the Options window costs.

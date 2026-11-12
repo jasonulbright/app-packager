@@ -1,3 +1,4 @@
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 BeforeAll {
     $root = Join-Path $PSScriptRoot '..'
     $script:Shell = [IO.File]::ReadAllText((Join-Path $root 'start-apppackager.ps1'))

@@ -1247,7 +1247,7 @@ function Get-Packagers {
                 ArpArch           = ""
                 CurrentVersion    = ""
                 LatestVersion     = ""
-                Status            = ("Read error: " + $_.Exception.Message)
+                Status            = ("Read error: " + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
             })
         }
     }
@@ -1326,7 +1326,9 @@ function Invoke-DiscoveryScan {
         $result.Ok = $true
     }
     catch {
-        $result.Error = $_.Exception.Message
+        # The scan runs in its own runspace, where Get-UserErrorText does not exist. The raw text goes to the log file.
+        try { Write-Log ('Discovery scan failed: {0}' -f $_.Exception.Message) -Level ERROR } catch { $null = $_ }
+        $result.Error = 'the query failed. See the log file.'
         $result.Candidates = @()
     }
     return $result
@@ -1382,7 +1384,8 @@ function Start-DiscoveryRunspace {
                 $State.Result = Invoke-DiscoveryScan @ScanArgs
             }
             catch {
-                $State.Result = [pscustomobject]@{ Ok = $false; Error = $_.Exception.Message; Server = ''; Database = ''; StatusText = ''; Candidates = @() }
+                try { Write-Log ('Discovery scan failed: {0}' -f $_.Exception.Message) -Level ERROR } catch { $null = $_ }
+                $State.Result = [pscustomobject]@{ Ok = $false; Error = 'the query failed. See the log file.'; Server = ''; Database = ''; StatusText = ''; Candidates = @() }
             }
             finally { $State.Done = $true }
         }).AddArgument($job.State).AddArgument($ModulePath).AddArgument($ScanText).AddArgument($ScanArgs)
@@ -1951,7 +1954,7 @@ function Invoke-PackagerIntuneWinPostStep {
         return $note
     }
     catch {
-        $note.Message = ('creation failed: {0}' -f $_.Exception.Message)
+        $note.Message = ('creation failed: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         return $note
     }
 }
@@ -2156,7 +2159,7 @@ function Get-MecmCurrentVersionByCMName {
         }
         catch {
             Set-Location $savedLocation -ErrorAction SilentlyContinue
-            throw ("Failed to connect to CM site PSDrive '{0}:' via provider '{1}': {2}" -f $SiteCode, $providerRoot, $_.Exception.Message)
+            throw ("Failed to connect to CM site PSDrive '{0}:' via provider '{1}': {2}" -f $SiteCode, $providerRoot, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         }
     }
 
@@ -2502,7 +2505,7 @@ function Invoke-PackagerIntunePublish {
         }
     }
     catch {
-        $pubNote.Message = ('publish failed: {0}' -f $_.Exception.Message)
+        $pubNote.Message = ('publish failed: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
     }
     return $pubNote
 }
@@ -2580,10 +2583,10 @@ function Invoke-PackagerWsusPostStep {
     catch {
         if ($_.Exception.Data -and $_.Exception.Data.Contains('WsusRefusal')) {
             $note.Refused = $true
-            $note.Message = ('not supported: {0}' -f ($_.Exception.Message -replace '^This application cannot be published to WSUS: ', ''))
+            $note.Message = ('not supported: {0}' -f ((Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -replace '^This application cannot be published to WSUS: ', ''))
             return $note
         }
-        $note.Message = ('publish failed: {0}' -f $_.Exception.Message)
+        $note.Message = ('publish failed: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         return $note
     }
 }
@@ -3213,7 +3216,7 @@ function Start-UpdateCheck {
                     }
                 }
             } catch {
-                Add-LogLine -Message ("Update check failed: {0}" -f $_.Exception.Message)
+                Add-LogLine -Message ("Update check failed: {0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
             } finally {
                 try { $script:UpdateCheckPS.EndInvoke($script:UpdateCheckHandle) } catch { <# Update check is optional and its cleanup calls are best-effort. #> $null = $_ }
                 try { $script:UpdateCheckPS.Dispose() } catch { <# Update check is optional and its cleanup calls are best-effort. #> $null = $_ }
@@ -3224,7 +3227,7 @@ function Start-UpdateCheck {
         })
         $script:UpdateCheckTimer.Start()
     } catch {
-        try { Add-LogLine -Message ("Update check skipped: {0}" -f $_.Exception.Message) } catch { <# Update check is optional and its cleanup calls are best-effort. #> $null = $_ }
+        try { Add-LogLine -Message ("Update check skipped: {0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) } catch { <# Update check is optional and its cleanup calls are best-effort. #> $null = $_ }
     }
 }
 
@@ -3240,7 +3243,7 @@ function Invoke-SelfUpdate {
         $launcher = Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) 'app-packager-suite') 'start-suite.ps1'
         if (Test-Path -LiteralPath $launcher) {
             Add-LogLine -Message ("Suite update v{0}: opening the AppPackager Suite Launcher. Close this and every other suite tool, then click Update there." -f $latest)
-            try { Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $launcher) -WorkingDirectory (Split-Path -Parent $launcher) } catch { Add-LogLine -Message ('Could not start the launcher: ' + $_.Exception.Message) }
+            try { Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $launcher) -WorkingDirectory (Split-Path -Parent $launcher) } catch { Add-LogLine -Message ('Could not start the launcher: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) }
         }
         else {
             [void](Show-ThemedMessage -Owner $Owner -Title 'Suite Update' -Message ("Suite v{0} is available. Update from the AppPackager Suite Launcher in the Start Menu." -f $latest) -Buttons OK -Icon Information)
@@ -3291,7 +3294,7 @@ Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-ExecutionP
         Add-LogLine -Message ("Updating to v{0}; closing." -f $latest)
         $Owner.Close()
     } catch {
-        [void](Show-ThemedMessage -Owner $Owner -Title 'Update Failed' -Message $_.Exception.Message -Buttons OK -Icon Error)
+        [void](Show-ThemedMessage -Owner $Owner -Title 'Update Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Error)
     }
 }
 
@@ -3301,7 +3304,7 @@ function Open-UpdateReleasePage {
         if ([string]::IsNullOrWhiteSpace($url)) { $url = Get-UpdateReleaseUrl -Version $script:UpdateLatestVersion }
         Start-Process $url
     } catch {
-        Add-LogLine -Message ("Could not open the release page: {0}" -f $_.Exception.Message)
+        Add-LogLine -Message ("Could not open the release page: {0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
     }
 }
 
@@ -3509,13 +3512,13 @@ function Install-IconPack {
                 -Headers $headers -UseBasicParsing -TimeoutSec 20
         } catch {
             $status = $null
-            if ($_.Exception.Response) { $status = [int]$_.Exception.Response.StatusCode }
+            $status = Get-HttpStatusCode -ErrorRecord $_
             if ($status -eq 403 -or $status -eq 429) {
                 $result.Message = 'GitHub rate limit reached; try again later.'
             } elseif ($status -eq 404) {
                 $result.Message = 'No icon pack release is published yet.'
             } else {
-                $result.Message = ("Icon pack lookup failed: {0}" -f $_.Exception.Message)
+                $result.Message = ("Icon pack lookup failed: {0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
             }
             return $result
         }
@@ -3542,7 +3545,7 @@ function Install-IconPack {
         return Complete-IconPackInstall -ZipPath $zipPath -AppRoot $AppRoot -SourceLabel $selection.Tag -Scratch $scratch
     }
     catch {
-        $result.Message = ("Icon pack install failed: {0}" -f $_.Exception.Message)
+        $result.Message = ("Icon pack install failed: {0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         return $result
     }
     finally {
@@ -3643,7 +3646,7 @@ function Install-IconPackFromFile {
         return $installed
     }
     catch {
-        $result.Message = ("Icon pack install failed: {0}" -f $_.Exception.Message)
+        $result.Message = ("Icon pack install failed: {0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         return $result
     }
     finally {
@@ -3987,7 +3990,7 @@ function Invoke-BatchUpdate {
             $latest = Invoke-PackagerGetLatestVersion -PackagerPath $scriptPath -SiteCode $SiteCode -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot
         } catch {
             Write-Log ("[batch] {0}: check failed: {1}" -f $baseName, $_.Exception.Message) -Level WARN
-            $results += [pscustomobject]@{ Name = $baseName; Action = 'CheckFailed'; OldVersion = $lastKnown; NewVersion = $null; Reason = $_.Exception.Message }
+            $results += [pscustomobject]@{ Name = $baseName; Action = 'CheckFailed'; OldVersion = $lastKnown; NewVersion = $null; Reason = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') }
             continue
         }
 
@@ -4111,7 +4114,7 @@ function Invoke-BatchUpdate {
                 catch {
                     if ($_.Exception.Message -match 'SigningCertificateUnavailable') {
                         Write-Log ("[batch] {0}: skipped, the signing policy cannot be met: {1}" -f $baseName, $_.Exception.Message) -Level ERROR
-                        $results += [pscustomobject]@{ Name = $baseName; Action = 'Failed'; OldVersion = $lastKnown; NewVersion = $null; Reason = $_.Exception.Message }
+                        $results += [pscustomobject]@{ Name = $baseName; Action = 'Failed'; OldVersion = $lastKnown; NewVersion = $null; Reason = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') }
                         continue
                     }
                     Write-Log ("[batch] {0}: run snapshot not created: {1}" -f $baseName, $_.Exception.Message) -Level WARN
@@ -4245,7 +4248,7 @@ function Invoke-BatchUpdate {
             # Don't update LastChecked on failure - next run should retry
             # immediately, not wait for cadence to expire.
             Write-Log ("[batch] {0}: action failed: {1}" -f $baseName, $_.Exception.Message) -Level ERROR
-            $results += [pscustomobject]@{ Name = $baseName; Action = 'Failed'; OldVersion = $lastKnown; NewVersion = $latest; Reason = $_.Exception.Message }
+            $results += [pscustomobject]@{ Name = $baseName; Action = 'Failed'; OldVersion = $lastKnown; NewVersion = $latest; Reason = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') }
         }
     }
 
@@ -4946,6 +4949,30 @@ function Get-SharedStyleXaml {
     return $script:SharedStyleText
 }
 
+function Get-UserErrorText {
+    # The text of an error that the window may show. A message that this tool throws itself (throw 'text') is
+    # written for the user and passes through. Any other error (a ConfigMgr, WMI, file or .NET exception) is raw
+    # exception text: it goes to the log file and the caller gets the fallback sentence.
+    # Only a throw statement has the category OperationStopped. An engine error has another category.
+    param(
+        [Parameter(Mandatory)]$ErrorRecord,
+        [Parameter(Mandatory)][string]$Fallback
+    )
+    $ex = $ErrorRecord.Exception
+    if ($null -ne $ex -and $ErrorRecord.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::OperationStopped -and
+        $ex.GetType().FullName -eq 'System.Management.Automation.RuntimeException' -and $null -eq $ex.InnerException) {
+        return [string]$ex.Message
+    }
+    if ($null -ne $ex) { Write-Log ('Error detail kept out of the window: {0}' -f $ex.Message) -Level ERROR }
+    return $Fallback
+}
+function Get-HttpStatusCode {
+    # The HTTP status code of a web error, or $null. A number is no exception text.
+    param([Parameter(Mandatory)]$ErrorRecord)
+    $response = $ErrorRecord.Exception.Response
+    if ($null -eq $response) { return $null }
+    return [int]$response.StatusCode
+}
 function Expand-SharedStyle {
     param([Parameter(Mandatory)][string]$Xaml)
     if (-not $Xaml.Contains($script:SharedStyleMarker)) { return $Xaml }
@@ -5624,7 +5651,7 @@ function New-MecmPreferencesPanel {
         <ColumnDefinition Width="*"/>
     </Grid.ColumnDefinitions>
 
-    <TextBlock Grid.Row="0" Grid.Column="0" Text="Systems in Use:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The sidebar has a publish button for each system. A system that is not in use keeps its buttons disabled."/>
+    <TextBlock Grid.Row="0" Grid.Column="0" Text="Systems in Use:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Select the systems that AppPackager publishes to."/>
     <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
         <CheckBox x:Name="chkSysMecm" Content="ConfigMgr" FontSize="13" Margin="0,0,20,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         <CheckBox x:Name="chkSysIntune" Content="Intune" FontSize="13" Margin="0,0,20,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
@@ -5632,75 +5659,75 @@ function New-MecmPreferencesPanel {
     </StackPanel>
 
     <TextBlock Grid.Row="1" Grid.Column="0" Text="Site Code:" FontSize="14" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtSC" Width="80" FontSize="13" HorizontalAlignment="Left" MaxLength="5" Margin="0,0,0,8" ToolTip="ConfigMgr site code PSDrive name (e.g., MCM)"/>
+    <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtSC" Width="80" FontSize="13" HorizontalAlignment="Left" MaxLength="5" Margin="0,0,0,8" ToolTip="The ConfigMgr site code, for example MCM."/>
 
     <TextBlock Grid.Row="2" Grid.Column="0" Text="SMS Provider:" FontSize="14" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtProvider" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="SMS Provider server from the ConfigMgr AdminUI connect script's ProviderMachineName value"/>
+    <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtProvider" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The SMS Provider server of the site."/>
 
     <TextBlock Grid.Row="3" Grid.Column="0" Text="File Share Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtFS" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="UNC path to the SCCM content file share"/>
+    <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtFS" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The UNC path of the content share."/>
 
-    <TextBlock Grid.Row="4" Grid.Column="0" Text="Content Layout:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Share folder layout for packaged content. Applies to future Package runs; existing content stays where it is."/>
+    <TextBlock Grid.Row="4" Grid.Column="0" Text="Content Layout:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The folder layout of the content share."/>
     <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="4" Grid.Column="1" x:Name="cboLayout" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Nested keeps an app's versions adjacent for easy retention pruning; Flat is one folder per package.">
         <ComboBoxItem Content="Nested - Applications\Vendor\App\Version"/>
         <ComboBoxItem Content="Flat - Applications\Vendor-App-Version"/>
     </ComboBox>
 
     <TextBlock Grid.Row="5" Grid.Column="0" Text="Download Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="5" Grid.Column="1" x:Name="txtDL" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Local folder where installers are downloaded during staging"/>
+    <TextBox   Grid.Row="5" Grid.Column="1" x:Name="txtDL" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The local folder for downloaded installers."/>
 
     <TextBlock Grid.Row="6" Grid.Column="0" Text="Est. Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
     <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
-        <TextBox x:Name="txtEst" Width="60" FontSize="13" MaxLength="4" ToolTip="Estimated install runtime in minutes"/>
+        <TextBox x:Name="txtEst" Width="60" FontSize="13" MaxLength="4" ToolTip="The estimated install time in minutes."/>
         <TextBlock Text=" mins" FontSize="13" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray5}"/>
     </StackPanel>
 
     <TextBlock Grid.Row="7" Grid.Column="0" Text="Max Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
     <StackPanel Grid.Row="7" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
-        <TextBox x:Name="txtMax" Width="60" FontSize="13" MaxLength="4" ToolTip="Maximum allowed install runtime in minutes"/>
+        <TextBox x:Name="txtMax" Width="60" FontSize="13" MaxLength="4" ToolTip="The maximum install time in minutes."/>
         <TextBlock Text=" mins" FontSize="13" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray5}"/>
     </StackPanel>
 
-    <TextBlock Grid.Row="8" Grid.Column="0" Text="Fallback DPs:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Deployment type content option. Applies to deployment types created by future Package runs."/>
-    <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="8" Grid.Column="1" x:Name="cboContentFallback" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Allow: when no distribution point in the current or neighbor boundary groups has the content, the client can use the site default boundary group.">
+    <TextBlock Grid.Row="8" Grid.Column="0" Text="Fallback DPs:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The content option of new deployment types."/>
+    <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="8" Grid.Column="1" x:Name="cboContentFallback" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Let a client use the site default boundary group when no other distribution point has the content.">
         <ComboBoxItem Content="Allow - use the site default boundary group" Tag="Allow"/>
         <ComboBoxItem Content="Deny - current and neighbor groups only" Tag="Deny"/>
     </ComboBox>
 
-    <TextBlock Grid.Row="9" Grid.Column="0" Text="Neighbor/Default DP:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Deployment type content option. Applies to deployment types created by future Package runs."/>
-    <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="9" Grid.Column="1" x:Name="cboSlowNetwork" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Deployment option when the client uses a distribution point in a neighbor boundary group or the site default boundary group.">
+    <TextBlock Grid.Row="9" Grid.Column="0" Text="Neighbor/Default DP:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The content option of new deployment types."/>
+    <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="9" Grid.Column="1" x:Name="cboSlowNetwork" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="The deployment option for a distribution point in a neighbor or default boundary group.">
         <ComboBoxItem Content="Download content and install" Tag="Download"/>
         <ComboBoxItem Content="Do not download content" Tag="DoNothing"/>
     </ComboBox>
 
-    <TextBlock Grid.Row="10" Grid.Column="0" Text="Auto-distribute:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, the Package phase calls Start-CMContentDistribution after creating each ConfigMgr Application."/>
+    <TextBlock Grid.Row="10" Grid.Column="0" Text="Auto-distribute:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Distribute the content after each Package run."/>
     <CheckBox  Grid.Row="10" Grid.Column="1" x:Name="chkAutoDist" Content="Start-CMContentDistribution after Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
     <TextBlock Grid.Row="11" Grid.Column="0" Text="DP Group:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact name of the Distribution Point Group to target."/>
-    <TextBox   Grid.Row="11" Grid.Column="1" x:Name="txtDPGroup" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Distribution Point Group display name (e.g. 'All DPs')"/>
+    <TextBox   Grid.Row="11" Grid.Column="1" x:Name="txtDPGroup" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The name of the distribution point group."/>
 
-    <TextBlock Grid.Row="12" Grid.Column="0" Text="Test Deployment:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Requires Auto-distribute enabled and a DP Group name. After content distribution, deploys the application (Available, immediately, default options) to the test collection."/>
+    <TextBlock Grid.Row="12" Grid.Column="0" Text="Test Deployment:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Deploy the application to the test collection after distribution."/>
     <CheckBox  Grid.Row="12" Grid.Column="1" x:Name="chkTestDeploy" Content="Deploy to test collection after distribution" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
     <TextBlock Grid.Row="13" Grid.Column="0" Text="Test Collection:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact device collection name that receives the Available test deployment."/>
-    <TextBox   Grid.Row="13" Grid.Column="1" x:Name="txtTestCollection" FontSize="13" MaxLength="255" Margin="0,0,0,8" ToolTip="Device collection display name (e.g. 'App Test Devices')"/>
+    <TextBox   Grid.Row="13" Grid.Column="1" x:Name="txtTestCollection" FontSize="13" MaxLength="255" Margin="0,0,0,8" ToolTip="The name of the test device collection."/>
 
     <TextBlock Grid.Row="14" Grid.Column="0" Text="" Margin="0,0,0,8"/>
-    <CheckBox  Grid.Row="14" Grid.Column="1" x:Name="chkCreateTestColl" Content="Create collection if it does not exist" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Creates an empty direct-membership device collection limited to All Systems when the named collection is missing."/>
+    <CheckBox  Grid.Row="14" Grid.Column="1" x:Name="chkCreateTestColl" Content="Create collection if it does not exist" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Create the collection, limited to All Systems, when it is missing."/>
 
     <TextBlock Grid.Row="15" Grid.Column="0" Text="Application Title:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Default application naming for every Package run."/>
-    <CheckBox  Grid.Row="15" Grid.Column="1" x:Name="chkTitleVersion" Content="Include version in application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Adds the version to every application name, creating one ConfigMgr application per release. A per-application choice in the Application Workbench overrides this. Existing applications are not renamed."/>
-    <CheckBox  Grid.Row="16" Grid.Column="1" x:Name="chkTitleNoVersion" Content="Remove version from application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Strips the release version from a vendor product name that carries it (7-Zip 26.03, Slido 2.3.1, Tableau 2026.2). Available while the version is not added to the name. A per-application choice in the Application Workbench overrides this."/>
+    <CheckBox  Grid.Row="15" Grid.Column="1" x:Name="chkTitleVersion" Content="Include version in application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Add the version to each application name."/>
+    <CheckBox  Grid.Row="16" Grid.Column="1" x:Name="chkTitleNoVersion" Content="Remove version from application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Remove the release version from the vendor product name."/>
 
-    <TextBlock Grid.Row="17" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
+    <TextBlock Grid.Row="17" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Shows if the Configuration Manager console is found."/>
     <Grid Grid.Row="17" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
 
-    <TextBlock Grid.Row="18" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="7-Zip command-line (7z.exe) detection status. Required by the Adobe Reader packager."/>
+    <TextBlock Grid.Row="18" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Shows if 7z.exe, which the Adobe Reader packager needs, is found."/>
     <Grid Grid.Row="18" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
-    <TextBlock Grid.Row="19" Grid.Column="0" Text="GitHub API:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="How the 90 packagers that read GitHub releases authenticate. Anonymous calls are limited to 60 per hour per address; a token raises that to 5000. Resolved from GITHUB_TOKEN, then GH_TOKEN, then the GitHub CLI login (gh auth login)."/>
+    <TextBlock Grid.Row="19" Grid.Column="0" Text="GitHub API:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Shows how AppPackager signs in to the GitHub API."/>
     <Grid Grid.Row="19" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtGitHubStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
 
-    <TextBlock Grid.Row="20" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe) detection status. Downloaded on first use, or place the exe on PATH."/>
+    <TextBlock Grid.Row="20" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Shows if IntuneWinAppUtil.exe is found."/>
     <!-- Status text in a star column so a long message wraps instead of
          pushing the buttons past the panel edge, where they clip out of view. -->
     <Grid Grid.Row="20" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
@@ -5712,7 +5739,7 @@ function New-MecmPreferencesPanel {
         <Button Grid.Column="1" x:Name="btnIntuneWinDownload" Content="Download" Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" VerticalAlignment="Center" Visibility="Collapsed"/>
     </Grid>
 
-    <TextBlock Grid.Row="21" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Packager icon pack for IconSource External packagers. Installs into Packagers\Icons and is read at stage time."/>
+    <TextBlock Grid.Row="21" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Shows the state of the packager icon pack."/>
     <Grid Grid.Row="21" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
@@ -5720,8 +5747,8 @@ function New-MecmPreferencesPanel {
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <TextBlock Grid.Column="0" x:Name="txtIconPackStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
-        <Button Grid.Column="1" x:Name="btnIconPackDownload" Content="Download Packager Icon Pack" Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" VerticalAlignment="Center" ToolTip="Fetches the latest pack release, verifies its sha256 against checksums.txt, and extracts it into Packagers\Icons. Existing icons with the same name are replaced."/>
-        <Button Grid.Column="2" x:Name="btnIconPackFromFile" Content="Install from File..." Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="6,0,0,0" VerticalAlignment="Center" ToolTip="Installs an icon pack from a local or UNC icon-pack.zip when the release download is blocked (proxy/SSL inspection). A checksums.txt beside the zip is verified when present."/>
+        <Button Grid.Column="1" x:Name="btnIconPackDownload" Content="Download Packager Icon Pack" Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" VerticalAlignment="Center" ToolTip="Download the icon pack and extract it into Packagers\Icons."/>
+        <Button Grid.Column="2" x:Name="btnIconPackFromFile" Content="Install from File..." Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="6,0,0,0" VerticalAlignment="Center" ToolTip="Install the icon pack from a local or UNC zip file."/>
     </Grid>
 
     <TextBlock Grid.Row="22" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
@@ -5729,24 +5756,24 @@ function New-MecmPreferencesPanel {
                Text="Stage builds an .intunewin beside the content when IntuneWinAppUtil is detected. Publish to ConfigMgr copies it beside the network content."/>
     <TextBlock Grid.Row="23" Grid.Column="0" Text="Intune Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
     <TextBox   Grid.Row="23" Grid.Column="1" x:Name="txtIntuneTenant" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="24" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
+    <TextBlock Grid.Row="24" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The client ID of an app registration with DeviceManagementApps.ReadWrite.All."/>
     <TextBox   Grid.Row="24" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,0,0,8"/>
     <TextBlock Grid.Row="25" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
     <PasswordBox Grid.Row="25" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="26" Grid.Column="0" Text="NVD API Key:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Key for the NIST NVD API used by Check CVEs. Without a key NVD allows 5 requests per 30 seconds; with one, 50. Request a key at nvd.nist.gov/developers/request-an-api-key. Stored DPAPI-protected for the current Windows user; leave empty to keep the saved key. The NVD_API_KEY environment variable is used when no key is saved."/>
+    <TextBlock Grid.Row="26" Grid.Column="0" Text="NVD API Key:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The NVD API key for Check CVEs, or empty to keep the saved key."/>
     <PasswordBox Grid.Row="26" Grid.Column="1" x:Name="pwdNvdKey" FontSize="13" Margin="0,0,0,8"/>
     <TextBlock Grid.Row="27" Grid.Column="0" Text="CVEs:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <CheckBox  Grid.Row="27" Grid.Column="1" x:Name="chkCveAfterCm" Content="Look up CVEs after Check ConfigMgr" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Runs Check CVEs for the checked rows as soon as Check ConfigMgr finishes. Rows without a CPE header or without any version are skipped."/>
-    <TextBlock Grid.Row="28" Grid.Column="0" Text="Discovery SQL:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="SQL Server instance of the ConfigMgr site database for Discover unmanaged software. Leave empty to use the server of the site."/>
-    <TextBox   Grid.Row="28" Grid.Column="1" x:Name="txtDiscoverySqlServer" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Server or server\instance, for example cm01.contoso.com. Windows authentication only."/>
-    <TextBlock Grid.Row="29" Grid.Column="0" Text="Discovery DB:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Name of the ConfigMgr site database. Leave empty to use CM_ and the site code."/>
-    <TextBox   Grid.Row="29" Grid.Column="1" x:Name="txtDiscoverySqlDatabase" Width="200" FontSize="13" HorizontalAlignment="Left" MaxLength="128" Margin="0,0,0,8" ToolTip="For example CM_MCM. The account needs db_datareader on this database."/>
+    <CheckBox  Grid.Row="27" Grid.Column="1" x:Name="chkCveAfterCm" Content="Look up CVEs after Check ConfigMgr" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Run Check CVEs when Check ConfigMgr finishes."/>
+    <TextBlock Grid.Row="28" Grid.Column="0" Text="Discovery SQL:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The SQL Server of the site database, or empty for the site server."/>
+    <TextBox   Grid.Row="28" Grid.Column="1" x:Name="txtDiscoverySqlServer" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The SQL Server name, for example cm01.contoso.com."/>
+    <TextBlock Grid.Row="29" Grid.Column="0" Text="Discovery DB:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The site database name, or empty for CM_ and the site code."/>
+    <TextBox   Grid.Row="29" Grid.Column="1" x:Name="txtDiscoverySqlDatabase" Width="200" FontSize="13" HorizontalAlignment="Left" MaxLength="128" Margin="0,0,0,8" ToolTip="The database name, for example CM_MCM."/>
     <TextBlock Grid.Row="30" Grid.Column="0" Text="Not Offered:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Apps that Discover unmanaged software leaves out after Don't ask again for selected."/>
     <StackPanel Grid.Row="30" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
         <TextBlock x:Name="txtDiscoveryDismissed" FontSize="13" VerticalAlignment="Center" Margin="0,0,12,0"/>
         <Button x:Name="btnClearDiscoveryDismissed" Content="Clear List"
                 Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                ToolTip="Offer every hidden app again in the next discovery. Applies on OK."/>
+                ToolTip="Offer each hidden app again in the next discovery."/>
     </StackPanel>
 </Grid>
 </ScrollViewer>
@@ -5959,7 +5986,7 @@ function New-MecmPreferencesPanel {
             Save-Preferences -Prefs $prefsRefIw
             $downloadOk = $true
         } catch {
-            $txtIntuneWinStatus.Text = ([char]0x2717 + " Download failed  -  {0}" -f $_.Exception.Message)
+            $txtIntuneWinStatus.Text = ([char]0x2717 + " Download failed  -  {0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         } finally {
             $btnIntuneWinDownload.IsEnabled = $true
         }
@@ -6098,7 +6125,7 @@ function New-AppFlowPanel {
         </StackPanel>
         <TextBlock Grid.Row="2" Grid.Column="0" Text="Existing ConfigMgr App:" FontWeight="Bold" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
         <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" Grid.Row="2" Grid.Column="1" x:Name="cboOneClickOnExisting" Width="190" VerticalAlignment="Center" Margin="0,8,0,0"
-                  ToolTip="What a run does when the ConfigMgr application already exists with another version. One Click never asks during the run.">
+                  ToolTip="The action when the ConfigMgr application exists with another version.">
             <ComboBoxItem Content="Skip the application" Tag="Skip"/>
             <ComboBoxItem Content="Overwrite it" Tag="Overwrite"/>
         </ComboBox>
@@ -6961,7 +6988,7 @@ function New-PackagerPreferencesPanel {
             Show-PreviewDialog -Owner $ownerWin -Title "CWA Preview" -Content $sb.ToString() -Width 820 -Height 360
         }
         catch {
-            Show-PreviewDialog -Owner $ownerWin -Title "CWA Preview (Error)" -Content ("Failed to build preview:`r`n{0}" -f $_.Exception.Message) -Width 600 -Height 260
+            Show-PreviewDialog -Owner $ownerWin -Title "CWA Preview (Error)" -Content ("Failed to build preview:`r`n{0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) -Width 600 -Height 260
         }
     }.GetNewClosure())
 
@@ -7000,10 +7027,10 @@ function New-PackagerPreferencesPanel {
             }
 
             $ownerWin = [System.Windows.Window]::GetWindow($element)
-            Show-PreviewDialog -Owner $ownerWin -Title "M365 Preview (install.xml)" -Content $sb.ToString() -Width 820 -Height 640
+            Show-PreviewDialog -Owner $ownerWin -Title "M365 Preview (Install XML)" -Content $sb.ToString() -Width 820 -Height 640
         } catch {
             $ownerWin = [System.Windows.Window]::GetWindow($element)
-            Show-PreviewDialog -Owner $ownerWin -Title "M365 Preview (Error)" -Content ("Failed to build preview:`r`n{0}" -f $_.Exception.Message) -Width 600 -Height 260
+            Show-PreviewDialog -Owner $ownerWin -Title "M365 Preview (Error)" -Content ("Failed to build preview:`r`n{0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) -Width 600 -Height 260
         }
     }.GetNewClosure())
 
@@ -7305,7 +7332,7 @@ function New-AboutPanel {
             <TextBlock Grid.Row="0" Grid.Column="1" Text="MIT" FontSize="12" Margin="0,0,0,6"/>
             <TextBlock Grid.Row="1" Grid.Column="0" Text="Repository" FontWeight="Bold" FontSize="12" Margin="0,0,0,6"/>
             <TextBlock Grid.Row="1" Grid.Column="1" FontSize="12" Margin="0,0,0,6">
-                <Hyperlink x:Name="lnkAboutRepo" ToolTip="Open the project on GitHub">
+                <Hyperlink x:Name="lnkAboutRepo" ToolTip="Open the project on GitHub.">
                     <Run x:Name="runAboutRepo" Text="github.com"/>
                 </Hyperlink>
             </TextBlock>
@@ -7317,10 +7344,10 @@ function New-AboutPanel {
         <StackPanel Orientation="Horizontal">
             <Button x:Name="btnAboutUpdate" Content="Update Now" Margin="0,0,8,0"
                     Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                    ToolTip="Download and install the latest release, then close and relaunch AppPackager"/>
+                    ToolTip="Install the latest release and restart AppPackager."/>
             <Button x:Name="btnAboutReleases" Content="Release Notes"
                     Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                    ToolTip="Open the releases page on GitHub"/>
+                    ToolTip="Open the releases page on GitHub."/>
         </StackPanel>
     </StackPanel>
 </ScrollViewer>
@@ -7505,7 +7532,7 @@ function Show-OptionsDialog {
             $script:OptionsDlgResult = $true
             $dlg.Close()
         } catch {
-            [void](Show-ThemedMessage -Owner $dlg -Title 'Save Failed' -Message $_.Exception.Message -Buttons OK -Icon Error)
+            [void](Show-ThemedMessage -Owner $dlg -Title 'Save Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Error)
         }
     })
 
@@ -7565,11 +7592,11 @@ function Show-FirstRunWizard {
                 <TextBlock Text="Systems" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
                     <CheckBox x:Name="chkWizMecm" Content="ConfigMgr" FontSize="13" Margin="0,0,20,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                              ToolTip="ConfigMgr applications. Needs the ConfigMgr console, a site and a content share."/>
+                              ToolTip="Publish ConfigMgr applications, with the console, a site and a content share."/>
                     <CheckBox x:Name="chkWizIntune" Content="Intune" FontSize="13" Margin="0,0,20,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                              ToolTip="Intune Win32 apps published through Microsoft Graph. Needs an app registration."/>
+                              ToolTip="Publish Intune Win32 apps through Microsoft Graph with an app registration."/>
                     <CheckBox x:Name="chkWizWsus" Content="WSUS" FontSize="13" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                              ToolTip="Locally published WSUS updates for computers that have an older version. Needs a WSUS server."/>
+                              ToolTip="Publish WSUS updates for computers that have an older version."/>
                 </StackPanel>
 
                 <GroupBox x:Name="grpMecm" Header="ConfigMgr" Margin="0,0,0,14">
@@ -7586,16 +7613,16 @@ function Show-FirstRunWizard {
                         </Grid.ColumnDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Site Code:" FontSize="14" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                        <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWizSC" Width="80" FontSize="13" HorizontalAlignment="Left" MaxLength="5" Margin="0,0,0,8" ToolTip="ConfigMgr site code PSDrive name (e.g., MCM)"/>
+                        <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWizSC" Width="80" FontSize="13" HorizontalAlignment="Left" MaxLength="5" Margin="0,0,0,8" ToolTip="The ConfigMgr site code, for example MCM."/>
 
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="SMS Provider:" FontSize="14" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtWizProvider" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="SMS Provider server from the ConfigMgr AdminUI connect script's ProviderMachineName value"/>
+                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtWizProvider" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The SMS Provider server of the site."/>
 
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="File Share Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                        <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtWizFS" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="UNC path to the SCCM content file share"/>
+                        <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtWizFS" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The UNC path of the content share."/>
 
                         <TextBlock Grid.Row="3" Grid.Column="0" Text="Download Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,4"/>
-                        <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtWizDL" FontSize="13" MaxLength="200" Margin="0,0,0,4" ToolTip="Local folder where installers are downloaded during staging"/>
+                        <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtWizDL" FontSize="13" MaxLength="200" Margin="0,0,0,4" ToolTip="The local folder for downloaded installers."/>
                     </Grid>
                 </GroupBox>
 
@@ -7614,8 +7641,8 @@ function Show-FirstRunWizard {
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
                         <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWizTenant" FontSize="13" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
 
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
-                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtWizClient" FontSize="13" Margin="0,0,0,8" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The client ID of an app registration with DeviceManagementApps.ReadWrite.All."/>
+                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtWizClient" FontSize="13" Margin="0,0,0,8" ToolTip="The client ID of an app registration with DeviceManagementApps.ReadWrite.All."/>
 
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,4" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
                         <PasswordBox Grid.Row="2" Grid.Column="1" x:Name="pwdWizSecret" FontSize="13" Margin="0,0,0,4" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
@@ -7634,11 +7661,11 @@ function Show-FirstRunWizard {
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Server:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="WSUS server name. For ConfigMgr, the top-level software update point."/>
-                        <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWizWsusServer" FontSize="13" MaxLength="255" Margin="0,0,0,8" ToolTip="WSUS server name. For ConfigMgr, the top-level software update point."/>
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Server:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The WSUS server name, or the top-level software update point."/>
+                        <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWizWsusServer" FontSize="13" MaxLength="255" Margin="0,0,0,8" ToolTip="The WSUS server name, or the top-level software update point."/>
 
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Port:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="8530 for HTTP, 8531 for HTTPS on a default WSUS install."/>
-                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtWizWsusPort" Width="80" FontSize="13" MaxLength="5" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="8530 for HTTP, 8531 for HTTPS on a default WSUS install."/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Port:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The WSUS port: 8530 for HTTP, 8531 for HTTPS."/>
+                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtWizWsusPort" Width="80" FontSize="13" MaxLength="5" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="The WSUS port: 8530 for HTTP, 8531 for HTTPS."/>
 
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="" Margin="0,0,0,4"/>
                         <CheckBox  Grid.Row="2" Grid.Column="1" x:Name="chkWizWsusSsl" Content="Use SSL" FontSize="13" Margin="0,0,0,4" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Connect to the WSUS administration API over HTTPS."/>
@@ -7655,7 +7682,7 @@ function Show-FirstRunWizard {
                 </Grid.ColumnDefinitions>
                 <CheckBox Grid.Column="0" x:Name="chkWizDontAsk" Content="Don't show this again" FontSize="12" VerticalAlignment="Center"
                           Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                          ToolTip="Suppresses this wizard on future launches even when nothing is configured here. Saving always suppresses it."/>
+                          ToolTip="Do not show this wizard again."/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button x:Name="btnWizSave" Content="Save" Margin="0,0,8,0" IsDefault="True" Style="{StaticResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                     <Button x:Name="btnWizSkip" Content="Skip" IsCancel="True" Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
@@ -7774,7 +7801,7 @@ function Show-FirstRunWizard {
             $script:FirstRunDlgSaved = $true
             $dlg.Close()
         } catch {
-            [void](Show-ThemedMessage -Owner $dlg -Title 'Save Failed' -Message $_.Exception.Message -Buttons OK -Icon Error)
+            [void](Show-ThemedMessage -Owner $dlg -Title 'Save Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Error)
         }
     })
 
@@ -8225,14 +8252,14 @@ function Invoke-MultiAppPipeline {
                                 Update-PackagerHistory -PackagerName $baseName -Event Checked -Version $latest -Result $histResult
                                 $row.LastChecked = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
                             } catch {
-                                [void]$State.LogQueue.Enqueue(('History write failed for {0}: {1}' -f $baseName, $_.Exception.Message))
+                                [void]$State.LogQueue.Enqueue(('History write failed for {0}: {1}' -f $baseName, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             }
                             $counts['Checked']++
                             if ($histResult -eq 'NoChange') { $counts['NoChange']++ }
                             else { $counts['Updated']++ }
                         } catch {
                             $row.Status = 'Error'
-                            [void]$State.LogQueue.Enqueue(('Error: ' + $_.Exception.Message))
+                            [void]$State.LogQueue.Enqueue(('Error: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             try { Update-PackagerHistory -PackagerName $baseName -Event Checked -Result Failed } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
                             $counts['CheckFailed']++
                         }
@@ -8276,12 +8303,12 @@ function Invoke-MultiAppPipeline {
                                 [void]$State.LogQueue.Enqueue(('{0} Source {1}{2}' -f (ConvertTo-VulnerabilityResultText -Result $res), $res.Source, $(if ($null -ne $res.MaxCvss) { '; max CVSS ' + (ConvertTo-VulnerabilityCvssText -Score $res.MaxCvss -Severity $res.MaxSeverity) } else { '' })))
                                 $counts['Checked']++
                                 try { Update-PackagerHistory -PackagerName $baseName -Event VulnChecked -Data $summary } catch {
-                                    [void]$State.LogQueue.Enqueue(('History write failed for {0}: {1}' -f $baseName, $_.Exception.Message))
+                                    [void]$State.LogQueue.Enqueue(('History write failed for {0}: {1}' -f $baseName, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                                 }
                             }
                         } catch {
                             $row.CveCount = 'Error'
-                            [void]$State.LogQueue.Enqueue(('Error: ' + $_.Exception.Message))
+                            [void]$State.LogQueue.Enqueue(('Error: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             $counts['CheckFailed']++
                         }
                     }
@@ -8332,7 +8359,7 @@ function Invoke-MultiAppPipeline {
                             }
                         } catch {
                             $row.Status = 'Stage error'
-                            [void]$State.LogQueue.Enqueue(('Stage exception: ' + $_.Exception.Message))
+                            [void]$State.LogQueue.Enqueue(('Stage exception: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             $counts['Failed']++
                         }
                     }
@@ -8426,7 +8453,7 @@ function Invoke-MultiAppPipeline {
                             }
                         } catch {
                             $row.Status = 'Package error'
-                            [void]$State.LogQueue.Enqueue(('Package exception: ' + $_.Exception.Message))
+                            [void]$State.LogQueue.Enqueue(('Package exception: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             $counts['Failed']++
                         }
                     }
@@ -8472,9 +8499,9 @@ function Invoke-MultiAppPipeline {
                             [void]$State.LogQueue.Enqueue(('Latest: ' + $latest))
                         } catch {
                             $row.Status = 'Check error'
-                            [void]$State.LogQueue.Enqueue(('Latest check failed: ' + $_.Exception.Message))
+                            [void]$State.LogQueue.Enqueue(('Latest check failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             $counts['CheckFailed']++
-                            & $finish 'Failed' ('check failed: ' + $_.Exception.Message)
+                            & $finish 'Failed' ('check failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
                             continue
                         }
 
@@ -8540,7 +8567,7 @@ function Invoke-MultiAppPipeline {
                                 }
                             } catch {
                                 $observedUnknown = $true
-                                [void]$State.LogQueue.Enqueue(('ConfigMgr site version for {0} not read: {1}' -f $app, $_.Exception.Message))
+                                [void]$State.LogQueue.Enqueue(('ConfigMgr site version for {0} not read: {1}' -f $app, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             }
                         }
                         if ($Ctx.Action -eq 'StageAndPackage') {
@@ -8628,7 +8655,7 @@ function Invoke-MultiAppPipeline {
                             }
                         } catch {
                             $row.Status = 'Stage error'
-                            [void]$State.LogQueue.Enqueue(('Stage exception: ' + $_.Exception.Message))
+                            [void]$State.LogQueue.Enqueue(('Stage exception: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                         }
                         if (-not $stageOk) {
                             $counts['Failed']++
@@ -8727,7 +8754,7 @@ function Invoke-MultiAppPipeline {
                                                 [void](Set-OneClickNotSupported -History $h -PackagerName $baseName -Destination 'WSUS' -Version ([string]$latest) -Reason $resultText `
                                                     -Instance ([string]$(if ($Ctx.InstanceKeys) { $Ctx.InstanceKeys['WSUS'] } else { '' })))
                                                 Save-PackagerHistory -History $h
-                                            } catch { [void]$State.LogQueue.Enqueue(('History write failed: ' + $_.Exception.Message)) }
+                                            } catch { [void]$State.LogQueue.Enqueue(('History write failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))) }
                                         }
                                         else { $resultText = [string]$note.Message }
                                     }
@@ -8747,7 +8774,7 @@ function Invoke-MultiAppPipeline {
                                     }
                                 }
                             } catch {
-                                $resultText = ('failed: ' + $_.Exception.Message)
+                                $resultText = ('failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
                             }
                             if ($pr) { $pr.('Result' + $d) = $resultText; $pr.('Id' + $d) = $id; $pr.('Detail' + $d) = $detail }
                             if ($ok) {
@@ -8757,7 +8784,7 @@ function Invoke-MultiAppPipeline {
                                     [void](Set-OneClickPublishedVersion -History $h -PackagerName $baseName -Destination $d -Version ([string]$latest) -Id $id `
                                         -Instance ([string]$(if ($Ctx.InstanceKeys) { $Ctx.InstanceKeys[$d] } else { '' })) -Build $buildKey)
                                     Save-PackagerHistory -History $h
-                                } catch { [void]$State.LogQueue.Enqueue(('History write failed: ' + $_.Exception.Message)) }
+                                } catch { [void]$State.LogQueue.Enqueue(('History write failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))) }
                             }
                             elseif ($resultText -notmatch '^(skipped|not supported)') { $failed++ }
                         }
@@ -8864,7 +8891,7 @@ function Invoke-MultiAppPipeline {
                             [void]$State.LogQueue.Enqueue(('Latest: ' + $latest))
                         } catch {
                             $row.Status = 'Check error'
-                            [void]$State.LogQueue.Enqueue(('Latest check failed: ' + $_.Exception.Message))
+                            [void]$State.LogQueue.Enqueue(('Latest check failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             $counts['CheckFailed']++
                             continue
                         }
@@ -8902,7 +8929,7 @@ function Invoke-MultiAppPipeline {
                                         }
                                     }
                                 } catch {
-                                    [void]$State.LogQueue.Enqueue(('ConfigMgr pre-flight for {0} failed: {1}' -f $app, $_.Exception.Message))
+                                    [void]$State.LogQueue.Enqueue(('ConfigMgr pre-flight for {0} failed: {1}' -f $app, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                                 }
                             }
                         }
@@ -9007,7 +9034,7 @@ function Invoke-MultiAppPipeline {
                             }
                         } catch {
                             $row.Status = 'Stage error'
-                            [void]$State.LogQueue.Enqueue(('Stage exception: ' + $_.Exception.Message))
+                            [void]$State.LogQueue.Enqueue(('Stage exception: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                         }
 
                         if (-not $stageOk) {
@@ -9110,7 +9137,7 @@ function Invoke-MultiAppPipeline {
                             }
                         } catch {
                             $row.Status = 'Package error'
-                            [void]$State.LogQueue.Enqueue(('Package exception: ' + $_.Exception.Message))
+                            [void]$State.LogQueue.Enqueue(('Package exception: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             $counts['Failed']++
                         }
                     }
@@ -9119,7 +9146,7 @@ function Invoke-MultiAppPipeline {
             $State.Counts = $counts
         }
         catch {
-            $State.ErrorMsg = $_.Exception.Message
+            $State.ErrorMsg = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')
         }
         finally {
             $State.Done = $true
@@ -9172,7 +9199,7 @@ function Invoke-MultiAppPipeline {
             catch {
                 # A dialog failure must not park the pipeline forever.
                 $script:BgState.ConflictResponse = [pscustomobject]@{ Choice = 'Skip'; ApplyToAll = $false }
-                Add-LogLine -Message ('Conflict prompt failed, keeping the existing application: ' + $_.Exception.Message)
+                Add-LogLine -Message ('Conflict prompt failed, keeping the existing application: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
             }
             finally {
                 $script:ConflictPromptOpen = $false
@@ -9244,8 +9271,8 @@ function Invoke-MultiAppPipeline {
             $btnCancelPipeline.IsEnabled = $true
             $script:BgTimer = $null
             $script:BgState = $null
-            if ($script:BgContext -and $script:BgContext.ContainsKey('OneClickDone')) { try { & $script:BgContext.OneClickDone $doneState } catch { Add-LogLine -Message ('One Click report failed: ' + $_.Exception.Message) } }
-            if ($script:BgContext -and $script:BgContext.ContainsKey('CveDone')) { try { & $script:BgContext.CveDone $doneState } catch { Add-LogLine -Message ('CVE window update failed: ' + $_.Exception.Message) } }
+            if ($script:BgContext -and $script:BgContext.ContainsKey('OneClickDone')) { try { & $script:BgContext.OneClickDone $doneState } catch { Add-LogLine -Message ('One Click report failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) } }
+            if ($script:BgContext -and $script:BgContext.ContainsKey('CveDone')) { try { & $script:BgContext.CveDone $doneState } catch { Add-LogLine -Message ('CVE window update failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) } }
         }
     })
     $script:BgTimer.Start()
@@ -9346,7 +9373,7 @@ function Show-DropIntakeDialog {
 
         <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
             <Button x:Name="btnDropSaveApplication" Content="Save as Application" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{StaticResource DialogButton}"
-                    ToolTip="Keep this installer as a durable application so it reopens in the Application Workbench without a download script. Its update source stays manual."/>
+                    ToolTip="Save this installer as an application that opens in the Application Workbench."/>
             <Button x:Name="btnDropSavePackager" Content="Save as Packager" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{StaticResource DialogButton}"/>
             <Button x:Name="btnDropStage" Content="Stage" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{StaticResource DialogButton}"/>
             <Button x:Name="btnDropStagePackage" Content="Stage and Package" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{StaticResource DialogAccentButton}"/>
@@ -9455,7 +9482,7 @@ function Show-DropIntakeDialog {
                 $txtModeSw.Text = (& $describeSwitch $mode)
             }
             catch {
-                [void](Show-ThemedMessage -Owner $dlg -Title 'Install Mode' -Message $_.Exception.Message -Buttons OK -Icon Warning)
+                [void](Show-ThemedMessage -Owner $dlg -Title 'Install Mode' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Warning)
             }
         }
         $radCurrent.Add_Checked({ & $switchMode 'CurrentUser' })
@@ -9532,7 +9559,7 @@ function Show-DropIntakeDialog {
             $dlg.Close()
         }
         catch {
-            [void](Show-ThemedMessage -Owner $dlg -Title 'Save as Application' -Message $_.Exception.Message -Buttons OK -Icon Error)
+            [void](Show-ThemedMessage -Owner $dlg -Title 'Save as Application' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Error)
         }
     })
     $btnCancelDlg.Add_Click({ $dlg.Close() })
@@ -9623,7 +9650,7 @@ function Invoke-AdHocPipeline {
                 }
                 catch {
                     $counts['Failed']++
-                    [void]$State.LogQueue.Enqueue(('Stage failed: {0}: {1}' -f $v.AppName, $_.Exception.Message))
+                    [void]$State.LogQueue.Enqueue(('Stage failed: {0}: {1}' -f $v.AppName, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                     continue
                 }
 
@@ -9655,13 +9682,13 @@ function Invoke-AdHocPipeline {
                 }
                 catch {
                     $counts['Failed']++
-                    [void]$State.LogQueue.Enqueue(('Package failed: {0}: {1}' -f $v.AppName, $_.Exception.Message))
+                    [void]$State.LogQueue.Enqueue(('Package failed: {0}: {1}' -f $v.AppName, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                 }
             }
             $State.Counts = $counts
         }
         catch {
-            $State.ErrorMsg = $_.Exception.Message
+            $State.ErrorMsg = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')
         }
         finally {
             if ($null -eq $savedSigning) { Remove-Item Env:\APP_PACKAGER_SIGNING -ErrorAction SilentlyContinue }
@@ -9785,7 +9812,7 @@ function Invoke-DropIntake {
         }
         catch {
             Hide-BusyIndicator
-            Add-LogLine -Message ('Analysis failed for {0}: {1}' -f (Split-Path -Leaf $installer), $_.Exception.Message)
+            Add-LogLine -Message ('Analysis failed for {0}: {1}' -f (Split-Path -Leaf $installer), (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
             continue
         }
         Hide-BusyIndicator
@@ -9821,7 +9848,7 @@ function Invoke-DropIntake {
                 Invoke-RefreshGrid
             }
             catch {
-                [void](Show-ThemedMessage -Owner $window -Title 'Save Failed' -Message $_.Exception.Message -Buttons OK -Icon Error)
+                [void](Show-ThemedMessage -Owner $window -Title 'Save Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Error)
             }
             continue
         }
@@ -9922,7 +9949,7 @@ $btnCheckMECM.Add_Click({
         Add-LogLine -Message "Check ConfigMgr requires the ConfigMgr Console. Not detected on this workstation."
         $txtStatus.Text = "ConfigMgr Console not installed."
         [void](Show-ThemedMessage -Owner $window -Title 'Console Required' `
-            -Message "The Configuration Manager Console (AdminUI) is not detected on this workstation. Install it (and reboot if you just installed) before running Check ConfigMgr." `
+            -Message "The Configuration Manager Console (AdminUI) is not detected on this workstation. Install it (and restart the computer after you install it) before running Check ConfigMgr." `
             -Buttons OK -Icon Warning)
         return
     }
@@ -9996,7 +10023,7 @@ $btnCheckMECM.Add_Click({
             }
             catch {
                 $row.Status = "Error"
-                Add-LogLine -Message ("Error: {0}" -f $_.Exception.Message)
+                Add-LogLine -Message ("Error: {0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
             }
         }
 
@@ -10088,16 +10115,16 @@ function Show-DiscoveryDialog {
             <WrapPanel Margin="16,10,16,10" HorizontalAlignment="Right">
                 <Button x:Name="btnEnableSelected" Content="Enable Selected" Margin="0,0,8,0"
                         Style="{StaticResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                        ToolTip="Show the checked apps in the main grid"/>
+                        ToolTip="Show the checked apps in the main grid."/>
                 <Button x:Name="btnEnableAll" Content="Enable All" Margin="0,0,8,0"
                         Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                        ToolTip="Show every app in this list in the main grid"/>
+                        ToolTip="Show every app of this list in the main grid."/>
                 <Button x:Name="btnNotNow" Content="Not Now" Margin="0,0,8,0" IsCancel="True"
                         Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                        ToolTip="Close without a change. The next discovery offers these apps again."/>
+                        ToolTip="Close and offer these apps again in the next discovery."/>
                 <Button x:Name="btnDismiss" Content="Don't Ask Again for Selected"
                         Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                        ToolTip="Keep the checked apps hidden and leave them out of later discoveries. Clear the list in Options, ConfigMgr Preferences."/>
+                        ToolTip="Hide the checked apps in this and later discoveries."/>
             </WrapPanel>
         </Border>
     </Grid>
@@ -10172,9 +10199,9 @@ function Invoke-DiscoveryChoice {
             # that is not rebuilt does not show it. Each failure is said.
             $problems = @()
             try { Save-Preferences -Prefs $script:Prefs }
-            catch { $problems += ('The choice was not saved and holds for this session only: {0}' -f $_.Exception.Message) }
+            catch { $problems += ('The choice was not saved and holds for this session only: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) }
             try { Invoke-RefreshGrid }
-            catch { $problems += ('The grid was not refreshed: {0}' -f $_.Exception.Message) }
+            catch { $problems += ('The grid was not refreshed: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) }
             if ($problems.Count -eq 0) {
                 Add-LogLine -Message ("Discover unmanaged software: {0} app(s) added to the grid. Manage them in Product Filter." -f $count)
                 $txtStatus.Text = ("{0} app(s) added to the grid." -f $count)
@@ -10192,7 +10219,7 @@ function Invoke-DiscoveryChoice {
                 Add-LogLine -Message ("Discover unmanaged software: {0} app(s) will not be offered again. Clear the list in Options, ConfigMgr Preferences." -f $count)
             }
             catch {
-                $text = ('The dismissal was not saved and holds for this session only: {0}' -f $_.Exception.Message)
+                $text = ('The dismissal was not saved and holds for this session only: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
                 Add-LogLine -Message ('Discover unmanaged software: ' + $text)
                 $txtStatus.Text = $text
             }
@@ -10223,7 +10250,7 @@ function Complete-DiscoveryScan {
         Invoke-DiscoveryChoice -Choice $choice
     }
     catch {
-        Add-LogLine -Message ('Discover unmanaged software: ' + $_.Exception.Message)
+        Add-LogLine -Message ('Discover unmanaged software: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
     }
 }
 
@@ -10282,7 +10309,7 @@ function Start-DiscoveryScan {
                 $script:DiscoveryJob = $null
                 Set-ActionButtonsEnabled -Enabled $true
                 Hide-BusyIndicator
-                Add-LogLine -Message ('Discover unmanaged software: ' + $_.Exception.Message)
+                Add-LogLine -Message ('Discover unmanaged software: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
             }
         })
         $script:DiscoveryTimer.Start()
@@ -10290,7 +10317,7 @@ function Start-DiscoveryScan {
     catch {
         Stop-DiscoveryRunspace -Job $script:DiscoveryJob
         $script:DiscoveryJob = $null
-        Complete-DiscoveryScan -Result ([pscustomobject]@{ Ok = $false; Error = ('the query could not start: ' + $_.Exception.Message) })
+        Complete-DiscoveryScan -Result ([pscustomobject]@{ Ok = $false; Error = ('the query could not start: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) })
     }
 }
 
@@ -10447,18 +10474,18 @@ function Show-CmImportDialog {
 
                 <TextBlock Text="ConfigMgr Application Name" FontSize="12" FontWeight="Bold" Margin="0,12,0,4"/>
                 <TextBox x:Name="txtCmApp" FontSize="13" Controls:TextBoxHelper.Watermark="The exact name, as the console shows it"
-                         ToolTip="The exact name of the ConfigMgr application"/>
+                         ToolTip="The exact name of the ConfigMgr application."/>
 
                 <TextBlock Text="Site Code" FontSize="14" FontWeight="Bold" Margin="0,10,0,4"/>
                 <TextBox x:Name="txtCmSite" FontSize="13" Width="120" HorizontalAlignment="Left" MaxLength="3"
-                         ToolTip="The three-character ConfigMgr site code"/>
+                         ToolTip="The three-character ConfigMgr site code."/>
 
                 <TextBlock Text="Output Folder" FontSize="12" FontWeight="Bold" Margin="0,10,0,4"/>
                 <DockPanel>
                     <Button x:Name="btnCmBrowse" Content="Browse..." DockPanel.Dock="Right" Margin="8,0,0,0"
                             Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                     <TextBox x:Name="txtCmOutput" FontSize="13"
-                             ToolTip="One folder for each application is made here. It holds the content, the reports and the manifests."/>
+                             ToolTip="The folder that holds one subfolder for each application."/>
                 </DockPanel>
 
                 <TextBlock Text="Deployment Types" FontSize="12" FontWeight="Bold" Margin="0,10,0,4"/>
@@ -10474,9 +10501,9 @@ function Show-CmImportDialog {
                 <CheckBox x:Name="chkCmUntranslated" Content="Convert deployment types with requirements Intune cannot check" Margin="0,6,0,0"
                           ToolTip="The Intune app then installs on devices where ConfigMgr skips that deployment type."/>
                 <CheckBox x:Name="chkCmPackage" Content="Build the .intunewin files" Margin="0,6,0,0"
-                          ToolTip="Uses the Win32 Content Prep Tool. Used by Convert only."/>
+                          ToolTip="Build the .intunewin files with the Win32 Content Prep Tool."/>
                 <CheckBox x:Name="chkCmPublish" Content="Publish the apps to Intune" Margin="0,6,0,0"
-                          ToolTip="Uses the Intune tenant, client and secret saved in Options. Used by Convert only."/>
+                          ToolTip="Use the Intune tenant, client and secret of Options."/>
 
                 <TextBlock x:Name="txtCmNote" FontSize="12" TextWrapping="Wrap" Margin="0,12,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Visibility="Collapsed"/>
             </StackPanel>
@@ -10485,10 +10512,10 @@ function Show-CmImportDialog {
             <WrapPanel Margin="16,10,16,10" HorizontalAlignment="Right">
                 <Button x:Name="btnCmPreview" Content="Preview" Margin="0,0,8,0"
                         Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                        ToolTip="Write the plan and the report. Copies no content."/>
+                        ToolTip="Write the plan and the report without a copy of the content."/>
                 <Button x:Name="btnCmConvert" Content="Convert" Margin="0,0,8,0"
                         Style="{StaticResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                        ToolTip="Copy the content and make the Intune app folders"/>
+                        ToolTip="Copy the content and make the Intune app folders."/>
                 <Button x:Name="btnCmCancel" Content="Cancel" IsCancel="True"
                         Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             </WrapPanel>
@@ -10615,7 +10642,7 @@ function Start-CmImportRun {
         $txtStatus.Text = $text
     }
     catch {
-        $message = 'Convert ConfigMgr App to Intune failed: ' + $_.Exception.Message
+        $message = 'Convert ConfigMgr App to Intune failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')
         Add-LogLine -Message $message
         $txtStatus.Text = $message
     }
@@ -10716,7 +10743,7 @@ function Start-PublishRun {
         Add-LogLine -Message "Publish to ConfigMgr requires the ConfigMgr Console. Not detected on this workstation."
         $txtStatus.Text = "ConfigMgr Console not installed."
         [void](Show-ThemedMessage -Owner $window -Title 'Console Required' `
-            -Message "The Configuration Manager Console (AdminUI) is not detected on this workstation. Install it (and reboot if you just installed) before publishing to ConfigMgr." `
+            -Message "The Configuration Manager Console (AdminUI) is not detected on this workstation. Install it (and restart the computer after you install it) before publishing to ConfigMgr." `
             -Buttons OK -Icon Warning)
         return
     }
@@ -10827,7 +10854,7 @@ function Open-ExternalUrl {
         Add-LogLine -Message ('Link not opened (not https): {0}' -f $Url)
         return
     }
-    try { Start-Process $Url } catch { Add-LogLine -Message ('Link failed: {0}' -f $_.Exception.Message) }
+    try { Start-Process $Url } catch { Add-LogLine -Message ('Link failed: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) }
 }
 
 function Write-CveReportForRows {
@@ -10959,12 +10986,12 @@ function Show-CveDetailDialog {
                 <StackPanel Orientation="Horizontal">
                     <Button x:Name="btnRefresh" Content="Refresh" Margin="0,0,8,0"
                             Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                            ToolTip="Look the CVEs up again, bypassing the cache"/>
+                            ToolTip="Look up the CVEs again and skip the cache."/>
                     <Button x:Name="btnCopy" Content="Copy CVE IDs" Margin="0,0,8,0"
                             Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                     <Button x:Name="btnExport" Content="Export Report" Margin="0,0,8,0"
                             Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                            ToolTip="Write the HTML, CSV and JSON report for this app under Logs\Reports and open the HTML"/>
+                            ToolTip="Write the report of this app and open the HTML file."/>
                 </StackPanel>
             </DockPanel>
         </Border>
@@ -11085,7 +11112,7 @@ function Show-CveDetailDialog {
                     $noteRef.Visibility = 'Visible'
                 }
             }
-            catch { Add-LogLine -Message ('CVE window update failed: ' + $_.Exception.Message) }
+            catch { Add-LogLine -Message ('CVE window update failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) }
             finally { $btnRef.IsEnabled = $true }
         }.GetNewClosure()
         Invoke-MultiAppPipeline -Operation CheckCve -Rows @($Row) -Context $ctx
@@ -11103,7 +11130,7 @@ function Show-CveDetailDialog {
             $paths = Write-CveReportForRows -Rows @($Row)
             if ($paths.Html) { Start-Process $paths.Html }
         }
-        catch { Add-LogLine -Message ('CVE report failed: ' + $_.Exception.Message) }
+        catch { Add-LogLine -Message ('CVE report failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) }
     }.GetNewClosure())
 
     $btnClose.Add_Click({ $dlg.Close() }.GetNewClosure())
@@ -11155,7 +11182,7 @@ $btnCveReport.Add_Click({
         if ($paths.Html) { Start-Process $paths.Html }
     }
     catch {
-        Add-LogLine -Message ('CVE report failed: ' + $_.Exception.Message)
+        Add-LogLine -Message ('CVE report failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         $txtStatus.Text = "CVE report failed."
     }
     finally { Hide-BusyIndicator }
@@ -11847,7 +11874,7 @@ function Get-WorkbenchParseDiagnostics {
     try {
         [void][System.Management.Automation.Language.Parser]::ParseInput($Text, [ref]$tokens, [ref]$errors)
     } catch {
-        $results.Add('Parser failure: ' + $_.Exception.Message)
+        $results.Add('Parser failure: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         return $results
     }
     foreach ($err in @($errors)) {
@@ -12143,7 +12170,7 @@ function Get-WorkbenchRunPlanForContext {
             $buildId = [string]$snapshot.BuildId
         }
         catch {
-            Add-LogLine -Message ('Run snapshot not created for {0}: {1}' -f $base, $_.Exception.Message)
+            Add-LogLine -Message ('Run snapshot not created for {0}: {1}' -f $base, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         }
 
         $plan[$base] = @{
@@ -12290,7 +12317,7 @@ function Show-ApplicationWorkbench {
             }
         }
         catch {
-            Add-LogLine -Message ('Legacy preference migration failed: ' + $_.Exception.Message)
+            Add-LogLine -Message ('Legacy preference migration failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         }
     }
 
@@ -13147,7 +13174,7 @@ function Show-ApplicationWorkbench {
             $saved = Save-Profile -Profile ([pscustomobject]$wb.Profile) -SetActive
         }
         catch {
-            [void](Show-ThemedMessage -Owner $win -Title 'Save Failed' -Message $_.Exception.Message -Buttons OK -Icon Error)
+            [void](Show-ThemedMessage -Owner $win -Title 'Save Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Error)
             return $false
         }
         $wb.Profile = ConvertTo-WorkbenchUiHashtable -InputObject $saved
@@ -13586,7 +13613,7 @@ function Show-ApplicationWorkbench {
         try { [void](Set-ActiveProfile -ApplicationId ([string]$wb.Application.ApplicationId) -ProfileId ([string]$wb.ProfileId)) }
         catch {
             [void](Show-ThemedMessage -Owner $win -Title $operation `
-                -Message ('The profile ' + [string]$wb.Profile.Name + ' could not be made the active profile, so nothing ran: ' + $_.Exception.Message) -Buttons OK -Icon Warning)
+                -Message ('The profile ' + [string]$wb.Profile.Name + ' could not be made the active profile, so nothing ran: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) -Buttons OK -Icon Warning)
             return
         }
         $win.Close()
@@ -13754,13 +13781,13 @@ function New-ScriptSigningPanel {
         <TextBlock Text="Sign" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
         <CheckBox x:Name="chkSignDetection" FontSize="12" Margin="0,0,0,4"
                   Content="Sign detection scripts" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                  ToolTip="Signs generated and custom detection scripts. An unchanged import carrying a valid third-party signature is left alone."/>
+                  ToolTip="Sign the generated and custom detection scripts."/>
         <CheckBox x:Name="chkSignRequirements" FontSize="12" Margin="0,0,0,4"
                   Content="Sign requirement scripts and script global conditions" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                  ToolTip="Covers script-based requirement rules including the VPN predicate. WQL and native rules need no signature."/>
+                  ToolTip="Sign the script-based requirement rules."/>
         <CheckBox x:Name="chkSignDeployment" FontSize="12" Margin="0,0,0,12"
                   Content="Sign install and uninstall PowerShell scripts" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                  ToolTip="Signs the deployment execution chain and removes the execution-policy argument from its generated launchers, letting the configured endpoint policy govern. A vendor script that already carries an intact signature is left alone; an unsigned one is signed with this certificate."/>
+                  ToolTip="Sign the install and uninstall scripts and their launchers."/>
 
         <TextBlock Text="Require Valid Signatures" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
         <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,6"
@@ -13789,11 +13816,11 @@ function New-ScriptSigningPanel {
 
             <TextBlock Grid.Row="0" Grid.Column="0" Text="Certificate Store" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
             <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="0" Grid.Column="1" x:Name="cboSignStore" FontSize="12" Height="28" Margin="0,0,0,6"
-                       ToolTip="CurrentUser\My is the supported identity. LocalMachine\My needs an explicit choice and tested private-key access."/>
+                       ToolTip="Use CurrentUser\My, or LocalMachine\My with access to the private key."/>
 
             <TextBlock Grid.Row="1" Grid.Column="0" Text="Certificate" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
             <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="1" Grid.Column="1" x:Name="cboSignCertificate" FontSize="12" Height="28" Margin="0,0,0,6"
-                       ToolTip="Selected by thumbprint. A renewed certificate is a new thumbprint and needs reselecting here."/>
+                       ToolTip="Select the certificate by its thumbprint."/>
             <Button    Grid.Row="1" Grid.Column="2" x:Name="btnSignRefresh" Content="Refresh" Margin="8,0,0,6"
                        Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
@@ -13803,16 +13830,16 @@ function New-ScriptSigningPanel {
             <TextBlock Grid.Row="3" Grid.Column="0" Text="Timestamp Server" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
             <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtSignTimestamp" FontSize="12" Height="28" VerticalContentAlignment="Center" Margin="0,0,0,6"
                        Controls:TextBoxHelper.Watermark="none"
-                       ToolTip="A timestamped signature stays valid after the certificate expires. A signature that exists is not the same as a verified timestamp."/>
+                       ToolTip="A timestamp keeps a signature valid after the certificate expires."/>
             <CheckBox  Grid.Row="4" Grid.Column="1" x:Name="chkSignTimestampRequired" FontSize="12" Margin="0,0,0,6"
                        Content="Timestamp required" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                       ToolTip="With this on, a timestamp server failure fails the signed build instead of producing an untimestamped signature."/>
+                       ToolTip="Fail the build when the timestamp server does not answer."/>
         </Grid>
 
         <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
             <Button x:Name="btnSignTest" Content="Test Signing Configuration" Margin="0,0,10,0"
                     Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                    ToolTip="Signs and verifies a temporary file with the selected certificate. Nothing is published."/>
+                    ToolTip="Sign and verify a temporary file with the selected certificate."/>
         </StackPanel>
         <TextBlock x:Name="txtSignTestResult" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
 
@@ -13874,7 +13901,7 @@ function New-ScriptSigningPanel {
         $btnSignTest.IsEnabled = $true
         $candidates = @()
         try { $candidates = @(& $cmd -StoreLocation ([string]$cboSignStore.SelectedItem)) }
-        catch { $txtSignCertDetail.Text = 'Certificate enumeration failed: ' + $_.Exception.Message }
+        catch { $txtSignCertDetail.Text = 'Certificate enumeration failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') }
         foreach ($c in $candidates) {
             $label = ('{0}  (expires {1})' -f [string]$c.Subject, ([datetime]$c.NotAfter).ToString('yyyy-MM-dd'))
             if (-not [bool]$c.Usable) { $label += '  [unusable]' }
@@ -13948,7 +13975,7 @@ function New-ScriptSigningPanel {
                 [string]$result.Status, [string]$result.TimestampVerified, [string]$result.Reason)
         }
         catch {
-            $txtSignTestResult.Text = 'Test failed: ' + $_.Exception.Message
+            $txtSignTestResult.Text = 'Test failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')
         }
         finally { $btnSignTest.IsEnabled = $true }
     }.GetNewClosure())
@@ -14086,18 +14113,18 @@ function Show-WsusPublishedUpdatesDialog {
                         ToolTip="Import Microsoft updates that do not synchronize automatically, by catalog update ID or link."/>
                 <StackPanel Orientation="Horizontal">
                     <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" x:Name="cboGroup" IsEditable="True" Width="200" Height="30" FontSize="12" Margin="0,0,8,0"
-                              ToolTip="Computer group for Approve. The list loads from the server."/>
+                              ToolTip="The computer group that Approve uses."/>
                     <Button x:Name="btnApprove" Content="Approve for Group" Margin="0,0,8,0"
                             Style="{StaticResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                     <Button x:Name="btnDecline" Content="Decline" Margin="0,0,8,0"
                             Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                            ToolTip="Declined updates are not offered to any client. Approving again reverses it."/>
+                            ToolTip="Decline the update so that no client gets it."/>
                     <Button x:Name="btnExpire" Content="Expire" Margin="0,0,8,0"
                             Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                            ToolTip="Expires the update on the server permanently. Clients stop seeing it; it cannot be approved again."/>
+                            ToolTip="Expire the update on the server for good."/>
                     <Button x:Name="btnRemove" Content="Remove" Margin="0,0,8,0"
                             Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                            ToolTip="Declines the update and deletes it from the WSUS database. It cannot be undone."/>
+                            ToolTip="Decline the update and delete it from the WSUS database."/>
                     <Button x:Name="btnRefresh" Content="Refresh"
                             Style="{StaticResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 </StackPanel>
@@ -14125,12 +14152,12 @@ function Show-WsusPublishedUpdatesDialog {
             $txtSummary.Text = ('{0} update(s) on {1}.' -f $rows.Count, [string]$Settings.ServerName)
             if ($cboGroup.Items.Count -eq 0) {
                 try { foreach ($name in @(Get-WsusComputerGroupNames -Settings $Settings)) { [void]$cboGroup.Items.Add($name) } }
-                catch { $txtSummary.Text += ' Computer groups could not be listed: ' + $_.Exception.Message }
+                catch { $txtSummary.Text += ' Computer groups could not be listed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') }
             }
         }
         catch {
             $gridUpdates.ItemsSource = @()
-            $txtSummary.Text = 'Listing failed: ' + $_.Exception.Message
+            $txtSummary.Text = 'Listing failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')
         }
         finally { $dlg.Cursor = $null }
     }.GetNewClosure()
@@ -14155,7 +14182,7 @@ function Show-WsusPublishedUpdatesDialog {
         $outcomes = @()
         Set-DialogBusyStatus -Dialog $dlg -Control $txtSummary -Text ('{0}: working on {1} update(s)...' -f $Action, $selected.Count)
         try { $outcomes = @(Set-WsusPublishedUpdateState -Settings $Settings -PackageId $ids -Action $Action -GroupName $group) }
-        catch { $outcomes = @([pscustomobject]@{ Title = ''; Ok = $false; Message = $_.Exception.Message }) }
+        catch { $outcomes = @([pscustomobject]@{ Title = ''; Ok = $false; Message = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') }) }
         finally { $dlg.Cursor = $null }
         & $load
         $failed = @($outcomes | Where-Object { -not $_.Ok } | ForEach-Object { if ($_.Title) { '{0}: {1}' -f $_.Title, $_.Message } else { [string]$_.Message } })
@@ -14271,7 +14298,7 @@ function Show-WsusCatalogImportDialog {
             [void]$ps.BeginInvoke()
         }
         catch {
-            $txtStatus.Text = 'Import could not start: ' + $_.Exception.Message
+            $txtStatus.Text = 'Import could not start: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')
             $btnImport.IsEnabled = $true
         }
     }.GetNewClosure())
@@ -14328,11 +14355,11 @@ function New-WsusPanel {
             <TextBlock Grid.Row="0" Grid.Column="0" Text="WSUS Server" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
             <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWsusServer" FontSize="12" Height="28" VerticalContentAlignment="Center" Margin="0,0,0,6"
                        Controls:TextBoxHelper.Watermark="wsus01.contoso.com"
-                       ToolTip="Host name of the WSUS server. With ConfigMgr, the WSUS server of the top-level software update point."/>
+                       ToolTip="The WSUS server name, or the top-level software update point."/>
             <TextBlock Grid.Row="1" Grid.Column="0" Text="Port" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
             <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,6">
                 <TextBox x:Name="txtWsusPort" Width="80" FontSize="12" Height="28" VerticalContentAlignment="Center" MaxLength="5"
-                         ToolTip="8530 for HTTP and 8531 for HTTPS on a default WSUS install."/>
+                         ToolTip="The WSUS port: 8530 for HTTP, 8531 for HTTPS."/>
                 <CheckBox x:Name="chkWsusSsl" Content="Use SSL" FontSize="12" Margin="14,0,0,0" VerticalAlignment="Center"
                           Controls:ControlsHelper.ContentCharacterCasing="Normal"
                           ToolTip="Connect to the WSUS administration API over HTTPS."/>
@@ -14351,7 +14378,7 @@ function New-WsusPanel {
                     ToolTip="Has the WSUS server create and use a self-signed signing certificate."/>
             <Button x:Name="btnWsusCertImport" Content="Import PFX..." Margin="0,0,8,0"
                     Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                    ToolTip="Sets a code-signing certificate with its private key from a PFX file, for example one issued by your PKI."/>
+                    ToolTip="Import a code-signing certificate from a PFX file."/>
             <Button x:Name="btnWsusCertExport" Content="Export Certificate..."
                     Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                     ToolTip="Saves the public signing certificate (.cer) for distribution to clients by Group Policy."/>
@@ -14376,15 +14403,15 @@ function New-WsusPanel {
                        Text="Each update installs only where an older version of the application is installed. A computer without the application does not get the update."/>
             <TextBlock Grid.Row="1" Grid.Column="0" Text="Classification" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
             <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="1" Grid.Column="1" x:Name="cboWsusClassification" FontSize="12" Height="28" Margin="0,0,0,6"
-                       ToolTip="WSUS classification of every published update. With ConfigMgr, the software update point must synchronize it."/>
+                       ToolTip="The WSUS classification of the published updates."/>
             <TextBlock Grid.Row="2" Grid.Column="0" Text="Approve for Group" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
             <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="2" Grid.Column="1" x:Name="cboWsusGroup" IsEditable="True" FontSize="12" Height="28" Margin="0,0,0,6"
-                       ToolTip="Computer group the update is approved for right after it publishes. Leave empty to approve later from WSUS Updates in the sidebar: the WSUS console does not list locally published updates."/>
+                       ToolTip="The computer group that gets the update at once, or empty to approve later."/>
             <Button    Grid.Row="2" Grid.Column="2" x:Name="btnWsusGroups" Content="Load Groups" Margin="8,0,0,6"
                        Style="{StaticResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <CheckBox  Grid.Row="3" Grid.Column="1" x:Name="chkWsusDecline" FontSize="12" Margin="0,0,0,6"
                        Content="Decline earlier versions of the same application after publishing" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                       ToolTip="Declines the AppPackager updates of the same application that have a lower version. Approving one again reverses it."/>
+                       ToolTip="Decline the earlier versions of the application in WSUS."/>
         </Grid>
 
     </StackPanel>
@@ -14482,7 +14509,7 @@ function New-WsusPanel {
             if ([string]::IsNullOrWhiteSpace([string]$settings.ServerName)) { throw 'Enter the WSUS server first.' }
             return (& $Action $settings $Extra)
         }
-        catch { $txtWsusStatus.Text = ([char]0x2717 + ' ' + $_.Exception.Message); return $null }
+        catch { $txtWsusStatus.Text = ([char]0x2717 + ' ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')); return $null }
         finally { if ($window) { $window.Cursor = $null } }
     }.GetNewClosure()
 

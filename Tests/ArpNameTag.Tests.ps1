@@ -1,3 +1,4 @@
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 BeforeDiscovery {
     $script:PackagerFiles = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot '..\Packagers') -Filter 'package-*.ps1' |
         ForEach-Object { @{ Name = $_.Name; Path = $_.FullName } })

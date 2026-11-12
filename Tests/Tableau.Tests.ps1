@@ -1,4 +1,5 @@
-﻿Describe '<Name>' -ForEach @(
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
+Describe '<Name>' -ForEach @(
         @{ Name = 'package-tableaureader.ps1';  Filter = 'TableauReader-64bit-*.exe';  Pattern = 'Tableau Reader*'; Sample = 'TableauReader-64bit-2026-2-2.exe';  RemoveInstalled = $false ; Url = 'https://downloads.tableau.com/tssoftware/TableauReader-64bit-2026-2-2.exe' }
         @{ Name = 'package-tableauprep.ps1';    Filter = 'TableauPrep-*.exe';          Pattern = 'Tableau Prep*';   Sample = 'TableauPrep-2026-2-2.exe';          RemoveInstalled = $false ; Url = 'https://downloads.tableau.com/tssoftware/TableauPrep-2026-2-2.exe' }
         @{ Name = 'package-tableaudesktop.ps1'; Filter = 'TableauDesktop-64bit-*.exe'; Pattern = 'Tableau 20*';     Sample = 'TableauDesktop-64bit-2026-2-2.exe'; RemoveInstalled = $true ; Url = 'https://downloads.tableau.com/esdalt/2026.2.2/TableauDesktop-64bit-2026-2-2.exe' }

@@ -14,7 +14,7 @@ Use Publish to Intune to make the application available to Intune devices. Use P
 
 - Intune: an Entra app registration with the permission `DeviceManagementApps.ReadWrite.All`. The tenant ID, the client ID and the client secret go in **Options**.
 - WSUS: the WSUS console at the version of the server, an account in the WSUS Administrators group, network access to the API port of the server (8530, or 8531 with SSL), and a signing certificate that the computer and the clients trust.
-- The system is turned on under **Systems in use**, in Setup or in Options.
+- The system is turned on under **Systems in Use**, in Setup or in Options.
 
 This guide did not connect to Intune or to a WSUS server. Everything on this page comes from the README and the code. It was not checked on a live tenant or server.
 
@@ -23,7 +23,7 @@ This guide did not connect to Intune or to a WSUS server. Everything on this pag
 ### Turn the systems on
 
 1. Select **Options**.
-2. On **ConfigMgr Preferences**, select **Intune**, **WSUS** or both under **Systems in use**.
+2. On **ConfigMgr Preferences**, select **Intune**, **WSUS** or both under **Systems in Use**.
 3. For Intune, type the tenant ID, the client ID and the client secret. For WSUS, open **WSUS Publishing** and type the server.
 
 ![The WSUS Publishing page](../images/options-wsus.png)
@@ -45,7 +45,7 @@ WSUS offers an update only to a computer where the detection finds the applicati
 
 ### Manage the WSUS updates
 
-Select **WSUS Updates**. The window lists the updates that AppPackager published. You can **Approve for group**, **Decline**, **Expire** and **Remove** the selected updates. **Expire** and **Remove** cannot be undone.
+Select **WSUS Updates**. The window lists the updates that AppPackager published. You can **Approve for Group**, **Decline**, **Expire** and **Remove** the selected updates. **Expire** and **Remove** cannot be undone.
 
 ## Options and settings of this page
 
@@ -53,9 +53,9 @@ Select **WSUS Updates**. The window lists the updates that AppPackager published
 |---|---|
 | WSUS server, Port, Use SSL | The API endpoint of the server. |
 | Classification | The WSUS classification of every published update. |
-| Approve for group | Approves each new update for this group. |
+| Approve for Group | Approves each new update for this group. |
 | Decline earlier versions | Declines the earlier versions of the same application. |
-| Signing certificate buttons | **Create self-signed**, **Import PFX** and **Export certificate** manage the WSUS signing certificate. |
+| Signing certificate buttons | **Create Self-Signed**, **Import PFX** and **Export Certificate** manage the WSUS signing certificate. |
 
 ## Limits
 

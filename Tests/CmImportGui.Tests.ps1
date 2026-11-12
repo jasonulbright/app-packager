@@ -1,3 +1,4 @@
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 BeforeAll {
     $t = $null; $e = $null
     $script:GuiPath = Join-Path $PSScriptRoot '..\start-apppackager.ps1'
