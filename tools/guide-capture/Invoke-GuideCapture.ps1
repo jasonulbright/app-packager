@@ -32,6 +32,11 @@
 .PARAMETER AddNew
     Also copy images that are not in docs\images yet. Use it for the first capture of a new page.
 
+.PARAMETER OnlyCveChrome
+    Run only steps-cve-chrome.ps1: the Chrome CVE images (cve-chrome-*.png and light-cve-chrome-*.png).
+    The steps write a packager history with Chrome 157.0.8103.40 on the site and 158.0.8127.37 as the
+    latest version, then run Check CVEs against the live NVD. The default run does not include them.
+
 .EXAMPLE
     .\tools\guide-capture\Invoke-GuideCapture.ps1 -CredentialScript C:\lab\credentials.local.ps1 -Target CLIENT01 -LogonUser contoso\labadmin -SmsProvider cm01.contoso.com
 #>
@@ -43,7 +48,8 @@ param(
     [string]$SiteCode = 'MCM',
     [Parameter(Mandatory)][string]$SmsProvider,
     [int]$Minutes = 15,
-    [switch]$AddNew
+    [switch]$AddNew,
+    [switch]$OnlyCveChrome
 )
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
@@ -59,7 +65,8 @@ $session = $null
 $ok = $false
 try {
     $session = New-PSSession -ComputerName $Target -Credential $LabCredential
-    foreach ($run in @(@{ Steps = 'steps-guide.ps1' }, @{ Steps = 'steps-console-missing.ps1' })) {
+    $runs = if ($OnlyCveChrome) { @(@{ Steps = 'steps-cve-chrome.ps1' }) } else { @(@{ Steps = 'steps-guide.ps1' }, @{ Steps = 'steps-console-missing.ps1' }) }
+    foreach ($run in $runs) {
         $dest = "C:\guide\$app"
         # Stop only the leftovers of an earlier capture: the capture runner and the copy of this app.
         Invoke-Command $session {
@@ -112,8 +119,9 @@ try {
     $duplicate = New-Object System.Collections.Generic.List[string]
     foreach ($png in $captured) { if (-not $capturedNames.Add($png.Name)) { $duplicate.Add($png.Name) } }
     if ($duplicate.Count) { throw ("Two runs produced the same image. No image was replaced.`n" + ($duplicate -join "`n")) }
-    $missing = @(Get-ChildItem $images -Filter *.png | Where-Object { -not $capturedNames.Contains($_.Name) } | ForEach-Object { $_.Name })
-    if ($missing.Count) { throw ("The capture did not produce these guide images. No image was replaced.`n" + ($missing -join "`n")) }
+    # The Chrome CVE images come from the switch -OnlyCveChrome only. A full run neither makes them nor misses them.
+    $missing = @(Get-ChildItem $images -Filter *.png | Where-Object { -not $capturedNames.Contains($_.Name) -and ($_.Name -notmatch '^(light-)?cve-chrome-') } | ForEach-Object { $_.Name })
+    if ($missing.Count -and -not $OnlyCveChrome) { throw ("The capture did not produce these guide images. No image was replaced.`n" + ($missing -join "`n")) }
     foreach ($png in $captured) {
         if ($AddNew -or (Test-Path (Join-Path $images $png.Name))) { Copy-Item $png.FullName (Join-Path $images $png.Name) -Force }
     }
@@ -123,7 +131,8 @@ finally {
     # Each cleanup runs on its own, so that a failed cleanup cannot replace the original error.
     if ($session) {
         try { Invoke-Command $session { Unregister-ScheduledTask GuideShots-AppPackager -Confirm:$false -ErrorAction SilentlyContinue } } catch { Write-Warning "Cleanup of the scheduled task failed: $($_.Exception.Message)" }
-        try { Invoke-Command $session { Remove-Item C:\guide -Recurse -Force -ErrorAction SilentlyContinue } } catch { Write-Warning "Cleanup of C:\guide failed: $($_.Exception.Message)" }
+        # Remove only what this tool made. Other sessions can keep files in C:\guide, so the folder goes only when it is empty.
+        try { Invoke-Command $session { param($appName) foreach ($p in "C:\guide\$appName", 'C:\guide\ui', 'C:\guide\dl') { Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue }; if (-not (Get-ChildItem C:\guide -Force -ErrorAction SilentlyContinue)) { Remove-Item C:\guide -Force -ErrorAction SilentlyContinue } } -ArgumentList $app } catch { Write-Warning "Cleanup of C:\guide failed: $($_.Exception.Message)" }
         try { Remove-PSSession $session } catch { Write-Warning "Closing the session failed: $($_.Exception.Message)" }
     }
     if ($ok) { try { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue } catch { Write-Warning "Cleanup of $tmp failed: $($_.Exception.Message)" } } else { Write-Warning "The captured files stay in $tmp for inspection." }

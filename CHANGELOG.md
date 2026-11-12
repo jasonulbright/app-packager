@@ -1,5 +1,18 @@
 # Changelog
 
+## [2026.11.12.0134] - 2026-11-12
+
+## 4 images of a Chrome CVE check
+
+### Added
+
+- Add images of the Chrome CVE grid and CVE window in both themes.
+- Add the switch -OnlyCveChrome to the image capture command.
+
+### Changed
+
+- Keep files of other sessions in the lab folder when the image capture ends.
+
 ## [2026.11.12.0133] - 2026-11-12
 
 ## 21 corrected CPE names and a new CVE lookup
