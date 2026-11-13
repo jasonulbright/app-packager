@@ -49,7 +49,7 @@ BeforeAll {
             @{ Label = 'after the load'; Kind = 'Handler'; Member = 'Add_Loaded'; Target = '$window'; After = '' }
             @{ Label = 'after the Options dialog closes'; Kind = 'Handler'; Member = 'Add_Click'; Target = '$btnOptions'; After = 'Show-OptionsDialog' }
             @{ Label = 'after the first-run wizard'; Kind = 'Handler'; Member = 'Add_ContentRendered'; Target = '$window'; After = 'Show-FirstRunWizard' }
-            @{ Label = 'after a connect check'; Kind = 'Handler'; Member = 'Add_Click'; Target = '$btnCheckMECM'; After = '' }
+            @{ Label = 'before a ConfigMgr check'; Kind = 'Handler'; Member = 'Add_Click'; Target = '$btnCheckMECM'; After = '' }
         )
         OptionsFunction = @('Show-OptionsDialog', 'Show-FirstRunWizard', 'Connect-OptionsFieldLink', 'Get-OptionsSectionDefinition', 'Initialize-OptionsTestSection')
         SiteNamePattern = '(?i)^((txt|cbo|cmb|tb)\w*(SiteCode|SiteServer|SiteSrv|SmsProvider|Provider|Site)\d*|cm\.(siteCode|provider))$'
@@ -139,6 +139,9 @@ BeforeAll {
         }
         $scope = @($status)
         if ($bar -and $bar.NodeType -eq 'Element') { $scope = @($bar) + @($bar.SelectNodes('.//*')) }
+        # Every ancestor of the status element too: a font on the Grid or on the window reaches the footer.
+        $up = $status.ParentNode
+        while ($null -ne $up -and $up.NodeType -eq 'Element') { if ($scope -notcontains $up) { $scope += $up }; $up = $up.ParentNode }
         foreach ($el in $scope) {
             foreach ($a in @($el.Attributes)) {
                 if (Test-FtFontName $a.Name) { [void]$problems.Add(('{0}: <{1}> in the footer sets {2}' -f $Source, $el.LocalName, $a.Name)) }
@@ -202,6 +205,29 @@ BeforeAll {
         return @($found)
     }
 
+    # Every call of Initialize-SuiteFooter and Update-SuiteFooter sits inside a try statement with a catch that does something,
+    # so that a throw cannot stop the Loaded handler, a connect, the refresh timer or the Options dialog.
+    function Get-FtTryProblem {
+        param([string]$Text, [string]$Source)
+        $found = New-Object System.Collections.Generic.List[string]
+        $ast = Get-FtAst -Text $Text
+        $calls = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -in 'Initialize-SuiteFooter', 'Update-SuiteFooter' }, $true))
+        foreach ($c in $calls) {
+            $safe = $false
+            $p = $c.Parent
+            while ($null -ne $p) {
+                if ($p -is [System.Management.Automation.Language.TryStatementAst]) {
+                    $inBody = ($c.Extent.StartOffset -ge $p.Body.Extent.StartOffset -and $c.Extent.EndOffset -le $p.Body.Extent.EndOffset)
+                    $logs = (@($p.CatchClauses | Where-Object { $_.Body.Statements.Count -gt 0 }).Count -gt 0)
+                    if ($inBody -and $logs) { $safe = $true; break }
+                }
+                $p = $p.Parent
+            }
+            if (-not $safe) { [void]$found.Add(('{0}: line {1}: {2} is not inside a try statement with a catch that logs' -f $Source, $c.Extent.StartLineNumber, $c.GetCommandName())) }
+        }
+        return @($found)
+    }
+
     # The footer calls of the start script: Initialize-SuiteFooter once in the Loaded handler, a wrapper that calls
     # Update-SuiteFooter, and a refresh in every place of the settings.
     function Get-FtWiringProblem {
@@ -209,6 +235,7 @@ BeforeAll {
         $found = New-Object System.Collections.Generic.List[string]
         $ast = Get-FtAst -Text $Text
         $wrapper = $script:FtConfig.Wrapper
+        foreach ($t in @(Get-FtTryProblem -Text $Text -Source $Source)) { [void]$found.Add($t) }
         if ($script:FtConfig.NoSite) {
             $initNo = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Initialize-SuiteFooter' }, $true))
             if ($initNo.Count -ne 1) { [void]$found.Add(('{0}: Initialize-SuiteFooter is called {1} times, expected 1' -f $Source, $initNo.Count)); return @($found) }
@@ -370,19 +397,37 @@ Describe 'Footer guard' {
             @(Get-FtCodeProblem -Text $bad -Source 'sample').Count | Should -Be 1
         }
 
+        It 'fails a footer call outside a try statement, and a try with an empty catch' {
+            $bare = '$window.Add_Loaded({ Initialize-SuiteFooter -Window $window })'
+            $empty = '$window.Add_Loaded({ try { Initialize-SuiteFooter -Window $window } catch { } })'
+            $inCatch = '$window.Add_Loaded({ try { Write-Host 1 } catch { Update-SuiteFooter -Window $window } })'
+            $good = '$window.Add_Loaded({ try { Update-SuiteFooter -Window $window } catch { Write-Host $_ } })'
+            @(Get-FtTryProblem -Text $bare -Source 'sample').Count | Should -Be 1
+            @(Get-FtTryProblem -Text $empty -Source 'sample').Count | Should -Be 1
+            @(Get-FtTryProblem -Text $inCatch -Source 'sample').Count | Should -Be 1
+            @(Get-FtTryProblem -Text $good -Source 'sample') | Should -BeNullOrEmpty
+        }
+
+        It 'fails a font on an ancestor of the footer status element' {
+            $bad = '<Window ' + $script:FtSampleNs + ' FontSize="12"><Grid><Border><TextBlock x:Name="txtStatus"/></Border></Grid></Window>'
+            @((Get-FtFooterXamlProblem -Text $bad -Source 'sample' -StatusName 'txtStatus').Problems).Count | Should -Be 1
+            $bad2 = '<Window ' + $script:FtSampleNs + '><Grid FontFamily="Consolas"><Border><TextBlock x:Name="txtStatus"/></Border></Grid></Window>'
+            @((Get-FtFooterXamlProblem -Text $bad2 -Source 'sample' -StatusName 'txtStatus').Problems).Count | Should -Be 1
+        }
+
         It 'fails a start script that does not refresh the footer, and passes one that does' {
             $cfg = $script:FtConfig
             if ($cfg.NoSite) {
-                $okText = '$window.Add_Loaded({ $script:FooterSite = Initialize-SuiteFooter -Window $window -StatusName ''txtStatus''; $script:FooterSite.Visibility = [System.Windows.Visibility]::Collapsed })'
+                $okText = '$window.Add_Loaded({ try { $script:FooterSite = Initialize-SuiteFooter -Window $window -StatusName ''txtStatus''; $script:FooterSite.Visibility = [System.Windows.Visibility]::Collapsed } catch { Write-Host $_ } })'
                 @(Get-FtWiringProblem -Text $okText -Source 'sample') | Should -BeNullOrEmpty
                 @(Get-FtWiringProblem -Text $okText.Replace('Collapsed', 'Visible') -Source 'sample').Count | Should -Be 1
                 @(Get-FtWiringProblem -Text '$window.Add_Loaded({ Write-Host 1 })' -Source 'sample').Count | Should -Be 1
                 @(Get-FtWiringProblem -Text 'Initialize-SuiteFooter -Window $window' -Source 'sample').Count | Should -BeGreaterThan 0
                 return
             }
-            $loadedCall = 'Initialize-SuiteFooter -Window $window'
+            $loadedCall = 'try { Initialize-SuiteFooter -Window $window } catch { Write-Host $_ }'
             $good = New-Object System.Text.StringBuilder
-            [void]$good.AppendLine('function ' + $cfg.Wrapper + ' { Update-SuiteFooter -Window $window -SiteCode $a -SiteServer $b }')
+            [void]$good.AppendLine('function ' + $cfg.Wrapper + ' { try { Update-SuiteFooter -Window $window -SiteCode $a -SiteServer $b } catch { Write-Host $_ } }')
             $hasLoaded = $false
             foreach ($u in $cfg.Update) {
                 if ($u.Kind -eq 'Function') {
@@ -403,6 +448,8 @@ Describe 'Footer guard' {
             $goodText = $good.ToString()
             @(Get-FtWiringProblem -Text $goodText -Source 'sample') | Should -BeNullOrEmpty
             @(Get-FtWiringProblem -Text '$window.Add_Loaded({ Write-Host 1 })' -Source 'sample').Count | Should -BeGreaterThan 2
+            $noTry = $goodText.Replace('try { Initialize-SuiteFooter -Window $window } catch { Write-Host $_ }', 'Initialize-SuiteFooter -Window $window')
+            @(Get-FtTryProblem -Text $noTry -Source 'sample').Count | Should -Be 1
             @(Get-FtWiringProblem -Text $goodText.Replace($loadedCall, 'Write-Host') -Source 'sample').Count | Should -BeGreaterThan 0
             @(Get-FtWiringProblem -Text $goodText.Replace(' ' + $cfg.Wrapper + ' }', ' Write-Host }') -Source 'sample').Count | Should -BeGreaterThan 0
         }

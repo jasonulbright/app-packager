@@ -5432,10 +5432,13 @@ function Update-ApFooter {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Updates in-window text only.')]
     param()
     if (-not $window) { return }
-    Update-SuiteFooter -Window $window -SiteCode ([string]$script:Prefs.SiteCode) -SiteServer ([string]$script:Prefs.ProviderMachineName)
-    $systems = $script:Prefs.Systems
-    $site = $window.FindName('txtFooterSite')
-    if ($site) { $site.Visibility = $(if (-not $systems -or $systems.ConfigMgr) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed }) }
+    try {
+        Update-SuiteFooter -Window $window -SiteCode ([string]$script:Prefs.SiteCode) -SiteServer ([string]$script:Prefs.ProviderMachineName)
+        $systems = $script:Prefs.Systems
+        $site = $window.FindName('txtFooterSite')
+        if ($site) { $site.Visibility = $(if (-not $systems -or $systems.ConfigMgr) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed }) }
+    }
+    catch { Add-LogLine -Message 'The footer was not updated.' }
 }
 
 function Update-SidebarForSystems {
@@ -15269,7 +15272,8 @@ $lnkUpdateAvailable.Add_Click({ Open-UpdateReleasePage })
 $btnUpdateNow.Add_Click({ Invoke-SelfUpdate -Owner $window })
 
 $window.Add_Loaded({
-    Initialize-SuiteFooter -Window $window -StatusName 'txtStatus' -OnOpenOptions { Show-OptionsDialog -Owner $window; Update-ApFooter } | Out-Null
+    try { Initialize-SuiteFooter -Window $window -StatusName 'txtStatus' -OnOpenOptions { Show-OptionsDialog -Owner $window; Update-ApFooter } | Out-Null }
+    catch { Add-LogLine -Message 'The footer was not set up.' }
     Update-ApFooter
     Add-LogLine -Message ("Loading packagers from: {0}" -f $PackagersRoot)
     Invoke-RefreshGrid
