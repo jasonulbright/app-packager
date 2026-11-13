@@ -1,3 +1,4 @@
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 Describe 'Visual C++ v14 Redistributable detection in <Script>' -ForEach @(
     @{ Script = 'package-msvcruntimesx64.ps1'; Installer = 'vc_redist.x64.exe'; Folder = '%SystemRoot%\System32' }
     @{ Script = 'package-msvcruntimesx86.ps1'; Installer = 'vc_redist.x86.exe'; Folder = '%SystemRoot%\SysWOW64' }

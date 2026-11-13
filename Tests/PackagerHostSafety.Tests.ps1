@@ -1,5 +1,4 @@
-#Requires -Modules Pester
-
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 <#
 .SYNOPSIS
     Staging reads an installer; it does not run one on the packaging machine.

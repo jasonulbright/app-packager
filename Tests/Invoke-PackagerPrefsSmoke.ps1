@@ -4,6 +4,7 @@
 # All languages replaces the list, and Commit writes the pair.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+$script:SharedStyleRootOverride = $root
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 Add-Type -Path (Join-Path $root 'Lib\ControlzEx.dll')

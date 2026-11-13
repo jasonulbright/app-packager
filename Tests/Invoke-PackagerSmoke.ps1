@@ -785,7 +785,9 @@ if ($IncludeStage) {
 # damage depending on which tool last saved the file. Runs before the
 # summary so -Json output stays a single JSON document.
 $nonAscii = @()
-foreach ($f in Get-ChildItem (Join-Path $PSScriptRoot '..') -Recurse -Include *.ps1,*.psm1,*.psd1 -File | Where-Object FullName -notmatch '\\Tests\\|\\Logs\\|\\Icons\\') {
+$smokeRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+# The filter works on the path relative to the repository root, so that a worktree below .claude does not exclude itself.
+foreach ($f in Get-ChildItem $smokeRoot -Recurse -Include *.ps1,*.psm1,*.psd1 -File | Where-Object { $_.FullName.Substring($smokeRoot.Length) -notmatch '^[\\/](Tests|Logs|\.claude|\.git)[\\/]|[\\/]Icons[\\/]|[\\/]Logs[\\/]' }) {
     if ([regex]::IsMatch([System.IO.File]::ReadAllText($f.FullName), '[^\x00-\x7F]')) { $nonAscii += $f.Name }
 }
 foreach ($name in $nonAscii) {

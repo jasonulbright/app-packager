@@ -1,3 +1,4 @@
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 BeforeAll {
     Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
     $t = $null; $e = $null

@@ -20,49 +20,11 @@
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- Dialog and Workbench buttons: 1 px light outline instead of the 2 px
-                 foreground outline of the MahApps Square style. Hover and pressed
-                 fills come from the Square template; the accent outline marks keyboard focus. -->
-            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="WbButton" TargetType="Button" BasedOn="{StaticResource ApButton}">
-                <Setter Property="MinWidth" Value="100"/>
-                <Setter Property="Height" Value="32"/>
-                <Setter Property="FontSize" Value="12"/>
-                <Setter Property="Margin" Value="0,0,8,0"/>
-                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
-            </Style>
-            <Style x:Key="WbAccentButton" TargetType="Button" BasedOn="{StaticResource ApButtonAccent}">
-                <Setter Property="MinWidth" Value="100"/>
-                <Setter Property="Height" Value="32"/>
-                <Setter Property="FontSize" Value="12"/>
-                <Setter Property="Margin" Value="0,0,8,0"/>
-                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
-            </Style>
-            <Style x:Key="WbInlineButton" TargetType="Button" BasedOn="{StaticResource ApButton}">
-                <Setter Property="MinWidth" Value="100"/>
-                <Setter Property="Height" Value="28"/>
-                <Setter Property="FontSize" Value="12"/>
-                <Setter Property="Margin" Value="0,0,8,0"/>
-                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
-            </Style>
+            <!--SHARED_STYLES-->
+
             <Style x:Key="WbLabel" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="12"/>
+                <Setter Property="FontWeight" Value="Bold"/>
                 <Setter Property="VerticalAlignment" Value="Center"/>
                 <Setter Property="Margin" Value="0,0,10,6"/>
                 <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray1}"/>
@@ -83,26 +45,27 @@
                 <Setter Property="Margin" Value="0,0,0,6"/>
                 <Style.Resources>
                     <!-- MahApps paints a disabled field with translucent white in both themes: a flat light block on Dark. -->
-                    <SolidColorBrush x:Key="MahApps.Brushes.Control.Disabled" Color="{DynamicResource MahApps.Colors.Gray10}" Opacity="0.85"/>
+                    <SolidColorBrush x:Key="MahApps.Brushes.Control.Disabled" Color="{DynamicResource MahApps.Colors.Gray10}"/>
                 </Style.Resources>
                 <Style.Triggers>
                     <Trigger Property="IsEnabled" Value="False">
-                        <Setter Property="Opacity" Value="0.7"/>
+                        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray.MouseOver}"/>
                     </Trigger>
                 </Style.Triggers>
             </Style>
             <Style x:Key="WbCombo" TargetType="ComboBox" BasedOn="{StaticResource MahApps.Styles.ComboBox}">
+                <Setter Property="ItemContainerStyle" Value="{StaticResource ThemedComboBoxItemStyle}"/>
                 <Setter Property="FontSize" Value="12"/>
                 <Setter Property="Height" Value="28"/>
                 <Setter Property="VerticalContentAlignment" Value="Center"/>
                 <Setter Property="Margin" Value="0,0,0,6"/>
                 <Style.Resources>
                     <!-- MahApps paints a disabled field with translucent white in both themes: a flat light block on Dark. -->
-                    <SolidColorBrush x:Key="MahApps.Brushes.Control.Disabled" Color="{DynamicResource MahApps.Colors.Gray10}" Opacity="0.85"/>
+                    <SolidColorBrush x:Key="MahApps.Brushes.Control.Disabled" Color="{DynamicResource MahApps.Colors.Gray10}"/>
                 </Style.Resources>
                 <Style.Triggers>
                     <Trigger Property="IsEnabled" Value="False">
-                        <Setter Property="Opacity" Value="0.7"/>
+                        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray.MouseOver}"/>
                     </Trigger>
                 </Style.Triggers>
             </Style>
@@ -117,11 +80,11 @@
                 <Setter Property="HorizontalScrollBarVisibility" Value="Auto"/>
                 <Style.Resources>
                     <!-- MahApps paints a disabled field with translucent white in both themes: a flat light block on Dark. -->
-                    <SolidColorBrush x:Key="MahApps.Brushes.Control.Disabled" Color="{DynamicResource MahApps.Colors.Gray10}" Opacity="0.85"/>
+                    <SolidColorBrush x:Key="MahApps.Brushes.Control.Disabled" Color="{DynamicResource MahApps.Colors.Gray10}"/>
                 </Style.Resources>
                 <Style.Triggers>
                     <Trigger Property="IsEnabled" Value="False">
-                        <Setter Property="Opacity" Value="0.7"/>
+                        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray.MouseOver}"/>
                     </Trigger>
                 </Style.Triggers>
             </Style>
@@ -179,22 +142,22 @@
             </Grid.ColumnDefinitions>
 
             <TextBlock Grid.Column="0" Text="Application" Style="{StaticResource WbLabel}" Margin="0,0,8,0"/>
-            <ComboBox  Grid.Column="1" x:Name="cboApplication" IsEditable="True" IsTextSearchEnabled="True"
+            <ComboBox  Grid.Column="1" x:Name="cboApplication" ItemContainerStyle="{StaticResource ThemedComboBoxItemStyle}" IsEditable="True" IsTextSearchEnabled="True"
                        StaysOpenOnEdit="True" FontSize="12" Height="28" Margin="0,0,14,0"
                        Controls:TextBoxHelper.Watermark="Search catalog, custom and BYO applications"
                        ToolTip="Catalog packagers, user-authored scripts, and saved bring-your-own applications."/>
 
             <TextBlock Grid.Column="2" Text="Profile" Style="{StaticResource WbLabel}" Margin="0,0,8,0"/>
-            <ComboBox  Grid.Column="3" x:Name="cboProfile" FontSize="12" Height="28" Margin="0,0,8,0"
-                       ToolTip="Packager default is read-only. Save as creates a named profile; one profile is active per application."/>
-            <Button    Grid.Column="4" x:Name="btnProfileRename" Content="Rename" Style="{StaticResource WbInlineButton}"
+            <ComboBox  Grid.Column="3" x:Name="cboProfile" ItemContainerStyle="{StaticResource ThemedComboBoxItemStyle}" FontSize="12" Height="28" Margin="0,0,8,0"
+                       ToolTip="Select the profile of this application."/>
+            <Button    Grid.Column="4" x:Name="btnProfileRename" Content="Rename" Style="{StaticResource InlineButtonStyle}"
                        ToolTip="Rename the selected custom profile."/>
             <TextBlock Grid.Column="5" x:Name="txtSourceType" Style="{StaticResource WbSource}" FontSize="12" Margin="6,0,0,0"
                        ToolTip="Where this application definition comes from."/>
 
             <TextBlock Grid.Column="7" Text="Build" Style="{StaticResource WbLabel}" Margin="0,0,8,0"/>
-            <ComboBox  Grid.Column="8" x:Name="cboBuild" FontSize="12" Height="28"
-                       ToolTip="Sealed builds for this application and profile. Package consumes the selected build."/>
+            <ComboBox  Grid.Column="8" x:Name="cboBuild" ItemContainerStyle="{StaticResource ThemedComboBoxItemStyle}" FontSize="12" Height="28"
+                       ToolTip="Select the build that Package uses."/>
         </Grid>
 
         <Border Grid.Row="1" Background="{DynamicResource MahApps.Brushes.Gray8}"/>
@@ -209,7 +172,7 @@
 
             <ListBox Grid.Column="0" x:Name="lstSections" BorderThickness="0" Padding="0,8,0,0">
                 <ListBox.ItemContainerStyle>
-                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource MahApps.Styles.ListBoxItem}">
+                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource ThemedListBoxItemStyle}">
                         <Setter Property="Padding" Value="16,10,16,10"/>
                         <Setter Property="FontSize" Value="13"/>
                     </Style>
@@ -245,24 +208,24 @@
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Display name" Style="{StaticResource WbLabel}"/>
                         <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtDisplayName" Style="{StaticResource WbField}"/>
                         <TextBlock Grid.Row="0" Grid.Column="2" x:Name="lblDisplayNameSrc" Style="{StaticResource WbSource}"/>
-                        <Button    Grid.Row="0" Grid.Column="3" x:Name="btnDisplayNameReset" Content="Reset" Style="{StaticResource WbInlineButton}"/>
+                        <Button    Grid.Row="0" Grid.Column="3" x:Name="btnDisplayNameReset" Content="Reset" Style="{StaticResource InlineButtonStyle}"/>
 
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="Publisher" Style="{StaticResource WbLabel}"/>
                         <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtPublisher" Style="{StaticResource WbField}"/>
                         <TextBlock Grid.Row="1" Grid.Column="2" x:Name="lblPublisherSrc" Style="{StaticResource WbSource}"/>
-                        <Button    Grid.Row="1" Grid.Column="3" x:Name="btnPublisherReset" Content="Reset" Style="{StaticResource WbInlineButton}"/>
+                        <Button    Grid.Row="1" Grid.Column="3" x:Name="btnPublisherReset" Content="Reset" Style="{StaticResource InlineButtonStyle}"/>
 
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="Description" Style="{StaticResource WbLabel}" VerticalAlignment="Top" Margin="0,4,10,6"/>
                         <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtDescription" FontSize="12" Height="64"
                                    AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0,0,0,6"/>
                         <TextBlock Grid.Row="2" Grid.Column="2" x:Name="lblDescriptionSrc" Style="{StaticResource WbSource}" VerticalAlignment="Top" Margin="8,4,0,6"/>
-                        <Button    Grid.Row="2" Grid.Column="3" x:Name="btnDescriptionReset" Content="Reset" Style="{StaticResource WbInlineButton}" VerticalAlignment="Top" Margin="0,0,8,6"/>
+                        <Button    Grid.Row="2" Grid.Column="3" x:Name="btnDescriptionReset" Content="Reset" Style="{StaticResource InlineButtonStyle}" VerticalAlignment="Top" Margin="0,0,8,6"/>
 
                         <TextBlock Grid.Row="3" Grid.Column="0" Text="Application title" Style="{StaticResource WbLabel}"/>
                         <ComboBox  Grid.Row="3" Grid.Column="1" x:Name="cboTitleMode" Style="{StaticResource WbCombo}"
-                                   ToolTip="Versioned titles create one ConfigMgr application per release; a perpetual title updates the same application."/>
+                                   ToolTip="Select a versioned or a perpetual application title."/>
                         <TextBlock Grid.Row="3" Grid.Column="2" x:Name="lblTitleModeSrc" Style="{StaticResource WbSource}"/>
-                        <Button    Grid.Row="3" Grid.Column="3" x:Name="btnTitleModeReset" Content="Reset" Style="{StaticResource WbInlineButton}"/>
+                        <Button    Grid.Row="3" Grid.Column="3" x:Name="btnTitleModeReset" Content="Reset" Style="{StaticResource InlineButtonStyle}"/>
 
                         <TextBlock Grid.Row="4" Grid.Column="0" Text="Profile name" Style="{StaticResource WbLabel}"/>
                         <TextBox   Grid.Row="4" Grid.Column="1" x:Name="txtProfileName" Style="{StaticResource WbField}"/>
@@ -286,9 +249,9 @@
                             </Border>
                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                                    <Button x:Name="btnIconChoose" Content="Choose file..." Style="{StaticResource WbInlineButton}" MinWidth="110"/>
-                                    <Button x:Name="btnIconReset" Content="Reset" Style="{StaticResource WbInlineButton}"/>
-                                    <Button x:Name="btnIconRemove" Content="Remove" Style="{StaticResource WbInlineButton}"
+                                    <Button x:Name="btnIconChoose" Content="Choose File..." Style="{StaticResource InlineButtonStyle}"/>
+                                    <Button x:Name="btnIconReset" Content="Reset" Style="{StaticResource InlineButtonStyle}"/>
+                                    <Button x:Name="btnIconRemove" Content="Remove" Style="{StaticResource InlineButtonStyle}"
                                             ToolTip="Explicitly publish no icon, rather than inheriting the packager's icon."/>
                                 </StackPanel>
                                 <TextBlock x:Name="txtIconState" Style="{StaticResource WbNote}" Margin="0"/>
@@ -323,9 +286,9 @@
                                    ToolTip="Install and uninstall are configured independently."/>
                         <TextBlock Grid.Column="2" Text="Mode" Style="{StaticResource WbLabel}" Margin="16,0,10,6"/>
                         <ComboBox  Grid.Column="3" x:Name="cboInstallMode" Style="{StaticResource WbCombo}"
-                                   ToolTip="Generated keeps the packager wrapper. Extend generated runs before/after hooks around it as separate processes. Custom replaces the entry command entirely."/>
+                                   ToolTip="Keep the generated command, extend it with hooks, or replace it."/>
                         <TextBlock Grid.Column="4" x:Name="lblInstallModeSrc" Style="{StaticResource WbSource}"/>
-                        <Button    Grid.Column="5" x:Name="btnInstallReset" Content="Reset section" Style="{StaticResource WbInlineButton}" HorizontalAlignment="Left" Margin="12,0,8,6"/>
+                        <Button    Grid.Column="5" x:Name="btnInstallReset" Content="Reset Section" Style="{StaticResource InlineButtonStyle}" HorizontalAlignment="Left" Margin="12,0,8,6"/>
                     </Grid>
 
                     <Grid Grid.Row="1">
@@ -344,7 +307,7 @@
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Effective command" Style="{StaticResource WbLabel}"/>
                         <TextBox   Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="5" x:Name="txtEffectiveCommand" Style="{StaticResource WbField}"
                                    IsReadOnly="True" FontFamily="Cascadia Code, Consolas, Courier New"
-                                   ToolTip="The entry command the build writes for this target. Needs staging until the packager resolves its installer."/>
+                                   ToolTip="The entry command that the build writes for this target."/>
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="Return codes" Style="{StaticResource WbLabel}"/>
                         <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtReturnCodes" Style="{StaticResource WbField}"
                                    Controls:TextBoxHelper.Watermark="inherit (e.g. 0,3010=SoftReboot,1641=HardReboot)"/>
@@ -371,8 +334,8 @@
                             <StackPanel DockPanel.Dock="Right" x:Name="pnlFind" Orientation="Horizontal" Visibility="Collapsed">
                                 <TextBox x:Name="txtFind" Width="180" FontSize="12" Height="28" Margin="0,0,6,0"
                                          Controls:TextBoxHelper.Watermark="Find"/>
-                                <Button x:Name="btnFindNext" Content="Next" Style="{StaticResource WbInlineButton}" Margin="0"/>
-                                <Button x:Name="btnFindClose" Content="Close" Style="{StaticResource WbInlineButton}"/>
+                                <Button x:Name="btnFindNext" Content="Next" Style="{StaticResource InlineButtonStyle}" Margin="0"/>
+                                <Button x:Name="btnFindClose" Content="Close" Style="{StaticResource InlineButtonStyle}"/>
                             </StackPanel>
                         </DockPanel>
 
@@ -405,7 +368,7 @@
 
                     <DockPanel Grid.Row="4">
                         <TextBlock DockPanel.Dock="Top" Text="Parse diagnostics" FontSize="11" Margin="0,0,0,3"/>
-                        <ListBox x:Name="lstScriptDiagnostics" FontSize="11" BorderThickness="1"
+                        <ListBox x:Name="lstScriptDiagnostics" ItemContainerStyle="{StaticResource ThemedListBoxItemStyle}" FontSize="11" BorderThickness="1"
                                  BorderBrush="{DynamicResource MahApps.Brushes.Gray8}"/>
                     </DockPanel>
                 </Grid>
@@ -429,11 +392,11 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Column="0" Text="Detection" Style="{StaticResource WbLabel}"/>
                         <ComboBox  Grid.Column="1" x:Name="cboDetectionMode" Style="{StaticResource WbCombo}"
-                                   ToolTip="Inherit uses the packager's validated native rule. Custom takes ownership of the whole rule."/>
+                                   ToolTip="Use the rule of the packager, or write your own rule."/>
                         <TextBlock Grid.Column="2" Text="Type" Style="{StaticResource WbLabel}" Margin="16,0,10,6"/>
                         <ComboBox  Grid.Column="3" x:Name="cboDetectionType" Style="{StaticResource WbCombo}"/>
                         <TextBlock Grid.Column="4" x:Name="lblDetectionSrc" Style="{StaticResource WbSource}"/>
-                        <Button    Grid.Column="5" x:Name="btnDetectionReset" Content="Reset section" Style="{StaticResource WbInlineButton}" HorizontalAlignment="Left" Margin="12,0,8,6"/>
+                        <Button    Grid.Column="5" x:Name="btnDetectionReset" Content="Reset Section" Style="{StaticResource InlineButtonStyle}" HorizontalAlignment="Left" Margin="12,0,8,6"/>
                     </Grid>
 
                     <TextBlock Grid.Row="1" x:Name="txtDetectionInherited" Style="{StaticResource WbNote}" Margin="0,4,0,6"/>
@@ -476,7 +439,7 @@
                                 <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtDetExpected" Style="{StaticResource WbField}" FontFamily="Cascadia Code, Consolas, Courier New"/>
                                 <TextBlock Grid.Row="3" Grid.Column="2" Text="Version binding" Style="{StaticResource WbLabel}" Margin="12,0,10,6"/>
                                 <ComboBox  Grid.Row="3" Grid.Column="3" x:Name="cboDetVersionBinding" Style="{StaticResource WbCombo}"
-                                           ToolTip="Follows staged version updates the expected value at every build; Pinned keeps the literal value. Vendor version strings do not all compare as numeric versions."/>
+                                           ToolTip="Follow the staged version, or pin the expected value."/>
 
                                 <TextBlock Grid.Row="4" Grid.Column="0" Text="File path" Style="{StaticResource WbLabel}"/>
                                 <TextBox   Grid.Row="4" Grid.Column="1" x:Name="txtDetFilePath" Style="{StaticResource WbField}" FontFamily="Cascadia Code, Consolas, Courier New"/>
@@ -487,17 +450,17 @@
                                 <ComboBox  Grid.Row="5" Grid.Column="1" x:Name="cboDetFileProperty" Style="{StaticResource WbCombo}"/>
                                 <TextBlock Grid.Row="5" Grid.Column="2" Text="Clause logic" Style="{StaticResource WbLabel}" Margin="12,0,10,6"/>
                                 <ComboBox  Grid.Row="5" Grid.Column="3" x:Name="cboDetLogic" Style="{StaticResource WbCombo}"
-                                           ToolTip="The existing schema supports flat AND, flat OR, and two groups. Nested expressions are not flattened silently."/>
+                                           ToolTip="Combine the clauses with AND, OR, or two groups."/>
 
                                 <DockPanel Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="4" Margin="0,8,0,4">
                                     <TextBlock DockPanel.Dock="Left" Text="Clauses" Style="{StaticResource WbHeading}" Margin="0,0,12,0" VerticalAlignment="Center"/>
                                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                                        <Button x:Name="btnDetClauseAdd" Content="Add clause" Style="{StaticResource WbInlineButton}" MinWidth="80"/>
-                                        <Button x:Name="btnDetClauseRemove" Content="Remove" Style="{StaticResource WbInlineButton}" MinWidth="70"/>
+                                        <Button x:Name="btnDetClauseAdd" Content="Add Clause" Style="{StaticResource InlineButtonStyle}"/>
+                                        <Button x:Name="btnDetClauseRemove" Content="Remove" Style="{StaticResource InlineButtonStyle}"/>
                                     </StackPanel>
                                 </DockPanel>
 
-                                <DataGrid ColumnHeaderHeight="30" Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="4" x:Name="dgDetClauses" MinHeight="120"
+                                <DataGrid RowStyle="{StaticResource GridRowStyle}" CellStyle="{StaticResource GridCellStyle}" ColumnHeaderHeight="30" Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="4" x:Name="dgDetClauses" MinHeight="120"
                                           AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
                                           GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0" BorderThickness="1"
                                           BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" FontSize="11">
@@ -533,7 +496,7 @@
                                       ToolTip="Native clauses without an Intune mapping stay blocked until this is chosen explicitly."/>
                             <DockPanel Grid.Row="3">
                                 <TextBlock DockPanel.Dock="Top" Text="Parse diagnostics" FontSize="11" Margin="0,0,0,3"/>
-                                <ListBox x:Name="lstDetectDiagnostics" FontSize="11" BorderThickness="1"
+                                <ListBox x:Name="lstDetectDiagnostics" ItemContainerStyle="{StaticResource ThemedListBoxItemStyle}" FontSize="11" BorderThickness="1"
                                          BorderBrush="{DynamicResource MahApps.Brushes.Gray8}"/>
                             </DockPanel>
                         </Grid>
@@ -560,23 +523,23 @@
                     <DockPanel Grid.Row="1" Margin="0,0,0,6">
                         <TextBlock DockPanel.Dock="Left" Text="Requirement operations" Style="{StaticResource WbHeading}" Margin="0,0,12,0" VerticalAlignment="Center"/>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                            <ComboBox x:Name="cboReqTemplate" Width="200" FontSize="12" Height="28" Margin="0,0,6,0"
+                            <ComboBox x:Name="cboReqTemplate" ItemContainerStyle="{StaticResource ThemedComboBoxItemStyle}" Width="200" FontSize="12" Height="28" Margin="0,0,6,0"
                                       ToolTip="Site conditions, named below; a rule attaches one to this application."/>
-                            <Button x:Name="btnReqAdd" Content="Add" Style="{StaticResource WbInlineButton}" MinWidth="60"/>
-                            <Button x:Name="btnReqReplace" Content="Replace" Style="{StaticResource WbInlineButton}" MinWidth="70"/>
-                            <Button x:Name="btnReqRemove" Content="Remove" Style="{StaticResource WbInlineButton}" MinWidth="70"/>
+                            <Button x:Name="btnReqAdd" Content="Add" Style="{StaticResource InlineButtonStyle}"/>
+                            <Button x:Name="btnReqReplace" Content="Replace" Style="{StaticResource InlineButtonStyle}"/>
+                            <Button x:Name="btnReqRemove" Content="Remove" Style="{StaticResource InlineButtonStyle}"/>
                         </StackPanel>
                     </DockPanel>
 
-                    <DataGrid ColumnHeaderHeight="30" Grid.Row="2" x:Name="dgRequirements" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                    <DataGrid RowStyle="{StaticResource GridRowStyle}" CellStyle="{StaticResource GridCellStyle}" ColumnHeaderHeight="30" Grid.Row="2" x:Name="dgRequirements" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
                               GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0" BorderThickness="1"
                               BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" FontSize="11">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Operation" Width="90" Binding="{Binding Op}" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Rule id" Width="140" Binding="{Binding RuleId}" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Rule ID" Width="140" Binding="{Binding RuleId}" IsReadOnly="True"/>
                             <DataGridTextColumn Header="Rule" Width="*" Binding="{Binding Summary}" IsReadOnly="True"/>
                             <DataGridTextColumn Header="Value" Width="180" Binding="{Binding Value}"/>
-                            <DataGridTextColumn Header="Applies to" Width="130" Binding="{Binding AppliesTo}"/>
+                            <DataGridTextColumn Header="Applies To" Width="130" Binding="{Binding AppliesTo}"/>
                         </DataGrid.Columns>
                     </DataGrid>
 
@@ -590,21 +553,21 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Column="0" Text="Variant split" Style="{StaticResource WbLabel}"/>
                         <ComboBox  Grid.Column="1" x:Name="cboVariantSplit" Style="{StaticResource WbCombo}"
-                                   ToolTip="Stage one application with several deployment types. Offered only where the packager declares support."/>
+                                   ToolTip="Stage one application with several deployment types."/>
                         <TextBlock Grid.Column="2" Text="Install for" Style="{StaticResource WbLabel}" Margin="16,0,10,6"/>
                         <ComboBox  Grid.Column="3" x:Name="cboInstallForMode" Style="{StaticResource WbCombo}"
-                                   ToolTip="System installs for all users; User installs for the signed-in user. Arguments, uninstall command, detection hive and view follow this choice."/>
+                                   ToolTip="Install for all users or for the signed-in user."/>
                         <TextBlock Grid.Column="4" x:Name="lblVariantSrc" Style="{StaticResource WbSource}"/>
                     </Grid>
 
                     <TextBlock Grid.Row="4" Text="Variant overrides" Style="{StaticResource WbHeading}"/>
 
-                    <DataGrid ColumnHeaderHeight="30" Grid.Row="5" x:Name="dgVariants" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                    <DataGrid RowStyle="{StaticResource GridRowStyle}" CellStyle="{StaticResource GridCellStyle}" ColumnHeaderHeight="30" Grid.Row="5" x:Name="dgVariants" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
                               GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0" BorderThickness="1"
                               BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" FontSize="11">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Variant" Width="150" Binding="{Binding Suffix}" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Install command" Width="*" Binding="{Binding InstallCommand}"/>
+                            <DataGridTextColumn Header="Install Command" Width="*" Binding="{Binding InstallCommand}"/>
                             <DataGridTextColumn Header="Detection" Width="200" Binding="{Binding Detection}"/>
                             <DataGridTextColumn Header="Estimated" Width="80" Binding="{Binding Estimated}"/>
                             <DataGridTextColumn Header="Maximum" Width="80" Binding="{Binding Maximum}"/>
@@ -627,16 +590,16 @@
                         </Grid.RowDefinitions>
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="CPU architecture condition" Style="{StaticResource WbLabel}"/>
                         <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtSiteArchGc" FontSize="12" Height="28" Margin="0,0,0,6"
-                                   ToolTip="Site global condition name for the WQL query on Win32_Processor.Architecture (9 = x64, 12 = ARM64)"/>
+                                   ToolTip="The name of the global condition that reads the processor architecture."/>
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="OS language condition" Style="{StaticResource WbLabel}"/>
                         <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtSiteLangGc" FontSize="12" Height="28" Margin="0,0,0,6"
-                                   ToolTip="Name of the built-in Operating System Language site condition. Must already exist on the site."/>
+                                   ToolTip="The name of the Operating System Language site condition."/>
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="VPN condition" Style="{StaticResource WbLabel}"/>
                         <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtSiteVpnGc" FontSize="12" Height="28" Margin="0,0,0,6"
-                                   ToolTip="Site global condition name for the script that reports whether a VPN adapter is active"/>
+                                   ToolTip="The name of the global condition that checks for an active VPN adapter."/>
                         <TextBlock Grid.Row="3" Grid.Column="0" Text="VPN adapter patterns" Style="{StaticResource WbLabel}"/>
                         <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtSiteVpnPatterns" FontSize="12" Height="28"
-                                   ToolTip="Comma-separated adapter description substrings that identify a VPN client. Applied when the condition is next created; an existing site condition keeps its script."/>
+                                   ToolTip="Adapter descriptions of a VPN client, separated by commas."/>
                     </Grid>
                 </Grid>
 
@@ -693,8 +656,8 @@
 
                         <TextBlock Grid.Row="8" Grid.Column="0" Text="Script host" Style="{StaticResource WbLabel}"/>
                         <ComboBox  Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="2" x:Name="cboExecScriptHost" Style="{StaticResource WbCombo}"
-                                   ToolTip="Detection and requirement scripts run in the host selected here; Intune maps this to the 32-bit flag."/>
-                        <Button    Grid.Row="8" Grid.Column="3" x:Name="btnTimingReset" Content="Reset section" Style="{StaticResource WbInlineButton}" HorizontalAlignment="Left" Margin="12,0,8,6"/>
+                                   ToolTip="The host that runs the detection and requirement scripts."/>
+                        <Button    Grid.Row="8" Grid.Column="3" x:Name="btnTimingReset" Content="Reset Section" Style="{StaticResource InlineButtonStyle}" HorizontalAlignment="Left" Margin="12,0,8,6"/>
                     </Grid>
                 </ScrollViewer>
 
@@ -713,14 +676,14 @@
                     <DockPanel Grid.Row="1" Margin="0,0,0,6">
                         <TextBlock DockPanel.Dock="Left" Text="Custom source files" Style="{StaticResource WbHeading}" Margin="0,0,12,0" VerticalAlignment="Center"/>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                            <Button x:Name="btnSourceAddFile" Content="Add file..." Style="{StaticResource WbInlineButton}" MinWidth="78"/>
-                            <Button x:Name="btnSourceAddFolder" Content="Add folder..." Style="{StaticResource WbInlineButton}" MinWidth="90"/>
-                            <Button x:Name="btnSourceReplace" Content="Replace..." Style="{StaticResource WbInlineButton}" MinWidth="80"/>
-                            <Button x:Name="btnSourceRemove" Content="Remove" Style="{StaticResource WbInlineButton}" MinWidth="70"/>
+                            <Button x:Name="btnSourceAddFile" Content="Add File..." Style="{StaticResource InlineButtonStyle}"/>
+                            <Button x:Name="btnSourceAddFolder" Content="Add Folder..." Style="{StaticResource InlineButtonStyle}"/>
+                            <Button x:Name="btnSourceReplace" Content="Replace..." Style="{StaticResource InlineButtonStyle}"/>
+                            <Button x:Name="btnSourceRemove" Content="Remove" Style="{StaticResource InlineButtonStyle}"/>
                         </StackPanel>
                     </DockPanel>
 
-                    <DataGrid ColumnHeaderHeight="30" Grid.Row="2" x:Name="dgSourceFiles" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                    <DataGrid RowStyle="{StaticResource GridRowStyle}" CellStyle="{StaticResource GridCellStyle}" ColumnHeaderHeight="30" Grid.Row="2" x:Name="dgSourceFiles" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
                               GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0" BorderThickness="1"
                               BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" FontSize="11">
                         <DataGrid.Columns>
@@ -750,7 +713,7 @@
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Default versus custom" Style="{StaticResource WbHeading}" Margin="0,0,0,6"/>
-                    <DataGrid ColumnHeaderHeight="30" Grid.Row="1" Grid.Column="0" x:Name="dgDiff" AutoGenerateColumns="False" CanUserAddRows="False"
+                    <DataGrid RowStyle="{StaticResource GridRowStyle}" CellStyle="{StaticResource GridCellStyle}" ColumnHeaderHeight="30" Grid.Row="1" Grid.Column="0" x:Name="dgDiff" AutoGenerateColumns="False" CanUserAddRows="False"
                               CanUserDeleteRows="False" IsReadOnly="True" GridLinesVisibility="Horizontal" HeadersVisibility="Column"
                               RowHeaderWidth="0" BorderThickness="1" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" FontSize="11">
                         <DataGrid.Columns>
@@ -761,7 +724,7 @@
                     </DataGrid>
 
                     <TextBlock Grid.Row="0" Grid.Column="2" Text="Compatibility findings" Style="{StaticResource WbHeading}" Margin="0,0,0,6"/>
-                    <DataGrid ColumnHeaderHeight="30" Grid.Row="1" Grid.Column="2" x:Name="dgFindings" AutoGenerateColumns="False" CanUserAddRows="False"
+                    <DataGrid RowStyle="{StaticResource GridRowStyle}" CellStyle="{StaticResource GridCellStyle}" ColumnHeaderHeight="30" Grid.Row="1" Grid.Column="2" x:Name="dgFindings" AutoGenerateColumns="False" CanUserAddRows="False"
                               CanUserDeleteRows="False" IsReadOnly="True" GridLinesVisibility="Horizontal" HeadersVisibility="Column"
                               RowHeaderWidth="0" BorderThickness="1" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" FontSize="11">
                         <DataGrid.Columns>
@@ -776,11 +739,11 @@
                                BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="1"/>
 
                     <TextBlock Grid.Row="2" Grid.Column="2" Text="Prior builds" Style="{StaticResource WbHeading}"/>
-                    <DataGrid ColumnHeaderHeight="30" Grid.Row="3" Grid.Column="2" x:Name="dgBuilds" AutoGenerateColumns="False" CanUserAddRows="False"
+                    <DataGrid RowStyle="{StaticResource GridRowStyle}" CellStyle="{StaticResource GridCellStyle}" ColumnHeaderHeight="30" Grid.Row="3" Grid.Column="2" x:Name="dgBuilds" AutoGenerateColumns="False" CanUserAddRows="False"
                               CanUserDeleteRows="False" IsReadOnly="True" GridLinesVisibility="Horizontal" HeadersVisibility="Column"
                               RowHeaderWidth="0" BorderThickness="1" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" FontSize="11">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Build id" Width="180" Binding="{Binding BuildId}"/>
+                            <DataGridTextColumn Header="Build ID" Width="180" Binding="{Binding BuildId}"/>
                             <DataGridTextColumn Header="Version" Width="110" Binding="{Binding Version}"/>
                             <DataGridTextColumn Header="Revision" Width="70" Binding="{Binding Revision}"/>
                             <DataGridTextColumn Header="Result" Width="*" Binding="{Binding Result}"/>
@@ -822,19 +785,19 @@
 
             <!-- Wraps to a second line when the window is narrow. A StackPanel in an Auto column clipped the last button. -->
             <WrapPanel Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0,0,0">
-                <Button x:Name="btnUseDefaults" Content="Use defaults" Style="{StaticResource WbButton}" MinWidth="106" Margin="0,3,8,3"
+                <Button x:Name="btnUseDefaults" Content="Use Defaults" Style="{StaticResource DialogButton}" Margin="0,3,8,3"
                         ToolTip="Clear every override in this profile and inherit the packager defaults."/>
-                <Button x:Name="btnSave" Content="Save" Style="{StaticResource WbButton}" Margin="0,3,8,3"/>
-                <Button x:Name="btnSaveAs" Content="Save as..." Style="{StaticResource WbButton}" Margin="0,3,8,3"/>
-                <Button x:Name="btnValidate" Content="Validate" Style="{StaticResource WbButton}" Margin="0,3,8,3"/>
-                <Button x:Name="btnStage" Content="Stage" Style="{StaticResource WbButton}" Margin="0,3,8,3"/>
-                <TextBlock Text="Publish to:" FontSize="12" VerticalAlignment="Center" Margin="8,3,8,3"/>
-                <Button x:Name="btnPublishMecm" Content="ConfigMgr" Style="{StaticResource WbAccentButton}" MinWidth="90" Margin="0,3,8,3"
-                        ToolTip="Build a ConfigMgr Application from the selected build"/>
-                <Button x:Name="btnPublishIntune" Content="Intune" Style="{StaticResource WbAccentButton}" MinWidth="80" Margin="0,3,8,3"
-                        ToolTip="Stage this profile, build its .intunewin, and publish it to Intune"/>
-                <Button x:Name="btnPublishWsus" Content="WSUS" Style="{StaticResource WbAccentButton}" MinWidth="80" Margin="0,3,0,3"
-                        ToolTip="Stage this profile and publish its installer to WSUS"/>
+                <Button x:Name="btnSave" Content="Save" Style="{StaticResource DialogButton}" Margin="0,3,8,3"/>
+                <Button x:Name="btnSaveAs" Content="Save As..." Style="{StaticResource DialogButton}" Margin="0,3,8,3"/>
+                <Button x:Name="btnValidate" Content="Validate" Style="{StaticResource DialogButton}" Margin="0,3,8,3"/>
+                <Button x:Name="btnStage" Content="Stage" Style="{StaticResource DialogButton}" Margin="0,3,8,3"/>
+                <TextBlock Text="Publish To:" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="8,3,8,3"/>
+                <Button x:Name="btnPublishMecm" Content="ConfigMgr" Style="{StaticResource DialogAccentButton}" Margin="0,3,8,3"
+                        ToolTip="Build a ConfigMgr application from the selected build."/>
+                <Button x:Name="btnPublishIntune" Content="Intune" Style="{StaticResource DialogAccentButton}" Margin="0,3,8,3"
+                        ToolTip="Stage this profile, build its .intunewin file and publish it to Intune."/>
+                <Button x:Name="btnPublishWsus" Content="WSUS" Style="{StaticResource DialogAccentButton}" Margin="0,3,0,3"
+                        ToolTip="Stage this profile and publish its installer to WSUS."/>
             </WrapPanel>
         </Grid>
     </Grid>

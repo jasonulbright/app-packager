@@ -1154,6 +1154,9 @@ catch {
     if ($failure.InnerException -and $failure -is [System.Management.Automation.MethodInvocationException]) { $failure = $failure.InnerException }
     $data = @{}
     foreach ($key in $failure.Data.Keys) { $data[[string]$key] = [string]$failure.Data[$key] }
+    # Only text that the tool throws itself is for the user: a throw statement. Any other error is raw .NET text and gets no marker.
+    # UserMessage lets PowerShell 7 show the text, where a rethrown exception has no OperationStopped category.
+    if ($_.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::OperationStopped -and $null -eq $failure.InnerException -and $failure.GetType().FullName -eq 'System.Management.Automation.RuntimeException') { $data['UserMessage'] = '1' }
     $info = @{ Message = [string]$failure.Message; Data = $data }
     [System.IO.File]::WriteAllText($ErrorPath, ($info | ConvertTo-Json -Depth 4 -Compress), (New-Object System.Text.UTF8Encoding($false)))
     exit 1
@@ -1906,6 +1909,7 @@ function Publish-WsusSoftwareUpdate {
         # apart from a failed server call.
         $refusal = New-Object System.InvalidOperationException(('This application cannot be published to WSUS: {0}' -f (($blocking | ForEach-Object { '{0}: {1}' -f $_.Code, $_.Message }) -join ' | ')))
         $refusal.Data['WsusRefusal'] = (@($blocking | ForEach-Object { [string]$_.Code }) -join ',')
+        $refusal.Data['UserMessage'] = '1'
         throw $refusal
     }
 

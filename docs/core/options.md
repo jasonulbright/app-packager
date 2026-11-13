@@ -22,7 +22,7 @@ Select **Options**. The first page opens.
 
 ![The ConfigMgr Preferences page](../images/options-configmgr.png)
 
-The page sets the **Systems in use**, the site code, the provider machine, the file share root, the content layout and the download root. It also sets the runtime, the content options, the distribution, the test deployment and the application title. At the bottom it shows the detection of the tools: the **Console** (found or not), **7-Zip CLI** and the **GitHub API**. The page continues below the visible part with the NVD key, the CVE option and the discovery settings.
+The page sets the **Systems in Use**, the site code, the SMS Provider, the file share root, the content layout and the download root. It also sets the runtime, the content options, the distribution, the test deployment and the application title. At the bottom it shows the detection of the tools: the **Console** (found or not), **7-Zip CLI** and the **GitHub API**. The page continues below the visible part with the NVD key, the CVE option and the discovery settings.
 
 Without the console, the page shows `Not detected` for it. The buttons that need the console are disabled.
 
@@ -60,7 +60,7 @@ The page sets the WSUS server, the port, SSL, the classification, the approval g
 
 ### About
 
-The page shows the name, the installed version, the license, the link to the repository, the time of the last update check and the latest known release. **Update now** shows here when a newer release exists.
+The page shows the name, the installed version, the license, the link to the repository, the time of the last update check and the latest known release. **Update Now** shows here when a newer release exists.
 
 ![The About page](../images/options-about.png)
 

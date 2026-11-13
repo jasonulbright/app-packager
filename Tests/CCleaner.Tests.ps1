@@ -1,3 +1,4 @@
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 BeforeAll {
     $script:Source = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\Packagers\package-ccleaner.ps1'))
     $t = $null; $e = $null

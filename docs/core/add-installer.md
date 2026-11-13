@@ -23,7 +23,7 @@ Use it for an application that is not in the list of 312, or for a build that yo
 
 2. Pick the file and select **Open**. The tool analyzes it and opens the manifest preview.
 3. Check the values. For an MSI, the identity is authoritative. For another installer, you must confirm the predicted values before Stage and Package turn on.
-4. For an installer that accepts a mode switch, set **Install for**. The install arguments, the uninstall command, the folder, the detection and the context change together.
+4. For an installer that accepts a mode switch, set **Install For**. The install arguments, the uninstall command, the folder, the detection and the context change together.
 5. Stage or package the installer.
 
 A dropped installer that you need again can be saved as a starter packager script.
@@ -34,7 +34,7 @@ This guide opened the dialog and closed it with **Esc**. It did not analyze or p
 
 | Control | Effect |
 |---|---|
-| **Install for** | Chooses the system or the user mode of an installer that offers both. |
+| **Install For** | Chooses the system or the user mode of an installer that offers both. |
 | Manifest preview | Edits the name, the version, the commands and the detection before the build. |
 
 ## Limits
@@ -47,7 +47,7 @@ This guide opened the dialog and closed it with **Esc**. It did not analyze or p
 | Message or symptom | Cause | Fix |
 |---|---|---|
 | The drop does nothing. | Explorer and AppPackager run at different elevation levels. | Use **Add Installer...**. |
-| Stage + Package stays disabled. | The predicted values are not confirmed. | Confirm them in the preview. |
+| Stage and Package stays disabled. | The predicted values are not confirmed. | Confirm them in the preview. |
 
 ## Links
 

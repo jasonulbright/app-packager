@@ -3,10 +3,11 @@
 # reach the background context map the packager children consume.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+$script:SharedStyleRootOverride = $root
 $t = $null; $e = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'start-apppackager.ps1'), [ref]$t, [ref]$e)
 if ($e) { throw ($e.Message -join '; ') }
-foreach ($name in @('Read-Preferences', 'Resolve-FirstRunCompleted', 'Get-TitleModesMapForContext', 'Get-DefaultTitleModeForContext')) {
+foreach ($name in @('Expand-SharedStyle', 'Get-SharedStyleXaml', 'Read-Preferences', 'Resolve-FirstRunCompleted', 'Get-TitleModesMapForContext', 'Get-DefaultTitleModeForContext')) {
     $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
     . ([scriptblock]::Create($fn.Extent.Text))
 }
@@ -63,7 +64,7 @@ try {
     # The Options panel keeps the two boxes exclusive and saves the pair.
     Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
     Add-Type -Path (Join-Path $root 'Lib\ControlzEx.dll'); Add-Type -Path (Join-Path $root 'Lib\MahApps.Metro.dll')
-    foreach ($name in @('New-MecmPreferencesPanel', 'Get-IconPackManifestPath', 'Get-IconPackStatusText', 'Read-IconPackManifest', 'Get-IntuneWinToolCachePath', 'Invoke-DetectIntuneWinAppUtil')) {
+    foreach ($name in @('Expand-SharedStyle', 'Get-SharedStyleXaml', 'New-MecmPreferencesPanel', 'Get-IconPackManifestPath', 'Get-IconPackStatusText', 'Read-IconPackManifest', 'Get-IntuneWinToolCachePath', 'Invoke-DetectIntuneWinAppUtil')) {
         $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
         # Global: the panel's closures resolve helpers in their own module scope.
         if ($fn) { Set-Item -Path ('function:global:' + $name) -Value ([scriptblock]::Create($fn.Body.Extent.Text.Trim('{', '}'))) }

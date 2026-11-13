@@ -1,3 +1,4 @@
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 BeforeAll {
     $root = Join-Path $PSScriptRoot '..'
     $script:Shell = [IO.File]::ReadAllText((Join-Path $root 'start-apppackager.ps1'))
@@ -36,14 +37,14 @@ BeforeAll {
 Describe 'List item style' {
     # An ItemContainerStyle without BasedOn drops the MahApps item template, so
     # the selected item uses system colors: light grey with light text in Dark.
-    It 'bases every ListBoxItem style on the MahApps style' {
+    It 'bases every ListBoxItem style on the shared selected-state style' {
         $bad = @()
         foreach ($m in [regex]::Matches($script:WorkbenchXaml, '<Style\s+TargetType="ListBoxItem"[^>]*>')) {
-            if ($m.Value -notmatch 'BasedOn="\{StaticResource MahApps\.Styles\.ListBoxItem\}"') { $bad += 'WorkbenchWindow.xaml' }
+            if ($m.Value -notmatch 'BasedOn="\{StaticResource ThemedListBoxItemStyle\}"') { $bad += 'WorkbenchWindow.xaml' }
         }
         foreach ($b in $script:Blocks) {
             foreach ($m in [regex]::Matches($b.Text, '<Style\s+TargetType="ListBoxItem"[^>]*>')) {
-                if ($m.Value -notmatch 'BasedOn="\{StaticResource MahApps\.Styles\.ListBoxItem\}"') { $bad += ('start-apppackager.ps1:' + $b.Line) }
+                if ($m.Value -notmatch 'BasedOn="\{StaticResource ThemedListBoxItemStyle\}"') { $bad += ('start-apppackager.ps1:' + $b.Line) }
             }
         }
         $bad | Should -BeNullOrEmpty
@@ -60,7 +61,9 @@ Describe 'Disabled field fill' {
         $style | Should -Not -BeNullOrEmpty
         $style | Should -Match 'x:Key="MahApps\.Brushes\.Control\.Disabled"'
         $style | Should -Match 'Property="IsEnabled" Value="False"'
-        (Get-DisabledOpacity $style) | Should -BeLessThan 1
+        # The disabled state dims the text with a gray foreground. It never changes the opacity.
+        $style | Should -Match 'Property="Foreground" Value="\{DynamicResource MahApps\.Brushes\.Gray\.MouseOver\}"'
+        (Get-DisabledOpacity $style) | Should -Be 1
         # The override takes its color from the active theme, not a fixed value.
         $style | Should -Match '\{DynamicResource MahApps\.Colors\.'
     }
@@ -104,33 +107,22 @@ Describe 'Dialog button outline' {
         $bad | Should -BeNullOrEmpty
     }
 
-    It 'defines the button styles with a 1 px border and a focus trigger' {
-        foreach ($key in 'ApButton', 'ApButtonAccent') {
-            $style = Get-StyleBlock $script:WorkbenchXaml $key
-            $style | Should -Not -BeNullOrEmpty
-            $style | Should -Match 'Property="BorderThickness" Value="1"'
-            $style | Should -Match 'Property="IsKeyboardFocused" Value="True"'
-        }
+    It 'defines the shared button style with a 1 px border and a keyboard focus trigger, once' {
+        $main = [IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\MainWindow.xaml'))
+        $style = Get-StyleBlock $main 'ThemedButtonStyle'
+        $style | Should -Match 'Property="BorderThickness" Value="1"'
+        $main | Should -Match '<Trigger Property="IsKeyboardFocused" Value="True">'
     }
 
-    It 'defines the button styles in every dialog window that uses them' {
+    It 'takes the shared styles through the marker in every dialog window' {
         $bad = @()
-        foreach ($w in $script:Windows) {
-            foreach ($key in 'ApButton', 'ApButtonAccent') {
-                $uses = $w.Text -match ('\{(Dynamic|Static)Resource ' + $key + '\}')
-                $defines = $w.Text -match ('x:Key="' + $key + '"')
-                if ($uses -and -not $defines) { $bad += ('{0}:{1}' -f $key, $w.Line) }
-            }
-        }
+        foreach ($w in $script:Windows) { if ($w.Text -notmatch '<!--SHARED_STYLES-->') { $bad += $w.Line } }
         $bad | Should -BeNullOrEmpty
     }
 
-    It 'gives the Workbench buttons the shared style' {
-        $script:WorkbenchXaml | Should -Not -Match 'x:Key="Wb(Accent|Inline)?Button"[^>]*BasedOn="\{StaticResource MahApps'
-        foreach ($key in 'WbButton', 'WbInlineButton') {
-            (Get-StyleBlock $script:WorkbenchXaml $key) | Should -Match 'BasedOn="\{StaticResource ApButton\}"'
-        }
-        (Get-StyleBlock $script:WorkbenchXaml 'WbAccentButton') | Should -Match 'BasedOn="\{StaticResource ApButtonAccent\}"'
+    It 'defines no Workbench button style of its own' {
+        $script:WorkbenchXaml | Should -Match '<!--SHARED_STYLES-->'
+        $script:WorkbenchXaml | Should -Not -Match 'x:Key="(Wb(Accent|Inline)?Button|ApButton|ApButtonAccent)"'
     }
 }
 
@@ -148,30 +140,12 @@ Describe 'Dialog title bar' {
 Describe 'Options panels' {
     # The panels are loaded into the Options window and resolve ApButton from
     # its Window.Resources, so the styles must sit there, not in a child.
-    It 'declares the button styles in the Window.Resources of every dialog window that uses them' {
-        $bad = @()
-        foreach ($w in $script:Windows) {
-            if ($w.Text -notmatch 'x:Key="ApButton"') { continue }
-            try { $x = [xml]$w.Text } catch { continue }
-            $ns = New-Object System.Xml.XmlNamespaceManager $x.NameTable
-            $ns.AddNamespace('p', 'http://schemas.microsoft.com/winfx/2006/xaml/presentation')
-            $ns.AddNamespace('x', 'http://schemas.microsoft.com/winfx/2006/xaml')
-            foreach ($key in 'ApButton', 'ApButtonAccent') {
-                $style = $x.SelectSingleNode('/*/p:Window.Resources/p:ResourceDictionary/p:Style[@x:Key="' + $key + '"]', $ns)
-                if (-not $style) { $bad += ('{0}:{1}' -f $key, $w.Line) }
-            }
-        }
-        $bad | Should -BeNullOrEmpty
-    }
-
-    It 'gives the Options window, which hosts the panels, both button styles' {
+    It 'gives the Options window, which hosts the panels, the shared styles' {
         $options = @($script:Windows | Where-Object { $_.Text -match 'x:Name="lstNav"' })
         $options.Count | Should -Be 1
-        $options[0].Text | Should -Match 'x:Key="ApButton"'
-        $options[0].Text | Should -Match 'x:Key="ApButtonAccent"'
+        $options[0].Text | Should -Match '<!--SHARED_STYLES-->'
     }
 }
-
 Describe 'Modeless dialogs' {
     # A modeless dialog stays open while the theme toggles. The toggle handler
     # re-applies the owner chrome, including the inactive brushes, to it.

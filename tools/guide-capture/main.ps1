@@ -1,13 +1,14 @@
-param([string]$App)
+param([string]$GuideRoot)
 $ErrorActionPreference = 'Stop'
-$OutDir = 'C:\guide\ui\out'; New-Item -ItemType Directory $OutDir -Force | Out-Null
-$appDir = Join-Path 'C:\guide' $App
+# The capture works in its own folder. $GuideRoot holds the copy of the app, the capture files (ui) and the download folder (dl).
+$OutDir = Join-Path $GuideRoot 'ui\out'; New-Item -ItemType Directory $OutDir -Force | Out-Null
+$appDir = $GuideRoot
 $status = 'finished'
 try {
-    . C:\guide\ui\guilib.ps1
-    # Settings that the orchestrator passes in (site code, SMS provider).
-    $Capture = Get-Content -LiteralPath C:\guide\ui\capture.json -Raw | ConvertFrom-Json
-    . C:\guide\ui\steps.ps1
+    . (Join-Path $GuideRoot 'ui\guilib.ps1')
+    # Settings that the orchestrator passes in (site code, SMS Provider).
+    $Capture = Get-Content -LiteralPath (Join-Path $GuideRoot 'ui\capture.json') -Raw | ConvertFrom-Json
+    . (Join-Path $GuideRoot 'ui\steps.ps1')
 }
 catch {
     # Log may not exist when guilib.ps1 failed, so write the line directly.

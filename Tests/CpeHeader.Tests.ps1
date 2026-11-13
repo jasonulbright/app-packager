@@ -1,3 +1,4 @@
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 BeforeAll {
     Import-Module (Join-Path $PSScriptRoot '..\Packagers\AppPackagerVulnerability.psd1') -Force
     $t = $null; $e = $null

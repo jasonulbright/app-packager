@@ -375,7 +375,10 @@ function Get-CMInventorySnapshot {
     }
     catch {
         $message = ConvertTo-DiscoverySqlMessage -Exception $_.Exception -Server $Server -Database $Database -TimeoutSeconds $TimeoutSeconds
-        throw (New-Object System.InvalidOperationException -ArgumentList $message, $_.Exception)
+        # UserMessage marks the text as written for the user. The window shows it, and shows a fixed sentence for any other error.
+        $failure = New-Object System.InvalidOperationException -ArgumentList $message, $_.Exception
+        $failure.Data['UserMessage'] = '1'
+        throw $failure
     }
 
     $tables = Get-DiscoveryResultTable -Result $dataSet

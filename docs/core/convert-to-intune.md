@@ -21,8 +21,8 @@ Use it to move an existing application to Intune, also when AppPackager did not 
 
 ![The Convert dialog](../images/convert-dialog.png)
 
-2. Type the exact application name, as the console shows it. Check the **Site code** and the **Output folder**.
-3. Choose **Deployment types**: `First match wins, like ConfigMgr (recommended)` or another rule. Each app after the first gets a requirement script that is false when an earlier deployment type applies.
+2. Type the exact application name, as the console shows it. Check the **Site Code** and the **Output Folder**.
+3. Choose **Deployment Types**: `First match wins, like ConfigMgr (recommended)` or another rule. Each app after the first gets a requirement script that is false when an earlier deployment type applies.
 4. Set the options: **Native detection rules only**, **Convert deployment types with requirements Intune cannot check**, **Build the .intunewin files**, **Publish the apps to Intune**.
 5. Select **Preview**. The log shows each deployment type and its findings. The status bar says `Preview finished. The report is in <folder>.`
 
@@ -37,8 +37,8 @@ This guide ran **Preview** for one application of the lab site. It did not run *
 | Control | Effect |
 |---|---|
 | Application name | The exact name in the console. |
-| Output folder | Where the plan, the report and the content go. |
-| Deployment types | How several deployment types are ordered. |
+| Output Folder | Where the plan, the report and the content go. |
+| Deployment Types | How several deployment types are ordered. |
 | Native detection rules only | Refuses a deployment type that needs a detection script. |
 | Convert deployment types with requirements Intune cannot check | Converts them and names each gap in the report. |
 | Build the .intunewin files | Builds the packages. |

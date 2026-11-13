@@ -1,4 +1,5 @@
-﻿BeforeAll {
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
+BeforeAll {
     $script:PackagersRoot = Join-Path $PSScriptRoot '..\Packagers'
     Import-Module (Join-Path $script:PackagersRoot 'AppPackagerCommon.psd1') -Force -DisableNameChecking
     Import-Module (Join-Path $script:PackagersRoot 'AppPackagerCmImport.psd1') -Force

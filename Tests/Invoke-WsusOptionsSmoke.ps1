@@ -4,6 +4,7 @@
 # deployment target. No WSUS server is contacted and no dialog opens.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+$script:SharedStyleRootOverride = $root
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 Add-Type -Path (Join-Path $root 'Lib\ControlzEx.dll')
@@ -14,7 +15,7 @@ $tokens = $null
 $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'start-apppackager.ps1'), [ref]$tokens, [ref]$errors)
 if ($errors) { throw ($errors.Message -join '; ') }
-foreach ($name in @('New-WsusPanel', 'Read-Preferences', 'Resolve-FirstRunCompleted', 'Get-DeploymentTargetNames',
+foreach ($name in @('Expand-SharedStyle', 'Get-SharedStyleXaml', 'New-WsusPanel', 'Read-Preferences', 'Resolve-FirstRunCompleted', 'Get-DeploymentTargetNames',
                     'Test-DeploymentTargetSkipsSite', 'Test-DeploymentTargetPublishesToWsus', 'Get-WsusClassificationNameList',
                     'Get-WsusClassificationLabel', 'Get-WsusPublishConfigForContext',
                     'Get-IntunePublishConfigForContext')) {

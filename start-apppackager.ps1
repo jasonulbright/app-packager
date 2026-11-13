@@ -1247,7 +1247,7 @@ function Get-Packagers {
                 ArpArch           = ""
                 CurrentVersion    = ""
                 LatestVersion     = ""
-                Status            = ("Read error: " + $_.Exception.Message)
+                Status            = ("Read error: " + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
             })
         }
     }
@@ -1293,6 +1293,18 @@ function Invoke-DiscoveryScan {
         [hashtable]$OperationState
     )
 
+    # The scan function travels to a runspace as text, so its helper sits inside it. A message that the tool throws
+    # itself passes. Any other error is raw text: it goes to the log file and the result gets a fixed sentence.
+    function Get-ScanErrorText {
+        param($ErrorRecord)
+        $ex = $ErrorRecord.Exception
+        if ($null -ne $ex -and $null -ne $ex.Data -and $ex.Data.Contains('UserMessage')) { return [string]$ex.Message }
+        if ($null -ne $ex -and $ErrorRecord.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::OperationStopped -and $null -eq $ex.InnerException) { return [string]$ex.Message }
+        # The runspace loads no SuiteCommon, so Write-Log does not exist here. The shell passes the log path in an environment
+        # variable, and the line goes to the file with Add-Content.
+        if ($null -ne $ex -and $env:APPPACKAGER_LOG_PATH) { try { Add-Content -LiteralPath $env:APPPACKAGER_LOG_PATH -Value ('[{0}] [ERROR] Discovery scan failed: {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $ex.Message) -Encoding UTF8 } catch { $null = $_ } }
+        return 'the query failed. See the log file.'
+    }
     $result = [pscustomobject]@{ Ok = $false; Error = ''; Server = ''; Database = ''; StatusText = ''; Candidates = @() }
     try {
         if (-not (Get-Command -Name 'Get-CMInventorySnapshot' -ErrorAction SilentlyContinue)) {
@@ -1326,7 +1338,8 @@ function Invoke-DiscoveryScan {
         $result.Ok = $true
     }
     catch {
-        $result.Error = $_.Exception.Message
+        # The scan runs in its own runspace, where Get-UserErrorText does not exist. Get-ScanErrorText is the same rule.
+        $result.Error = Get-ScanErrorText -ErrorRecord $_
         $result.Candidates = @()
     }
     return $result
@@ -1382,7 +1395,8 @@ function Start-DiscoveryRunspace {
                 $State.Result = Invoke-DiscoveryScan @ScanArgs
             }
             catch {
-                $State.Result = [pscustomobject]@{ Ok = $false; Error = $_.Exception.Message; Server = ''; Database = ''; StatusText = ''; Candidates = @() }
+                if ($env:APPPACKAGER_LOG_PATH) { try { Add-Content -LiteralPath $env:APPPACKAGER_LOG_PATH -Value ('[{0}] [ERROR] Discovery scan failed: {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_.Exception.Message) -Encoding UTF8 } catch { $null = $_ } }
+                $State.Result = [pscustomobject]@{ Ok = $false; Error = 'the query failed. See the log file.'; Server = ''; Database = ''; StatusText = ''; Candidates = @() }
             }
             finally { $State.Done = $true }
         }).AddArgument($job.State).AddArgument($ModulePath).AddArgument($ScanText).AddArgument($ScanArgs)
@@ -1951,7 +1965,7 @@ function Invoke-PackagerIntuneWinPostStep {
         return $note
     }
     catch {
-        $note.Message = ('creation failed: {0}' -f $_.Exception.Message)
+        $note.Message = ('creation failed: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         return $note
     }
 }
@@ -2147,7 +2161,7 @@ function Get-MecmCurrentVersionByCMName {
 
         if ([string]::IsNullOrWhiteSpace($providerRoot)) {
             Set-Location $savedLocation -ErrorAction SilentlyContinue
-            throw ("Failed to connect to CM site PSDrive '{0}:'. Open the ConfigMgr console once on this machine, or set Provider Machine in Options > ConfigMgr Preferences (the ProviderMachineName value from the AdminUI connect script)." -f $SiteCode)
+            throw ("Failed to connect to CM site PSDrive '{0}:'. Open the ConfigMgr console once on this machine, or set SMS Provider in Options, ConfigMgr Preferences (the ProviderMachineName value from the AdminUI connect script)." -f $SiteCode)
         }
 
         try {
@@ -2156,7 +2170,7 @@ function Get-MecmCurrentVersionByCMName {
         }
         catch {
             Set-Location $savedLocation -ErrorAction SilentlyContinue
-            throw ("Failed to connect to CM site PSDrive '{0}:' via provider '{1}': {2}" -f $SiteCode, $providerRoot, $_.Exception.Message)
+            throw ("Failed to connect to CM site PSDrive '{0}:' via provider '{1}': {2}" -f $SiteCode, $providerRoot, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         }
     }
 
@@ -2502,7 +2516,7 @@ function Invoke-PackagerIntunePublish {
         }
     }
     catch {
-        $pubNote.Message = ('publish failed: {0}' -f $_.Exception.Message)
+        $pubNote.Message = ('publish failed: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
     }
     return $pubNote
 }
@@ -2580,10 +2594,10 @@ function Invoke-PackagerWsusPostStep {
     catch {
         if ($_.Exception.Data -and $_.Exception.Data.Contains('WsusRefusal')) {
             $note.Refused = $true
-            $note.Message = ('not supported: {0}' -f ($_.Exception.Message -replace '^This application cannot be published to WSUS: ', ''))
+            $note.Message = ('not supported: {0}' -f ((Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -replace '^This application cannot be published to WSUS: ', ''))
             return $note
         }
-        $note.Message = ('publish failed: {0}' -f $_.Exception.Message)
+        $note.Message = ('publish failed: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         return $note
     }
 }
@@ -3213,7 +3227,7 @@ function Start-UpdateCheck {
                     }
                 }
             } catch {
-                Add-LogLine -Message ("Update check failed: {0}" -f $_.Exception.Message)
+                Add-LogLine -Message ("Update check failed: {0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
             } finally {
                 try { $script:UpdateCheckPS.EndInvoke($script:UpdateCheckHandle) } catch { <# Update check is optional and its cleanup calls are best-effort. #> $null = $_ }
                 try { $script:UpdateCheckPS.Dispose() } catch { <# Update check is optional and its cleanup calls are best-effort. #> $null = $_ }
@@ -3224,7 +3238,7 @@ function Start-UpdateCheck {
         })
         $script:UpdateCheckTimer.Start()
     } catch {
-        try { Add-LogLine -Message ("Update check skipped: {0}" -f $_.Exception.Message) } catch { <# Update check is optional and its cleanup calls are best-effort. #> $null = $_ }
+        try { Add-LogLine -Message ("Update check skipped: {0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) } catch { <# Update check is optional and its cleanup calls are best-effort. #> $null = $_ }
     }
 }
 
@@ -3240,10 +3254,10 @@ function Invoke-SelfUpdate {
         $launcher = Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) 'app-packager-suite') 'start-suite.ps1'
         if (Test-Path -LiteralPath $launcher) {
             Add-LogLine -Message ("Suite update v{0}: opening the AppPackager Suite Launcher. Close this and every other suite tool, then click Update there." -f $latest)
-            try { Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $launcher) -WorkingDirectory (Split-Path -Parent $launcher) } catch { Add-LogLine -Message ('Could not start the launcher: ' + $_.Exception.Message) }
+            try { Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $launcher) -WorkingDirectory (Split-Path -Parent $launcher) } catch { Add-LogLine -Message ('Could not start the launcher: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) }
         }
         else {
-            [void](Show-ThemedMessage -Owner $Owner -Title 'Suite update' -Message ("Suite v{0} is available. Update from the AppPackager Suite Launcher in the Start Menu." -f $latest) -Buttons OK -Icon Information)
+            [void](Show-ThemedMessage -Owner $Owner -Title 'Suite Update' -Message ("Suite v{0} is available. Update from the AppPackager Suite Launcher in the Start Menu." -f $latest) -Buttons OK -Icon Information)
         }
         return
     }
@@ -3291,7 +3305,7 @@ Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-ExecutionP
         Add-LogLine -Message ("Updating to v{0}; closing." -f $latest)
         $Owner.Close()
     } catch {
-        [void](Show-ThemedMessage -Owner $Owner -Title 'Update Failed' -Message $_.Exception.Message -Buttons OK -Icon Error)
+        [void](Show-ThemedMessage -Owner $Owner -Title 'Update Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Error)
     }
 }
 
@@ -3301,7 +3315,7 @@ function Open-UpdateReleasePage {
         if ([string]::IsNullOrWhiteSpace($url)) { $url = Get-UpdateReleaseUrl -Version $script:UpdateLatestVersion }
         Start-Process $url
     } catch {
-        Add-LogLine -Message ("Could not open the release page: {0}" -f $_.Exception.Message)
+        Add-LogLine -Message ("Could not open the release page: {0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
     }
 }
 
@@ -3509,13 +3523,13 @@ function Install-IconPack {
                 -Headers $headers -UseBasicParsing -TimeoutSec 20
         } catch {
             $status = $null
-            if ($_.Exception.Response) { $status = [int]$_.Exception.Response.StatusCode }
+            $status = Get-HttpStatusCode -ErrorRecord $_
             if ($status -eq 403 -or $status -eq 429) {
                 $result.Message = 'GitHub rate limit reached; try again later.'
             } elseif ($status -eq 404) {
                 $result.Message = 'No icon pack release is published yet.'
             } else {
-                $result.Message = ("Icon pack lookup failed: {0}" -f $_.Exception.Message)
+                $result.Message = ("Icon pack lookup failed: {0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
             }
             return $result
         }
@@ -3542,7 +3556,7 @@ function Install-IconPack {
         return Complete-IconPackInstall -ZipPath $zipPath -AppRoot $AppRoot -SourceLabel $selection.Tag -Scratch $scratch
     }
     catch {
-        $result.Message = ("Icon pack install failed: {0}" -f $_.Exception.Message)
+        $result.Message = ("Icon pack install failed: {0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         return $result
     }
     finally {
@@ -3643,7 +3657,7 @@ function Install-IconPackFromFile {
         return $installed
     }
     catch {
-        $result.Message = ("Icon pack install failed: {0}" -f $_.Exception.Message)
+        $result.Message = ("Icon pack install failed: {0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         return $result
     }
     finally {
@@ -3987,7 +4001,7 @@ function Invoke-BatchUpdate {
             $latest = Invoke-PackagerGetLatestVersion -PackagerPath $scriptPath -SiteCode $SiteCode -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot
         } catch {
             Write-Log ("[batch] {0}: check failed: {1}" -f $baseName, $_.Exception.Message) -Level WARN
-            $results += [pscustomobject]@{ Name = $baseName; Action = 'CheckFailed'; OldVersion = $lastKnown; NewVersion = $null; Reason = $_.Exception.Message }
+            $results += [pscustomobject]@{ Name = $baseName; Action = 'CheckFailed'; OldVersion = $lastKnown; NewVersion = $null; Reason = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') }
             continue
         }
 
@@ -4111,7 +4125,7 @@ function Invoke-BatchUpdate {
                 catch {
                     if ($_.Exception.Message -match 'SigningCertificateUnavailable') {
                         Write-Log ("[batch] {0}: skipped, the signing policy cannot be met: {1}" -f $baseName, $_.Exception.Message) -Level ERROR
-                        $results += [pscustomobject]@{ Name = $baseName; Action = 'Failed'; OldVersion = $lastKnown; NewVersion = $null; Reason = $_.Exception.Message }
+                        $results += [pscustomobject]@{ Name = $baseName; Action = 'Failed'; OldVersion = $lastKnown; NewVersion = $null; Reason = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') }
                         continue
                     }
                     Write-Log ("[batch] {0}: run snapshot not created: {1}" -f $baseName, $_.Exception.Message) -Level WARN
@@ -4245,7 +4259,7 @@ function Invoke-BatchUpdate {
             # Don't update LastChecked on failure - next run should retry
             # immediately, not wait for cadence to expire.
             Write-Log ("[batch] {0}: action failed: {1}" -f $baseName, $_.Exception.Message) -Level ERROR
-            $results += [pscustomobject]@{ Name = $baseName; Action = 'Failed'; OldVersion = $lastKnown; NewVersion = $latest; Reason = $_.Exception.Message }
+            $results += [pscustomobject]@{ Name = $baseName; Action = 'Failed'; OldVersion = $lastKnown; NewVersion = $latest; Reason = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') }
         }
     }
 
@@ -4719,6 +4733,35 @@ function Invoke-CveMonitor {
     return $summaryOut
 }
 
+# User-facing error text. These functions sit above the -BatchMode block, because the batch catch blocks call them.
+function Get-HttpStatusCode {
+    # The HTTP status code of a web error, or $null. A number is no exception text.
+    param([Parameter(Mandatory)]$ErrorRecord)
+    $response = $ErrorRecord.Exception.Response
+    if ($null -eq $response) { return $null }
+    return [int]$response.StatusCode
+}
+
+function Get-UserErrorText {
+    # The text of an error that the window may show. A message that this tool throws itself (throw 'text') is
+    # written for the user and passes through. Any other error (a ConfigMgr, WMI, file or .NET exception) is raw
+    # exception text: it goes to the log file and the caller gets the fallback sentence.
+    # Only a throw statement has the category OperationStopped. An engine error has another category.
+    # An exception that the tool builds itself carries Data['UserMessage'] (or Data['WsusRefusal']): its text is for the
+    # user too. PowerShell 7 gives a rethrown exception object no OperationStopped category, so the marker is needed.
+    param(
+        [Parameter(Mandatory)]$ErrorRecord,
+        [Parameter(Mandatory)][string]$Fallback
+    )
+    $ex = $ErrorRecord.Exception
+    if ($null -ne $ex -and $null -ne $ex.Data -and ($ex.Data.Contains('UserMessage') -or $ex.Data.Contains('WsusRefusal'))) { return [string]$ex.Message }
+    if ($null -ne $ex -and $ErrorRecord.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::OperationStopped -and
+        $ex.GetType().FullName -eq 'System.Management.Automation.RuntimeException' -and $null -eq $ex.InnerException) {
+        return [string]$ex.Message
+    }
+    if ($null -ne $ex) { try { Write-Log ('Error detail kept out of the window: {0}' -f $ex.Message) -Level ERROR } catch { $null = $_ } }
+    return $Fallback
+}
 if ($BatchMode) {
     if ($LogPath) { Initialize-Logging -LogPath $LogPath }
 
@@ -4819,6 +4862,17 @@ if ($BatchMode) {
 $script:PackagerData = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
 
 # =============================================================================
+# Log file of the window
+# =============================================================================
+# The window logs to a daily file under Logs. Get-UserErrorText and the background runspaces write the raw text of an
+# error there, so that the window can say "See the log file." and the file holds the reason. -Attach appends.
+$script:GuiLogPath = Join-Path (Join-Path $PSScriptRoot 'Logs') ('AppPackager-{0}.log' -f (Get-Date -Format 'yyyyMMdd'))
+try {
+    Initialize-Logging -LogPath $script:GuiLogPath -Attach
+    $env:APPPACKAGER_LOG_PATH = $script:GuiLogPath
+}
+catch { $script:GuiLogPath = $null }
+# =============================================================================
 # Parse XAML and create window
 # =============================================================================
 $xamlPath = Join-Path $PSScriptRoot "MainWindow.xaml"
@@ -4902,6 +4956,9 @@ Initialize-SuiteTheme -Window $window `
     -OptionsButtons $script:OptionsButtons `
     -LogLabel $lblLogOutput
 
+# The sidebar styles hold no color. SuiteCommon sets the colors of the sidebar buttons for the start theme here and at each toggle.
+Set-ButtonTheme -IsDark ($toggleTheme.IsOn -eq $true)
+
 
 function Set-DialogChromeFromOwner {
     # Applies the owner's theme to a child dialog and copies title bar +
@@ -4922,6 +4979,32 @@ function Set-DialogChromeFromOwner {
     } catch { <# Copying window brush colors to the dialog is cosmetic. #> $null = $_ }
 }
 
+
+# The styles that every dialog and the Application Workbench take from MainWindow.xaml, so that each style exists once.
+# A dialog marks the place with <!--SHARED_STYLES--> in its resource dictionary. Expand-SharedStyle replaces the marker
+# with the styles of the key list below and with the implicit item styles (ListBoxItem, ComboBoxItem, TreeViewItem, CheckBox).
+# The functions hold no script variable but the cache, so that a window probe can publish them as they are.
+function Get-SharedStyleXaml {
+    if ($null -ne $script:SharedStyleText) { return $script:SharedStyleText }
+    $keys = @('ThemedButtonTemplate', 'ThemedButtonStyle', 'DialogAccentButton', 'DialogButton', 'InlineButtonStyle', 'LinkButtonStyle', 'GridLinkButtonStyle', 'ThemedListBoxItemStyle', 'ThemedComboBoxItemStyle', 'ThemedTreeViewItemStyle', 'GridRowStyle', 'GridCellStyle', 'PaddedGridCellStyle')
+    $types = @('ListBoxItem', 'ComboBoxItem', 'TreeViewItem', 'CheckBox')
+    $base = if ($script:SharedStyleRootOverride) { $script:SharedStyleRootOverride } else { $PSScriptRoot }
+    [xml]$main = Get-Content -LiteralPath (Join-Path $base 'MainWindow.xaml') -Raw
+    $nodes = @($main.SelectNodes("//*[local-name()='ResourceDictionary']/*[local-name()='ControlTemplate' or local-name()='Style']") | Where-Object {
+            $key = $_.GetAttribute('Key', 'http://schemas.microsoft.com/winfx/2006/xaml')
+            ($key -and ($keys -contains $key)) -or (-not $key -and ($types -contains $_.GetAttribute('TargetType')))
+        })
+    if ($nodes.Count -lt $keys.Count) { throw 'MainWindow.xaml does not hold every shared style.' }
+    $script:SharedStyleText = (($nodes | ForEach-Object { $_.OuterXml }) -join [Environment]::NewLine)
+    return $script:SharedStyleText
+}
+
+function Expand-SharedStyle {
+    param([Parameter(Mandatory)][string]$Xaml)
+    $marker = '<!--SHARED_STYLES-->'
+    if (-not $Xaml.Contains($marker)) { return $Xaml }
+    return $Xaml.Replace($marker, (Get-SharedStyleXaml))
+}
 
 $toggleTheme.Add_Toggled({
     if ($toggleTheme.IsOn) {
@@ -5544,7 +5627,7 @@ function New-PanelStub {
                Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
 </Grid>
 "@
-    [xml]$xml = $xaml
+    [xml]$xml = Expand-SharedStyle $xaml
     $reader = New-Object System.Xml.XmlNodeReader $xml
     $element = [System.Windows.Markup.XamlReader]::Load($reader)
     return @{ Name = $Name; Element = $element; Commit = { } }
@@ -5595,83 +5678,83 @@ function New-MecmPreferencesPanel {
         <ColumnDefinition Width="*"/>
     </Grid.ColumnDefinitions>
 
-    <TextBlock Grid.Row="0" Grid.Column="0" Text="Systems in use:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The sidebar has a publish button for each system. A system that is not in use keeps its buttons disabled."/>
+    <TextBlock Grid.Row="0" Grid.Column="0" Text="Systems in Use:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Select the systems that AppPackager publishes to."/>
     <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
         <CheckBox x:Name="chkSysMecm" Content="ConfigMgr" FontSize="13" Margin="0,0,20,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         <CheckBox x:Name="chkSysIntune" Content="Intune" FontSize="13" Margin="0,0,20,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         <CheckBox x:Name="chkSysWsus" Content="WSUS" FontSize="13" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Server, certificate and publish defaults are under WSUS Publishing."/>
     </StackPanel>
 
-    <TextBlock Grid.Row="1" Grid.Column="0" Text="Site Code:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtSC" Width="80" FontSize="13" HorizontalAlignment="Left" MaxLength="5" Margin="0,0,0,8" ToolTip="ConfigMgr site code PSDrive name (e.g., MCM)"/>
+    <TextBlock Grid.Row="1" Grid.Column="0" Text="Site Code:" FontSize="14" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtSC" Width="80" FontSize="13" HorizontalAlignment="Left" MaxLength="5" Margin="0,0,0,8" ToolTip="The ConfigMgr site code, for example MCM."/>
 
-    <TextBlock Grid.Row="2" Grid.Column="0" Text="Provider Machine:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtProvider" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="SMS Provider server from the ConfigMgr AdminUI connect script's ProviderMachineName value"/>
+    <TextBlock Grid.Row="2" Grid.Column="0" Text="SMS Provider:" FontSize="14" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtProvider" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The SMS Provider server of the site."/>
 
     <TextBlock Grid.Row="3" Grid.Column="0" Text="File Share Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtFS" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="UNC path to the SCCM content file share"/>
+    <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtFS" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The UNC path of the content share."/>
 
-    <TextBlock Grid.Row="4" Grid.Column="0" Text="Content Layout:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Share folder layout for packaged content. Applies to future Package runs; existing content stays where it is."/>
-    <ComboBox  Grid.Row="4" Grid.Column="1" x:Name="cboLayout" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Nested keeps an app's versions adjacent for easy retention pruning; Flat is one folder per package.">
+    <TextBlock Grid.Row="4" Grid.Column="0" Text="Content Layout:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The folder layout of the content share."/>
+    <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="4" Grid.Column="1" x:Name="cboLayout" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Nested keeps an app's versions adjacent for easy retention pruning; Flat is one folder per package.">
         <ComboBoxItem Content="Nested - Applications\Vendor\App\Version"/>
         <ComboBoxItem Content="Flat - Applications\Vendor-App-Version"/>
     </ComboBox>
 
     <TextBlock Grid.Row="5" Grid.Column="0" Text="Download Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="5" Grid.Column="1" x:Name="txtDL" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Local folder where installers are downloaded during staging"/>
+    <TextBox   Grid.Row="5" Grid.Column="1" x:Name="txtDL" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The local folder for downloaded installers."/>
 
     <TextBlock Grid.Row="6" Grid.Column="0" Text="Est. Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
     <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
-        <TextBox x:Name="txtEst" Width="60" FontSize="13" MaxLength="4" ToolTip="Estimated install runtime in minutes"/>
+        <TextBox x:Name="txtEst" Width="60" FontSize="13" MaxLength="4" ToolTip="The estimated install time in minutes."/>
         <TextBlock Text=" mins" FontSize="13" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray5}"/>
     </StackPanel>
 
     <TextBlock Grid.Row="7" Grid.Column="0" Text="Max Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
     <StackPanel Grid.Row="7" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
-        <TextBox x:Name="txtMax" Width="60" FontSize="13" MaxLength="4" ToolTip="Maximum allowed install runtime in minutes"/>
+        <TextBox x:Name="txtMax" Width="60" FontSize="13" MaxLength="4" ToolTip="The maximum install time in minutes."/>
         <TextBlock Text=" mins" FontSize="13" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray5}"/>
     </StackPanel>
 
-    <TextBlock Grid.Row="8" Grid.Column="0" Text="Fallback DPs:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Deployment type content option. Applies to deployment types created by future Package runs."/>
-    <ComboBox  Grid.Row="8" Grid.Column="1" x:Name="cboContentFallback" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Allow: when no distribution point in the current or neighbor boundary groups has the content, the client can use the site default boundary group.">
+    <TextBlock Grid.Row="8" Grid.Column="0" Text="Fallback DPs:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The content option of new deployment types."/>
+    <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="8" Grid.Column="1" x:Name="cboContentFallback" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Let a client use the site default boundary group when no other distribution point has the content.">
         <ComboBoxItem Content="Allow - use the site default boundary group" Tag="Allow"/>
         <ComboBoxItem Content="Deny - current and neighbor groups only" Tag="Deny"/>
     </ComboBox>
 
-    <TextBlock Grid.Row="9" Grid.Column="0" Text="Neighbor/default DP:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Deployment type content option. Applies to deployment types created by future Package runs."/>
-    <ComboBox  Grid.Row="9" Grid.Column="1" x:Name="cboSlowNetwork" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Deployment option when the client uses a distribution point in a neighbor boundary group or the site default boundary group.">
+    <TextBlock Grid.Row="9" Grid.Column="0" Text="Neighbor/Default DP:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The content option of new deployment types."/>
+    <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="9" Grid.Column="1" x:Name="cboSlowNetwork" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="The deployment option for a distribution point in a neighbor or default boundary group.">
         <ComboBoxItem Content="Download content and install" Tag="Download"/>
         <ComboBoxItem Content="Do not download content" Tag="DoNothing"/>
     </ComboBox>
 
-    <TextBlock Grid.Row="10" Grid.Column="0" Text="Auto-distribute:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="When enabled, the Package phase calls Start-CMContentDistribution after creating each ConfigMgr Application."/>
+    <TextBlock Grid.Row="10" Grid.Column="0" Text="Auto-distribute:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Distribute the content after each Package run."/>
     <CheckBox  Grid.Row="10" Grid.Column="1" x:Name="chkAutoDist" Content="Start-CMContentDistribution after Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
     <TextBlock Grid.Row="11" Grid.Column="0" Text="DP Group:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact name of the Distribution Point Group to target."/>
-    <TextBox   Grid.Row="11" Grid.Column="1" x:Name="txtDPGroup" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Distribution Point Group display name (e.g. 'All DPs')"/>
+    <TextBox   Grid.Row="11" Grid.Column="1" x:Name="txtDPGroup" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The name of the distribution point group."/>
 
-    <TextBlock Grid.Row="12" Grid.Column="0" Text="Test deployment:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Requires Auto-distribute enabled and a DP Group name. After content distribution, deploys the application (Available, immediately, default options) to the test collection."/>
+    <TextBlock Grid.Row="12" Grid.Column="0" Text="Test Deployment:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Deploy the application to the test collection after distribution."/>
     <CheckBox  Grid.Row="12" Grid.Column="1" x:Name="chkTestDeploy" Content="Deploy to test collection after distribution" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
-    <TextBlock Grid.Row="13" Grid.Column="0" Text="Test collection:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact device collection name that receives the Available test deployment."/>
-    <TextBox   Grid.Row="13" Grid.Column="1" x:Name="txtTestCollection" FontSize="13" MaxLength="255" Margin="0,0,0,8" ToolTip="Device collection display name (e.g. 'App Test Devices')"/>
+    <TextBlock Grid.Row="13" Grid.Column="0" Text="Test Collection:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact device collection name that receives the Available test deployment."/>
+    <TextBox   Grid.Row="13" Grid.Column="1" x:Name="txtTestCollection" FontSize="13" MaxLength="255" Margin="0,0,0,8" ToolTip="The name of the test device collection."/>
 
     <TextBlock Grid.Row="14" Grid.Column="0" Text="" Margin="0,0,0,8"/>
-    <CheckBox  Grid.Row="14" Grid.Column="1" x:Name="chkCreateTestColl" Content="Create collection if it does not exist" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Creates an empty direct-membership device collection limited to All Systems when the named collection is missing."/>
+    <CheckBox  Grid.Row="14" Grid.Column="1" x:Name="chkCreateTestColl" Content="Create collection if it does not exist" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Create the collection, limited to All Systems, when it is missing."/>
 
-    <TextBlock Grid.Row="15" Grid.Column="0" Text="Application title:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Default application naming for every Package run."/>
-    <CheckBox  Grid.Row="15" Grid.Column="1" x:Name="chkTitleVersion" Content="Include version in application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Adds the version to every application name, creating one ConfigMgr application per release. A per-application choice in the Application Workbench overrides this. Existing applications are not renamed."/>
-    <CheckBox  Grid.Row="16" Grid.Column="1" x:Name="chkTitleNoVersion" Content="Remove version from application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Strips the release version from a vendor product name that carries it (7-Zip 26.03, Slido 2.3.1, Tableau 2026.2). Available while the version is not added to the name. A per-application choice in the Application Workbench overrides this."/>
+    <TextBlock Grid.Row="15" Grid.Column="0" Text="Application Title:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Default application naming for every Package run."/>
+    <CheckBox  Grid.Row="15" Grid.Column="1" x:Name="chkTitleVersion" Content="Include version in application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Add the version to each application name."/>
+    <CheckBox  Grid.Row="16" Grid.Column="1" x:Name="chkTitleNoVersion" Content="Remove version from application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Remove the release version from the vendor product name."/>
 
-    <TextBlock Grid.Row="17" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Configuration Manager Console (AdminUI) detection status. Checked once per launch."/>
+    <TextBlock Grid.Row="17" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Shows if the Configuration Manager console is found."/>
     <Grid Grid.Row="17" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
 
-    <TextBlock Grid.Row="18" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="7-Zip command-line (7z.exe) detection status. Required by the Adobe Reader packager."/>
+    <TextBlock Grid.Row="18" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Shows if 7z.exe, which the Adobe Reader packager needs, is found."/>
     <Grid Grid.Row="18" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
-    <TextBlock Grid.Row="19" Grid.Column="0" Text="GitHub API:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="How the 90 packagers that read GitHub releases authenticate. Anonymous calls are limited to 60 per hour per address; a token raises that to 5000. Resolved from GITHUB_TOKEN, then GH_TOKEN, then the GitHub CLI login (gh auth login)."/>
+    <TextBlock Grid.Row="19" Grid.Column="0" Text="GitHub API:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Shows how AppPackager signs in to the GitHub API."/>
     <Grid Grid.Row="19" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtGitHubStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
 
-    <TextBlock Grid.Row="20" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Microsoft Win32 Content Prep Tool (IntuneWinAppUtil.exe) detection status. Downloaded on first use, or place the exe on PATH."/>
+    <TextBlock Grid.Row="20" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Shows if IntuneWinAppUtil.exe is found."/>
     <!-- Status text in a star column so a long message wraps instead of
          pushing the buttons past the panel edge, where they clip out of view. -->
     <Grid Grid.Row="20" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
@@ -5680,10 +5763,10 @@ function New-MecmPreferencesPanel {
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <TextBlock Grid.Column="0" x:Name="txtIntuneWinStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
-        <Button Grid.Column="1" x:Name="btnIntuneWinDownload" Content="Download" FontSize="11" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" Padding="10,2" VerticalAlignment="Center" Visibility="Collapsed"/>
+        <Button Grid.Column="1" x:Name="btnIntuneWinDownload" Content="Download" Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" VerticalAlignment="Center" Visibility="Collapsed"/>
     </Grid>
 
-    <TextBlock Grid.Row="21" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Packager icon pack for IconSource External packagers. Installs into Packagers\Icons and is read at stage time."/>
+    <TextBlock Grid.Row="21" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Shows the state of the packager icon pack."/>
     <Grid Grid.Row="21" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
@@ -5691,8 +5774,8 @@ function New-MecmPreferencesPanel {
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <TextBlock Grid.Column="0" x:Name="txtIconPackStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
-        <Button Grid.Column="1" x:Name="btnIconPackDownload" Content="Download packager icon pack" FontSize="11" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" Padding="10,2" VerticalAlignment="Center" ToolTip="Fetches the latest pack release, verifies its sha256 against checksums.txt, and extracts it into Packagers\Icons. Existing icons with the same name are replaced."/>
-        <Button Grid.Column="2" x:Name="btnIconPackFromFile" Content="Install from file..." FontSize="11" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="6,0,0,0" Padding="10,2" VerticalAlignment="Center" ToolTip="Installs an icon pack from a local or UNC icon-pack.zip when the release download is blocked (proxy/SSL inspection). A checksums.txt beside the zip is verified when present."/>
+        <Button Grid.Column="1" x:Name="btnIconPackDownload" Content="Download Packager Icon Pack" Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" VerticalAlignment="Center" ToolTip="Download the icon pack and extract it into Packagers\Icons."/>
+        <Button Grid.Column="2" x:Name="btnIconPackFromFile" Content="Install from File..." Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="6,0,0,0" VerticalAlignment="Center" ToolTip="Install the icon pack from a local or UNC zip file."/>
     </Grid>
 
     <TextBlock Grid.Row="22" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
@@ -5700,30 +5783,30 @@ function New-MecmPreferencesPanel {
                Text="Stage builds an .intunewin beside the content when IntuneWinAppUtil is detected. Publish to ConfigMgr copies it beside the network content."/>
     <TextBlock Grid.Row="23" Grid.Column="0" Text="Intune Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
     <TextBox   Grid.Row="23" Grid.Column="1" x:Name="txtIntuneTenant" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="24" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
+    <TextBlock Grid.Row="24" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The client ID of an app registration with DeviceManagementApps.ReadWrite.All."/>
     <TextBox   Grid.Row="24" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,0,0,8"/>
     <TextBlock Grid.Row="25" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
     <PasswordBox Grid.Row="25" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="26" Grid.Column="0" Text="NVD API key:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Key for the NIST NVD API used by Check CVEs. Without a key NVD allows 5 requests per 30 seconds; with one, 50. Request a key at nvd.nist.gov/developers/request-an-api-key. Stored DPAPI-protected for the current Windows user; leave empty to keep the saved key. The NVD_API_KEY environment variable is used when no key is saved."/>
+    <TextBlock Grid.Row="26" Grid.Column="0" Text="NVD API Key:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The NVD API key for Check CVEs, or empty to keep the saved key."/>
     <PasswordBox Grid.Row="26" Grid.Column="1" x:Name="pwdNvdKey" FontSize="13" Margin="0,0,0,8"/>
     <TextBlock Grid.Row="27" Grid.Column="0" Text="CVEs:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <CheckBox  Grid.Row="27" Grid.Column="1" x:Name="chkCveAfterCm" Content="Look up CVEs after Check ConfigMgr" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Runs Check CVEs for the checked rows as soon as Check ConfigMgr finishes. Rows without a CPE header or without any version are skipped."/>
-    <TextBlock Grid.Row="28" Grid.Column="0" Text="Discovery SQL:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="SQL Server instance of the ConfigMgr site database for Discover unmanaged software. Leave empty to use the server of the site."/>
-    <TextBox   Grid.Row="28" Grid.Column="1" x:Name="txtDiscoverySqlServer" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="Server or server\instance, for example cm01.contoso.com. Windows authentication only."/>
-    <TextBlock Grid.Row="29" Grid.Column="0" Text="Discovery DB:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Name of the ConfigMgr site database. Leave empty to use CM_ and the site code."/>
-    <TextBox   Grid.Row="29" Grid.Column="1" x:Name="txtDiscoverySqlDatabase" Width="200" FontSize="13" HorizontalAlignment="Left" MaxLength="128" Margin="0,0,0,8" ToolTip="For example CM_MCM. The account needs db_datareader on this database."/>
-    <TextBlock Grid.Row="30" Grid.Column="0" Text="Not offered:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Apps that Discover unmanaged software leaves out after Don't ask again for selected."/>
+    <CheckBox  Grid.Row="27" Grid.Column="1" x:Name="chkCveAfterCm" Content="Look up CVEs after Check ConfigMgr" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Run Check CVEs when Check ConfigMgr finishes."/>
+    <TextBlock Grid.Row="28" Grid.Column="0" Text="Discovery SQL:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The SQL Server of the site database, or empty for the site server."/>
+    <TextBox   Grid.Row="28" Grid.Column="1" x:Name="txtDiscoverySqlServer" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The SQL Server name, for example cm01.contoso.com."/>
+    <TextBlock Grid.Row="29" Grid.Column="0" Text="Discovery DB:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The site database name, or empty for CM_ and the site code."/>
+    <TextBox   Grid.Row="29" Grid.Column="1" x:Name="txtDiscoverySqlDatabase" Width="200" FontSize="13" HorizontalAlignment="Left" MaxLength="128" Margin="0,0,0,8" ToolTip="The database name, for example CM_MCM."/>
+    <TextBlock Grid.Row="30" Grid.Column="0" Text="Not Offered:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Apps that Discover unmanaged software leaves out after Don't ask again for selected."/>
     <StackPanel Grid.Row="30" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
         <TextBlock x:Name="txtDiscoveryDismissed" FontSize="13" VerticalAlignment="Center" Margin="0,0,12,0"/>
-        <Button x:Name="btnClearDiscoveryDismissed" Content="Clear list" MinWidth="90" Height="28"
-                Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                ToolTip="Offer every hidden app again in the next discovery. Applies on OK."/>
+        <Button x:Name="btnClearDiscoveryDismissed" Content="Clear List"
+                Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                ToolTip="Offer each hidden app again in the next discovery."/>
     </StackPanel>
 </Grid>
 </ScrollViewer>
 '@
 
-    [xml]$xml = $xaml
+    [xml]$xml = Expand-SharedStyle $xaml
     $reader = New-Object System.Xml.XmlNodeReader $xml
     $element = [System.Windows.Markup.XamlReader]::Load($reader)
 
@@ -5930,7 +6013,7 @@ function New-MecmPreferencesPanel {
             Save-Preferences -Prefs $prefsRefIw
             $downloadOk = $true
         } catch {
-            $txtIntuneWinStatus.Text = ([char]0x2717 + " Download failed  -  {0}" -f $_.Exception.Message)
+            $txtIntuneWinStatus.Text = ([char]0x2717 + " Download failed  -  {0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         } finally {
             $btnIntuneWinDownload.IsEnabled = $true
         }
@@ -5963,7 +6046,7 @@ function New-MecmPreferencesPanel {
 
     $btnIconPackFromFile.Add_Click({
         $dlg = New-Object Microsoft.Win32.OpenFileDialog
-        $dlg.Title  = 'Select icon pack zip'
+        $dlg.Title  = 'Select Icon Pack Zip'
         $dlg.Filter = 'Icon pack (*.zip)|*.zip'
         if (-not $dlg.ShowDialog()) { return }
         $btnIconPackFromFile.IsEnabled = $false
@@ -6050,8 +6133,8 @@ function New-AppFlowPanel {
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <TextBlock Grid.Row="0" Grid.Column="0" Text="Action on update:" VerticalAlignment="Center" FontSize="12" Margin="0,0,8,0"/>
-        <ComboBox Grid.Row="0" Grid.Column="1" x:Name="cboAction" Width="190" VerticalAlignment="Center">
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Action on Update:" FontWeight="Bold" VerticalAlignment="Center" FontSize="12" Margin="0,0,8,0"/>
+        <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" Grid.Row="0" Grid.Column="1" x:Name="cboAction" Width="190" VerticalAlignment="Center">
             <ComboBoxItem Content="Report only"/>
             <ComboBoxItem Content="Stage"/>
             <ComboBoxItem Content="Stage and Publish"/>
@@ -6060,21 +6143,21 @@ function New-AppFlowPanel {
                                 Header="Force on launch (ignore cadence)"
                                 OnContent="" OffContent="" MinWidth="0"
                                 VerticalAlignment="Center"/>
-        <TextBlock Grid.Row="1" Grid.Column="0" Text="Default destinations:" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="Default Destinations:" FontWeight="Bold" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
         <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,8,0,0"
                     ToolTip="The destinations of every tracked app that has no selection of its own in the grid.">
             <CheckBox x:Name="chkOneClickMecm" Content="ConfigMgr" FontSize="12" Margin="0,0,16,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <CheckBox x:Name="chkOneClickWsus" Content="WSUS" FontSize="12" Margin="0,0,16,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <CheckBox x:Name="chkOneClickIntune" Content="Intune" FontSize="12" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
-        <TextBlock Grid.Row="2" Grid.Column="0" Text="Existing ConfigMgr app:" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
-        <ComboBox Grid.Row="2" Grid.Column="1" x:Name="cboOneClickOnExisting" Width="190" VerticalAlignment="Center" Margin="0,8,0,0"
-                  ToolTip="What a run does when the ConfigMgr application already exists with another version. One Click never asks during the run.">
+        <TextBlock Grid.Row="2" Grid.Column="0" Text="Existing ConfigMgr App:" FontWeight="Bold" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
+        <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" Grid.Row="2" Grid.Column="1" x:Name="cboOneClickOnExisting" Width="190" VerticalAlignment="Center" Margin="0,8,0,0"
+                  ToolTip="The action when the ConfigMgr application exists with another version.">
             <ComboBoxItem Content="Skip the application" Tag="Skip"/>
             <ComboBoxItem Content="Overwrite it" Tag="Overwrite"/>
         </ComboBox>
     </Grid>
-    <DataGrid x:Name="dgApps" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+    <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" x:Name="dgApps" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
               GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0" BorderThickness="0"
               IsTextSearchEnabled="True" TextSearch.TextPath="Application">
         <DataGrid.Columns>
@@ -6109,13 +6192,13 @@ function New-AppFlowPanel {
                     </DataTemplate>
                 </DataGridTemplateColumn.CellTemplate>
             </DataGridTemplateColumn>
-            <DataGridTextColumn MinWidth="145" Header="Cadence (days)" Width="145" Binding="{Binding CadenceDisplay, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"/>
+            <DataGridTextColumn MinWidth="145" Header="Cadence (Days)" Width="145" Binding="{Binding CadenceDisplay, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"/>
         </DataGrid.Columns>
     </DataGrid>
 </DockPanel>
 '@
 
-    [xml]$xml = $xaml
+    [xml]$xml = Expand-SharedStyle $xaml
     $reader = New-Object System.Xml.XmlNodeReader $xml
     $element = [System.Windows.Markup.XamlReader]::Load($reader)
 
@@ -6249,31 +6332,12 @@ function Show-PreviewDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
-                 MahApps Square style. Hover and pressed fills come from the Square template;
-                 the accent outline marks keyboard focus. -->
-            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>        </ResourceDictionary>
+            <!--SHARED_STYLES-->        </ResourceDictionary>
     </Window.Resources>
     <DockPanel Margin="12">
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-            <Button x:Name="btnCopy"  Content="Copy"  MinWidth="90" Height="32" Margin="0,0,8,0" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnClose" Content="Close" MinWidth="90" Height="32" IsDefault="True" IsCancel="True" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnCopy"  Content="Copy" Margin="0,0,8,0" Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnClose" Content="Close" IsDefault="True" IsCancel="True" Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
         <TextBox x:Name="txtContent"
                  IsReadOnly="True"
@@ -6286,7 +6350,7 @@ function Show-PreviewDialog {
     </DockPanel>
 </Controls:MetroWindow>
 "@
-    [xml]$xmlDoc = $xaml
+    [xml]$xmlDoc = Expand-SharedStyle $xaml
     $reader = New-Object System.Xml.XmlNodeReader $xmlDoc
     $pvWin = [System.Windows.Markup.XamlReader]::Load($reader)
     Install-TitleBarDragFallback -Window $pvWin
@@ -6318,15 +6382,15 @@ function New-ProductFilterPanel {
         <TextBlock Grid.Column="0" Text="Select which applications appear in the main grid. Uncheck to hide."
                    FontSize="12" Foreground="{DynamicResource MahApps.Brushes.Gray3}" VerticalAlignment="Center" TextWrapping="Wrap"/>
         <StackPanel Grid.Column="1" Orientation="Horizontal">
-            <Button x:Name="btnSelAll"  Content="Select All"  MinWidth="90" Height="28" Margin="6,0,0,0" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnSelNone" Content="Select None" MinWidth="90" Height="28" Margin="6,0,0,0" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnSelAll"  Content="Select All" Margin="6,0,0,0" Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnSelNone" Content="Select None" Margin="6,0,0,0" Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
     </Grid>
-    <TreeView x:Name="treeApps" />
+    <TreeView ItemContainerStyle="{DynamicResource ThemedTreeViewItemStyle}" x:Name="treeApps" />
 </DockPanel>
 '@
 
-    [xml]$xml = $xaml
+    [xml]$xml = Expand-SharedStyle $xaml
     $reader = New-Object System.Xml.XmlNodeReader $xml
     $element = [System.Windows.Markup.XamlReader]::Load($reader)
 
@@ -6418,11 +6482,11 @@ function New-PackagerPreferencesPanel {
            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
            xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro">
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,4">
-        <Button x:Name="btnM365Preview" Content="M365 Preview" MinWidth="120" Height="30" Margin="0,0,8,0"
-                Style="{DynamicResource ApButton}"
+        <Button x:Name="btnM365Preview" Content="M365 Preview" Margin="0,0,8,0"
+                Style="{DynamicResource DialogButton}"
                 Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-        <Button x:Name="btnCwaPreview"  Content="CWA Preview"  MinWidth="120" Height="30"
-                Style="{DynamicResource ApButton}"
+        <Button x:Name="btnCwaPreview"  Content="CWA Preview"
+                Style="{DynamicResource DialogButton}"
                 Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
     </StackPanel>
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -6431,7 +6495,7 @@ function New-PackagerPreferencesPanel {
 </DockPanel>
 '@
 
-    [xml]$xml = $xaml
+    [xml]$xml = Expand-SharedStyle $xaml
     $reader = New-Object System.Xml.XmlNodeReader $xml
     $element = [System.Windows.Markup.XamlReader]::Load($reader)
 
@@ -6681,9 +6745,8 @@ function New-PackagerPreferencesPanel {
     $txtBc5KeyFile.Width = 350
     $btnBc5KeyBrowse = New-Object System.Windows.Controls.Button
     $btnBc5KeyBrowse.Content = 'Browse...'
-    $btnBc5KeyBrowse.MinWidth = 90
     $btnBc5KeyBrowse.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
-    $btnBc5KeyBrowse.SetResourceReference([System.Windows.FrameworkElement]::StyleProperty, 'ApButton')
+    $btnBc5KeyBrowse.SetResourceReference([System.Windows.FrameworkElement]::StyleProperty, 'InlineButtonStyle')
     [MahApps.Metro.Controls.ControlsHelper]::SetContentCharacterCasing($btnBc5KeyBrowse, [System.Windows.Controls.CharacterCasing]::Normal)
     $spBc5Key = New-Object System.Windows.Controls.StackPanel
     $spBc5Key.Orientation = [System.Windows.Controls.Orientation]::Horizontal
@@ -6692,7 +6755,7 @@ function New-PackagerPreferencesPanel {
     & $addLabelRow "License Key File:" $spBc5Key "BC5Key.txt from Scooter Software. Stage places it beside the installer, where setup reads it to register Beyond Compare 5. Required to stage and package Beyond Compare 5."
     $btnBc5KeyBrowse.Add_Click({
         $dlg = New-Object Microsoft.Win32.OpenFileDialog
-        $dlg.Title = 'Choose the Beyond Compare 5 license key file'
+        $dlg.Title = 'Choose the Beyond Compare 5 License Key File'
         $dlg.Filter = 'License key file (BC5Key.txt)|BC5Key.txt|Text files (*.txt)|*.txt|All files (*.*)|*.*'
         if ($dlg.ShowDialog() -eq $true) { $txtBc5KeyFile.Text = $dlg.FileName }
     }.GetNewClosure())
@@ -6715,9 +6778,8 @@ function New-PackagerPreferencesPanel {
             }
             $lspBrowse = New-Object System.Windows.Controls.Button
             $lspBrowse.Content = 'Browse...'
-            $lspBrowse.MinWidth = 90
             $lspBrowse.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
-            $lspBrowse.SetResourceReference([System.Windows.FrameworkElement]::StyleProperty, 'ApButton')
+            $lspBrowse.SetResourceReference([System.Windows.FrameworkElement]::StyleProperty, 'InlineButtonStyle')
             [MahApps.Metro.Controls.ControlsHelper]::SetContentCharacterCasing($lspBrowse, [System.Windows.Controls.CharacterCasing]::Normal)
             $lspRow = New-Object System.Windows.Controls.StackPanel
             $lspRow.Orientation = [System.Windows.Controls.Orientation]::Horizontal
@@ -6953,7 +7015,7 @@ function New-PackagerPreferencesPanel {
             Show-PreviewDialog -Owner $ownerWin -Title "CWA Preview" -Content $sb.ToString() -Width 820 -Height 360
         }
         catch {
-            Show-PreviewDialog -Owner $ownerWin -Title "CWA Preview (error)" -Content ("Failed to build preview:`r`n{0}" -f $_.Exception.Message) -Width 600 -Height 260
+            Show-PreviewDialog -Owner $ownerWin -Title "CWA Preview (Error)" -Content ("Failed to build preview:`r`n{0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) -Width 600 -Height 260
         }
     }.GetNewClosure())
 
@@ -6973,7 +7035,7 @@ function New-PackagerPreferencesPanel {
 
             if (-not (Get-Command -Name New-OdtConfigXml -ErrorAction SilentlyContinue)) {
                 $ownerWin = [System.Windows.Window]::GetWindow($element)
-                Show-PreviewDialog -Owner $ownerWin -Title "M365 Preview (error)" -Content "New-OdtConfigXml not available. Ensure Packagers\AppPackagerCommon.psm1 is importable." -Width 600 -Height 220
+                Show-PreviewDialog -Owner $ownerWin -Title "M365 Preview (Error)" -Content "New-OdtConfigXml not available. Ensure Packagers\AppPackagerCommon.psm1 is importable." -Width 600 -Height 220
                 return
             }
 
@@ -6992,10 +7054,10 @@ function New-PackagerPreferencesPanel {
             }
 
             $ownerWin = [System.Windows.Window]::GetWindow($element)
-            Show-PreviewDialog -Owner $ownerWin -Title "M365 Preview (install.xml)" -Content $sb.ToString() -Width 820 -Height 640
+            Show-PreviewDialog -Owner $ownerWin -Title "M365 Preview (Install XML)" -Content $sb.ToString() -Width 820 -Height 640
         } catch {
             $ownerWin = [System.Windows.Window]::GetWindow($element)
-            Show-PreviewDialog -Owner $ownerWin -Title "M365 Preview (error)" -Content ("Failed to build preview:`r`n{0}" -f $_.Exception.Message) -Width 600 -Height 260
+            Show-PreviewDialog -Owner $ownerWin -Title "M365 Preview (Error)" -Content ("Failed to build preview:`r`n{0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) -Width 600 -Height 260
         }
     }.GetNewClosure())
 
@@ -7149,35 +7211,7 @@ function Show-CommandOverrideDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
-                 MahApps Square style. Hover and pressed fills come from the Square template;
-                 the accent outline marks keyboard focus. -->
-            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>            <Style x:Key="DialogButton" TargetType="Button" BasedOn="{StaticResource ApButton}">
-                <Setter Property="MinWidth" Value="110"/><Setter Property="Height" Value="32"/>
-                <Setter Property="Margin" Value="0,0,8,0"/>
-                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
-            </Style>
-            <Style x:Key="DialogAccentButton" TargetType="Button" BasedOn="{StaticResource ApButtonAccent}">
-                <Setter Property="MinWidth" Value="110"/><Setter Property="Height" Value="32"/>
-                <Setter Property="Margin" Value="0,0,8,0"/>
-                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
-            </Style>
+            <!--SHARED_STYLES-->
         </ResourceDictionary>
     </Window.Resources>
     <Grid Margin="16,12,16,12">
@@ -7190,25 +7224,25 @@ function Show-CommandOverrideDialog {
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <TextBlock x:Name="txtIntro" Grid.Row="0" TextWrapping="Wrap" FontSize="12" Margin="0,4,0,12"/>
-        <TextBlock Grid.Row="1" Text="Install command:" FontSize="12" Margin="0,0,0,4"/>
+        <TextBlock Grid.Row="1" Text="Install Command:" FontWeight="Bold" FontSize="12" Margin="0,0,0,4"/>
         <TextBox   x:Name="txtInstall" Grid.Row="2" FontSize="12" FontFamily="Consolas" Margin="0,0,0,10"
                    Controls:TextBoxHelper.Watermark="install.bat (packager default)"/>
-        <TextBlock Grid.Row="3" Text="Uninstall command:" FontSize="12" Margin="0,0,0,4"/>
+        <TextBlock Grid.Row="3" Text="Uninstall Command:" FontWeight="Bold" FontSize="12" Margin="0,0,0,4"/>
         <TextBox   x:Name="txtUninstall" Grid.Row="4" FontSize="12" FontFamily="Consolas" Margin="0,0,0,16"
                    Controls:TextBoxHelper.Watermark="uninstall.bat (packager default)"/>
         <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="btnRevert" Content="Revert to default" Style="{StaticResource DialogButton}"/>
-            <Button x:Name="btnSave"   Content="Save"              Style="{StaticResource DialogAccentButton}" IsDefault="True"/>
-            <Button x:Name="btnCancel" Content="Cancel"            Style="{StaticResource DialogButton}" IsCancel="True"/>
+            <Button x:Name="btnRevert" Content="Revert to Default" Style="{DynamicResource DialogButton}"/>
+            <Button x:Name="btnSave"   Content="Save"              Style="{DynamicResource DialogAccentButton}" IsDefault="True"/>
+            <Button x:Name="btnCancel" Content="Cancel"            Style="{DynamicResource DialogButton}" IsCancel="True"/>
         </StackPanel>
     </Grid>
 </Controls:MetroWindow>
 '@
-    [xml]$dx = $dlgXaml
+    [xml]$dx = Expand-SharedStyle $dlgXaml
     $reader2 = New-Object System.Xml.XmlNodeReader $dx
     $dlg = [System.Windows.Markup.XamlReader]::Load($reader2)
     $dlg.Owner = $Owner
-    $dlg.Title = "Command overrides - $AppLabel"
+    $dlg.Title = "Command Overrides - $AppLabel"
     Install-TitleBarDragFallback -Window $dlg
     $theme = [ControlzEx.Theming.ThemeManager]::Current.DetectTheme($Owner)
     if ($theme) { [void][ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($dlg, $theme) }
@@ -7259,35 +7293,7 @@ function Show-ExistingConflictDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
-                 MahApps Square style. Hover and pressed fills come from the Square template;
-                 the accent outline marks keyboard focus. -->
-            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>            <Style x:Key="DialogButton" TargetType="Button" BasedOn="{StaticResource ApButton}">
-                <Setter Property="MinWidth" Value="120"/><Setter Property="Height" Value="32"/>
-                <Setter Property="Margin" Value="0,0,8,0"/>
-                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
-            </Style>
-            <Style x:Key="DialogAccentButton" TargetType="Button" BasedOn="{StaticResource ApButtonAccent}">
-                <Setter Property="MinWidth" Value="120"/><Setter Property="Height" Value="32"/>
-                <Setter Property="Margin" Value="0,0,8,0"/>
-                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
-            </Style>
+            <!--SHARED_STYLES-->
         </ResourceDictionary>
     </Window.Resources>
     <Grid Margin="16,12,16,12">
@@ -7300,17 +7306,17 @@ function Show-ExistingConflictDialog {
         <CheckBox  x:Name="chkAll" Grid.Row="1" FontSize="12" Margin="0,0,0,16"
                    Content="Do this for all remaining conflicts in this run"/>
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="btnSkip"      Content="Skip"          Style="{StaticResource DialogButton}"/>
-            <Button x:Name="btnOverwrite" Content="Overwrite"     Style="{StaticResource DialogAccentButton}" IsDefault="True"/>
-            <Button x:Name="btnCancel"    Content="Cancel run"    Style="{StaticResource DialogButton}" IsCancel="True"/>
+            <Button x:Name="btnSkip"      Content="Skip"          Style="{DynamicResource DialogButton}"/>
+            <Button x:Name="btnOverwrite" Content="Overwrite"     Style="{DynamicResource DialogAccentButton}" IsDefault="True"/>
+            <Button x:Name="btnCancel"    Content="Cancel Run"    Style="{DynamicResource DialogButton}" IsCancel="True"/>
         </StackPanel>
     </Grid>
 </Controls:MetroWindow>
 '@
-    [xml]$dx = $dlgXaml
+    [xml]$dx = Expand-SharedStyle $dlgXaml
     $reader = New-Object System.Xml.XmlNodeReader $dx
     $dlg = [System.Windows.Markup.XamlReader]::Load($reader)
-    $dlg.Title = 'Application already exists'
+    $dlg.Title = 'Application Already Exists'
     Install-TitleBarDragFallback -Window $dlg
     Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
     $dlg.FindName('txtIntro').Text = "$AppName already exists at version $Version. The staged version is $IncomingVersion. Overwrite updates its content and deployment types while keeping the application and its deployments. Skip leaves it unchanged; Cancel stops the remaining run."
@@ -7349,32 +7355,32 @@ function New-AboutPanel {
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="License" FontSize="12" Margin="0,0,0,6"/>
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="License" FontWeight="Bold" FontSize="12" Margin="0,0,0,6"/>
             <TextBlock Grid.Row="0" Grid.Column="1" Text="MIT" FontSize="12" Margin="0,0,0,6"/>
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="Repository" FontSize="12" Margin="0,0,0,6"/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Repository" FontWeight="Bold" FontSize="12" Margin="0,0,0,6"/>
             <TextBlock Grid.Row="1" Grid.Column="1" FontSize="12" Margin="0,0,0,6">
-                <Hyperlink x:Name="lnkAboutRepo" ToolTip="Open the project on GitHub">
+                <Hyperlink x:Name="lnkAboutRepo" ToolTip="Open the project on GitHub.">
                     <Run x:Name="runAboutRepo" Text="github.com"/>
                 </Hyperlink>
             </TextBlock>
-            <TextBlock Grid.Row="2" Grid.Column="0" Text="Last update check" FontSize="12" Margin="0,0,0,6"/>
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Last Update Check" FontWeight="Bold" FontSize="12" Margin="0,0,0,6"/>
             <TextBlock Grid.Row="2" Grid.Column="1" x:Name="txtAboutLastCheck" FontSize="12" Margin="0,0,0,6"/>
-            <TextBlock Grid.Row="3" Grid.Column="0" Text="Latest release" FontSize="12"/>
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Latest Release" FontWeight="Bold" FontSize="12"/>
             <TextBlock Grid.Row="3" Grid.Column="1" x:Name="txtAboutLatest" FontSize="12"/>
         </Grid>
         <StackPanel Orientation="Horizontal">
-            <Button x:Name="btnAboutUpdate" Content="Update now" MinWidth="110" Height="30" Margin="0,0,8,0"
-                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                    ToolTip="Download and install the latest release, then close and relaunch AppPackager"/>
-            <Button x:Name="btnAboutReleases" Content="Release notes" MinWidth="110" Height="30"
-                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                    ToolTip="Open the releases page on GitHub"/>
+            <Button x:Name="btnAboutUpdate" Content="Update Now" Margin="0,0,8,0"
+                    Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    ToolTip="Install the latest release and restart AppPackager."/>
+            <Button x:Name="btnAboutReleases" Content="Release Notes"
+                    Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    ToolTip="Open the releases page on GitHub."/>
         </StackPanel>
     </StackPanel>
 </ScrollViewer>
 '@
 
-    [xml]$xml = $xaml
+    [xml]$xml = Expand-SharedStyle $xaml
     $reader  = New-Object System.Xml.XmlNodeReader $xml
     $element = [System.Windows.Markup.XamlReader]::Load($reader)
 
@@ -7453,26 +7459,7 @@ function Show-OptionsDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
-                 MahApps Square style. Hover and pressed fills come from the Square template;
-                 the accent outline marks keyboard focus. -->
-            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>        </ResourceDictionary>
+            <!--SHARED_STYLES-->        </ResourceDictionary>
     </Window.Resources>
     <Grid>
         <Grid.ColumnDefinitions>
@@ -7487,7 +7474,7 @@ function Show-OptionsDialog {
 
         <ListBox Grid.Column="0" Grid.Row="0" x:Name="lstNav" BorderThickness="0" Padding="0,8,0,0">
             <ListBox.ItemContainerStyle>
-                <Style TargetType="ListBoxItem" BasedOn="{StaticResource MahApps.Styles.ListBoxItem}">
+                <Style TargetType="ListBoxItem" BasedOn="{StaticResource ThemedListBoxItemStyle}">
                     <Setter Property="Padding" Value="16,10,16,10"/>
                     <Setter Property="FontSize" Value="13"/>
                 </Style>
@@ -7501,15 +7488,15 @@ function Show-OptionsDialog {
         <Border Grid.Column="0" Grid.ColumnSpan="3" Grid.Row="1"
                 BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="20,12,20,12">
-                <Button x:Name="btnOK"     Content="OK"     MinWidth="90" Height="32" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource ApButtonAccent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-                <Button x:Name="btnCancel" Content="Cancel" MinWidth="90" Height="32" IsCancel="True" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <Button x:Name="btnOK"     Content="OK" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <Button x:Name="btnCancel" Content="Cancel" IsCancel="True" Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             </StackPanel>
         </Border>
     </Grid>
 </Controls:MetroWindow>
 '@
 
-    [xml]$xml = $dlgXaml
+    [xml]$xml = Expand-SharedStyle $dlgXaml
     $reader = New-Object System.Xml.XmlNodeReader $xml
     $dlg    = [System.Windows.Markup.XamlReader]::Load($reader)
     Install-TitleBarDragFallback -Window $dlg
@@ -7572,7 +7559,7 @@ function Show-OptionsDialog {
             $script:OptionsDlgResult = $true
             $dlg.Close()
         } catch {
-            [void](Show-ThemedMessage -Owner $dlg -Title 'Save Failed' -Message $_.Exception.Message -Buttons OK -Icon Error)
+            [void](Show-ThemedMessage -Owner $dlg -Title 'Save Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Error)
         }
     })
 
@@ -7615,26 +7602,7 @@ function Show-FirstRunWizard {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
-                 MahApps Square style. Hover and pressed fills come from the Square template;
-                 the accent outline marks keyboard focus. -->
-            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>        </ResourceDictionary>
+            <!--SHARED_STYLES-->        </ResourceDictionary>
     </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
@@ -7651,11 +7619,11 @@ function Show-FirstRunWizard {
                 <TextBlock Text="Systems" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
                     <CheckBox x:Name="chkWizMecm" Content="ConfigMgr" FontSize="13" Margin="0,0,20,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                              ToolTip="ConfigMgr applications. Needs the ConfigMgr console, a site and a content share."/>
+                              ToolTip="Publish ConfigMgr applications, with the console, a site and a content share."/>
                     <CheckBox x:Name="chkWizIntune" Content="Intune" FontSize="13" Margin="0,0,20,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                              ToolTip="Intune Win32 apps published through Microsoft Graph. Needs an app registration."/>
+                              ToolTip="Publish Intune Win32 apps through Microsoft Graph with an app registration."/>
                     <CheckBox x:Name="chkWizWsus" Content="WSUS" FontSize="13" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                              ToolTip="Locally published WSUS updates for computers that have an older version. Needs a WSUS server."/>
+                              ToolTip="Publish WSUS updates for computers that have an older version."/>
                 </StackPanel>
 
                 <GroupBox x:Name="grpMecm" Header="ConfigMgr" Margin="0,0,0,14">
@@ -7671,17 +7639,17 @@ function Show-FirstRunWizard {
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Site Code:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                        <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWizSC" Width="80" FontSize="13" HorizontalAlignment="Left" MaxLength="5" Margin="0,0,0,8" ToolTip="ConfigMgr site code PSDrive name (e.g., MCM)"/>
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Site Code:" FontSize="14" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                        <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWizSC" Width="80" FontSize="13" HorizontalAlignment="Left" MaxLength="5" Margin="0,0,0,8" ToolTip="The ConfigMgr site code, for example MCM."/>
 
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Provider Machine:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtWizProvider" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="SMS Provider server from the ConfigMgr AdminUI connect script's ProviderMachineName value"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="SMS Provider:" FontSize="14" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtWizProvider" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The SMS Provider server of the site."/>
 
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="File Share Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                        <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtWizFS" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="UNC path to the SCCM content file share"/>
+                        <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtWizFS" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The UNC path of the content share."/>
 
                         <TextBlock Grid.Row="3" Grid.Column="0" Text="Download Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,4"/>
-                        <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtWizDL" FontSize="13" MaxLength="200" Margin="0,0,0,4" ToolTip="Local folder where installers are downloaded during staging"/>
+                        <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtWizDL" FontSize="13" MaxLength="200" Margin="0,0,0,4" ToolTip="The local folder for downloaded installers."/>
                     </Grid>
                 </GroupBox>
 
@@ -7700,8 +7668,8 @@ function Show-FirstRunWizard {
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
                         <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWizTenant" FontSize="13" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
 
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
-                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtWizClient" FontSize="13" Margin="0,0,0,8" ToolTip="App registration (client) ID with application permission DeviceManagementApps.ReadWrite.All, admin-consented."/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The client ID of an app registration with DeviceManagementApps.ReadWrite.All."/>
+                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtWizClient" FontSize="13" Margin="0,0,0,8" ToolTip="The client ID of an app registration with DeviceManagementApps.ReadWrite.All."/>
 
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,4" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
                         <PasswordBox Grid.Row="2" Grid.Column="1" x:Name="pwdWizSecret" FontSize="13" Margin="0,0,0,4" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
@@ -7720,11 +7688,11 @@ function Show-FirstRunWizard {
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Server:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="WSUS server name. For ConfigMgr, the top-level software update point."/>
-                        <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWizWsusServer" FontSize="13" MaxLength="255" Margin="0,0,0,8" ToolTip="WSUS server name. For ConfigMgr, the top-level software update point."/>
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Server:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The WSUS server name, or the top-level software update point."/>
+                        <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWizWsusServer" FontSize="13" MaxLength="255" Margin="0,0,0,8" ToolTip="The WSUS server name, or the top-level software update point."/>
 
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Port:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="8530 for HTTP, 8531 for HTTPS on a default WSUS install."/>
-                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtWizWsusPort" Width="80" FontSize="13" MaxLength="5" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="8530 for HTTP, 8531 for HTTPS on a default WSUS install."/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Port:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The WSUS port: 8530 for HTTP, 8531 for HTTPS."/>
+                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtWizWsusPort" Width="80" FontSize="13" MaxLength="5" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="The WSUS port: 8530 for HTTP, 8531 for HTTPS."/>
 
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="" Margin="0,0,0,4"/>
                         <CheckBox  Grid.Row="2" Grid.Column="1" x:Name="chkWizWsusSsl" Content="Use SSL" FontSize="13" Margin="0,0,0,4" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Connect to the WSUS administration API over HTTPS."/>
@@ -7741,10 +7709,10 @@ function Show-FirstRunWizard {
                 </Grid.ColumnDefinitions>
                 <CheckBox Grid.Column="0" x:Name="chkWizDontAsk" Content="Don't show this again" FontSize="12" VerticalAlignment="Center"
                           Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                          ToolTip="Suppresses this wizard on future launches even when nothing is configured here. Saving always suppresses it."/>
+                          ToolTip="Do not show this wizard again."/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button x:Name="btnWizSave" Content="Save" MinWidth="90" Height="32" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource ApButtonAccent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-                    <Button x:Name="btnWizSkip" Content="Skip" MinWidth="90" Height="32" IsCancel="True" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    <Button x:Name="btnWizSave" Content="Save" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    <Button x:Name="btnWizSkip" Content="Skip" IsCancel="True" Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -7752,7 +7720,7 @@ function Show-FirstRunWizard {
 </Controls:MetroWindow>
 '@
 
-    [xml]$xml = $dlgXaml
+    [xml]$xml = Expand-SharedStyle $dlgXaml
     $reader = New-Object System.Xml.XmlNodeReader $xml
     $dlg    = [System.Windows.Markup.XamlReader]::Load($reader)
     Install-TitleBarDragFallback -Window $dlg
@@ -7860,7 +7828,7 @@ function Show-FirstRunWizard {
             $script:FirstRunDlgSaved = $true
             $dlg.Close()
         } catch {
-            [void](Show-ThemedMessage -Owner $dlg -Title 'Save Failed' -Message $_.Exception.Message -Buttons OK -Icon Error)
+            [void](Show-ThemedMessage -Owner $dlg -Title 'Save Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Error)
         }
     })
 
@@ -8108,6 +8076,14 @@ function Initialize-BackgroundWorker {
 
     Import-BackgroundWorkerModule -Runspace $script:BgRunspace -Root $PSScriptRoot
 
+    # The runspace writes to the same log file as the window.
+    if ($script:GuiLogPath) {
+        $logPS = [powershell]::Create()
+        $logPS.Runspace = $script:BgRunspace
+        [void]$logPS.AddScript({ param($Path) Initialize-Logging -LogPath $Path -Attach }).AddArgument($script:GuiLogPath)
+        try { [void]$logPS.Invoke() } catch { $null = $_ } finally { $logPS.Dispose() }
+    }
+
     # Reflect the inline helpers from this script into the bg runspace so
     # the per-app loop can call them directly. Single source of truth: the
     # helpers live in this file; the bg runspace gets definition snapshots.
@@ -8311,14 +8287,14 @@ function Invoke-MultiAppPipeline {
                                 Update-PackagerHistory -PackagerName $baseName -Event Checked -Version $latest -Result $histResult
                                 $row.LastChecked = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
                             } catch {
-                                [void]$State.LogQueue.Enqueue(('History write failed for {0}: {1}' -f $baseName, $_.Exception.Message))
+                                [void]$State.LogQueue.Enqueue(('History write failed for {0}: {1}' -f $baseName, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             }
                             $counts['Checked']++
                             if ($histResult -eq 'NoChange') { $counts['NoChange']++ }
                             else { $counts['Updated']++ }
                         } catch {
                             $row.Status = 'Error'
-                            [void]$State.LogQueue.Enqueue(('Error: ' + $_.Exception.Message))
+                            [void]$State.LogQueue.Enqueue(('Error: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             try { Update-PackagerHistory -PackagerName $baseName -Event Checked -Result Failed } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
                             $counts['CheckFailed']++
                         }
@@ -8362,12 +8338,12 @@ function Invoke-MultiAppPipeline {
                                 [void]$State.LogQueue.Enqueue(('{0} Source {1}{2}' -f (ConvertTo-VulnerabilityResultText -Result $res), $res.Source, $(if ($null -ne $res.MaxCvss) { '; max CVSS ' + (ConvertTo-VulnerabilityCvssText -Score $res.MaxCvss -Severity $res.MaxSeverity) } else { '' })))
                                 $counts['Checked']++
                                 try { Update-PackagerHistory -PackagerName $baseName -Event VulnChecked -Data $summary } catch {
-                                    [void]$State.LogQueue.Enqueue(('History write failed for {0}: {1}' -f $baseName, $_.Exception.Message))
+                                    [void]$State.LogQueue.Enqueue(('History write failed for {0}: {1}' -f $baseName, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                                 }
                             }
                         } catch {
                             $row.CveCount = 'Error'
-                            [void]$State.LogQueue.Enqueue(('Error: ' + $_.Exception.Message))
+                            [void]$State.LogQueue.Enqueue(('Error: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             $counts['CheckFailed']++
                         }
                     }
@@ -8418,7 +8394,7 @@ function Invoke-MultiAppPipeline {
                             }
                         } catch {
                             $row.Status = 'Stage error'
-                            [void]$State.LogQueue.Enqueue(('Stage exception: ' + $_.Exception.Message))
+                            [void]$State.LogQueue.Enqueue(('Stage exception: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             $counts['Failed']++
                         }
                     }
@@ -8512,7 +8488,7 @@ function Invoke-MultiAppPipeline {
                             }
                         } catch {
                             $row.Status = 'Package error'
-                            [void]$State.LogQueue.Enqueue(('Package exception: ' + $_.Exception.Message))
+                            [void]$State.LogQueue.Enqueue(('Package exception: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             $counts['Failed']++
                         }
                     }
@@ -8558,9 +8534,9 @@ function Invoke-MultiAppPipeline {
                             [void]$State.LogQueue.Enqueue(('Latest: ' + $latest))
                         } catch {
                             $row.Status = 'Check error'
-                            [void]$State.LogQueue.Enqueue(('Latest check failed: ' + $_.Exception.Message))
+                            [void]$State.LogQueue.Enqueue(('Latest check failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             $counts['CheckFailed']++
-                            & $finish 'Failed' ('check failed: ' + $_.Exception.Message)
+                            & $finish 'Failed' ('check failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
                             continue
                         }
 
@@ -8626,7 +8602,7 @@ function Invoke-MultiAppPipeline {
                                 }
                             } catch {
                                 $observedUnknown = $true
-                                [void]$State.LogQueue.Enqueue(('ConfigMgr site version for {0} not read: {1}' -f $app, $_.Exception.Message))
+                                [void]$State.LogQueue.Enqueue(('ConfigMgr site version for {0} not read: {1}' -f $app, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             }
                         }
                         if ($Ctx.Action -eq 'StageAndPackage') {
@@ -8714,7 +8690,7 @@ function Invoke-MultiAppPipeline {
                             }
                         } catch {
                             $row.Status = 'Stage error'
-                            [void]$State.LogQueue.Enqueue(('Stage exception: ' + $_.Exception.Message))
+                            [void]$State.LogQueue.Enqueue(('Stage exception: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                         }
                         if (-not $stageOk) {
                             $counts['Failed']++
@@ -8813,7 +8789,7 @@ function Invoke-MultiAppPipeline {
                                                 [void](Set-OneClickNotSupported -History $h -PackagerName $baseName -Destination 'WSUS' -Version ([string]$latest) -Reason $resultText `
                                                     -Instance ([string]$(if ($Ctx.InstanceKeys) { $Ctx.InstanceKeys['WSUS'] } else { '' })))
                                                 Save-PackagerHistory -History $h
-                                            } catch { [void]$State.LogQueue.Enqueue(('History write failed: ' + $_.Exception.Message)) }
+                                            } catch { [void]$State.LogQueue.Enqueue(('History write failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))) }
                                         }
                                         else { $resultText = [string]$note.Message }
                                     }
@@ -8833,7 +8809,7 @@ function Invoke-MultiAppPipeline {
                                     }
                                 }
                             } catch {
-                                $resultText = ('failed: ' + $_.Exception.Message)
+                                $resultText = ('failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
                             }
                             if ($pr) { $pr.('Result' + $d) = $resultText; $pr.('Id' + $d) = $id; $pr.('Detail' + $d) = $detail }
                             if ($ok) {
@@ -8843,7 +8819,7 @@ function Invoke-MultiAppPipeline {
                                     [void](Set-OneClickPublishedVersion -History $h -PackagerName $baseName -Destination $d -Version ([string]$latest) -Id $id `
                                         -Instance ([string]$(if ($Ctx.InstanceKeys) { $Ctx.InstanceKeys[$d] } else { '' })) -Build $buildKey)
                                     Save-PackagerHistory -History $h
-                                } catch { [void]$State.LogQueue.Enqueue(('History write failed: ' + $_.Exception.Message)) }
+                                } catch { [void]$State.LogQueue.Enqueue(('History write failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))) }
                             }
                             elseif ($resultText -notmatch '^(skipped|not supported)') { $failed++ }
                         }
@@ -8950,7 +8926,7 @@ function Invoke-MultiAppPipeline {
                             [void]$State.LogQueue.Enqueue(('Latest: ' + $latest))
                         } catch {
                             $row.Status = 'Check error'
-                            [void]$State.LogQueue.Enqueue(('Latest check failed: ' + $_.Exception.Message))
+                            [void]$State.LogQueue.Enqueue(('Latest check failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             $counts['CheckFailed']++
                             continue
                         }
@@ -8988,7 +8964,7 @@ function Invoke-MultiAppPipeline {
                                         }
                                     }
                                 } catch {
-                                    [void]$State.LogQueue.Enqueue(('ConfigMgr pre-flight for {0} failed: {1}' -f $app, $_.Exception.Message))
+                                    [void]$State.LogQueue.Enqueue(('ConfigMgr pre-flight for {0} failed: {1}' -f $app, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                                 }
                             }
                         }
@@ -9093,7 +9069,7 @@ function Invoke-MultiAppPipeline {
                             }
                         } catch {
                             $row.Status = 'Stage error'
-                            [void]$State.LogQueue.Enqueue(('Stage exception: ' + $_.Exception.Message))
+                            [void]$State.LogQueue.Enqueue(('Stage exception: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                         }
 
                         if (-not $stageOk) {
@@ -9196,7 +9172,7 @@ function Invoke-MultiAppPipeline {
                             }
                         } catch {
                             $row.Status = 'Package error'
-                            [void]$State.LogQueue.Enqueue(('Package exception: ' + $_.Exception.Message))
+                            [void]$State.LogQueue.Enqueue(('Package exception: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             $counts['Failed']++
                         }
                     }
@@ -9205,7 +9181,7 @@ function Invoke-MultiAppPipeline {
             $State.Counts = $counts
         }
         catch {
-            $State.ErrorMsg = $_.Exception.Message
+            $State.ErrorMsg = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')
         }
         finally {
             $State.Done = $true
@@ -9258,7 +9234,7 @@ function Invoke-MultiAppPipeline {
             catch {
                 # A dialog failure must not park the pipeline forever.
                 $script:BgState.ConflictResponse = [pscustomobject]@{ Choice = 'Skip'; ApplyToAll = $false }
-                Add-LogLine -Message ('Conflict prompt failed, keeping the existing application: ' + $_.Exception.Message)
+                Add-LogLine -Message ('Conflict prompt failed, keeping the existing application: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
             }
             finally {
                 $script:ConflictPromptOpen = $false
@@ -9330,8 +9306,8 @@ function Invoke-MultiAppPipeline {
             $btnCancelPipeline.IsEnabled = $true
             $script:BgTimer = $null
             $script:BgState = $null
-            if ($script:BgContext -and $script:BgContext.ContainsKey('OneClickDone')) { try { & $script:BgContext.OneClickDone $doneState } catch { Add-LogLine -Message ('One Click report failed: ' + $_.Exception.Message) } }
-            if ($script:BgContext -and $script:BgContext.ContainsKey('CveDone')) { try { & $script:BgContext.CveDone $doneState } catch { Add-LogLine -Message ('CVE window update failed: ' + $_.Exception.Message) } }
+            if ($script:BgContext -and $script:BgContext.ContainsKey('OneClickDone')) { try { & $script:BgContext.OneClickDone $doneState } catch { Add-LogLine -Message ('One Click report failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) } }
+            if ($script:BgContext -and $script:BgContext.ContainsKey('CveDone')) { try { & $script:BgContext.CveDone $doneState } catch { Add-LogLine -Message ('CVE window update failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) } }
         }
     })
     $script:BgTimer.Start()
@@ -9370,26 +9346,7 @@ function Show-DropIntakeDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
-                 MahApps Square style. Hover and pressed fills come from the Square template;
-                 the accent outline marks keyboard focus. -->
-            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>        </ResourceDictionary>
+            <!--SHARED_STYLES-->        </ResourceDictionary>
     </Window.Resources>
     <Grid Margin="20,16,20,16">
         <Grid.RowDefinitions>
@@ -9400,8 +9357,8 @@ function Show-DropIntakeDialog {
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" x:Name="txtDropFile" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-        <TextBlock Grid.Row="1" x:Name="txtDropDetected" Margin="0,4,0,12" Opacity="0.75"/>
+        <TextBlock Grid.Row="0" x:Name="txtDropFile" FontSize="14" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+        <TextBlock Grid.Row="1" x:Name="txtDropDetected" Margin="0,4,0,12" Foreground="{DynamicResource MahApps.Brushes.Gray1}"/>
 
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
@@ -9418,50 +9375,50 @@ function Show-DropIntakeDialog {
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="Application" VerticalAlignment="Center" Margin="0,0,12,8"/>
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Application" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,8"/>
             <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtDropAppName" Height="28" Margin="0,0,0,8"/>
 
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="Publisher" VerticalAlignment="Center" Margin="0,0,12,8"/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Publisher" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,8"/>
             <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtDropPublisher" Height="28" Margin="0,0,0,8"/>
 
-            <TextBlock Grid.Row="2" Grid.Column="0" Text="Version" VerticalAlignment="Center" Margin="0,0,12,8"/>
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Version" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,8"/>
             <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtDropVersion" Height="28" Margin="0,0,0,8"/>
 
             <!-- Shown only when the installer script accepts a mode switch; the
                  two radios swap every mode-dependent field together. -->
-            <TextBlock Grid.Row="3" Grid.Column="0" x:Name="lblDropMode" Text="Install for" VerticalAlignment="Center" Margin="0,0,12,8" Visibility="Collapsed"/>
+            <TextBlock Grid.Row="3" Grid.Column="0" x:Name="lblDropMode" Text="Install For" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,8" Visibility="Collapsed"/>
             <StackPanel Grid.Row="3" Grid.Column="1" x:Name="pnlDropMode" Orientation="Horizontal" Margin="0,0,0,8" Visibility="Collapsed">
                 <RadioButton x:Name="radDropCurrentUser" Content="Current user" GroupName="DropMode" VerticalAlignment="Center" Margin="0,0,18,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 <RadioButton x:Name="radDropAllUsers" Content="All users (system)" GroupName="DropMode" VerticalAlignment="Center" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-                <TextBlock x:Name="txtDropModeSwitch" VerticalAlignment="Center" Margin="14,0,0,0" Opacity="0.75"/>
+                <TextBlock x:Name="txtDropModeSwitch" VerticalAlignment="Center" Margin="14,0,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray1}"/>
             </StackPanel>
 
-            <TextBlock Grid.Row="4" Grid.Column="0" Text="Install args" VerticalAlignment="Center" Margin="0,0,12,8"/>
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="Install Args" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,8"/>
             <TextBox   Grid.Row="4" Grid.Column="1" x:Name="txtDropInstallArgs" Height="28" Margin="0,0,0,8"/>
 
-            <TextBlock Grid.Row="5" Grid.Column="0" x:Name="lblDropUninstall" Text="Uninstall command" VerticalAlignment="Center" Margin="0,0,12,8"/>
+            <TextBlock Grid.Row="5" Grid.Column="0" x:Name="lblDropUninstall" Text="Uninstall Command" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,8"/>
             <TextBox   Grid.Row="5" Grid.Column="1" x:Name="txtDropUninstallCmd" Height="28" Margin="0,0,0,8"/>
 
-            <TextBlock Grid.Row="6" Grid.Column="0" Text="Detection" VerticalAlignment="Top" Margin="0,4,12,0"/>
-            <TextBlock Grid.Row="6" Grid.Column="1" x:Name="txtDropDetection" TextWrapping="Wrap" Opacity="0.75" Margin="0,4,0,0"/>
+            <TextBlock Grid.Row="6" Grid.Column="0" Text="Detection" FontWeight="Bold" VerticalAlignment="Top" Margin="0,4,12,0"/>
+            <TextBlock Grid.Row="6" Grid.Column="1" x:Name="txtDropDetection" TextWrapping="Wrap" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,4,0,0"/>
         </Grid>
 
         <CheckBox Grid.Row="3" x:Name="chkDropConfirm" Margin="0,12,0,0"
                   Content="I verified the predicted silent switches and detection for this installer"/>
 
         <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-            <Button x:Name="btnDropSaveApplication" Content="Save as Application" MinWidth="150" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource ApButton}"
-                    ToolTip="Keep this installer as a durable application so it reopens in the Application Workbench without a download script. Its update source stays manual."/>
-            <Button x:Name="btnDropSavePackager" Content="Save as Packager" MinWidth="130" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource ApButton}"/>
-            <Button x:Name="btnDropStage" Content="Stage" MinWidth="90" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource ApButton}"/>
-            <Button x:Name="btnDropStagePackage" Content="Stage + Package" MinWidth="130" Height="32" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource ApButtonAccent}"/>
-            <Button x:Name="btnDropCancel" Content="Cancel" MinWidth="90" Height="32" IsCancel="True" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource ApButton}"/>
+            <Button x:Name="btnDropSaveApplication" Content="Save as Application" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource DialogButton}"
+                    ToolTip="Save this installer as an application that opens in the Application Workbench."/>
+            <Button x:Name="btnDropSavePackager" Content="Save as Packager" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource DialogButton}"/>
+            <Button x:Name="btnDropStage" Content="Stage" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource DialogButton}"/>
+            <Button x:Name="btnDropStagePackage" Content="Stage and Package" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource DialogAccentButton}"/>
+            <Button x:Name="btnDropCancel" Content="Cancel" IsCancel="True" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource DialogButton}"/>
         </StackPanel>
     </Grid>
 </Controls:MetroWindow>
 '@
 
-    [xml]$xml = $dlgXaml
+    [xml]$xml = Expand-SharedStyle $dlgXaml
     $reader = New-Object System.Xml.XmlNodeReader $xml
     $dlg    = [System.Windows.Markup.XamlReader]::Load($reader)
     Install-TitleBarDragFallback -Window $dlg
@@ -9560,7 +9517,7 @@ function Show-DropIntakeDialog {
                 $txtModeSw.Text = (& $describeSwitch $mode)
             }
             catch {
-                [void](Show-ThemedMessage -Owner $dlg -Title 'Install Mode' -Message $_.Exception.Message -Buttons OK -Icon Warning)
+                [void](Show-ThemedMessage -Owner $dlg -Title 'Install Mode' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Warning)
             }
         }
         $radCurrent.Add_Checked({ & $switchMode 'CurrentUser' })
@@ -9637,7 +9594,7 @@ function Show-DropIntakeDialog {
             $dlg.Close()
         }
         catch {
-            [void](Show-ThemedMessage -Owner $dlg -Title 'Save as Application' -Message $_.Exception.Message -Buttons OK -Icon Error)
+            [void](Show-ThemedMessage -Owner $dlg -Title 'Save as Application' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Error)
         }
     })
     $btnCancelDlg.Add_Click({ $dlg.Close() })
@@ -9728,7 +9685,7 @@ function Invoke-AdHocPipeline {
                 }
                 catch {
                     $counts['Failed']++
-                    [void]$State.LogQueue.Enqueue(('Stage failed: {0}: {1}' -f $v.AppName, $_.Exception.Message))
+                    [void]$State.LogQueue.Enqueue(('Stage failed: {0}: {1}' -f $v.AppName, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                     continue
                 }
 
@@ -9760,13 +9717,13 @@ function Invoke-AdHocPipeline {
                 }
                 catch {
                     $counts['Failed']++
-                    [void]$State.LogQueue.Enqueue(('Package failed: {0}: {1}' -f $v.AppName, $_.Exception.Message))
+                    [void]$State.LogQueue.Enqueue(('Package failed: {0}: {1}' -f $v.AppName, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                 }
             }
             $State.Counts = $counts
         }
         catch {
-            $State.ErrorMsg = $_.Exception.Message
+            $State.ErrorMsg = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')
         }
         finally {
             if ($null -eq $savedSigning) { Remove-Item Env:\APP_PACKAGER_SIGNING -ErrorAction SilentlyContinue }
@@ -9890,7 +9847,7 @@ function Invoke-DropIntake {
         }
         catch {
             Hide-BusyIndicator
-            Add-LogLine -Message ('Analysis failed for {0}: {1}' -f (Split-Path -Leaf $installer), $_.Exception.Message)
+            Add-LogLine -Message ('Analysis failed for {0}: {1}' -f (Split-Path -Leaf $installer), (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
             continue
         }
         Hide-BusyIndicator
@@ -9926,7 +9883,7 @@ function Invoke-DropIntake {
                 Invoke-RefreshGrid
             }
             catch {
-                [void](Show-ThemedMessage -Owner $window -Title 'Save Failed' -Message $_.Exception.Message -Buttons OK -Icon Error)
+                [void](Show-ThemedMessage -Owner $window -Title 'Save Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Error)
             }
             continue
         }
@@ -9956,7 +9913,7 @@ $script:PendingDropQueue = New-Object System.Collections.Queue
 # blocked when the processes run at different elevation levels.
 $btnAddInstaller.Add_Click({
     $dlg = New-Object Microsoft.Win32.OpenFileDialog
-    $dlg.Title  = 'Select installer(s) to package'
+    $dlg.Title  = 'Select Installers to Package'
     $dlg.Filter = 'Installers (*.msi;*.exe)|*.msi;*.exe'
     $dlg.Multiselect = $true
     if ($dlg.ShowDialog()) { Invoke-DropIntake -Paths ([string[]]$dlg.FileNames) }
@@ -9997,8 +9954,8 @@ $btnCheckLatest.Add_Click({
     $siteCodeValue = $script:Prefs.SiteCode
     if ([string]::IsNullOrWhiteSpace($siteCodeValue)) {
         if ($script:Prefs.Systems.ConfigMgr) {
-            Add-LogLine -Message "SiteCode is required. Open Preferences to configure."
-            $txtStatus.Text = "SiteCode is required."
+            Add-LogLine -Message "The site code is required. Set it in Options, ConfigMgr Preferences."
+            $txtStatus.Text = "The site code is required."
             return
         }
         $siteCodeValue = 'MCM'
@@ -10027,15 +9984,15 @@ $btnCheckMECM.Add_Click({
         Add-LogLine -Message "Check ConfigMgr requires the ConfigMgr Console. Not detected on this workstation."
         $txtStatus.Text = "ConfigMgr Console not installed."
         [void](Show-ThemedMessage -Owner $window -Title 'Console Required' `
-            -Message "The Configuration Manager Console (AdminUI) is not detected on this workstation. Install it (and reboot if you just installed) before running Check ConfigMgr." `
+            -Message "The Configuration Manager Console (AdminUI) is not detected on this workstation. Install it (and restart the computer after you install it) before running Check ConfigMgr." `
             -Buttons OK -Icon Warning)
         return
     }
 
     $siteCodeValue = $script:Prefs.SiteCode
     if ([string]::IsNullOrWhiteSpace($siteCodeValue)) {
-        Add-LogLine -Message "SiteCode is required. Open Preferences to configure."
-        $txtStatus.Text = "SiteCode is required."
+        Add-LogLine -Message "The site code is required. Set it in Options, ConfigMgr Preferences."
+        $txtStatus.Text = "The site code is required."
         return
     }
 
@@ -10101,7 +10058,7 @@ $btnCheckMECM.Add_Click({
             }
             catch {
                 $row.Status = "Error"
-                Add-LogLine -Message ("Error: {0}" -f $_.Exception.Message)
+                Add-LogLine -Message ("Error: {0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
             }
         }
 
@@ -10165,26 +10122,7 @@ function Show-DiscoveryDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
-                 MahApps Square style. Hover and pressed fills come from the Square template;
-                 the accent outline marks keyboard focus. -->
-            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>        </ResourceDictionary>
+            <!--SHARED_STYLES-->        </ResourceDictionary>
     </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
@@ -10197,37 +10135,37 @@ function Show-DiscoveryDialog {
             <TextBlock x:Name="txtDiscoverStatus" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
             <TextBlock FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
                        Text="Each app is hidden by the Product Filter, has no ConfigMgr application, and is installed on at least one client. Enabled apps join the grid for Check, Stage and Package."/>
-            <TextBlock x:Name="txtDiscoverNote" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="#FFE07A5F" Visibility="Collapsed"/>
+            <TextBlock x:Name="txtDiscoverNote" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Visibility="Collapsed"/>
         </StackPanel>
-        <DataGrid Grid.Row="1" x:Name="gridDiscover" AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
+        <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="1" x:Name="gridDiscover" AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
                   SelectionMode="Single" RowHeaderWidth="0">
             <DataGrid.Columns>
                 <DataGridCheckBoxColumn Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="40"/>
                 <DataGridTextColumn Header="Application" Binding="{Binding Name}" Width="*" MinWidth="200" IsReadOnly="True"/>
                 <DataGridTextColumn MinWidth="94" Header="Vendor" Binding="{Binding Vendor}" Width="180" IsReadOnly="True"/>
-                <DataGridTextColumn MinWidth="156" Header="Inventory name" Binding="{Binding MatchedName}" Width="220" IsReadOnly="True"/>
+                <DataGridTextColumn MinWidth="156" Header="Inventory Name" Binding="{Binding MatchedName}" Width="220" IsReadOnly="True"/>
             </DataGrid.Columns>
         </DataGrid>
         <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
             <WrapPanel Margin="16,10,16,10" HorizontalAlignment="Right">
-                <Button x:Name="btnEnableSelected" Content="Enable selected" MinWidth="130" Height="32" Margin="0,0,8,0"
-                        Style="{DynamicResource ApButtonAccent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                        ToolTip="Show the checked apps in the main grid"/>
-                <Button x:Name="btnEnableAll" Content="Enable all" MinWidth="110" Height="32" Margin="0,0,8,0"
-                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                        ToolTip="Show every app in this list in the main grid"/>
-                <Button x:Name="btnNotNow" Content="Not now" MinWidth="100" Height="32" Margin="0,0,8,0" IsCancel="True"
-                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                        ToolTip="Close without a change. The next discovery offers these apps again."/>
-                <Button x:Name="btnDismiss" Content="Don't ask again for selected" MinWidth="200" Height="32"
-                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                        ToolTip="Keep the checked apps hidden and leave them out of later discoveries. Clear the list in Options, ConfigMgr Preferences."/>
+                <Button x:Name="btnEnableSelected" Content="Enable Selected" Margin="0,0,8,0"
+                        Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        ToolTip="Show the checked apps in the main grid."/>
+                <Button x:Name="btnEnableAll" Content="Enable All" Margin="0,0,8,0"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        ToolTip="Show every app of this list in the main grid."/>
+                <Button x:Name="btnNotNow" Content="Not Now" Margin="0,0,8,0" IsCancel="True"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        ToolTip="Close and offer these apps again in the next discovery."/>
+                <Button x:Name="btnDismiss" Content="Don't Ask Again for Selected"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        ToolTip="Hide the checked apps in this and later discoveries."/>
             </WrapPanel>
         </Border>
     </Grid>
 </Controls:MetroWindow>
 '@
-    [xml]$xml = $dlgXaml
+    [xml]$xml = Expand-SharedStyle $dlgXaml
     $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
     Install-TitleBarDragFallback -Window $dlg
     Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
@@ -10296,9 +10234,9 @@ function Invoke-DiscoveryChoice {
             # that is not rebuilt does not show it. Each failure is said.
             $problems = @()
             try { Save-Preferences -Prefs $script:Prefs }
-            catch { $problems += ('The choice was not saved and holds for this session only: {0}' -f $_.Exception.Message) }
+            catch { $problems += ('The choice was not saved and holds for this session only: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) }
             try { Invoke-RefreshGrid }
-            catch { $problems += ('The grid was not refreshed: {0}' -f $_.Exception.Message) }
+            catch { $problems += ('The grid was not refreshed: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) }
             if ($problems.Count -eq 0) {
                 Add-LogLine -Message ("Discover unmanaged software: {0} app(s) added to the grid. Manage them in Product Filter." -f $count)
                 $txtStatus.Text = ("{0} app(s) added to the grid." -f $count)
@@ -10316,7 +10254,7 @@ function Invoke-DiscoveryChoice {
                 Add-LogLine -Message ("Discover unmanaged software: {0} app(s) will not be offered again. Clear the list in Options, ConfigMgr Preferences." -f $count)
             }
             catch {
-                $text = ('The dismissal was not saved and holds for this session only: {0}' -f $_.Exception.Message)
+                $text = ('The dismissal was not saved and holds for this session only: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
                 Add-LogLine -Message ('Discover unmanaged software: ' + $text)
                 $txtStatus.Text = $text
             }
@@ -10347,7 +10285,7 @@ function Complete-DiscoveryScan {
         Invoke-DiscoveryChoice -Choice $choice
     }
     catch {
-        Add-LogLine -Message ('Discover unmanaged software: ' + $_.Exception.Message)
+        Add-LogLine -Message ('Discover unmanaged software: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
     }
 }
 
@@ -10406,7 +10344,7 @@ function Start-DiscoveryScan {
                 $script:DiscoveryJob = $null
                 Set-ActionButtonsEnabled -Enabled $true
                 Hide-BusyIndicator
-                Add-LogLine -Message ('Discover unmanaged software: ' + $_.Exception.Message)
+                Add-LogLine -Message ('Discover unmanaged software: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
             }
         })
         $script:DiscoveryTimer.Start()
@@ -10414,7 +10352,7 @@ function Start-DiscoveryScan {
     catch {
         Stop-DiscoveryRunspace -Job $script:DiscoveryJob
         $script:DiscoveryJob = $null
-        Complete-DiscoveryScan -Result ([pscustomobject]@{ Ok = $false; Error = ('the query could not start: ' + $_.Exception.Message) })
+        Complete-DiscoveryScan -Result ([pscustomobject]@{ Ok = $false; Error = ('the query could not start: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) })
     }
 }
 
@@ -10557,26 +10495,7 @@ function Show-CmImportDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
-                 MahApps Square style. Hover and pressed fills come from the Square template;
-                 the accent outline marks keyboard focus. -->
-            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>        </ResourceDictionary>
+            <!--SHARED_STYLES-->        </ResourceDictionary>
     </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
@@ -10588,24 +10507,24 @@ function Show-CmImportDialog {
                 <TextBlock FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
                            Text="Reads the application from the ConfigMgr site and makes one Intune Win32 app for each deployment type. Nothing changes in ConfigMgr. Preview writes the report only. Convert also copies the content."/>
 
-                <TextBlock Text="ConfigMgr application name" FontSize="12" FontWeight="SemiBold" Margin="0,12,0,4"/>
+                <TextBlock Text="ConfigMgr Application Name" FontSize="12" FontWeight="Bold" Margin="0,12,0,4"/>
                 <TextBox x:Name="txtCmApp" FontSize="13" Controls:TextBoxHelper.Watermark="The exact name, as the console shows it"
-                         ToolTip="The exact name of the ConfigMgr application"/>
+                         ToolTip="The exact name of the ConfigMgr application."/>
 
-                <TextBlock Text="Site code" FontSize="12" FontWeight="SemiBold" Margin="0,10,0,4"/>
+                <TextBlock Text="Site Code" FontSize="14" FontWeight="Bold" Margin="0,10,0,4"/>
                 <TextBox x:Name="txtCmSite" FontSize="13" Width="120" HorizontalAlignment="Left" MaxLength="3"
-                         ToolTip="The three-character ConfigMgr site code"/>
+                         ToolTip="The three-character ConfigMgr site code."/>
 
-                <TextBlock Text="Output folder" FontSize="12" FontWeight="SemiBold" Margin="0,10,0,4"/>
+                <TextBlock Text="Output Folder" FontSize="12" FontWeight="Bold" Margin="0,10,0,4"/>
                 <DockPanel>
-                    <Button x:Name="btnCmBrowse" Content="Browse..." DockPanel.Dock="Right" MinWidth="90" Height="28" Margin="8,0,0,0"
-                            Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    <Button x:Name="btnCmBrowse" Content="Browse..." DockPanel.Dock="Right" Margin="8,0,0,0"
+                            Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                     <TextBox x:Name="txtCmOutput" FontSize="13"
-                             ToolTip="One folder for each application is made here. It holds the content, the reports and the manifests."/>
+                             ToolTip="The folder that holds one subfolder for each application."/>
                 </DockPanel>
 
-                <TextBlock Text="Deployment types" FontSize="12" FontWeight="SemiBold" Margin="0,10,0,4"/>
-                <ComboBox x:Name="cmbCmStrategy" FontSize="13" SelectedIndex="0">
+                <TextBlock Text="Deployment Types" FontSize="12" FontWeight="Bold" Margin="0,10,0,4"/>
+                <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" x:Name="cmbCmStrategy" FontSize="13" SelectedIndex="0">
                     <ComboBoxItem Content="First match wins, like ConfigMgr (recommended)" Tag="PerDeploymentType"/>
                     <ComboBoxItem Content="Assign each app by group" Tag="AssignByGroup"/>
                 </ComboBox>
@@ -10617,29 +10536,29 @@ function Show-CmImportDialog {
                 <CheckBox x:Name="chkCmUntranslated" Content="Convert deployment types with requirements Intune cannot check" Margin="0,6,0,0"
                           ToolTip="The Intune app then installs on devices where ConfigMgr skips that deployment type."/>
                 <CheckBox x:Name="chkCmPackage" Content="Build the .intunewin files" Margin="0,6,0,0"
-                          ToolTip="Uses the Win32 Content Prep Tool. Used by Convert only."/>
+                          ToolTip="Build the .intunewin files with the Win32 Content Prep Tool."/>
                 <CheckBox x:Name="chkCmPublish" Content="Publish the apps to Intune" Margin="0,6,0,0"
-                          ToolTip="Uses the Intune tenant, client and secret saved in Options. Used by Convert only."/>
+                          ToolTip="Use the Intune tenant, client and secret of Options."/>
 
-                <TextBlock x:Name="txtCmNote" FontSize="12" TextWrapping="Wrap" Margin="0,12,0,0" Foreground="#FFE07A5F" Visibility="Collapsed"/>
+                <TextBlock x:Name="txtCmNote" FontSize="12" TextWrapping="Wrap" Margin="0,12,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Visibility="Collapsed"/>
             </StackPanel>
         </ScrollViewer>
         <Border Grid.Row="1" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
             <WrapPanel Margin="16,10,16,10" HorizontalAlignment="Right">
-                <Button x:Name="btnCmPreview" Content="Preview" MinWidth="110" Height="32" Margin="0,0,8,0"
-                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                        ToolTip="Write the plan and the report. Copies no content."/>
-                <Button x:Name="btnCmConvert" Content="Convert" MinWidth="110" Height="32" Margin="0,0,8,0"
-                        Style="{DynamicResource ApButtonAccent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                        ToolTip="Copy the content and make the Intune app folders"/>
-                <Button x:Name="btnCmCancel" Content="Cancel" MinWidth="100" Height="32" IsCancel="True"
-                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <Button x:Name="btnCmPreview" Content="Preview" Margin="0,0,8,0"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        ToolTip="Write the plan and the report without a copy of the content."/>
+                <Button x:Name="btnCmConvert" Content="Convert" Margin="0,0,8,0"
+                        Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        ToolTip="Copy the content and make the Intune app folders."/>
+                <Button x:Name="btnCmCancel" Content="Cancel" IsCancel="True"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             </WrapPanel>
         </Border>
     </Grid>
 </Controls:MetroWindow>
 '@
-    [xml]$xml = $dlgXaml
+    [xml]$xml = Expand-SharedStyle $dlgXaml
     $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
     Install-TitleBarDragFallback -Window $dlg
     Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
@@ -10758,7 +10677,7 @@ function Start-CmImportRun {
         $txtStatus.Text = $text
     }
     catch {
-        $message = 'Convert ConfigMgr App to Intune failed: ' + $_.Exception.Message
+        $message = 'Convert ConfigMgr App to Intune failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')
         Add-LogLine -Message $message
         $txtStatus.Text = $message
     }
@@ -10859,15 +10778,15 @@ function Start-PublishRun {
         Add-LogLine -Message "Publish to ConfigMgr requires the ConfigMgr Console. Not detected on this workstation."
         $txtStatus.Text = "ConfigMgr Console not installed."
         [void](Show-ThemedMessage -Owner $window -Title 'Console Required' `
-            -Message "The Configuration Manager Console (AdminUI) is not detected on this workstation. Install it (and reboot if you just installed) before publishing to ConfigMgr." `
+            -Message "The Configuration Manager Console (AdminUI) is not detected on this workstation. Install it (and restart the computer after you install it) before publishing to ConfigMgr." `
             -Buttons OK -Icon Warning)
         return
     }
 
     $siteCodeValue = $script:Prefs.SiteCode
     if (-not $siteFreeRun -and [string]::IsNullOrWhiteSpace($siteCodeValue)) {
-        Add-LogLine -Message "SiteCode is required. Open Preferences to configure."
-        $txtStatus.Text = "SiteCode is required."
+        Add-LogLine -Message "The site code is required. Set it in Options, ConfigMgr Preferences."
+        $txtStatus.Text = "The site code is required."
         return
     }
     # Invoke-PackagerPackage binds SiteCode as a mandatory string, which
@@ -10970,7 +10889,7 @@ function Open-ExternalUrl {
         Add-LogLine -Message ('Link not opened (not https): {0}' -f $Url)
         return
     }
-    try { Start-Process $Url } catch { Add-LogLine -Message ('Link failed: {0}' -f $_.Exception.Message) }
+    try { Start-Process $Url } catch { Add-LogLine -Message ('Link failed: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) }
 }
 
 function Write-CveReportForRows {
@@ -11034,33 +10953,14 @@ function Show-CveDetailDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
-                 MahApps Square style. Hover and pressed fills come from the Square template;
-                 the accent outline marks keyboard focus. -->
-            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>            <Style x:Key="LinkButton" TargetType="Button">
-                <Setter Property="Background" Value="Transparent"/>
-                <Setter Property="BorderThickness" Value="0"/>
-                <Setter Property="Padding" Value="4,0"/>
+            <!--SHARED_STYLES-->
+            <Style x:Key="CveLinkButton" TargetType="Button" BasedOn="{StaticResource GridLinkButtonStyle}">
                 <Setter Property="Margin" Value="0,0,8,2"/>
-                <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="FontSize" Value="12"/>
-                <Setter Property="Foreground" Value="#FF4C9BE0"/>
+            </Style>
+            <Style x:Key="ProductLinkButton" TargetType="Button" BasedOn="{StaticResource LinkButtonStyle}">
+                <Setter Property="Margin" Value="0,0,8,2"/>
+                <Setter Property="FontSize" Value="12"/>
             </Style>
         </ResourceDictionary>
     </Window.Resources>
@@ -11073,20 +10973,20 @@ function Show-CveDetailDialog {
         <StackPanel Grid.Row="0" Margin="16,12,16,8">
             <TextBlock x:Name="txtCveTitle" FontSize="14" FontWeight="Bold" TextWrapping="Wrap"/>
             <TextBlock x:Name="txtCveRange" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
-            <TextBlock x:Name="txtCveNote" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="#FFE07A5F" Visibility="Collapsed"/>
+            <TextBlock x:Name="txtCveNote" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Visibility="Collapsed"/>
             <DockPanel Margin="0,6,0,0">
-                <TextBlock Text="Product:" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <TextBlock Text="Product:" FontWeight="Bold" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
                 <ItemsControl x:Name="productLinks">
                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Button Tag="{Binding Url}" ToolTip="{Binding Url}" Style="{StaticResource LinkButton}"><TextBlock Text="{Binding Name}" TextDecorations="Underline"/></Button>
+                            <Button Tag="{Binding Url}" ToolTip="{Binding Url}" Style="{StaticResource ProductLinkButton}"><TextBlock Text="{Binding Name}" TextDecorations="Underline"/></Button>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </DockPanel>
         </StackPanel>
-        <DataGrid Grid.Row="1" x:Name="gridCves" AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
+        <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="1" x:Name="gridCves" AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
                   SelectionMode="Single" RowHeaderWidth="0" IsReadOnly="True">
             <DataGrid.Columns>
                 <DataGridTextColumn MinWidth="64" Header="CVE" Binding="{Binding Id}" Width="140"/>
@@ -11094,7 +10994,7 @@ function Show-CveDetailDialog {
                 <DataGridTextColumn MinWidth="72" Header="CVSS" Binding="{Binding Cvss}" Width="110"/>
                 <DataGridTextColumn MinWidth="70" Header="EPSS" Binding="{Binding Epss}" Width="70"/>
                 <DataGridTextColumn MinWidth="65" Header="KEV" Binding="{Binding Kev}" Width="65"/>
-                <DataGridTextColumn MinWidth="94" Header="Fixed in" Binding="{Binding FixedIn}" Width="110"/>
+                <DataGridTextColumn MinWidth="94" Header="Fixed In" Binding="{Binding FixedIn}" Width="110"/>
                 <DataGridTextColumn MinWidth="111" Header="Published" Binding="{Binding Published}" Width="111"/>
                 <DataGridTextColumn MinWidth="104" Header="Modified" Binding="{Binding Modified}" Width="104"/>
                 <DataGridTextColumn x:Name="colSummary" Header="Summary" Binding="{Binding Summary}" Width="*" MinWidth="260"/>
@@ -11105,7 +11005,7 @@ function Show-CveDetailDialog {
                                 <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Button Tag="{Binding Url}" ToolTip="{Binding Url}" Style="{StaticResource LinkButton}"><TextBlock Text="{Binding Name}" TextDecorations="Underline"/></Button>
+                                        <Button Tag="{Binding Url}" ToolTip="{Binding Url}" Style="{StaticResource CveLinkButton}"><TextBlock Text="{Binding Name}" TextDecorations="Underline"/></Button>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -11116,24 +11016,24 @@ function Show-CveDetailDialog {
         </DataGrid>
         <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
             <DockPanel Margin="16,10,16,10">
-                <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" MinWidth="90" Height="32"
-                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 <StackPanel Orientation="Horizontal">
-                    <Button x:Name="btnRefresh" Content="Refresh" MinWidth="110" Height="32" Margin="0,0,8,0"
-                            Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                            ToolTip="Look the CVEs up again, bypassing the cache"/>
-                    <Button x:Name="btnCopy" Content="Copy CVE IDs" MinWidth="110" Height="32" Margin="0,0,8,0"
-                            Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-                    <Button x:Name="btnExport" Content="Export report" MinWidth="110" Height="32" Margin="0,0,8,0"
-                            Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                            ToolTip="Write the HTML, CSV and JSON report for this app under Logs\Reports and open the HTML"/>
+                    <Button x:Name="btnRefresh" Content="Refresh" Margin="0,0,8,0"
+                            Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            ToolTip="Look up the CVEs again and skip the cache."/>
+                    <Button x:Name="btnCopy" Content="Copy CVE IDs" Margin="0,0,8,0"
+                            Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    <Button x:Name="btnExport" Content="Export Report" Margin="0,0,8,0"
+                            Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            ToolTip="Write the report of this app and open the HTML file."/>
                 </StackPanel>
             </DockPanel>
         </Border>
     </Grid>
 </Controls:MetroWindow>
 '@
-    [xml]$xml = $dlgXaml
+    [xml]$xml = Expand-SharedStyle $dlgXaml
     $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
     Install-TitleBarDragFallback -Window $dlg
     Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
@@ -11247,7 +11147,7 @@ function Show-CveDetailDialog {
                     $noteRef.Visibility = 'Visible'
                 }
             }
-            catch { Add-LogLine -Message ('CVE window update failed: ' + $_.Exception.Message) }
+            catch { Add-LogLine -Message ('CVE window update failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) }
             finally { $btnRef.IsEnabled = $true }
         }.GetNewClosure()
         Invoke-MultiAppPipeline -Operation CheckCve -Rows @($Row) -Context $ctx
@@ -11265,7 +11165,7 @@ function Show-CveDetailDialog {
             $paths = Write-CveReportForRows -Rows @($Row)
             if ($paths.Html) { Start-Process $paths.Html }
         }
-        catch { Add-LogLine -Message ('CVE report failed: ' + $_.Exception.Message) }
+        catch { Add-LogLine -Message ('CVE report failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) }
     }.GetNewClosure())
 
     $btnClose.Add_Click({ $dlg.Close() }.GetNewClosure())
@@ -11317,7 +11217,7 @@ $btnCveReport.Add_Click({
         if ($paths.Html) { Start-Process $paths.Html }
     }
     catch {
-        Add-LogLine -Message ('CVE report failed: ' + $_.Exception.Message)
+        Add-LogLine -Message ('CVE report failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         $txtStatus.Text = "CVE report failed."
     }
     finally { Hide-BusyIndicator }
@@ -11387,26 +11287,7 @@ function Show-OneClickPlanDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
-                 MahApps Square style. Hover and pressed fills come from the Square template;
-                 the accent outline marks keyboard focus. -->
-            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>        </ResourceDictionary>
+            <!--SHARED_STYLES-->        </ResourceDictionary>
     </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
@@ -11418,11 +11299,11 @@ function Show-OneClickPlanDialog {
             <TextBlock x:Name="txtPlanSummary" FontSize="14" FontWeight="Bold" TextWrapping="Wrap"/>
             <TextBlock x:Name="txtPlanAction" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
             <TextBlock x:Name="txtPlanScope" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
-            <TextBlock x:Name="txtPlanBlocking" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="#FFE07A5F" Visibility="Collapsed"/>
+            <TextBlock x:Name="txtPlanBlocking" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Visibility="Collapsed"/>
             <TextBlock x:Name="txtPlanHint" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
                        Text="Include and the destination boxes apply to this run only; One Click Settings holds the saved values. Run asks nothing after it starts."/>
         </StackPanel>
-        <DataGrid Grid.Row="1" x:Name="gridPlan" AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
+        <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="1" x:Name="gridPlan" AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
                   SelectionMode="Single" RowHeaderWidth="0">
             <DataGrid.Columns>
                 <DataGridTemplateColumn MinWidth="95" x:Name="colInclude" Header="Include" Width="95">
@@ -11455,29 +11336,29 @@ function Show-OneClickPlanDialog {
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn MinWidth="145" x:Name="colLast" Header="Last published" Binding="{Binding LastPublished}" Width="145" IsReadOnly="True"/>
+                <DataGridTextColumn MinWidth="145" x:Name="colLast" Header="Last Published" Binding="{Binding LastPublished}" Width="145" IsReadOnly="True"/>
                 <DataGridTextColumn MinWidth="102" x:Name="colPlanned" Header="Planned" Binding="{Binding Planned}" Width="280" IsReadOnly="True"/>
                 <DataGridTextColumn MinWidth="70" x:Name="colStep" Header="Step" Binding="{Binding Step}" Width="130" IsReadOnly="True" Visibility="Collapsed"/>
-                <DataGridTextColumn x:Name="colResultMecm" Header="ConfigMgr result" Binding="{Binding ResultConfigMgr}" Width="1.2*" MinWidth="168" IsReadOnly="True" Visibility="Collapsed"/>
-                <DataGridTextColumn x:Name="colResultWsus" Header="WSUS result" Binding="{Binding ResultWSUS}" Width="1.2*" MinWidth="180" IsReadOnly="True" Visibility="Collapsed"/>
-                <DataGridTextColumn x:Name="colResultIntune" Header="Intune result" Binding="{Binding ResultIntune}" Width="1.2*" MinWidth="180" IsReadOnly="True" Visibility="Collapsed"/>
+                <DataGridTextColumn x:Name="colResultMecm" Header="ConfigMgr Result" Binding="{Binding ResultConfigMgr}" Width="1.2*" MinWidth="168" IsReadOnly="True" Visibility="Collapsed"/>
+                <DataGridTextColumn x:Name="colResultWsus" Header="WSUS Result" Binding="{Binding ResultWSUS}" Width="1.2*" MinWidth="180" IsReadOnly="True" Visibility="Collapsed"/>
+                <DataGridTextColumn x:Name="colResultIntune" Header="Intune Result" Binding="{Binding ResultIntune}" Width="1.2*" MinWidth="180" IsReadOnly="True" Visibility="Collapsed"/>
                 <DataGridTextColumn MinWidth="93" x:Name="colReason" Header="Reason" Binding="{Binding Reason}" Width="230" IsReadOnly="True"/>
             </DataGrid.Columns>
         </DataGrid>
         <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
             <DockPanel Margin="16,10,16,10">
-                <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" MinWidth="90" Height="32"
-                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-                <Button x:Name="btnOpenReport" DockPanel.Dock="Right" Content="Open report" MinWidth="110" Height="32" Margin="0,0,8,0" IsEnabled="False"
-                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-                <Button x:Name="btnHistory" DockPanel.Dock="Right" Content="Run history" MinWidth="110" Height="32" Margin="0,0,8,0"
-                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <Button x:Name="btnOpenReport" DockPanel.Dock="Right" Content="Open Report" Margin="0,0,8,0" IsEnabled="False"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <Button x:Name="btnHistory" DockPanel.Dock="Right" Content="Run History" Margin="0,0,8,0"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Opens the folder with the reports of earlier runs."/>
                 <StackPanel Orientation="Horizontal">
-                    <Button x:Name="btnRun" Content="Run" MinWidth="110" Height="32" Margin="0,0,8,0"
-                            Style="{DynamicResource ApButtonAccent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-                    <Button x:Name="btnPlanOnly" Content="Plan only" MinWidth="110" Height="32" Margin="0,0,16,0"
-                            Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    <Button x:Name="btnRun" Content="Run" Margin="0,0,8,0"
+                            Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    <Button x:Name="btnPlanOnly" Content="Plan Only" Margin="0,0,16,0"
+                            Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                             ToolTip="Writes the plan as a report without running anything."/>
                     <CheckBox x:Name="chkForce" Content="Force: ignore the cadence and publish again" FontSize="12" VerticalAlignment="Center"
                               Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
@@ -11487,7 +11368,7 @@ function Show-OneClickPlanDialog {
     </Grid>
 </Controls:MetroWindow>
 '@
-    [xml]$xml = $dlgXaml
+    [xml]$xml = Expand-SharedStyle $dlgXaml
     $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
     Install-TitleBarDragFallback -Window $dlg
     Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
@@ -12028,7 +11909,7 @@ function Get-WorkbenchParseDiagnostics {
     try {
         [void][System.Management.Automation.Language.Parser]::ParseInput($Text, [ref]$tokens, [ref]$errors)
     } catch {
-        $results.Add('Parser failure: ' + $_.Exception.Message)
+        $results.Add('Parser failure: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         return $results
     }
     foreach ($err in @($errors)) {
@@ -12090,44 +11971,25 @@ function Show-WorkbenchUnsavedDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
-                 MahApps Square style. Hover and pressed fills come from the Square template;
-                 the accent outline marks keyboard focus. -->
-            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>        </ResourceDictionary>
+            <!--SHARED_STYLES-->        </ResourceDictionary>
     </Window.Resources>
     <StackPanel Margin="18,16,18,14">
         <TextBlock x:Name="txtUnsaved" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,16"/>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="btnUnsavedSave" Content="Save" MinWidth="100" Height="30" Margin="0,0,8,0"
-                    Style="{DynamicResource ApButtonAccent}"
+            <Button x:Name="btnUnsavedSave" Content="Save" Margin="0,0,8,0"
+                    Style="{DynamicResource DialogAccentButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnUnsavedDiscard" Content="Discard" MinWidth="100" Height="30" Margin="0,0,8,0"
-                    Style="{DynamicResource ApButton}"
+            <Button x:Name="btnUnsavedDiscard" Content="Discard" Margin="0,0,8,0"
+                    Style="{DynamicResource DialogButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnUnsavedCancel" Content="Cancel" MinWidth="100" Height="30" IsCancel="True"
-                    Style="{DynamicResource ApButton}"
+            <Button x:Name="btnUnsavedCancel" Content="Cancel" IsCancel="True"
+                    Style="{DynamicResource DialogButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
     </StackPanel>
 </Controls:MetroWindow>
 '@
-    [xml]$dx = $dlgXaml
+    [xml]$dx = Expand-SharedStyle $dlgXaml
     $reader = New-Object System.Xml.XmlNodeReader $dx
     $dlg = [System.Windows.Markup.XamlReader]::Load($reader)
     Install-TitleBarDragFallback -Window $dlg
@@ -12166,42 +12028,23 @@ function Show-WorkbenchNameDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
-                 MahApps Square style. Hover and pressed fills come from the Square template;
-                 the accent outline marks keyboard focus. -->
-            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>        </ResourceDictionary>
+            <!--SHARED_STYLES-->        </ResourceDictionary>
     </Window.Resources>
     <StackPanel Margin="18,16,18,14">
         <TextBlock x:Name="txtNamePrompt" FontSize="12" Margin="0,0,0,8"/>
         <TextBox x:Name="txtNameValue" FontSize="12" Height="28" Margin="0,0,0,16"/>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="btnNameOk" Content="OK" MinWidth="90" Height="30" Margin="0,0,8,0" IsDefault="True"
-                    Style="{DynamicResource ApButtonAccent}"
+            <Button x:Name="btnNameOk" Content="OK" Margin="0,0,8,0" IsDefault="True"
+                    Style="{DynamicResource DialogAccentButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnNameCancel" Content="Cancel" MinWidth="90" Height="30" IsCancel="True"
-                    Style="{DynamicResource ApButton}"
+            <Button x:Name="btnNameCancel" Content="Cancel" IsCancel="True"
+                    Style="{DynamicResource DialogButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
     </StackPanel>
 </Controls:MetroWindow>
 '@
-    [xml]$dx = $dlgXaml
+    [xml]$dx = Expand-SharedStyle $dlgXaml
     $reader = New-Object System.Xml.XmlNodeReader $dx
     $dlg = [System.Windows.Markup.XamlReader]::Load($reader)
     Install-TitleBarDragFallback -Window $dlg
@@ -12362,7 +12205,7 @@ function Get-WorkbenchRunPlanForContext {
             $buildId = [string]$snapshot.BuildId
         }
         catch {
-            Add-LogLine -Message ('Run snapshot not created for {0}: {1}' -f $base, $_.Exception.Message)
+            Add-LogLine -Message ('Run snapshot not created for {0}: {1}' -f $base, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         }
 
         $plan[$base] = @{
@@ -12509,7 +12352,7 @@ function Show-ApplicationWorkbench {
             }
         }
         catch {
-            Add-LogLine -Message ('Legacy preference migration failed: ' + $_.Exception.Message)
+            Add-LogLine -Message ('Legacy preference migration failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         }
     }
 
@@ -12519,7 +12362,7 @@ function Show-ApplicationWorkbench {
             -Message ('WorkbenchWindow.xaml was not found at ' + $xamlPath + '.') -Buttons OK -Icon Error)
         return
     }
-    [xml]$wbXaml = Get-Content -LiteralPath $xamlPath -Raw
+    [xml]$wbXaml = Expand-SharedStyle (Get-Content -LiteralPath $xamlPath -Raw)
     $reader = New-Object System.Xml.XmlNodeReader $wbXaml
     $win = [System.Windows.Markup.XamlReader]::Load($reader)
     Install-TitleBarDragFallback -Window $win
@@ -13352,7 +13195,7 @@ function Show-ApplicationWorkbench {
         if ($newName -or $wb.ProfileId -eq 'default') {
             $name = $newName
             if (-not $name) {
-                $name = Show-WorkbenchNameDialog -Owner $win -Title 'Name for this profile' -Value 'Managed'
+                $name = Show-WorkbenchNameDialog -Owner $win -Title 'Name for This Profile' -Value 'Managed'
                 if (-not $name) { return $false }
             }
             $wb.ProfileId = ([guid]::NewGuid().ToString('N'))
@@ -13366,7 +13209,7 @@ function Show-ApplicationWorkbench {
             $saved = Save-Profile -Profile ([pscustomobject]$wb.Profile) -SetActive
         }
         catch {
-            [void](Show-ThemedMessage -Owner $win -Title 'Save Failed' -Message $_.Exception.Message -Buttons OK -Icon Error)
+            [void](Show-ThemedMessage -Owner $win -Title 'Save Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Error)
             return $false
         }
         $wb.Profile = ConvertTo-WorkbenchUiHashtable -InputObject $saved
@@ -13429,7 +13272,7 @@ function Show-ApplicationWorkbench {
             # "Save as..." entry.
             $wb.Loading = $true
             try { $cboProfile.SelectedIndex = [array]::IndexOf($script:WorkbenchProfileIds, $wb.ProfileId) } finally { $wb.Loading = $false }
-            $name = Show-WorkbenchNameDialog -Owner $win -Title 'Name for the new profile' -Value ([string]$wb.Profile.Name + ' copy')
+            $name = Show-WorkbenchNameDialog -Owner $win -Title 'Name for the New Profile' -Value ([string]$wb.Profile.Name + ' copy')
             if ($name) { [void](& $saveProfile $name) }
             return
         }
@@ -13448,7 +13291,7 @@ function Show-ApplicationWorkbench {
             [void](Show-ThemedMessage -Owner $win -Title 'Rename Profile' -Message 'The packager default profile cannot be renamed. Use Save as to create a named profile.' -Buttons OK -Icon Info)
             return
         }
-        $name = Show-WorkbenchNameDialog -Owner $win -Title 'New name for this profile' -Value ([string]$wb.Profile.Name)
+        $name = Show-WorkbenchNameDialog -Owner $win -Title 'New Name for This Profile' -Value ([string]$wb.Profile.Name)
         if (-not $name) { return }
         $txtProfileName.Text = $name
         & $markDirty
@@ -13694,7 +13537,7 @@ function Show-ApplicationWorkbench {
 
     $btnSourceAddFile.Add_Click({
         $dlg = New-Object Microsoft.Win32.OpenFileDialog
-        $dlg.Title = 'Add source file'
+        $dlg.Title = 'Add Source File'
         $dlg.Multiselect = $true
         if ($dlg.ShowDialog() -eq $true) { foreach ($p in @($dlg.FileNames)) { & $addSourceEntry $p } }
     })
@@ -13708,7 +13551,7 @@ function Show-ApplicationWorkbench {
         $sel = $dgSourceFiles.SelectedItem
         if (-not $sel) { return }
         $dlg = New-Object Microsoft.Win32.OpenFileDialog
-        $dlg.Title = 'Replace source file'
+        $dlg.Title = 'Replace Source File'
         if ($dlg.ShowDialog() -ne $true) { return }
         $f = Get-Item -LiteralPath $dlg.FileName
         $hash = ''
@@ -13729,7 +13572,7 @@ function Show-ApplicationWorkbench {
 
     $btnIconChoose.Add_Click({
         $dlg = New-Object Microsoft.Win32.OpenFileDialog
-        $dlg.Title = 'Choose icon'
+        $dlg.Title = 'Choose Icon'
         $dlg.Filter = 'Image files|*.png;*.ico;*.jpg;*.jpeg;*.bmp|All files|*.*'
         if ($dlg.ShowDialog() -ne $true) { return }
         Set-WorkbenchOverrideValue -Profile $wb.Profile -Path 'Application.Icon' -Value ([ordered]@{ Path = $dlg.FileName; Asset = '' })
@@ -13767,7 +13610,7 @@ function Show-ApplicationWorkbench {
 
     $btnSave.Add_Click({ [void](& $saveProfile '') })
     $btnSaveAs.Add_Click({
-        $name = Show-WorkbenchNameDialog -Owner $win -Title 'Name for the new profile' -Value ([string]$wb.Profile.Name + ' copy')
+        $name = Show-WorkbenchNameDialog -Owner $win -Title 'Name for the New Profile' -Value ([string]$wb.Profile.Name + ' copy')
         if ($name) { [void](& $saveProfile $name) }
     })
     $btnValidate.Add_Click({
@@ -13805,7 +13648,7 @@ function Show-ApplicationWorkbench {
         try { [void](Set-ActiveProfile -ApplicationId ([string]$wb.Application.ApplicationId) -ProfileId ([string]$wb.ProfileId)) }
         catch {
             [void](Show-ThemedMessage -Owner $win -Title $operation `
-                -Message ('The profile ' + [string]$wb.Profile.Name + ' could not be made the active profile, so nothing ran: ' + $_.Exception.Message) -Buttons OK -Icon Warning)
+                -Message ('The profile ' + [string]$wb.Profile.Name + ' could not be made the active profile, so nothing ran: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) -Buttons OK -Icon Warning)
             return
         }
         $win.Close()
@@ -13973,15 +13816,15 @@ function New-ScriptSigningPanel {
         <TextBlock Text="Sign" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
         <CheckBox x:Name="chkSignDetection" FontSize="12" Margin="0,0,0,4"
                   Content="Sign detection scripts" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                  ToolTip="Signs generated and custom detection scripts. An unchanged import carrying a valid third-party signature is left alone."/>
+                  ToolTip="Sign the generated and custom detection scripts."/>
         <CheckBox x:Name="chkSignRequirements" FontSize="12" Margin="0,0,0,4"
                   Content="Sign requirement scripts and script global conditions" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                  ToolTip="Covers script-based requirement rules including the VPN predicate. WQL and native rules need no signature."/>
+                  ToolTip="Sign the script-based requirement rules."/>
         <CheckBox x:Name="chkSignDeployment" FontSize="12" Margin="0,0,0,12"
                   Content="Sign install and uninstall PowerShell scripts" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                  ToolTip="Signs the deployment execution chain and removes the execution-policy argument from its generated launchers, letting the configured endpoint policy govern. A vendor script that already carries an intact signature is left alone; an unsigned one is signed with this certificate."/>
+                  ToolTip="Sign the install and uninstall scripts and their launchers."/>
 
-        <TextBlock Text="Require valid signatures" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
+        <TextBlock Text="Require Valid Signatures" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
         <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,6"
                    Text="A publishing constraint, not a change to client execution policy. When a required category fails verification the build stops; there is no unsigned fallback."/>
         <CheckBox x:Name="chkRequireDetection" FontSize="12" Margin="0,0,0,4"
@@ -13991,7 +13834,7 @@ function New-ScriptSigningPanel {
         <CheckBox x:Name="chkRequireDeployment" FontSize="12" Margin="0,0,0,12"
                   Content="Require valid deployment script signatures" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
-        <TextBlock Text="Signing identity" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
+        <TextBlock Text="Signing Identity" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
         <Grid Margin="0,0,0,8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="150"/>
@@ -14006,32 +13849,32 @@ function New-ScriptSigningPanel {
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="Certificate store" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
-            <ComboBox  Grid.Row="0" Grid.Column="1" x:Name="cboSignStore" FontSize="12" Height="28" Margin="0,0,0,6"
-                       ToolTip="CurrentUser\My is the supported identity. LocalMachine\My needs an explicit choice and tested private-key access."/>
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Certificate Store" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
+            <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="0" Grid.Column="1" x:Name="cboSignStore" FontSize="12" Height="28" Margin="0,0,0,6"
+                       ToolTip="Use CurrentUser\My, or LocalMachine\My with access to the private key."/>
 
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="Certificate" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
-            <ComboBox  Grid.Row="1" Grid.Column="1" x:Name="cboSignCertificate" FontSize="12" Height="28" Margin="0,0,0,6"
-                       ToolTip="Selected by thumbprint. A renewed certificate is a new thumbprint and needs reselecting here."/>
-            <Button    Grid.Row="1" Grid.Column="2" x:Name="btnSignRefresh" Content="Refresh" MinWidth="100" Height="28" Margin="8,0,0,6"
-                       Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Certificate" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
+            <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="1" Grid.Column="1" x:Name="cboSignCertificate" FontSize="12" Height="28" Margin="0,0,0,6"
+                       ToolTip="Select the certificate by its thumbprint."/>
+            <Button    Grid.Row="1" Grid.Column="2" x:Name="btnSignRefresh" Content="Refresh" Margin="8,0,0,6"
+                       Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
             <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" x:Name="txtSignCertDetail" FontSize="11" TextWrapping="Wrap"
                        Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,8"/>
 
-            <TextBlock Grid.Row="3" Grid.Column="0" Text="Timestamp server" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Timestamp Server" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
             <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtSignTimestamp" FontSize="12" Height="28" VerticalContentAlignment="Center" Margin="0,0,0,6"
                        Controls:TextBoxHelper.Watermark="none"
-                       ToolTip="A timestamped signature stays valid after the certificate expires. A signature that exists is not the same as a verified timestamp."/>
+                       ToolTip="A timestamp keeps a signature valid after the certificate expires."/>
             <CheckBox  Grid.Row="4" Grid.Column="1" x:Name="chkSignTimestampRequired" FontSize="12" Margin="0,0,0,6"
                        Content="Timestamp required" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                       ToolTip="With this on, a timestamp server failure fails the signed build instead of producing an untimestamped signature."/>
+                       ToolTip="Fail the build when the timestamp server does not answer."/>
         </Grid>
 
         <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
-            <Button x:Name="btnSignTest" Content="Test signing configuration" MinWidth="200" Height="28" Margin="0,0,10,0"
-                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                    ToolTip="Signs and verifies a temporary file with the selected certificate. Nothing is published."/>
+            <Button x:Name="btnSignTest" Content="Test Signing Configuration" Margin="0,0,10,0"
+                    Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    ToolTip="Sign and verify a temporary file with the selected certificate."/>
         </StackPanel>
         <TextBlock x:Name="txtSignTestResult" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
 
@@ -14041,7 +13884,7 @@ function New-ScriptSigningPanel {
 </ScrollViewer>
 '@
 
-    [xml]$xml = $xaml
+    [xml]$xml = Expand-SharedStyle $xaml
     $reader  = New-Object System.Xml.XmlNodeReader $xml
     $element = [System.Windows.Markup.XamlReader]::Load($reader)
 
@@ -14093,7 +13936,7 @@ function New-ScriptSigningPanel {
         $btnSignTest.IsEnabled = $true
         $candidates = @()
         try { $candidates = @(& $cmd -StoreLocation ([string]$cboSignStore.SelectedItem)) }
-        catch { $txtSignCertDetail.Text = 'Certificate enumeration failed: ' + $_.Exception.Message }
+        catch { $txtSignCertDetail.Text = 'Certificate enumeration failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') }
         foreach ($c in $candidates) {
             $label = ('{0}  (expires {1})' -f [string]$c.Subject, ([datetime]$c.NotAfter).ToString('yyyy-MM-dd'))
             if (-not [bool]$c.Usable) { $label += '  [unusable]' }
@@ -14167,7 +14010,7 @@ function New-ScriptSigningPanel {
                 [string]$result.Status, [string]$result.TimestampVerified, [string]$result.Reason)
         }
         catch {
-            $txtSignTestResult.Text = 'Test failed: ' + $_.Exception.Message
+            $txtSignTestResult.Text = 'Test failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')
         }
         finally { $btnSignTest.IsEnabled = $true }
     }.GetNewClosure())
@@ -14223,38 +14066,19 @@ function Show-WsusPasswordPrompt {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
-                 MahApps Square style. Hover and pressed fills come from the Square template;
-                 the accent outline marks keyboard focus. -->
-            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>        </ResourceDictionary>
+            <!--SHARED_STYLES-->        </ResourceDictionary>
     </Window.Resources>
     <StackPanel Margin="20,16,20,16">
         <TextBlock x:Name="txtPrompt" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,10"/>
         <PasswordBox x:Name="pwdValue" FontSize="13" Margin="0,0,0,14"/>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="btnOk" Content="OK" MinWidth="90" Height="32" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource ApButtonAccent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnCancel" Content="Cancel" MinWidth="90" Height="32" IsCancel="True" Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnOk" Content="OK" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnCancel" Content="Cancel" IsCancel="True" Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
     </StackPanel>
 </Controls:MetroWindow>
 '@
-    [xml]$xml = $dlgXaml
+    [xml]$xml = Expand-SharedStyle $dlgXaml
     $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
     Install-TitleBarDragFallback -Window $dlg
     Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
@@ -14288,26 +14112,7 @@ function Show-WsusPublishedUpdatesDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
-                 MahApps Square style. Hover and pressed fills come from the Square template;
-                 the accent outline marks keyboard focus. -->
-            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>        </ResourceDictionary>
+            <!--SHARED_STYLES-->        </ResourceDictionary>
     </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
@@ -14321,13 +14126,13 @@ function Show-WsusPublishedUpdatesDialog {
                       ToolTip="Lists every locally published update on the server, not only the ones AppPackager published."/>
             <TextBlock x:Name="txtSummary" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
         </DockPanel>
-        <DataGrid Grid.Row="1" x:Name="gridUpdates" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended"
+        <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="1" x:Name="gridUpdates" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended"
                   CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Title" Binding="{Binding Title}" Width="*" MinWidth="280"/>
                 <DataGridTextColumn MinWidth="71" Header="Type" Binding="{Binding PackageType}" Width="71"/>
                 <DataGridTextColumn MinWidth="97" Header="Created" Binding="{Binding CreatedText}" Width="125"/>
-                <DataGridTextColumn MinWidth="138" Header="Approved for" Binding="{Binding ApprovedGroups}" Width="138"/>
+                <DataGridTextColumn MinWidth="138" Header="Approved For" Binding="{Binding ApprovedGroups}" Width="138"/>
                 <DataGridTextColumn MinWidth="103" Header="Declined" Binding="{Binding Declined}" Width="103"/>
                 <DataGridTextColumn MinWidth="121" Header="Superseded" Binding="{Binding Superseded}" Width="121"/>
                 <DataGridTextColumn MinWidth="93" Header="Expired" Binding="{Binding Expired}" Width="93"/>
@@ -14336,34 +14141,34 @@ function Show-WsusPublishedUpdatesDialog {
         </DataGrid>
         <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
             <DockPanel Margin="16,10,16,10">
-                <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" MinWidth="90" Height="32" IsCancel="True"
-                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-                <Button x:Name="btnCatalog" DockPanel.Dock="Right" Content="Catalog Import" MinWidth="120" Height="32" Margin="0,0,8,0"
-                        Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" IsCancel="True"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <Button x:Name="btnCatalog" DockPanel.Dock="Right" Content="Catalog Import" Margin="0,0,8,0"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Import Microsoft updates that do not synchronize automatically, by catalog update ID or link."/>
                 <StackPanel Orientation="Horizontal">
-                    <ComboBox x:Name="cboGroup" IsEditable="True" Width="200" Height="30" FontSize="12" Margin="0,0,8,0"
-                              ToolTip="Computer group for Approve. The list loads from the server."/>
-                    <Button x:Name="btnApprove" Content="Approve for group" MinWidth="130" Height="32" Margin="0,0,8,0"
-                            Style="{DynamicResource ApButtonAccent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-                    <Button x:Name="btnDecline" Content="Decline" MinWidth="90" Height="32" Margin="0,0,8,0"
-                            Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                            ToolTip="Declined updates are not offered to any client. Approving again reverses it."/>
-                    <Button x:Name="btnExpire" Content="Expire" MinWidth="90" Height="32" Margin="0,0,8,0"
-                            Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                            ToolTip="Expires the update on the server permanently. Clients stop seeing it; it cannot be approved again."/>
-                    <Button x:Name="btnRemove" Content="Remove" MinWidth="90" Height="32" Margin="0,0,8,0"
-                            Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                            ToolTip="Declines the update and deletes it from the WSUS database. It cannot be undone."/>
-                    <Button x:Name="btnRefresh" Content="Refresh" MinWidth="90" Height="32"
-                            Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" x:Name="cboGroup" IsEditable="True" Width="200" Height="30" FontSize="12" Margin="0,0,8,0"
+                              ToolTip="The computer group that Approve uses."/>
+                    <Button x:Name="btnApprove" Content="Approve for Group" Margin="0,0,8,0"
+                            Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    <Button x:Name="btnDecline" Content="Decline" Margin="0,0,8,0"
+                            Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            ToolTip="Decline the update so that no client gets it."/>
+                    <Button x:Name="btnExpire" Content="Expire" Margin="0,0,8,0"
+                            Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            ToolTip="Expire the update on the server for good."/>
+                    <Button x:Name="btnRemove" Content="Remove" Margin="0,0,8,0"
+                            Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            ToolTip="Decline the update and delete it from the WSUS database."/>
+                    <Button x:Name="btnRefresh" Content="Refresh"
+                            Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 </StackPanel>
             </DockPanel>
         </Border>
     </Grid>
 </Controls:MetroWindow>
 '@
-    [xml]$xml = $dlgXaml
+    [xml]$xml = Expand-SharedStyle $dlgXaml
     $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
     Install-TitleBarDragFallback -Window $dlg
     Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
@@ -14382,12 +14187,12 @@ function Show-WsusPublishedUpdatesDialog {
             $txtSummary.Text = ('{0} update(s) on {1}.' -f $rows.Count, [string]$Settings.ServerName)
             if ($cboGroup.Items.Count -eq 0) {
                 try { foreach ($name in @(Get-WsusComputerGroupNames -Settings $Settings)) { [void]$cboGroup.Items.Add($name) } }
-                catch { $txtSummary.Text += ' Computer groups could not be listed: ' + $_.Exception.Message }
+                catch { $txtSummary.Text += ' Computer groups could not be listed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') }
             }
         }
         catch {
             $gridUpdates.ItemsSource = @()
-            $txtSummary.Text = 'Listing failed: ' + $_.Exception.Message
+            $txtSummary.Text = 'Listing failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')
         }
         finally { $dlg.Cursor = $null }
     }.GetNewClosure()
@@ -14412,7 +14217,7 @@ function Show-WsusPublishedUpdatesDialog {
         $outcomes = @()
         Set-DialogBusyStatus -Dialog $dlg -Control $txtSummary -Text ('{0}: working on {1} update(s)...' -f $Action, $selected.Count)
         try { $outcomes = @(Set-WsusPublishedUpdateState -Settings $Settings -PackageId $ids -Action $Action -GroupName $group) }
-        catch { $outcomes = @([pscustomobject]@{ Title = ''; Ok = $false; Message = $_.Exception.Message }) }
+        catch { $outcomes = @([pscustomobject]@{ Title = ''; Ok = $false; Message = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') }) }
         finally { $dlg.Cursor = $null }
         & $load
         $failed = @($outcomes | Where-Object { -not $_.Ok } | ForEach-Object { if ($_.Title) { '{0}: {1}' -f $_.Title, $_.Message } else { [string]$_.Message } })
@@ -14453,26 +14258,7 @@ function Show-WsusCatalogImportDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- Dialog buttons: 1 px light outline instead of the 2 px foreground outline of the
-                 MahApps Square style. Hover and pressed fills come from the Square template;
-                 the accent outline marks keyboard focus. -->
-            <Style x:Key="ApButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="ApButtonAccent" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
-                <Setter Property="BorderThickness" Value="1"/>
-                <Style.Triggers>
-                    <Trigger Property="IsKeyboardFocused" Value="True">
-                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>        </ResourceDictionary>
+            <!--SHARED_STYLES-->        </ResourceDictionary>
     </Window.Resources>
     <Grid Margin="16,12,16,12">
         <Grid.RowDefinitions>
@@ -14488,24 +14274,24 @@ function Show-WsusCatalogImportDialog {
                  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                  Controls:TextBoxHelper.Watermark="12345678-90ab-cdef-1234-567890abcdef"/>
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,8">
-            <Button x:Name="btnImport" Content="Import" MinWidth="110" Height="32" Margin="0,0,8,0"
-                    Style="{DynamicResource ApButtonAccent}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnLoadFile" Content="Load IDs from file..." MinWidth="150" Height="32" Margin="0,0,8,0"
-                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnOpenCatalog" Content="Open the catalog" MinWidth="130" Height="32"
-                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnImport" Content="Import" Margin="0,0,8,0"
+                    Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnLoadFile" Content="Load IDs from File..." Margin="0,0,8,0"
+                    Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnOpenCatalog" Content="Open the Catalog"
+                    Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
         <TextBox Grid.Row="3" x:Name="txtResults" IsReadOnly="True" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"
                  VerticalScrollBarVisibility="Auto"/>
         <DockPanel Grid.Row="4" Margin="0,10,0,0">
-            <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" MinWidth="90" Height="32" IsCancel="True"
-                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" IsCancel="True"
+                    Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <TextBlock x:Name="txtStatus" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap"/>
         </DockPanel>
     </Grid>
 </Controls:MetroWindow>
 '@
-    [xml]$xml = $dlgXaml
+    [xml]$xml = Expand-SharedStyle $dlgXaml
     $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
     Install-TitleBarDragFallback -Window $dlg
     Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
@@ -14521,7 +14307,7 @@ function Show-WsusCatalogImportDialog {
     $dlg.FindName('btnOpenCatalog').Add_Click({ Start-Process 'https://catalog.update.microsoft.com' }.GetNewClosure())
     $dlg.FindName('btnLoadFile').Add_Click({
         $open = New-Object Microsoft.Win32.OpenFileDialog
-        $open.Title = 'Select a text file of update IDs'
+        $open.Title = 'Select a Text File of Update IDs'
         $open.Filter = 'Text files (*.txt)|*.txt|All files (*.*)|*.*'
         if ($open.ShowDialog()) { $txtInput.Text = [System.IO.File]::ReadAllText($open.FileName) }
     }.GetNewClosure())
@@ -14547,7 +14333,7 @@ function Show-WsusCatalogImportDialog {
             [void]$ps.BeginInvoke()
         }
         catch {
-            $txtStatus.Text = 'Import could not start: ' + $_.Exception.Message
+            $txtStatus.Text = 'Import could not start: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')
             $btnImport.IsEnabled = $true
         }
     }.GetNewClosure())
@@ -14601,35 +14387,35 @@ function New-WsusPanel {
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="WSUS server" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="WSUS Server" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
             <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWsusServer" FontSize="12" Height="28" VerticalContentAlignment="Center" Margin="0,0,0,6"
                        Controls:TextBoxHelper.Watermark="wsus01.contoso.com"
-                       ToolTip="Host name of the WSUS server. With ConfigMgr, the WSUS server of the top-level software update point."/>
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="Port" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
+                       ToolTip="The WSUS server name, or the top-level software update point."/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Port" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
             <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,6">
                 <TextBox x:Name="txtWsusPort" Width="80" FontSize="12" Height="28" VerticalContentAlignment="Center" MaxLength="5"
-                         ToolTip="8530 for HTTP and 8531 for HTTPS on a default WSUS install."/>
+                         ToolTip="The WSUS port: 8530 for HTTP, 8531 for HTTPS."/>
                 <CheckBox x:Name="chkWsusSsl" Content="Use SSL" FontSize="12" Margin="14,0,0,0" VerticalAlignment="Center"
                           Controls:ControlsHelper.ContentCharacterCasing="Normal"
                           ToolTip="Connect to the WSUS administration API over HTTPS."/>
             </StackPanel>
-            <Button Grid.Row="1" Grid.Column="2" x:Name="btnWsusTest" Content="Test connection" MinWidth="130" Height="28" Margin="8,0,0,6"
-                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button Grid.Row="1" Grid.Column="2" x:Name="btnWsusTest" Content="Test Connection" Margin="8,0,0,6"
+                    Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" x:Name="txtWsusStatus" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"/>
         </Grid>
 
-        <TextBlock Text="Signing certificate" FontSize="13" FontWeight="Bold" Margin="0,4,0,6"/>
+        <TextBlock Text="Signing Certificate" FontSize="13" FontWeight="Bold" Margin="0,4,0,6"/>
         <TextBlock x:Name="txtWsusCert" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,6"
                    Text="Test the connection to read the server's signing certificate."/>
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <Button x:Name="btnWsusCertCreate" Content="Create self-signed..." MinWidth="150" Height="28" Margin="0,0,8,0"
-                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+            <Button x:Name="btnWsusCertCreate" Content="Create Self-Signed..." Margin="0,0,8,0"
+                    Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                     ToolTip="Has the WSUS server create and use a self-signed signing certificate."/>
-            <Button x:Name="btnWsusCertImport" Content="Import PFX..." MinWidth="120" Height="28" Margin="0,0,8,0"
-                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                    ToolTip="Sets a code-signing certificate with its private key from a PFX file, for example one issued by your PKI."/>
-            <Button x:Name="btnWsusCertExport" Content="Export certificate..." MinWidth="150" Height="28"
-                    Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+            <Button x:Name="btnWsusCertImport" Content="Import PFX..." Margin="0,0,8,0"
+                    Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    ToolTip="Import a code-signing certificate from a PFX file."/>
+            <Button x:Name="btnWsusCertExport" Content="Export Certificate..."
+                    Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                     ToolTip="Saves the public signing certificate (.cer) for distribution to clients by Group Policy."/>
         </StackPanel>
         <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,12"
@@ -14650,24 +14436,24 @@ function New-WsusPanel {
             </Grid.RowDefinitions>
             <TextBlock Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" x:Name="txtWsusPolicy" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,8"
                        Text="Each update installs only where an older version of the application is installed. A computer without the application does not get the update."/>
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="Classification" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
-            <ComboBox  Grid.Row="1" Grid.Column="1" x:Name="cboWsusClassification" FontSize="12" Height="28" Margin="0,0,0,6"
-                       ToolTip="WSUS classification of every published update. With ConfigMgr, the software update point must synchronize it."/>
-            <TextBlock Grid.Row="2" Grid.Column="0" Text="Approve for group" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
-            <ComboBox  Grid.Row="2" Grid.Column="1" x:Name="cboWsusGroup" IsEditable="True" FontSize="12" Height="28" Margin="0,0,0,6"
-                       ToolTip="Computer group the update is approved for right after it publishes. Leave empty to approve later from WSUS Updates in the sidebar: the WSUS console does not list locally published updates."/>
-            <Button    Grid.Row="2" Grid.Column="2" x:Name="btnWsusGroups" Content="Load groups" MinWidth="110" Height="28" Margin="8,0,0,6"
-                       Style="{DynamicResource ApButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Classification" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
+            <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="1" Grid.Column="1" x:Name="cboWsusClassification" FontSize="12" Height="28" Margin="0,0,0,6"
+                       ToolTip="The WSUS classification of the published updates."/>
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Approve for Group" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
+            <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="2" Grid.Column="1" x:Name="cboWsusGroup" IsEditable="True" FontSize="12" Height="28" Margin="0,0,0,6"
+                       ToolTip="The computer group that gets the update at once, or empty to approve later."/>
+            <Button    Grid.Row="2" Grid.Column="2" x:Name="btnWsusGroups" Content="Load Groups" Margin="8,0,0,6"
+                       Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <CheckBox  Grid.Row="3" Grid.Column="1" x:Name="chkWsusDecline" FontSize="12" Margin="0,0,0,6"
                        Content="Decline earlier versions of the same application after publishing" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                       ToolTip="Declines the AppPackager updates of the same application that have a lower version. Approving one again reverses it."/>
+                       ToolTip="Decline the earlier versions of the application in WSUS."/>
         </Grid>
 
     </StackPanel>
 </ScrollViewer>
 '@
 
-    [xml]$xml = $xaml
+    [xml]$xml = Expand-SharedStyle $xaml
     $element = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
 
     $txtWsusServer = $element.FindName('txtWsusServer')
@@ -14758,7 +14544,7 @@ function New-WsusPanel {
             if ([string]::IsNullOrWhiteSpace([string]$settings.ServerName)) { throw 'Enter the WSUS server first.' }
             return (& $Action $settings $Extra)
         }
-        catch { $txtWsusStatus.Text = ([char]0x2717 + ' ' + $_.Exception.Message); return $null }
+        catch { $txtWsusStatus.Text = ([char]0x2717 + ' ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')); return $null }
         finally { if ($window) { $window.Cursor = $null } }
     }.GetNewClosure()
 
@@ -14783,7 +14569,7 @@ function New-WsusPanel {
         if (-not $settings) { return }
         $window = [System.Windows.Window]::GetWindow($element)
         $open = New-Object Microsoft.Win32.OpenFileDialog
-        $open.Title = 'Select the signing certificate PFX'
+        $open.Title = 'Select the Signing Certificate PFX'
         $open.Filter = 'PFX files (*.pfx;*.p12)|*.pfx;*.p12'
         if (-not $open.ShowDialog()) { return }
         $password = Show-WsusPasswordPrompt -Owner $window -Prompt ('Password for {0}' -f [System.IO.Path]::GetFileName($open.FileName))
@@ -14802,7 +14588,7 @@ function New-WsusPanel {
         $settings = & $runOnServer { param($s) $s }
         if (-not $settings) { return }
         $save = New-Object Microsoft.Win32.SaveFileDialog
-        $save.Title = 'Save the public signing certificate'
+        $save.Title = 'Save the Public Signing Certificate'
         $save.Filter = 'Certificate (*.cer)|*.cer'
         $save.FileName = ('WSUS-signing-{0}.cer' -f [string]$settings.ServerName)
         if (-not $save.ShowDialog()) { return }

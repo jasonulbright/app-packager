@@ -42,7 +42,7 @@ At the first start, a Setup window opens over the main window.
 
 ![Setup with WSUS selected](images/setup-wsus.png)
 
-2. For ConfigMgr, type the **Site Code**, the **Provider Machine**, the **File Share Root** and the **Download Root**.
+2. For ConfigMgr, type the **Site Code**, the **SMS Provider**, the **File Share Root** and the **Download Root**.
 
 ![Setup with the ConfigMgr values](images/setup-configmgr-filled.png)
 
@@ -61,7 +61,7 @@ See [Main window](core/main-window.md) for each control.
 | Setting | Meaning |
 |---|---|
 | Systems | ConfigMgr, Intune or WSUS. Each system has its own publish button. |
-| Site Code, Provider Machine | The Configuration Manager site and its SMS Provider. |
+| Site Code, SMS Provider | The Configuration Manager site and its SMS Provider. |
 | File Share Root | The share that holds the packaged content. |
 | Download Root | The local folder where Stage builds the content. |
 

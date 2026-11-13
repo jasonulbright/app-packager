@@ -4,7 +4,7 @@
 # check before it copies content or touches the site. Every confirmation of a change is answered No or Cancel.
 $dataDir = Join-Path $env:LOCALAPPDATA 'AppPackager'
 Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
-$dl = 'C:\guide\dl'
+$dl = Join-Path $GuideRoot 'dl'
 Remove-Item $dl -Recurse -Force -ErrorAction SilentlyContinue
 # Close the browser window of an earlier CVE report, so that it cannot match a lookup.
 Add-Type -AssemblyName UIAutomationClient

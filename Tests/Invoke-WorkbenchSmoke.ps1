@@ -5,6 +5,7 @@
 # switch prompt with the prompt stubbed.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+$script:SharedStyleRootOverride = $root
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms
 Add-Type -Path (Join-Path $root 'Lib\ControlzEx.dll')

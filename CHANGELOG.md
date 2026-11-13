@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Show white text on every blue background in the light theme.
+- Show the Site Code and SMS Provider titles in bold 14 pt in both themes.
+- Show field labels and headers in bold. Use Title Case for buttons, headers and dialog titles.
+- Use one short sentence for each tooltip, in Configuration Manager words.
+- Keep raw error text out of the window and the log pane. The log file holds it.
+- Show notes in the theme text color, with no reduced opacity.
+- Show a visible border on hover for every button.
+
+### Changed
+
+- Use one themed button style in the window, the dialogs and the Workbench.
+- Define the shared styles one time. The dialogs and the Workbench take them at run time.
+- Write the window log to a daily file in the Logs folder.
+- Let the image capture take the lab lock and work in its own folder.
+
+### Added
+
+- Add guard tests for the theme, the fonts, the button styles, Title Case and error text.
+- Require Pester 5.1.0 in every test file.
+
+### Known limit
+
+- In the light theme a disabled sidebar button keeps white text. The fix belongs in SuiteCommon.
+
 ## [2026.11.12.0134] - 2026-11-12
 
 ## 4 images of a Chrome CVE check
