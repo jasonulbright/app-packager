@@ -1,5 +1,37 @@
 # Changelog
 
+## [2026.11.13.0136] - 2026-11-13
+
+## 9 installer option fixes and a new Options window
+
+### Added
+
+- Open Options as a tree of sections with a search box.
+- Add SQL instance and SQL port to the site database settings.
+- Import your own Microsoft 365 configuration.xml and use it in the packagers.
+- Add Test connection for ConfigMgr, WSUS and Intune.
+- Add 8 Office Deployment Tool settings to Microsoft 365 Apps.
+- Add Adobe Acrobat Reader properties, including EULA, shortcut, Chrome extension and update mode.
+- Add Beyond Compare 5 policy switches for remote profiles and saved passwords.
+- Add 11 Citrix Workspace App switches and the Enterprise Browser component.
+- Add SSMS workloads, languages and package cache options.
+- Add the installer options audit with the vendor source of each switch.
+
+### Fixed
+
+- Stop SSMS recommended and optional components from acting without a workload.
+- Stop Microsoft 365 packages from forcing shared computer activation and architecture change.
+- Remove the retired Bing ExcludeApp ID from Microsoft 365 packages.
+- Fix the DBeaver System uninstall arguments and the AI setting text.
+- Fix the Citrix App Protection tooltip.
+- Mark the TeamViewer Host settings that only a MSI uses.
+
+### Changed
+
+- Use the same Connections fields in Options and in the Setup window.
+- Show the WSUS port in one field.
+- Use sentence case and bold field titles in Options in both themes.
+
 ## [2026.11.13.0135] - 2026-11-13
 
 ## 7 fixes to the light and dark themes
