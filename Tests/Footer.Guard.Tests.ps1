@@ -21,6 +21,8 @@ BeforeAll {
 
     # ---- Settings of this repository ----------------------------------------------------------------------------
     # StartScript     : the script that builds the window and calls the footer helpers.
+    # OpenGuard       : a pattern that the -OnOpenOptions scriptblock must match (empty for none). Use it when a running action
+    #                   must block the Options dialog, because the footer click does not go through the disabled Options button.
     # ExtraScript     : more script files that hold a refresh place (the Options dialog may live in its own file).
     # StatusName      : x:Name of the footer status element.
     # FooterDocument  : the XAML document of the main window, as a pattern for its source name: a XAML file name, or
@@ -40,6 +42,7 @@ BeforeAll {
     $script:FtConfig = @{
         StartScript     = 'start-apppackager.ps1'
         ExtraScript     = @()
+        OpenGuard       = 'ActionButtonsEnabled'
         StatusName      = 'txtStatus'
         FooterDocument  = '^MainWindow[.]xaml$'
         StatusVariable  = @('txtStatus')
@@ -237,6 +240,18 @@ BeforeAll {
         $found = New-Object System.Collections.Generic.List[string]
         $ast = Get-FtAst -Text $Text
         $wrapper = $script:FtConfig.Wrapper
+        if ($script:FtConfig.OpenGuard) {
+            $initG = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Initialize-SuiteFooter' }, $true))
+            foreach ($ic in $initG) {
+                $open = @($ic.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -eq 'OnOpenOptions' })
+                $argText = ''
+                if ($open.Count -gt 0) {
+                    $idx = [array]::IndexOf($ic.CommandElements, $open[0])
+                    if ($idx -ge 0 -and ($idx + 1) -lt $ic.CommandElements.Count) { $argText = $ic.CommandElements[$idx + 1].Extent.Text }
+                }
+                if ($argText -notmatch $script:FtConfig.OpenGuard) { [void]$found.Add(('{0}: the -OnOpenOptions scriptblock does not check {1}, so the footer click can open Options while an action runs' -f $Source, $script:FtConfig.OpenGuard)) }
+            }
+        }
         foreach ($t in @(Get-FtTryProblem -Text $Text -Source $Source)) { [void]$found.Add($t) }
         if ($script:FtConfig.NoSite) {
             $initNo = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Initialize-SuiteFooter' }, $true))
@@ -345,6 +360,10 @@ Describe 'Footer guard' {
     }
 
     Context 'bad samples' {
+        # The samples build their own scripts. The open guard of the app is tested in its own sample.
+        BeforeEach { $script:FtSavedGuard = $script:FtConfig.OpenGuard; $script:FtConfig.OpenGuard = '' }
+        AfterEach { $script:FtConfig.OpenGuard = $script:FtSavedGuard }
+
         It 'fails a font on the footer status element, on a sibling in the bar and in a property element' {
             $bad = '<Grid ' + $script:FtSampleNs + '><Border><TextBlock x:Name="txtStatus" FontSize="11"/></Border></Grid>'
             $r = Get-FtFooterXamlProblem -Text $bad -Source 'sample' -StatusName 'txtStatus'
@@ -393,10 +412,34 @@ Describe 'Footer guard' {
             }
         }
 
+        It 'still flags a read-only name inside a function, and exempts it at script scope' {
+            $saved = $script:FtConfig.ReadOnlyName
+            try {
+                $script:FtConfig.ReadOnlyName = @('txtWizSiteCode')
+                @(Get-FtCodeProblem -Text 'function Show-Other { $c = $w.FindName(''txtWizSiteCode'') }' -Source 'sample').Count | Should -Be 1
+                @(Get-FtCodeProblem -Text '$c = $w.FindName(''txtWizSiteCode'')' -Source 'sample') | Should -BeNullOrEmpty
+                $script:FtConfig.ReadOnlyName = @('txtWizSiteCode@Show-Other')
+                @(Get-FtCodeProblem -Text 'function Show-Other { $c = $w.FindName(''txtWizSiteCode'') }' -Source 'sample') | Should -BeNullOrEmpty
+            }
+            finally { $script:FtConfig.ReadOnlyName = $saved }
+        }
+
         It 'fails an editable site box in a XAML here-string outside the Options functions' {
             $nl = [Environment]::NewLine
             $bad = 'function Show-Other {' + $nl + '$x = @''' + $nl + '<StackPanel ' + $script:FtSampleNs + '><TextBox x:Name="txtProvider"/></StackPanel>' + $nl + '''@' + $nl + '}'
             @(Get-FtCodeProblem -Text $bad -Source 'sample').Count | Should -Be 1
+        }
+
+        It 'fails an -OnOpenOptions scriptblock that does not carry the open guard' {
+            $saved = $script:FtConfig.OpenGuard
+            try {
+                $script:FtConfig.OpenGuard = 'ActionButtonsEnabled'
+                $bad = 'try { Initialize-SuiteFooter -Window $w -OnOpenOptions { Show-OptionsDialog } } catch { Write-Host 1 }'
+                $good = 'try { Initialize-SuiteFooter -Window $w -OnOpenOptions { if (-not $script:ActionButtonsEnabled) { return }; Show-OptionsDialog } } catch { Write-Host 1 }'
+                @(Get-FtWiringProblem -Text $bad -Source 'sample' | Where-Object { $_ -match 'OnOpenOptions' }).Count | Should -Be 1
+                @(Get-FtWiringProblem -Text $good -Source 'sample' | Where-Object { $_ -match 'OnOpenOptions' }) | Should -BeNullOrEmpty
+            }
+            finally { $script:FtConfig.OpenGuard = $saved }
         }
 
         It 'fails a footer call outside a try statement, and a try with an empty catch' {

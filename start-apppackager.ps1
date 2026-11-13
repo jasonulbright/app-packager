@@ -15272,7 +15272,7 @@ $lnkUpdateAvailable.Add_Click({ Open-UpdateReleasePage })
 $btnUpdateNow.Add_Click({ Invoke-SelfUpdate -Owner $window })
 
 $window.Add_Loaded({
-    try { Initialize-SuiteFooter -Window $window -StatusName 'txtStatus' -OnOpenOptions { Show-OptionsDialog -Owner $window; Update-ApFooter } | Out-Null }
+    try { Initialize-SuiteFooter -Window $window -StatusName 'txtStatus' -OnOpenOptions { if (-not $script:ActionButtonsEnabled) { return }; Show-OptionsDialog -Owner $window; Update-ApFooter } | Out-Null }
     catch { Add-LogLine -Message 'The footer was not set up.' }
     Update-ApFooter
     Add-LogLine -Message ("Loading packagers from: {0}" -f $PackagersRoot)

@@ -20,7 +20,7 @@
 - Show the site code box of the Convert ConfigMgr App to Intune dialog as read-only text. It shows the site code from Options. The error text names Options, Connections, ConfigMgr.
 - Use the shared footer style of SuiteCommon for the status text, in both themes. The status element has no font setting of its own.
 - Refresh the vendored SuiteCommon library to release 2026.11.13.0082.
-- Update the README text and the user guide text. Retake every image of the user guide with the footer, and the README images main-dark.png, setup.png, workbench.png and drop-preview.png. The capture tool takes them from the same run.
+- Update the README text and the user guide text. Retake the images of the user guide that show the main window with the footer (the dialog images have no footer and stay as they were), and the README images main-dark.png, setup.png, workbench.png and drop-preview.png. The capture tool takes them from the same run.
 - Retake the four Chrome CVE images in both themes. The live NVD data now lists 54 CVEs for Chrome 157.0.8103.40, so the text of the CVE page names 54 and `54 of 54`.
 - Rewrite the Setup step of the Chrome capture for the rebuilt Setup window. The capture of the Options pages now closes the Options window, so that it does not cover the next images.
 
