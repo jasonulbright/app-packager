@@ -5220,6 +5220,7 @@ function Test-OdtConfigurationXml {
                     $notes.Add(("Channel '{0}' is not supported by the packagers. They use the channel from Options." -f $channel))
                 }
                 $notes.Add('OfficeClientEdition, Version and SourcePath are set by the packager.')
+                $notes.Add('Every Microsoft 365 Apps, Project and Visio package uses this file with its Product elements, so list the products that you want in the file.')
                 $display = @($root.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -ceq 'Display' }) | Select-Object -First 1
                 if (-not $display -or $display.GetAttribute('Level') -cne 'None' -or $display.GetAttribute('AcceptEULA') -cne 'TRUE') {
                     $notes.Add('Display is set to Level None and AcceptEULA TRUE, so that the install is silent.')

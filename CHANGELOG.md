@@ -31,6 +31,8 @@
 - Use the same Connections fields in Options and in the Setup window.
 - Show the WSUS port in one field.
 - Use sentence case and bold field titles in Options in both themes.
+- Leave shared computer activation and architecture change off in Microsoft 365 packages unless you select them.
+- Emit SSMS recommended and optional components only with a workload.
 
 ## [2026.11.13.0135] - 2026-11-13
 

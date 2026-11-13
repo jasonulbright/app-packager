@@ -97,12 +97,20 @@ if ($StageOnly -and $PackageOnly) {
 # --- Imported configuration.xml ---
 # A file imported in Options sets the channel and the deploy mode. The packager still sets the edition,
 # the version, the source path and the silent display, and keeps its own detection.
-$UserConfigPath = Get-OdtUserConfigPath -Preferences (Get-PackagerPreferences)
-if ($UserConfigPath) {
-    $userConfigInfo = Get-OdtUserConfigInfo -Text ([System.IO.File]::ReadAllText($UserConfigPath, [System.Text.Encoding]::UTF8))
-    if ($userConfigInfo.Channel) { $M365Channel = $userConfigInfo.Channel }
-    $M365DeployMode = $userConfigInfo.DeployMode
-    Write-Log "Imported configuration.xml   : $UserConfigPath (channel $M365Channel, deploy mode $M365DeployMode)"
+$UserConfigPath = ''
+try {
+    $UserConfigPath = Get-OdtUserConfigPath -Preferences (Get-PackagerPreferences)
+    if ($UserConfigPath) {
+        $userConfigInfo = Get-OdtUserConfigInfo -Text ([System.IO.File]::ReadAllText($UserConfigPath, [System.Text.Encoding]::UTF8))
+        if ($userConfigInfo.Channel) { $M365Channel = $userConfigInfo.Channel }
+        $M365DeployMode = $userConfigInfo.DeployMode
+        Write-Log "Imported configuration.xml   : $UserConfigPath (channel $M365Channel, deploy mode $M365DeployMode)"
+    }
+}
+catch {
+    # Only a stage needs the file. Check Latest and Package run without it.
+    if ($StageOnly -or -not ($GetLatestVersionOnly -or $PackageOnly)) { Write-Log ("The imported configuration.xml cannot be used: {0}" -f $_.Exception.Message) -Level ERROR; exit 1 }
+    $UserConfigPath = ''
 }
 
 # --- Configuration ---
