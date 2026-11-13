@@ -53,7 +53,7 @@ BeforeAll {
         )
         OptionsFunction = @('Show-OptionsDialog', 'Show-FirstRunWizard', 'Connect-OptionsFieldLink', 'Get-OptionsSectionDefinition', 'Initialize-OptionsTestSection')
         SiteNamePattern = '(?i)^((txt|cbo|cmb|tb)\w*(SiteCode|SiteServer|SiteSrv|SmsProvider|Provider|Site)\d*|cm\.(siteCode|provider))$'
-        ReadOnlyName    = @('txtCmSite', 'txtFooterSite')
+        ReadOnlyName    = @('txtCmSite@Show-CmImportDialog', 'txtFooterSite@Update-ApFooter')
     }
     # --------------------------------------------------------------------------------------------------------------
 
@@ -191,8 +191,10 @@ BeforeAll {
         $strings = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $n.StringConstantType -notin 'SingleQuotedHereString', 'DoubleQuotedHereString' }, $true)
         foreach ($s in @($strings)) {
             if ($s.Value -notmatch $script:FtConfig.SiteNamePattern) { continue }
-            if ($script:FtConfig.ReadOnlyName -contains $s.Value) { continue }
             $fn = Get-FtFunctionName $s
+            # A read-only name is exempt only at script scope (the binding of a read-only control), never inside a function, unless the entry is 'name@Function'.
+            if ($script:FtConfig.ReadOnlyName -contains $s.Value -and -not $fn) { continue }
+            if ($script:FtConfig.ReadOnlyName -contains ($s.Value + '@' + $fn)) { continue }
             if ($script:FtConfig.OptionsFunction -contains $fn) { continue }
             $where = if ($fn) { 'function ' + $fn } else { 'script scope' }
             [void]$found.Add(('{0}: line {1} uses the site box name {2} in {3}, outside the Options dialog' -f $Source, $s.Extent.StartLineNumber, $s.Value, $where))

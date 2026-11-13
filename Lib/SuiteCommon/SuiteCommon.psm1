@@ -1070,7 +1070,7 @@ function Set-ConnectionTextTheme {
 # Footer. One shared style for all footer text in every app, in light and dark:
 # the same font family, size, weight, style and decoration. A theme changes
 # colors only, through the MahApps text brush. The footer shows the status text
-# on the left and the site connection on the right: "Site MCM · cm01.contoso.com".
+# on the left and the site connection on the right: "Site MCM [middle dot] cm01.contoso.com".
 # The connection is read-only text. A click may open Options at the connection fields.
 $script:FooterSiteName = 'txtFooterSite'
 
