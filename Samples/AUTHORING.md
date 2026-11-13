@@ -20,7 +20,7 @@ Representative existing packagers to reference:
 | EXE with vendor-page scrape | `package-audacity.ps1` |
 | EXE with GitHub releases API | `package-bitwarden.ps1`, `package-keepass.ps1` |
 | EXE with extracted ARP metadata | `package-adobereader.ps1` (Adobe ships a self-extracting archive) |
-| MSI with company-wide ODT config | `package-m365apps-x64.ps1` (reads Packager Preferences) |
+| MSI with company-wide ODT config | `package-m365apps-x64.ps1` (reads Options, Applications, Microsoft 365 Apps) |
 | MSIX/APPX enterprise installer | `package-teams-new.ps1` |
 | User-context file detection | `package-vscode-user.ps1`, `package-postman.ps1` |
 
@@ -51,7 +51,7 @@ The GUI parses these tags with `Get-PackagerMetadata`:
 | `CPE` | No | NVD Common Platform Enumeration string used by Version Monitor for CVE lookups |
 | `ReleaseNotesUrl` | No | Shown in Version Monitor HTML report Links column |
 | `DownloadPageUrl` | No | Shown in Version Monitor HTML report Links column |
-| `UpdateCadenceDays` | No (default 7) | Default cadence for One Click Report runs. Per-app overrides live in One Click Settings |
+| `UpdateCadenceDays` | No (default 7) | Default cadence for One Click Report runs. Per-app overrides live in Options, Updates and CVEs, One Click |
 | `WsusSupport` | Yes for catalog packagers | `Yes`, or `No (<Code>)` with the blocking code that the WSUS check reports for the default build, for example `No (PerUserInstall)`. Several codes are joined with a pipe. The One Click plan reads the tag and shows `WSUS: not supported` before a run |
 | `ArpName` | Yes for catalog packagers | One or more wildcard patterns, separated by ` \| `, for the Add/Remove Programs display name of the installed app. Discover unmanaged software matches each pattern with `-like` against hardware inventory. Use a trailing wildcard for a versioned name and `[0-9]` to stop a pattern from matching a different product. Write `none` when the app makes no machine-wide Add/Remove Programs entry: a portable app, a store app, or a per-user install. Write `none` also when another packager owns the same Add/Remove Programs entry and no `ArpVersion` or `ArpArch` value separates the two |
 | `ArpVersion` | No | One wildcard pattern for the Add/Remove Programs display version, for example `17.*`. Discovery matches only inventory rows with this version. Use it when two packagers write the same display name for different major versions |
@@ -76,7 +76,7 @@ param(
 )
 ```
 
-Do not add or rename parameters that the GUI passes. Packager-specific configuration belongs in Packager Preferences (see `OPTIONS_AUTHORING.md`) or in the packager's inline config block.
+Do not add or rename parameters that the GUI passes. Packager-specific configuration belongs in Options, Applications (see `OPTIONS_AUTHORING.md`) or in the packager's inline config block.
 
 ## The four operating modes
 
@@ -110,7 +110,7 @@ Package does everything that requires the ConfigMgr console and the network shar
 2. Verify `FileServerPath` is reachable and writable (`Test-NetworkShareAccess`).
 3. Compute the network content path via `Get-NetworkAppRoot`: `<FileServerPath>\Applications\<Vendor>\<App>\<Version>\`.
 4. Copy the staged content folder to the network path (skip `stage-manifest.json` - it stays local).
-5. Call `New-MECMApplicationFromManifest` with the manifest. The shared module creates the CM Application, adds the Script deployment type with the right detection method, applies the right runtime limits, and (if Auto-distribute is configured in ConfigMgr Preferences) kicks off content distribution to the DP group.
+5. Call `New-MECMApplicationFromManifest` with the manifest. The shared module creates the CM Application, adds the Script deployment type with the right detection method, applies the right runtime limits, and (if Auto-distribute is configured in Options, Packaging, After Package) kicks off content distribution to the DP group.
 
 `New-MECMApplicationFromManifest` is idempotent but fail-closed: if an application with the same name exists in ConfigMgr, it validates that the expected deployment type also exists and returns the existing CI_ID. If the application exists without the expected deployment type, it throws because that usually means a prior package run partially created the app. Fix or remove the partial application before re-running Package.
 

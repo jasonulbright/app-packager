@@ -4,7 +4,7 @@ Discover Unmanaged Software finds applications that clients already run and that
 
 ## What it does
 
-It reads the site database, and compares the hardware inventory of Add/Remove Programs with the packagers that the Product Filter hides. It offers the packagers that match as candidates.
+It reads the site database, and compares the hardware inventory of Add/Remove Programs with the packagers that the product filter hides. It offers the packagers that match as candidates.
 
 A hidden packager is a candidate when all of these are true:
 
@@ -22,7 +22,7 @@ Use it to find out which packagers are worth turning on for your site.
 - A domain account on a domain-joined computer. Discover uses Windows authentication only.
 - The right `db_datareader` on the site database `CM_<site code>`.
 - The hardware inventory classes Add/Remove Programs and Add/Remove Programs (64) in the client settings. Without them the result says `no inventory data`.
-- A site code, or both **Discovery SQL** and **Discovery DB** in Options.
+- A site code, or both the **SQL server** and the **Database name** in Options, Connections, ConfigMgr.
 
 ## Steps
 
@@ -41,10 +41,10 @@ Use it to find out which packagers are worth turning on for your site.
 
 ## Options and settings of this page
 
-| Setting (Options > ConfigMgr Preferences) | Effect |
+| Setting | Effect |
 |---|---|
-| Discovery SQL, Discovery DB | The SQL server and the database. Leave both empty to use the values of the site. |
-| Not Offered | Shows how many applications Discover leaves out. **Clear List** empties it. |
+| SQL server, SQL instance, SQL port, Database name (Options > Connections > ConfigMgr) | The SQL Server of the site database. Discover connects to `server\instance,port`. An empty field uses the value of the site definition, and an empty database name uses `CM_` and the site code. A name `server\instance,port` in the SQL server field shows split into the three fields. |
+| Not offered by Discover (Options > Updates and CVEs > Product filter) | Shows how many applications Discover leaves out. **Clear list** empties it. |
 
 ## Limits
 

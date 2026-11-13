@@ -53,16 +53,15 @@ This guide did not run a publish to a real share. A successful publish was not c
 
 ## Options and settings of this page
 
-| Setting (Options > ConfigMgr Preferences) | Effect |
+| Setting | Effect |
 |---|---|
-| Site Code, SMS Provider | The site that receives the application. |
-| File Share Root, Content Layout | The share and the folder shape of the content: **Nested** or flat. |
-| Download Root | The local folder of Stage. |
-| Est. Runtime, Max Runtime | The runtime values of the deployment type. |
-| Fallback DPs, Neighbor/Default DP | The content options of the deployment type. |
-| Auto-distribute, DP Group | Distribute the content to a distribution point group after Package. |
-| Test Deployment, Test Collection | Deploy to a test collection after the distribution. |
-| Include version in application name, Remove version from application name | The title rule of the application. |
+| Site code, Site server / SMS Provider (Options > Connections > ConfigMgr) | The site that receives the application. |
+| Content share UNC (Options > Connections > ConfigMgr), Content layout (Options > Packaging > Folders) | The share and the folder shape of the content: **Nested** or flat. |
+| Download root (Options > Packaging > Folders) | The local folder of Stage. |
+| Estimated runtime, Maximum runtime (Options > Packaging > Deployment type defaults) | The runtime values of the deployment type. |
+| Fallback distribution points, Neighbor/default DP (Options > Packaging > Deployment type defaults) | The content options of the deployment type. |
+| Distribute content, DP group, Test deployment, Test collection (Options > Packaging > After Package) | Distribute the content to a distribution point group after Package, and deploy to a test collection after the distribution. |
+| Include version, Remove version (Options > Packaging > Application title) | The title rule of the application. |
 
 ## Limits
 
@@ -74,7 +73,7 @@ This guide did not run a publish to a real share. A successful publish was not c
 
 | Message or symptom | Cause | Fix |
 |---|---|---|
-| The log says `Network root path not accessible: <path>`. | The File Share Root does not exist or you have no access. | Correct the path in **Options > ConfigMgr Preferences**. Check the rights. |
+| The log says `Network root path not accessible: <path>`. | The content share does not exist or you have no access. | Correct the path in **Options > Connections > ConfigMgr**. Check the rights. |
 | Stage ends with `Failed`. | The download failed, or the vendor changed the page. | Open the log file that the log line names. |
 | A dialog asks about an existing application. | The title exists on the site. | Choose Overwrite, Skip or Cancel Run. |
 

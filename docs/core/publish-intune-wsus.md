@@ -23,10 +23,10 @@ This guide did not connect to Intune or to a WSUS server. Everything on this pag
 ### Turn the systems on
 
 1. Select **Options**.
-2. On **ConfigMgr Preferences**, select **Intune**, **WSUS** or both under **Systems in Use**.
-3. For Intune, type the tenant ID, the client ID and the client secret. For WSUS, open **WSUS Publishing** and type the server.
+2. Under **Connections**, on **Systems in use**, select **Intune**, **WSUS** or both.
+3. For Intune, open **Intune** and type the tenant ID, the client ID and the client secret. For WSUS, open **WSUS** and type the server. **Test connection** checks each system.
 
-![The WSUS Publishing page](../images/options-wsus.png)
+![The WSUS section](../images/options-wsus.png)
 
 A button of a system that is not ready stays disabled. Its tooltip says what is missing.
 

@@ -6674,6 +6674,9 @@ function New-OptionsFieldEditor {
         }
         default { throw ('Unknown Options field kind: ' + $kind) }
     }
+    # The field id names the control for UI Automation, so that a capture or a test finds it by id.
+    if ($editor.Focus -is [System.Windows.DependencyObject]) { [System.Windows.Automation.AutomationProperties]::SetAutomationId($editor.Focus, [string]$Field.Id) }
+    foreach ($buttonId in @($editor.Buttons.Keys)) { [System.Windows.Automation.AutomationProperties]::SetAutomationId($editor.Buttons[$buttonId], ('{0}.{1}' -f [string]$Field.Id, $buttonId)) }
     return $editor
 }
 
