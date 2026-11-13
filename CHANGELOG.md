@@ -1,6 +1,8 @@
 # Changelog
 
-## [Unreleased]
+## [2026.11.13.0135] - 2026-11-13
+
+## 7 fixes to the light and dark themes
 
 ### Fixed
 
