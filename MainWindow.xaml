@@ -215,10 +215,10 @@
             <!-- Section header: Gray1 is the only theme-adaptive MahApps grey brush.
                  Gray2 is static #7F7F7F and fails WCAG AA (3.83:1 dark, 4.00:1 light).
                  Gray1 resolves to #F9F9F9 on dark (15.28:1, AAA) and #333333 on
-                 light (12.63:1, AAA). Titles are bold in both themes. -->
+                 light (12.63:1, AAA). Section headers keep the SemiBold weight in both themes. -->
             <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="11"/>
-                <Setter Property="FontWeight" Value="Bold"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
                 <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray1}"/>
                 <Setter Property="Margin" Value="12,16,0,6"/>
             </Style>
@@ -466,7 +466,7 @@
             <Border Grid.Row="3">
                 <DockPanel>
                     <TextBlock x:Name="lblLogOutput" DockPanel.Dock="Top" Text="Log Output"
-                               FontSize="11" FontWeight="Bold"
+                               FontSize="11" FontWeight="SemiBold"
                                Margin="8,6,0,4"/>
                     <TextBox x:Name="txtLog"
                              IsReadOnly="True"
@@ -502,7 +502,7 @@
                     <Controls:ProgressRing IsActive="True" Width="56" Height="56"
                                            Foreground="{DynamicResource MahApps.Brushes.Accent}"/>
                     <TextBlock x:Name="txtProgressTitle" Text="Working..."
-                               FontSize="18" FontWeight="Bold"
+                               FontSize="18" FontWeight="SemiBold"
                                HorizontalAlignment="Center" Margin="0,14,0,0"/>
                     <TextBlock x:Name="txtProgressStep" Text=""
                                FontSize="12"

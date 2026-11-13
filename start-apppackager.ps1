@@ -5735,7 +5735,7 @@ function New-AppFlowPanel {
                                 Header="Force on launch (ignore cadence)"
                                 OnContent="" OffContent="" MinWidth="0"
                                 VerticalAlignment="Center"/>
-        <TextBlock Grid.Row="1" Grid.Column="0" Text="Default destinations" FontWeight="Bold" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="Default destinations" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
         <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,8,0,0"
                     ToolTip="The destinations of every tracked app that has no selection of its own in the grid.">
             <CheckBox x:Name="chkOneClickMecm" Content="ConfigMgr" FontSize="12" Margin="0,0,16,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
@@ -5972,7 +5972,7 @@ function New-ProductFilterPanel {
             <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
-        <TextBlock Grid.Column="0" Text="Not offered by Discover" FontSize="13" FontWeight="Bold" VerticalAlignment="Center"
+        <TextBlock Grid.Column="0" Text="Not offered by Discover" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"
                    ToolTip="Apps that Discover unmanaged software leaves out after Don't ask again for selected."/>
         <TextBlock Grid.Column="1" x:Name="txtDiscoveryDismissed" FontSize="13" VerticalAlignment="Center" Margin="0,0,12,0"/>
         <Button Grid.Column="2" x:Name="btnClearDiscoveryDismissed" Content="Clear List"
@@ -6257,17 +6257,17 @@ function New-AboutPanel {
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="License" FontWeight="Bold" FontSize="12" Margin="0,0,0,6"/>
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="License" FontSize="12" Margin="0,0,0,6"/>
             <TextBlock Grid.Row="0" Grid.Column="1" Text="MIT" FontSize="12" Margin="0,0,0,6"/>
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="Repository" FontWeight="Bold" FontSize="12" Margin="0,0,0,6"/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Repository" FontSize="12" Margin="0,0,0,6"/>
             <TextBlock Grid.Row="1" Grid.Column="1" FontSize="12" Margin="0,0,0,6">
                 <Hyperlink x:Name="lnkAboutRepo" ToolTip="Open the project on GitHub.">
                     <Run x:Name="runAboutRepo" Text="github.com"/>
                 </Hyperlink>
             </TextBlock>
-            <TextBlock Grid.Row="2" Grid.Column="0" Text="Last update check" FontWeight="Bold" FontSize="12" Margin="0,0,0,6"/>
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Last update check" FontSize="12" Margin="0,0,0,6"/>
             <TextBlock Grid.Row="2" Grid.Column="1" x:Name="txtAboutLastCheck" FontSize="12" Margin="0,0,0,6"/>
-            <TextBlock Grid.Row="3" Grid.Column="0" Text="Latest release" FontWeight="Bold" FontSize="12"/>
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Latest release" FontSize="12"/>
             <TextBlock Grid.Row="3" Grid.Column="1" x:Name="txtAboutLatest" FontSize="12"/>
         </Grid>
         <StackPanel Orientation="Horizontal">
@@ -10212,7 +10212,7 @@ function Show-DropIntakeDialog {
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" x:Name="txtDropFile" FontSize="14" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+        <TextBlock Grid.Row="0" x:Name="txtDropFile" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
         <TextBlock Grid.Row="1" x:Name="txtDropDetected" Margin="0,4,0,12" Foreground="{DynamicResource MahApps.Brushes.Gray1}"/>
 
         <Grid Grid.Row="2">
@@ -10241,7 +10241,7 @@ function Show-DropIntakeDialog {
 
             <!-- Shown only when the installer script accepts a mode switch; the
                  two radios swap every mode-dependent field together. -->
-            <TextBlock Grid.Row="3" Grid.Column="0" x:Name="lblDropMode" Text="Install For" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,8" Visibility="Collapsed"/>
+            <TextBlock Grid.Row="3" Grid.Column="0" x:Name="lblDropMode" Text="Install For" VerticalAlignment="Center" Margin="0,0,12,8" Visibility="Collapsed"/>
             <StackPanel Grid.Row="3" Grid.Column="1" x:Name="pnlDropMode" Orientation="Horizontal" Margin="0,0,0,8" Visibility="Collapsed">
                 <RadioButton x:Name="radDropCurrentUser" Content="Current user" GroupName="DropMode" VerticalAlignment="Center" Margin="0,0,18,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 <RadioButton x:Name="radDropAllUsers" Content="All users (system)" GroupName="DropMode" VerticalAlignment="Center" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
@@ -10254,7 +10254,7 @@ function Show-DropIntakeDialog {
             <TextBlock Grid.Row="5" Grid.Column="0" x:Name="lblDropUninstall" Text="Uninstall Command" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,8"/>
             <TextBox   Grid.Row="5" Grid.Column="1" x:Name="txtDropUninstallCmd" Height="28" Margin="0,0,0,8"/>
 
-            <TextBlock Grid.Row="6" Grid.Column="0" Text="Detection" FontWeight="Bold" VerticalAlignment="Top" Margin="0,4,12,0"/>
+            <TextBlock Grid.Row="6" Grid.Column="0" Text="Detection" VerticalAlignment="Top" Margin="0,4,12,0"/>
             <TextBlock Grid.Row="6" Grid.Column="1" x:Name="txtDropDetection" TextWrapping="Wrap" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,4,0,0"/>
         </Grid>
 
@@ -10986,7 +10986,7 @@ function Show-DiscoveryDialog {
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <StackPanel Grid.Row="0" Margin="16,12,16,8">
-            <TextBlock x:Name="txtDiscoverPrompt" FontSize="14" FontWeight="Bold" TextWrapping="Wrap"/>
+            <TextBlock x:Name="txtDiscoverPrompt" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
             <TextBlock x:Name="txtDiscoverStatus" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
             <TextBlock FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
                        Text="Each app is hidden by the Product Filter, has no ConfigMgr application, and is installed on at least one client. Enabled apps join the grid for Check, Stage and Package."/>
@@ -11828,11 +11828,11 @@ function Show-CveDetailDialog {
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <StackPanel Grid.Row="0" Margin="16,12,16,8">
-            <TextBlock x:Name="txtCveTitle" FontSize="14" FontWeight="Bold" TextWrapping="Wrap"/>
+            <TextBlock x:Name="txtCveTitle" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
             <TextBlock x:Name="txtCveRange" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
             <TextBlock x:Name="txtCveNote" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Visibility="Collapsed"/>
             <DockPanel Margin="0,6,0,0">
-                <TextBlock Text="Product:" FontWeight="Bold" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <TextBlock Text="Product:" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
                 <ItemsControl x:Name="productLinks">
                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
@@ -12153,7 +12153,7 @@ function Show-OneClickPlanDialog {
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <StackPanel Grid.Row="0" Margin="16,12,16,8">
-            <TextBlock x:Name="txtPlanSummary" FontSize="14" FontWeight="Bold" TextWrapping="Wrap"/>
+            <TextBlock x:Name="txtPlanSummary" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
             <TextBlock x:Name="txtPlanAction" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
             <TextBlock x:Name="txtPlanScope" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
             <TextBlock x:Name="txtPlanBlocking" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Visibility="Collapsed"/>
