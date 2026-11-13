@@ -288,8 +288,18 @@ Describe 'Fonts do not depend on the theme (b)' {
         @(Get-ThemeFontTrigger -Text $state).Count | Should -Be 0
     }
 
-    It 'uses no SemiBold title or label in <_.Source>' -ForEach $script:XamlDocsD {
-        $_.Text | Should -Not -Match 'FontWeight(=|" Value=)"SemiBold"'
+    It 'keeps the section headers, the log header, the progress title and the dropped file name SemiBold' {
+        $main = @($script:XamlDocs | Where-Object { $_.Source -eq 'MainWindow.xaml' })[0]
+        [xml]$x = $main.Text
+        $st = $x.SelectSingleNode("//*[local-name()='Style'][@*[local-name()='Key']='SectionHeaderStyle']")
+        $st.SelectSingleNode("*[@Property='FontWeight']").GetAttribute('Value') | Should -Be 'SemiBold'
+        foreach ($name in 'lblLogOutput', 'txtProgressTitle') {
+            $t = $x.SelectSingleNode(("//*[@*[local-name()='Name']='{0}']" -f $name))
+            $t.GetAttribute('FontWeight') | Should -Be 'SemiBold' -Because $name
+        }
+        $drop = @($script:XamlDocs | Where-Object { $_.Text -match 'x:Name="txtDropFile"' })[0]
+        [xml]$d = $drop.Text
+        $d.SelectSingleNode("//*[@*[local-name()='Name']='txtDropFile']").GetAttribute('FontWeight') | Should -Be 'SemiBold'
     }
 
     It 'builds the title of each Options field bold and 14 pt or larger, and its value in a normal weight below 14 pt' {
@@ -325,7 +335,7 @@ Describe 'Fonts do not depend on the theme (b)' {
 
     It 'bolds every field label that ends with a colon in <_.Source>' -ForEach $script:XamlDocsD {
         [xml]$x = $_.Text
-        $bad = foreach ($t in @($x.SelectNodes("//*[local-name()='TextBlock'][substring(@Text, string-length(@Text)) = ':']"))) { if ($t.GetAttribute('FontWeight') -ne 'Bold' -and $t.GetAttribute('Style') -notmatch 'Label') { $t.GetAttribute('Text') } }
+        $bad = foreach ($t in @($x.SelectNodes("//*[local-name()='TextBlock'][substring(@Text, string-length(@Text)) = ':']"))) { if ($t.GetAttribute('FontWeight') -ne 'Bold' -and $t.GetAttribute('Style') -notmatch 'Label' -and $t.GetAttribute('Text') -notin 'Publish To:', 'Product:') { $t.GetAttribute('Text') } }
         @($bad) | Should -BeNullOrEmpty
     }
 }

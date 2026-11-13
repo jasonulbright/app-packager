@@ -230,15 +230,15 @@
                         <TextBlock Grid.Row="4" Grid.Column="0" Text="Profile name" Style="{StaticResource WbLabel}"/>
                         <TextBox   Grid.Row="4" Grid.Column="1" x:Name="txtProfileName" Style="{StaticResource WbField}"/>
 
-                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Stable identity" Style="{StaticResource WbLabel}"/>
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Stable identity" Style="{StaticResource WbLabel}" FontWeight="Normal"/>
                         <TextBlock Grid.Row="5" Grid.Column="1" x:Name="txtIdentity" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"
                                    Foreground="{DynamicResource MahApps.Brushes.Gray1}"/>
 
-                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Source provenance" Style="{StaticResource WbLabel}"/>
+                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Source provenance" Style="{StaticResource WbLabel}" FontWeight="Normal"/>
                         <TextBlock Grid.Row="6" Grid.Column="1" x:Name="txtProvenance" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"
                                    Foreground="{DynamicResource MahApps.Brushes.Gray1}"/>
 
-                        <TextBlock Grid.Row="7" Grid.Column="0" Text="Icon" Style="{StaticResource WbLabel}" VerticalAlignment="Top" Margin="0,6,10,6"/>
+                        <TextBlock Grid.Row="7" Grid.Column="0" Text="Icon" Style="{StaticResource WbLabel}" FontWeight="Normal" VerticalAlignment="Top" Margin="0,6,10,6"/>
                         <Grid Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,6">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
@@ -631,13 +631,13 @@
                         <CheckBox  Grid.Row="1" Grid.Column="0" x:Name="chkEstimatedDefault" FontSize="12" Margin="0,0,10,8"
                                    Content="Use default estimated install duration" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                         <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtEstimatedMinutes" Style="{StaticResource WbField}"/>
-                        <TextBlock Grid.Row="1" Grid.Column="2" Text="minutes" Style="{StaticResource WbLabel}" Margin="8,0,10,6"/>
+                        <TextBlock Grid.Row="1" Grid.Column="2" Text="minutes" Style="{StaticResource WbLabel}" FontWeight="Normal" Margin="8,0,10,6"/>
                         <TextBlock Grid.Row="1" Grid.Column="3" x:Name="lblEstimatedEffective" Style="{StaticResource WbSource}"/>
 
                         <CheckBox  Grid.Row="2" Grid.Column="0" x:Name="chkMaximumDefault" FontSize="12" Margin="0,0,10,8"
                                    Content="Use default maximum runtime" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                         <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtMaximumMinutes" Style="{StaticResource WbField}"/>
-                        <TextBlock Grid.Row="2" Grid.Column="2" Text="minutes" Style="{StaticResource WbLabel}" Margin="8,0,10,6"/>
+                        <TextBlock Grid.Row="2" Grid.Column="2" Text="minutes" Style="{StaticResource WbLabel}" FontWeight="Normal" Margin="8,0,10,6"/>
                         <TextBlock Grid.Row="2" Grid.Column="3" x:Name="lblMaximumEffective" Style="{StaticResource WbSource}"/>
 
                         <TextBlock Grid.Row="3" Grid.ColumnSpan="4" x:Name="txtTimingTargets" Style="{StaticResource WbNote}" Margin="0,4,0,10"/>
@@ -791,7 +791,7 @@
                 <Button x:Name="btnSaveAs" Content="Save As..." Style="{StaticResource DialogButton}" Margin="0,3,8,3"/>
                 <Button x:Name="btnValidate" Content="Validate" Style="{StaticResource DialogButton}" Margin="0,3,8,3"/>
                 <Button x:Name="btnStage" Content="Stage" Style="{StaticResource DialogButton}" Margin="0,3,8,3"/>
-                <TextBlock Text="Publish To:" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="8,3,8,3"/>
+                <TextBlock Text="Publish To:" FontSize="12" VerticalAlignment="Center" Margin="8,3,8,3"/>
                 <Button x:Name="btnPublishMecm" Content="ConfigMgr" Style="{StaticResource DialogAccentButton}" Margin="0,3,8,3"
                         ToolTip="Build a ConfigMgr application from the selected build."/>
                 <Button x:Name="btnPublishIntune" Content="Intune" Style="{StaticResource DialogAccentButton}" Margin="0,3,8,3"
