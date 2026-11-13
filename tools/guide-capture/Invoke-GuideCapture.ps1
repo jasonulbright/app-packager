@@ -195,6 +195,14 @@ try {
     foreach ($png in $captured) {
         if ($AddNew -or (Test-Path (Join-Path $images $png.Name))) { Copy-Item $png.FullName (Join-Path $images $png.Name) -Force }
     }
+    # The README shows guide images. Each README file takes the captured image of the same view. A view that did not
+    # capture keeps its old README image.
+    $readmeImages = @{ 'main-dark.png' = 'check-latest-done.png'; 'setup.png' = 'setup-first-run.png'; 'workbench.png' = 'workbench-application.png'; 'drop-preview.png' = 'drop-intake.png' }
+    foreach ($key in $readmeImages.Keys) {
+        $source = $captured | Where-Object { $_.Name -eq $readmeImages[$key] } | Select-Object -First 1
+        $target = Join-Path (Join-Path $repo 'screenshots') $key
+        if ($source -and (Test-Path $target)) { Copy-Item $source.FullName $target -Force }
+    }
     $ok = $true
 }
 finally {

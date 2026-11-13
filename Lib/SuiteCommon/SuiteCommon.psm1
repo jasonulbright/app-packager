@@ -1067,6 +1067,128 @@ function Set-ConnectionTextTheme {
     }
 }
 
+# Footer. One shared style for all footer text in every app, in light and dark:
+# the same font family, size, weight, style and decoration. A theme changes
+# colors only, through the MahApps text brush. The footer shows the status text
+# on the left and the site connection on the right: "Site MCM · cm01.contoso.com".
+# The connection is read-only text. A click may open Options at the connection fields.
+$script:FooterSiteName = 'txtFooterSite'
+
+function Get-SuiteFooterStyle {
+    [CmdletBinding()]
+    param()
+    [pscustomobject]@{
+        FontFamily     = 'Segoe UI'
+        FontSize       = 11.0
+        FontWeight     = 'Normal'
+        FontStyle      = 'Normal'
+        TextDecoration = 'None'
+        Foreground     = 'MahApps.Brushes.Text'
+    }
+}
+
+function Format-SuiteFooterSite {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$SiteCode, [string]$SiteServer)
+    $code = ([string]$SiteCode).Trim()
+    $server = ([string]$SiteServer).Trim()
+    $sep = [string][char]0x00B7
+    if (-not $code -and -not $server) { return 'Site not set' }
+    if (-not $code) { return ('Site not set {0} {1}' -f $sep, $server) }
+    if (-not $server) { return ('Site {0} {1} server not set' -f $code, $sep) }
+    return ('Site {0} {1} {2}' -f $code, $sep, $server)
+}
+
+function Set-SuiteFooterFont {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Mutates in-window font properties only.')]
+    param($Element)
+    if ($null -eq $Element) { return }
+    $s = Get-SuiteFooterStyle
+    $Element.FontFamily = New-Object System.Windows.Media.FontFamily($s.FontFamily)
+    $Element.FontSize   = [double]$s.FontSize
+    $Element.FontWeight = [System.Windows.FontWeights]::($s.FontWeight)
+    $Element.FontStyle  = [System.Windows.FontStyles]::($s.FontStyle)
+    if ($Element -is [System.Windows.Controls.TextBlock]) {
+        $Element.TextDecorations = $null
+        $Element.TextTrimming = [System.Windows.TextTrimming]::CharacterEllipsis
+    }
+    $Element.SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, $s.Foreground)
+}
+
+# Puts the site connection text at the right end of the status bar and gives the
+# status text and the connection text the same footer style. The status bar is
+# the Border that holds the status TextBlock. Call it once after the window loads.
+function Initialize-SuiteFooter {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Window,
+        [string]$StatusName = 'txtStatus',
+        [scriptblock]$OnOpenOptions
+    )
+    $status = $Window.FindName($StatusName)
+    if ($null -eq $status) { return $null }
+    Set-SuiteFooterFont $status
+    $existing = $Window.FindName($script:FooterSiteName)
+    if ($null -ne $existing) { Set-SuiteFooterFont $existing; return $existing }
+    $bar = $status.Parent
+    $isBorder = ($bar -is [System.Windows.Controls.Border])
+    $isDock = ($bar -is [System.Windows.Controls.DockPanel])
+    if (-not $isBorder -and -not $isDock) {
+        $kind = if ($bar) { $bar.GetType().Name } else { 'nothing' }
+        throw ('Initialize-SuiteFooter: the status text must sit in a Border or a DockPanel, not in {0}.' -f $kind)
+    }
+
+    $site = New-Object System.Windows.Controls.TextBlock
+    $site.Text = (Format-SuiteFooterSite -SiteCode '' -SiteServer '')
+    $site.Margin = [System.Windows.Thickness]::new(12, 0, 0, 0)
+    $site.VerticalAlignment = 'Center'
+    $site.HorizontalAlignment = 'Right'
+    $site.ToolTip = 'Site code and site server. Open Options to change them.'
+    [System.Windows.Automation.AutomationProperties]::SetName($site, 'Site connection')
+    if ($OnOpenOptions) {
+        $handler = $OnOpenOptions
+        $open = {
+            try { & $handler } catch { Write-Verbose ('The footer click failed: {0}' -f $_.Exception.Message) }
+        }.GetNewClosure()
+        $site.Cursor = [System.Windows.Input.Cursors]::Hand
+        $site.Focusable = $true
+        $site.Add_MouseLeftButtonUp({ & $open }.GetNewClosure())
+        $site.Add_KeyUp({ param($sender, $e) if ($e.Key -eq 'Enter' -or $e.Key -eq 'Space') { & $open } }.GetNewClosure())
+    }
+
+    if ($isDock) {
+        [System.Windows.Controls.DockPanel]::SetDock($site, [System.Windows.Controls.Dock]::Right)
+        $bar.Children.Insert($bar.Children.IndexOf($status), $site)
+    }
+    else {
+        $grid = New-Object System.Windows.Controls.Grid
+        $c0 = New-Object System.Windows.Controls.ColumnDefinition; $c0.Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star)
+        $c1 = New-Object System.Windows.Controls.ColumnDefinition; $c1.Width = [System.Windows.GridLength]::Auto
+        [void]$grid.ColumnDefinitions.Add($c0); [void]$grid.ColumnDefinitions.Add($c1)
+        $bar.Child = $null
+        [void]$grid.Children.Add($status)
+        [System.Windows.Controls.Grid]::SetColumn($site, 1)
+        [void]$grid.Children.Add($site)
+        $bar.Child = $grid
+    }
+    $site.Name = $script:FooterSiteName
+    try { $Window.RegisterName($script:FooterSiteName, $site) }
+    catch { Write-Verbose ('The footer name was not registered: {0}' -f $_.Exception.Message) }
+    $status.VerticalAlignment = 'Center'
+    Set-SuiteFooterFont $site
+    return $site
+}
+
+function Update-SuiteFooter {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Mutates in-window text only.')]
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Window, [string]$SiteCode, [string]$SiteServer)
+    $site = $Window.FindName($script:FooterSiteName)
+    if ($null -eq $site) { return }
+    $site.Text = Format-SuiteFooterSite -SiteCode $SiteCode -SiteServer $SiteServer
+}
+
 function Update-SidebarButtonTheme {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Mutates in-window brush properties only.')]
     param(

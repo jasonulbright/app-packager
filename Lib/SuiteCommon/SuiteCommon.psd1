@@ -1,6 +1,6 @@
 ﻿@{
     RootModule        = 'SuiteCommon.psm1'
-    ModuleVersion = '2026.11.12.0081'
+    ModuleVersion = '2026.11.13.0082'
     GUID              = '7c1f2a9e-4b3d-4f8a-9c6e-2d5b8e1a7f40'
     Author            = 'Jason Ulbright'
     Description       = 'Shared core for the Configuration Manager tool suite: logging, CM site connection, settings persistence, window chrome, theming, dialogs.'
@@ -45,6 +45,10 @@
         'Update-SidebarButtonTheme'
         'Set-ButtonTheme'
         'Set-DialogTheme'
+        'Get-SuiteFooterStyle'
+        'Format-SuiteFooterSite'
+        'Initialize-SuiteFooter'
+        'Update-SuiteFooter'
 
         # Dialogs
         'Show-ThemedMessage'
