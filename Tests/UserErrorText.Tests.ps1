@@ -124,3 +124,38 @@ Describe 'A -BatchMode run records a failed check and goes on' {
         $script:LogText | Should -Match 'check failed'
     }
 }
+
+Describe 'A discovery error that carries no marker leaves its detail in the log file' {
+    It 'writes the raw text with Add-Content, in a runspace that has no SuiteCommon, and gives the result a fixed sentence' {
+        $fn = Get-ShellFunction 'Invoke-DiscoveryScan'
+        $fn | Should -Not -BeNullOrEmpty
+        $log = Join-Path $env:TEMP ('ap-scanlog-' + [guid]::NewGuid().ToString('N') + '.log')
+        $rs = [runspacefactory]::CreateRunspace()
+        $rs.Open()
+        $ps = $null
+        try {
+            $ps = [powershell]::Create()
+            $ps.Runspace = $rs
+            # No module is imported: Write-Log and Initialize-Logging do not exist here, as in the scan runspace.
+            [void]$ps.AddScript({
+                    param($FunctionText, $LogPath)
+                    $env:APPPACKAGER_LOG_PATH = $LogPath
+                    Set-Item -Path 'function:Invoke-DiscoveryScan' -Value ([scriptblock]::Create($FunctionText))
+                    # Get-Command finds the snapshot command, and Resolve-CMDatabaseTarget throws a raw .NET error.
+                    function Get-CMInventorySnapshot { }
+                    function Resolve-CMDatabaseTarget { [System.IO.File]::ReadAllText('C:\no\such\secret-file.txt') }
+                    Invoke-DiscoveryScan -SiteCode 'MCM'
+                }).AddArgument($fn.Body.Extent.Text.Trim('{', '}')).AddArgument($log)
+            $result = @($ps.Invoke())[0]
+            $result.Ok | Should -BeFalse
+            $result.Error | Should -Be 'the query failed. See the log file.'
+            Test-Path -LiteralPath $log | Should -BeTrue
+            (Get-Content -LiteralPath $log -Raw) | Should -Match 'Discovery scan failed: .*secret-file\.txt'
+        }
+        finally {
+            if ($ps) { $ps.Dispose() }
+            $rs.Dispose()
+            Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
+        }
+    }
+}

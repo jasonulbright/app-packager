@@ -575,6 +575,8 @@ Describe 'No raw exception text in the UI (f)' {
         @(Get-RawExceptionToUi -ScriptText 'try { 1 } catch { Add-LogLine (Get-UserErrorText -ErrorRecord $_ -Fallback "Failed.") }').Count | Should -Be 0
         @(Get-RawExceptionToUi -ScriptText 'try { 1 } catch { if ($_.Exception.Message -match "x") { 1 } }').Count | Should -Be 0
         @(Get-RawExceptionToUi -ScriptText 'try { 1 } catch { $null = $_ }').Count | Should -Be 0
+        # Add-Content writes to a file, the log file of the window.
+        @(Get-RawExceptionToUi -ScriptText 'try { 1 } catch { Add-Content -LiteralPath $log -Value $_.Exception.Message }').Count | Should -Be 0
         @(Get-RawExceptionToUi -ScriptText 'try { 1 } catch { $x = @(1) | ForEach-Object { $_ + 1 } }').Count | Should -Be 0
         @(Get-RawExceptionToUi -ScriptText 'try { 1 } catch { throw }').Count | Should -Be 0
     }

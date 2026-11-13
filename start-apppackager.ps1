@@ -1300,8 +1300,9 @@ function Invoke-DiscoveryScan {
         $ex = $ErrorRecord.Exception
         if ($null -ne $ex -and $null -ne $ex.Data -and $ex.Data.Contains('UserMessage')) { return [string]$ex.Message }
         if ($null -ne $ex -and $ErrorRecord.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::OperationStopped -and $null -eq $ex.InnerException) { return [string]$ex.Message }
-        # The runspace has no log file yet. The shell passes the path in an environment variable.
-        if ($null -ne $ex) { try { if ($env:APPPACKAGER_LOG_PATH) { Initialize-Logging -LogPath $env:APPPACKAGER_LOG_PATH -Attach }; Write-Log ('Discovery scan failed: {0}' -f $ex.Message) -Level ERROR } catch { $null = $_ } }
+        # The runspace loads no SuiteCommon, so Write-Log does not exist here. The shell passes the log path in an environment
+        # variable, and the line goes to the file with Add-Content.
+        if ($null -ne $ex -and $env:APPPACKAGER_LOG_PATH) { try { Add-Content -LiteralPath $env:APPPACKAGER_LOG_PATH -Value ('[{0}] [ERROR] Discovery scan failed: {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $ex.Message) -Encoding UTF8 } catch { $null = $_ } }
         return 'the query failed. See the log file.'
     }
     $result = [pscustomobject]@{ Ok = $false; Error = ''; Server = ''; Database = ''; StatusText = ''; Candidates = @() }
@@ -1394,7 +1395,7 @@ function Start-DiscoveryRunspace {
                 $State.Result = Invoke-DiscoveryScan @ScanArgs
             }
             catch {
-                try { if ($env:APPPACKAGER_LOG_PATH) { Initialize-Logging -LogPath $env:APPPACKAGER_LOG_PATH -Attach }; Write-Log ('Discovery scan failed: {0}' -f $_.Exception.Message) -Level ERROR } catch { $null = $_ }
+                if ($env:APPPACKAGER_LOG_PATH) { try { Add-Content -LiteralPath $env:APPPACKAGER_LOG_PATH -Value ('[{0}] [ERROR] Discovery scan failed: {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_.Exception.Message) -Encoding UTF8 } catch { $null = $_ } }
                 $State.Result = [pscustomobject]@{ Ok = $false; Error = 'the query failed. See the log file.'; Server = ''; Database = ''; StatusText = ''; Candidates = @() }
             }
             finally { $State.Done = $true }

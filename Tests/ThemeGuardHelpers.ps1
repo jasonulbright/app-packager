@@ -426,7 +426,7 @@ function Get-RawExceptionToUi {
     param([string]$Path, [string]$ScriptText)
     $ast = if ($ScriptText) { [System.Management.Automation.Language.Parser]::ParseInput($ScriptText, [ref]$null, [ref]$null) } else { [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$null) }
     $errorName = @('_', 'PSItem', 'Error', 'ex', 'err')
-    $safeCommand = @('Write-Log', 'Write-LogErrorRecord', 'Get-UserErrorText', 'Get-HttpStatusCode', 'Get-ScanErrorText', 'Write-Warning', 'Write-Verbose')
+    $safeCommand = @('Write-Log', 'Write-LogErrorRecord', 'Get-UserErrorText', 'Get-HttpStatusCode', 'Get-ScanErrorText', 'Add-Content', 'Write-Warning', 'Write-Verbose')
     $found = @()
     foreach ($c in @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CatchClauseAst] }, $true))) {
         foreach ($v in @($c.Body.FindAll({ param($n) $n -is [System.Management.Automation.Language.VariableExpressionAst] -and $errorName -contains $n.VariablePath.UserPath }, $true))) {

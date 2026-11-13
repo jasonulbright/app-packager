@@ -1154,6 +1154,9 @@ catch {
     if ($failure.InnerException -and $failure -is [System.Management.Automation.MethodInvocationException]) { $failure = $failure.InnerException }
     $data = @{}
     foreach ($key in $failure.Data.Keys) { $data[[string]$key] = [string]$failure.Data[$key] }
+    # Only text that the tool throws itself is for the user: a throw statement. Any other error is raw .NET text and gets no marker.
+    # UserMessage lets PowerShell 7 show the text, where a rethrown exception has no OperationStopped category.
+    if ($_.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::OperationStopped -and $null -eq $failure.InnerException -and $failure.GetType().FullName -eq 'System.Management.Automation.RuntimeException') { $data['UserMessage'] = '1' }
     $info = @{ Message = [string]$failure.Message; Data = $data }
     [System.IO.File]::WriteAllText($ErrorPath, ($info | ConvertTo-Json -Depth 4 -Compress), (New-Object System.Text.UTF8Encoding($false)))
     exit 1
@@ -1198,8 +1201,6 @@ catch {
                 $info = $raw | ConvertFrom-Json -ErrorAction Stop
                 if ($info -and $info.PSObject.Properties['Message']) {
                     $rebuilt = New-Object System.InvalidOperationException([string]$info.Message)
-                    # The child wrote this text for the user. UserMessage lets PowerShell 7 show it, where a rethrown exception has no OperationStopped category.
-                    $rebuilt.Data['UserMessage'] = '1'
                     if ($info.PSObject.Properties['Data'] -and $info.Data) {
                         foreach ($entry in $info.Data.PSObject.Properties) { $rebuilt.Data[[string]$entry.Name] = [string]$entry.Value }
                     }
