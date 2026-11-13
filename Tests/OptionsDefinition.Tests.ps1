@@ -158,7 +158,7 @@ Describe 'Messages that name an Options page' {
 
         function Get-OptionsPathMention {
             param([string]$Text)
-            foreach ($m in [regex]::Matches($Text, '(?<![A-Za-z])Options(?:, | > )(?<rest>[^.`''"\r\n)*]+)')) {
+            foreach ($m in [regex]::Matches($Text, '(?<![A-Za-z$])Options(?:, | > )(?<rest>[^.`''"\r\n)*]+)')) {
                 [string]$m.Groups['rest'].Value
             }
         }

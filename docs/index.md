@@ -23,6 +23,7 @@ AppPackager packages 312 enterprise applications for Configuration Manager, Intu
 ## Reference
 
 - [Settings](reference/settings.md): what the tool saves and where.
+- [Installer options audit](reference/installer-options-audit.md): each installer switch of seven applications and its vendor source.
 - [Files and logs](reference/files-and-logs.md): every folder and file that the tool writes.
 - [Permissions](reference/permissions.md): the rights that each action needs.
 - [Network](reference/network.md): every outbound call.

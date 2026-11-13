@@ -449,7 +449,7 @@ function Invoke-StageAdobeReader {
         $sevenZip = Join-Path $env:ProgramFiles "7-Zip\7z.exe"
     }
     if (-not (Test-Path -LiteralPath $sevenZip)) {
-        throw "7-Zip not found at $sevenZip - required to extract Adobe enterprise installer. Install 7-Zip or verify detection in ConfigMgr Preferences."
+        throw "7-Zip not found at $sevenZip - required to extract Adobe enterprise installer. Install 7-Zip or verify detection in Options, Tools."
     }
     $extractProc = $null
     try {

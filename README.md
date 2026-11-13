@@ -77,7 +77,7 @@ For an NSIS installer the analysis reads the compiled script inside the file rat
 | **ConfigMgr Console** | Installed locally — provides `ConfigurationManager.psd1` (Package phase only) |
 | **ConfigMgr Permissions** | RBAC rights to create Applications and Deployment Types (Package phase only) |
 | **Local Admin** | Required for packager script execution |
-| **7-Zip CLI** | Required by Adobe Reader for installer extraction. Detected at launch and shown in Options, the Tools section; the detected `7z.exe` path is forwarded automatically to packagers, including non-default install locations. |
+| **7-Zip CLI** | Required by Adobe Reader for installer extraction. Detected at launch and shown in Options, Tools; the detected `7z.exe` path is forwarded automatically to packagers, including non-default install locations. |
 | **Network Share** | Write access to the SCCM content share, e.g., `\\fileserver\sccm$` (Package phase only) |
 | **WSUS console** | WSUS targets only: the WSUS console or RSAT WSUS tools at the server's version (`Add-WindowsCapability -Online -Name Rsat.WSUS.Tools~~~~0.0.1.0` on Windows 10/11) |
 | **WSUS permissions** | WSUS targets only: membership in the WSUS Administrators group on the WSUS server |
@@ -523,7 +523,7 @@ All packager scripts accept the same core parameters:
 | `APP_PACKAGER_INSTALL_MODE` | Optional `CurrentUser` or `AllUsers` for packagers that declare `SupportsInstallModes:`; the Stage phase rewrites arguments, uninstaller, detection and install behavior from that branch of the installer. The GUI sets it from the Install for column |
 | `APP_PACKAGER_COMMANDS` | Optional environment JSON of per-app install/uninstall command overrides; the GUI sets it from the Commands editor. Ignored with a warning when a DeploymentTypes manifest carries per-deployment-type commands |
 | `APP_PACKAGER_RUN_SNAPSHOT` | Path of this run's snapshot: the application, profile, profile revision, resolved assets and run overrides the Stage phase applies. Set by the GUI and the CLI; absent means the packager's own defaults |
-| `APP_PACKAGER_SIGNING` | Optional environment JSON of the script signing policy; the GUI sets it from Options > Script signing |
+| `APP_PACKAGER_SIGNING` | Optional environment JSON of the script signing policy; the GUI sets it from Options > Security > Script signing |
 | `APP_PACKAGER_WORKBENCH_ROOT` | Optional override of the workbench data root (default `%LOCALAPPDATA%\AppPackagerData\Workbench`), so a child resolves the same store as its caller |
 | `APP_PACKAGER_DOWNLOAD_ROOT` | Optional root whose `_cache` folder holds downloaded installers, shared by every profile of every application |
 | `APP_PACKAGER_ON_EXISTING` | Optional `Skip` (default), `Overwrite`, or `Fail`, deciding what a Package run does when the site already holds this application at this version. `Overwrite` replaces the deployment types in place, keeping the application object and its deployments. An unrecognized value fails the run |
