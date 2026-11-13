@@ -94,6 +94,17 @@ if ($StageOnly -and $PackageOnly) {
     exit 1
 }
 
+# --- Imported configuration.xml ---
+# A file imported in Options sets the channel and the deploy mode. The packager still sets the edition,
+# the version, the source path and the silent display, and keeps its own detection.
+$UserConfigPath = Get-OdtUserConfigPath -Preferences (Get-PackagerPreferences)
+if ($UserConfigPath) {
+    $userConfigInfo = Get-OdtUserConfigInfo -Text ([System.IO.File]::ReadAllText($UserConfigPath, [System.Text.Encoding]::UTF8))
+    if ($userConfigInfo.Channel) { $M365Channel = $userConfigInfo.Channel }
+    $M365DeployMode = $userConfigInfo.DeployMode
+    Write-Log "Imported configuration.xml   : $UserConfigPath (channel $M365Channel, deploy mode $M365DeployMode)"
+}
+
 # --- Configuration ---
 # Channel resolution from preference
 $ChannelMap = @{
@@ -203,7 +214,8 @@ function Invoke-StageM365Visio {
     # --- Load preferences ---
     $prefs = Get-PackagerPreferences
     $companyName = if ($prefs -and $prefs.CompanyName) { $prefs.CompanyName } else { $null }
-    $excludeApps = if ($prefs -and $null -ne $prefs.M365ExcludeApps) { @($prefs.M365ExcludeApps) } else { @('Groove','Lync','OneDrive','Teams','Bing') }
+    $excludeApps = if ($prefs -and $null -ne $prefs.M365ExcludeApps) { @($prefs.M365ExcludeApps) } else { @('Groove','Lync','OneDrive','Teams') }
+    $odtOptions = Get-OdtGeneratedOption -Preferences $prefs
 
     if ($isOnline) {
         # -- Online mode: CDN-direct, no source download, no version pin --
@@ -222,7 +234,7 @@ function Invoke-StageM365Visio {
 
         # Install XML: no SourcePath, no Version - pulls latest from CDN
         $installXmlPath = Join-Path $localContentPath "install.xml"
-        $installXml = New-OdtConfigXml -OfficeClientEdition $Architecture -ProductIds $ProductIds -Channel $ChannelName -CompanyName $companyName -ExcludeApps $excludeApps
+        $installXml = New-OdtConfigXml -OfficeClientEdition $Architecture -ProductIds $ProductIds -Channel $ChannelName -CompanyName $companyName -ExcludeApps $excludeApps -UserConfigPath $UserConfigPath @odtOptions
         Set-Content -LiteralPath $installXmlPath -Value $installXml -Encoding ASCII -ErrorAction Stop
         Write-Log "Written install.xml          : $installXmlPath (online, no version pin)"
 
@@ -253,7 +265,7 @@ function Invoke-StageM365Visio {
 
         # Download config - includes SourcePath for offline caching
         $downloadXmlPath = Join-Path $BaseDownloadRoot "download.xml"
-        $downloadXml = New-OdtConfigXml -OfficeClientEdition $Architecture -Version $version -ProductIds $ProductIds -SourcePath $localContentPath -Channel $ChannelName -CompanyName $companyName -ExcludeApps $excludeApps
+        $downloadXml = New-OdtConfigXml -OfficeClientEdition $Architecture -Version $version -ProductIds $ProductIds -SourcePath $localContentPath -Channel $ChannelName -CompanyName $companyName -ExcludeApps $excludeApps -UserConfigPath $UserConfigPath @odtOptions
         Set-Content -LiteralPath $downloadXmlPath -Value $downloadXml -Encoding ASCII -ErrorAction Stop
         Write-Log "Written download.xml         : $downloadXmlPath"
 
@@ -276,7 +288,7 @@ function Invoke-StageM365Visio {
 
         # Install XML: offline, version-pinned
         $installXmlPath = Join-Path $localContentPath "install.xml"
-        $installXml = New-OdtConfigXml -OfficeClientEdition $Architecture -Version $version -ProductIds $ProductIds -Channel $ChannelName -CompanyName $companyName -ExcludeApps $excludeApps
+        $installXml = New-OdtConfigXml -OfficeClientEdition $Architecture -Version $version -ProductIds $ProductIds -Channel $ChannelName -CompanyName $companyName -ExcludeApps $excludeApps -UserConfigPath $UserConfigPath @odtOptions
         Set-Content -LiteralPath $installXmlPath -Value $installXml -Encoding ASCII -ErrorAction Stop
         Write-Log "Written install.xml          : $installXmlPath"
 
@@ -336,7 +348,7 @@ function Invoke-StageM365Visio {
 
         # Online install.xml: no SourcePath, no Version - pulls latest
         # from the CDN over the VPN-side connection.
-        $onlineInstallXml = New-OdtConfigXml -OfficeClientEdition $Architecture -ProductIds $ProductIds -Channel $ChannelName -CompanyName $companyName -ExcludeApps $excludeApps
+        $onlineInstallXml = New-OdtConfigXml -OfficeClientEdition $Architecture -ProductIds $ProductIds -Channel $ChannelName -CompanyName $companyName -ExcludeApps $excludeApps -UserConfigPath $UserConfigPath @odtOptions
         Set-Content -LiteralPath (Join-Path $onlineContentPath "install.xml") -Value $onlineInstallXml -Encoding ASCII -ErrorAction Stop
         Set-Content -LiteralPath (Join-Path $onlineContentPath "uninstall.xml") -Value $uninstallXml -Encoding ASCII -ErrorAction Stop
         Write-ContentWrappers -OutputPath $onlineContentPath `

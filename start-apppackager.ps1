@@ -231,7 +231,26 @@ function Read-Preferences {
         CompanyName          = ""
         M365Channel          = "MonthlyEnterprise"
         M365DeployMode       = "Managed"
-        M365ExcludeApps      = @('Groove','Lync','OneDrive','Teams','Bing')
+        M365ExcludeApps      = @('Groove','Lync','OneDrive','Teams')
+        # The Office Deployment Tool values that the Microsoft 365 packagers write. A value that the Office Deployment
+        # Tool documents with a default of 0 or off stays off. OfficeMgmtCOM, Updates, FORCEAPPSHUTDOWN and RemoveMSI
+        # keep the values that the packagers wrote before these were settings.
+        M365Options          = [pscustomobject]@{
+            Languages               = @('en-us')
+            OfficeMgmtCom           = $true
+            UpdatesEnabled          = $true
+            ForceAppShutdown        = $true
+            RemoveMsi               = $true
+            MigrateArch             = $false
+            SharedComputerLicensing = $false
+            DeviceBasedLicensing    = $false
+        }
+        # A configuration.xml that the user imported replaces the generated one. The file is stored in Packagers.
+        M365CustomConfig     = [pscustomobject]@{
+            Enabled   = $false
+            FileName  = ''
+            SizeBytes = 0
+        }
         SSMSInstallOptions   = [pscustomobject]@{
             UIMode             = "Quiet"
             DownloadThenInstall = $true
@@ -241,22 +260,37 @@ function Read-Preferences {
             RemoveOos          = $true
             ForceClose         = $false
             InstallPath        = ""
+            Workloads          = @()
+            Languages          = @()
+            NoCache            = $false
         }
         DBeaverInstallOptions = [pscustomobject]@{
             InstallScope = "System"
             DisableAI    = $false
         }
         AdobeReaderInstallOptions = [pscustomobject]@{
-            Edition   = 'English'
-            Languages = @()
+            Edition                   = 'English'
+            Languages                 = @()
+            AcceptEula                = $false
+            DisableDesktopShortcut    = $false
+            DisableChromeExtension    = $false
+            DisableBrowserIntegration = $false
+            UpdateMode                = ''
         }
         BeyondCompareKeyFile = ""
+        BeyondCompareOptions = [pscustomobject]@{
+            DisableRemoteProfiles = $false
+            DisableSavedPasswords = $false
+        }
         LocalSourceFolders   = [pscustomobject]@{}
         HiddenApplications   = @()
         DiscoveryDismissed   = @()
         DiscoveryEnabled     = @()
         # Empty means the server and the CM_<site> database come from the site.
         DiscoverySqlServer   = ''
+        DiscoverySqlInstance = ''
+        # 0 means the default port of the instance.
+        DiscoverySqlPort     = 0
         DiscoverySqlDatabase = ''
         FirstRunCompleted    = $false
         IncludeVersionInTitle = $false
@@ -422,10 +456,28 @@ function Read-Preferences {
         }
 
         if ($null -ne $data.M365ExcludeApps) {
-            # Filter to only documented ExcludeApp IDs (plus "Bing" which is
-            # accepted historically). Unknown values are dropped silently.
-            $validExcludes = @('Access','Excel','Groove','Lync','OneDrive','OneNote','Outlook','OutlookForWindows','PowerPoint','Publisher','Teams','Word','Bing')
+            # Filter to only documented ExcludeApp IDs. Unknown values, such as the
+            # retired Bing ID, are dropped silently.
+            $validExcludes = @('Access','Excel','Groove','Lync','OneDrive','OneNote','Outlook','OutlookForWindows','PowerPoint','Publisher','Teams','Word')
             $defaults.M365ExcludeApps = @($data.M365ExcludeApps | Where-Object { $_ -in $validExcludes })
+        }
+
+        if ($null -ne $data.M365Options) {
+            $mo = $data.M365Options
+            foreach ($prop in @('OfficeMgmtCom','UpdatesEnabled','ForceAppShutdown','RemoveMsi','MigrateArch','SharedComputerLicensing','DeviceBasedLicensing')) {
+                if ($null -ne $mo.$prop) { try { $defaults.M365Options.$prop = [bool]$mo.$prop } catch { <# Reading a boolean setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
+            }
+            if ($null -ne $mo.Languages) {
+                $codes = @($mo.Languages | ForEach-Object { ([string]$_).Trim().ToLowerInvariant() } | Where-Object { $_ -match '^[a-z]{2,3}(-[a-z0-9]{2,8}){1,2}$' })
+                if ($codes.Count -gt 0) { $defaults.M365Options.Languages = $codes }
+            }
+        }
+        if ($null -ne $data.M365CustomConfig) {
+            $mc = $data.M365CustomConfig
+            if ($null -ne $mc.Enabled) { try { $defaults.M365CustomConfig.Enabled = [bool]$mc.Enabled } catch { <# Reading a boolean setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
+            if ($null -ne $mc.FileName) { $defaults.M365CustomConfig.FileName = [string]$mc.FileName }
+            $sizeBytes = 0
+            if ([long]::TryParse([string]$mc.SizeBytes, [ref]$sizeBytes) -and $sizeBytes -ge 0) { $defaults.M365CustomConfig.SizeBytes = $sizeBytes }
         }
 
         if ($null -ne $data.SSMSInstallOptions) {
@@ -434,12 +486,14 @@ function Read-Preferences {
                 $modeRaw = [string]$ssms.UIMode
                 if ($modeRaw -in @('Quiet','Passive')) { $defaults.SSMSInstallOptions.UIMode = $modeRaw }
             }
-            foreach ($prop in @('DownloadThenInstall','NoUpdateInstaller','IncludeRecommended','IncludeOptional','RemoveOos','ForceClose')) {
+            foreach ($prop in @('DownloadThenInstall','NoUpdateInstaller','IncludeRecommended','IncludeOptional','RemoveOos','ForceClose','NoCache')) {
                 if ($null -ne $ssms.$prop) {
                     try { $defaults.SSMSInstallOptions.$prop = [bool]$ssms.$prop } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ }
                 }
             }
             if ($null -ne $ssms.InstallPath) { $defaults.SSMSInstallOptions.InstallPath = [string]$ssms.InstallPath }
+            if ($null -ne $ssms.Workloads) { $defaults.SSMSInstallOptions.Workloads = @($ssms.Workloads | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -match '^Microsoft\.SqlServer\.Workload\.SSMS\.[A-Za-z]+$' }) }
+            if ($null -ne $ssms.Languages) { $defaults.SSMSInstallOptions.Languages = @($ssms.Languages | ForEach-Object { ([string]$_).Trim().ToLowerInvariant() } | Where-Object { $_ -match '^[a-z]{2}-[a-z]{2}$' }) }
         }
 
         if ($null -ne $data.DBeaverInstallOptions) {
@@ -454,9 +508,18 @@ function Read-Preferences {
             $ar = $data.AdobeReaderInstallOptions
             if ([string]$ar.Edition -in @('English', 'MUI')) { $defaults.AdobeReaderInstallOptions.Edition = [string]$ar.Edition }
             if ($null -ne $ar.Languages) { $defaults.AdobeReaderInstallOptions.Languages = @($ar.Languages | ForEach-Object { [string]$_ } | Where-Object { $_ -match '^([a-z]{2}_[A-Z]{2}|All)$' }) }
+            foreach ($prop in @('AcceptEula','DisableDesktopShortcut','DisableChromeExtension','DisableBrowserIntegration')) {
+                if ($null -ne $ar.$prop) { try { $defaults.AdobeReaderInstallOptions.$prop = [bool]$ar.$prop } catch { <# Reading a boolean setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
+            }
+            if ([string]$ar.UpdateMode -in @('', '0', '2', '3', '4')) { $defaults.AdobeReaderInstallOptions.UpdateMode = [string]$ar.UpdateMode }
         }
 
         if ($null -ne $data.BeyondCompareKeyFile)  { $defaults.BeyondCompareKeyFile = [string]$data.BeyondCompareKeyFile }
+        if ($null -ne $data.BeyondCompareOptions) {
+            foreach ($prop in @('DisableRemoteProfiles','DisableSavedPasswords')) {
+                if ($null -ne $data.BeyondCompareOptions.$prop) { try { $defaults.BeyondCompareOptions.$prop = [bool]$data.BeyondCompareOptions.$prop } catch { <# Reading a boolean setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
+            }
+        }
         if ($null -ne $data.LocalSourceFolders) {
             $sourceProps = [ordered]@{}
             foreach ($prop in $data.LocalSourceFolders.PSObject.Properties) {
@@ -481,6 +544,9 @@ function Read-Preferences {
         }
         if ($null -ne $data.DiscoverySqlServer)   { $defaults.DiscoverySqlServer   = ([string]$data.DiscoverySqlServer).Trim() }
         if ($null -ne $data.DiscoverySqlDatabase) { $defaults.DiscoverySqlDatabase = ([string]$data.DiscoverySqlDatabase).Trim() }
+        if ($null -ne $data.DiscoverySqlInstance) { $defaults.DiscoverySqlInstance = ([string]$data.DiscoverySqlInstance).Trim() }
+        $sqlPort = 0
+        if ([int]::TryParse([string]$data.DiscoverySqlPort, [ref]$sqlPort) -and $sqlPort -ge 1 -and $sqlPort -le 65535) { $defaults.DiscoverySqlPort = $sqlPort }
         $defaults.FirstRunCompleted = Resolve-FirstRunCompleted -StoredValue $data.FirstRunCompleted -PreferencesFileExisted $true
         if ($null -ne $data.IncludeVersionInTitle) {
             try { $defaults.IncludeVersionInTitle = [bool]$data.IncludeVersionInTitle } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ }
@@ -782,6 +848,13 @@ function Save-Preferences {
         $pkgPrefs["DBeaverInstallOptions"] = $Prefs.DBeaverInstallOptions
         $pkgPrefs["AdobeReaderInstallOptions"] = $Prefs.AdobeReaderInstallOptions
         $pkgPrefs["BeyondCompareKeyFile"] = [string]$Prefs.BeyondCompareKeyFile
+        $pkgPrefs["BeyondCompareOptions"] = $Prefs.BeyondCompareOptions
+        $pkgPrefs["M365Options"] = $Prefs.M365Options
+        # The packagers read the imported file from this path, and only while the box is selected and the file exists.
+        $customPath = Join-Path (Join-Path $PSScriptRoot "Packagers") "m365-configuration.user.xml"
+        $useCustom = ([bool]$Prefs.M365CustomConfig.Enabled -and (Test-Path -LiteralPath $customPath -PathType Leaf))
+        $pkgPrefs["M365UseCustomConfig"] = $useCustom
+        $pkgPrefs["M365CustomConfigPath"] = $(if ($useCustom) { $customPath } else { "" })
         $pkgPrefs["LocalSourceFolders"] = $Prefs.LocalSourceFolders
         $pkgPrefs | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $pkgPrefsPath -Encoding UTF8
     }
@@ -1287,6 +1360,8 @@ function Invoke-DiscoveryScan {
         [string]$ProviderMachineName,
         [string]$ServerOverride,
         [string]$DatabaseOverride,
+        [string]$InstanceOverride = '',
+        [int]$PortOverride = 0,
         [object[]]$Packager = @(),
         [string[]]$HiddenScript = @(),
         [string[]]$DismissedScript = @(),
@@ -1317,13 +1392,17 @@ function Invoke-DiscoveryScan {
         if (-not [string]::IsNullOrWhiteSpace($ServerOverride))   { $targetArgs.ServerOverride   = $ServerOverride.Trim() }
         if (-not [string]::IsNullOrWhiteSpace($DatabaseOverride)) { $targetArgs.DatabaseOverride = $DatabaseOverride.Trim() }
         $resolver = Get-Command -Name 'Resolve-CMDatabaseTarget' -ErrorAction SilentlyContinue
+        if ($resolver -and $resolver.Parameters.ContainsKey('InstanceOverride')) {
+            if (-not [string]::IsNullOrWhiteSpace($InstanceOverride)) { $targetArgs.InstanceOverride = $InstanceOverride.Trim() }
+            if ($PortOverride -gt 0) { $targetArgs.PortOverride = $PortOverride }
+        }
         if ($resolver -and $resolver.Parameters.ContainsKey('ProviderMachineName') -and -not [string]::IsNullOrWhiteSpace($ProviderMachineName)) {
             $targetArgs.ProviderMachineName = $ProviderMachineName.Trim()
         }
         $target = Resolve-CMDatabaseTarget @targetArgs
         if ($target -is [string]) { $result.Error = $target; return $result }
         if (-not $target -or [string]::IsNullOrWhiteSpace([string]$target.Server) -or [string]::IsNullOrWhiteSpace([string]$target.Database)) {
-            $result.Error = 'The SQL server or database of the ConfigMgr site is not known. Set the SQL server and database in Options, ConfigMgr Preferences.'
+            $result.Error = 'The SQL server or database of the ConfigMgr site is not known. Set the SQL server and database in Options, Connections, ConfigMgr.'
             return $result
         }
         $result.Server = [string]$target.Server
@@ -1894,7 +1973,7 @@ function Invoke-PackagerIntuneWinPostStep {
 
     try {
         if ([string]::IsNullOrWhiteSpace($ToolPath) -or -not (Test-Path -LiteralPath $ToolPath)) {
-            $note.Message = 'IntuneWinAppUtil.exe not available; skipped. Configure it in ConfigMgr Preferences.'
+            $note.Message = 'IntuneWinAppUtil.exe not available; skipped. Configure it in Options, Tools.'
             return $note
         }
 
@@ -2161,7 +2240,7 @@ function Get-MecmCurrentVersionByCMName {
 
         if ([string]::IsNullOrWhiteSpace($providerRoot)) {
             Set-Location $savedLocation -ErrorAction SilentlyContinue
-            throw ("Failed to connect to CM site PSDrive '{0}:'. Open the ConfigMgr console once on this machine, or set SMS Provider in Options, ConfigMgr Preferences (the ProviderMachineName value from the AdminUI connect script)." -f $SiteCode)
+            throw ("Failed to connect to CM site PSDrive '{0}:'. Open the ConfigMgr console once on this machine, or set Site server / SMS Provider in Options, Connections, ConfigMgr (the ProviderMachineName value from the AdminUI connect script)." -f $SiteCode)
         }
 
         try {
@@ -2466,7 +2545,7 @@ function Invoke-PackagerPackage {
     if ((($CreateIntuneWin -and -not $skipsSite) -or $intuneOnly) -and $result.ExitCode -eq 0) {
         $intuneNote = Invoke-PackagerIntuneWinPostStep -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -ToolPath $IntuneWinToolPath -ContentLayout $ContentLayout -SkipNetworkCopy:$intuneOnly
         if ($intuneOnly -and -not $IntunePublishConfig -and $intuneNote.Ok) {
-            $result | Add-Member -NotePropertyName IntunePublish -NotePropertyValue ([pscustomobject]@{ Ok = $false; Message = 'Intune credentials not configured; set Tenant ID, Client ID, and Client Secret in ConfigMgr Preferences.' }) -Force
+            $result | Add-Member -NotePropertyName IntunePublish -NotePropertyValue ([pscustomobject]@{ Ok = $false; Message = 'Intune credentials not configured; set Tenant ID, Client ID and Client secret in Options, Connections, Intune.' }) -Force
         }
         if ($IntunePublishConfig -and $intuneNote.Ok) {
             $pubNote = Invoke-PackagerIntunePublish -IntuneNote $intuneNote -Config $IntunePublishConfig -Comment $Comment
@@ -2555,7 +2634,7 @@ function Invoke-PackagerWsusPostStep {
     }
     try {
         if (-not $Config -or [string]::IsNullOrWhiteSpace([string]$Config.ServerName)) {
-            $note.Message = 'WSUS server not configured; set it in Options, WSUS Publishing.'
+            $note.Message = 'WSUS server not configured; set it in Options, Connections, WSUS.'
             return $note
         }
         if (-not (Get-Command -Name Publish-WsusSoftwareUpdate -ErrorAction SilentlyContinue)) {
@@ -3690,6 +3769,13 @@ function Read-CwaSwitches {
             AppProtection    = $false
             SessionPreLaunch = $false
             SelfServiceMode  = $true
+            ForceInstall            = $false
+            BidirContentRedirection = $false
+            ClientHostedAppsUrl     = $false
+            ForceLaa                = $false
+            LegacyFtaIcons          = $false
+            DisableSetting          = ''
+            ClientName              = ''
         }
         Plugins = [pscustomobject]@{
             MSTeamsPlugin        = $true
@@ -3699,11 +3785,14 @@ function Read-CwaSwitches {
             UberAgentSkipUpgrade = $false
             EPAClient            = $true
             SessionRecording     = $false
+            SkipSRAgentUpgrade   = $false
         }
         UpdateAndTelemetry = [pscustomobject]@{
-            AutoUpdateCheck = "disabled"
-            EnableCEIP      = $false
-            EnableTracing   = $false
+            AutoUpdateCheck  = "disabled"
+            AutoUpdateStream = ""
+            AURolloutPriority = ""
+            EnableCEIP       = $false
+            EnableTracing    = $false
         }
         StorePolicy = [pscustomobject]@{
             AllowAddStore = ""
@@ -3720,6 +3809,7 @@ function Read-CwaSwitches {
             BCR_Client     = $true
             USB            = $false
             SSON           = $false
+            CitrixEnterpriseBrowser = $false
         }
     }
 
@@ -3735,14 +3825,19 @@ function Read-CwaSwitches {
             if ($null -ne $data.Store.Name) { $defaults.Store.Name = [string]$data.Store.Name }
             if ($null -ne $data.Store.Url)  { $defaults.Store.Url  = [string]$data.Store.Url }
         }
-        foreach ($prop in @('CleanInstall','IncludeSSON','EnableSSON','AppProtection','SessionPreLaunch','SelfServiceMode')) {
+        foreach ($prop in @('CleanInstall','IncludeSSON','EnableSSON','AppProtection','SessionPreLaunch','SelfServiceMode','ForceInstall','BidirContentRedirection','ClientHostedAppsUrl','ForceLaa','LegacyFtaIcons')) {
             if ($null -ne $data.Installation.$prop) { $defaults.Installation.$prop = [bool]$data.Installation.$prop }
         }
-        foreach ($prop in @('MSTeamsPlugin','ZoomPlugin','WebExPlugin','UberAgent','UberAgentSkipUpgrade','EPAClient','SessionRecording')) {
+        foreach ($prop in @('DisableSetting','ClientName')) {
+            if ($null -ne $data.Installation.$prop) { $defaults.Installation.$prop = [string]$data.Installation.$prop }
+        }
+        foreach ($prop in @('MSTeamsPlugin','ZoomPlugin','WebExPlugin','UberAgent','UberAgentSkipUpgrade','EPAClient','SessionRecording','SkipSRAgentUpgrade')) {
             if ($null -ne $data.Plugins.$prop) { $defaults.Plugins.$prop = [bool]$data.Plugins.$prop }
         }
         if ($null -ne $data.UpdateAndTelemetry) {
             if ($null -ne $data.UpdateAndTelemetry.AutoUpdateCheck) { $defaults.UpdateAndTelemetry.AutoUpdateCheck = [string]$data.UpdateAndTelemetry.AutoUpdateCheck }
+            if ($null -ne $data.UpdateAndTelemetry.AutoUpdateStream) { $defaults.UpdateAndTelemetry.AutoUpdateStream = [string]$data.UpdateAndTelemetry.AutoUpdateStream }
+            if ($null -ne $data.UpdateAndTelemetry.AURolloutPriority) { $defaults.UpdateAndTelemetry.AURolloutPriority = [string]$data.UpdateAndTelemetry.AURolloutPriority }
             if ($null -ne $data.UpdateAndTelemetry.EnableCEIP)      { $defaults.UpdateAndTelemetry.EnableCEIP      = [bool]$data.UpdateAndTelemetry.EnableCEIP }
             if ($null -ne $data.UpdateAndTelemetry.EnableTracing)   { $defaults.UpdateAndTelemetry.EnableTracing   = [bool]$data.UpdateAndTelemetry.EnableTracing }
         }
@@ -3750,7 +3845,7 @@ function Read-CwaSwitches {
             if ($null -ne $data.StorePolicy.AllowAddStore) { $defaults.StorePolicy.AllowAddStore = [string]$data.StorePolicy.AllowAddStore }
             if ($null -ne $data.StorePolicy.AllowSavePwd)  { $defaults.StorePolicy.AllowSavePwd  = [string]$data.StorePolicy.AllowSavePwd }
         }
-        foreach ($prop in @('Customize','ReceiverInside','ICA_Client','AM','SelfService','DesktopViewer','WebHelper','BCR_Client','USB','SSON')) {
+        foreach ($prop in @('Customize','ReceiverInside','ICA_Client','AM','SelfService','DesktopViewer','WebHelper','BCR_Client','USB','SSON','CitrixEnterpriseBrowser')) {
             if ($null -ne $data.Components.$prop) { $defaults.Components.$prop = [bool]$data.Components.$prop }
         }
     }
@@ -5145,7 +5240,7 @@ $menuOpenStagedFolder.Add_Click({
     $dlRoot = $script:Prefs.DownloadRoot
 
     if ([string]::IsNullOrWhiteSpace($dlRoot)) {
-        Add-LogLine -Message "Download Root is not set. Open Preferences to configure."
+        Add-LogLine -Message "Download root is not set. Set it in Options, Packaging, Folders."
         return
     }
 
@@ -5182,7 +5277,7 @@ $menuOpenNetworkShare.Add_Click({
     $fsPath = $script:Prefs.FileShareRoot
 
     if ([string]::IsNullOrWhiteSpace($fsPath)) {
-        Add-LogLine -Message "File Share Root is not set. Open Preferences to configure."
+        Add-LogLine -Message "Content share is not set. Set it in Options, Connections, ConfigMgr."
         return
     }
 
@@ -5285,27 +5380,27 @@ function Get-SidebarSystemState {
     $mecmInUse   = [bool](-not $systems -or $systems.ConfigMgr)
     $intuneInUse = [bool]($systems -and $systems.Intune)
     $wsusInUse   = [bool]($systems -and $systems.Wsus)
-    $notInUse = 'not in use. Select it under Systems in use in Options, ConfigMgr Preferences.'
+    $notInUse = 'not in use. Select it under Systems in use in Options, Connections.'
 
     $consoleFound = [bool]($Prefs.DetectedTools -and $Prefs.DetectedTools.ConfigMgrConsole -and $Prefs.DetectedTools.ConfigMgrConsole.Found)
     $siteCode = [string]$Prefs.SiteCode
     $mecmReason = ''
     if (-not $mecmInUse) { $mecmReason = 'ConfigMgr is ' + $notInUse }
     elseif (-not $consoleFound) { $mecmReason = 'Needs the ConfigMgr console on this computer.' }
-    elseif ([string]::IsNullOrWhiteSpace($siteCode)) { $mecmReason = 'Set the site code in Options, ConfigMgr Preferences.' }
+    elseif ([string]::IsNullOrWhiteSpace($siteCode)) { $mecmReason = 'Set the site code in Options, Connections, ConfigMgr.' }
 
     $intune = $Prefs.Intune
     $intuneReady = [bool]($intuneInUse -and $intune -and -not [string]::IsNullOrWhiteSpace([string]$intune.TenantId) -and
         -not [string]::IsNullOrWhiteSpace([string]$intune.ClientId) -and -not [string]::IsNullOrWhiteSpace([string]$intune.ClientSecretProtected))
-    $intuneReason = $(if ($intuneInUse) { 'set Tenant ID, Client ID and Client Secret in Options, ConfigMgr Preferences.' } else { 'Intune is ' + $notInUse })
+    $intuneReason = $(if ($intuneInUse) { 'set Tenant ID, Client ID and Client secret in Options, Connections, Intune.' } else { 'Intune is ' + $notInUse })
     $wsusReady = [bool]($wsusInUse -and $Prefs.Wsus -and -not [string]::IsNullOrWhiteSpace([string]$Prefs.Wsus.ServerName))
-    $wsusReason = $(if ($wsusInUse) { 'Set the WSUS server in Options, WSUS Publishing.' } else { 'WSUS is ' + $notInUse })
+    $wsusReason = $(if ($wsusInUse) { 'Set the WSUS server in Options, Connections, WSUS.' } else { 'WSUS is ' + $notInUse })
 
     # Discovery reads the site database over SQL, so the console is not needed.
     $sqlOverride = [bool](-not [string]::IsNullOrWhiteSpace([string]$Prefs.DiscoverySqlServer) -and -not [string]::IsNullOrWhiteSpace([string]$Prefs.DiscoverySqlDatabase))
     $discoverReason = ''
     if (-not $mecmInUse) { $discoverReason = 'ConfigMgr is ' + $notInUse }
-    elseif ([string]::IsNullOrWhiteSpace($siteCode) -and -not $sqlOverride) { $discoverReason = 'Set the site code, or the SQL server and database, in Options, ConfigMgr Preferences.' }
+    elseif ([string]::IsNullOrWhiteSpace($siteCode) -and -not $sqlOverride) { $discoverReason = 'Set the site code, or the SQL server and database, in Options, Connections, ConfigMgr.' }
 
     # The conversion reads the application with the console cmdlets. The dialog
     # asks for the site code, so a blank saved site code does not block it.
@@ -5610,509 +5705,6 @@ $btnOptions.Add_Click({
 # Pass Title, Message, optional Buttons ('OK' | 'YesNo') and Icon ('Info' |
 # 'Warning' | 'Error' | 'Question'). Returns 'OK' | 'Yes' | 'No' | 'Cancel'.
 # Inherits the parent window's theme.
-# =============================================================================
-
-# =============================================================================
-# Options dialog - single master window with left-nav + right content pattern
-# (Discord / VS Code style). Replaces the four individual Show-XxxDialog
-# functions. Each panel is built by a factory returning { Name, Element,
-# Commit }; master OK runs every panel's Commit then Save-Preferences once.
-# =============================================================================
-function New-PanelStub {
-    param([string]$Name, [string]$Message = 'Panel not yet migrated to the Options window.')
-    $xaml = @"
-<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <TextBlock Text="$Message" TextWrapping="Wrap" FontSize="13" VerticalAlignment="Top" Margin="0,20,0,0"
-               Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
-</Grid>
-"@
-    [xml]$xml = Expand-SharedStyle $xaml
-    $reader = New-Object System.Xml.XmlNodeReader $xml
-    $element = [System.Windows.Markup.XamlReader]::Load($reader)
-    return @{ Name = $Name; Element = $element; Commit = { } }
-}
-
-function New-MecmPreferencesPanel {
-    $xaml = @'
-<ScrollViewer xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
-      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-<Grid Margin="0,0,4,0">
-    <Grid.RowDefinitions>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-    </Grid.RowDefinitions>
-    <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="140"/>
-        <ColumnDefinition Width="*"/>
-    </Grid.ColumnDefinitions>
-
-    <TextBlock Grid.Row="0" Grid.Column="0" Text="Systems in Use:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Select the systems that AppPackager publishes to."/>
-    <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
-        <CheckBox x:Name="chkSysMecm" Content="ConfigMgr" FontSize="13" Margin="0,0,20,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-        <CheckBox x:Name="chkSysIntune" Content="Intune" FontSize="13" Margin="0,0,20,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-        <CheckBox x:Name="chkSysWsus" Content="WSUS" FontSize="13" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Server, certificate and publish defaults are under WSUS Publishing."/>
-    </StackPanel>
-
-    <TextBlock Grid.Row="1" Grid.Column="0" Text="Site Code:" FontSize="14" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtSC" Width="80" FontSize="13" HorizontalAlignment="Left" MaxLength="5" Margin="0,0,0,8" ToolTip="The ConfigMgr site code, for example MCM."/>
-
-    <TextBlock Grid.Row="2" Grid.Column="0" Text="SMS Provider:" FontSize="14" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtProvider" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The SMS Provider server of the site."/>
-
-    <TextBlock Grid.Row="3" Grid.Column="0" Text="File Share Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtFS" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The UNC path of the content share."/>
-
-    <TextBlock Grid.Row="4" Grid.Column="0" Text="Content Layout:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The folder layout of the content share."/>
-    <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="4" Grid.Column="1" x:Name="cboLayout" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Nested keeps an app's versions adjacent for easy retention pruning; Flat is one folder per package.">
-        <ComboBoxItem Content="Nested - Applications\Vendor\App\Version"/>
-        <ComboBoxItem Content="Flat - Applications\Vendor-App-Version"/>
-    </ComboBox>
-
-    <TextBlock Grid.Row="5" Grid.Column="0" Text="Download Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBox   Grid.Row="5" Grid.Column="1" x:Name="txtDL" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The local folder for downloaded installers."/>
-
-    <TextBlock Grid.Row="6" Grid.Column="0" Text="Est. Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
-        <TextBox x:Name="txtEst" Width="60" FontSize="13" MaxLength="4" ToolTip="The estimated install time in minutes."/>
-        <TextBlock Text=" mins" FontSize="13" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray5}"/>
-    </StackPanel>
-
-    <TextBlock Grid.Row="7" Grid.Column="0" Text="Max Runtime:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <StackPanel Grid.Row="7" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
-        <TextBox x:Name="txtMax" Width="60" FontSize="13" MaxLength="4" ToolTip="The maximum install time in minutes."/>
-        <TextBlock Text=" mins" FontSize="13" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray5}"/>
-    </StackPanel>
-
-    <TextBlock Grid.Row="8" Grid.Column="0" Text="Fallback DPs:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The content option of new deployment types."/>
-    <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="8" Grid.Column="1" x:Name="cboContentFallback" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="Let a client use the site default boundary group when no other distribution point has the content.">
-        <ComboBoxItem Content="Allow - use the site default boundary group" Tag="Allow"/>
-        <ComboBoxItem Content="Deny - current and neighbor groups only" Tag="Deny"/>
-    </ComboBox>
-
-    <TextBlock Grid.Row="9" Grid.Column="0" Text="Neighbor/Default DP:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The content option of new deployment types."/>
-    <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="9" Grid.Column="1" x:Name="cboSlowNetwork" Width="360" FontSize="13" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="The deployment option for a distribution point in a neighbor or default boundary group.">
-        <ComboBoxItem Content="Download content and install" Tag="Download"/>
-        <ComboBoxItem Content="Do not download content" Tag="DoNothing"/>
-    </ComboBox>
-
-    <TextBlock Grid.Row="10" Grid.Column="0" Text="Auto-distribute:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Distribute the content after each Package run."/>
-    <CheckBox  Grid.Row="10" Grid.Column="1" x:Name="chkAutoDist" Content="Start-CMContentDistribution after Package" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-
-    <TextBlock Grid.Row="11" Grid.Column="0" Text="DP Group:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact name of the Distribution Point Group to target."/>
-    <TextBox   Grid.Row="11" Grid.Column="1" x:Name="txtDPGroup" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The name of the distribution point group."/>
-
-    <TextBlock Grid.Row="12" Grid.Column="0" Text="Test Deployment:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Deploy the application to the test collection after distribution."/>
-    <CheckBox  Grid.Row="12" Grid.Column="1" x:Name="chkTestDeploy" Content="Deploy to test collection after distribution" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-
-    <TextBlock Grid.Row="13" Grid.Column="0" Text="Test Collection:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Exact device collection name that receives the Available test deployment."/>
-    <TextBox   Grid.Row="13" Grid.Column="1" x:Name="txtTestCollection" FontSize="13" MaxLength="255" Margin="0,0,0,8" ToolTip="The name of the test device collection."/>
-
-    <TextBlock Grid.Row="14" Grid.Column="0" Text="" Margin="0,0,0,8"/>
-    <CheckBox  Grid.Row="14" Grid.Column="1" x:Name="chkCreateTestColl" Content="Create collection if it does not exist" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Create the collection, limited to All Systems, when it is missing."/>
-
-    <TextBlock Grid.Row="15" Grid.Column="0" Text="Application Title:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Default application naming for every Package run."/>
-    <CheckBox  Grid.Row="15" Grid.Column="1" x:Name="chkTitleVersion" Content="Include version in application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Add the version to each application name."/>
-    <CheckBox  Grid.Row="16" Grid.Column="1" x:Name="chkTitleNoVersion" Content="Remove version from application name" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Remove the release version from the vendor product name."/>
-
-    <TextBlock Grid.Row="17" Grid.Column="0" Text="Console:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Shows if the Configuration Manager console is found."/>
-    <Grid Grid.Row="17" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtConsoleStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
-
-    <TextBlock Grid.Row="18" Grid.Column="0" Text="7-Zip CLI:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Shows if 7z.exe, which the Adobe Reader packager needs, is found."/>
-    <Grid Grid.Row="18" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtSevenZipStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
-    <TextBlock Grid.Row="19" Grid.Column="0" Text="GitHub API:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Shows how AppPackager signs in to the GitHub API."/>
-    <Grid Grid.Row="19" Grid.Column="1" MinHeight="26" Margin="0,0,0,8"><TextBlock x:Name="txtGitHubStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
-
-    <TextBlock Grid.Row="20" Grid.Column="0" Text="Content Prep:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Shows if IntuneWinAppUtil.exe is found."/>
-    <!-- Status text in a star column so a long message wraps instead of
-         pushing the buttons past the panel edge, where they clip out of view. -->
-    <Grid Grid.Row="20" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="Auto"/>
-        </Grid.ColumnDefinitions>
-        <TextBlock Grid.Column="0" x:Name="txtIntuneWinStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
-        <Button Grid.Column="1" x:Name="btnIntuneWinDownload" Content="Download" Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" VerticalAlignment="Center" Visibility="Collapsed"/>
-    </Grid>
-
-    <TextBlock Grid.Row="21" Grid.Column="0" Text="Icon Pack:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Shows the state of the packager icon pack."/>
-    <Grid Grid.Row="21" Grid.Column="1" MinHeight="26" Margin="0,0,0,8">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition Width="Auto"/>
-        </Grid.ColumnDefinitions>
-        <TextBlock Grid.Column="0" x:Name="txtIconPackStatus" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
-        <Button Grid.Column="1" x:Name="btnIconPackDownload" Content="Download Packager Icon Pack" Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="10,0,0,0" VerticalAlignment="Center" ToolTip="Download the icon pack and extract it into Packagers\Icons."/>
-        <Button Grid.Column="2" x:Name="btnIconPackFromFile" Content="Install from File..." Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal" Margin="6,0,0,0" VerticalAlignment="Center" ToolTip="Install the icon pack from a local or UNC zip file."/>
-    </Grid>
-
-    <TextBlock Grid.Row="22" Grid.Column="0" Text="Intunewin:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="22" Grid.Column="1" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,0,8" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
-               Text="Stage builds an .intunewin beside the content when IntuneWinAppUtil is detected. Publish to ConfigMgr copies it beside the network content."/>
-    <TextBlock Grid.Row="23" Grid.Column="0" Text="Intune Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
-    <TextBox   Grid.Row="23" Grid.Column="1" x:Name="txtIntuneTenant" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="24" Grid.Column="0" Text="Intune Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The client ID of an app registration with DeviceManagementApps.ReadWrite.All."/>
-    <TextBox   Grid.Row="24" Grid.Column="1" x:Name="txtIntuneClient" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="25" Grid.Column="0" Text="Intune Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
-    <PasswordBox Grid.Row="25" Grid.Column="1" x:Name="pwdIntuneSecret" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="26" Grid.Column="0" Text="NVD API Key:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The NVD API key for Check CVEs, or empty to keep the saved key."/>
-    <PasswordBox Grid.Row="26" Grid.Column="1" x:Name="pwdNvdKey" FontSize="13" Margin="0,0,0,8"/>
-    <TextBlock Grid.Row="27" Grid.Column="0" Text="CVEs:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-    <CheckBox  Grid.Row="27" Grid.Column="1" x:Name="chkCveAfterCm" Content="Look up CVEs after Check ConfigMgr" FontSize="13" VerticalAlignment="Center" Margin="0,0,0,8" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Run Check CVEs when Check ConfigMgr finishes."/>
-    <TextBlock Grid.Row="28" Grid.Column="0" Text="Discovery SQL:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The SQL Server of the site database, or empty for the site server."/>
-    <TextBox   Grid.Row="28" Grid.Column="1" x:Name="txtDiscoverySqlServer" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The SQL Server name, for example cm01.contoso.com."/>
-    <TextBlock Grid.Row="29" Grid.Column="0" Text="Discovery DB:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The site database name, or empty for CM_ and the site code."/>
-    <TextBox   Grid.Row="29" Grid.Column="1" x:Name="txtDiscoverySqlDatabase" Width="200" FontSize="13" HorizontalAlignment="Left" MaxLength="128" Margin="0,0,0,8" ToolTip="The database name, for example CM_MCM."/>
-    <TextBlock Grid.Row="30" Grid.Column="0" Text="Not Offered:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Apps that Discover unmanaged software leaves out after Don't ask again for selected."/>
-    <StackPanel Grid.Row="30" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
-        <TextBlock x:Name="txtDiscoveryDismissed" FontSize="13" VerticalAlignment="Center" Margin="0,0,12,0"/>
-        <Button x:Name="btnClearDiscoveryDismissed" Content="Clear List"
-                Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                ToolTip="Offer each hidden app again in the next discovery."/>
-    </StackPanel>
-</Grid>
-</ScrollViewer>
-'@
-
-    [xml]$xml = Expand-SharedStyle $xaml
-    $reader = New-Object System.Xml.XmlNodeReader $xml
-    $element = [System.Windows.Markup.XamlReader]::Load($reader)
-
-    $txtSC  = $element.FindName('txtSC')
-    $txtProvider = $element.FindName('txtProvider')
-    $txtFS  = $element.FindName('txtFS')
-    $cboLayout = $element.FindName('cboLayout')
-    $cboContentFallback = $element.FindName('cboContentFallback')
-    $cboSlowNetwork = $element.FindName('cboSlowNetwork')
-    $txtDL  = $element.FindName('txtDL')
-    $txtEst = $element.FindName('txtEst')
-    $txtMax = $element.FindName('txtMax')
-    $chkAutoDist = $element.FindName('chkAutoDist')
-    $txtDPGroup  = $element.FindName('txtDPGroup')
-    $chkTestDeploy     = $element.FindName('chkTestDeploy')
-    $txtTestCollection = $element.FindName('txtTestCollection')
-    $chkCreateTestColl = $element.FindName('chkCreateTestColl')
-    $chkTitleVersion   = $element.FindName('chkTitleVersion')
-    $chkTitleNoVersion = $element.FindName('chkTitleNoVersion')
-    $txtConsoleStatus  = $element.FindName('txtConsoleStatus')
-    $txtSevenZipStatus = $element.FindName('txtSevenZipStatus')
-    $txtGitHubStatus   = $element.FindName('txtGitHubStatus')
-    $txtIntuneWinStatus   = $element.FindName('txtIntuneWinStatus')
-    $btnIntuneWinDownload = $element.FindName('btnIntuneWinDownload')
-    $txtIconPackStatus    = $element.FindName('txtIconPackStatus')
-    $btnIconPackDownload  = $element.FindName('btnIconPackDownload')
-    $btnIconPackFromFile  = $element.FindName('btnIconPackFromFile')
-    $txtIntuneTenant      = $element.FindName('txtIntuneTenant')
-    $txtIntuneClient      = $element.FindName('txtIntuneClient')
-    $pwdIntuneSecret      = $element.FindName('pwdIntuneSecret')
-    $pwdNvdKey            = $element.FindName('pwdNvdKey')
-    $chkCveAfterCm        = $element.FindName('chkCveAfterCm')
-    $txtDiscoverySqlServer   = $element.FindName('txtDiscoverySqlServer')
-    $txtDiscoverySqlDatabase = $element.FindName('txtDiscoverySqlDatabase')
-    $txtDiscoveryDismissed   = $element.FindName('txtDiscoveryDismissed')
-    $btnClearDiscoveryDismissed = $element.FindName('btnClearDiscoveryDismissed')
-    $chkSysMecm   = $element.FindName('chkSysMecm')
-    $chkSysIntune = $element.FindName('chkSysIntune')
-    $chkSysWsus   = $element.FindName('chkSysWsus')
-
-    $chkSysMecm.IsChecked   = [bool]$script:Prefs.Systems.ConfigMgr
-    $chkSysIntune.IsChecked = [bool]$script:Prefs.Systems.Intune
-    $chkSysWsus.IsChecked   = [bool]$script:Prefs.Systems.Wsus
-    $txtSC.Text  = [string]$script:Prefs.SiteCode
-    $txtProvider.Text = [string]$script:Prefs.ProviderMachineName
-    $txtDiscoverySqlServer.Text   = [string]$script:Prefs.DiscoverySqlServer
-    $txtDiscoverySqlDatabase.Text = [string]$script:Prefs.DiscoverySqlDatabase
-    $discoveryDismissedCount = @($script:Prefs.DiscoveryDismissed | Where-Object { $_ }).Count
-    $txtDiscoveryDismissed.Text = ('{0} app(s)' -f $discoveryDismissedCount)
-    $btnClearDiscoveryDismissed.IsEnabled = ($discoveryDismissedCount -gt 0)
-    $discoveryClear = @{ Pending = $false }
-    $btnClearDiscoveryDismissed.Add_Click({
-        $discoveryClear.Pending = $true
-        $txtDiscoveryDismissed.Text = '0 app(s) after OK'
-        $btnClearDiscoveryDismissed.IsEnabled = $false
-    }.GetNewClosure())
-    $txtFS.Text  = [string]$script:Prefs.FileShareRoot
-    $cboLayout.SelectedIndex = if ([string]$script:Prefs.ContentLayout -eq 'Flat') { 1 } else { 0 }
-    $cboContentFallback.SelectedIndex = if ([string]$script:Prefs.ContentFallback -eq 'Deny') { 1 } else { 0 }
-    $cboSlowNetwork.SelectedIndex = if ([string]$script:Prefs.SlowNetworkDeploymentMode -eq 'DoNothing') { 1 } else { 0 }
-    $txtDL.Text  = [string]$script:Prefs.DownloadRoot
-    $txtEst.Text = [string]$script:Prefs.EstimatedRuntimeMins
-    $txtMax.Text = [string]$script:Prefs.MaximumRuntimeMins
-    $chkAutoDist.IsChecked = [bool]$script:Prefs.ContentDistribution.AutoDistribute
-    $txtDPGroup.Text       = [string]$script:Prefs.ContentDistribution.DPGroupName
-    $chkTestDeploy.IsChecked     = [bool]$script:Prefs.ContentDistribution.DeployToTestCollection
-    $txtTestCollection.Text      = [string]$script:Prefs.ContentDistribution.TestCollectionName
-    $chkCreateTestColl.IsChecked = [bool]$script:Prefs.ContentDistribution.CreateTestCollectionIfMissing
-    $chkTitleVersion.IsChecked   = [bool]$script:Prefs.IncludeVersionInTitle
-    $chkTitleNoVersion.IsChecked = [bool]$script:Prefs.RemoveVersionFromTitle
-    $chkTitleNoVersion.IsEnabled = ($chkTitleVersion.IsChecked -ne $true)
-    $titleModeExclusive = { $chkTitleNoVersion.IsEnabled = ($chkTitleVersion.IsChecked -ne $true); if ($chkTitleVersion.IsChecked -eq $true) { $chkTitleNoVersion.IsChecked = $false } }.GetNewClosure()
-    $chkTitleVersion.Add_Checked($titleModeExclusive)
-    $chkTitleVersion.Add_Unchecked($titleModeExclusive)
-
-    # Test-deployment controls require auto-distribute + DP group: the
-    # deployment only runs after successful content distribution.
-    $updateTestDeployState = {
-        $distReady = [bool]$chkAutoDist.IsChecked -and -not [string]::IsNullOrWhiteSpace($txtDPGroup.Text)
-        $chkTestDeploy.IsEnabled     = $distReady
-        $txtTestCollection.IsEnabled = $distReady -and [bool]$chkTestDeploy.IsChecked
-        $chkCreateTestColl.IsEnabled = $distReady -and [bool]$chkTestDeploy.IsChecked
-    }.GetNewClosure()
-    & $updateTestDeployState
-    $chkAutoDist.Add_Click($updateTestDeployState)
-    $chkAutoDist.Add_Unchecked($updateTestDeployState)
-    $txtDPGroup.Add_TextChanged($updateTestDeployState)
-    $chkTestDeploy.Add_Click($updateTestDeployState)
-
-    $cm = $script:Prefs.DetectedTools.ConfigMgrConsole
-    if ($cm -and $cm.Found) {
-        $txtConsoleStatus.Text = ([char]0x2713 + " Detected  -  {0} v{1}" -f $cm.DisplayName, $cm.DisplayVersion)
-        $txtConsoleStatus.ToolTip = ("Module: {0}" -f $cm.ModulePath)
-    } else {
-        $txtConsoleStatus.Text = ([char]0x2717 + " Not detected  -  install the ConfigMgr Console (AdminUI) and reboot")
-        $txtConsoleStatus.ToolTip = "Detected once per launch via registry ARP + SMS_ADMIN_UI_PATH + well-known install paths"
-    }
-
-    $sz = $script:Prefs.DetectedTools.SevenZipCli
-    if ($sz -and $sz.Found) {
-        $txtSevenZipStatus.Text = ([char]0x2713 + " Detected  -  {0} v{1}" -f $sz.DisplayName, $sz.DisplayVersion)
-        $txtSevenZipStatus.ToolTip = ("7z.exe: {0}" -f $sz.ExePath)
-    } else {
-        $txtSevenZipStatus.Text = ([char]0x2717 + " Not detected  -  Adobe Reader requires 7-Zip CLI")
-        $txtSevenZipStatus.ToolTip = "Detected once per launch via registry ARP + Program Files\7-Zip"
-    }
-
-    # The status needs a web request to api.github.com and may start gh.exe;
-    # behind a slow proxy that held the whole Options window for seconds, so
-    # the line fills in when a background runspace has the answer.
-    $showGitHubStatus = {
-        param($gh)
-        $ghQuota = ''
-        if ($gh.Limit) {
-            $ghQuota = ' (' + $gh.Limit + ' requests/hour'
-            if ($gh.Remaining) { $ghQuota += ', ' + $gh.Remaining + ' remaining' }
-            $ghQuota += ')'
-        }
-        if ($gh.Authenticated) {
-            $txtGitHubStatus.Text = ([char]0x2713 + ' Authenticated  -  ' + $gh.Source + $ghQuota)
-            $txtGitHubStatus.ToolTip = 'The token is sent as a bearer token by every GitHub-backed packager and by the version monitor. Resolved when this window opened.'
-        } else {
-            $anonRemaining = if ($gh.Remaining) { ', ' + $gh.Remaining + ' remaining' } else { '' }
-            $txtGitHubStatus.Text = ([char]0x2717 + ' Anonymous  -  60 requests/hour per address' + $anonRemaining + '; set GITHUB_TOKEN or run gh auth login')
-            $txtGitHubStatus.ToolTip = 'A version check across the 90 GitHub-backed packagers exceeds the anonymous limit. A personal access token with no scopes is enough.'
-        }
-    }.GetNewClosure()
-    $txtGitHubStatus.Text = 'Checking GitHub access...'
-    $ghState = [hashtable]::Synchronized(@{ Done = $false; Result = $null })
-    $ghRunspace = $null
-    $ghShell = $null
-    try {
-        $ghRunspace = [runspacefactory]::CreateRunspace()
-        $ghRunspace.ApartmentState = 'MTA'
-        $ghRunspace.Open()
-        $ghShell = [powershell]::Create()
-        $ghShell.Runspace = $ghRunspace
-        [void]$ghShell.AddScript({
-            param($State, $ModulePath, $FunctionText)
-            try {
-                Import-Module -Name $ModulePath -DisableNameChecking -ErrorAction Stop
-                Set-Item -Path 'function:Get-GitHubApiAuthStatus' -Value ([scriptblock]::Create($FunctionText))
-                $State.Result = Get-GitHubApiAuthStatus
-            }
-            catch { $State.Result = $null }
-            finally { $State.Done = $true }
-        }).AddArgument($ghState).AddArgument((Join-Path $PSScriptRoot 'Packagers\AppPackagerCommon.psd1')).AddArgument((Get-Item -Path 'function:Get-GitHubApiAuthStatus').ScriptBlock.ToString())
-        $ghHandle = $ghShell.BeginInvoke()
-        $ghTimer = New-Object System.Windows.Threading.DispatcherTimer
-        $ghTimer.Interval = [TimeSpan]::FromMilliseconds(250)
-        $ghDeadline = [DateTime]::UtcNow.AddSeconds(20)
-        $ghTimer.Add_Tick({
-            if (-not $ghState.Done) {
-                if ([DateTime]::UtcNow -lt $ghDeadline) { return }
-                # gh.exe validates its login over the network without a limit of its own.
-                $ghTimer.Stop()
-                $txtGitHubStatus.Text = 'GitHub access could not be checked: no answer within 20 seconds.'
-                # Stopping a pipeline that waits on a network call blocks until it returns, so the stop is asynchronous.
-                try { [void]$ghShell.BeginStop($null, $null) } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ }
-                try { [void]$ghRunspace.CloseAsync() } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ }
-                return
-            }
-            $ghTimer.Stop()
-            if ($ghState.Result) { & $showGitHubStatus $ghState.Result }
-            else { $txtGitHubStatus.Text = 'GitHub access could not be checked.' }
-            try { $ghShell.EndInvoke($ghHandle) } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ }
-            try { $ghShell.Dispose() } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ }
-            try { $ghRunspace.Close() } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ }
-        }.GetNewClosure())
-        $ghTimer.Start()
-    }
-    catch {
-        $txtGitHubStatus.Text = 'GitHub access could not be checked.'
-        if ($ghShell) { try { [void]$ghShell.BeginStop($null, $null) } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ } }
-        if ($ghRunspace) { try { [void]$ghRunspace.CloseAsync() } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ } }
-    }
-    # The key box stays empty; an empty box keeps the saved key.
-    $chkCveAfterCm.IsChecked = [bool]$script:Prefs.Vulnerability.LookupAfterCheckCm
-    $txtIntuneTenant.Text = [string]$script:Prefs.Intune.TenantId
-    $txtIntuneClient.Text = [string]$script:Prefs.Intune.ClientId
-    $prefsRefIw = $script:Prefs
-    $updateIntuneWinState = {
-        $iw = $prefsRefIw.DetectedTools.IntuneWinAppUtil
-        if ($iw -and $iw.Found) {
-            $verText = if ([string]::IsNullOrWhiteSpace([string]$iw.DisplayVersion)) { '' } else { (" v{0}" -f $iw.DisplayVersion) }
-            $txtIntuneWinStatus.Text = ([char]0x2713 + " Detected  -  IntuneWinAppUtil{0}" -f $verText)
-            $txtIntuneWinStatus.ToolTip = ("IntuneWinAppUtil.exe: {0}" -f $iw.ExePath)
-            $btnIntuneWinDownload.Visibility = 'Collapsed'
-        } else {
-            $txtIntuneWinStatus.Text = ([char]0x2717 + " Not detected  -  download it here or place IntuneWinAppUtil.exe on PATH")
-            $txtIntuneWinStatus.ToolTip = "Checked once per launch: preferences path, LOCALAPPDATA tool cache, PATH"
-            $btnIntuneWinDownload.Visibility = 'Visible'
-        }
-    }.GetNewClosure()
-    & $updateIntuneWinState
-
-    $btnIntuneWinDownload.Add_Click({
-        $btnIntuneWinDownload.IsEnabled = $false
-        $txtIntuneWinStatus.Text = "Downloading Microsoft Win32 Content Prep Tool..."
-        $downloadOk = $false
-        try {
-            $exePath = Install-IntuneWinAppUtil -DestinationFolder (Get-IntuneWinToolCachePath)
-            $prefsRefIw.DetectedTools.IntuneWinAppUtil = Invoke-DetectIntuneWinAppUtil -KnownPath $exePath
-            Save-Preferences -Prefs $prefsRefIw
-            $downloadOk = $true
-        } catch {
-            $txtIntuneWinStatus.Text = ([char]0x2717 + " Download failed  -  {0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
-        } finally {
-            $btnIntuneWinDownload.IsEnabled = $true
-        }
-        if ($downloadOk) { & $updateIntuneWinState }
-    }.GetNewClosure())
-
-    $updateIconPackState = {
-        $txtIconPackStatus.Text = Get-IconPackStatusText -Manifest (Read-IconPackManifest -Path (Get-IconPackManifestPath))
-        $txtIconPackStatus.ToolTip = ("Manifest: {0}" -f (Get-IconPackManifestPath))
-    }.GetNewClosure()
-    & $updateIconPackState
-
-    $btnIconPackDownload.Add_Click({
-        $btnIconPackDownload.IsEnabled = $false
-        $txtIconPackStatus.Text = 'Downloading packager icon pack...'
-        try {
-            $outcome = Install-IconPack
-            Add-LogLine -Message $outcome.Message
-            $failureText = $outcome.Message
-        } finally {
-            $btnIconPackDownload.IsEnabled = $true
-            & $updateIconPackState
-            # A failed fetch leaves no manifest change, so the refreshed status
-            # line would silently repeat itself; the reason replaces it instead.
-            if ($outcome -and -not $outcome.Installed) {
-                $txtIconPackStatus.Text = ([char]0x2717 + ' ' + $failureText)
-            }
-        }
-    }.GetNewClosure())
-
-    $btnIconPackFromFile.Add_Click({
-        $dlg = New-Object Microsoft.Win32.OpenFileDialog
-        $dlg.Title  = 'Select Icon Pack Zip'
-        $dlg.Filter = 'Icon pack (*.zip)|*.zip'
-        if (-not $dlg.ShowDialog()) { return }
-        $btnIconPackFromFile.IsEnabled = $false
-        $txtIconPackStatus.Text = 'Installing icon pack from file...'
-        try {
-            $outcome = Install-IconPackFromFile -ZipPath $dlg.FileName
-            Add-LogLine -Message $outcome.Message
-            $failureText = $outcome.Message
-        } finally {
-            $btnIconPackFromFile.IsEnabled = $true
-            & $updateIconPackState
-            if ($outcome -and -not $outcome.Installed) {
-                $txtIconPackStatus.Text = ([char]0x2717 + ' ' + $failureText)
-            }
-        }
-    }.GetNewClosure())
-
-    # Closure captures panel-local controls by value. Prefs ref is captured too
-    # so the commit writes to the live $script:Prefs without needing $script:
-    # scope resolution from inside the closure (which can be unreliable).
-    $prefsRef = $script:Prefs
-    $commit = {
-        $estVal = 15; $maxVal = 30
-        if (-not [int]::TryParse($txtEst.Text.Trim(), [ref]$estVal)) { $estVal = 15 }
-        if (-not [int]::TryParse($txtMax.Text.Trim(), [ref]$maxVal)) { $maxVal = 30 }
-
-        $prefsRef.Systems.ConfigMgr    = [bool]$chkSysMecm.IsChecked
-        $prefsRef.Systems.Intune       = [bool]$chkSysIntune.IsChecked
-        $prefsRef.Systems.Wsus         = [bool]$chkSysWsus.IsChecked
-        $prefsRef.SiteCode             = $txtSC.Text.Trim()
-        $prefsRef.ProviderMachineName  = $txtProvider.Text.Trim()
-        $prefsRef.DiscoverySqlServer   = $txtDiscoverySqlServer.Text.Trim()
-        $prefsRef.DiscoverySqlDatabase = $txtDiscoverySqlDatabase.Text.Trim()
-        if ($discoveryClear.Pending) { $prefsRef.DiscoveryDismissed = @() }
-        $prefsRef.FileShareRoot        = $txtFS.Text.Trim()
-        $prefsRef.ContentLayout        = if ($cboLayout.SelectedIndex -eq 1) { 'Flat' } else { 'Nested' }
-        $prefsRef.ContentFallback      = if ($cboContentFallback.SelectedIndex -eq 1) { 'Deny' } else { 'Allow' }
-        $prefsRef.SlowNetworkDeploymentMode = if ($cboSlowNetwork.SelectedIndex -eq 1) { 'DoNothing' } else { 'Download' }
-        $prefsRef.DownloadRoot         = $txtDL.Text.Trim()
-        $prefsRef.EstimatedRuntimeMins = $estVal
-        $prefsRef.MaximumRuntimeMins   = $maxVal
-        $prefsRef.ContentDistribution.AutoDistribute = [bool]$chkAutoDist.IsChecked
-        $prefsRef.ContentDistribution.DPGroupName    = $txtDPGroup.Text.Trim()
-        $prefsRef.ContentDistribution.DeployToTestCollection        = [bool]$chkTestDeploy.IsChecked
-        $prefsRef.ContentDistribution.TestCollectionName            = $txtTestCollection.Text.Trim()
-        $prefsRef.ContentDistribution.CreateTestCollectionIfMissing = [bool]$chkCreateTestColl.IsChecked
-        $prefsRef.IncludeVersionInTitle = [bool]$chkTitleVersion.IsChecked
-        $prefsRef.RemoveVersionFromTitle = ([bool]$chkTitleNoVersion.IsChecked -and -not [bool]$chkTitleVersion.IsChecked)
-        $prefsRef.Intune.TenantId = $txtIntuneTenant.Text.Trim()
-        $prefsRef.Intune.ClientId = $txtIntuneClient.Text.Trim()
-        # An empty box keeps the stored key; a typed value replaces it,
-        # protected with DPAPI for the current Windows user.
-        if ($pwdNvdKey.SecurePassword.Length -gt 0) {
-            $prefsRef.Vulnerability.NvdApiKeyProtected = ($pwdNvdKey.SecurePassword | ConvertFrom-SecureString)
-        }
-        $prefsRef.Vulnerability.LookupAfterCheckCm = [bool]$chkCveAfterCm.IsChecked
-        # An empty box keeps the stored secret; a typed value replaces it,
-        # protected with DPAPI for the current Windows user.
-        if ($pwdIntuneSecret.SecurePassword.Length -gt 0) {
-            $prefsRef.Intune.ClientSecretProtected = ($pwdIntuneSecret.SecurePassword | ConvertFrom-SecureString)
-        }
-    }.GetNewClosure()
-
-    return @{ Name = 'ConfigMgr Preferences'; Element = $element; Commit = $commit }
-}
-
 function New-AppFlowPanel {
     $xaml = @'
 <DockPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -6304,7 +5896,7 @@ function New-AppFlowPanel {
 
 function Show-PreviewDialog {
     # Themed read-only preview window (monospaced, scrollable, Copy / Close).
-    # Used by the Packager Preferences panel's CWA and M365 preview buttons.
+    # Used by the previews of the Citrix Workspace App and Microsoft 365 Apps sections.
     param(
         [Parameter(Mandatory)]$Owner,
         [Parameter(Mandatory)][string]$Title,
@@ -6468,720 +6060,6 @@ function New-ProductFilterPanel {
     }.GetNewClosure()
 
     return @{ Name = 'Product Filter'; Element = $element; Commit = $commit }
-}
-
-function New-PackagerPreferencesPanel {
-    $sw = Read-CwaSwitches
-    $tv = Read-TvHostConfig
-    $ssms = $script:Prefs.SSMSInstallOptions
-    $dbv  = $script:Prefs.DBeaverInstallOptions
-    $adobe = $script:Prefs.AdobeReaderInstallOptions
-
-    $xaml = @'
-<DockPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-           xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-           xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro">
-    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,4">
-        <Button x:Name="btnM365Preview" Content="M365 Preview" Margin="0,0,8,0"
-                Style="{DynamicResource DialogButton}"
-                Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-        <Button x:Name="btnCwaPreview"  Content="CWA Preview"
-                Style="{DynamicResource DialogButton}"
-                Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-    </StackPanel>
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel x:Name="panelContent" Margin="0,0,4,0"/>
-    </ScrollViewer>
-</DockPanel>
-'@
-
-    [xml]$xml = Expand-SharedStyle $xaml
-    $reader = New-Object System.Xml.XmlNodeReader $xml
-    $element = [System.Windows.Markup.XamlReader]::Load($reader)
-
-    $panelContent   = $element.FindName('panelContent')
-    $btnCwaPreview  = $element.FindName('btnCwaPreview')
-    $btnM365Preview = $element.FindName('btnM365Preview')
-
-    # --- Helpers (local to factory; close over $panelContent) ---
-    $addHeader = {
-        param([string]$Text)
-        $tb = New-Object System.Windows.Controls.TextBlock
-        $tb.Text = $Text
-        $tb.FontSize = 13
-        $tb.FontWeight = [System.Windows.FontWeights]::Bold
-        $tb.Margin = New-Object System.Windows.Thickness(0, 14, 0, 6)
-        [void]$panelContent.Children.Add($tb)
-    }
-    $addDivider = {
-        $div = New-Object System.Windows.Controls.Border
-        $div.Height = 1
-        $div.Margin = New-Object System.Windows.Thickness(0, 16, 0, 0)
-        $div.SetResourceReference(
-            [System.Windows.Controls.Border]::BackgroundProperty,
-            'MahApps.Brushes.Control.Border'
-        )
-        [void]$panelContent.Children.Add($div)
-    }
-    $addLabelRow = {
-        param([string]$Label, [System.Windows.UIElement]$Control, [string]$Tooltip = '')
-        $sp = New-Object System.Windows.Controls.StackPanel
-        $sp.Orientation = [System.Windows.Controls.Orientation]::Horizontal
-        $sp.Margin = New-Object System.Windows.Thickness(0, 0, 0, 6)
-        $lbl = New-Object System.Windows.Controls.TextBlock
-        $lbl.Text = $Label
-        $lbl.Width = 130
-        $lbl.FontSize = 13
-        $lbl.FontWeight = [System.Windows.FontWeights]::Bold
-        $lbl.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-        [void]$sp.Children.Add($lbl)
-        if ($Tooltip) { $Control.ToolTip = $Tooltip }
-        [void]$sp.Children.Add($Control)
-        [void]$panelContent.Children.Add($sp)
-    }
-    $addCheckBox = {
-        param([string]$Text, [bool]$Checked, [string]$Tooltip = '', [double]$LeftMargin = 0)
-        $cb = New-Object System.Windows.Controls.CheckBox
-        $cb.Content = $Text
-        $cb.FontSize = 12
-        $cb.IsChecked = $Checked
-        $cb.Margin = New-Object System.Windows.Thickness($LeftMargin, 2, 0, 2)
-        if ($Tooltip) { $cb.ToolTip = $Tooltip }
-        [void]$panelContent.Children.Add($cb)
-        return $cb
-    }
-
-    # =============================================
-    # M365: ODT SETTINGS
-    # =============================================
-    & $addHeader "M365: ODT Settings"
-
-    $txtCN = New-Object System.Windows.Controls.TextBox
-    $txtCN.Text = $script:Prefs.CompanyName
-    $txtCN.FontSize = 13
-    $txtCN.MaxLength = 100
-    $txtCN.Width = 250
-    $txtCN.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    & $addLabelRow "Company Name:" $txtCN "Organization name embedded in Office deployment XML and other packager configs"
-
-    $cmbCH = New-Object System.Windows.Controls.ComboBox
-    $cmbCH.FontSize = 13
-    $cmbCH.Width = 220
-    $cmbCH.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    [void]$cmbCH.Items.Add((New-Object System.Windows.Controls.ComboBoxItem -Property @{Content='Monthly Enterprise Channel'}))
-    [void]$cmbCH.Items.Add((New-Object System.Windows.Controls.ComboBoxItem -Property @{Content='Current Channel'}))
-    $channelDisplayMap = @{ 'MonthlyEnterprise' = 'Monthly Enterprise Channel'; 'Current' = 'Current Channel' }
-    $currentDisplay = $channelDisplayMap[$script:Prefs.M365Channel]
-    if (-not $currentDisplay) { $currentDisplay = 'Monthly Enterprise Channel' }
-    foreach ($item in $cmbCH.Items) { if ($item.Content -eq $currentDisplay) { $cmbCH.SelectedItem = $item; break } }
-    & $addLabelRow "M365 Channel:" $cmbCH "Office 365 update channel for M365 Apps, Project, and Visio packagers"
-
-    $cmbDM = New-Object System.Windows.Controls.ComboBox
-    $cmbDM.FontSize = 13
-    $cmbDM.Width = 220
-    $cmbDM.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    [void]$cmbDM.Items.Add((New-Object System.Windows.Controls.ComboBoxItem -Property @{Content='Managed (Offline)'}))
-    [void]$cmbDM.Items.Add((New-Object System.Windows.Controls.ComboBoxItem -Property @{Content='Online (CDN)'}))
-    $deployModeDisplayMap = @{ 'Managed' = 'Managed (Offline)'; 'Online' = 'Online (CDN)' }
-    $currentDM = $deployModeDisplayMap[$script:Prefs.M365DeployMode]
-    if (-not $currentDM) { $currentDM = 'Managed (Offline)' }
-    foreach ($item in $cmbDM.Items) { if ($item.Content -eq $currentDM) { $cmbDM.SelectedItem = $item; break } }
-    & $addLabelRow "M365 Deploy Mode:" $cmbDM "Managed: download Office source (~2.3 GB), pin version. Online: CDN-direct install, always latest."
-
-    # --- Exclude apps (ExcludeApp IDs injected into ODT XML) ---
-    $tbExcl = New-Object System.Windows.Controls.TextBlock
-    $tbExcl.Text = "Exclude apps from install:"
-    $tbExcl.FontSize = 13
-    $tbExcl.FontWeight = [System.Windows.FontWeights]::Bold
-    $tbExcl.Margin = New-Object System.Windows.Thickness(0, 6, 0, 4)
-    [void]$panelContent.Children.Add($tbExcl)
-
-    $exclGrid = New-Object System.Windows.Controls.Grid
-    $exclGrid.Margin = New-Object System.Windows.Thickness(0, 0, 0, 6)
-    $ec1 = New-Object System.Windows.Controls.ColumnDefinition; $ec1.Width = [System.Windows.GridLength]::Auto
-    $ec2 = New-Object System.Windows.Controls.ColumnDefinition; $ec2.Width = [System.Windows.GridLength]::Auto
-    [void]$exclGrid.ColumnDefinitions.Add($ec1)
-    [void]$exclGrid.ColumnDefinitions.Add($ec2)
-
-    $excludeDefs = @(
-        @{Id='Access';            Label='Access';                          Tip="Exclude Microsoft Access from install. Safe to exclude in environments that don't use Access databases."}
-        @{Id='Excel';             Label='Excel';                           Tip="Exclude Excel. Rarely used in real deployments; excluding Excel usually breaks user expectations."}
-        @{Id='Groove';            Label='OneDrive for Business (Groove)';  Tip="Exclude the legacy OneDrive for Business sync client (ExcludeApp ID 'Groove'). ODT docs: 'For OneDrive, use Groove.' Recommended exclude - the modern OneDrive client is a separate install."}
-        @{Id='Lync';              Label='Skype for Business (Lync)';       Tip="Exclude Skype for Business (ExcludeApp ID 'Lync'). Skype for Business Online retired 2021; almost always safe to exclude."}
-        @{Id='OneDrive';          Label='OneDrive (modern)';               Tip="Exclude the modern per-user OneDrive client that Office auto-installs. Exclude if you deploy OneDrive separately (Intune, machine-wide installer, etc)."}
-        @{Id='OneNote';           Label='OneNote';                         Tip="Exclude OneNote. Most orgs keep OneNote installed."}
-        @{Id='Outlook';           Label='Outlook (classic)';               Tip="Exclude classic Outlook. Rarely excluded."}
-        @{Id='OutlookForWindows'; Label='Outlook for Windows (new)';       Tip="Exclude the new Outlook for Windows app that Office 365 installs alongside classic Outlook. Typical exclude until users have migrated."}
-        @{Id='PowerPoint';        Label='PowerPoint';                      Tip="Exclude PowerPoint. Rarely excluded."}
-        @{Id='Publisher';         Label='Publisher';                       Tip="Exclude Publisher. Publisher support ends October 2026; good candidate to exclude in new deployments."}
-        @{Id='Teams';             Label='Teams';                           Tip="Exclude the auto-bundled Teams installer. Recommended exclude when deploying Teams via Intune or machine-wide MSI separately."}
-        @{Id='Word';              Label='Word';                            Tip="Exclude Word. Rarely excluded."}
-        @{Id='Bing';              Label='Microsoft Search in Bing';        Tip="Exclude the Microsoft Search in Bing browser extension (ExcludeApp ID 'Bing'). Not in current ODT docs but historically accepted."}
-    )
-
-    $excludeCBs = @{}
-    $currentExcludes = @($script:Prefs.M365ExcludeApps)
-    for ($i = 0; $i -lt $excludeDefs.Count; $i++) {
-        $def = $excludeDefs[$i]
-        $cb = New-Object System.Windows.Controls.CheckBox
-        $cb.Content = $def.Label
-        $cb.FontSize = 12
-        $cb.IsChecked = ($currentExcludes -contains $def.Id)
-        $cb.ToolTip = $def.Tip
-        $cb.Margin = New-Object System.Windows.Thickness(0, 2, 18, 2)
-        $col = $i % 2
-        $row = [int]([math]::Floor($i / 2))
-        while ($exclGrid.RowDefinitions.Count -le $row) {
-            $rd = New-Object System.Windows.Controls.RowDefinition
-            $rd.Height = [System.Windows.GridLength]::Auto
-            [void]$exclGrid.RowDefinitions.Add($rd)
-        }
-        [System.Windows.Controls.Grid]::SetColumn($cb, $col)
-        [System.Windows.Controls.Grid]::SetRow($cb, $row)
-        [void]$exclGrid.Children.Add($cb)
-        $excludeCBs[$def.Id] = $cb
-    }
-    [void]$panelContent.Children.Add($exclGrid)
-
-    # =============================================
-    # SSMS: SILENT INSTALL OPTIONS
-    # =============================================
-    & $addDivider
-    & $addHeader "SSMS: Silent Install Options"
-
-    $cmbSsmsUiMode = New-Object System.Windows.Controls.ComboBox
-    $cmbSsmsUiMode.FontSize = 13
-    $cmbSsmsUiMode.Width = 120
-    $cmbSsmsUiMode.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    foreach ($val in @("Quiet", "Passive")) { [void]$cmbSsmsUiMode.Items.Add($val) }
-    $cmbSsmsUiMode.SelectedItem = if ($ssms.UIMode -in @('Quiet','Passive')) { $ssms.UIMode } else { 'Quiet' }
-    & $addLabelRow "UI Mode:" $cmbSsmsUiMode "Quiet adds --quiet for a fully hidden install. Passive adds --passive for progress-only UI and is less suitable for required ConfigMgr deployments."
-
-    $txtSsmsInstallPath = New-Object System.Windows.Controls.TextBox
-    $txtSsmsInstallPath.Text = [string]$ssms.InstallPath
-    $txtSsmsInstallPath.FontSize = 13
-    $txtSsmsInstallPath.Width = 350
-    $txtSsmsInstallPath.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    & $addLabelRow "Install Path:" $txtSsmsInstallPath "Optional --installPath value. Leave blank for Microsoft's default SSMS 22 path. If set, the same path is used for detection and uninstall."
-
-    $chkSsmsDownloadThenInstall = & $addCheckBox "Download all packages before install (--downloadThenInstall)" ([bool]$ssms.DownloadThenInstall) "Forces SSMS setup to download required packages before starting installation. Mutually exclusive with --installWhileDownloading, which is the Microsoft default."
-    $chkSsmsNoUpdateInstaller  = & $addCheckBox "Do not update Visual Studio Installer (--noUpdateInstaller)" ([bool]$ssms.NoUpdateInstaller) "Prevents installer self-update when quiet is specified. Microsoft documents that setup can fail if an installer update is required."
-    $chkSsmsRecommended        = & $addCheckBox "Include recommended components (--includeRecommended)" ([bool]$ssms.IncludeRecommended) "Adds recommended components for selected SSMS workloads. Leave off for the lean default SSMS install."
-    $chkSsmsOptional           = & $addCheckBox "Include optional components (--includeOptional)" ([bool]$ssms.IncludeOptional) "Adds optional components for selected SSMS workloads. This can increase install size and duration."
-    $chkSsmsRemoveOos          = & $addCheckBox "Remove out-of-support components (--removeOos true)" ([bool]$ssms.RemoveOos) "Tells the installer to remove components that have transitioned out of support during this install or update."
-    $chkSsmsForceClose         = & $addCheckBox "Force close SSMS if in use (--force)" ([bool]$ssms.ForceClose) "Allows setup to close running SSMS processes. This can cause loss of unsaved query windows, so use deliberately."
-
-    # =============================================
-    # DBEAVER COMMUNITY
-    # =============================================
-    & $addDivider
-    & $addHeader "DBeaver Community"
-
-    $cmbDbvScope = New-Object System.Windows.Controls.ComboBox
-    $cmbDbvScope.FontSize = 13
-    $cmbDbvScope.Width = 120
-    $cmbDbvScope.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    foreach ($val in @("System", "User")) { [void]$cmbDbvScope.Items.Add($val) }
-    $cmbDbvScope.SelectedItem = if ([string]$dbv.InstallScope -in @('System','User')) { [string]$dbv.InstallScope } else { 'System' }
-    & $addLabelRow "Install Scope:" $cmbDbvScope "System installs machine-wide to C:\Program Files\DBeaver with /allusers. User installs to %LOCALAPPDATA%\DBeaver with /currentuser and needs no elevation; deploy that one in user context so detection resolves the right profile."
-
-    $chkDbvDisableAI = & $addCheckBox "Disable AI features (-Dai.disabled=true)" ([bool]$dbv.DisableAI) "Appends -Dai.disabled=true to the installed dbeaver.ini after a successful install, which is DBeaver's documented way to turn off AI assistant features. The line is added once and re-applied after every reinstall."
-
-    # =============================================
-    # ADOBE ACROBAT READER
-    # =============================================
-    & $addDivider
-    & $addHeader "Adobe Acrobat Reader"
-
-    $cmbAdobeEdition = New-Object System.Windows.Controls.ComboBox
-    $cmbAdobeEdition.FontSize = 13
-    $cmbAdobeEdition.Width = 160
-    $cmbAdobeEdition.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    foreach ($val in @("English", "Multilingual (MUI)")) { [void]$cmbAdobeEdition.Items.Add($val) }
-    $cmbAdobeEdition.SelectedIndex = $(if ([string]$adobe.Edition -eq 'MUI') { 1 } else { 0 })
-    & $addLabelRow "Edition:" $cmbAdobeEdition "English downloads the en_US installer. Multilingual downloads Adobe's MUI installer and installs the languages checked below; English is always included, and the Reader UI follows the language of the operating system."
-
-    $adobeLocales = @('ca_ES','cs_CZ','da_DK','de_DE','es_ES','eu_ES','fi_FI','fr_FR','hr_HR','hu_HU','it_IT','ja_JP','ko_KR','nb_NO','nl_NL','pl_PL','pt_BR','ro_RO','ru_RU','sk_SK','sl_SI','sv_SE','tr_TR','uk_UA','zh_CN','zh_TW')
-    $storedLanguages = @($adobe.Languages | ForEach-Object { [string]$_ })
-    $chkAdobeAllLanguages = & $addCheckBox "All languages" ($storedLanguages -contains 'All') "Installs every language the MUI installer carries (LANG_LIST=ALL)."
-    $wrapAdobeLanguages = New-Object System.Windows.Controls.WrapPanel
-    $wrapAdobeLanguages.Margin = New-Object System.Windows.Thickness(16, 2, 0, 4)
-    $wrapAdobeLanguages.Width = 620
-    $wrapAdobeLanguages.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    $chkAdobeLanguages = @{}
-    foreach ($code in $adobeLocales) {
-        $cb = New-Object System.Windows.Controls.CheckBox
-        # String content reads '_' as an access-key marker and hides it (de_DE shows as deDE).
-        $label = New-Object System.Windows.Controls.TextBlock
-        $label.Text = $code
-        $cb.Content = $label
-        $cb.FontSize = 12
-        $cb.Width = 76
-        $cb.Margin = New-Object System.Windows.Thickness(0, 2, 0, 2)
-        $cb.IsChecked = ($storedLanguages -contains $code)
-        [void]$wrapAdobeLanguages.Children.Add($cb)
-        $chkAdobeLanguages[$code] = $cb
-    }
-    [void]$panelContent.Children.Add($wrapAdobeLanguages)
-    $updateAdobeLanguageState = {
-        $mui = ($cmbAdobeEdition.SelectedIndex -eq 1)
-        $chkAdobeAllLanguages.IsEnabled = $mui
-        $wrapAdobeLanguages.IsEnabled = ($mui -and $chkAdobeAllLanguages.IsChecked -ne $true)
-    }.GetNewClosure()
-    $cmbAdobeEdition.Add_SelectionChanged($updateAdobeLanguageState)
-    $chkAdobeAllLanguages.Add_Checked($updateAdobeLanguageState)
-    $chkAdobeAllLanguages.Add_Unchecked($updateAdobeLanguageState)
-    & $updateAdobeLanguageState
-
-    # =============================================
-    # BEYOND COMPARE 5
-    # =============================================
-    & $addDivider
-    & $addHeader "Beyond Compare 5"
-
-    $txtBc5KeyFile = New-Object System.Windows.Controls.TextBox
-    $txtBc5KeyFile.Text = [string]$script:Prefs.BeyondCompareKeyFile
-    $txtBc5KeyFile.FontSize = 13
-    $txtBc5KeyFile.Width = 350
-    $btnBc5KeyBrowse = New-Object System.Windows.Controls.Button
-    $btnBc5KeyBrowse.Content = 'Browse...'
-    $btnBc5KeyBrowse.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
-    $btnBc5KeyBrowse.SetResourceReference([System.Windows.FrameworkElement]::StyleProperty, 'InlineButtonStyle')
-    [MahApps.Metro.Controls.ControlsHelper]::SetContentCharacterCasing($btnBc5KeyBrowse, [System.Windows.Controls.CharacterCasing]::Normal)
-    $spBc5Key = New-Object System.Windows.Controls.StackPanel
-    $spBc5Key.Orientation = [System.Windows.Controls.Orientation]::Horizontal
-    [void]$spBc5Key.Children.Add($txtBc5KeyFile)
-    [void]$spBc5Key.Children.Add($btnBc5KeyBrowse)
-    & $addLabelRow "License Key File:" $spBc5Key "BC5Key.txt from Scooter Software. Stage places it beside the installer, where setup reads it to register Beyond Compare 5. Required to stage and package Beyond Compare 5."
-    $btnBc5KeyBrowse.Add_Click({
-        $dlg = New-Object Microsoft.Win32.OpenFileDialog
-        $dlg.Title = 'Choose the Beyond Compare 5 License Key File'
-        $dlg.Filter = 'License key file (BC5Key.txt)|BC5Key.txt|Text files (*.txt)|*.txt|All files (*.*)|*.*'
-        if ($dlg.ShowDialog() -eq $true) { $txtBc5KeyFile.Text = $dlg.FileName }
-    }.GetNewClosure())
-
-    # =============================================
-    # LOCAL INSTALLER SOURCES
-    # =============================================
-    $localSourceBoxes = @{}
-    $localSourcePackagers = @(Get-Packagers -Root $PackagersRoot | Where-Object { $_.LocalSource })
-    if ($localSourcePackagers.Count -gt 0) {
-        & $addDivider
-        & $addHeader "Local Installer Sources"
-        foreach ($lsp in $localSourcePackagers) {
-            $lspBase = [System.IO.Path]::GetFileNameWithoutExtension([string]$lsp.Script)
-            $lspBox = New-Object System.Windows.Controls.TextBox
-            $lspBox.FontSize = 13
-            $lspBox.Width = 350
-            if ($script:Prefs.LocalSourceFolders -and $script:Prefs.LocalSourceFolders.PSObject.Properties[$lspBase]) {
-                $lspBox.Text = [string]$script:Prefs.LocalSourceFolders.$lspBase
-            }
-            $lspBrowse = New-Object System.Windows.Controls.Button
-            $lspBrowse.Content = 'Browse...'
-            $lspBrowse.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
-            $lspBrowse.SetResourceReference([System.Windows.FrameworkElement]::StyleProperty, 'InlineButtonStyle')
-            [MahApps.Metro.Controls.ControlsHelper]::SetContentCharacterCasing($lspBrowse, [System.Windows.Controls.CharacterCasing]::Normal)
-            $lspRow = New-Object System.Windows.Controls.StackPanel
-            $lspRow.Orientation = [System.Windows.Controls.Orientation]::Horizontal
-            [void]$lspRow.Children.Add($lspBox)
-            [void]$lspRow.Children.Add($lspBrowse)
-            & $addLabelRow ([string]$lsp.Application + ':') $lspRow ("Folder that holds the {0} installer. Its download requires a sign-in, so Stage uses the newest matching installer in this folder. Stage asks for it when this is empty." -f [string]$lsp.Application)
-            $lspBrowse.Add_Click({
-                Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
-                $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
-                if ($lspBox.Text -and (Test-Path -LiteralPath $lspBox.Text -PathType Container)) { $dlg.SelectedPath = $lspBox.Text }
-                if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $lspBox.Text = $dlg.SelectedPath }
-            }.GetNewClosure())
-            $localSourceBoxes[$lspBase] = $lspBox
-        }
-    }
-
-    # =============================================
-    # TEAMVIEWER HOST
-    # =============================================
-    & $addDivider
-    & $addHeader "TeamViewer Host"
-
-    $txtTvApiToken = New-Object System.Windows.Controls.TextBox
-    $txtTvApiToken.Text = $tv.ApiToken
-    $txtTvApiToken.FontSize = 13
-    $txtTvApiToken.Width = 350
-    $txtTvApiToken.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    & $addLabelRow "API Token:" $txtTvApiToken "TeamViewer script token that authorizes automatic device assignment. Management Console -> Company Administration -> Advanced -> Create script token. Leave blank to skip auto-assignment."
-
-    $txtTvConfigId = New-Object System.Windows.Controls.TextBox
-    $txtTvConfigId.Text = $tv.CustomConfigId
-    $txtTvConfigId.FontSize = 13
-    $txtTvConfigId.Width = 250
-    $txtTvConfigId.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    & $addLabelRow "Custom Config ID:" $txtTvConfigId "Identifier of a custom Host module from Management Console -> Design & Deploy. Leave blank for default Host."
-
-    $txtTvAssignOpts = New-Object System.Windows.Controls.TextBox
-    $txtTvAssignOpts.Text = $tv.AssignmentOptions
-    $txtTvAssignOpts.FontSize = 13
-    $txtTvAssignOpts.Width = 350
-    $txtTvAssignOpts.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    & $addLabelRow "Assignment Options:" $txtTvAssignOpts "Quoted string of flags passed during enrollment (--grant-easy-access, --alias %COMPUTERNAME%, --reassign, --group <name>). Passed to msiexec as ASSIGNMENTOPTIONS=`"...`""
-
-    $chkTvRemoveShortcut = & $addCheckBox "Remove desktop shortcut after install" ([bool]$tv.RemoveDesktopShortcut) "Adds REMOVE=f.DesktopShortcut to the msiexec command so the install does not place a TeamViewer shortcut on the desktop."
-
-    # =============================================
-    # CWA: STORE CONFIGURATION
-    # =============================================
-    & $addDivider
-    & $addHeader "CWA: Store Configuration"
-
-    $txtStoreName = New-Object System.Windows.Controls.TextBox
-    $txtStoreName.Text = $sw.Store.Name
-    $txtStoreName.FontSize = 13
-    $txtStoreName.Width = 200
-    $txtStoreName.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    & $addLabelRow "Store Name:" $txtStoreName "Friendly name for the StoreFront store (STORE0 parameter)"
-
-    $txtStoreUrl = New-Object System.Windows.Controls.TextBox
-    $txtStoreUrl.Text = $sw.Store.Url
-    $txtStoreUrl.FontSize = 13
-    $txtStoreUrl.Width = 350
-    $txtStoreUrl.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    & $addLabelRow "Store URL:" $txtStoreUrl "Store URL passed to STORE0 as typed. StoreFront: https://storefront.company.com/Citrix/Store/discovery. Citrix Gateway: https://gateway.company.com#StoreName. Leave Name and URL blank to add no store."
-
-    # =============================================
-    # CWA: INSTALLATION OPTIONS
-    # =============================================
-    & $addHeader "CWA: Installation Options"
-
-    $chkClean     = & $addCheckBox "Clean Install (/CleanInstall)" ([bool]$sw.Installation.CleanInstall) "Removes leftover configuration and registry data from any prior installation before installing."
-    $chkSSOn      = & $addCheckBox "Single Sign-On (/includeSSON + ENABLE_SSON)" ([bool]$sw.Installation.IncludeSSON) "Installs the SSO component and activates domain pass-through authentication."
-    $chkAppProt   = & $addCheckBox "App Protection (startAppProtection)" ([bool]$sw.Installation.AppProtection) "Installs anti-keylogging and anti-screen capture protection for Citrix sessions."
-    $chkPreLaunch = & $addCheckBox "Session Pre-Launch (ENABLEPRELAUNCH)" ([bool]$sw.Installation.SessionPreLaunch) "Pre-launches a Citrix session at logon for faster application startup."
-    $chkSelfSvc   = & $addCheckBox "Self-Service Mode (SELFSERVICEMODE)" ([bool]$sw.Installation.SelfServiceMode) "Shows the Citrix Workspace self-service app window."
-
-    # =============================================
-    # CWA: PLUGINS AND ADD-ONS
-    # =============================================
-    & $addHeader "CWA: Plugins and Add-ons"
-
-    $chkTeams    = & $addCheckBox "MS Teams VDI Plugin (default on 2508+)" ([bool]$sw.Plugins.MSTeamsPlugin) "Current Release: /InstallMSTeamsPlugin=Y or N. The LTSR packagers ignore this setting."
-    $chkZoom     = & $addCheckBox "Zoom VDI Plugin (default on 2511+)" ([bool]$sw.Plugins.ZoomPlugin) "Current Release: cleared adds Installzoomplugin=N. LTSR: checked adds ADDONS=ZoomVDIPlugin."
-    $chkWebEx    = & $addCheckBox "WebEx VDI Plugin (ADDONS=WebexVDIPlugin)" ([bool]$sw.Plugins.WebExPlugin) "Installs the WebEx VDI plugin engine."
-    $chkUber     = & $addCheckBox "uberAgent Monitoring (/InstallUberAgent)" ([bool]$sw.Plugins.UberAgent) "Installs or upgrades the uberAgent monitoring/diagnostics plugin."
-    $chkUberSkip = & $addCheckBox "Skip upgrade if present (/SkipUberAgentUpgrade)" ([bool]$sw.Plugins.UberAgentSkipUpgrade) "Installs uberAgent only if not already present; skips upgrade." 20
-    $chkUberSkip.IsEnabled = [bool]$sw.Plugins.UberAgent
-    $chkUber.Add_Checked({   $chkUberSkip.IsEnabled = $true }.GetNewClosure())
-    $chkUber.Add_Unchecked({ $chkUberSkip.IsEnabled = $false }.GetNewClosure())
-    $chkEPA = & $addCheckBox "EPA Client (default on 2508+)" ([bool]$sw.Plugins.EPAClient) "Endpoint Analysis client for Device Posture checks."
-    $chkSR  = & $addCheckBox "Session Recording (/InstallSRAgent, Current Release only)" ([bool]$sw.Plugins.SessionRecording) "Installs the Session Recording agent for endpoint device session monitoring. The LTSR packagers ignore this setting."
-
-    # =============================================
-    # CWA: UPDATE AND TELEMETRY
-    # =============================================
-    & $addHeader "CWA: Update and Telemetry"
-
-    $cmbAutoUpd = New-Object System.Windows.Controls.ComboBox
-    $cmbAutoUpd.FontSize = 13
-    $cmbAutoUpd.Width = 120
-    $cmbAutoUpd.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    $cwaNotSet = '(not set)'
-    foreach ($val in @($cwaNotSet, "auto", "manual", "disabled")) { [void]$cmbAutoUpd.Items.Add($val) }
-    $cmbAutoUpd.SelectedItem = ([string]$sw.UpdateAndTelemetry.AutoUpdateCheck).Trim().ToLowerInvariant()
-    if ($cmbAutoUpd.SelectedIndex -lt 0) { $cmbAutoUpd.SelectedIndex = 0 }
-    & $addLabelRow "Auto-Update:" $cmbAutoUpd "AutoUpdateCheck: auto, manual, disabled. (not set) omits the switch; the installer default is auto. Stored in citrix-workspace-switches.json as an empty value."
-
-    $chkCEIP  = & $addCheckBox "CEIP / Telemetry (EnableCEIP)" ([bool]$sw.UpdateAndTelemetry.EnableCEIP) "Citrix Customer Experience Improvement Program."
-    $chkTrace = & $addCheckBox "Always-On Tracing (EnableTracing)" ([bool]$sw.UpdateAndTelemetry.EnableTracing) "Enables always-on diagnostic tracing."
-
-    # =============================================
-    # CWA: STORE POLICY
-    # =============================================
-    & $addHeader "CWA: Store Policy"
-
-    $cmbAddStore = New-Object System.Windows.Controls.ComboBox
-    $cmbAddStore.FontSize = 13
-    $cmbAddStore.Width = 110
-    $cmbAddStore.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    foreach ($val in @($cwaNotSet, "S", "A", "N")) { [void]$cmbAddStore.Items.Add($val) }
-    $cmbAddStore.SelectedItem = ([string]$sw.StorePolicy.AllowAddStore).Trim().ToUpperInvariant()
-    if ($cmbAddStore.SelectedIndex -lt 0) { $cmbAddStore.SelectedIndex = 0 }
-    & $addLabelRow "Allow Add Store:" $cmbAddStore "ALLOWADDSTORE. S = add or remove HTTPS stores only, A = HTTPS and HTTP stores, N = users cannot add or remove stores. (not set) omits the switch; the installer default is S."
-
-    $cmbSavePwd = New-Object System.Windows.Controls.ComboBox
-    $cmbSavePwd.FontSize = 13
-    $cmbSavePwd.Width = 110
-    $cmbSavePwd.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    foreach ($val in @($cwaNotSet, "S", "A", "N")) { [void]$cmbSavePwd.Items.Add($val) }
-    $cmbSavePwd.SelectedItem = ([string]$sw.StorePolicy.AllowSavePwd).Trim().ToUpperInvariant()
-    if ($cmbSavePwd.SelectedIndex -lt 0) { $cmbSavePwd.SelectedIndex = 0 }
-    & $addLabelRow "Allow Save Pwd:" $cmbSavePwd "ALLOWSAVEPWD. S = save passwords for HTTPS stores only, A = HTTPS and HTTP stores, N = never save passwords. (not set) omits the switch; the installer default is S."
-
-    # =============================================
-    # CWA: COMPONENTS (ADDLOCAL)
-    # =============================================
-    & $addHeader "CWA: Components (ADDLOCAL)"
-
-    $chkCustomize = & $addCheckBox "Customize (specify ADDLOCAL explicitly)" ([bool]$sw.Components.Customize) "When unchecked, ADDLOCAL is omitted; CWA installs default components."
-
-    $compDefs = @(
-        @{ Name = 'ReceiverInside'; Label = 'ReceiverInside (Core SDK)'; Tip = 'Core Workspace SDK services. Required.'; Required = $true },
-        @{ Name = 'ICA_Client';     Label = 'ICA_Client (HDX Engine)';   Tip = 'Session launch and ICA protocol handling. Required.'; Required = $true },
-        @{ Name = 'AM';             Label = 'AM (Authentication)';       Tip = 'User authentication manager. Required.'; Required = $true },
-        @{ Name = 'SelfService';    Label = 'SelfService (Self-Service UI)'; Tip = 'Native application launch and self-service plugin.' },
-        @{ Name = 'DesktopViewer';  Label = 'DesktopViewer (Virtual Desktop)'; Tip = 'Virtual desktop UI framework.' },
-        @{ Name = 'WebHelper';      Label = 'WebHelper (Browser Helper)'; Tip = 'Browser-to-application connectivity.' },
-        @{ Name = 'BCR_Client';     Label = 'BCR_Client (Browser Content Redir.)'; Tip = 'Redirects browser content rendering to the client device.' },
-        @{ Name = 'USB';            Label = 'USB (USB Redirection)'; Tip = 'USB device passthrough to virtual sessions.' },
-        @{ Name = 'SSON';           Label = 'SSON (SSO Component)'; Tip = 'Single Sign-On GINA/credential provider.' }
-    )
-
-    $compCBs = @{}
-    foreach ($def in $compDefs) {
-        $isChecked = ($sw.Components.($def.Name) -eq $true)
-        if ($def.Required) { $isChecked = $true }
-        $cb = & $addCheckBox $def.Label $isChecked $def.Tip 20
-        $cb.IsEnabled = [bool]$sw.Components.Customize
-        $cb.Tag = $def.Name
-        $compCBs[$def.Name] = $cb
-    }
-
-    $chkCustomize.Add_Checked({
-        foreach ($kv in $compCBs.GetEnumerator()) { $kv.Value.IsEnabled = $true }
-    }.GetNewClosure())
-    $chkCustomize.Add_Unchecked({
-        foreach ($kv in $compCBs.GetEnumerator()) { $kv.Value.IsEnabled = $false }
-        foreach ($req in @('ReceiverInside', 'ICA_Client', 'AM')) {
-            $compCBs[$req].IsChecked = $true
-        }
-    }.GetNewClosure())
-
-    # Bottom spacer
-    $spacer = New-Object System.Windows.Controls.TextBlock
-    $spacer.Height = 8
-    [void]$panelContent.Children.Add($spacer)
-
-    # =============================================
-    # Preview buttons
-    # =============================================
-    $cwaPackagerPath = Join-Path $PackagersRoot "package-citrixworkspace-cr.ps1"
-    $btnCwaPreview.Add_Click({
-        $ownerWin = [System.Windows.Window]::GetWindow($element)
-        try {
-            # The preview runs the packager's own argument builder so the two cannot drift.
-            $pt = $null; $pe = $null
-            $pAst = [System.Management.Automation.Language.Parser]::ParseFile($cwaPackagerPath, [ref]$pt, [ref]$pe)
-            $fnAst = $pAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'ConvertTo-CwaInstallArguments' }, $false)
-            if ($null -eq $fnAst) { throw "ConvertTo-CwaInstallArguments not found in $cwaPackagerPath" }
-            . ([scriptblock]::Create($fnAst.Extent.Text))
-
-            $components = [ordered]@{ Customize = ($chkCustomize.IsChecked -eq $true) }
-            foreach ($kv in $compCBs.GetEnumerator()) { $components[$kv.Key] = ($kv.Value.IsChecked -eq $true) }
-            $previewCfg = [pscustomobject]@{
-                Store = [pscustomobject]@{ Name = $txtStoreName.Text; Url = $txtStoreUrl.Text }
-                Installation = [pscustomobject]@{
-                    CleanInstall     = ($chkClean.IsChecked -eq $true)
-                    IncludeSSON      = ($chkSSOn.IsChecked -eq $true)
-                    EnableSSON       = ($chkSSOn.IsChecked -eq $true)
-                    AppProtection    = ($chkAppProt.IsChecked -eq $true)
-                    SessionPreLaunch = ($chkPreLaunch.IsChecked -eq $true)
-                    SelfServiceMode  = ($chkSelfSvc.IsChecked -eq $true)
-                }
-                Plugins = [pscustomobject]@{
-                    MSTeamsPlugin        = ($chkTeams.IsChecked -eq $true)
-                    ZoomPlugin           = ($chkZoom.IsChecked -eq $true)
-                    WebExPlugin          = ($chkWebEx.IsChecked -eq $true)
-                    UberAgent            = ($chkUber.IsChecked -eq $true)
-                    UberAgentSkipUpgrade = ($chkUberSkip.IsChecked -eq $true)
-                    EPAClient            = ($chkEPA.IsChecked -eq $true)
-                    SessionRecording     = ($chkSR.IsChecked -eq $true)
-                }
-                UpdateAndTelemetry = [pscustomobject]@{
-                    AutoUpdateCheck = $(if ([string]$cmbAutoUpd.SelectedItem -eq $cwaNotSet) { '' } else { [string]$cmbAutoUpd.SelectedItem })
-                    EnableCEIP      = ($chkCEIP.IsChecked -eq $true)
-                    EnableTracing   = ($chkTrace.IsChecked -eq $true)
-                }
-                StorePolicy = [pscustomobject]@{
-                    AllowAddStore = $(if ([string]$cmbAddStore.SelectedItem -eq $cwaNotSet) { '' } else { [string]$cmbAddStore.SelectedItem })
-                    AllowSavePwd  = $(if ([string]$cmbSavePwd.SelectedItem -eq $cwaNotSet) { '' } else { [string]$cmbSavePwd.SelectedItem })
-                }
-                Components = [pscustomobject]$components
-            }
-
-            $sb = [System.Text.StringBuilder]::new()
-            foreach ($stream in @('Current','LTSR')) {
-                $built = ConvertTo-CwaInstallArguments -Config $previewCfg -Stream $stream
-                [void]$sb.AppendLine(('# {0}' -f $(if ($stream -eq 'Current') { 'Current Release' } else { 'LTSR (x86, x64, ARM64)' })))
-                [void]$sb.AppendLine('CitrixWorkspaceApp.exe ' + ($built.Arguments -join ' '))
-                foreach ($w in $built.Warnings) { [void]$sb.AppendLine('WARN: ' + $w) }
-                [void]$sb.AppendLine('')
-            }
-            Show-PreviewDialog -Owner $ownerWin -Title "CWA Preview" -Content $sb.ToString() -Width 820 -Height 360
-        }
-        catch {
-            Show-PreviewDialog -Owner $ownerWin -Title "CWA Preview (Error)" -Content ("Failed to build preview:`r`n{0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) -Width 600 -Height 260
-        }
-    }.GetNewClosure())
-
-    $btnM365Preview.Add_Click({
-        try {
-            $channelReverseMap = @{ 'Monthly Enterprise Channel' = 'MonthlyEnterprise'; 'Current Channel' = 'Current' }
-            $chanRaw = $null
-            if ($cmbCH.SelectedItem) { $chanRaw = $channelReverseMap[$cmbCH.SelectedItem.Content] }
-            if (-not $chanRaw) { $chanRaw = 'MonthlyEnterprise' }
-
-            $companyName = $txtCN.Text.Trim()
-
-            $excludeList = @()
-            foreach ($kv in $excludeCBs.GetEnumerator()) {
-                if ($kv.Value.IsChecked -eq $true) { $excludeList += $kv.Key }
-            }
-
-            if (-not (Get-Command -Name New-OdtConfigXml -ErrorAction SilentlyContinue)) {
-                $ownerWin = [System.Windows.Window]::GetWindow($element)
-                Show-PreviewDialog -Owner $ownerWin -Title "M365 Preview (Error)" -Content "New-OdtConfigXml not available. Ensure Packagers\AppPackagerCommon.psm1 is importable." -Width 600 -Height 220
-                return
-            }
-
-            $sb = [System.Text.StringBuilder]::new()
-            $products = @(
-                @{ Label = 'M365 Apps for Enterprise (x64)'; Edition = '64'; Ids = @('O365ProPlusRetail') },
-                @{ Label = 'M365 Apps for Enterprise (x86)'; Edition = '32'; Ids = @('O365ProPlusRetail') },
-                @{ Label = 'Project Pro (x64)';              Edition = '64'; Ids = @('ProjectProRetail')   },
-                @{ Label = 'Visio Pro (x64)';                Edition = '64'; Ids = @('VisioProRetail')     }
-            )
-            foreach ($p in $products) {
-                [void]$sb.AppendLine(('# ===== {0} =====' -f $p.Label))
-                $xml = New-OdtConfigXml -OfficeClientEdition $p.Edition -ProductIds $p.Ids -Channel $chanRaw -CompanyName $companyName -ExcludeApps $excludeList
-                [void]$sb.AppendLine($xml)
-                [void]$sb.AppendLine('')
-            }
-
-            $ownerWin = [System.Windows.Window]::GetWindow($element)
-            Show-PreviewDialog -Owner $ownerWin -Title "M365 Preview (Install XML)" -Content $sb.ToString() -Width 820 -Height 640
-        } catch {
-            $ownerWin = [System.Windows.Window]::GetWindow($element)
-            Show-PreviewDialog -Owner $ownerWin -Title "M365 Preview (Error)" -Content ("Failed to build preview:`r`n{0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) -Width 600 -Height 260
-        }
-    }.GetNewClosure())
-
-    # =============================================
-    # Commit closure: mutate $sw, $tv, $prefsRef. Master OK handles saves.
-    # =============================================
-    $prefsRef = $script:Prefs
-    $commit = {
-        $channelReverseMap = @{ 'Monthly Enterprise Channel' = 'MonthlyEnterprise'; 'Current Channel' = 'Current' }
-        $selectedChannel = $channelReverseMap[$cmbCH.SelectedItem.Content]
-        if (-not $selectedChannel) { $selectedChannel = 'MonthlyEnterprise' }
-
-        $deployModeReverseMap = @{ 'Managed (Offline)' = 'Managed'; 'Online (CDN)' = 'Online' }
-        $selectedDM = $deployModeReverseMap[$cmbDM.SelectedItem.Content]
-        if (-not $selectedDM) { $selectedDM = 'Managed' }
-
-        $prefsRef.CompanyName    = $txtCN.Text.Trim()
-        $prefsRef.M365Channel    = $selectedChannel
-        $prefsRef.M365DeployMode = $selectedDM
-
-        $selectedExcludes = @()
-        foreach ($kv in $excludeCBs.GetEnumerator()) {
-            if ($kv.Value.IsChecked -eq $true) { $selectedExcludes += $kv.Key }
-        }
-        $prefsRef.M365ExcludeApps = $selectedExcludes
-
-        if (-not $prefsRef.SSMSInstallOptions) {
-            $prefsRef.SSMSInstallOptions = [pscustomobject]@{
-                UIMode              = "Quiet"
-                DownloadThenInstall = $true
-                NoUpdateInstaller   = $false
-                IncludeRecommended  = $false
-                IncludeOptional     = $false
-                RemoveOos           = $true
-                ForceClose          = $false
-                InstallPath         = ""
-            }
-        }
-        $selectedSsmsUiMode = [string]$cmbSsmsUiMode.SelectedItem
-        if ($selectedSsmsUiMode -notin @('Quiet','Passive')) { $selectedSsmsUiMode = 'Quiet' }
-        $prefsRef.SSMSInstallOptions.UIMode              = $selectedSsmsUiMode
-        $prefsRef.SSMSInstallOptions.DownloadThenInstall = ($chkSsmsDownloadThenInstall.IsChecked -eq $true)
-        $prefsRef.SSMSInstallOptions.NoUpdateInstaller   = ($chkSsmsNoUpdateInstaller.IsChecked -eq $true)
-        $prefsRef.SSMSInstallOptions.IncludeRecommended  = ($chkSsmsRecommended.IsChecked -eq $true)
-        $prefsRef.SSMSInstallOptions.IncludeOptional     = ($chkSsmsOptional.IsChecked -eq $true)
-        $prefsRef.SSMSInstallOptions.RemoveOos           = ($chkSsmsRemoveOos.IsChecked -eq $true)
-        $prefsRef.SSMSInstallOptions.ForceClose          = ($chkSsmsForceClose.IsChecked -eq $true)
-        $prefsRef.SSMSInstallOptions.InstallPath         = [string]$txtSsmsInstallPath.Text.Trim()
-
-        if (-not $prefsRef.DBeaverInstallOptions) {
-            $prefsRef.DBeaverInstallOptions = [pscustomobject]@{
-                InstallScope = "System"
-                DisableAI    = $false
-            }
-        }
-        $selectedDbvScope = [string]$cmbDbvScope.SelectedItem
-        if ($selectedDbvScope -notin @('System','User')) { $selectedDbvScope = 'System' }
-        $prefsRef.DBeaverInstallOptions.InstallScope = $selectedDbvScope
-        $prefsRef.DBeaverInstallOptions.DisableAI    = ($chkDbvDisableAI.IsChecked -eq $true)
-
-        if (-not $prefsRef.PSObject.Properties['AdobeReaderInstallOptions'] -or -not $prefsRef.AdobeReaderInstallOptions) {
-            $prefsRef | Add-Member -NotePropertyName AdobeReaderInstallOptions -NotePropertyValue ([pscustomobject]@{ Edition = 'English'; Languages = @() }) -Force
-        }
-        $prefsRef.AdobeReaderInstallOptions.Edition = $(if ($cmbAdobeEdition.SelectedIndex -eq 1) { 'MUI' } else { 'English' })
-        $prefsRef.AdobeReaderInstallOptions.Languages = @($(if ($chkAdobeAllLanguages.IsChecked -eq $true) { 'All' } else { $adobeLocales | Where-Object { $chkAdobeLanguages[$_].IsChecked -eq $true } }))
-
-        $prefsRef.BeyondCompareKeyFile = [string]$txtBc5KeyFile.Text.Trim()
-
-        if ($localSourceBoxes.Count -gt 0) {
-            $sourceProps = [ordered]@{}
-            if ($prefsRef.LocalSourceFolders) {
-                foreach ($p in $prefsRef.LocalSourceFolders.PSObject.Properties) { $sourceProps[$p.Name] = $p.Value }
-            }
-            foreach ($key in $localSourceBoxes.Keys) {
-                $value = [string]$localSourceBoxes[$key].Text.Trim()
-                if ($value) { $sourceProps[$key] = $value }
-                elseif ($sourceProps.Contains($key)) { $sourceProps.Remove($key) }
-            }
-            $prefsRef.LocalSourceFolders = [pscustomobject]$sourceProps
-        }
-
-        $sw.Store.Name = $txtStoreName.Text.Trim()
-        $sw.Store.Url  = $txtStoreUrl.Text.Trim()
-
-        $sw.Installation.CleanInstall     = ($chkClean.IsChecked -eq $true)
-        $sw.Installation.IncludeSSON      = ($chkSSOn.IsChecked -eq $true)
-        $sw.Installation.EnableSSON       = ($chkSSOn.IsChecked -eq $true)
-        $sw.Installation.AppProtection    = ($chkAppProt.IsChecked -eq $true)
-        $sw.Installation.SessionPreLaunch = ($chkPreLaunch.IsChecked -eq $true)
-        $sw.Installation.SelfServiceMode  = ($chkSelfSvc.IsChecked -eq $true)
-
-        $sw.Plugins.MSTeamsPlugin        = ($chkTeams.IsChecked -eq $true)
-        $sw.Plugins.ZoomPlugin           = ($chkZoom.IsChecked -eq $true)
-        $sw.Plugins.WebExPlugin          = ($chkWebEx.IsChecked -eq $true)
-        $sw.Plugins.UberAgent            = ($chkUber.IsChecked -eq $true)
-        $sw.Plugins.UberAgentSkipUpgrade = ($chkUberSkip.IsChecked -eq $true)
-        $sw.Plugins.EPAClient            = ($chkEPA.IsChecked -eq $true)
-        $sw.Plugins.SessionRecording     = ($chkSR.IsChecked -eq $true)
-
-        $sw.UpdateAndTelemetry.AutoUpdateCheck = $(if ([string]$cmbAutoUpd.SelectedItem -eq $cwaNotSet) { '' } else { [string]$cmbAutoUpd.SelectedItem })
-        $sw.UpdateAndTelemetry.EnableCEIP      = ($chkCEIP.IsChecked -eq $true)
-        $sw.UpdateAndTelemetry.EnableTracing   = ($chkTrace.IsChecked -eq $true)
-
-        $sw.StorePolicy.AllowAddStore = $(if ([string]$cmbAddStore.SelectedItem -eq $cwaNotSet) { '' } else { [string]$cmbAddStore.SelectedItem })
-        $sw.StorePolicy.AllowSavePwd  = $(if ([string]$cmbSavePwd.SelectedItem -eq $cwaNotSet) { '' } else { [string]$cmbSavePwd.SelectedItem })
-
-        $sw.Components.Customize = ($chkCustomize.IsChecked -eq $true)
-        foreach ($kv in $compCBs.GetEnumerator()) {
-            $sw.Components.($kv.Key) = ($kv.Value.IsChecked -eq $true)
-        }
-
-        $tv.ApiToken              = [string]$txtTvApiToken.Text
-        $tv.CustomConfigId        = [string]$txtTvConfigId.Text
-        $tv.AssignmentOptions     = [string]$txtTvAssignOpts.Text
-        $tv.RemoveDesktopShortcut = ($chkTvRemoveShortcut.IsChecked -eq $true)
-    }.GetNewClosure()
-
-    return @{
-        Name        = 'Packager Preferences'
-        Element     = $element
-        Commit      = $commit
-        CwaSwitches = $sw
-        TvConfig    = $tv
-    }
 }
 
 function Show-CommandOverrideDialog {
@@ -7433,10 +6311,1930 @@ function New-AboutPanel {
     return @{ Name = 'About'; Element = $element; Commit = { } }
 }
 
-function Show-OptionsDialog {
+# =============================================================================
+# Options window - a tree of sections on the left, the section on the right.
+# Connections, Packaging, Applications, Updates and CVEs, Security, Tools and
+# About. The window and the Setup wizard share the field builders below.
+# =============================================================================
+# =============================================================================
+# Options window: preference access, field editors, section builder
+# -----------------------------------------------------------------------------
+# A section is a list of field definitions (Get-OptionsSectionDefinition). One
+# builder turns a field definition into a title, an editor and a tooltip, so
+# the Options window and the Setup wizard share the same Connections fields
+# and every field has a title in bold, a regular value and a tooltip.
+# =============================================================================
+function Get-OptionsPrefTarget {
+    # Path 'Wsus.PortNumber' is a preference. 'cwa:Store.Name' and 'tv:ApiToken' are
+    # the Citrix switches file and the TeamViewer Host file.
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][string]$Path)
+    $root = $Context.Prefs
+    $rest = $Path
+    $aux = ''
+    if ($Path -match '^(?<aux>cwa|tv):(?<rest>.+)$') {
+        $aux = $Matches['aux']
+        $rest = $Matches['rest']
+        $root = $Context.Aux[$aux]
+    }
+    $names = @($rest -split '\.')
+    $obj = $root
+    for ($i = 0; $i -lt $names.Count - 1; $i++) {
+        if ($null -eq $obj -or -not $obj.PSObject.Properties[$names[$i]]) { return $null }
+        $obj = $obj.($names[$i])
+    }
+    if ($null -eq $obj) { return $null }
+    return @{ Object = $obj; Name = $names[$names.Count - 1]; Aux = $aux }
+}
+
+function Get-OptionsPrefValue {
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][string]$Path)
+    $target = Get-OptionsPrefTarget -Context $Context -Path $Path
+    if (-not $target -or -not $target.Object.PSObject.Properties[$target.Name]) { return $null }
+    return $target.Object.($target.Name)
+}
+
+function Set-OptionsPrefValue {
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][string]$Path, [AllowNull()]$Value)
+    $target = Get-OptionsPrefTarget -Context $Context -Path $Path
+    if (-not $target) { return }
+    if ($target.Object.PSObject.Properties[$target.Name]) { $target.Object.($target.Name) = $Value }
+    else { $target.Object | Add-Member -NotePropertyName $target.Name -NotePropertyValue $Value -Force }
+    if ($target.Aux) { $Context.Touched[$target.Aux] = $true }
+}
+
+function New-OptionsContext {
+    param([Parameter(Mandatory)]$Prefs)
+    return @{
+        Prefs    = $Prefs
+        Aux      = @{ cwa = (Read-CwaSwitches); tv = (Read-TvHostConfig) }
+        Touched  = @{}
+        Owner    = $null
+        Sections = @{}
+        Packagers = $null
+    }
+}
+
+function Get-OptionsPackagerList {
+    # The catalog rows, read once for the window.
+    param([Parameter(Mandatory)][hashtable]$Context)
+    if ($null -eq $Context.Packagers) { $Context.Packagers = @(Get-Packagers -Root $PackagersRoot) }
+    return @($Context.Packagers)
+}
+
+function New-OptionsTextBlock {
+    param([string]$Text, [double]$Size = 13, [bool]$Bold = $false, [bool]$Wrap = $true)
+    $tb = New-Object System.Windows.Controls.TextBlock
+    $tb.Text = $Text
+    $tb.FontSize = $Size
+    if ($Bold) { $tb.FontWeight = [System.Windows.FontWeights]::Bold }
+    if ($Wrap) { $tb.TextWrapping = [System.Windows.TextWrapping]::Wrap }
+    return $tb
+}
+
+function New-OptionsButton {
+    param([Parameter(Mandatory)][string]$Label, [string]$Tip = '')
+    $btn = New-Object System.Windows.Controls.Button
+    $btn.Content = $Label
+    if ($Tip) { $btn.ToolTip = $Tip }
+    $btn.SetResourceReference([System.Windows.FrameworkElement]::StyleProperty, 'InlineButtonStyle')
+    [MahApps.Metro.Controls.ControlsHelper]::SetContentCharacterCasing($btn, [System.Windows.Controls.CharacterCasing]::Normal)
+    return $btn
+}
+
+function Select-OptionsFolder {
+    param([string]$Current = '')
+    Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+    $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+    if ($Current -and (Test-Path -LiteralPath $Current -PathType Container)) { $dlg.SelectedPath = $Current }
+    if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return [string]$dlg.SelectedPath }
+    return $null
+}
+
+function ConvertTo-OptionsItemList {
+    # A combo box item is a string, or a hashtable with Label and Value.
+    param($Items)
+    foreach ($item in @($Items)) {
+        if ($item -is [hashtable]) { [pscustomobject]@{ Label = [string]$item.Label; Value = [string]$item.Value } }
+        else { [pscustomobject]@{ Label = [string]$item; Value = [string]$item } }
+    }
+}
+
+function New-OptionsFieldEditor {
+    # Returns @{ Element; Focus; Get; Set } for one field definition. Get returns the
+    # value as the field shows it; ConvertTo-OptionsPrefValue turns it into the stored type.
+    param([Parameter(Mandatory)][hashtable]$Field, [Parameter(Mandatory)][hashtable]$Context)
+
+    $tip = [string]$Field.Tip
+    $kind = [string]$Field.Kind
+    $editor = @{ Id = [string]$Field.Id; Field = $Field; Kind = $kind; Element = $null; Focus = $null; Get = $null; Set = $null; Buttons = @{} }
+
+    switch ($kind) {
+        'Text' {
+            $tb = New-Object System.Windows.Controls.TextBox
+            $tb.FontSize = 13
+            $tb.ToolTip = $tip
+            if ($Field.MaxLength) { $tb.MaxLength = [int]$Field.MaxLength }
+            if ($Field.Width) { $tb.Width = [double]$Field.Width; $tb.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left }
+            else { $tb.MaxWidth = 620 }
+            if ($Field.Watermark) { [MahApps.Metro.Controls.TextBoxHelper]::SetWatermark($tb, [string]$Field.Watermark) }
+            $editor.Element = $tb
+            $editor.Focus = $tb
+            $editor.Get = { $tb.Text.Trim() }.GetNewClosure()
+            $editor.Set = { param($v) $tb.Text = [string]$v }.GetNewClosure()
+        }
+        'Number' {
+            $tb = New-Object System.Windows.Controls.TextBox
+            $tb.FontSize = 13
+            $tb.ToolTip = $tip
+            $tb.Width = $(if ($Field.Width) { [double]$Field.Width } else { 80 })
+            $tb.MaxLength = $(if ($Field.MaxLength) { [int]$Field.MaxLength } else { 5 })
+            $tb.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+            $panel = New-Object System.Windows.Controls.StackPanel
+            $panel.Orientation = [System.Windows.Controls.Orientation]::Horizontal
+            [void]$panel.Children.Add($tb)
+            if ($Field.Unit) {
+                $unit = New-OptionsTextBlock -Text (' ' + [string]$Field.Unit) -Wrap $false
+                $unit.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+                [void]$panel.Children.Add($unit)
+            }
+            $zeroIsEmpty = [bool]$Field.ZeroIsEmpty
+            $editor.Element = $panel
+            $editor.Focus = $tb
+            $editor.Get = { $tb.Text.Trim() }.GetNewClosure()
+            $editor.Set = { param($v) $n = 0; if ($zeroIsEmpty -and [int]::TryParse([string]$v, [ref]$n) -and $n -eq 0) { $tb.Text = '' } else { $tb.Text = [string]$v } }.GetNewClosure()
+        }
+        'Check' {
+            $cb = New-Object System.Windows.Controls.CheckBox
+            $cb.FontSize = 13
+            $cb.ToolTip = $tip
+            $label = New-OptionsTextBlock -Text ([string]$Field.Label)
+            $cb.Content = $label
+            $editor.Element = $cb
+            $editor.Focus = $cb
+            $editor.Get = { $cb.IsChecked -eq $true }.GetNewClosure()
+            $editor.Set = { param($v) $cb.IsChecked = [bool]$v }.GetNewClosure()
+        }
+        'Combo' {
+            $cmb = New-Object System.Windows.Controls.ComboBox
+            $cmb.FontSize = 13
+            $cmb.ToolTip = $tip
+            $cmb.Width = $(if ($Field.Width) { [double]$Field.Width } else { 360 })
+            $cmb.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+            $cmb.SetResourceReference([System.Windows.Controls.ItemsControl]::ItemContainerStyleProperty, 'ThemedComboBoxItemStyle')
+            $source = $Field.Items
+            if ($Field.ItemsFrom) { $source = & $Field.ItemsFrom }
+            foreach ($item in @(ConvertTo-OptionsItemList -Items $source)) {
+                $ci = New-Object System.Windows.Controls.ComboBoxItem
+                $ci.Content = $item.Label
+                $ci.Tag = $item.Value
+                [void]$cmb.Items.Add($ci)
+            }
+            $defaultValue = [string]$Field.Default
+            $editor.Element = $cmb
+            $editor.Focus = $cmb
+            $editor.Get = { $sel = $cmb.SelectedItem; if ($sel) { [string]$sel.Tag } else { $defaultValue } }.GetNewClosure()
+            $editor.Set = {
+                param($v)
+                $picked = $null
+                foreach ($ci in $cmb.Items) { if ([string]$ci.Tag -ceq [string]$v) { $picked = $ci; break } }
+                if (-not $picked) { foreach ($ci in $cmb.Items) { if ([string]$ci.Tag -ceq $defaultValue) { $picked = $ci; break } } }
+                if (-not $picked -and $cmb.Items.Count -gt 0) { $picked = $cmb.Items[0] }
+                $cmb.SelectedItem = $picked
+            }.GetNewClosure()
+        }
+        'ComboText' {
+            $cmb = New-Object System.Windows.Controls.ComboBox
+            $cmb.FontSize = 13
+            $cmb.ToolTip = $tip
+            $cmb.IsEditable = $true
+            $cmb.Width = $(if ($Field.Width) { [double]$Field.Width } else { 360 })
+            $cmb.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+            $cmb.SetResourceReference([System.Windows.Controls.ItemsControl]::ItemContainerStyleProperty, 'ThemedComboBoxItemStyle')
+            $editor.Element = $cmb
+            $editor.Focus = $cmb
+            $editor.Get = { ([string]$cmb.Text).Trim() }.GetNewClosure()
+            $editor.Set = { param($v) $cmb.Text = [string]$v }.GetNewClosure()
+            $editor.Combo = $cmb
+        }
+        'Secret' {
+            $pwd = New-Object System.Windows.Controls.PasswordBox
+            $pwd.FontSize = 13
+            $pwd.ToolTip = $tip
+            $pwd.MaxWidth = 620
+            $hint = New-OptionsTextBlock -Text 'A value is saved. Leave this empty to keep it.' -Size 12
+            $hint.Margin = New-Object System.Windows.Thickness(0, 4, 0, 0)
+            $hint.Visibility = [System.Windows.Visibility]::Collapsed
+            $panel = New-Object System.Windows.Controls.StackPanel
+            [void]$panel.Children.Add($pwd)
+            [void]$panel.Children.Add($hint)
+            $editor.Element = $panel
+            $editor.Focus = $pwd
+            $editor.Get = { $pwd.SecurePassword }.GetNewClosure()
+            $editor.Set = { param($v) $hint.Visibility = $(if ([string]::IsNullOrWhiteSpace([string]$v)) { [System.Windows.Visibility]::Collapsed } else { [System.Windows.Visibility]::Visible }) }.GetNewClosure()
+        }
+        { $_ -in 'File', 'Folder' } {
+            $tb = New-Object System.Windows.Controls.TextBox
+            $tb.FontSize = 13
+            $tb.ToolTip = $tip
+            if ($Field.MaxLength) { $tb.MaxLength = [int]$Field.MaxLength }
+            $browse = New-OptionsButton -Label 'Browse...' -Tip ('Choose the ' + $(if ($kind -eq 'Folder') { 'folder' } else { 'file' }) + '.')
+            $browse.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
+            $grid = New-Object System.Windows.Controls.Grid
+            $grid.MaxWidth = 700
+            $col0 = New-Object System.Windows.Controls.ColumnDefinition
+            $col1 = New-Object System.Windows.Controls.ColumnDefinition
+            $col1.Width = [System.Windows.GridLength]::Auto
+            [void]$grid.ColumnDefinitions.Add($col0)
+            [void]$grid.ColumnDefinitions.Add($col1)
+            [System.Windows.Controls.Grid]::SetColumn($browse, 1)
+            [void]$grid.Children.Add($tb)
+            [void]$grid.Children.Add($browse)
+            $filter = [string]$Field.Filter
+            $dialogTitle = [string]$Field.Title
+            $isFolder = ($kind -eq 'Folder')
+            $browse.Add_Click({
+                if ($isFolder) {
+                    $picked = Select-OptionsFolder -Current $tb.Text
+                    if ($picked) { $tb.Text = $picked }
+                }
+                else {
+                    $open = New-Object Microsoft.Win32.OpenFileDialog
+                    $open.Title = $dialogTitle
+                    if ($filter) { $open.Filter = $filter }
+                    if ($open.ShowDialog() -eq $true) { $tb.Text = $open.FileName }
+                }
+            }.GetNewClosure())
+            $editor.Element = $grid
+            $editor.Focus = $tb
+            $editor.Get = { $tb.Text.Trim() }.GetNewClosure()
+            $editor.Set = { param($v) $tb.Text = [string]$v }.GetNewClosure()
+        }
+        'Status' {
+            $text = New-OptionsTextBlock -Text '' -Size 13
+            $text.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+            $text.ToolTip = $tip
+            $grid = New-Object System.Windows.Controls.Grid
+            $grid.MaxWidth = 700
+            $col0 = New-Object System.Windows.Controls.ColumnDefinition
+            [void]$grid.ColumnDefinitions.Add($col0)
+            [void]$grid.Children.Add($text)
+            $index = 1
+            foreach ($b in @($Field.Buttons)) {
+                $btn = New-OptionsButton -Label ([string]$b.Label) -Tip ([string]$b.Tip)
+                $btn.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
+                $btn.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+                $colN = New-Object System.Windows.Controls.ColumnDefinition
+                $colN.Width = [System.Windows.GridLength]::Auto
+                [void]$grid.ColumnDefinitions.Add($colN)
+                [System.Windows.Controls.Grid]::SetColumn($btn, $index)
+                [void]$grid.Children.Add($btn)
+                $editor.Buttons[[string]$b.Id] = $btn
+                $index++
+            }
+            $editor.Element = $grid
+            $editor.Focus = $text
+            $editor.Get = { $null }
+            $editor.Set = { param($v) $text.Text = [string]$v }.GetNewClosure()
+            $editor.Text = $text
+        }
+        'Actions' {
+            $panel = New-Object System.Windows.Controls.WrapPanel
+            foreach ($b in @($Field.Buttons)) {
+                $btn = New-OptionsButton -Label ([string]$b.Label) -Tip ([string]$b.Tip)
+                $btn.Margin = New-Object System.Windows.Thickness(0, 0, 8, 4)
+                [void]$panel.Children.Add($btn)
+                $editor.Buttons[[string]$b.Id] = $btn
+            }
+            $editor.Element = $panel
+            $editor.Focus = $(if ($panel.Children.Count -gt 0) { $panel.Children[0] } else { $panel })
+            $editor.Get = { $null }
+            $editor.Set = { param($v) }
+        }
+        'Multi' {
+            $grid = New-Object System.Windows.Controls.Grid
+            $columns = $(if ($Field.Columns) { [int]$Field.Columns } else { 2 })
+            for ($c = 0; $c -lt $columns; $c++) {
+                $cd = New-Object System.Windows.Controls.ColumnDefinition
+                $cd.Width = [System.Windows.GridLength]::Auto
+                [void]$grid.ColumnDefinitions.Add($cd)
+            }
+            $boxes = [ordered]@{}
+            $i = 0
+            foreach ($item in @($Field.Items)) {
+                $cb = New-Object System.Windows.Controls.CheckBox
+                $cb.FontSize = 13
+                $cb.Content = New-OptionsTextBlock -Text ([string]$item.Label)
+                if ($item.Tip) { $cb.ToolTip = [string]$item.Tip } else { $cb.ToolTip = $tip }
+                $cb.Margin = New-Object System.Windows.Thickness(0, 2, 18, 2)
+                $row = [int][math]::Floor($i / $columns)
+                while ($grid.RowDefinitions.Count -le $row) {
+                    $rd = New-Object System.Windows.Controls.RowDefinition
+                    $rd.Height = [System.Windows.GridLength]::Auto
+                    [void]$grid.RowDefinitions.Add($rd)
+                }
+                [System.Windows.Controls.Grid]::SetColumn($cb, ($i % $columns))
+                [System.Windows.Controls.Grid]::SetRow($cb, $row)
+                [void]$grid.Children.Add($cb)
+                $boxes[[string]$item.Id] = $cb
+                $i++
+            }
+            $editor.Element = $grid
+            $editor.Focus = $(if ($boxes.Count -gt 0) { @($boxes.Values)[0] } else { $grid })
+            $editor.Get = { @($boxes.Keys | Where-Object { $boxes[$_].IsChecked -eq $true }) }.GetNewClosure()
+            $editor.Set = { param($v) $set = @($v | ForEach-Object { [string]$_ }); foreach ($k in $boxes.Keys) { $boxes[$k].IsChecked = ($set -contains $k) } }.GetNewClosure()
+            $editor.Boxes = $boxes
+        }
+        'Custom' {
+            $built = & $Field.Build $Field $Context
+            foreach ($key in $built.Keys) { $editor[$key] = $built[$key] }
+        }
+        default { throw ('Unknown Options field kind: ' + $kind) }
+    }
+    return $editor
+}
+
+function New-OptionsFieldRow {
+    param([Parameter(Mandatory)][hashtable]$Field, [Parameter(Mandatory)][hashtable]$Editor)
+    $grid = New-Object System.Windows.Controls.Grid
+    $grid.Margin = New-Object System.Windows.Thickness(0, 0, 0, 10)
+    $titleColumn = New-Object System.Windows.Controls.ColumnDefinition
+    $titleColumn.Width = New-Object System.Windows.GridLength(220)
+    $valueColumn = New-Object System.Windows.Controls.ColumnDefinition
+    [void]$grid.ColumnDefinitions.Add($titleColumn)
+    [void]$grid.ColumnDefinitions.Add($valueColumn)
+
+    $title = New-OptionsTextBlock -Text ([string]$Field.Title) -Size 13 -Bold $true
+    $title.Margin = New-Object System.Windows.Thickness(0, 4, 12, 0)
+    $title.VerticalAlignment = [System.Windows.VerticalAlignment]::Top
+    $title.ToolTip = [string]$Field.Tip
+    [System.Windows.Controls.Grid]::SetColumn($title, 0)
+    [void]$grid.Children.Add($title)
+
+    $element = $Editor.Element
+    $element.HorizontalAlignment = $(if ($element.HorizontalAlignment -eq [System.Windows.HorizontalAlignment]::Stretch) { [System.Windows.HorizontalAlignment]::Left } else { $element.HorizontalAlignment })
+    if ($Field.Indent) { $element.Margin = New-Object System.Windows.Thickness([double]$Field.Indent, 0, 0, 0) }
+    [System.Windows.Controls.Grid]::SetColumn($element, 1)
+    [void]$grid.Children.Add($element)
+    $Editor.Row = $grid
+    return $grid
+}
+
+function ConvertTo-OptionsPrefValue {
+    param([Parameter(Mandatory)][hashtable]$Field, [AllowNull()]$Raw)
+    switch ([string]$Field.Kind) {
+        'Number' {
+            $text = ([string]$Raw).Trim()
+            if (-not $text) { return [int]$Field.Default }
+            return [int]$text
+        }
+        'Check' { return [bool]$Raw }
+        'Multi' {
+            if ($Field.Normalize) { return ,@(& $Field.Normalize $Raw) }
+            return ,@($Raw)
+        }
+        default {
+            if ($Raw -is [System.Array]) { return ,@($Raw) }
+            return [string]$Raw
+        }
+    }
+}
+
+function Test-OptionsFieldInput {
+    # Returns an error text, or $null when the field holds a value that can be stored.
+    param([Parameter(Mandatory)][hashtable]$Editor)
+    $field = $Editor.Field
+    if ([string]$field.Kind -ne 'Number') { return $null }
+    $text = [string](& $Editor.Get)
+    if (-not $text) { return $null }
+    $min = $(if ($null -ne $field.Min) { [int]$field.Min } else { 0 })
+    $max = $(if ($null -ne $field.Max) { [int]$field.Max } else { 65535 })
+    $number = 0
+    if (-not [int]::TryParse($text, [ref]$number) -or $number -lt $min -or $number -gt $max) {
+        return ('{0} must be a whole number from {1} to {2}.' -f [string]$field.Title, $min, $max)
+    }
+    return $null
+}
+
+function Connect-OptionsFieldLink {
+    # Links between the editors of one group. The same links apply wherever the group appears.
+    param([Parameter(Mandatory)][hashtable]$Group, [Parameter(Mandatory)][hashtable]$Context)
+    $e = $Group.Editors
+
+    # The port follows the SSL box until the operator types a port of their own.
+    if ($e.Contains('wsus.port') -and $e.Contains('wsus.ssl')) {
+        $portBox = $e['wsus.port'].Focus
+        $sslBox = $e['wsus.ssl'].Focus
+        $follow = @{ Auto = ([string](& $e['wsus.port'].Get) -in @('', '8530', '8531')) }
+        $portBox.Add_TextChanged({ if ($portBox.IsKeyboardFocusWithin) { $follow.Auto = ($portBox.Text.Trim() -in @('', '8530', '8531')) } }.GetNewClosure())
+        # Checked and Unchecked also fire for a keyboard, UI Automation or code change, not only a mouse click.
+        $sslChanged = { if ($follow.Auto) { $portBox.Text = $(if ($sslBox.IsChecked -eq $true) { '8531' } else { '8530' }) } }.GetNewClosure()
+        $sslBox.Add_Checked($sslChanged)
+        $sslBox.Add_Unchecked($sslChanged)
+    }
+
+    # A name of the form server\instance,port in the SQL server field shows split into the three fields.
+    if ($e.Contains('cm.sqlServer') -and $e.Contains('cm.sqlInstance') -and $e.Contains('cm.sqlPort')) {
+        $parts = Split-CMSqlServerName -Name ([string](& $e['cm.sqlServer'].Get))
+        if ($parts.Instance -or $parts.Port -gt 0) {
+            & $e['cm.sqlServer'].Set $parts.Server
+            if ($parts.Instance -and -not [string](& $e['cm.sqlInstance'].Get)) { & $e['cm.sqlInstance'].Set $parts.Instance }
+            if ($parts.Port -gt 0 -and -not [string](& $e['cm.sqlPort'].Get)) { & $e['cm.sqlPort'].Set $parts.Port }
+        }
+    }
+
+    # The target line shows the name that Discover connects to.
+    if ($e.Contains('cm.sqlTarget')) {
+        $targetText = $e['cm.sqlTarget'].Text
+        $serverBox = $e['cm.sqlServer'].Focus
+        $instanceBox = $e['cm.sqlInstance'].Focus
+        $portBox = $e['cm.sqlPort'].Focus
+        $databaseBox = $e['cm.sqlDatabase'].Focus
+        $siteBox = $(if ($e.Contains('cm.siteCode')) { $e['cm.siteCode'].Focus } else { $null })
+        $refresh = {
+            $port = 0
+            [void][int]::TryParse($portBox.Text.Trim(), [ref]$port)
+            $name = Join-CMSqlServerName -Server $serverBox.Text -Instance $instanceBox.Text -Port $port
+            if (-not $name) { $name = 'the SQL server in the site definition' }
+            $database = $databaseBox.Text.Trim()
+            if (-not $database) { $database = $(if ($siteBox -and $siteBox.Text.Trim()) { 'CM_' + $siteBox.Text.Trim().ToUpperInvariant() } else { 'CM_<site code>' }) }
+            $targetText.Text = ('{0}, database {1}' -f $name, $database)
+        }.GetNewClosure()
+        foreach ($box in @($serverBox, $instanceBox, $portBox, $databaseBox, $siteBox)) { if ($box) { $box.Add_TextChanged($refresh) } }
+        & $refresh
+    }
+
+    # Application title: the two modes exclude each other.
+    if ($e.Contains('title.include') -and $e.Contains('title.remove')) {
+        $includeBox = $e['title.include'].Focus
+        $removeBox = $e['title.remove'].Focus
+        $exclusive = { $removeBox.IsEnabled = ($includeBox.IsChecked -ne $true); if ($includeBox.IsChecked -eq $true) { $removeBox.IsChecked = $false } }.GetNewClosure()
+        $includeBox.Add_Checked($exclusive)
+        $includeBox.Add_Unchecked($exclusive)
+        & $exclusive
+        $Group.ExtraCommit.Add({
+                param($ctx)
+                $ctx.Prefs.RemoveVersionFromTitle = ($removeBox.IsChecked -eq $true -and $includeBox.IsChecked -ne $true)
+            }.GetNewClosure()) | Out-Null
+    }
+
+    # The test deployment needs automatic distribution and a DP group, because it runs after the content distribution.
+    if ($e.Contains('dist.auto') -and $e.Contains('dist.group') -and $e.Contains('dist.test')) {
+        $autoBox = $e['dist.auto'].Focus
+        $groupBox = $e['dist.group'].Focus
+        $testBox = $e['dist.test'].Focus
+        $collectionBox = $e['dist.collection'].Focus
+        $createBox = $e['dist.create'].Focus
+        $refreshTest = {
+            $ready = ($autoBox.IsChecked -eq $true) -and -not [string]::IsNullOrWhiteSpace($groupBox.Text)
+            $testBox.IsEnabled = $ready
+            $collectionBox.IsEnabled = $ready -and ($testBox.IsChecked -eq $true)
+            $createBox.IsEnabled = $ready -and ($testBox.IsChecked -eq $true)
+        }.GetNewClosure()
+        $autoBox.Add_Click($refreshTest)
+        $autoBox.Add_Unchecked($refreshTest)
+        $groupBox.Add_TextChanged($refreshTest)
+        $testBox.Add_Click($refreshTest)
+        & $refreshTest
+    }
+}
+
+function New-OptionsFieldGroup {
+    # Builds the rows of the given fields. Commit writes the values to the preferences, Validate
+    # returns the first input error as @{ FieldId; Message }.
+    param(
+        [Parameter(Mandatory)][hashtable]$Context,
+        [Parameter(Mandatory)][object[]]$Field,
+        [string]$Description = ''
+    )
+    $stack = New-Object System.Windows.Controls.StackPanel
+    $group = @{ Element = $stack; Editors = [ordered]@{}; Order = New-Object System.Collections.Generic.List[string]; ExtraCommit = New-Object System.Collections.Generic.List[scriptblock]; ExtraValidate = New-Object System.Collections.Generic.List[scriptblock] }
+
+    if ($Description) {
+        $desc = New-OptionsTextBlock -Text $Description -Size 12
+        $desc.Margin = New-Object System.Windows.Thickness(0, 0, 0, 14)
+        $desc.MaxWidth = 760
+        $desc.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+        [void]$stack.Children.Add($desc)
+    }
+
+    foreach ($f in $Field) {
+        switch ([string]$f.Kind) {
+            'Group' {
+                $heading = New-OptionsTextBlock -Text ([string]$f.Title) -Size 15
+                $heading.Margin = New-Object System.Windows.Thickness(0, 14, 0, 4)
+                [void]$stack.Children.Add($heading)
+                $rule = New-Object System.Windows.Controls.Border
+                $rule.Height = 1
+                $rule.Margin = New-Object System.Windows.Thickness(0, 0, 0, 10)
+                $rule.SetResourceReference([System.Windows.Controls.Border]::BackgroundProperty, 'MahApps.Brushes.Control.Border')
+                [void]$stack.Children.Add($rule)
+                if ($f.Description) {
+                    $note = New-OptionsTextBlock -Text ([string]$f.Description) -Size 12
+                    $note.Margin = New-Object System.Windows.Thickness(0, 0, 0, 10)
+                    $note.MaxWidth = 760
+                    $note.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+                    [void]$stack.Children.Add($note)
+                }
+            }
+            'Note' {
+                $note = New-OptionsTextBlock -Text ([string]$f.Text) -Size 12
+                $note.Margin = New-Object System.Windows.Thickness(0, 0, 0, 10)
+                $note.MaxWidth = 760
+                $note.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+                [void]$stack.Children.Add($note)
+                if ($f.Id) { $group.Editors[[string]$f.Id] = @{ Id = [string]$f.Id; Field = $f; Kind = 'Note'; Element = $note; Focus = $note; Get = { $null }; Set = { param($v) }; Text = $note } }
+            }
+            default {
+                $editor = New-OptionsFieldEditor -Field $f -Context $Context
+                $row = New-OptionsFieldRow -Field $f -Editor $editor
+                [void]$stack.Children.Add($row)
+                $group.Editors[[string]$f.Id] = $editor
+                $group.Order.Add([string]$f.Id)
+                if ($f.Pref -and $editor.Set) {
+                    $stored = Get-OptionsPrefValue -Context $Context -Path ([string]$f.Pref)
+                    if ($f.ToText -and $null -ne $stored) { $stored = & $f.ToText $stored }
+                    if ([string]$f.Kind -eq 'Secret') { & $editor.Set $stored }
+                    elseif ($null -ne $stored) { & $editor.Set $stored }
+                    elseif ($null -ne $f.Default) { & $editor.Set $f.Default }
+                    else { & $editor.Set $(if ([string]$f.Kind -eq 'Check') { $false } else { '' }) }
+                }
+                elseif ($null -ne $f.Default -and $editor.Set -and -not $f.Pref) { & $editor.Set $f.Default }
+            }
+        }
+    }
+
+    Connect-OptionsFieldLink -Group $group -Context $Context
+
+    $group.Validate = {
+        foreach ($id in $group.Order) {
+            $message = Test-OptionsFieldInput -Editor $group.Editors[$id]
+            if ($message) { return @{ FieldId = $id; Message = $message } }
+        }
+        foreach ($check in $group.ExtraValidate) {
+            $result = & $check $Context
+            if ($result) { return $result }
+        }
+        return $null
+    }.GetNewClosure()
+
+    $group.Commit = {
+        foreach ($id in $group.Order) {
+            $editor = $group.Editors[$id]
+            $f = $editor.Field
+            if ($editor.Commit) { & $editor.Commit $Context }
+            if (-not $f.Pref -or $f.ReadOnly) { continue }
+            if ([string]$f.Kind -eq 'Secret') {
+                $secure = & $editor.Get
+                if ($secure -and $secure.Length -gt 0) { Set-OptionsPrefValue -Context $Context -Path ([string]$f.Pref) -Value ($secure | ConvertFrom-SecureString) }
+                continue
+            }
+            if ($null -eq $editor.Get) { continue }
+            $raw = & $editor.Get
+            if ($f.FromText) { $raw = & $f.FromText $raw }
+            Set-OptionsPrefValue -Context $Context -Path ([string]$f.Pref) -Value (ConvertTo-OptionsPrefValue -Field $f -Raw $raw)
+        }
+        foreach ($extra in $group.ExtraCommit) { & $extra $Context }
+    }.GetNewClosure()
+
+    return $group
+}
+
+function Get-OptionsFieldTable {
+    # Every field definition of every section by id, for the wizard and the tests.
+    $table = @{}
+    foreach ($section in @(Get-OptionsSectionDefinition)) {
+        foreach ($f in @($section.Fields)) { if ($f.Id) { $table[[string]$f.Id] = $f } }
+    }
+    return $table
+}
+
+function New-OptionsSectionPage {
+    # One section: its title, its description and the group of its fields, in a scroll viewer.
+    param([Parameter(Mandatory)][hashtable]$Definition, [Parameter(Mandatory)][hashtable]$Context)
+
+    if ($Definition.Kind -eq 'Panel') {
+        $panel = & $Definition.Factory
+        $page = @{ Id = [string]$Definition.Id; Element = $panel.Element; Editors = @{}; Commit = $panel.Commit; Validate = $null; Panel = $panel }
+        if ($Definition.SearchFields) {
+            foreach ($sf in @($Definition.SearchFields)) {
+                $control = $panel.Element.FindName([string]$sf.Control)
+                if ($control) { $page.Editors[[string]$sf.Id] = @{ Id = [string]$sf.Id; Focus = $control } }
+            }
+        }
+        return $page
+    }
+
+    $outer = New-Object System.Windows.Controls.ScrollViewer
+    $outer.VerticalScrollBarVisibility = [System.Windows.Controls.ScrollBarVisibility]::Auto
+    $outer.HorizontalScrollBarVisibility = [System.Windows.Controls.ScrollBarVisibility]::Disabled
+    $content = New-Object System.Windows.Controls.StackPanel
+    $content.Margin = New-Object System.Windows.Thickness(0, 0, 14, 12)
+    $outer.Content = $content
+
+    $heading = New-OptionsTextBlock -Text ([string]$Definition.Title) -Size 20
+    $heading.Margin = New-Object System.Windows.Thickness(0, 0, 0, 6)
+    $heading.Tag = 'section-title'
+    [void]$content.Children.Add($heading)
+
+    $group = New-OptionsFieldGroup -Context $Context -Field @($Definition.Fields) -Description ([string]$Definition.Description)
+    [void]$content.Children.Add($group.Element)
+
+    $page = @{ Id = [string]$Definition.Id; Element = $outer; Editors = $group.Editors; Commit = $group.Commit; Validate = $group.Validate; Group = $group }
+    if ($Definition.Post) { & $Definition.Post $Context $page }
+    return $page
+}
+
+# =============================================================================
+# Options window: search
+# =============================================================================
+function Get-OptionsSectionPath {
+    param([Parameter(Mandatory)][object[]]$Definition, [Parameter(Mandatory)][string]$Id)
+    $byId = @{}
+    foreach ($d in $Definition) { $byId[[string]$d.Id] = $d }
+    $names = New-Object System.Collections.Generic.List[string]
+    $cursor = $byId[$Id]
+    while ($cursor) {
+        $names.Insert(0, [string]$cursor.Title)
+        $cursor = $(if ($cursor.Parent) { $byId[[string]$cursor.Parent] } else { $null })
+    }
+    return ($names -join ' > ')
+}
+
+function Get-OptionsSearchIndex {
+    # One entry per field and per section. A field of a section whose name appears in
+    # the entry text is found by the section name too.
+    param([Parameter(Mandatory)][object[]]$Definition)
+    $index = New-Object System.Collections.Generic.List[object]
+    foreach ($section in $Definition) {
+        if ($section.Kind -eq 'Group') { continue }
+        $path = Get-OptionsSectionPath -Definition $Definition -Id ([string]$section.Id)
+        $index.Add([pscustomobject]@{ SectionId = [string]$section.Id; FieldId = ''; Title = [string]$section.Title; Path = $path; Text = ($path + ' ' + [string]$section.Keywords).ToLowerInvariant() })
+        $entries = @()
+        if ($section.Kind -eq 'Panel') { $entries = @($section.SearchFields | ForEach-Object { @{ Id = [string]$_.Id; Title = [string]$_.Title; Keywords = [string]$_.Keywords } }) }
+        else { $entries = @($section.Fields | Where-Object { $_.Id -and $_.Title -and $_.Kind -notin 'Group', 'Note' } | ForEach-Object { @{ Id = [string]$_.Id; Title = [string]$_.Title; Keywords = [string]$_.Keywords } }) }
+        foreach ($entry in $entries) {
+            $index.Add([pscustomobject]@{ SectionId = [string]$section.Id; FieldId = $entry.Id; Title = $entry.Title; Path = $path; Text = ($entry.Title + ' ' + $entry.Keywords + ' ' + $path).ToLowerInvariant() })
+        }
+    }
+    return $index.ToArray()
+}
+
+function Search-OptionsIndex {
+    # Every word of the query must appear in the text of an entry. A title that starts with the query comes first.
+    param([Parameter(Mandatory)][object[]]$Index, [AllowEmptyString()][string]$Query = '', [int]$Limit = 40)
+    $words = @(([string]$Query).Trim().ToLowerInvariant() -split '\s+' | Where-Object { $_ })
+    if ($words.Count -eq 0) { return @() }
+    $hits = foreach ($entry in $Index) {
+        $all = $true
+        foreach ($w in $words) { if (-not $entry.Text.Contains($w)) { $all = $false; break } }
+        if (-not $all) { continue }
+        $rank = 3
+        $title = $entry.Title.ToLowerInvariant()
+        if ($title -eq ($words -join ' ')) { $rank = 0 }
+        elseif ($title.StartsWith($words[0])) { $rank = 1 }
+        elseif ($title.Contains($words[0])) { $rank = 2 }
+        [pscustomobject]@{ Rank = $rank; Entry = $entry }
+    }
+    return @($hits | Sort-Object Rank, @{ Expression = { $_.Entry.Title } } | Select-Object -First $Limit | ForEach-Object { $_.Entry })
+}
+
+# =============================================================================
+# Options window: section definitions
+# -----------------------------------------------------------------------------
+# One entry per node of the tree. Kind is Group (a node with children and no
+# page), Fields (a page built from the field list) or Panel (a page built by a
+# factory). The tree text, the page title and the search use the same Title.
+# =============================================================================
+function Get-OptionsSectionDefinition {
+    $channelItems = @(@{ Label = 'Monthly Enterprise Channel'; Value = 'MonthlyEnterprise' }, @{ Label = 'Current Channel'; Value = 'Current' })
+    $deployItems = @(@{ Label = 'Managed (offline source)'; Value = 'Managed' }, @{ Label = 'Online (CDN)'; Value = 'Online' })
+    $notSet = @{ Label = '(not set)'; Value = '' }
+    $cwaPolicyItems = @($notSet, @{ Label = 'S - HTTPS stores only'; Value = 'S' }, @{ Label = 'A - HTTPS and HTTP stores'; Value = 'A' }, @{ Label = 'N - none'; Value = 'N' })
+
+    $sections = New-Object System.Collections.Generic.List[hashtable]
+
+    # ---------------------------------------------------------------- Connections
+    $sections.Add(@{ Id = 'connections'; Title = 'Connections'; Kind = 'Group' })
+
+    $sections.Add(@{
+            Id = 'systems'; Title = 'Systems in use'; Parent = 'connections'; Kind = 'Fields'
+            Description = 'Select the systems that AppPackager publishes to. The sidebar disables the button of a system that is not selected.'
+            Fields = @(
+                @{ Id = 'sys.configmgr'; Title = 'ConfigMgr'; Kind = 'Check'; Pref = 'Systems.ConfigMgr'; Label = 'Publish to a ConfigMgr site'; Tip = 'Enables the sidebar buttons that read or change the ConfigMgr site.'; Keywords = 'systems in use' }
+                @{ Id = 'sys.intune'; Title = 'Intune'; Kind = 'Check'; Pref = 'Systems.Intune'; Label = 'Publish Win32 apps through Microsoft Graph'; Tip = 'Enables Publish to Intune. It needs the tenant ID, client ID and client secret.'; Keywords = 'systems in use' }
+                @{ Id = 'sys.wsus'; Title = 'WSUS'; Kind = 'Check'; Pref = 'Systems.Wsus'; Label = 'Publish updates to a WSUS server'; Tip = 'Enables Publish to WSUS and WSUS Updates. It needs the WSUS server name.'; Keywords = 'systems in use' }
+            )
+        })
+
+    $sections.Add(@{
+            Id = 'cm'; Title = 'ConfigMgr'; Parent = 'connections'; Kind = 'Fields'
+            Description = 'The site that AppPackager publishes to and reads from.'
+            Post = { param($Context, $Page) Initialize-OptionsConfigMgrSection -Context $Context -Page $Page }
+            Fields = @(
+                @{ Id = 'cm.siteCode'; Title = 'Site code'; Kind = 'Text'; Pref = 'SiteCode'; MaxLength = 5; Width = 80; Tip = 'The ConfigMgr site code, for example MCM.' }
+                @{ Id = 'cm.provider'; Title = 'Site server / SMS Provider'; Kind = 'Text'; Pref = 'ProviderMachineName'; MaxLength = 200; Tip = 'The computer name of the SMS Provider of the site.'; Keywords = 'smsprovider provider site server' }
+                @{ Id = 'cm.dbGroup'; Kind = 'Group'; Title = 'Site database'; Description = 'Discover unmanaged software reads this database. An empty field takes its value from the site definition.' }
+                @{ Id = 'cm.sqlServer'; Title = 'SQL server'; Kind = 'Text'; Pref = 'DiscoverySqlServer'; MaxLength = 200; Tip = 'The host name of the SQL Server that holds the site database.'; Keywords = 'discovery sql discover' }
+                @{ Id = 'cm.sqlInstance'; Title = 'SQL instance'; Kind = 'Text'; Pref = 'DiscoverySqlInstance'; MaxLength = 128; Width = 220; Tip = 'The named instance of the SQL Server; empty uses the default instance.'; Keywords = 'discovery sql discover' }
+                @{ Id = 'cm.sqlPort'; Title = 'SQL port'; Kind = 'Number'; Pref = 'DiscoverySqlPort'; Min = 1; Max = 65535; ZeroIsEmpty = $true; Default = 0; Tip = 'The TCP port of the instance; empty uses port 1433 or SQL Server Browser.'; Keywords = 'discovery sql discover tcp' }
+                @{ Id = 'cm.sqlDatabase'; Title = 'Database name'; Kind = 'Text'; Pref = 'DiscoverySqlDatabase'; MaxLength = 128; Width = 220; Tip = 'The site database name; empty uses CM_ and the site code.'; Keywords = 'discovery sql discover cm_' }
+                @{ Id = 'cm.sqlTarget'; Title = 'Discover reads'; Kind = 'Status'; Tip = 'The SQL Server name and database that Discover unmanaged software connects to.'; Keywords = 'discovery sql target' }
+                @{ Id = 'cm.shareGroup'; Kind = 'Group'; Title = 'Content source' }
+                @{ Id = 'cm.fileShare'; Title = 'Content share UNC'; Kind = 'Text'; Pref = 'FileShareRoot'; MaxLength = 200; Tip = 'The UNC path of the share that holds the application content sources.'; Keywords = 'file share root unc' }
+                @{ Id = 'cm.console'; Title = 'Console status'; Kind = 'Status'; Tip = 'Shows whether the ConfigMgr console is installed on this computer.'; Keywords = 'adminui' }
+            )
+        })
+
+    $sections.Add(@{
+            Id = 'wsus'; Title = 'WSUS'; Parent = 'connections'; Kind = 'Fields'
+            Description = 'Publish to WSUS publishes the installer of each checked app as a locally published update. This computer needs the WSUS console or the RSAT WSUS tools at the version of the server, an account in the WSUS Administrators group, and file share access to the server. A computer that is not the WSUS server must trust the signing certificate.'
+            Post = { param($Context, $Page) Initialize-OptionsWsusSection -Context $Context -Page $Page }
+            Fields = @(
+                @{ Id = 'wsus.server'; Title = 'Server'; Kind = 'Text'; Pref = 'Wsus.ServerName'; MaxLength = 255; Watermark = 'wsus01.contoso.com'; Tip = 'The WSUS server name, or the top-level software update point.'; Keywords = 'wsus server' }
+                @{ Id = 'wsus.port'; Title = 'Port'; Kind = 'Number'; Pref = 'Wsus.PortNumber'; Min = 1; Max = 65535; Default = 8530; Tip = 'The WSUS port; 8530 for HTTP and 8531 for HTTPS unless the site uses another port.'; Keywords = 'wsus port 8530 8531' }
+                @{ Id = 'wsus.ssl'; Title = 'Use SSL'; Kind = 'Check'; Pref = 'Wsus.UseSsl'; Label = 'Connect to the WSUS administration API over HTTPS'; Tip = 'Switches the port between 8530 and 8531 until you type a custom port.'; Keywords = 'wsus https tls' }
+                @{ Id = 'wsus.certGroup'; Kind = 'Group'; Title = 'Signing certificate'; Description = 'Clients install a locally published update only when the signing certificate is in their Trusted Publishers store, and in Trusted Root Certification Authorities when it is self-signed. The policy Allow signed updates from an intranet Microsoft update service location must be enabled (AcceptTrustedPublisherCerts = 1 under HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate).' }
+                @{ Id = 'wsus.cert'; Title = 'Certificate'; Kind = 'Status'; Tip = 'The signing certificate of the WSUS server; Test connection reads it.'; Keywords = 'wsus signing certificate' }
+                @{ Id = 'wsus.certActions'; Title = 'Certificate actions'; Kind = 'Actions'; Tip = 'Create, import or export the signing certificate of the WSUS server.'; Keywords = 'pfx self-signed export'; Buttons = @(
+                        @{ Id = 'create'; Label = 'Create self-signed...'; Tip = 'Has the WSUS server create and use a self-signed signing certificate.' }
+                        @{ Id = 'import'; Label = 'Import PFX...'; Tip = 'Imports a code-signing certificate from a PFX file.' }
+                        @{ Id = 'export'; Label = 'Export certificate...'; Tip = 'Saves the public signing certificate as a .cer file for Group Policy.' }) }
+                @{ Id = 'wsus.pubGroup'; Kind = 'Group'; Title = 'Publishing'; Description = 'Each update installs only where an older version of the application is installed. A computer without the application does not get the update.' }
+                @{ Id = 'wsus.classification'; Title = 'Classification'; Kind = 'Combo'; Pref = 'Wsus.Classification'; Width = 260; Default = 'Updates'; ItemsFrom = { @(Get-WsusClassificationNameList | ForEach-Object { @{ Label = (Get-WsusClassificationLabel -Name $_); Value = $_ } }) }; Tip = 'The WSUS classification of the published updates.' }
+                @{ Id = 'wsus.group'; Title = 'Approve for group'; Kind = 'ComboText'; Pref = 'Wsus.ApprovalGroup'; Tip = 'The computer group that gets the update at once; empty approves later.'; Keywords = 'computer group approval' }
+                @{ Id = 'wsus.groupLoad'; Title = 'Computer groups'; Kind = 'Actions'; Tip = 'Loads the computer groups of the WSUS server into the group list.'; Buttons = @(@{ Id = 'load'; Label = 'Load groups'; Tip = 'Reads the computer groups from the WSUS server.' }) }
+                @{ Id = 'wsus.decline'; Title = 'Decline superseded'; Kind = 'Check'; Pref = 'Wsus.DeclineSuperseded'; Label = 'Decline earlier versions of the same application after publishing'; Tip = 'Declines the earlier versions of the application in WSUS.'; Keywords = 'supersedence' }
+            )
+        })
+
+    $sections.Add(@{
+            Id = 'intune'; Title = 'Intune'; Parent = 'connections'; Kind = 'Fields'
+            Description = 'The app registration that Publish to Intune uses with Microsoft Graph. Stage builds an .intunewin beside the content when the Content Prep Tool is detected.'
+            Fields = @(
+                @{ Id = 'int.tenant'; Title = 'Tenant ID'; Kind = 'Text'; Pref = 'Intune.TenantId'; Tip = 'The Entra tenant ID, as a GUID or a domain name.'; Keywords = 'entra azure' }
+                @{ Id = 'int.client'; Title = 'Client ID'; Kind = 'Text'; Pref = 'Intune.ClientId'; Tip = 'The client ID of an app registration with DeviceManagementApps.ReadWrite.All.'; Keywords = 'app registration graph' }
+                @{ Id = 'int.secret'; Title = 'Client secret'; Kind = 'Secret'; Pref = 'Intune.ClientSecretProtected'; Tip = 'Stored with DPAPI for the current Windows user; empty keeps the saved secret.'; Keywords = 'dpapi' }
+            )
+        })
+
+    $sections.Add(@{
+            Id = 'test'; Title = 'Test connection'; Parent = 'connections'; Kind = 'Fields'
+            Description = 'Each button tests the values that are in the fields now, before you select OK.'
+            Post = { param($Context, $Page) Initialize-OptionsTestSection -Context $Context -Page $Page }
+            Fields = @(
+                @{ Id = 'test.configmgr'; Title = 'ConfigMgr'; Kind = 'Status'; Tip = 'Reads the site from the SMS Provider and opens the site database.'; Keywords = 'test connection site provider sql'; Buttons = @(@{ Id = 'run'; Label = 'Test'; Tip = 'Tests the SMS Provider and the site database.' }) }
+                @{ Id = 'test.wsus'; Title = 'WSUS'; Kind = 'Status'; Tip = 'Connects to the WSUS server and reads its version, role and signing certificate.'; Keywords = 'test connection'; Buttons = @(@{ Id = 'run'; Label = 'Test'; Tip = 'Tests the WSUS server.' }) }
+                @{ Id = 'test.intune'; Title = 'Intune'; Kind = 'Status'; Tip = 'Requests a Microsoft Graph token with the tenant, client and secret.'; Keywords = 'test connection graph token'; Buttons = @(@{ Id = 'run'; Label = 'Test'; Tip = 'Tests the app registration.' }) }
+            )
+        })
+
+    # ---------------------------------------------------------------- Packaging
+    $sections.Add(@{ Id = 'packaging'; Title = 'Packaging'; Kind = 'Group' })
+
+    $sections.Add(@{
+            Id = 'folders'; Title = 'Folders'; Parent = 'packaging'; Kind = 'Fields'
+            Post = { param($Context, $Page) Initialize-OptionsFoldersSection -Context $Context -Page $Page }
+            Fields = @(
+                @{ Id = 'pkg.downloadRoot'; Title = 'Download root'; Kind = 'Folder'; Pref = 'DownloadRoot'; MaxLength = 200; Tip = 'The local folder where Stage downloads and builds the installer content.'; Keywords = 'stage download folder' }
+                @{ Id = 'pkg.packagers'; Title = 'Packagers folder'; Kind = 'Status'; Tip = 'The folder that holds the package-*.ps1 files of the catalog.'; Keywords = 'catalog'; Buttons = @(@{ Id = 'open'; Label = 'Open'; Tip = 'Opens the packagers folder in Explorer.' }) }
+                @{ Id = 'pkg.layout'; Title = 'Content layout'; Kind = 'Combo'; Pref = 'ContentLayout'; Default = 'Nested'; Items = @(@{ Label = 'Nested - Applications\Vendor\App\Version'; Value = 'Nested' }, @{ Label = 'Flat - Applications\Vendor-App-Version'; Value = 'Flat' }); Tip = 'Nested keeps the versions of an app together; Flat uses one folder for each package.'; Keywords = 'share folder structure' }
+            )
+        })
+
+    $sections.Add(@{
+            Id = 'dtdefaults'; Title = 'Deployment type defaults'; Parent = 'packaging'; Kind = 'Fields'
+            Description = 'The values of every deployment type that Publish to ConfigMgr creates.'
+            Fields = @(
+                @{ Id = 'pkg.estimated'; Title = 'Estimated runtime'; Kind = 'Number'; Pref = 'EstimatedRuntimeMins'; Min = 1; Max = 9999; Default = 15; MaxLength = 4; Unit = 'minutes'; Tip = 'The estimated installation time of a new deployment type, in minutes.' }
+                @{ Id = 'pkg.maximum'; Title = 'Maximum runtime'; Kind = 'Number'; Pref = 'MaximumRuntimeMins'; Min = 1; Max = 9999; Default = 30; MaxLength = 4; Unit = 'minutes'; Tip = 'The maximum allowed run time of a new deployment type, in minutes.' }
+                @{ Id = 'pkg.fallback'; Title = 'Fallback distribution points'; Kind = 'Combo'; Pref = 'ContentFallback'; Default = 'Allow'; Items = @(@{ Label = 'Allow - use the site default boundary group'; Value = 'Allow' }, @{ Label = 'Deny - current and neighbor groups only'; Value = 'Deny' }); Tip = 'Controls whether clients fall back to the default site boundary group for content.' }
+                @{ Id = 'pkg.neighbor'; Title = 'Neighbor/default DP'; Kind = 'Combo'; Pref = 'SlowNetworkDeploymentMode'; Default = 'Download'; Items = @(@{ Label = 'Download content and install'; Value = 'Download' }, @{ Label = 'Do not download content'; Value = 'DoNothing' }); Tip = 'The content option for a distribution point in a neighbor or default boundary group.' }
+            )
+        })
+
+    $sections.Add(@{
+            Id = 'title'; Title = 'Application title'; Parent = 'packaging'; Kind = 'Fields'
+            Description = 'The naming rule of every Package run. Without a selection, a packager uses its own name.'
+            Fields = @(
+                @{ Id = 'title.include'; Title = 'Include version'; Kind = 'Check'; Pref = 'IncludeVersionInTitle'; Label = 'Add the version to each application name'; Tip = 'Creates a separate application for each release.' }
+                @{ Id = 'title.remove'; Title = 'Remove version'; Kind = 'Check'; Pref = 'RemoveVersionFromTitle'; Label = 'Remove the release version from the vendor product name'; Tip = 'Keeps one application for all releases; it applies while Include version is off.' }
+            )
+        })
+
+    $sections.Add(@{
+            Id = 'afterpackage'; Title = 'After Package'; Parent = 'packaging'; Kind = 'Fields'
+            Description = 'The steps that follow Publish to ConfigMgr. The test deployment needs automatic distribution and a DP group.'
+            Fields = @(
+                @{ Id = 'dist.auto'; Title = 'Distribute content'; Kind = 'Check'; Pref = 'ContentDistribution.AutoDistribute'; Label = 'Run Start-CMContentDistribution after Package'; Tip = 'Distributes the content to the DP group when Package finishes.' }
+                @{ Id = 'dist.group'; Title = 'DP group'; Kind = 'Text'; Pref = 'ContentDistribution.DPGroupName'; MaxLength = 200; Tip = 'The exact name of the distribution point group.'; Keywords = 'distribution point group' }
+                @{ Id = 'dist.test'; Title = 'Test deployment'; Kind = 'Check'; Pref = 'ContentDistribution.DeployToTestCollection'; Label = 'Deploy to the test collection after distribution'; Tip = 'Creates an Available deployment for the test collection.' }
+                @{ Id = 'dist.collection'; Title = 'Test collection'; Kind = 'Text'; Pref = 'ContentDistribution.TestCollectionName'; MaxLength = 255; Tip = 'The exact name of the device collection that receives the test deployment.' }
+                @{ Id = 'dist.create'; Title = 'Create collection'; Kind = 'Check'; Pref = 'ContentDistribution.CreateTestCollectionIfMissing'; Label = 'Create the collection if it does not exist'; Tip = 'Creates the collection with All Systems as the limiting collection.' }
+            )
+        })
+
+    # ---------------------------------------------------------------- Applications
+    $sections.Add(@{ Id = 'applications'; Title = 'Applications'; Kind = 'Group' })
+
+    $sections.Add(@{
+            Id = 'adobe'; Title = 'Adobe Acrobat Reader'; Parent = 'applications'; Kind = 'Fields'
+            Post = { param($Context, $Page) Initialize-OptionsAdobeSection -Context $Context -Page $Page }
+            Fields = @(
+                @{ Id = 'adobe.edition'; Title = 'Edition'; Kind = 'Combo'; Pref = 'AdobeReaderInstallOptions.Edition'; Default = 'English'; Width = 260; Items = @(@{ Label = 'English'; Value = 'English' }, @{ Label = 'Multilingual (MUI)'; Value = 'MUI' }); Tip = 'English stages the en_US installer; Multilingual stages the MUI installer.' }
+                @{ Id = 'adobe.languages'; Title = 'Languages'; Kind = 'Multi'; Pref = 'AdobeReaderInstallOptions.Languages'; Columns = 6
+                    Tip = 'The MUI languages to install; English is always included (LANG_LIST).'
+                    Normalize = { param($Values) if (@($Values) -contains 'All') { @('All') } else { @($Values) } }
+                    Items = @(@{ Id = 'All'; Label = 'All languages'; Tip = 'Installs every language of the MUI installer (LANG_LIST=ALL).' }) + @('ca_ES', 'cs_CZ', 'da_DK', 'de_DE', 'es_ES', 'eu_ES', 'fi_FI', 'fr_FR', 'hr_HR', 'hu_HU', 'it_IT', 'ja_JP', 'ko_KR', 'nb_NO', 'nl_NL', 'pl_PL', 'pt_BR', 'ro_RO', 'ru_RU', 'sk_SK', 'sl_SI', 'sv_SE', 'tr_TR', 'uk_UA', 'zh_CN', 'zh_TW' | ForEach-Object { @{ Id = $_; Label = $_ } }) }
+                @{ Id = 'adobe.eula'; Title = 'License agreement'; Kind = 'Check'; Pref = 'AdobeReaderInstallOptions.AcceptEula'; Label = 'Accept the Adobe license agreement (EULA_ACCEPT=YES)'; Tip = 'Accepts the license for all users, so the dialog does not show at first start.' }
+                @{ Id = 'adobe.shortcut'; Title = 'Desktop shortcut'; Kind = 'Check'; Pref = 'AdobeReaderInstallOptions.DisableDesktopShortcut'; Label = 'Do not create the desktop shortcut (DISABLEDESKTOPSHORTCUT=1)'; Tip = 'Skips the desktop shortcut at install and after every update.' }
+                @{ Id = 'adobe.chrome'; Title = 'Chrome extension'; Kind = 'Check'; Pref = 'AdobeReaderInstallOptions.DisableChromeExtension'; Label = 'Do not install the Chrome extension (ENABLE_CHROMEEXT=0)'; Tip = 'Blocks the Adobe Chrome extension at install, for sites that set extensions by policy.' }
+                @{ Id = 'adobe.browser'; Title = 'Browser viewer control'; Kind = 'Check'; Pref = 'AdobeReaderInstallOptions.DisableBrowserIntegration'; Label = 'Do not install the browser viewer control (DISABLE_BROWSER_INTEGRATION=YES)'; Tip = 'Skips the PDF viewer ActiveX control for Internet Explorer.' }
+                @{ Id = 'adobe.update'; Title = 'Update mode'; Kind = 'Combo'; Pref = 'AdobeReaderInstallOptions.UpdateMode'; Default = ''; Width = 460; Items = @($notSet, @{ Label = '0 - check and install manually'; Value = '0' }, @{ Label = '2 - download automatically, user chooses when to install'; Value = '2' }, @{ Label = '3 - install updates automatically'; Value = '3' }, @{ Label = '4 - notify, user chooses to download and install'; Value = '4' }); Tip = 'Sets how Reader updates itself (UPDATE_MODE); use 0 when ConfigMgr patches Reader.' }
+            )
+        })
+
+    $sections.Add(@{
+            Id = 'bc5'; Title = 'Beyond Compare 5'; Parent = 'applications'; Kind = 'Fields'
+            Fields = @(
+                @{ Id = 'bc.key'; Title = 'License key file'; Kind = 'File'; Pref = 'BeyondCompareKeyFile'; Filter = 'License key file (BC5Key.txt)|BC5Key.txt|Text files (*.txt)|*.txt|All files (*.*)|*.*'; Tip = 'The BC5Key.txt file from Scooter Software; Stage and Package require it.'; Keywords = 'bc5key license' }
+                @{ Id = 'bc.remote'; Title = 'Remote profiles'; Kind = 'Check'; Pref = 'BeyondCompareOptions.DisableRemoteProfiles'; Label = 'Turn off FTP, SFTP, WebDAV and cloud profiles (/DisableRemoteProfiles)'; Tip = 'Needs Beyond Compare 5.2 or later.' }
+                @{ Id = 'bc.passwords'; Title = 'Saved passwords'; Kind = 'Check'; Pref = 'BeyondCompareOptions.DisableSavedPasswords'; Label = 'Do not save passwords on disk (/DisableSavedPasswords)'; Tip = 'Needs Beyond Compare 5.2 or later.' }
+            )
+        })
+
+    $sections.Add(@{
+            Id = 'cwa'; Title = 'Citrix Workspace App'; Parent = 'applications'; Kind = 'Fields'
+            Description = 'The switches of the Current Release and LTSR packagers. The sections below set the store, the installation, the plug-ins, the updates, the store policy and the components.'
+            Post = { param($Context, $Page) Initialize-OptionsCitrixPreview -Context $Context -Page $Page }
+            Fields = @(
+                @{ Id = 'cwa.preview'; Title = 'Command-line preview'; Kind = 'Actions'; Tip = 'Shows the install command line that the Current Release and LTSR packagers build.'; Keywords = 'cwa citrix arguments'; Buttons = @(@{ Id = 'preview'; Label = 'Preview'; Tip = 'Shows the command line for both streams.' }) }
+            )
+        })
+    $sections.Add(@{
+            Id = 'cwa.store'; Title = 'Store'; Parent = 'cwa'; Kind = 'Fields'; Keywords = 'citrix'
+            Fields = @(
+                @{ Id = 'cwa.storeName'; Title = 'Store name'; Kind = 'Text'; Pref = 'cwa:Store.Name'; Width = 220; Tip = 'The friendly name of the StoreFront store (STORE0).' }
+                @{ Id = 'cwa.storeUrl'; Title = 'Store URL'; Kind = 'Text'; Pref = 'cwa:Store.Url'; Tip = 'The STORE0 URL: https://host/Citrix/Store/discovery for StoreFront, or https://host#StoreName for a Gateway.'; Keywords = 'storefront gateway' }
+            )
+        })
+    $sections.Add(@{
+            Id = 'cwa.install'; Title = 'Installation'; Parent = 'cwa'; Kind = 'Fields'; Keywords = 'citrix'
+            Fields = @(
+                @{ Id = 'cwa.clean'; Title = 'Clean install'; Kind = 'Check'; Pref = 'cwa:Installation.CleanInstall'; Label = 'Remove leftover configuration before install (/CleanInstall)'; Tip = 'Removes configuration and registry data of an earlier installation before the install.' }
+                @{ Id = 'cwa.sso'; Title = 'Single sign-on'; Kind = 'Check'; Pref = 'cwa:Installation.IncludeSSON'; Label = 'Install the SSO component (/includeSSON, ENABLE_SSON=Yes)'; Tip = 'Installs the SSO component and turns on domain pass-through authentication.' }
+                @{ Id = 'cwa.appprot'; Title = 'App Protection'; Kind = 'Check'; Pref = 'cwa:Installation.AppProtection'; Label = 'Start the App Protection component (startAppProtection)'; Tip = 'Starts the component; the installer already installs it, and it needs an admin install.' }
+                @{ Id = 'cwa.prelaunch'; Title = 'Session pre-launch'; Kind = 'Check'; Pref = 'cwa:Installation.SessionPreLaunch'; Label = 'Pre-launch a session at logon (ENABLEPRELAUNCH)'; Tip = 'Starts a Citrix session at logon so that applications start faster.' }
+                @{ Id = 'cwa.selfservice'; Title = 'Self-service mode'; Kind = 'Check'; Pref = 'cwa:Installation.SelfServiceMode'; Label = 'Show the self-service window (SELFSERVICEMODE)'; Tip = 'Shows the Citrix Workspace self-service window; cleared hides it.' }
+                @{ Id = 'cwa.forceinstall'; Title = 'Force install'; Kind = 'Check'; Pref = 'cwa:Installation.ForceInstall'; Label = 'Clean old Citrix data after a failed install (/forceinstall)'; Tip = 'Cleans old data when an install or upgrade fails; use it for a retry package.' }
+                @{ Id = 'cwa.featuresGroup'; Kind = 'Group'; Title = 'Features and client name' }
+                @{ Id = 'cwa.bidir'; Title = 'Content redirection'; Kind = 'Check'; Pref = 'cwa:Installation.BidirContentRedirection'; Label = 'Allow redirection in both directions (ALLOW_BIDIRCONTENTREDIRECTION=1)'; Tip = 'Allows content redirection between the client and the host in both directions.' }
+                @{ Id = 'cwa.hostedurl'; Title = 'URL redirection'; Kind = 'Check'; Pref = 'cwa:Installation.ClientHostedAppsUrl'; Label = 'Turn on URL redirection (ALLOW_CLIENTHOSTEDAPPSURL=1)'; Tip = 'Turns on URL redirection on the device.' }
+                @{ Id = 'cwa.laa'; Title = 'Local App Access'; Kind = 'Check'; Pref = 'cwa:Installation.ForceLaa'; Label = 'Install Local App Access (FORCE_LAA=1)'; Tip = 'Installs Local App Access; it needs an admin install.' }
+                @{ Id = 'cwa.legacyicons'; Title = 'File-type icons'; Kind = 'Check'; Pref = 'cwa:Installation.LegacyFtaIcons'; Label = 'Hide file-type icons of subscribed apps (LEGACYFTAICONS=True)'; Tip = 'Hides the file-type icons of subscribed apps.' }
+                @{ Id = 'cwa.disablesetting'; Title = 'Advanced Preferences'; Kind = 'Combo'; Pref = 'cwa:Installation.DisableSetting'; Default = ''; Width = 300; Items = @($notSet, @{ Label = '0 - show Shortcuts and Reconnect'; Value = '0' }, @{ Label = '1 - show Reconnect only'; Value = '1' }, @{ Label = '2 - show Shortcuts only'; Value = '2' }, @{ Label = '3 - hide both'; Value = '3' }); Tip = 'Hides the Shortcuts and Reconnect options in Advanced Preferences (DisableSetting).' }
+                @{ Id = 'cwa.clientname'; Title = 'Client name'; Kind = 'Text'; Pref = 'cwa:Installation.ClientName'; MaxLength = 20; Width = 220; Tip = 'A fixed client device name; empty uses the computer name.'; Keywords = 'client_name dynamic' }
+            )
+        })
+    $sections.Add(@{
+            Id = 'cwa.plugins'; Title = 'Plugins and add-ons'; Parent = 'cwa'; Kind = 'Fields'; Keywords = 'citrix plug-ins'
+            Post = { param($Context, $Page) Initialize-OptionsCitrixPluginSection -Context $Context -Page $Page }
+            Fields = @(
+                @{ Id = 'cwa.teams'; Title = 'MS Teams VDI plugin'; Kind = 'Check'; Pref = 'cwa:Plugins.MSTeamsPlugin'; Label = 'Install the plug-in (/InstallMSTeamsPlugin)'; Tip = 'Current Release only; the LTSR packagers ignore this setting.' }
+                @{ Id = 'cwa.zoom'; Title = 'Zoom VDI plugin'; Kind = 'Check'; Pref = 'cwa:Plugins.ZoomPlugin'; Label = 'Install the plug-in (Installzoomplugin, ADDONS=ZoomVDIPlugin)'; Tip = 'Current Release adds Installzoomplugin=N when cleared; LTSR adds ADDONS=ZoomVDIPlugin when set.' }
+                @{ Id = 'cwa.webex'; Title = 'WebEx VDI plugin'; Kind = 'Check'; Pref = 'cwa:Plugins.WebExPlugin'; Label = 'Install the plug-in (ADDONS=WebexVDIPlugin)'; Tip = 'Installs the WebEx VDI plugin engine.' }
+                @{ Id = 'cwa.uber'; Title = 'uberAgent'; Kind = 'Check'; Pref = 'cwa:Plugins.UberAgent'; Label = 'Install or upgrade uberAgent (/InstallUberAgent)'; Tip = 'Installs or upgrades the uberAgent monitoring plug-in.' }
+                @{ Id = 'cwa.uberskip'; Title = 'uberAgent upgrade'; Kind = 'Check'; Pref = 'cwa:Plugins.UberAgentSkipUpgrade'; Label = 'Skip the upgrade when uberAgent is present (/SkipUberAgentUpgrade)'; Tip = 'Installs uberAgent only when it is not on the device yet.' }
+                @{ Id = 'cwa.epa'; Title = 'EPA client'; Kind = 'Check'; Pref = 'cwa:Plugins.EPAClient'; Label = 'Install the EPA client (cleared adds InstallEPAClient=N)'; Tip = 'The Endpoint Analysis client for device posture checks.' }
+                @{ Id = 'cwa.sr'; Title = 'Session Recording agent'; Kind = 'Check'; Pref = 'cwa:Plugins.SessionRecording'; Label = 'Install the agent (/InstallSRAgent)'; Tip = 'Current Release only; the LTSR packagers ignore this setting.' }
+                @{ Id = 'cwa.srskip'; Title = 'Session Recording upgrade'; Kind = 'Check'; Pref = 'cwa:Plugins.SkipSRAgentUpgrade'; Label = 'Keep the agent that is on the device (/SkipSRAgentUpgrade)'; Tip = 'Keeps an installed Session Recording agent; Current Release only.' }
+            )
+        })
+    $sections.Add(@{
+            Id = 'cwa.update'; Title = 'Update and telemetry'; Parent = 'cwa'; Kind = 'Fields'; Keywords = 'citrix'
+            Fields = @(
+                @{ Id = 'cwa.autoupdate'; Title = 'Auto-update'; Kind = 'Combo'; Pref = 'cwa:UpdateAndTelemetry.AutoUpdateCheck'; Default = ''; Width = 200; Items = @($notSet, @{ Label = 'auto'; Value = 'auto' }, @{ Label = 'manual'; Value = 'manual' }, @{ Label = 'disabled'; Value = 'disabled' }); Tip = 'AutoUpdateCheck; (not set) omits the switch and the installer default applies.' }
+                @{ Id = 'cwa.stream'; Title = 'Update stream'; Kind = 'Combo'; Pref = 'cwa:UpdateAndTelemetry.AutoUpdateStream'; Default = ''; Width = 200; Items = @($notSet, @{ Label = 'LTSR'; Value = 'LTSR' }, @{ Label = 'Current'; Value = 'Current' }); Tip = 'AutoUpdateStream; it works only when Auto-update is set.' }
+                @{ Id = 'cwa.rollout'; Title = 'Rollout priority'; Kind = 'Combo'; Pref = 'cwa:UpdateAndTelemetry.AURolloutPriority'; Default = ''; Width = 200; Items = @($notSet, @{ Label = 'Auto'; Value = 'Auto' }, @{ Label = 'Fast'; Value = 'Fast' }, @{ Label = 'Medium'; Value = 'Medium' }, @{ Label = 'Slow'; Value = 'Slow' }); Tip = 'AURolloutPriority; it works only when Auto-update is set.' }
+                @{ Id = 'cwa.ceip'; Title = 'CEIP and telemetry'; Kind = 'Check'; Pref = 'cwa:UpdateAndTelemetry.EnableCEIP'; Label = 'Join the Customer Experience Improvement Program (EnableCEIP)'; Tip = 'Sends Citrix usage data when selected.' }
+                @{ Id = 'cwa.tracing'; Title = 'Always-on tracing'; Kind = 'Check'; Pref = 'cwa:UpdateAndTelemetry.EnableTracing'; Label = 'Turn on always-on diagnostic tracing (EnableTracing)'; Tip = 'Writes diagnostic traces on the device.' }
+            )
+        })
+    $sections.Add(@{
+            Id = 'cwa.policy'; Title = 'Store policy'; Parent = 'cwa'; Kind = 'Fields'; Keywords = 'citrix'
+            Fields = @(
+                @{ Id = 'cwa.addstore'; Title = 'Allow add store'; Kind = 'Combo'; Pref = 'cwa:StorePolicy.AllowAddStore'; Default = ''; Width = 280; Items = $cwaPolicyItems; Tip = 'ALLOWADDSTORE; (not set) omits the switch and the installer default S applies.' }
+                @{ Id = 'cwa.savepwd'; Title = 'Allow save password'; Kind = 'Combo'; Pref = 'cwa:StorePolicy.AllowSavePwd'; Default = ''; Width = 280; Items = $cwaPolicyItems; Tip = 'ALLOWSAVEPWD; (not set) omits the switch and the installer default S applies.' }
+            )
+        })
+    $cwaComponents = @(
+        @{ Name = 'ReceiverInside'; Label = 'ReceiverInside (core SDK)'; Tip = 'The core Workspace SDK services; required.'; Required = $true }
+        @{ Name = 'ICA_Client'; Label = 'ICA_Client (HDX engine)'; Tip = 'Session launch and ICA protocol handling; required.'; Required = $true }
+        @{ Name = 'AM'; Label = 'AM (authentication)'; Tip = 'The user authentication manager; required.'; Required = $true }
+        @{ Name = 'SelfService'; Label = 'SelfService (self-service UI)'; Tip = 'The native application launch and self-service plug-in.' }
+        @{ Name = 'DesktopViewer'; Label = 'DesktopViewer (virtual desktop)'; Tip = 'The virtual desktop UI framework.' }
+        @{ Name = 'WebHelper'; Label = 'WebHelper (browser helper)'; Tip = 'Browser-to-application connectivity.' }
+        @{ Name = 'BCR_Client'; Label = 'BCR_Client (browser content redirection)'; Tip = 'Redirects browser content rendering to the client device.' }
+        @{ Name = 'USB'; Label = 'USB (USB redirection)'; Tip = 'USB device pass-through to virtual sessions.' }
+        @{ Name = 'SSON'; Label = 'SSON (single sign-on component)'; Tip = 'The single sign-on credential provider.' }
+        @{ Name = 'CitrixEnterpriseBrowser'; Label = 'CitrixEnterpriseBrowser (LTSR only)'; Tip = 'The Citrix Enterprise Browser; only the LTSR packagers write this key.' }
+    )
+    $sections.Add(@{
+            Id = 'cwa.components'; Title = 'Components ADDLOCAL'; Parent = 'cwa'; Kind = 'Fields'; Keywords = 'citrix addlocal'
+            Description = 'With Customize cleared, the installer uses its default components and the packager omits ADDLOCAL.'
+            Post = { param($Context, $Page) Initialize-OptionsCitrixComponentSection -Context $Context -Page $Page }
+            Fields = @(@{ Id = 'cwa.customize'; Title = 'Customize'; Kind = 'Check'; Pref = 'cwa:Components.Customize'; Label = 'Write ADDLOCAL with the components below'; Tip = 'When cleared, the packager omits ADDLOCAL and the installer default applies.' }) +
+            @($cwaComponents | ForEach-Object { @{ Id = 'cwa.comp.' + $_.Name; Title = $_.Name; Kind = 'Check'; Pref = 'cwa:Components.' + $_.Name; Label = $_.Label; Tip = $_.Tip; Required = [bool]$_.Required; Indent = 0 } })
+        })
+
+    $sections.Add(@{
+            Id = 'dbeaver'; Title = 'DBeaver Community'; Parent = 'applications'; Kind = 'Fields'
+            Fields = @(
+                @{ Id = 'dbv.scope'; Title = 'Install scope'; Kind = 'Combo'; Pref = 'DBeaverInstallOptions.InstallScope'; Default = 'System'; Width = 420; Items = @(@{ Label = 'System - all users, in Program Files (/allusers)'; Value = 'System' }, @{ Label = 'User - current user, no elevation (/currentuser)'; Value = 'User' }); Tip = 'User deploys per user, so deploy it in user context for the detection rule to match.' }
+                @{ Id = 'dbv.ai'; Title = 'AI features'; Kind = 'Check'; Pref = 'DBeaverInstallOptions.DisableAI'; Label = 'Set DBEAVER_AI_DISABLED=true after install'; Tip = 'Sets the variable at machine scope for System and at user scope for User.'; Keywords = 'disable ai assistant' }
+            )
+        })
+
+    $sections.Add(@{
+            Id = 'm365'; Title = 'Microsoft 365 Apps'; Parent = 'applications'; Kind = 'Fields'
+            Description = 'The Office Deployment Tool settings of the Microsoft 365 Apps, Project and Visio packagers.'
+            Post = { param($Context, $Page) Initialize-OptionsM365Section -Context $Context -Page $Page }
+            Fields = @(
+                @{ Id = 'm365.links'; Title = 'Documentation'; Kind = 'Custom'; Tip = 'Opens the Office Deployment Tool download and the configuration.xml reference.'; Keywords = 'odt download office deployment tool'
+                    Build = { param($Field, $Context) New-OptionsLinkEditor -Link @(@{ Label = 'Download the Office Deployment Tool'; Url = 'https://www.microsoft.com/en-us/download/details.aspx?id=49117' }, @{ Label = 'configuration.xml options (Microsoft Learn)'; Url = 'https://learn.microsoft.com/en-us/microsoft-365-apps/deploy/office-deployment-tool-configuration-options' }) } }
+                @{ Id = 'm365.customGroup'; Kind = 'Group'; Title = 'Your own configuration.xml' }
+                @{ Id = 'm365.useCustom'; Title = 'Use my own configuration.xml'; Kind = 'Check'; Pref = 'M365CustomConfig.Enabled'; Label = 'Use the imported file for every Microsoft 365 package'; Tip = 'The packager uses the imported file and keeps its own version, source and detection.'; Keywords = 'import custom' }
+                @{ Id = 'm365.file'; Title = 'Imported file'; Kind = 'Status'; Tip = 'The name and size of the stored configuration.xml; the file stays on this computer.'; Keywords = 'import remove'; Buttons = @(@{ Id = 'import'; Label = 'Import...'; Tip = 'Checks a configuration.xml and stores a copy.' }, @{ Id = 'remove'; Label = 'Remove'; Tip = 'Deletes the stored copy.' }) }
+                @{ Id = 'm365.reason'; Kind = 'Note'; Text = '' }
+                @{ Id = 'm365.generatedGroup'; Kind = 'Group'; Title = 'Generated configuration' }
+                @{ Id = 'm365.company'; Title = 'Company name'; Kind = 'Text'; Pref = 'CompanyName'; MaxLength = 100; Width = 250; Tip = 'The organization name that the packagers write into the Office settings.' }
+                @{ Id = 'm365.channel'; Title = 'Channel'; Kind = 'Combo'; Pref = 'M365Channel'; Default = 'MonthlyEnterprise'; Width = 260; Items = $channelItems; Tip = 'The update channel of the Microsoft 365 Apps, Project and Visio packagers.' }
+                @{ Id = 'm365.deploy'; Title = 'Deploy mode'; Kind = 'Combo'; Pref = 'M365DeployMode'; Default = 'Managed'; Width = 260; Items = $deployItems; Tip = 'Managed downloads the Office source and pins the version; Online installs from the CDN.' }
+                @{ Id = 'm365.languages'; Title = 'Languages'; Kind = 'Text'; Pref = 'M365Options.Languages'; Width = 300; Watermark = 'en-us'
+                    ToText = { param($Value) (@($Value) -join ', ') }
+                    FromText = { param($Text) @(([string]$Text) -split '[,;\s]+' | Where-Object { $_ } | ForEach-Object { $_.ToLowerInvariant() }) }
+                    Tip = 'The Office display languages as culture codes, for example en-us, de-de; the first sets the shell language.' }
+                @{ Id = 'm365.exclude'; Title = 'Excluded apps'; Kind = 'Multi'; Pref = 'M365ExcludeApps'; Columns = 2; Tip = 'The ExcludeApp IDs that the packagers write into the Office configuration.'
+                    Items = @(
+                        @{ Id = 'Access'; Label = 'Access'; Tip = 'Excludes Microsoft Access.' }
+                        @{ Id = 'Excel'; Label = 'Excel'; Tip = 'Excludes Excel.' }
+                        @{ Id = 'Groove'; Label = 'OneDrive for Business (Groove)'; Tip = 'Excludes the OneDrive sync client of Office; the ExcludeApp ID is Groove.' }
+                        @{ Id = 'Lync'; Label = 'Skype for Business (Lync)'; Tip = 'Excludes Skype for Business; the ExcludeApp ID is Lync.' }
+                        @{ Id = 'OneDrive'; Label = 'OneDrive'; Tip = 'Excludes the OneDrive client that Office installs.' }
+                        @{ Id = 'OneNote'; Label = 'OneNote'; Tip = 'Excludes OneNote.' }
+                        @{ Id = 'Outlook'; Label = 'Outlook (classic)'; Tip = 'Excludes classic Outlook.' }
+                        @{ Id = 'OutlookForWindows'; Label = 'Outlook for Windows (new)'; Tip = 'Excludes the new Outlook for Windows app.' }
+                        @{ Id = 'PowerPoint'; Label = 'PowerPoint'; Tip = 'Excludes PowerPoint.' }
+                        @{ Id = 'Publisher'; Label = 'Publisher'; Tip = 'Excludes Publisher.' }
+                        @{ Id = 'Teams'; Label = 'Teams'; Tip = 'Excludes the Teams installer that Office bundles.' }
+                        @{ Id = 'Word'; Label = 'Word'; Tip = 'Excludes Word.' }) }
+                @{ Id = 'm365.behaviorGroup'; Kind = 'Group'; Title = 'Install behavior' }
+                @{ Id = 'm365.officeMgmt'; Title = 'Update source'; Kind = 'Check'; Pref = 'M365Options.OfficeMgmtCom'; Label = 'Let ConfigMgr software updates patch Office (OfficeMgmtCOM)'; Tip = 'Selected lets ConfigMgr deliver the updates; cleared lets Office update from the CDN.' }
+                @{ Id = 'm365.updates'; Title = 'Office updates'; Kind = 'Check'; Pref = 'M365Options.UpdatesEnabled'; Label = 'Let Office check for updates (Updates Enabled)'; Tip = 'Selected lets Office check for updates; ConfigMgr stays the source with OfficeMgmtCOM.' }
+                @{ Id = 'm365.forceShutdown'; Title = 'Force app shutdown'; Kind = 'Check'; Pref = 'M365Options.ForceAppShutdown'; Label = 'Close Office apps that block setup (FORCEAPPSHUTDOWN)'; Tip = 'Closes Office apps that block setup; users can lose unsaved data.' }
+                @{ Id = 'm365.removeMsi'; Title = 'Remove MSI Office'; Kind = 'Check'; Pref = 'M365Options.RemoveMsi'; Label = 'Remove MSI versions of Office before the install (RemoveMSI)'; Tip = 'Removes Office 2007 to 2016 MSI installations; it does not remove Click-to-Run Office.' }
+                @{ Id = 'm365.migrate'; Title = 'Migrate architecture'; Kind = 'Check'; Pref = 'M365Options.MigrateArch'; Label = 'Change an installed Office to the architecture of this package (MigrateArch)'; Tip = 'Use it for 32-bit to 64-bit upgrades only; an x86 package would downgrade 64-bit Office.' }
+                @{ Id = 'm365.shared'; Title = 'Shared computer activation'; Kind = 'Check'; Pref = 'M365Options.SharedComputerLicensing'; Label = 'Turn on for RDS and VDI hosts (SharedComputerLicensing)'; Tip = 'Leave it off for normal computers; user-based licensing is the default.' }
+                @{ Id = 'm365.device'; Title = 'Device-based licensing'; Kind = 'Check'; Pref = 'M365Options.DeviceBasedLicensing'; Label = 'License Office to the device (DeviceBasedLicensing)'; Tip = 'For shared devices; the device must be synced to Microsoft Entra ID.' }
+                @{ Id = 'm365.previewGroup'; Kind = 'Group'; Title = 'Preview' }
+                @{ Id = 'm365.preview'; Title = 'Install XML preview'; Kind = 'Actions'; Tip = 'Shows the install XML that the packagers build from the settings of this section.'; Buttons = @(@{ Id = 'preview'; Label = 'Preview'; Tip = 'Shows the install XML of every Microsoft 365 package.' }) }
+            )
+        })
+
+    $sections.Add(@{
+            Id = 'ssms'; Title = 'SQL Server Management Studio'; Parent = 'applications'; Kind = 'Fields'
+            Description = 'The command line of the SSMS 22 setup. Recommended and optional components apply to the selected workloads.'
+            Post = { param($Context, $Page) Initialize-OptionsSsmsSection -Context $Context -Page $Page }
+            Fields = @(
+                @{ Id = 'ssms.ui'; Title = 'UI mode'; Kind = 'Combo'; Pref = 'SSMSInstallOptions.UIMode'; Default = 'Quiet'; Width = 200; Items = @('Quiet', 'Passive'); Tip = 'Quiet adds --quiet; Passive adds --passive and shows progress, which a required deployment cannot use.' }
+                @{ Id = 'ssms.path'; Title = 'Install path'; Kind = 'Text'; Pref = 'SSMSInstallOptions.InstallPath'; Width = 420; Tip = 'The --installPath value; empty uses the default folder, and detection and uninstall follow it.' }
+                @{ Id = 'ssms.dti'; Title = 'Download first'; Kind = 'Check'; Pref = 'SSMSInstallOptions.DownloadThenInstall'; Label = 'Download all packages before the install (--downloadThenInstall)'; Tip = 'Excludes --installWhileDownloading, which is the setup default.' }
+                @{ Id = 'ssms.noupdate'; Title = 'Installer update'; Kind = 'Check'; Pref = 'SSMSInstallOptions.NoUpdateInstaller'; Label = 'Do not update the Visual Studio Installer (--noUpdateInstaller)'; Tip = 'Documented with --quiet; setup fails when an installer update is required.' }
+                @{ Id = 'ssms.workloads'; Title = 'Workloads'; Kind = 'Multi'; Pref = 'SSMSInstallOptions.Workloads'; Columns = 2; Tip = 'The workloads to install; each one adds an --add switch, and none installs the core editor.'
+                    Items = @(
+                        @{ Id = 'Microsoft.SqlServer.Workload.SSMS.AI'; Label = 'AI assistance'; Tip = 'Microsoft.SqlServer.Workload.SSMS.AI' }
+                        @{ Id = 'Microsoft.SqlServer.Workload.SSMS.BI'; Label = 'Business intelligence'; Tip = 'Microsoft.SqlServer.Workload.SSMS.BI' }
+                        @{ Id = 'Microsoft.SqlServer.Workload.SSMS.CodeTools'; Label = 'Code tools'; Tip = 'Microsoft.SqlServer.Workload.SSMS.CodeTools' }
+                        @{ Id = 'Microsoft.SqlServer.Workload.SSMS.DevOps'; Label = 'DevOps'; Tip = 'Microsoft.SqlServer.Workload.SSMS.DevOps' }
+                        @{ Id = 'Microsoft.SqlServer.Workload.SSMS.HybridAndMigration'; Label = 'Hybrid and migration'; Tip = 'Microsoft.SqlServer.Workload.SSMS.HybridAndMigration' }) }
+                @{ Id = 'ssms.recommended'; Title = 'Recommended components'; Kind = 'Check'; Pref = 'SSMSInstallOptions.IncludeRecommended'; Label = 'Include recommended components (--includeRecommended)'; Tip = 'Needs at least one workload; without a workload the switch has no effect.' }
+                @{ Id = 'ssms.optional'; Title = 'Optional components'; Kind = 'Check'; Pref = 'SSMSInstallOptions.IncludeOptional'; Label = 'Include optional components (--includeOptional)'; Tip = 'Needs at least one workload; it increases the install size and duration.' }
+                @{ Id = 'ssms.languages'; Title = 'Languages'; Kind = 'Multi'; Pref = 'SSMSInstallOptions.Languages'; Columns = 7; Tip = 'The SSMS display languages (--addProductLang); none uses the language of the operating system.'
+                    Items = @('cs-cz', 'de-de', 'en-us', 'es-es', 'fr-fr', 'it-it', 'ja-jp', 'ko-kr', 'pl-pl', 'pt-br', 'ru-ru', 'tr-tr', 'zh-cn', 'zh-tw' | ForEach-Object { @{ Id = $_; Label = $_ } }) }
+                @{ Id = 'ssms.nocache'; Title = 'Package cache'; Kind = 'Check'; Pref = 'SSMSInstallOptions.NoCache'; Label = 'Delete the setup packages after the install (--nocache)'; Tip = 'Saves disk space; a repair downloads the packages again.' }
+                @{ Id = 'ssms.oos'; Title = 'Out-of-support components'; Kind = 'Check'; Pref = 'SSMSInstallOptions.RemoveOos'; Label = 'Remove out-of-support components (--removeOos true)'; Tip = 'Removes components that are no longer supported during this install or update.' }
+                @{ Id = 'ssms.force'; Title = 'Running SSMS'; Kind = 'Check'; Pref = 'SSMSInstallOptions.ForceClose'; Label = 'Close SSMS when it is in use (--force)'; Tip = 'Closes running SSMS processes; users can lose unsaved query windows.' }
+            )
+        })
+
+    $sections.Add(@{
+            Id = 'teamviewer'; Title = 'TeamViewer Host'; Parent = 'applications'; Kind = 'Fields'
+            Description = 'The packager installs the TeamViewer Host EXE with /S, and the EXE ignores the four settings below. They apply to a TeamViewer Host MSI only; the packager logs a warning when they are set.'
+            Fields = @(
+                @{ Id = 'tv.token'; Title = 'API token'; Kind = 'Text'; Pref = 'tv:ApiToken'; Width = 350; Tip = 'MSI only: the script token for APITOKEN; it is stored as text in teamviewer-host-config.json.'; Keywords = 'apitoken' }
+                @{ Id = 'tv.config'; Title = 'Custom config ID'; Kind = 'Text'; Pref = 'tv:CustomConfigId'; Width = 250; Tip = 'MSI only: CUSTOMCONFIGID of a custom Host module from the Management Console.' }
+                @{ Id = 'tv.assign'; Title = 'Assignment options'; Kind = 'Text'; Pref = 'tv:AssignmentOptions'; Width = 350; Tip = 'MSI only: the flags of ASSIGNMENTOPTIONS, for example --grant-easy-access or --reassign.' }
+                @{ Id = 'tv.shortcut'; Title = 'Desktop shortcut'; Kind = 'Check'; Pref = 'tv:RemoveDesktopShortcut'; Label = 'Remove the desktop shortcut (MSI only)'; Tip = 'MSI only: ADDLOCAL=ALL REMOVE=f.DesktopShortcut removes the desktop shortcut.' }
+            )
+        })
+
+    $sections.Add(@{
+            Id = 'localsources'; Title = 'Local installer sources'; Parent = 'applications'; Kind = 'Fields'
+            Description = 'A packager whose download needs a sign-in stages the newest matching installer from its folder. Stage asks for the folder when it is empty.'
+            Fields = @(@{ Id = 'local.rows'; Title = 'Folders'; Kind = 'Custom'; Tip = 'The installer folder of each packager that can stage a local installer.'; Keywords = 'local source installer folder packager file'
+                    Build = { param($Field, $Context) New-OptionsLocalSourceEditor -Context $Context } })
+        })
+
+    # ---------------------------------------------------------------- Updates and CVEs
+    $sections.Add(@{ Id = 'updates'; Title = 'Updates and CVEs'; Kind = 'Group' })
+    $sections.Add(@{
+            Id = 'oneclick'; Title = 'One Click'; Parent = 'updates'; Kind = 'Panel'; Factory = { New-AppFlowPanel }
+            Prefs = @('AppFlow', 'Intune.DeploymentTarget', 'Intune.PublishToIntune')
+            SearchFields = @(
+                @{ Id = 'oc.action'; Title = 'Action on update'; Control = 'cboAction' }
+                @{ Id = 'oc.force'; Title = 'Force on launch'; Control = 'toggleForce' }
+                @{ Id = 'oc.destinations'; Title = 'Default destinations'; Control = 'chkOneClickMecm'; Keywords = 'configmgr wsus intune' }
+                @{ Id = 'oc.existing'; Title = 'Existing ConfigMgr app'; Control = 'cboOneClickOnExisting' }
+                @{ Id = 'oc.track'; Title = 'Tracked applications'; Control = 'dgApps'; Keywords = 'track cadence days' })
+        })
+    $sections.Add(@{
+            Id = 'productfilter'; Title = 'Product filter'; Parent = 'updates'; Kind = 'Panel'; Factory = { New-ProductFilterPanel }
+            Prefs = @('HiddenApplications', 'DiscoveryDismissed')
+            SearchFields = @(
+                @{ Id = 'pf.hidden'; Title = 'Hidden applications'; Control = 'treeApps'; Keywords = 'vendor select all none show hide' }
+                @{ Id = 'pf.dismissed'; Title = 'Not offered by Discover'; Control = 'btnClearDiscoveryDismissed'; Keywords = 'discover unmanaged dismissed clear list' })
+        })
+    $sections.Add(@{
+            Id = 'cve'; Title = 'CVE lookup'; Parent = 'updates'; Kind = 'Fields'
+            Description = 'Check CVEs reads the National Vulnerability Database. NVD allows 5 requests per 30 seconds without a key and 50 with one.'
+            Fields = @(
+                @{ Id = 'cve.key'; Title = 'NVD API key'; Kind = 'Secret'; Pref = 'Vulnerability.NvdApiKeyProtected'; Tip = 'Stored with DPAPI for the current Windows user; empty keeps the saved key.'; Keywords = 'nvd' }
+                @{ Id = 'cve.ttl'; Title = 'Cache time'; Kind = 'Number'; Pref = 'Vulnerability.CacheTtlMinutes'; Min = 0; Max = 525600; Default = 360; MaxLength = 6; Unit = 'minutes'; Tip = 'How long a CVE lookup result stays valid before the next lookup; 0 turns the cache off.'; Keywords = 'ttl' }
+                @{ Id = 'cve.after'; Title = 'Automatic lookup'; Kind = 'Check'; Pref = 'Vulnerability.LookupAfterCheckCm'; Label = 'Look up CVEs after Check ConfigMgr'; Tip = 'Runs Check CVEs when Check ConfigMgr finishes.' }
+            )
+        })
+
+    # ---------------------------------------------------------------- Security
+    $sections.Add(@{ Id = 'security'; Title = 'Security'; Kind = 'Group' })
+    $sections.Add(@{
+            Id = 'signing'; Title = 'Script signing'; Parent = 'security'; Kind = 'Panel'; Factory = { New-ScriptSigningPanel }
+            Prefs = @('ScriptSigning')
+            SearchFields = @(
+                @{ Id = 'sign.detection'; Title = 'Sign detection scripts'; Control = 'chkSignDetection' }
+                @{ Id = 'sign.requirements'; Title = 'Sign requirement scripts'; Control = 'chkSignRequirements' }
+                @{ Id = 'sign.deployment'; Title = 'Sign install and uninstall scripts'; Control = 'chkSignDeployment' }
+                @{ Id = 'sign.reqdetection'; Title = 'Require valid detection signatures'; Control = 'chkRequireDetection' }
+                @{ Id = 'sign.reqrequirements'; Title = 'Require valid requirement signatures'; Control = 'chkRequireRequirements' }
+                @{ Id = 'sign.reqdeployment'; Title = 'Require valid deployment signatures'; Control = 'chkRequireDeployment' }
+                @{ Id = 'sign.store'; Title = 'Certificate store'; Control = 'cboSignStore' }
+                @{ Id = 'sign.certificate'; Title = 'Certificate'; Control = 'cboSignCertificate'; Keywords = 'thumbprint' }
+                @{ Id = 'sign.timestamp'; Title = 'Timestamp server'; Control = 'txtSignTimestamp' }
+                @{ Id = 'sign.timestampreq'; Title = 'Timestamp required'; Control = 'chkSignTimestampRequired' })
+        })
+    $sections.Add(@{
+            Id = 'github'; Title = 'GitHub API'; Parent = 'security'; Kind = 'Fields'
+            Description = 'The GitHub-backed packagers and the version monitor send a token as a bearer token. A version check across the GitHub-backed packagers exceeds the anonymous limit of 60 requests per hour. A personal access token without scopes is enough.'
+            Post = { param($Context, $Page) Initialize-OptionsGitHubSection -Context $Context -Page $Page }
+            Fields = @(@{ Id = 'gh.status'; Title = 'GitHub API'; Kind = 'Status'; Tip = 'Shows how AppPackager signs in to the GitHub API: GITHUB_TOKEN, GH_TOKEN or gh auth login.'; Keywords = 'github token rate limit' })
+        })
+
+    # ---------------------------------------------------------------- Tools
+    $sections.Add(@{
+            Id = 'tools'; Title = 'Tools'; Kind = 'Fields'
+            Description = 'The tools that AppPackager detects when it starts.'
+            Post = { param($Context, $Page) Initialize-OptionsToolsSection -Context $Context -Page $Page }
+            Fields = @(
+                @{ Id = 'tools.console'; Title = 'Console'; Kind = 'Status'; Tip = 'Shows whether the ConfigMgr console is installed on this computer.'; Keywords = 'configmgr adminui' }
+                @{ Id = 'tools.contentprep'; Title = 'Content Prep Tool'; Kind = 'Status'; Tip = 'Shows whether IntuneWinAppUtil.exe is found.'; Keywords = 'intunewin intunewinapputil'; Buttons = @(@{ Id = 'download'; Label = 'Download'; Tip = 'Downloads the Microsoft Win32 Content Prep Tool.' }) }
+                @{ Id = 'tools.sevenzip'; Title = '7-Zip'; Kind = 'Status'; Tip = 'Shows whether 7z.exe is found; the Adobe Reader packager needs it.'; Keywords = '7z' }
+                @{ Id = 'tools.iconpack'; Title = 'Icon pack'; Kind = 'Status'; Tip = 'Shows the state of the packager icon pack.'; Keywords = 'icons'; Buttons = @(@{ Id = 'download'; Label = 'Download'; Tip = 'Downloads the icon pack and extracts it into Packagers\Icons.' }, @{ Id = 'file'; Label = 'Install from file...'; Tip = 'Installs the icon pack from a local or UNC zip file.' }) }
+            )
+        })
+
+    $sections.Add(@{ Id = 'about'; Title = 'About'; Kind = 'Panel'; Factory = { New-AboutPanel }; SearchFields = @(@{ Id = 'about.update'; Title = 'Update now'; Control = 'btnAboutUpdate'; Keywords = 'version release' }) })
+
+    return $sections.ToArray()
+}
+
+# =============================================================================
+# Options window: section behavior
+# =============================================================================
+function Get-OptionsLiveEditor {
+    # The editor of a field in a section that is built, or $null.
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][string]$FieldId)
+    foreach ($page in @($Context.Sections.Values)) {
+        if ($page -and $page.Editors -and $page.Editors.Contains($FieldId)) { return $page.Editors[$FieldId] }
+    }
+    return $null
+}
+
+function Get-OptionsLiveText {
+    # The text a field holds now: from its editor when the section is built, else from the stored preference.
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][string]$FieldId)
+    $editor = Get-OptionsLiveEditor -Context $Context -FieldId $FieldId
+    if ($editor -and $editor.Get) { return ([string](& $editor.Get)).Trim() }
+    if ($null -eq $Context.FieldTable) { $Context.FieldTable = Get-OptionsFieldTable }
+    $field = $Context.FieldTable[$FieldId]
+    if ($field -and $field.Pref) { return ([string](Get-OptionsPrefValue -Context $Context -Path ([string]$field.Pref))).Trim() }
+    return ''
+}
+
+function Get-OptionsLiveFlag {
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][string]$FieldId)
+    $editor = Get-OptionsLiveEditor -Context $Context -FieldId $FieldId
+    if ($editor -and $editor.Get) { return ((& $editor.Get) -eq $true) }
+    if ($null -eq $Context.FieldTable) { $Context.FieldTable = Get-OptionsFieldTable }
+    $field = $Context.FieldTable[$FieldId]
+    if ($field -and $field.Pref) { return ((Get-OptionsPrefValue -Context $Context -Path ([string]$field.Pref)) -eq $true) }
+    return $false
+}
+
+function Get-OptionsLiveSecret {
+    # The protected secret to use: a typed value, else the stored one. Returns plain text, or '' when there is none.
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][string]$FieldId)
+    $editor = Get-OptionsLiveEditor -Context $Context -FieldId $FieldId
+    if ($editor -and $editor.Get) {
+        $typed = & $editor.Get
+        if ($typed -and $typed.Length -gt 0) {
+            $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($typed)
+            try { return [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+            finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+        }
+    }
+    if ($null -eq $Context.FieldTable) { $Context.FieldTable = Get-OptionsFieldTable }
+    $stored = [string](Get-OptionsPrefValue -Context $Context -Path ([string]$Context.FieldTable[$FieldId].Pref))
+    if ([string]::IsNullOrWhiteSpace($stored)) { return '' }
+    $secure = ConvertTo-SecureString -String $stored -ErrorAction Stop
+    $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try { return [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+    finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+}
+
+function Get-OptionsToolStatusText {
+    param([Parameter(Mandatory)]$Prefs, [Parameter(Mandatory)][ValidateSet('Console', 'SevenZip', 'ContentPrep')][string]$Tool)
+    $check = [string][char]0x2713
+    $cross = [string][char]0x2717
+    switch ($Tool) {
+        'Console' {
+            $cm = $Prefs.DetectedTools.ConfigMgrConsole
+            if ($cm -and $cm.Found) { return @{ Text = ('{0} Detected  -  {1} v{2}' -f $check, $cm.DisplayName, $cm.DisplayVersion); Tip = ('Module: {0}' -f $cm.ModulePath) } }
+            return @{ Text = ($cross + ' Not detected  -  install the ConfigMgr console and restart AppPackager'); Tip = 'Detected at start through the uninstall registry key, SMS_ADMIN_UI_PATH and the usual install folders.' }
+        }
+        'SevenZip' {
+            $sz = $Prefs.DetectedTools.SevenZipCli
+            if ($sz -and $sz.Found) { return @{ Text = ('{0} Detected  -  {1} v{2}' -f $check, $sz.DisplayName, $sz.DisplayVersion); Tip = ('7z.exe: {0}' -f $sz.ExePath) } }
+            return @{ Text = ($cross + ' Not detected  -  the Adobe Reader packager needs 7-Zip'); Tip = 'Detected at start through the uninstall registry key and the 7-Zip program folder.' }
+        }
+        'ContentPrep' {
+            $iw = $Prefs.DetectedTools.IntuneWinAppUtil
+            if ($iw -and $iw.Found) {
+                $version = $(if ([string]::IsNullOrWhiteSpace([string]$iw.DisplayVersion)) { '' } else { ' v' + $iw.DisplayVersion })
+                return @{ Text = ('{0} Detected  -  IntuneWinAppUtil{1}' -f $check, $version); Tip = ('IntuneWinAppUtil.exe: {0}' -f $iw.ExePath) }
+            }
+            return @{ Text = ($cross + ' Not detected  -  download it here or put IntuneWinAppUtil.exe on the PATH'); Tip = 'Checked once at start: preference path, LOCALAPPDATA tool cache, PATH.' }
+        }
+    }
+}
+
+function Initialize-OptionsConfigMgrSection {
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][hashtable]$Page)
+    $status = Get-OptionsToolStatusText -Prefs $Context.Prefs -Tool Console
+    & $Page.Editors['cm.console'].Set $status.Text
+    $Page.Editors['cm.console'].Text.ToolTip = $status.Tip
+}
+
+function Initialize-OptionsFoldersSection {
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][hashtable]$Page)
+    $root = [string]$PackagersRoot
+    & $Page.Editors['pkg.packagers'].Set $root
+    $Page.Editors['pkg.packagers'].Buttons['open'].Add_Click({
+            try { Start-Process -FilePath 'explorer.exe' -ArgumentList ('"{0}"' -f $root) } catch { <# Opening a folder in the shell is a best-effort convenience. #> $null = $_ }
+        }.GetNewClosure())
+}
+
+function Initialize-OptionsToolsSection {
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][hashtable]$Page)
+    $prefs = $Context.Prefs
+    $console = Get-OptionsToolStatusText -Prefs $prefs -Tool Console
+    & $Page.Editors['tools.console'].Set $console.Text
+    $Page.Editors['tools.console'].Text.ToolTip = $console.Tip
+    $sevenZip = Get-OptionsToolStatusText -Prefs $prefs -Tool SevenZip
+    & $Page.Editors['tools.sevenzip'].Set $sevenZip.Text
+    $Page.Editors['tools.sevenzip'].Text.ToolTip = $sevenZip.Tip
+
+    $prepEditor = $Page.Editors['tools.contentprep']
+    $downloadButton = $prepEditor.Buttons['download']
+    $showPrep = {
+        $prep = Get-OptionsToolStatusText -Prefs $prefs -Tool ContentPrep
+        & $prepEditor.Set $prep.Text
+        $prepEditor.Text.ToolTip = $prep.Tip
+        $downloadButton.Visibility = $(if ($prefs.DetectedTools.IntuneWinAppUtil -and $prefs.DetectedTools.IntuneWinAppUtil.Found) { [System.Windows.Visibility]::Collapsed } else { [System.Windows.Visibility]::Visible })
+    }.GetNewClosure()
+    & $showPrep
+    $downloadButton.Add_Click({
+            $downloadButton.IsEnabled = $false
+            & $prepEditor.Set 'Downloading the Microsoft Win32 Content Prep Tool...'
+            $downloaded = $false
+            try {
+                $exePath = Install-IntuneWinAppUtil -DestinationFolder (Get-IntuneWinToolCachePath)
+                $prefs.DetectedTools.IntuneWinAppUtil = Invoke-DetectIntuneWinAppUtil -KnownPath $exePath
+                Save-Preferences -Prefs $prefs
+                $downloaded = $true
+            }
+            catch { & $prepEditor.Set ([string][char]0x2717 + ' Download failed  -  ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) }
+            finally { $downloadButton.IsEnabled = $true }
+            if ($downloaded) { & $showPrep }
+        }.GetNewClosure())
+
+    $iconEditor = $Page.Editors['tools.iconpack']
+    $showIcon = {
+        & $iconEditor.Set (Get-IconPackStatusText -Manifest (Read-IconPackManifest -Path (Get-IconPackManifestPath)))
+        $iconEditor.Text.ToolTip = ('Manifest: {0}' -f (Get-IconPackManifestPath))
+    }.GetNewClosure()
+    & $showIcon
+    $iconDownload = $iconEditor.Buttons['download']
+    $iconFile = $iconEditor.Buttons['file']
+    $runIcon = {
+        param($Action)
+        $iconDownload.IsEnabled = $false
+        $iconFile.IsEnabled = $false
+        $outcome = $null
+        try { $outcome = & $Action; Add-LogLine -Message $outcome.Message }
+        finally {
+            $iconDownload.IsEnabled = $true
+            $iconFile.IsEnabled = $true
+            & $showIcon
+            # A failed fetch leaves no manifest change, so the refreshed line would repeat itself; the reason replaces it.
+            if ($outcome -and -not $outcome.Installed) { & $iconEditor.Set ([string][char]0x2717 + ' ' + $outcome.Message) }
+        }
+    }.GetNewClosure()
+    $iconDownload.Add_Click({
+            & $iconEditor.Set 'Downloading the packager icon pack...'
+            & $runIcon { Install-IconPack }
+        }.GetNewClosure())
+    $iconFile.Add_Click({
+            $open = New-Object Microsoft.Win32.OpenFileDialog
+            $open.Title = 'Select Icon Pack Zip'
+            $open.Filter = 'Icon pack (*.zip)|*.zip'
+            if (-not $open.ShowDialog()) { return }
+            $zip = $open.FileName
+            & $iconEditor.Set 'Installing the icon pack from the file...'
+            & $runIcon ({ Install-IconPackFromFile -ZipPath $zip }.GetNewClosure())
+        }.GetNewClosure())
+}
+
+function Start-OptionsGitHubCheck {
+    # The check needs a web request to api.github.com and may start gh.exe; a slow proxy would hold the
+    # window for seconds, so a background runspace answers and a timer fills the line in.
+    param([Parameter(Mandatory)]$StatusText)
+    $show = {
+        param($gh)
+        $quota = ''
+        if ($gh.Limit) {
+            $quota = ' (' + $gh.Limit + ' requests/hour'
+            if ($gh.Remaining) { $quota += ', ' + $gh.Remaining + ' remaining' }
+            $quota += ')'
+        }
+        if ($gh.Authenticated) { $StatusText.Text = ([string][char]0x2713 + ' Authenticated  -  ' + $gh.Source + $quota) }
+        else {
+            $remaining = $(if ($gh.Remaining) { ', ' + $gh.Remaining + ' remaining' } else { '' })
+            $StatusText.Text = ([string][char]0x2717 + ' Anonymous  -  60 requests/hour per address' + $remaining + '; set GITHUB_TOKEN or run gh auth login')
+        }
+    }.GetNewClosure()
+    $StatusText.Text = 'Checking GitHub access...'
+    $state = [hashtable]::Synchronized(@{ Done = $false; Result = $null })
+    $runspace = $null
+    $shell = $null
+    try {
+        $runspace = [runspacefactory]::CreateRunspace()
+        $runspace.ApartmentState = 'MTA'
+        $runspace.Open()
+        $shell = [powershell]::Create()
+        $shell.Runspace = $runspace
+        [void]$shell.AddScript({
+                param($State, $ModulePath, $FunctionText)
+                try {
+                    Import-Module -Name $ModulePath -DisableNameChecking -ErrorAction Stop
+                    Set-Item -Path 'function:Get-GitHubApiAuthStatus' -Value ([scriptblock]::Create($FunctionText))
+                    $State.Result = Get-GitHubApiAuthStatus
+                }
+                catch { $State.Result = $null }
+                finally { $State.Done = $true }
+            }).AddArgument($state).AddArgument((Join-Path $PSScriptRoot 'Packagers\AppPackagerCommon.psd1')).AddArgument((Get-Item -Path 'function:Get-GitHubApiAuthStatus').ScriptBlock.ToString())
+        $handle = $shell.BeginInvoke()
+        $timer = New-Object System.Windows.Threading.DispatcherTimer
+        $timer.Interval = [TimeSpan]::FromMilliseconds(250)
+        $deadline = [DateTime]::UtcNow.AddSeconds(20)
+        $timer.Add_Tick({
+                if (-not $state.Done) {
+                    if ([DateTime]::UtcNow -lt $deadline) { return }
+                    $timer.Stop()
+                    $StatusText.Text = 'GitHub access could not be checked: no answer within 20 seconds.'
+                    # Stopping a pipeline that waits on a network call blocks until it returns, so the stop is asynchronous.
+                    try { [void]$shell.BeginStop($null, $null) } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ }
+                    try { [void]$runspace.CloseAsync() } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ }
+                    return
+                }
+                $timer.Stop()
+                if ($state.Result) { & $show $state.Result } else { $StatusText.Text = 'GitHub access could not be checked.' }
+                try { $shell.EndInvoke($handle) } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ }
+                try { $shell.Dispose() } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ }
+                try { $runspace.Close() } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ }
+            }.GetNewClosure())
+        $timer.Start()
+    }
+    catch {
+        $StatusText.Text = 'GitHub access could not be checked.'
+        if ($shell) { try { [void]$shell.BeginStop($null, $null) } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ } }
+        if ($runspace) { try { [void]$runspace.CloseAsync() } catch { <# Stopping and closing the GitHub check runspace is best-effort cleanup. #> $null = $_ } }
+    }
+}
+
+function Initialize-OptionsGitHubSection {
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][hashtable]$Page)
+    Start-OptionsGitHubCheck -StatusText $Page.Editors['gh.status'].Text
+}
+
+# ---------------------------------------------------------------------------
+# WSUS and the connection tests
+# ---------------------------------------------------------------------------
+function Get-OptionsWsusSetting {
+    # The WSUS settings as the fields hold them now, validated by the WSUS module.
+    param([Parameter(Mandatory)][hashtable]$Context)
+    $classification = Get-OptionsLiveText -Context $Context -FieldId 'wsus.classification'
+    return (ConvertTo-WsusPublishSettings -InputObject @{
+            ServerName        = (Get-OptionsLiveText -Context $Context -FieldId 'wsus.server')
+            PortNumber        = (Get-OptionsLiveText -Context $Context -FieldId 'wsus.port')
+            UseSsl            = (Get-OptionsLiveFlag -Context $Context -FieldId 'wsus.ssl')
+            Classification    = $(if ($classification) { $classification } else { 'Updates' })
+            ApprovalGroup     = (Get-OptionsLiveText -Context $Context -FieldId 'wsus.group')
+            DeclineSuperseded = (Get-OptionsLiveFlag -Context $Context -FieldId 'wsus.decline')
+        })
+}
+
+function Format-OptionsWsusStatus {
+    # Two lines for one status: the connection and the signing certificate.
+    param([Parameter(Mandatory)]$Status)
+    $check = [string][char]0x2713
+    $cross = [string][char]0x2717
+    if (-not $Status.Connected) { return @{ Connection = ($cross + ' ' + [string]$Status.Message); Certificate = 'Not connected.' } }
+    $connection = ('{0} Connected  -  {1}, WSUS {2}, role {3}, {4} connection. {5}' -f $check, [string]$Status.ServerName, [string]$Status.Version, [string]$Status.Role, $(if ($Status.SecureConnection) { 'secure' } else { 'unencrypted' }), [string]$Status.Message).Trim()
+    $cert = $Status.SigningCertificate
+    if (-not $cert) {
+        $text = $(if ([string]$Status.Message -match 'could not be read') { 'The signing certificate could not be read; see the connection line.' } else { $cross + ' No signing certificate is set on this server. Publishing fails until one is created or imported.' })
+        return @{ Connection = $connection; Certificate = $text }
+    }
+    $flags = @()
+    if ($cert.SelfSigned) { $flags += 'self-signed' }
+    if ($cert.Expired) { $flags += 'EXPIRED' }
+    $certText = ('Subject: {0}   Thumbprint: {1}   Valid to: {2}   Key: {3} bits{4}' -f [string]$cert.Subject, [string]$cert.Thumbprint, ([datetime]$cert.NotAfter).ToString('yyyy-MM-dd'), [string]$cert.KeyLength, $(if ($flags) { '   (' + ($flags -join ', ') + ')' } else { '' }))
+    return @{ Connection = $connection; Certificate = $certText }
+}
+
+function Initialize-OptionsWsusSection {
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][hashtable]$Page)
+    $ctx = $Context
+    $certEditor = $Page.Editors['wsus.cert']
+    $buttons = $Page.Editors['wsus.certActions'].Buttons
+    $groupEditor = $Page.Editors['wsus.group']
+    $loadButton = $Page.Editors['wsus.groupLoad'].Buttons['load']
+    & $certEditor.Set 'Test connection reads the signing certificate of the server.'
+
+    $api = $(if (Get-Command -Name Test-WsusAdministrationApi -ErrorAction SilentlyContinue) { Test-WsusAdministrationApi }
+        else { [pscustomobject]@{ Available = $false; Version = ''; Reason = 'The WSUS publishing module did not load; reinstall AppPackager.' } })
+    $serverButtons = @($buttons['create'], $buttons['import'], $buttons['export'], $loadButton)
+    if (-not $api.Available) {
+        foreach ($b in $serverButtons) { $b.IsEnabled = $false }
+        & $certEditor.Set ([string][char]0x2717 + ' ' + [string]$api.Reason)
+    }
+
+    # Test connection fills the certificate line when this section is built.
+    $Context.OnWsusStatus = {
+        param($Status)
+        $formatted = Format-OptionsWsusStatus -Status $Status
+        & $certEditor.Set $formatted.Certificate
+    }.GetNewClosure()
+
+    $runOnServer = {
+        param([scriptblock]$Action, $Extra)
+        $window = $ctx.Owner
+        if ($window) { $window.Cursor = [System.Windows.Input.Cursors]::Wait }
+        try {
+            $settings = Get-OptionsWsusSetting -Context $ctx
+            if ([string]::IsNullOrWhiteSpace([string]$settings.ServerName)) { throw 'Enter the WSUS server first.' }
+            return (& $Action $settings $Extra)
+        }
+        catch { & $certEditor.Set ([string][char]0x2717 + ' ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')); return $null }
+        finally { if ($window) { $window.Cursor = $null } }
+    }.GetNewClosure()
+
+    $showStatus = {
+        param($Status)
+        $formatted = Format-OptionsWsusStatus -Status $Status
+        & $certEditor.Set ($formatted.Connection + [Environment]::NewLine + $formatted.Certificate)
+    }.GetNewClosure()
+
+    $buttons['create'].Add_Click({
+            $settings = & $runOnServer { param($s) $s }
+            if (-not $settings) { return }
+            $answer = Show-ThemedMessage -Owner $ctx.Owner -Title 'Create Signing Certificate' -Buttons YesNo -Icon Warning `
+                -Message ("Have {0} create a self-signed signing certificate and use it for every update published from now on?`n`nThis replaces any certificate the server uses today. Clients that trust only the current certificate reject updates signed with the new one until the new certificate reaches their Trusted Publishers and Trusted Root Certification Authorities stores. With ConfigMgr, keep ConfigMgr in charge of the certificate if it already manages it." -f [string]$settings.ServerName)
+            if ($answer -ne 'Yes') { return }
+            $status = & $runOnServer { param($s) New-WsusSelfSignedSigningCertificate -Settings $s }
+            if ($status) { & $showStatus $status }
+        }.GetNewClosure())
+
+    $buttons['import'].Add_Click({
+            $settings = & $runOnServer { param($s) $s }
+            if (-not $settings) { return }
+            $open = New-Object Microsoft.Win32.OpenFileDialog
+            $open.Title = 'Select the Signing Certificate PFX'
+            $open.Filter = 'PFX files (*.pfx;*.p12)|*.pfx;*.p12'
+            if (-not $open.ShowDialog()) { return }
+            $password = Show-WsusPasswordPrompt -Owner $ctx.Owner -Prompt ('Password for {0}' -f [System.IO.Path]::GetFileName($open.FileName))
+            if ($null -eq $password) { return }
+            try {
+                $answer = Show-ThemedMessage -Owner $ctx.Owner -Title 'Import Signing Certificate' -Buttons YesNo -Icon Warning `
+                    -Message ("Make this certificate the signing certificate of {0}?`n`nIt replaces any certificate the server uses today. Clients must trust the new certificate before they install updates signed with it." -f [string]$settings.ServerName)
+                if ($answer -ne 'Yes') { return }
+                $status = & $runOnServer { param($s, $x) Set-WsusSigningCertificate -Settings $s -PfxPath $x.Path -Password $x.Password } @{ Path = $open.FileName; Password = $password }
+                if ($status) { & $showStatus $status }
+            }
+            finally { $password.Dispose() }
+        }.GetNewClosure())
+
+    $buttons['export'].Add_Click({
+            $settings = & $runOnServer { param($s) $s }
+            if (-not $settings) { return }
+            $save = New-Object Microsoft.Win32.SaveFileDialog
+            $save.Title = 'Save the Public Signing Certificate'
+            $save.Filter = 'Certificate (*.cer)|*.cer'
+            $save.FileName = ('WSUS-signing-{0}.cer' -f [string]$settings.ServerName)
+            if (-not $save.ShowDialog()) { return }
+            $written = & $runOnServer { param($s, $x) Export-WsusSigningCertificate -Settings $s -Path $x } $save.FileName
+            if ($written) { & $certEditor.Set ([string][char]0x2713 + ' Saved ' + [string]$written) }
+        }.GetNewClosure())
+
+    $loadButton.Add_Click({
+            $result = & $runOnServer { param($s) [pscustomobject]@{ Names = @(Get-WsusComputerGroupNames -Settings $s) } }
+            if ($null -eq $result) { return }
+            $typed = [string]$groupEditor.Combo.Text
+            $groupEditor.Combo.Items.Clear()
+            foreach ($name in @($result.Names)) { [void]$groupEditor.Combo.Items.Add($name) }
+            $groupEditor.Combo.Text = $typed
+            & $certEditor.Set ('{0} computer group(s) loaded.' -f @($result.Names).Count)
+        }.GetNewClosure())
+}
+
+function Test-OptionsConfigMgrConnection {
+    # Opens the SMS Provider and the site database with the values given. Never throws.
+    param([string]$SiteCode, [string]$Provider, [string]$SqlServer, [string]$SqlInstance, [int]$SqlPort, [string]$Database)
+    $check = [string][char]0x2713
+    $cross = [string][char]0x2717
+    $connection = $null
+    try {
+        if ($SiteCode -notmatch '^[A-Za-z0-9]{3}$') { return ($cross + ' Enter the three-character site code first.') }
+        $providerName = Resolve-DiscoveryProviderName -Preference $Provider -SiteCode $SiteCode
+        $arguments = @{ SiteCode = $SiteCode; ServerOverride = $SqlServer; DatabaseOverride = $Database; InstanceOverride = $SqlInstance; PortOverride = $SqlPort }
+        if ($providerName) { $arguments.ProviderMachineName = $providerName }
+        $target = Resolve-CMDatabaseTarget @arguments
+        $builder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder
+        $builder['Data Source'] = [string]$target.Server
+        $builder['Initial Catalog'] = [string]$target.Database
+        $builder['Integrated Security'] = $true
+        $builder['ApplicationIntent'] = 'ReadOnly'
+        $builder['Application Name'] = 'AppPackager Options'
+        $builder['Connect Timeout'] = 10
+        $connection = New-Object System.Data.SqlClient.SqlConnection($builder.ConnectionString)
+        $connection.Open()
+        $command = $connection.CreateCommand()
+        $command.CommandText = 'SELECT COUNT(*) FROM dbo.v_Site WHERE SiteCode = @code'
+        $command.CommandTimeout = 10
+        $parameter = $command.Parameters.Add('@code', [System.Data.SqlDbType]::NVarChar, 3)
+        $parameter.Value = $SiteCode.ToUpperInvariant()
+        $found = [int]$command.ExecuteScalar()
+        if ($found -lt 1) { return ('{0} The database {1} on {2} opened, and it has no site {3}.' -f $cross, $target.Database, $target.Server, $SiteCode.ToUpperInvariant()) }
+        $via = $(if ($providerName) { 'SMS Provider ' + $providerName + ', ' } else { '' })
+        return ('{0} Site {1}: {2}database {3} on {4} opened.' -f $check, $SiteCode.ToUpperInvariant(), $via, $target.Database, $target.Server)
+    }
+    catch { return ($cross + ' ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The connection failed. See the log file.')) }
+    finally { if ($connection) { $connection.Dispose() } }
+}
+
+function Test-OptionsIntuneConnection {
+    # Requests an app-only Graph token with the values given. Never throws.
+    param([string]$TenantId, [string]$ClientId, [string]$ClientSecret)
+    $check = [string][char]0x2713
+    $cross = [string][char]0x2717
+    if (-not $TenantId -or -not $ClientId -or -not $ClientSecret) { return ($cross + ' Enter the tenant ID, the client ID and the client secret first.') }
+    try {
+        $token = Get-MsGraphToken -TenantId $TenantId -ClientId $ClientId -ClientSecret $ClientSecret
+        if ($token) { return ($check + ' The tenant answered and issued a Microsoft Graph token.') }
+        return ($cross + ' The tenant issued no token.')
+    }
+    catch { return ($cross + ' ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The token request failed. See the log file.')) }
+}
+
+function Initialize-OptionsTestSection {
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][hashtable]$Page)
+    $ctx = $Context
+    $cmEditor = $Page.Editors['test.configmgr']
+    $wsusEditor = $Page.Editors['test.wsus']
+    $intuneEditor = $Page.Editors['test.intune']
+    foreach ($e in @($cmEditor, $wsusEditor, $intuneEditor)) { & $e.Set 'Not tested.' }
+
+    $busy = {
+        param($Editor, [scriptblock]$Work)
+        $Editor.Buttons['run'].IsEnabled = $false
+        if ($ctx.Owner) { $ctx.Owner.Cursor = [System.Windows.Input.Cursors]::Wait }
+        & $Editor.Set 'Testing...'
+        Update-UiNow
+        try { & $Editor.Set (& $Work) }
+        finally {
+            if ($ctx.Owner) { $ctx.Owner.Cursor = $null }
+            $Editor.Buttons['run'].IsEnabled = $true
+        }
+    }.GetNewClosure()
+
+    $cmEditor.Buttons['run'].Add_Click({
+            & $busy $cmEditor ({
+                $port = 0
+                [void][int]::TryParse((Get-OptionsLiveText -Context $ctx -FieldId 'cm.sqlPort'), [ref]$port)
+                Test-OptionsConfigMgrConnection -SiteCode (Get-OptionsLiveText -Context $ctx -FieldId 'cm.siteCode') -Provider (Get-OptionsLiveText -Context $ctx -FieldId 'cm.provider') `
+                    -SqlServer (Get-OptionsLiveText -Context $ctx -FieldId 'cm.sqlServer') -SqlInstance (Get-OptionsLiveText -Context $ctx -FieldId 'cm.sqlInstance') -SqlPort $port `
+                    -Database (Get-OptionsLiveText -Context $ctx -FieldId 'cm.sqlDatabase')
+            }.GetNewClosure())
+        }.GetNewClosure())
+
+    $wsusEditor.Buttons['run'].Add_Click({
+            & $busy $wsusEditor ({
+                try {
+                    $settings = Get-OptionsWsusSetting -Context $ctx
+                    if ([string]::IsNullOrWhiteSpace([string]$settings.ServerName)) { return ([string][char]0x2717 + ' Enter the WSUS server first.') }
+                    $status = Get-WsusServerStatus -Settings $settings
+                    if ($ctx.OnWsusStatus) { & $ctx.OnWsusStatus $status }
+                    $formatted = Format-OptionsWsusStatus -Status $status
+                    return $formatted.Connection
+                }
+                catch { return ([string][char]0x2717 + ' ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) }
+            }.GetNewClosure())
+        }.GetNewClosure())
+
+    $intuneEditor.Buttons['run'].Add_Click({
+            & $busy $intuneEditor ({
+                try {
+                    Test-OptionsIntuneConnection -TenantId (Get-OptionsLiveText -Context $ctx -FieldId 'int.tenant') -ClientId (Get-OptionsLiveText -Context $ctx -FieldId 'int.client') -ClientSecret (Get-OptionsLiveSecret -Context $ctx -FieldId 'int.secret')
+                }
+                catch { [string][char]0x2717 + ' ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') }
+            }.GetNewClosure())
+        }.GetNewClosure())
+}
+
+# ---------------------------------------------------------------------------
+# Applications
+# ---------------------------------------------------------------------------
+function Initialize-OptionsAdobeSection {
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][hashtable]$Page)
+    $edition = $Page.Editors['adobe.edition'].Focus
+    $languages = $Page.Editors['adobe.languages']
+    $all = $languages.Boxes['All']
+    $others = @($languages.Boxes.Keys | Where-Object { $_ -ne 'All' } | ForEach-Object { $languages.Boxes[$_] })
+    # Multilingual installs the languages that are checked; the English installer takes none.
+    $refresh = {
+        $mui = ($edition.SelectedItem -and [string]$edition.SelectedItem.Tag -eq 'MUI')
+        $all.IsEnabled = $mui
+        foreach ($box in $others) { $box.IsEnabled = ($mui -and $all.IsChecked -ne $true) }
+    }.GetNewClosure()
+    $edition.Add_SelectionChanged($refresh)
+    $all.Add_Checked($refresh)
+    $all.Add_Unchecked($refresh)
+    & $refresh
+}
+
+function Initialize-OptionsSsmsSection {
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][hashtable]$Page)
+    $ui = $Page.Editors['ssms.ui'].Focus
+    $noUpdate = $Page.Editors['ssms.noupdate'].Focus
+    $workloads = $Page.Editors['ssms.workloads']
+    $recommended = $Page.Editors['ssms.recommended'].Focus
+    $optional = $Page.Editors['ssms.optional'].Focus
+    $boxes = @($workloads.Boxes.Values)
+    # --noUpdateInstaller is documented with --quiet, and the component switches act on workloads only.
+    $refresh = {
+        $quiet = (-not $ui.SelectedItem -or [string]$ui.SelectedItem.Tag -eq 'Quiet')
+        $noUpdate.IsEnabled = $quiet
+        $any = (@($boxes | Where-Object { $_.IsChecked -eq $true }).Count -gt 0)
+        $recommended.IsEnabled = $any
+        $optional.IsEnabled = $any
+    }.GetNewClosure()
+    $ui.Add_SelectionChanged($refresh)
+    foreach ($box in $boxes) { $box.Add_Checked($refresh); $box.Add_Unchecked($refresh) }
+    & $refresh
+}
+
+function Initialize-OptionsCitrixPluginSection {
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][hashtable]$Page)
+    $uber = $Page.Editors['cwa.uber'].Focus
+    $uberSkip = $Page.Editors['cwa.uberskip'].Focus
+    $sr = $Page.Editors['cwa.sr'].Focus
+    $srSkip = $Page.Editors['cwa.srskip'].Focus
+    $refresh = {
+        $uberSkip.IsEnabled = ($uber.IsChecked -eq $true)
+        $srSkip.IsEnabled = ($sr.IsChecked -eq $true)
+    }.GetNewClosure()
+    foreach ($box in @($uber, $sr)) { $box.Add_Checked($refresh); $box.Add_Unchecked($refresh) }
+    & $refresh
+}
+
+function Initialize-OptionsCitrixComponentSection {
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][hashtable]$Page)
+    $customize = $Page.Editors['cwa.customize'].Focus
+    $required = @('ReceiverInside', 'ICA_Client', 'AM')
+    $componentBoxes = @{}
+    foreach ($id in @($Page.Editors.Keys | Where-Object { $_ -like 'cwa.comp.*' })) { $componentBoxes[$id.Substring(9)] = $Page.Editors[$id].Focus }
+    foreach ($name in $required) { $componentBoxes[$name].IsChecked = $true }
+    $refresh = {
+        foreach ($name in $componentBoxes.Keys) { $componentBoxes[$name].IsEnabled = ($customize.IsChecked -eq $true) }
+        if ($customize.IsChecked -ne $true) { foreach ($name in $required) { $componentBoxes[$name].IsChecked = $true } }
+    }.GetNewClosure()
+    $customize.Add_Checked($refresh)
+    $customize.Add_Unchecked($refresh)
+    & $refresh
+    # The required components are always written.
+    $Page.Group.ExtraCommit.Add({
+            param($ctx)
+            foreach ($name in $required) { Set-OptionsPrefValue -Context $ctx -Path ('cwa:Components.' + $name) -Value $true }
+        }.GetNewClosure()) | Out-Null
+}
+
+function Initialize-OptionsCitrixPreview {
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][hashtable]$Page)
+    $ctx = $Context
+    $button = $Page.Editors['cwa.preview'].Buttons['preview']
+    $button.Add_Click({
+            $owner = $ctx.Owner
+            try {
+                # The sections hold the settings in a working copy that OK saves; the preview reads the copy after the open sections write to it.
+                foreach ($pageId in @($ctx.Sections.Keys | Where-Object { $_ -like 'cwa.*' })) {
+                    $built = $ctx.Sections[$pageId]
+                    if ($built -and $built.Commit) { & $built.Commit }
+                }
+                $packagerPath = Join-Path $PackagersRoot 'package-citrixworkspace-cr.ps1'
+                $pt = $null; $pe = $null
+                $ast = [System.Management.Automation.Language.Parser]::ParseFile($packagerPath, [ref]$pt, [ref]$pe)
+                $function = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'ConvertTo-CwaInstallArguments' }, $false)
+                if ($null -eq $function) { throw "ConvertTo-CwaInstallArguments not found in $packagerPath" }
+                . ([scriptblock]::Create($function.Extent.Text))
+                $text = [System.Text.StringBuilder]::new()
+                foreach ($stream in @('Current', 'LTSR')) {
+                    $built = ConvertTo-CwaInstallArguments -Config $ctx.Aux.cwa -Stream $stream
+                    [void]$text.AppendLine(('# {0}' -f $(if ($stream -eq 'Current') { 'Current Release' } else { 'LTSR (x86, x64, ARM64)' })))
+                    [void]$text.AppendLine('CitrixWorkspaceApp.exe ' + ($built.Arguments -join ' '))
+                    foreach ($w in $built.Warnings) { [void]$text.AppendLine('WARN: ' + $w) }
+                    [void]$text.AppendLine('')
+                }
+                Show-PreviewDialog -Owner $owner -Title 'CWA Preview' -Content $text.ToString() -Width 820 -Height 360
+            }
+            catch {
+                Show-PreviewDialog -Owner $owner -Title 'CWA Preview (Error)' -Content ("Failed to build preview:`r`n{0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) -Width 600 -Height 260
+            }
+        }.GetNewClosure())
+}
+
+function New-OptionsLinkEditor {
+    # A row of buttons that open a web page.
+    param([Parameter(Mandatory)][object[]]$Link)
+    $panel = New-Object System.Windows.Controls.WrapPanel
+    $first = $null
+    foreach ($item in $Link) {
+        $url = [string]$item.Url
+        $button = New-OptionsButton -Label ([string]$item.Label) -Tip $url
+        $button.Margin = New-Object System.Windows.Thickness(0, 0, 8, 4)
+        $button.Add_Click({ try { Start-Process -FilePath $url } catch { <# Opening a link in the shell is a best-effort convenience. #> $null = $_ } }.GetNewClosure())
+        [void]$panel.Children.Add($button)
+        if (-not $first) { $first = $button }
+    }
+    return @{ Element = $panel; Focus = $first; Get = { $null }; Set = { param($v) } }
+}
+
+function New-OptionsLocalSourceEditor {
+    # One folder box for each packager that can stage a local installer.
+    param([Parameter(Mandatory)][hashtable]$Context)
+    $stack = New-Object System.Windows.Controls.StackPanel
+    $boxes = [ordered]@{}
+    $first = $null
+    foreach ($row in @(Get-OptionsPackagerList -Context $Context | Where-Object { $_.LocalSource })) {
+        $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script)
+        $caption = New-OptionsTextBlock -Text ('{0}  ({1})' -f [string]$row.Application, [string]$row.Script) -Size 12
+        $caption.Margin = New-Object System.Windows.Thickness(0, 0, 0, 2)
+        $tip = ('The folder that holds the installer for {0}.' -f [string]$row.Script)
+        $caption.ToolTip = $tip
+        $box = New-Object System.Windows.Controls.TextBox
+        $box.FontSize = 13
+        $box.ToolTip = $tip
+        $box.MaxWidth = 700
+        if ($Context.Prefs.LocalSourceFolders -and $Context.Prefs.LocalSourceFolders.PSObject.Properties[$base]) { $box.Text = [string]$Context.Prefs.LocalSourceFolders.$base }
+        $browse = New-OptionsButton -Label 'Browse...' -Tip 'Choose the folder.'
+        $browse.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
+        $browse.Add_Click({ $picked = Select-OptionsFolder -Current $box.Text; if ($picked) { $box.Text = $picked } }.GetNewClosure())
+        $line = New-Object System.Windows.Controls.DockPanel
+        $line.LastChildFill = $true
+        $line.MaxWidth = 700
+        $line.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+        [System.Windows.Controls.DockPanel]::SetDock($browse, [System.Windows.Controls.Dock]::Right)
+        [void]$line.Children.Add($browse)
+        [void]$line.Children.Add($box)
+        $line.Margin = New-Object System.Windows.Thickness(0, 0, 0, 8)
+        [void]$stack.Children.Add($caption)
+        [void]$stack.Children.Add($line)
+        $boxes[$base] = $box
+        if (-not $first) { $first = $box }
+    }
+    if ($boxes.Count -eq 0) { [void]$stack.Children.Add((New-OptionsTextBlock -Text 'No packager of this catalog stages a local installer.' -Size 12)) }
+    $commit = {
+        param($ctx)
+        if ($boxes.Count -eq 0) { return }
+        $folders = [ordered]@{}
+        if ($ctx.Prefs.LocalSourceFolders) { foreach ($p in $ctx.Prefs.LocalSourceFolders.PSObject.Properties) { $folders[$p.Name] = $p.Value } }
+        foreach ($key in $boxes.Keys) {
+            $value = [string]$boxes[$key].Text.Trim()
+            if ($value) { $folders[$key] = $value }
+            elseif ($folders.Contains($key)) { $folders.Remove($key) }
+        }
+        $ctx.Prefs.LocalSourceFolders = [pscustomobject]$folders
+    }.GetNewClosure()
+    return @{ Element = $stack; Focus = $first; Get = $null; Set = $null; Commit = $commit }
+}
+
+# =============================================================================
+# Options window: Microsoft 365 Apps section
+# =============================================================================
+function Get-M365CustomConfigPath {
+    Join-Path (Join-Path $PSScriptRoot 'Packagers') 'm365-configuration.user.xml'
+}
+
+function Format-OptionsFileSize {
+    param([long]$Bytes)
+    if ($Bytes -ge 1MB) { return ('{0:N1} MB' -f ($Bytes / 1MB)) }
+    if ($Bytes -ge 1KB) { return ('{0:N1} KB' -f ($Bytes / 1KB)) }
+    return ('{0} bytes' -f $Bytes)
+}
+
+function Initialize-OptionsM365Section {
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][hashtable]$Page)
+    $ctx = $Context
+    $e = $Page.Editors
+    $useBox = $e['m365.useCustom'].Focus
+    $fileEditor = $e['m365.file']
+    $importButton = $fileEditor.Buttons['import']
+    $removeButton = $fileEditor.Buttons['remove']
+    $reasonText = $e['m365.reason'].Text
+    $reasonText.Text = 'The imported file sets these. The packager still sets the version, the source path, the architecture and a silent display, and keeps its own detection.'
+    $generated = @('m365.company', 'm365.channel', 'm365.deploy', 'm365.languages', 'm365.exclude', 'm365.officeMgmt', 'm365.updates', 'm365.forceShutdown', 'm365.removeMsi', 'm365.migrate', 'm365.shared', 'm365.device') | ForEach-Object { $e[$_] }
+
+    # State: the stored file, a file that was imported in this window, or a removal. OK applies it, Cancel drops it.
+    $storedPath = Get-M365CustomConfigPath
+    $stored = $Context.Prefs.M365CustomConfig
+    $state = @{ Name = ''; Size = 0L; Pending = $null; Removed = $false; HasStored = ($stored -and (Test-Path -LiteralPath $storedPath -PathType Leaf)) }
+    if ($state.HasStored) { $state.Name = [string]$stored.FileName; $state.Size = [long](Get-Item -LiteralPath $storedPath).Length }
+
+    $refresh = {
+        $hasFile = ($state.Pending -ne $null) -or ($state.HasStored -and -not $state.Removed)
+        if ($hasFile) { & $fileEditor.Set ('{0}  ({1})' -f $state.Name, (Format-OptionsFileSize -Bytes $state.Size)) }
+        else { & $fileEditor.Set 'No file imported.' }
+        $removeButton.IsEnabled = $hasFile
+        $useBox.IsEnabled = $hasFile
+        if (-not $hasFile) { $useBox.IsChecked = $false }
+        $custom = ($useBox.IsChecked -eq $true)
+        foreach ($editor in $generated) { $editor.Element.IsEnabled = -not $custom }
+        $reasonText.Visibility = $(if ($custom) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed })
+    }.GetNewClosure()
+    $useBox.Add_Checked($refresh)
+    $useBox.Add_Unchecked($refresh)
+    & $refresh
+
+    $importButton.Add_Click({
+            $open = New-Object Microsoft.Win32.OpenFileDialog
+            $open.Title = 'Select the configuration.xml'
+            $open.Filter = 'Office Deployment Tool configuration (*.xml)|*.xml|All files (*.*)|*.*'
+            if ($open.ShowDialog() -ne $true) { return }
+            try {
+                $info = Get-Item -LiteralPath $open.FileName -ErrorAction Stop
+                if ($info.Length -gt 2MB) { [void](Show-ThemedMessage -Owner $ctx.Owner -Title 'Import Failed' -Message 'The file is larger than 2 MB. A configuration.xml is a small text file.' -Buttons OK -Icon Error); return }
+                $bytes = [System.IO.File]::ReadAllBytes($info.FullName)
+                $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+                $result = Test-OdtConfigurationXml -Text $text
+                if (-not $result.Valid) {
+                    [void](Show-ThemedMessage -Owner $ctx.Owner -Title 'Import Failed' -Message ("The file is not a usable Office Deployment Tool configuration:`n`n" + (($result.Errors | ForEach-Object { '- ' + $_ }) -join "`n")) -Buttons OK -Icon Error)
+                    return
+                }
+                $state.Pending = @{ Bytes = $bytes; Text = $text }
+                $state.Removed = $false
+                $state.Name = $info.Name
+                $state.Size = [long]$info.Length
+                & $refresh
+                if ($result.Notes.Count -gt 0) {
+                    [void](Show-ThemedMessage -Owner $ctx.Owner -Title 'File Imported' -Message ("The packager changes these parts of the file:`n`n" + (($result.Notes | ForEach-Object { '- ' + $_ }) -join "`n")) -Buttons OK -Icon Info)
+                }
+            }
+            catch { [void](Show-ThemedMessage -Owner $ctx.Owner -Title 'Import Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The file could not be read.') -Buttons OK -Icon Error) }
+        }.GetNewClosure())
+
+    $removeButton.Add_Click({
+            $state.Pending = $null
+            $state.Removed = $true
+            & $refresh
+        }.GetNewClosure())
+
+    # OK stores the file next to the other packager files and records its name and size.
+    $Page.Group.ExtraCommit.Add({
+            param($context)
+            $path = Get-M365CustomConfigPath
+            $record = $context.Prefs.M365CustomConfig
+            if ($state.Pending) {
+                [System.IO.File]::WriteAllBytes($path, $state.Pending.Bytes)
+                $record.FileName = $state.Name
+                $record.SizeBytes = [long]$state.Size
+                $state.HasStored = $true
+                $state.Pending = $null
+            }
+            elseif ($state.Removed) {
+                if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
+                $record.FileName = ''
+                $record.SizeBytes = 0
+                $record.Enabled = $false
+                $state.HasStored = $false
+            }
+        }.GetNewClosure()) | Out-Null
+
+    # The preview shows the install XML of each product with the values in the fields, or the imported file with the packager changes.
+    $previewButton = $e['m365.preview'].Buttons['preview']
+    $previewButton.Add_Click({
+            $owner = $ctx.Owner
+            try {
+                if (-not (Get-Command -Name New-OdtConfigXml -ErrorAction SilentlyContinue)) {
+                    Show-PreviewDialog -Owner $owner -Title 'M365 Preview (Error)' -Content 'New-OdtConfigXml not available. Ensure Packagers\AppPackagerCommon.psm1 is importable.' -Width 600 -Height 220
+                    return
+                }
+                $builder = [System.Text.StringBuilder]::new()
+                $products = @(
+                    @{ Label = 'M365 Apps for Enterprise (x64)'; Edition = '64'; Ids = @('O365ProPlusRetail') },
+                    @{ Label = 'M365 Apps for Enterprise (x86)'; Edition = '32'; Ids = @('O365ProPlusRetail') },
+                    @{ Label = 'Project Pro (x64)'; Edition = '64'; Ids = @('ProjectProRetail') },
+                    @{ Label = 'Visio Pro (x64)'; Edition = '64'; Ids = @('VisioProRetail') })
+                $channel = Get-OptionsLiveText -Context $ctx -FieldId 'm365.channel'
+                if (-not $channel) { $channel = 'MonthlyEnterprise' }
+                $custom = ($useBox.IsChecked -eq $true)
+                $customText = ''
+                if ($custom) { $customText = $(if ($state.Pending) { [string]$state.Pending.Text } else { [System.IO.File]::ReadAllText((Get-M365CustomConfigPath), [System.Text.Encoding]::UTF8) }) }
+                $options = @{
+                    Languages               = @(([string](Get-OptionsLiveText -Context $ctx -FieldId 'm365.languages')) -split '[,;\s]+' | Where-Object { $_ })
+                    OfficeMgmtCom           = (Get-OptionsLiveFlag -Context $ctx -FieldId 'm365.officeMgmt')
+                    UpdatesEnabled          = (Get-OptionsLiveFlag -Context $ctx -FieldId 'm365.updates')
+                    ForceAppShutdown        = (Get-OptionsLiveFlag -Context $ctx -FieldId 'm365.forceShutdown')
+                    RemoveMsi               = (Get-OptionsLiveFlag -Context $ctx -FieldId 'm365.removeMsi')
+                    MigrateArch             = (Get-OptionsLiveFlag -Context $ctx -FieldId 'm365.migrate')
+                    SharedComputerLicensing = (Get-OptionsLiveFlag -Context $ctx -FieldId 'm365.shared')
+                    DeviceBasedLicensing    = (Get-OptionsLiveFlag -Context $ctx -FieldId 'm365.device')
+                }
+                if ($options.Languages.Count -eq 0) { $options.Remove('Languages') }
+                $excluded = @(& $e['m365.exclude'].Get)
+                foreach ($product in $products) {
+                    [void]$builder.AppendLine(('# ===== {0} =====' -f $product.Label))
+                    if ($custom) { $xml = ConvertTo-OdtUserConfigXml -Text $customText -OfficeClientEdition $product.Edition -Channel $channel }
+                    else { $xml = New-OdtConfigXml -OfficeClientEdition $product.Edition -ProductIds $product.Ids -Channel $channel -CompanyName (Get-OptionsLiveText -Context $ctx -FieldId 'm365.company') -ExcludeApps $excluded @options }
+                    [void]$builder.AppendLine($xml)
+                    [void]$builder.AppendLine('')
+                }
+                Show-PreviewDialog -Owner $owner -Title 'M365 Preview (Install XML)' -Content $builder.ToString() -Width 820 -Height 640
+            }
+            catch {
+                Show-PreviewDialog -Owner $owner -Title 'M365 Preview (Error)' -Content ("Failed to build preview:`r`n{0}" -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) -Width 600 -Height 260
+            }
+        }.GetNewClosure())
+
+    # The languages field accepts culture codes only.
+    $Page.Group.ExtraValidate.Add({
+            param($context)
+            if ($useBox.IsEnabled -and $useBox.IsChecked -eq $true) { return $null }
+            $codes = @(([string](Get-OptionsLiveText -Context $context -FieldId 'm365.languages')) -split '[,;\s]+' | Where-Object { $_ })
+            $bad = @($codes | Where-Object { $_ -notmatch '^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){1,2}$' })
+            if ($bad.Count -gt 0) { return @{ FieldId = 'm365.languages'; Message = ('Languages must be culture codes such as en-us or de-de. Not valid: {0}.' -f ($bad -join ', ')) } }
+            return $null
+        }.GetNewClosure()) | Out-Null
+}
+
+# =============================================================================
+# Options window: tree, search, OK and Cancel
+# -----------------------------------------------------------------------------
+# The tree is the list of sections. A section is built the first time it is
+# shown: building every section before the window appears delays the first open,
+# and a section that nobody visits has no changes to save. OK validates and
+# commits the sections that were built, then saves once.
+# =============================================================================
+function New-OptionsDialog {
     param(
         [Parameter(Mandatory)]$Owner,
-        [string]$InitialSection = 'ConfigMgr Preferences'
+        [string]$InitialSection = 'cm'
     )
 
     $dlgXaml = @'
@@ -7463,7 +8261,7 @@ function Show-OptionsDialog {
     </Window.Resources>
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="200"/>
+            <ColumnDefinition Width="290"/>
             <ColumnDefinition Width="1"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
@@ -7472,18 +8270,20 @@ function Show-OptionsDialog {
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <ListBox Grid.Column="0" Grid.Row="0" x:Name="lstNav" BorderThickness="0" Padding="0,8,0,0">
-            <ListBox.ItemContainerStyle>
-                <Style TargetType="ListBoxItem" BasedOn="{StaticResource ThemedListBoxItemStyle}">
-                    <Setter Property="Padding" Value="16,10,16,10"/>
-                    <Setter Property="FontSize" Value="13"/>
-                </Style>
-            </ListBox.ItemContainerStyle>
-        </ListBox>
+        <DockPanel Grid.Column="0" Grid.Row="0" Margin="0,10,0,0">
+            <TextBox x:Name="txtSearch" DockPanel.Dock="Top" Margin="12,0,12,8" FontSize="13"
+                     Controls:TextBoxHelper.Watermark="Search settings"
+                     Controls:TextBoxHelper.ClearTextButton="True"
+                     ToolTip="Type the name of a setting. Enter opens the first match."/>
+            <Grid>
+                <TreeView x:Name="treeNav" BorderThickness="0" FontSize="13" ItemContainerStyle="{DynamicResource ThemedTreeViewItemStyle}"/>
+                <ListBox x:Name="lstSearch" BorderThickness="0" FontSize="13" Visibility="Collapsed" ItemContainerStyle="{DynamicResource ThemedListBoxItemStyle}"/>
+            </Grid>
+        </DockPanel>
 
         <Border Grid.Column="1" Grid.Row="0" Background="{DynamicResource MahApps.Brushes.Gray8}"/>
 
-        <ContentControl Grid.Column="2" Grid.Row="0" x:Name="contentArea" Margin="20,18,20,18"/>
+        <ContentControl Grid.Column="2" Grid.Row="0" x:Name="contentArea" Margin="24,18,12,12"/>
 
         <Border Grid.Column="0" Grid.ColumnSpan="3" Grid.Row="1"
                 BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
@@ -7498,84 +8298,189 @@ function Show-OptionsDialog {
 
     [xml]$xml = Expand-SharedStyle $dlgXaml
     $reader = New-Object System.Xml.XmlNodeReader $xml
-    $dlg    = [System.Windows.Markup.XamlReader]::Load($reader)
+    $dlg = [System.Windows.Markup.XamlReader]::Load($reader)
     Install-TitleBarDragFallback -Window $dlg
     Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
 
-    $lstNav      = $dlg.FindName('lstNav')
+    $treeNav = $dlg.FindName('treeNav')
+    $lstSearch = $dlg.FindName('lstSearch')
+    $txtSearch = $dlg.FindName('txtSearch')
     $contentArea = $dlg.FindName('contentArea')
-    $btnOK       = $dlg.FindName('btnOK')
-    $btnCancel   = $dlg.FindName('btnCancel')
+    $btnOK = $dlg.FindName('btnOK')
+    $btnCancel = $dlg.FindName('btnCancel')
 
-    # All panels live in the unified Options window. A panel is built the
-    # first time its section is shown: building all seven before the window
-    # appears delays the first open, and a panel nobody visits has no
-    # changes to save. $panels holds null until its section is opened.
-    $panelNames = @('ConfigMgr Preferences', 'Packager Preferences', 'One Click Settings', 'Product Filter', 'Script Signing', 'WSUS Publishing', 'About')
-    $panelFactories = @(
-        { New-MecmPreferencesPanel },
-        { New-PackagerPreferencesPanel },
-        { New-AppFlowPanel },
-        { New-ProductFilterPanel },
-        { New-ScriptSigningPanel },
-        { New-WsusPanel },
-        { New-AboutPanel }
-    )
-    $panels = New-Object object[] $panelFactories.Count
+    $ctx = New-OptionsContext -Prefs $script:Prefs
+    $ctx.Owner = $dlg
+    $ctx.FieldTable = Get-OptionsFieldTable
+    $definition = @(Get-OptionsSectionDefinition)
+    $byId = @{}
+    foreach ($d in $definition) { $byId[[string]$d.Id] = $d }
+    $index = Get-OptionsSearchIndex -Definition $definition
 
-    foreach ($name in $panelNames) { [void]$lstNav.Items.Add($name) }
-
-    $lstNav.Add_SelectionChanged({
-        $idx = $lstNav.SelectedIndex
-        if ($idx -ge 0 -and $idx -lt $panels.Count) {
-            if ($null -eq $panels[$idx]) { $panels[$idx] = & $panelFactories[$idx] }
-            $contentArea.Content = $panels[$idx].Element
-        }
-    })
-
-    $initialIdx = 0
-    for ($i = 0; $i -lt $panelNames.Count; $i++) {
-        if ($panelNames[$i] -eq $InitialSection) { $initialIdx = $i; break }
+    $nodes = @{}
+    foreach ($d in $definition) {
+        $item = New-Object System.Windows.Controls.TreeViewItem
+        $item.Header = [string]$d.Title
+        $item.Tag = [string]$d.Id
+        $item.IsExpanded = $true
+        $nodes[[string]$d.Id] = $item
+        if ($d.Parent) { [void]$nodes[[string]$d.Parent].Items.Add($item) } else { [void]$treeNav.Items.Add($item) }
     }
-    $lstNav.SelectedIndex = $initialIdx
 
-    $script:OptionsDlgResult = $false
-    $btnOK.Add_Click({
-        try {
-            $siteBefore = Get-SiteIdentityKey -SiteCode $script:Prefs.SiteCode -ProviderMachineName $script:Prefs.ProviderMachineName
-            foreach ($p in $panels) { if ($p -and $p.Commit) { & $p.Commit } }
-            $siteChanged = (Get-SiteIdentityKey -SiteCode $script:Prefs.SiteCode -ProviderMachineName $script:Prefs.ProviderMachineName) -cne $siteBefore
-            Save-Preferences -Prefs $script:Prefs
-            # Panels that mutate sibling JSON configs expose the refs on
-            # the panel hash; master persists them here so panel commits
-            # stay free of function calls (GetNewClosure-safe).
-            foreach ($p in $panels) {
-                if (-not $p) { continue }
-                if ($p.CwaSwitches) { Save-CwaSwitches -Switches $p.CwaSwitches }
-                if ($p.TvConfig)    { Save-TvHostConfig -Config $p.TvConfig }
+    $showSection = {
+        param([string]$Id)
+        $def = $byId[$Id]
+        if (-not $def) { return }
+        if ($def.Kind -eq 'Group') {
+            if ($nodes[$Id].Items.Count -gt 0) { $nodes[$Id].Items[0].IsSelected = $true }
+            return
+        }
+        if (-not $ctx.Sections.Contains($Id)) {
+            try { $ctx.Sections[$Id] = New-OptionsSectionPage -Definition $def -Context $ctx }
+            catch {
+                Add-LogLine -Message ('Options section {0} could not be built: {1}' -f $def.Title, (Get-UserErrorText -ErrorRecord $_ -Fallback 'See the log file.'))
+                $ctx.Sections[$Id] = @{ Id = $Id; Element = (New-OptionsTextBlock -Text 'This section could not be built. See the log file.'); Editors = @{}; Commit = $null; Validate = $null }
             }
+        }
+        $contentArea.Content = $ctx.Sections[$Id].Element
+        $dlg.Title = ('Options: ' + (Get-OptionsSectionPath -Definition $definition -Id $Id))
+    }.GetNewClosure()
+
+    $treeNav.Add_SelectedItemChanged({
+            $item = $treeNav.SelectedItem
+            if ($item) { & $showSection ([string]$item.Tag) }
+        }.GetNewClosure())
+
+    $navigate = {
+        param([string]$SectionId, [string]$FieldId)
+        $node = $nodes[$SectionId]
+        if (-not $node) { return }
+        $parent = $node.Parent
+        while ($parent -is [System.Windows.Controls.TreeViewItem]) { $parent.IsExpanded = $true; $parent = $parent.Parent }
+        if ($node.IsSelected) { & $showSection $SectionId } else { $node.IsSelected = $true }
+        $node.BringIntoView()
+        if ($FieldId) {
+            $page = $ctx.Sections[$SectionId]
+            $editor = $(if ($page -and $page.Editors -and $page.Editors.Contains($FieldId)) { $page.Editors[$FieldId] } else { $null })
+            if ($editor -and $editor.Focus) {
+                $target = $editor.Focus
+                $focus = { $target.BringIntoView(); [void]$target.Focus() }.GetNewClosure()
+                & $focus
+                [void]$dlg.Dispatcher.BeginInvoke([System.Windows.Threading.DispatcherPriority]::Background, [Action]$focus)
+            }
+        }
+    }.GetNewClosure()
+
+    $showTree = { $lstSearch.Visibility = [System.Windows.Visibility]::Collapsed; $treeNav.Visibility = [System.Windows.Visibility]::Visible }.GetNewClosure()
+    $jump = {
+        param($Entry)
+        if (-not $Entry) { return }
+        & $showTree
+        & $navigate ([string]$Entry.SectionId) ([string]$Entry.FieldId)
+    }.GetNewClosure()
+
+    $txtSearch.Add_TextChanged({
+            $query = [string]$txtSearch.Text
+            if ([string]::IsNullOrWhiteSpace($query)) { & $showTree; return }
+            $lstSearch.Items.Clear()
+            $hits = @(Search-OptionsIndex -Index $index -Query $query)
+            foreach ($hit in $hits) {
+                $li = New-Object System.Windows.Controls.ListBoxItem
+                $li.Content = ('{0}   -   {1}' -f $hit.Title, $hit.Path)
+                $li.Tag = $hit
+                [void]$lstSearch.Items.Add($li)
+            }
+            if ($hits.Count -eq 0) {
+                $none = New-Object System.Windows.Controls.ListBoxItem
+                $none.Content = 'No setting found.'
+                $none.IsEnabled = $false
+                [void]$lstSearch.Items.Add($none)
+            }
+            $treeNav.Visibility = [System.Windows.Visibility]::Collapsed
+            $lstSearch.Visibility = [System.Windows.Visibility]::Visible
+        }.GetNewClosure())
+
+    $txtSearch.Add_PreviewKeyDown({
+            param($sender, $e)
+            if ($e.Key -eq [System.Windows.Input.Key]::Enter -and $lstSearch.Items.Count -gt 0) {
+                $first = $lstSearch.Items[0]
+                if ($first.Tag) { & $jump $first.Tag; $e.Handled = $true }
+            }
+            elseif ($e.Key -eq [System.Windows.Input.Key]::Down -and $lstSearch.Visibility -eq [System.Windows.Visibility]::Visible -and $lstSearch.Items.Count -gt 0) {
+                $lstSearch.SelectedIndex = 0
+                [void]$lstSearch.Focus()
+                $e.Handled = $true
+            }
+            elseif ($e.Key -eq [System.Windows.Input.Key]::Escape -and $txtSearch.Text) {
+                $txtSearch.Text = ''
+                $e.Handled = $true
+            }
+        }.GetNewClosure())
+
+    $lstSearch.Add_PreviewMouseLeftButtonUp({
+            $selected = $lstSearch.SelectedItem
+            if ($selected -and $selected.Tag) { & $jump $selected.Tag }
+        }.GetNewClosure())
+    $lstSearch.Add_KeyDown({
+            param($sender, $e)
+            $selected = $lstSearch.SelectedItem
+            if ($e.Key -eq [System.Windows.Input.Key]::Enter -and $selected -and $selected.Tag) { & $jump $selected.Tag; $e.Handled = $true }
+        }.GetNewClosure())
+
+    $result = @{ Saved = $false }
+    $apply = {
+        # The sections that were built hold the changes. A value that cannot be stored stops the save and opens its field.
+        foreach ($id in @($ctx.Sections.Keys)) {
+            $page = $ctx.Sections[$id]
+            if (-not $page -or -not $page.Validate) { continue }
+            $problem = & $page.Validate
+            if ($problem) {
+                & $navigate $id ([string]$problem.FieldId)
+                [void](Show-ThemedMessage -Owner $dlg -Title 'Check the Value' -Message ([string]$problem.Message) -Buttons OK -Icon Warning)
+                return $false
+            }
+        }
+        try {
+            $siteBefore = Get-SiteIdentityKey -SiteCode $ctx.Prefs.SiteCode -ProviderMachineName $ctx.Prefs.ProviderMachineName
+            foreach ($id in @($ctx.Sections.Keys)) { $page = $ctx.Sections[$id]; if ($page -and $page.Commit) { & $page.Commit } }
+            $siteChanged = (Get-SiteIdentityKey -SiteCode $ctx.Prefs.SiteCode -ProviderMachineName $ctx.Prefs.ProviderMachineName) -cne $siteBefore
+            Save-Preferences -Prefs $ctx.Prefs
+            if ($ctx.Touched['cwa']) { Save-CwaSwitches -Switches $ctx.Aux.cwa }
+            if ($ctx.Touched['tv']) { Save-TvHostConfig -Config $ctx.Aux.tv }
             Invoke-RefreshGrid -DiscardSiteResults:$siteChanged
             Update-SidebarForSystems
-            $script:OptionsDlgResult = $true
-            $dlg.Close()
-        } catch {
-            [void](Show-ThemedMessage -Owner $dlg -Title 'Save Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Error)
+            $result.Saved = $true
+            return $true
         }
-    })
+        catch {
+            [void](Show-ThemedMessage -Owner $dlg -Title 'Save Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Error)
+            return $false
+        }
+    }.GetNewClosure()
 
-    $btnCancel.Add_Click({ $dlg.Close() })
+    $btnOK.Add_Click({ if (& $apply) { $dlg.Close() } }.GetNewClosure())
+    $btnCancel.Add_Click({ $dlg.Close() }.GetNewClosure())
 
-    [void]$dlg.ShowDialog()
+    $start = $(if ($byId.ContainsKey($InitialSection)) { $InitialSection } else { 'cm' })
+    & $navigate $start ''
 
-    if ($script:OptionsDlgResult) {
-        Add-LogLine -Message "Options saved."
-    }
+    return @{ Window = $dlg; Context = $ctx; Definition = $definition; Index = $index; Nodes = $nodes; Navigate = $navigate; Jump = $jump; Apply = $apply; Result = $result; SearchBox = $txtSearch; SearchList = $lstSearch; Tree = $treeNav }
+}
+
+function Show-OptionsDialog {
+    param(
+        [Parameter(Mandatory)]$Owner,
+        [string]$InitialSection = 'cm'
+    )
+    $dialog = New-OptionsDialog -Owner $Owner -InitialSection $InitialSection
+    [void]$dialog.Window.ShowDialog()
+    if ($dialog.Result.Saved) { Add-LogLine -Message 'Options saved.' }
 }
 
 # =============================================================================
-# First-run setup wizard - deployment target plus the minimum settings that
-# target needs. Writes through the same preference keys and persistence path
-# as the Options window; the target selection shows or hides the two groups.
+# First-run setup wizard - the systems and the minimum settings of each system.
+# The fields are the Connections fields of the Options window, built by the
+# same code, so a value entered here is the value that Options shows.
 # =============================================================================
 function Show-FirstRunWizard {
     param([Parameter(Mandatory)]$Owner)
@@ -7586,7 +8491,7 @@ function Show-FirstRunWizard {
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
     Title="Setup"
-    Width="720" Height="560"
+    Width="760" Height="640"
     MinWidth="640" MinHeight="480"
     WindowStartupLocation="CenterOwner"
     TitleCharacterCasing="Normal"
@@ -7611,93 +8516,10 @@ function Show-FirstRunWizard {
         </Grid.RowDefinitions>
 
         <ScrollViewer Grid.Row="0" Margin="20,18,20,12" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel>
-                <TextBlock Text="Welcome to AppPackager" FontSize="18" FontWeight="Bold" Margin="0,0,0,6"/>
-                <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,16"
-                           Text="Select the systems you publish to, then fill in their settings. The sidebar has a publish button for each system. Everything here can be changed later in Options."/>
-
-                <TextBlock Text="Systems" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
-                    <CheckBox x:Name="chkWizMecm" Content="ConfigMgr" FontSize="13" Margin="0,0,20,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                              ToolTip="Publish ConfigMgr applications, with the console, a site and a content share."/>
-                    <CheckBox x:Name="chkWizIntune" Content="Intune" FontSize="13" Margin="0,0,20,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                              ToolTip="Publish Intune Win32 apps through Microsoft Graph with an app registration."/>
-                    <CheckBox x:Name="chkWizWsus" Content="WSUS" FontSize="13" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                              ToolTip="Publish WSUS updates for computers that have an older version."/>
-                </StackPanel>
-
-                <GroupBox x:Name="grpMecm" Header="ConfigMgr" Margin="0,0,0,14">
-                    <Grid Margin="0,8,0,4">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="140"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Site Code:" FontSize="14" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                        <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWizSC" Width="80" FontSize="13" HorizontalAlignment="Left" MaxLength="5" Margin="0,0,0,8" ToolTip="The ConfigMgr site code, for example MCM."/>
-
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="SMS Provider:" FontSize="14" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtWizProvider" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The SMS Provider server of the site."/>
-
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="File Share Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                        <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtWizFS" FontSize="13" MaxLength="200" Margin="0,0,0,8" ToolTip="The UNC path of the content share."/>
-
-                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Download Root:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,4"/>
-                        <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtWizDL" FontSize="13" MaxLength="200" Margin="0,0,0,4" ToolTip="The local folder for downloaded installers."/>
-                    </Grid>
-                </GroupBox>
-
-                <GroupBox x:Name="grpIntune" Header="Intune" Margin="0,0,0,4">
-                    <Grid Margin="0,8,0,4">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="140"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Tenant ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
-                        <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWizTenant" FontSize="13" Margin="0,0,0,8" ToolTip="Entra tenant ID (GUID or domain) for Graph publishing."/>
-
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Client ID:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The client ID of an app registration with DeviceManagementApps.ReadWrite.All."/>
-                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtWizClient" FontSize="13" Margin="0,0,0,8" ToolTip="The client ID of an app registration with DeviceManagementApps.ReadWrite.All."/>
-
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Client Secret:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,4" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
-                        <PasswordBox Grid.Row="2" Grid.Column="1" x:Name="pwdWizSecret" FontSize="13" Margin="0,0,0,4" ToolTip="Stored DPAPI-protected for the current Windows user; leave empty to keep the saved secret."/>
-                    </Grid>
-                </GroupBox>
-
-                <GroupBox x:Name="grpWsus" Header="WSUS" Margin="0,0,0,4">
-                    <Grid Margin="0,8,0,4">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="140"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Server:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The WSUS server name, or the top-level software update point."/>
-                        <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWizWsusServer" FontSize="13" MaxLength="255" Margin="0,0,0,8" ToolTip="The WSUS server name, or the top-level software update point."/>
-
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Port:" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,8" ToolTip="The WSUS port: 8530 for HTTP, 8531 for HTTPS."/>
-                        <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtWizWsusPort" Width="80" FontSize="13" MaxLength="5" HorizontalAlignment="Left" Margin="0,0,0,8" ToolTip="The WSUS port: 8530 for HTTP, 8531 for HTTPS."/>
-
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="" Margin="0,0,0,4"/>
-                        <CheckBox  Grid.Row="2" Grid.Column="1" x:Name="chkWizWsusSsl" Content="Use SSL" FontSize="13" Margin="0,0,0,4" Controls:ControlsHelper.ContentCharacterCasing="Normal" ToolTip="Connect to the WSUS administration API over HTTPS."/>
-                    </Grid>
-                </GroupBox>
+            <StackPanel x:Name="stkWizard">
+                <TextBlock Text="Welcome to AppPackager" FontSize="20" Margin="0,0,0,6"/>
+                <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,12"
+                           Text="Select the systems you publish to, then fill in their settings. The sidebar has a publish button for each system. Options, Connections has the same settings."/>
             </StackPanel>
         </ScrollViewer>
 
@@ -7722,58 +8544,47 @@ function Show-FirstRunWizard {
 
     [xml]$xml = Expand-SharedStyle $dlgXaml
     $reader = New-Object System.Xml.XmlNodeReader $xml
-    $dlg    = [System.Windows.Markup.XamlReader]::Load($reader)
+    $dlg = [System.Windows.Markup.XamlReader]::Load($reader)
     Install-TitleBarDragFallback -Window $dlg
     Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
 
-    $chkWizMecm     = $dlg.FindName('chkWizMecm')
-    $chkWizIntune   = $dlg.FindName('chkWizIntune')
-    $chkWizWsus     = $dlg.FindName('chkWizWsus')
-    $grpMecm        = $dlg.FindName('grpMecm')
-    $grpIntune      = $dlg.FindName('grpIntune')
-    $grpWsus        = $dlg.FindName('grpWsus')
-    $txtWizWsusServer = $dlg.FindName('txtWizWsusServer')
-    $txtWizWsusPort   = $dlg.FindName('txtWizWsusPort')
-    $chkWizWsusSsl    = $dlg.FindName('chkWizWsusSsl')
-    $txtWizSC       = $dlg.FindName('txtWizSC')
-    $txtWizProvider = $dlg.FindName('txtWizProvider')
-    $txtWizFS       = $dlg.FindName('txtWizFS')
-    $txtWizDL       = $dlg.FindName('txtWizDL')
-    $txtWizTenant   = $dlg.FindName('txtWizTenant')
-    $txtWizClient   = $dlg.FindName('txtWizClient')
-    $pwdWizSecret   = $dlg.FindName('pwdWizSecret')
-    $chkWizDontAsk  = $dlg.FindName('chkWizDontAsk')
-    $btnWizSave     = $dlg.FindName('btnWizSave')
-    $btnWizSkip     = $dlg.FindName('btnWizSkip')
+    $stack = $dlg.FindName('stkWizard')
+    $chkWizDontAsk = $dlg.FindName('chkWizDontAsk')
+    $btnWizSave = $dlg.FindName('btnWizSave')
+    $btnWizSkip = $dlg.FindName('btnWizSkip')
 
-    $txtWizSC.Text       = [string]$script:Prefs.SiteCode
-    $txtWizProvider.Text = [string]$script:Prefs.ProviderMachineName
-    $txtWizFS.Text       = [string]$script:Prefs.FileShareRoot
-    $txtWizDL.Text       = [string]$script:Prefs.DownloadRoot
-    $txtWizTenant.Text   = [string]$script:Prefs.Intune.TenantId
-    $txtWizClient.Text   = [string]$script:Prefs.Intune.ClientId
-    $txtWizWsusServer.Text  = [string]$script:Prefs.Wsus.ServerName
-    $txtWizWsusPort.Text    = [string]$script:Prefs.Wsus.PortNumber
-    $chkWizWsusSsl.IsChecked = [bool]$script:Prefs.Wsus.UseSsl
-    $wizPortFollowsSsl = @{ Value = ([string]$script:Prefs.Wsus.PortNumber -in @('', '8530', '8531')) }
-    $txtWizWsusPort.Add_TextChanged({ if ($txtWizWsusPort.IsKeyboardFocusWithin) { $wizPortFollowsSsl.Value = ($txtWizWsusPort.Text.Trim() -in @('', '8530', '8531')) } }.GetNewClosure())
-    # Checked and Unchecked also fire for a keyboard, UI Automation, or code change, not only a mouse click.
-    $wizSslChanged = { if ($wizPortFollowsSsl.Value) { $txtWizWsusPort.Text = $(if ($chkWizWsusSsl.IsChecked -eq $true) { '8531' } else { '8530' }) } }.GetNewClosure()
-    $chkWizWsusSsl.Add_Checked($wizSslChanged)
-    $chkWizWsusSsl.Add_Unchecked($wizSslChanged)
+    $ctx = New-OptionsContext -Prefs $script:Prefs
+    $ctx.Owner = $dlg
+    $table = Get-OptionsFieldTable
+    $newBlock = {
+        param([string]$Heading, [string[]]$FieldId)
+        $block = New-Object System.Windows.Controls.StackPanel
+        $block.Margin = New-Object System.Windows.Thickness(0, 0, 0, 10)
+        if ($Heading) {
+            $title = New-OptionsTextBlock -Text $Heading -Size 15
+            $title.Margin = New-Object System.Windows.Thickness(0, 6, 0, 6)
+            [void]$block.Children.Add($title)
+        }
+        $group = New-OptionsFieldGroup -Context $ctx -Field @($FieldId | ForEach-Object { $table[$_] })
+        [void]$block.Children.Add($group.Element)
+        [void]$stack.Children.Add($block)
+        return @{ Block = $block; Group = $group }
+    }
+    $systems = & $newBlock 'Systems' @('sys.configmgr', 'sys.intune', 'sys.wsus')
+    $mecm = & $newBlock 'ConfigMgr' @('cm.siteCode', 'cm.provider', 'cm.fileShare', 'pkg.downloadRoot')
+    $intune = & $newBlock 'Intune' @('int.tenant', 'int.client', 'int.secret')
+    $wsus = & $newBlock 'WSUS' @('wsus.server', 'wsus.port', 'wsus.ssl')
 
-    $currentTarget = [string]$script:Prefs.Intune.DeploymentTarget
-    $chkWizMecm.IsChecked   = [bool]$script:Prefs.Systems.ConfigMgr
-    $chkWizIntune.IsChecked = [bool]$script:Prefs.Systems.Intune
-    $chkWizWsus.IsChecked   = [bool]$script:Prefs.Systems.Wsus
-
+    $mecmBox = $systems.Group.Editors['sys.configmgr'].Focus
+    $intuneBox = $systems.Group.Editors['sys.intune'].Focus
+    $wsusBox = $systems.Group.Editors['sys.wsus'].Focus
     $updateGroupState = {
-        $grpMecm.Visibility   = if ($chkWizMecm.IsChecked -eq $true) { 'Visible' } else { 'Collapsed' }
-        $grpIntune.Visibility = if ($chkWizIntune.IsChecked -eq $true) { 'Visible' } else { 'Collapsed' }
-        $grpWsus.Visibility   = if ($chkWizWsus.IsChecked -eq $true) { 'Visible' } else { 'Collapsed' }
+        $mecm.Block.Visibility = $(if ($mecmBox.IsChecked -eq $true) { 'Visible' } else { 'Collapsed' })
+        $intune.Block.Visibility = $(if ($intuneBox.IsChecked -eq $true) { 'Visible' } else { 'Collapsed' })
+        $wsus.Block.Visibility = $(if ($wsusBox.IsChecked -eq $true) { 'Visible' } else { 'Collapsed' })
     }.GetNewClosure()
     & $updateGroupState
-    foreach ($box in @($chkWizMecm, $chkWizIntune, $chkWizWsus)) { $box.Add_Click($updateGroupState) }
+    foreach ($box in @($mecmBox, $intuneBox, $wsusBox)) { $box.Add_Click($updateGroupState) }
 
     $script:FirstRunDlgSaved = $false
     $prefsRef = $script:Prefs
@@ -7782,39 +8593,22 @@ function Show-FirstRunWizard {
     # helpers and give each handler a separate $script:FirstRunDlgSaved flag.
     $btnWizSave.Add_Click({
         try {
-            $useMecm   = ($chkWizMecm.IsChecked -eq $true)
-            $useIntune = ($chkWizIntune.IsChecked -eq $true)
-            $useWsus   = ($chkWizWsus.IsChecked -eq $true)
-            $prefsRef.Systems.ConfigMgr = $useMecm
-            $prefsRef.Systems.Intune    = $useIntune
-            $prefsRef.Systems.Wsus      = $useWsus
-            if ($useMecm) {
-                $prefsRef.SiteCode            = $txtWizSC.Text.Trim()
-                $prefsRef.ProviderMachineName = $txtWizProvider.Text.Trim()
-                $prefsRef.FileShareRoot       = $txtWizFS.Text.Trim()
-                $prefsRef.DownloadRoot        = $txtWizDL.Text.Trim()
-            } else {
-                # The built-in default would otherwise persist as a site code
-                # the operator never entered.
-                $prefsRef.SiteCode = ''
-            }
-            if ($useIntune) {
-                $prefsRef.Intune.TenantId = $txtWizTenant.Text.Trim()
-                $prefsRef.Intune.ClientId = $txtWizClient.Text.Trim()
-                # An empty box keeps the stored secret; a typed value replaces it,
-                # protected with DPAPI for the current Windows user.
-                if ($pwdWizSecret.SecurePassword.Length -gt 0) {
-                    $prefsRef.Intune.ClientSecretProtected = ($pwdWizSecret.SecurePassword | ConvertFrom-SecureString)
+            foreach ($part in @($systems, $mecm, $intune, $wsus)) {
+                $problem = & $part.Group.Validate
+                if ($problem -and $part.Block.Visibility -eq 'Visible') {
+                    [void](Show-ThemedMessage -Owner $dlg -Title 'Check the Value' -Message ([string]$problem.Message) -Buttons OK -Icon Warning)
+                    return
                 }
             }
-            if ($useWsus) {
-                $prefsRef.Wsus.ServerName = $txtWizWsusServer.Text.Trim()
-                $wizPort = 0
-                if ([int]::TryParse($txtWizWsusPort.Text.Trim(), [ref]$wizPort) -and $wizPort -ge 1 -and $wizPort -le 65535) {
-                    $prefsRef.Wsus.PortNumber = $wizPort
-                }
-                $prefsRef.Wsus.UseSsl = [bool]$chkWizWsusSsl.IsChecked
-            }
+            & $systems.Group.Commit
+            $useMecm = ($mecmBox.IsChecked -eq $true)
+            $useIntune = ($intuneBox.IsChecked -eq $true)
+            $useWsus = ($wsusBox.IsChecked -eq $true)
+            if ($useMecm) { & $mecm.Group.Commit }
+            # The built-in default would otherwise persist as a site code the operator never entered.
+            else { $prefsRef.SiteCode = '' }
+            if ($useIntune) { & $intune.Group.Commit }
+            if ($useWsus) { & $wsus.Group.Commit }
             # One Click runs unattended: every selected system becomes a default
             # destination; the sidebar buttons choose per run.
             $prefsRef.AppFlow.DefaultDestinations = [pscustomobject]@{ ConfigMgr = $useMecm; WSUS = $useWsus; Intune = $useIntune }
@@ -7849,7 +8643,7 @@ function Show-FirstRunWizard {
     if ($script:FirstRunDlgSaved) {
         $defaultSet = ConvertTo-OneClickDestinationSet -Value $script:Prefs.AppFlow.DefaultDestinations
         $defaultNames = @(foreach ($d in (Get-OneClickDestinationNames)) { if ($defaultSet.$d) { $d } })
-        Add-LogLine -Message ("Setup complete. One Click publishes to {0}; change it in Options, One Click Settings." -f $(if ($defaultNames.Count) { $defaultNames -join ' and ' } else { 'no destination' }))
+        Add-LogLine -Message ("Setup complete. One Click publishes to {0}; change it in Options, Updates and CVEs, One Click." -f $(if ($defaultNames.Count) { $defaultNames -join ' and ' } else { 'no destination' }))
     }
 }
 
@@ -9818,7 +10612,7 @@ function Invoke-DropIntake {
 
     if ([string]::IsNullOrWhiteSpace($script:Prefs.DownloadRoot)) {
         [void](Show-ThemedMessage -Owner $window -Title 'Download Root Required' `
-            -Message 'Staging a dropped installer needs a Download Root. Open OPTIONS -> ConfigMgr Preferences to configure it.' `
+            -Message 'Staging a dropped installer needs a download root. Open Options, Packaging, Folders to set it.' `
             -Buttons OK -Icon Warning)
         return
     }
@@ -9830,10 +10624,10 @@ function Invoke-DropIntake {
         $packageAvailable = $false; $packageReason = 'The Configuration Manager Console is not detected on this workstation.'
     }
     elseif ([string]::IsNullOrWhiteSpace($script:Prefs.SiteCode)) {
-        $packageAvailable = $false; $packageReason = 'SiteCode is not configured (OPTIONS -> ConfigMgr Preferences).'
+        $packageAvailable = $false; $packageReason = 'SiteCode is not configured (Options, Connections, ConfigMgr).'
     }
     elseif ([string]::IsNullOrWhiteSpace($script:Prefs.FileShareRoot)) {
-        $packageAvailable = $false; $packageReason = 'File Share Root is not configured (OPTIONS -> ConfigMgr Preferences).'
+        $packageAvailable = $false; $packageReason = 'The content share is not configured (Options, Connections, ConfigMgr).'
     }
 
     $jobs = @()
@@ -9954,7 +10748,7 @@ $btnCheckLatest.Add_Click({
     $siteCodeValue = $script:Prefs.SiteCode
     if ([string]::IsNullOrWhiteSpace($siteCodeValue)) {
         if ($script:Prefs.Systems.ConfigMgr) {
-            Add-LogLine -Message "The site code is required. Set it in Options, ConfigMgr Preferences."
+            Add-LogLine -Message "The site code is required. Set it in Options, Connections, ConfigMgr."
             $txtStatus.Text = "The site code is required."
             return
         }
@@ -9991,7 +10785,7 @@ $btnCheckMECM.Add_Click({
 
     $siteCodeValue = $script:Prefs.SiteCode
     if ([string]::IsNullOrWhiteSpace($siteCodeValue)) {
-        Add-LogLine -Message "The site code is required. Set it in Options, ConfigMgr Preferences."
+        Add-LogLine -Message "The site code is required. Set it in Options, Connections, ConfigMgr."
         $txtStatus.Text = "The site code is required."
         return
     }
@@ -10251,7 +11045,7 @@ function Invoke-DiscoveryChoice {
             $count = Add-DiscoveryDismissed -Prefs $script:Prefs -Script @($Choice.Scripts)
             try {
                 Save-Preferences -Prefs $script:Prefs
-                Add-LogLine -Message ("Discover unmanaged software: {0} app(s) will not be offered again. Clear the list in Options, ConfigMgr Preferences." -f $count)
+                Add-LogLine -Message ("Discover unmanaged software: {0} app(s) will not be offered again. Clear the list in Options, Updates and CVEs, Product filter." -f $count)
             }
             catch {
                 $text = ('The dismissal was not saved and holds for this session only: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
@@ -10307,6 +11101,8 @@ function Start-DiscoveryScan {
         ProviderMachineName = Resolve-DiscoveryProviderName -Preference ([string]$script:Prefs.ProviderMachineName) -SiteCode ([string]$script:Prefs.SiteCode)
         ServerOverride      = [string]$script:Prefs.DiscoverySqlServer
         DatabaseOverride    = [string]$script:Prefs.DiscoverySqlDatabase
+        InstanceOverride    = [string]$script:Prefs.DiscoverySqlInstance
+        PortOverride        = [int]$script:Prefs.DiscoverySqlPort
         Packager            = $packagers
         HiddenScript        = [string[]]@($script:Prefs.HiddenApplications)
         DismissedScript     = [string[]]@($script:Prefs.DiscoveryDismissed)
@@ -10434,7 +11230,7 @@ function Get-CmImportRunSpec {
     $doPublish = (-not $preview -and $Publish)
     $doPackage = (-not $preview -and ($Package -or $Publish))
     if ($doPublish -and -not $IntuneReady) {
-        return (& $fail 'Publish needs the Intune tenant, client and secret. Set them in Options, ConfigMgr Preferences.')
+        return (& $fail 'Publish needs the Intune tenant, client and secret. Set them in Options, Connections, Intune.')
     }
 
     $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $ScriptPath,
@@ -10582,7 +11378,7 @@ function Show-CmImportDialog {
     $txtOutput.Text = $OutputRoot
     if (-not $IntuneReady) {
         $chkPublish.IsEnabled = $false
-        $chkPublish.ToolTip = 'Set Tenant ID, Client ID and Client Secret in Options, ConfigMgr Preferences.'
+        $chkPublish.ToolTip = 'Set Tenant ID, Client ID and Client secret in Options, Connections, Intune.'
         [System.Windows.Controls.ToolTipService]::SetShowOnDisabled($chkPublish, $true)
     }
 
@@ -10712,8 +11508,8 @@ $btnConvertCm.Add_Click({
 $btnStage.Add_Click({
     $dlRootValue = $script:Prefs.DownloadRoot
     if ([string]::IsNullOrWhiteSpace($dlRootValue)) {
-        Add-LogLine -Message "Download Root is required for staging. Open Preferences to configure."
-        $txtStatus.Text = "Download Root is required."
+        Add-LogLine -Message "Download root is required for staging. Set it in Options, Packaging, Folders."
+        $txtStatus.Text = "Download root is required."
         return
     }
 
@@ -10750,7 +11546,7 @@ function Confirm-WsusPublishPrerequisites {
     $destination = if ($Target) { $Target } else { [string]$script:Prefs.Intune.DeploymentTarget }
     if (-not (Test-DeploymentTargetPublishesToWsus -DeploymentTarget $destination)) { return $true }
     if (-not (Get-WsusPublishConfigForContext -Target $destination)) {
-        Add-LogLine -Message "Publish requires a WSUS server. Open Options, WSUS Publishing, to configure it."
+        Add-LogLine -Message "Publish requires a WSUS server. Set it in Options, Connections, WSUS."
         $txtStatus.Text = "WSUS server required."
         return $false
     }
@@ -10766,12 +11562,12 @@ function Confirm-WsusPublishPrerequisites {
 
 # --- 4. Publish to ConfigMgr, Intune or WSUS ---
 # Each sidebar button names its own destination for this run; One Click keeps
-# the destination saved in One Click Settings.
+# the destination saved in Options, Updates and CVEs, One Click.
 function Start-PublishRun {
     param([Parameter(Mandatory)][ValidateSet('MECM', 'IntuneOnly', 'WSUSOnly')][string]$Target)
 
     # Intune and WSUS runs never touch the site or the share, so the console,
-    # SiteCode, and File Share Root gates apply only to ConfigMgr runs.
+    # SiteCode, and content share gates apply only to ConfigMgr runs.
     $intuneOnlyRun = ($Target -eq 'IntuneOnly')
     $siteFreeRun = Test-DeploymentTargetSkipsSite -DeploymentTarget $Target
     if (-not $siteFreeRun -and -not $script:Prefs.DetectedTools.ConfigMgrConsole.Found) {
@@ -10785,7 +11581,7 @@ function Start-PublishRun {
 
     $siteCodeValue = $script:Prefs.SiteCode
     if (-not $siteFreeRun -and [string]::IsNullOrWhiteSpace($siteCodeValue)) {
-        Add-LogLine -Message "The site code is required. Set it in Options, ConfigMgr Preferences."
+        Add-LogLine -Message "The site code is required. Set it in Options, Connections, ConfigMgr."
         $txtStatus.Text = "The site code is required."
         return
     }
@@ -10795,13 +11591,13 @@ function Start-PublishRun {
 
     $fsPathValue = $script:Prefs.FileShareRoot
     if (-not $siteFreeRun -and [string]::IsNullOrWhiteSpace($fsPathValue)) {
-        Add-LogLine -Message "File Share Root is required. Open Preferences to configure."
-        $txtStatus.Text = "File Share Root is required."
+        Add-LogLine -Message "Content share is required. Set it in Options, Connections, ConfigMgr."
+        $txtStatus.Text = "Content share is required."
         return
     }
 
     if ($intuneOnlyRun -and -not (Get-IntunePublishConfigForContext -Target $Target)) {
-        Add-LogLine -Message "Publish requires Intune credentials. Open ConfigMgr Preferences to configure Tenant ID, Client ID, and Client Secret."
+        Add-LogLine -Message "Publish requires Intune credentials. Set Tenant ID, Client ID and Client secret in Options, Connections, Intune."
         $txtStatus.Text = "Intune credentials required."
         return
     }
@@ -10863,7 +11659,7 @@ $btnPublishWsus.Add_Click({ Start-PublishRun -Target 'WSUSOnly' })
 $btnWsusUpdates.Add_Click({
     $settings = Get-WsusPublishConfigForContext -Target 'WSUSOnly'
     if (-not $settings) {
-        Add-LogLine -Message "WSUS Updates needs a WSUS server. Open Options, WSUS Publishing, to configure it."
+        Add-LogLine -Message "WSUS Updates needs a WSUS server. Set it in Options, Connections, WSUS."
         $txtStatus.Text = "WSUS server required."
         return
     }
@@ -11301,7 +12097,7 @@ function Show-OneClickPlanDialog {
             <TextBlock x:Name="txtPlanScope" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
             <TextBlock x:Name="txtPlanBlocking" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Visibility="Collapsed"/>
             <TextBlock x:Name="txtPlanHint" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
-                       Text="Include and the destination boxes apply to this run only; One Click Settings holds the saved values. Run asks nothing after it starts."/>
+                       Text="Include and the destination boxes apply to this run only; Options, Updates and CVEs, One Click holds the saved values. Run asks nothing after it starts."/>
         </StackPanel>
         <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="1" x:Name="gridPlan" AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
                   SelectionMode="Single" RowHeaderWidth="0">
@@ -11662,16 +12458,16 @@ $btnFullRun.Add_Click({
     $action = [string]$script:Prefs.AppFlow.Action
     $trackedBases = @($script:Prefs.AppFlow.Tracked)
     if ($trackedBases.Count -eq 0) {
-        Add-LogLine -Message "No apps are tracked for One Click. Open OPTIONS -> One Click Settings to configure."
+        Add-LogLine -Message "No apps are tracked for One Click. Open Options, Updates and CVEs, One Click."
         $txtStatus.Text = "No apps tracked."
         [void](Show-ThemedMessage -Owner $window -Title 'One Click Not Configured' `
-            -Message "No apps are tracked yet.`n`nOpen OPTIONS (sidebar) and select One Click Settings, then choose which packagers to include, pick an action (Report / Stage / Stage and Publish) and the destinations, and click OK." `
+            -Message "No apps are tracked yet.`n`nOpen Options (sidebar) and select Updates and CVEs, One Click, then choose which packagers to include, pick an action (Report / Stage / Stage and Publish) and the destinations, and click OK." `
             -Buttons OK -Icon Info)
         return
     }
     if ($action -in @('Stage','StageAndPackage') -and [string]::IsNullOrWhiteSpace([string]$script:Prefs.DownloadRoot)) {
-        Add-LogLine -Message ("Download Root is required for action '{0}'. Open ConfigMgr Preferences." -f $action)
-        $txtStatus.Text = "Download Root is required."
+        Add-LogLine -Message ("Download root is required for action '{0}'. Set it in Options, Packaging, Folders." -f $action)
+        $txtStatus.Text = "Download root is required."
         return
     }
     $trackedSet = [System.Collections.Generic.HashSet[string]]::new([string[]]$trackedBases, [System.StringComparer]::OrdinalIgnoreCase)
@@ -13791,7 +14587,7 @@ function Invoke-WorkbenchRun {
     }
     if ($Operation -eq 'Package') {
         if ($Target -eq 'IntuneOnly' -and -not (Get-IntunePublishConfigForContext -Target $Target)) {
-            Add-LogLine -Message "Publish requires Intune credentials. Open ConfigMgr Preferences to configure Tenant ID, Client ID, and Client Secret."
+            Add-LogLine -Message "Publish requires Intune credentials. Set Tenant ID, Client ID and Client secret in Options, Connections, Intune."
             return
         }
         if (-not (Confirm-WsusPublishPrerequisites -Target $Target)) { return }
@@ -14360,265 +15156,6 @@ function Show-WsusCatalogImportDialog {
         Close-SuiteBgRunspace -Runspace $work.Runspace
     }.GetNewClosure())
     [void]$dlg.ShowDialog()
-}
-
-function New-WsusPanel {
-    # Server connection, signing certificate and publish defaults for the
-    # WSUS destination. Buttons act on the values currently in the boxes,
-    # before OK saves them.
-    $xaml = @'
-<ScrollViewer xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
-      VerticalScrollBarVisibility="Auto">
-    <StackPanel>
-        <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,12"
-                   Text="Publish to WSUS publishes the installer of each checked app as a locally published update. WSUS Updates in the sidebar lists and manages the published updates. This computer needs the WSUS console or RSAT WSUS tools at the server's version, an account in the WSUS Administrators group, and file-share access to the server. When this computer is not the WSUS server, it must also trust the signing certificate."/>
-
-        <TextBlock Text="Server" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
-        <Grid Margin="0,0,0,8">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="150"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="WSUS Server" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
-            <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtWsusServer" FontSize="12" Height="28" VerticalContentAlignment="Center" Margin="0,0,0,6"
-                       Controls:TextBoxHelper.Watermark="wsus01.contoso.com"
-                       ToolTip="The WSUS server name, or the top-level software update point."/>
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="Port" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
-            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,6">
-                <TextBox x:Name="txtWsusPort" Width="80" FontSize="12" Height="28" VerticalContentAlignment="Center" MaxLength="5"
-                         ToolTip="The WSUS port: 8530 for HTTP, 8531 for HTTPS."/>
-                <CheckBox x:Name="chkWsusSsl" Content="Use SSL" FontSize="12" Margin="14,0,0,0" VerticalAlignment="Center"
-                          Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                          ToolTip="Connect to the WSUS administration API over HTTPS."/>
-            </StackPanel>
-            <Button Grid.Row="1" Grid.Column="2" x:Name="btnWsusTest" Content="Test Connection" Margin="8,0,0,6"
-                    Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" x:Name="txtWsusStatus" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"/>
-        </Grid>
-
-        <TextBlock Text="Signing Certificate" FontSize="13" FontWeight="Bold" Margin="0,4,0,6"/>
-        <TextBlock x:Name="txtWsusCert" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,6"
-                   Text="Test the connection to read the server's signing certificate."/>
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <Button x:Name="btnWsusCertCreate" Content="Create Self-Signed..." Margin="0,0,8,0"
-                    Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                    ToolTip="Has the WSUS server create and use a self-signed signing certificate."/>
-            <Button x:Name="btnWsusCertImport" Content="Import PFX..." Margin="0,0,8,0"
-                    Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                    ToolTip="Import a code-signing certificate from a PFX file."/>
-            <Button x:Name="btnWsusCertExport" Content="Export Certificate..."
-                    Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                    ToolTip="Saves the public signing certificate (.cer) for distribution to clients by Group Policy."/>
-        </StackPanel>
-        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,12"
-                   Text="Clients install locally published updates only when the signing certificate is in their Trusted Publishers store (and Trusted Root Certification Authorities when it is self-signed) and the policy Allow signed updates from an intranet Microsoft update service location is enabled: HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate, AcceptTrustedPublisherCerts = 1 (DWORD)."/>
-
-        <TextBlock Text="Publishing" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
-        <Grid Margin="0,0,0,8">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="150"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
-            <TextBlock Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" x:Name="txtWsusPolicy" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,8"
-                       Text="Each update installs only where an older version of the application is installed. A computer without the application does not get the update."/>
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="Classification" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
-            <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="1" Grid.Column="1" x:Name="cboWsusClassification" FontSize="12" Height="28" Margin="0,0,0,6"
-                       ToolTip="The WSUS classification of the published updates."/>
-            <TextBlock Grid.Row="2" Grid.Column="0" Text="Approve for Group" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
-            <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="2" Grid.Column="1" x:Name="cboWsusGroup" IsEditable="True" FontSize="12" Height="28" Margin="0,0,0,6"
-                       ToolTip="The computer group that gets the update at once, or empty to approve later."/>
-            <Button    Grid.Row="2" Grid.Column="2" x:Name="btnWsusGroups" Content="Load Groups" Margin="8,0,0,6"
-                       Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <CheckBox  Grid.Row="3" Grid.Column="1" x:Name="chkWsusDecline" FontSize="12" Margin="0,0,0,6"
-                       Content="Decline earlier versions of the same application after publishing" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                       ToolTip="Decline the earlier versions of the application in WSUS."/>
-        </Grid>
-
-    </StackPanel>
-</ScrollViewer>
-'@
-
-    [xml]$xml = Expand-SharedStyle $xaml
-    $element = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
-
-    $txtWsusServer = $element.FindName('txtWsusServer')
-    $txtWsusPort   = $element.FindName('txtWsusPort')
-    $chkWsusSsl    = $element.FindName('chkWsusSsl')
-    $btnWsusTest   = $element.FindName('btnWsusTest')
-    $txtWsusStatus = $element.FindName('txtWsusStatus')
-    $txtWsusCert   = $element.FindName('txtWsusCert')
-    $btnCertCreate = $element.FindName('btnWsusCertCreate')
-    $btnCertImport = $element.FindName('btnWsusCertImport')
-    $btnCertExport = $element.FindName('btnWsusCertExport')
-    $cboClassification = $element.FindName('cboWsusClassification')
-    $cboGroup      = $element.FindName('cboWsusGroup')
-    $btnGroups     = $element.FindName('btnWsusGroups')
-    $chkDecline    = $element.FindName('chkWsusDecline')
-
-    $wsus = $script:Prefs.Wsus
-    $txtWsusServer.Text = [string]$wsus.ServerName
-    $txtWsusPort.Text = [string]$wsus.PortNumber
-    $chkWsusSsl.IsChecked = [bool]$wsus.UseSsl
-    $classNames = @(Get-WsusClassificationNameList)
-    foreach ($name in $classNames) { [void]$cboClassification.Items.Add((Get-WsusClassificationLabel -Name $name)) }
-    $cboClassification.SelectedIndex = [Math]::Max(0, [array]::IndexOf($classNames, [string]$wsus.Classification))
-    $cboGroup.Text = [string]$wsus.ApprovalGroup
-    $chkDecline.IsChecked = [bool]$wsus.DeclineSuperseded
-
-    # Port follows the SSL box until the operator types a port of their own.
-    $portState = @{ Auto = ([string]$wsus.PortNumber -in @('8530', '8531')) }
-    $txtWsusPort.Add_TextChanged({ if ($txtWsusPort.IsKeyboardFocusWithin) { $portState.Auto = ($txtWsusPort.Text.Trim() -in @('', '8530', '8531')) } }.GetNewClosure())
-    # Checked and Unchecked also fire for a keyboard, UI Automation, or code change, not only a mouse click.
-    $sslChanged = { if ($portState.Auto) { $txtWsusPort.Text = $(if ($chkWsusSsl.IsChecked -eq $true) { '8531' } else { '8530' }) } }.GetNewClosure()
-    $chkWsusSsl.Add_Checked($sslChanged)
-    $chkWsusSsl.Add_Unchecked($sslChanged)
-
-    $readSettings = {
-        return (ConvertTo-WsusPublishSettings -InputObject @{
-                ServerName        = ([string]$txtWsusServer.Text).Trim()
-                PortNumber        = ([string]$txtWsusPort.Text).Trim()
-                UseSsl            = ($chkWsusSsl.IsChecked -eq $true)
-                Classification    = [string]@($classNames)[[Math]::Max(0, $cboClassification.SelectedIndex)]
-                ApprovalGroup     = ([string]$cboGroup.Text).Trim()
-                DeclineSuperseded = ($chkDecline.IsChecked -eq $true)
-            })
-    }.GetNewClosure()
-
-    $serverButtons = @($btnWsusTest, $btnCertCreate, $btnCertImport, $btnCertExport, $btnGroups)
-    $api = if (Get-Command -Name Test-WsusAdministrationApi -ErrorAction SilentlyContinue) { Test-WsusAdministrationApi }
-    else { [pscustomobject]@{ Available = $false; Version = ''; Reason = 'The WSUS publishing module did not load; reinstall AppPackager.' } }
-    if (-not $api.Available) {
-        foreach ($b in $serverButtons) { $b.IsEnabled = $false }
-        $txtWsusStatus.Text = ([char]0x2717 + ' ' + [string]$api.Reason)
-    }
-    else {
-        $txtWsusStatus.Text = ('WSUS administration API {0} found.' -f [string]$api.Version)
-    }
-
-    $showStatus = {
-        param($Status)
-        if (-not $Status.Connected) {
-            $txtWsusStatus.Text = ([char]0x2717 + ' ' + [string]$Status.Message)
-            $txtWsusCert.Text = 'Not connected.'
-            return
-        }
-        $txtWsusStatus.Text = ([char]0x2713 + (' Connected  -  {0}, WSUS {1}, role {2}, {3} connection. {4}' -f [string]$Status.ServerName, [string]$Status.Version,
-                [string]$Status.Role, $(if ($Status.SecureConnection) { 'secure' } else { 'unencrypted' }), [string]$Status.Message)).Trim()
-        $cert = $Status.SigningCertificate
-        if (-not $cert) {
-            $txtWsusCert.Text = $(if ([string]$Status.Message -match 'could not be read') { 'The signing certificate could not be read; see the status line.' }
-                else { [char]0x2717 + ' No signing certificate is set on this server. Publishing fails until one is created or imported.' })
-            return
-        }
-        $flags = @()
-        if ($cert.SelfSigned) { $flags += 'self-signed' }
-        if ($cert.Expired) { $flags += 'EXPIRED' }
-        $txtWsusCert.Text = ('Subject: {0}   Thumbprint: {1}   Valid to: {2}   Key: {3} bits{4}' -f [string]$cert.Subject, [string]$cert.Thumbprint,
-            ([datetime]$cert.NotAfter).ToString('yyyy-MM-dd'), [string]$cert.KeyLength, $(if ($flags) { '   (' + ($flags -join ', ') + ')' } else { '' }))
-    }.GetNewClosure()
-
-    # Every server action reads and validates the boxes first, then receives
-    # the settings as an argument; a validation or server error lands in
-    # the status line instead of an unhandled dispatcher exception.
-    $runOnServer = {
-        param([scriptblock]$Action, $Extra)
-        $window = [System.Windows.Window]::GetWindow($element)
-        if ($window) { Set-DialogBusyStatus -Dialog $window -Control $txtWsusStatus -Text 'Contacting the WSUS server...' }
-        try {
-            $settings = & $readSettings
-            if ([string]::IsNullOrWhiteSpace([string]$settings.ServerName)) { throw 'Enter the WSUS server first.' }
-            return (& $Action $settings $Extra)
-        }
-        catch { $txtWsusStatus.Text = ([char]0x2717 + ' ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')); return $null }
-        finally { if ($window) { $window.Cursor = $null } }
-    }.GetNewClosure()
-
-    $btnWsusTest.Add_Click({
-        $status = & $runOnServer { param($s) Get-WsusServerStatus -Settings $s }
-        if ($status) { & $showStatus $status }
-    }.GetNewClosure())
-
-    $btnCertCreate.Add_Click({
-        $settings = & $runOnServer { param($s) $s }
-        if (-not $settings) { return }
-        $window = [System.Windows.Window]::GetWindow($element)
-        $answer = Show-ThemedMessage -Owner $window -Title 'Create Signing Certificate' -Buttons YesNo -Icon Warning `
-            -Message ("Have {0} create a self-signed signing certificate and use it for every update published from now on?`n`nThis replaces any certificate the server uses today. Clients that trust only the current certificate reject updates signed with the new one until the new certificate reaches their Trusted Publishers and Trusted Root Certification Authorities stores. With ConfigMgr, keep ConfigMgr in charge of the certificate if it already manages it." -f [string]$settings.ServerName)
-        if ($answer -ne 'Yes') { return }
-        $status = & $runOnServer { param($s) New-WsusSelfSignedSigningCertificate -Settings $s }
-        if ($status) { & $showStatus $status }
-    }.GetNewClosure())
-
-    $btnCertImport.Add_Click({
-        $settings = & $runOnServer { param($s) $s }
-        if (-not $settings) { return }
-        $window = [System.Windows.Window]::GetWindow($element)
-        $open = New-Object Microsoft.Win32.OpenFileDialog
-        $open.Title = 'Select the Signing Certificate PFX'
-        $open.Filter = 'PFX files (*.pfx;*.p12)|*.pfx;*.p12'
-        if (-not $open.ShowDialog()) { return }
-        $password = Show-WsusPasswordPrompt -Owner $window -Prompt ('Password for {0}' -f [System.IO.Path]::GetFileName($open.FileName))
-        if ($null -eq $password) { return }
-        try {
-            $answer = Show-ThemedMessage -Owner $window -Title 'Import Signing Certificate' -Buttons YesNo -Icon Warning `
-                -Message ("Make this certificate the signing certificate of {0}?`n`nIt replaces any certificate the server uses today. Clients must trust the new certificate before they install updates signed with it." -f [string]$settings.ServerName)
-            if ($answer -ne 'Yes') { return }
-            $status = & $runOnServer { param($s, $x) Set-WsusSigningCertificate -Settings $s -PfxPath $x.Path -Password $x.Password } @{ Path = $open.FileName; Password = $password }
-            if ($status) { & $showStatus $status }
-        }
-        finally { $password.Dispose() }
-    }.GetNewClosure())
-
-    $btnCertExport.Add_Click({
-        $settings = & $runOnServer { param($s) $s }
-        if (-not $settings) { return }
-        $save = New-Object Microsoft.Win32.SaveFileDialog
-        $save.Title = 'Save the Public Signing Certificate'
-        $save.Filter = 'Certificate (*.cer)|*.cer'
-        $save.FileName = ('WSUS-signing-{0}.cer' -f [string]$settings.ServerName)
-        if (-not $save.ShowDialog()) { return }
-        $written = & $runOnServer { param($s, $x) Export-WsusSigningCertificate -Settings $s -Path $x } $save.FileName
-        if ($written) { $txtWsusStatus.Text = ([char]0x2713 + ' Saved ' + [string]$written) }
-    }.GetNewClosure())
-
-    $btnGroups.Add_Click({
-        $result = & $runOnServer { param($s) [pscustomobject]@{ Names = @(Get-WsusComputerGroupNames -Settings $s) } }
-        if ($null -eq $result) { return }
-        $typed = [string]$cboGroup.Text
-        $cboGroup.Items.Clear()
-        foreach ($name in @($result.Names)) { [void]$cboGroup.Items.Add($name) }
-        $cboGroup.Text = $typed
-        $txtWsusStatus.Text = ('{0} computer group(s) loaded.' -f @($result.Names).Count)
-    }.GetNewClosure())
-
-
-    $prefsRef = $script:Prefs
-    $commit = {
-        $prefsRef.Wsus.ServerName = ([string]$txtWsusServer.Text).Trim()
-        $port = 0
-        if ([int]::TryParse(([string]$txtWsusPort.Text).Trim(), [ref]$port) -and $port -ge 1 -and $port -le 65535) { $prefsRef.Wsus.PortNumber = $port }
-        $prefsRef.Wsus.UseSsl = ($chkWsusSsl.IsChecked -eq $true)
-        $prefsRef.Wsus.Classification = [string]@($classNames)[[Math]::Max(0, $cboClassification.SelectedIndex)]
-        $prefsRef.Wsus.ApprovalGroup = ([string]$cboGroup.Text).Trim()
-        $prefsRef.Wsus.DeclineSuperseded = ($chkDecline.IsChecked -eq $true)
-    }.GetNewClosure()
-
-    return @{ Name = 'WSUS Publishing'; Element = $element; Commit = $commit }
 }
 
 

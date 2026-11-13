@@ -167,6 +167,7 @@ function ConvertTo-CwaInstallArguments {
         $install = $Config.Installation
         if ($null -ne $install) {
             if ([bool]$install.CleanInstall) { $arguments.Add('/CleanInstall') }
+            if ([bool]$install.ForceInstall) { $arguments.Add('/forceinstall') }
             # ENABLE_SSON takes effect only together with /includeSSON.
             if ([bool]$install.IncludeSSON) {
                 $arguments.Add('/includeSSON')
@@ -180,6 +181,21 @@ function ConvertTo-CwaInstallArguments {
             }
             if ($null -ne $install.SelfServiceMode) {
                 $arguments.Add('SELFSERVICEMODE=' + $(if ([bool]$install.SelfServiceMode) { 'True' } else { 'False' }))
+            }
+            # The documented default of each of these is off, so a cleared box emits nothing.
+            if ([bool]$install.BidirContentRedirection) { $arguments.Add('ALLOW_BIDIRCONTENTREDIRECTION=1') }
+            if ([bool]$install.ClientHostedAppsUrl) { $arguments.Add('ALLOW_CLIENTHOSTEDAPPSURL=1') }
+            if ([bool]$install.ForceLaa) { $arguments.Add('FORCE_LAA=1') }
+            if ([bool]$install.LegacyFtaIcons) { $arguments.Add('LEGACYFTAICONS=True') }
+            $disableSetting = ([string]$install.DisableSetting).Trim()
+            if ($disableSetting) {
+                if ($disableSetting -in @('0','1','2','3')) { $arguments.Add('DisableSetting=' + $disableSetting) }
+                else { $warnings.Add(("Installation.DisableSetting '{0}' is not 0, 1, 2 or 3; ignored." -f $install.DisableSetting)) }
+            }
+            $clientName = ([string]$install.ClientName).Trim()
+            if ($clientName) {
+                if ($clientName -match '^[A-Za-z0-9._-]{1,20}$') { $arguments.Add('ENABLE_DYNAMIC_CLIENT_NAME=No'); $arguments.Add('CLIENT_NAME=' + $clientName) }
+                else { $warnings.Add(("Installation.ClientName '{0}' is not 1 to 20 letters, digits, dots, dashes or underscores; ignored." -f $install.ClientName)) }
             }
         }
 
@@ -211,8 +227,14 @@ function ConvertTo-CwaInstallArguments {
             }
 
             if ([bool]$plugins.SessionRecording) {
-                if ($Stream -eq 'Current') { $arguments.Add('/InstallSRAgent') }
+                if ($Stream -eq 'Current') {
+                    $arguments.Add('/InstallSRAgent')
+                    if ([bool]$plugins.SkipSRAgentUpgrade) { $arguments.Add('/SkipSRAgentUpgrade') }
+                }
                 else { $warnings.Add('Plugins.SessionRecording has no documented LTSR installer switch; ignored.') }
+            }
+            elseif ([bool]$plugins.SkipSRAgentUpgrade) {
+                $warnings.Add('Plugins.SkipSRAgentUpgrade applies only with Plugins.SessionRecording; ignored.')
             }
         }
 
@@ -222,6 +244,14 @@ function ConvertTo-CwaInstallArguments {
             if ($autoUpdate) {
                 if ($autoUpdate -in @('auto','manual','disabled')) { $arguments.Add('AutoUpdateCheck=' + $autoUpdate) }
                 else { $warnings.Add(("UpdateAndTelemetry.AutoUpdateCheck '{0}' is not auto, manual or disabled; ignored." -f $update.AutoUpdateCheck)) }
+            }
+            # AutoUpdateStream and AURolloutPriority work only when AutoUpdateCheck is set.
+            foreach ($pair in @(@('AutoUpdateStream', 'AutoUpdateStream', @('LTSR','Current')), @('AURolloutPriority', 'AURolloutPriority', @('Auto','Fast','Medium','Slow')))) {
+                $setting = ([string]$update.($pair[0])).Trim()
+                if (-not $setting) { continue }
+                if (-not $autoUpdate) { $warnings.Add(("UpdateAndTelemetry.{0} works only when AutoUpdateCheck is set; ignored." -f $pair[0])) }
+                elseif ($setting -in $pair[2]) { $arguments.Add($pair[1] + '=' + $setting) }
+                else { $warnings.Add(("UpdateAndTelemetry.{0} '{1}' is not one of {2}; ignored." -f $pair[0], $setting, ($pair[2] -join ', '))) }
             }
             if ($null -ne $update.EnableCEIP) {
                 $arguments.Add('EnableCEIP=' + $(if ([bool]$update.EnableCEIP) { 'True' } else { 'False' }))
@@ -269,6 +299,8 @@ function ConvertTo-CwaInstallArguments {
         # emitted only when the operator opted in.
         if ($null -ne $Config.Components -and [bool]$Config.Components.Customize) {
             $componentNames = @('ReceiverInside','ICA_Client','AM','SelfService','DesktopViewer','WebHelper','BCR_Client','USB','SSON')
+            # The Citrix Enterprise Browser is an ADDLOCAL key of the LTSR installers only.
+            if ($Stream -eq 'LTSR') { $componentNames += 'CitrixEnterpriseBrowser' }
             $selected = @($componentNames | Where-Object { [bool]$Config.Components.$_ })
             if ($selected.Count -gt 0) { $arguments.Add('ADDLOCAL=' + ($selected -join ',')) }
             else { $warnings.Add('Components.Customize is set but no component is enabled; ADDLOCAL omitted.') }

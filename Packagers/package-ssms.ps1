@@ -22,7 +22,8 @@ ArpName: SQL Server Management Studio [0-9]* | Microsoft SQL Server Management S
 
     SSMS 22 uses the Visual Studio Installer bootstrapper model. Silent switch
     choices are read from Packagers\packager-preferences.json under
-    SSMSInstallOptions, which is written by the Packager Preferences UI.
+    SSMSInstallOptions, which is written by Options, Applications, SQL Server
+    Management Studio.
 
     Supports two-phase operation:
       -StageOnly    Download bootstrapper, write wrappers and manifest
@@ -118,6 +119,9 @@ function Get-SsmsInstallOptions {
         RemoveOos           = $true
         ForceClose          = $false
         InstallPath         = ""
+        Workloads           = @()
+        Languages           = @()
+        NoCache             = $false
     }
 
     try {
@@ -125,10 +129,13 @@ function Get-SsmsInstallOptions {
         if ($prefs -and $prefs.SSMSInstallOptions) {
             $cfg = $prefs.SSMSInstallOptions
             if ($cfg.UIMode -in @('Quiet','Passive')) { $defaults.UIMode = [string]$cfg.UIMode }
-            foreach ($prop in @('DownloadThenInstall','NoUpdateInstaller','IncludeRecommended','IncludeOptional','RemoveOos','ForceClose')) {
+            foreach ($prop in @('DownloadThenInstall','NoUpdateInstaller','IncludeRecommended','IncludeOptional','RemoveOos','ForceClose','NoCache')) {
                 if ($null -ne $cfg.$prop) { $defaults[$prop] = [bool]$cfg.$prop }
             }
             if ($null -ne $cfg.InstallPath) { $defaults.InstallPath = [string]$cfg.InstallPath }
+            foreach ($prop in @('Workloads','Languages')) {
+                if ($null -ne $cfg.$prop) { $defaults[$prop] = @($cfg.$prop | ForEach-Object { [string]$_ }) }
+            }
         }
     }
     catch {
@@ -147,6 +154,14 @@ function Get-SsmsInstallPath {
     return $DefaultInstallPath
 }
 
+function Get-SsmsOptionList {
+    # A list option of the stored preference: the entries that match the pattern, in order, without repeats.
+    param([Parameter(Mandatory)][pscustomobject]$Options, [Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][string]$Pattern)
+
+    if (-not $Options.PSObject.Properties[$Name] -or $null -eq $Options.$Name) { return @() }
+    return @($Options.$Name | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -match $Pattern } | Select-Object -Unique)
+}
+
 function Get-SsmsInstallArgs {
     param([Parameter(Mandatory)][pscustomobject]$Options)
 
@@ -154,9 +169,15 @@ function Get-SsmsInstallArgs {
     if ($Options.UIMode -eq 'Passive') { $args += '--passive' } else { $args += '--quiet' }
     $args += '--norestart'
     if ($Options.DownloadThenInstall -eq $true) { $args += '--downloadThenInstall' }
-    if ($Options.NoUpdateInstaller -eq $true)  { $args += '--noUpdateInstaller' }
-    if ($Options.IncludeRecommended -eq $true) { $args += '--includeRecommended' }
-    if ($Options.IncludeOptional -eq $true)    { $args += '--includeOptional' }
+    # --noUpdateInstaller is documented with --quiet only.
+    if ($Options.NoUpdateInstaller -eq $true -and $Options.UIMode -ne 'Passive') { $args += '--noUpdateInstaller' }
+    # --includeRecommended and --includeOptional act on the workloads of --add, so they follow at least one workload.
+    $workloads = @(Get-SsmsOptionList -Options $Options -Name 'Workloads' -Pattern '^Microsoft\.SqlServer\.Workload\.SSMS\.[A-Za-z]+$')
+    foreach ($workload in $workloads) { $args += @('--add', $workload) }
+    if ($workloads.Count -gt 0 -and $Options.IncludeRecommended -eq $true) { $args += '--includeRecommended' }
+    if ($workloads.Count -gt 0 -and $Options.IncludeOptional -eq $true)    { $args += '--includeOptional' }
+    foreach ($language in @(Get-SsmsOptionList -Options $Options -Name 'Languages' -Pattern '^[a-z]{2}-[a-z]{2}$')) { $args += @('--addProductLang', $language) }
+    if ($Options.NoCache -eq $true)            { $args += '--nocache' }
     if ($Options.RemoveOos -eq $true)          { $args += @('--removeOos', 'true') }
     if ($Options.ForceClose -eq $true)         { $args += '--force' }
 

@@ -114,7 +114,48 @@ function Get-DiscoverySiteDefinition {
             if ($null -ne $session) { $session.Dispose() }
         }
     }
-    throw "The site definition could not be read from the SMS Provider $ProviderMachineName. Enter the SQL server and database in Options, ConfigMgr Preferences."
+    throw "The site definition could not be read from the SMS Provider $ProviderMachineName. Enter the SQL server and database in Options, Connections, ConfigMgr."
+}
+
+function Split-CMSqlServerName {
+    <#
+    .SYNOPSIS
+        Splits a SQL Server name of the form host, host\instance, host,port or
+        host\instance,port into its parts. A text of another form stays whole
+        in Server.
+    #>
+    param([AllowNull()][AllowEmptyString()][string]$Name = '')
+
+    $text = ([string]$Name).Trim()
+    $parts = [pscustomobject]@{ Server = $text; Instance = ''; Port = 0 }
+    if ($text -match '^(?<host>[^\\,]+)(?:\\(?<instance>[^\\,]+))?(?:,(?<port>\d{1,5}))?$') {
+        $port = 0
+        if ($Matches['port']) { $port = [int]$Matches['port'] }
+        $parts.Server = $Matches['host'].Trim()
+        $parts.Instance = $Matches['instance'].Trim()
+        $parts.Port = $port
+    }
+    return $parts
+}
+
+function Join-CMSqlServerName {
+    <#
+    .SYNOPSIS
+        Builds the SQL Server name host\instance,port. An empty instance and a
+        port of 0 are left out.
+    #>
+    param(
+        [AllowNull()][AllowEmptyString()][string]$Server = '',
+        [AllowNull()][AllowEmptyString()][string]$Instance = '',
+        [int]$Port = 0
+    )
+
+    $hostName = ([string]$Server).Trim()
+    if (-not $hostName) { return '' }
+    $name = $hostName
+    if (([string]$Instance).Trim()) { $name += '\' + ([string]$Instance).Trim() }
+    if ($Port -gt 0) { $name += ',' + $Port }
+    return $name
 }
 
 function Resolve-CMDatabaseTarget {
@@ -122,25 +163,35 @@ function Resolve-CMDatabaseTarget {
     .SYNOPSIS
         Returns the SQL Server and database of a site: overrides first, then
         the site definition on the SMS Provider, with CM_<SiteCode> as the
-        database default. Throws a plain message when no server is known.
+        database default. Server is host\instance,port; the instance and the
+        port are left out when empty. Throws a plain message when no server
+        is known.
     #>
     param(
         [AllowEmptyString()][AllowNull()][ValidatePattern('^(?:[A-Za-z0-9]{3})?$')][string]$SiteCode = '',
         [string]$ServerOverride = '',
         [string]$DatabaseOverride = '',
-        [string]$ProviderMachineName = ''
+        [string]$ProviderMachineName = '',
+        [string]$InstanceOverride = '',
+        [ValidateRange(0, 65535)][int]$PortOverride = 0
     )
 
     $code = ([string]$SiteCode).ToUpperInvariant()
-    $server = ([string]$ServerOverride).Trim()
+    # A name of the form host\instance,port in the server override fills the parts that the other overrides leave empty.
+    $overrideParts = Split-CMSqlServerName -Name $ServerOverride
+    $server = $overrideParts.Server
+    $instance = ([string]$InstanceOverride).Trim()
+    if (-not $instance) { $instance = $overrideParts.Instance }
+    $port = $PortOverride
+    if ($port -le 0) { $port = $overrideParts.Port }
     $database = ([string]$DatabaseOverride).Trim()
     $lookupError = ''
 
     if ($server -and $database) {
-        return [pscustomobject]@{ Server = $server; Database = $database }
+        return [pscustomobject]@{ Server = (Join-CMSqlServerName -Server $server -Instance $instance -Port $port); Database = $database }
     }
     if (-not $code) {
-        throw 'A site code or SQL overrides are required. Set the site code, or the SQL server and database, in Options, ConfigMgr Preferences.'
+        throw 'A site code or SQL overrides are required. Set the site code, or the SQL server and database, in Options, Connections, ConfigMgr.'
     }
 
     if (-not $server -or -not $database) {
@@ -165,7 +216,13 @@ function Resolve-CMDatabaseTarget {
                 if ($siteServer -and $Matches['instance'] -ne 'MSSQLSERVER') { $siteServer = "$siteServer\$($Matches['instance'])" }
             }
             if (-not $siteServer) { $lookupError = 'the site definition has no SQL Server name' }
-            if (-not $server) { $server = $siteServer }
+            if (-not $server) {
+                $siteParts = Split-CMSqlServerName -Name $siteServer
+                $server = $siteParts.Server
+                # The site definition supplies the instance and the port only for the server that it names.
+                if (-not $instance) { $instance = $siteParts.Instance }
+                if ($port -le 0) { $port = $siteParts.Port }
+            }
             if (-not $database) { $database = $siteDatabase }
         }
         elseif ($provider -and -not $lookupError) {
@@ -175,10 +232,10 @@ function Resolve-CMDatabaseTarget {
 
     if (-not $database) { $database = "CM_$code" }
     if (-not $server) {
-        throw "The SQL Server for site $code is not known ($lookupError). Enter the SQL Server name in Preferences."
+        throw "The SQL Server for site $code is not known ($lookupError). Enter the SQL server in Options, Connections, ConfigMgr."
     }
 
-    return [pscustomobject]@{ Server = $server; Database = $database }
+    return [pscustomobject]@{ Server = (Join-CMSqlServerName -Server $server -Instance $instance -Port $port); Database = $database }
 }
 
 # ---------------------------------------------------------------------------
@@ -689,6 +746,6 @@ function Get-DiscoveryStatusText {
 }
 
 Export-ModuleMember -Function @(
-    'Resolve-CMDatabaseTarget', 'Get-CMInventorySnapshot', 'Find-DiscoveryCandidate', 'Get-DiscoveryStatusText',
+    'Resolve-CMDatabaseTarget', 'Split-CMSqlServerName', 'Join-CMSqlServerName', 'Get-CMInventorySnapshot', 'Find-DiscoveryCandidate', 'Get-DiscoveryStatusText',
     'Test-MecmApplicationTitle', 'Get-MecmApplicationNamePattern'
 )

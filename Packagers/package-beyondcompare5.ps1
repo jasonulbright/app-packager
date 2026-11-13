@@ -58,7 +58,7 @@ ArpName: Beyond Compare 5*
 
 .PARAMETER KeyFile
     Path to the BC5Key.txt license key file. Overrides the key file chosen in
-    Options > Packager Preferences.
+    Options > Applications > Beyond Compare 5.
 
 .PARAMETER StageOnly
     Runs only the Stage phase: download and extract the installer, place the
@@ -117,8 +117,21 @@ $BaseDownloadRoot = Join-Path $DownloadRoot "BeyondCompare5"
 # Setup looks for this exact file name in its own folder.
 $KeyFileName = "BC5Key.txt"
 
-$InstallSwitches   = @('/VERYSILENT', '/NORESTART', '/ALLUSERS', '/DISABLEUPDATES', '/SUPPRESSMSGBOXES')
-$UninstallSwitches = @('/VERYSILENT', '/NORESTART', '/SUPPRESSMSGBOXES')
+$BaseInstallSwitches = @('/VERYSILENT', '/NORESTART', '/ALLUSERS', '/DISABLEUPDATES', '/SUPPRESSMSGBOXES')
+$UninstallSwitches   = @('/VERYSILENT', '/NORESTART', '/SUPPRESSMSGBOXES')
+
+function Get-BeyondCompare5InstallSwitch {
+    # The base switches, then the policy switches that Options selects (Beyond Compare 5.2 and later).
+    param([AllowNull()]$Preferences)
+
+    $switches = @($BaseInstallSwitches)
+    if ($Preferences -and $Preferences.PSObject.Properties['BeyondCompareOptions'] -and $Preferences.BeyondCompareOptions) {
+        $options = $Preferences.BeyondCompareOptions
+        if ($options.PSObject.Properties['DisableRemoteProfiles'] -and [bool]$options.DisableRemoteProfiles) { $switches += '/DisableRemoteProfiles' }
+        if ($options.PSObject.Properties['DisableSavedPasswords'] -and [bool]$options.DisableSavedPasswords) { $switches += '/DisableSavedPasswords' }
+    }
+    return $switches
+}
 
 # --- Functions ---
 
@@ -185,7 +198,7 @@ function Resolve-BeyondCompare5KeyFile {
     }
 
     if ([string]::IsNullOrWhiteSpace($path)) {
-        throw "Beyond Compare 5 requires a license key file. Choose BC5Key.txt in Options > Packager Preferences > Beyond Compare 5."
+        throw "Beyond Compare 5 requires a license key file. Choose BC5Key.txt in Options > Applications > Beyond Compare 5."
     }
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "Beyond Compare 5 license key file not found: $path"
@@ -292,6 +305,8 @@ function Invoke-StageBeyondCompare5 {
     Write-Log "Placed key beside installer  : $stagedKey"
 
     # --- Generate content wrappers ---
+    $InstallSwitches = Get-BeyondCompare5InstallSwitch -Preferences (Get-PackagerPreferences)
+    Write-Log ("Install switches             : {0}" -f ($InstallSwitches -join ' '))
     $installArgList = ($InstallSwitches | ForEach-Object { "'$_'" }) -join ', '
     $installScript = @"
 `$exePath = Join-Path `$PSScriptRoot '$installerFileName'
@@ -391,7 +406,7 @@ function Invoke-PackageBeyondCompare5 {
     $manifestPath     = Join-Path $localContentPath "stage-manifest.json"
 
     if (-not (Test-Path -LiteralPath (Join-Path $localContentPath $KeyFileName) -PathType Leaf)) {
-        throw "Staged content has no $KeyFileName. Choose the license key file in Options > Packager Preferences > Beyond Compare 5 and stage again."
+        throw "Staged content has no $KeyFileName. Choose the license key file in Options > Applications > Beyond Compare 5 and stage again."
     }
 
     # --- Read manifest ---

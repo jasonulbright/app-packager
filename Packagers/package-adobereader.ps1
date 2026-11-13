@@ -38,7 +38,7 @@ RequiresTools: 7-Zip
     English installs the en_US installer. MUI installs the multilingual installer with
     the languages in -Languages (English is always included) and lets the UI follow
     the language of the operating system. Defaults to Packagers\packager-preferences.json
-    under AdobeReaderInstallOptions, which the Packager Preferences UI writes; English
+    under AdobeReaderInstallOptions, which Options, Applications, Adobe Acrobat Reader writes; English
     when nothing is stored.
 
 .PARAMETER Languages
@@ -140,11 +140,15 @@ function Get-AdobeReaderInstallOptions {
     # Explicit parameters win over the stored preference; English is the
     # default when nothing is stored.
     param([string]$Edition = '', [string]$Languages = '')
-    $options = [pscustomobject]@{ Edition = 'English'; Languages = @() }
+    $options = [pscustomobject]@{ Edition = 'English'; Languages = @(); AcceptEula = $false; DisableDesktopShortcut = $false; DisableChromeExtension = $false; DisableBrowserIntegration = $false; UpdateMode = '' }
     $prefs = Get-PackagerPreferences
     if ($prefs -and $prefs.PSObject.Properties['AdobeReaderInstallOptions'] -and $prefs.AdobeReaderInstallOptions) {
         $cfg = $prefs.AdobeReaderInstallOptions
         if ([string]$cfg.Edition -in @('English', 'MUI')) { $options.Edition = [string]$cfg.Edition }
+        foreach ($flag in @('AcceptEula', 'DisableDesktopShortcut', 'DisableChromeExtension', 'DisableBrowserIntegration')) {
+            if ($cfg.PSObject.Properties[$flag] -and $null -ne $cfg.$flag) { $options.$flag = [bool]$cfg.$flag }
+        }
+        if ($cfg.PSObject.Properties['UpdateMode'] -and [string]$cfg.UpdateMode -in @('0', '2', '3', '4')) { $options.UpdateMode = [string]$cfg.UpdateMode }
         if ($cfg.PSObject.Properties['Languages'] -and $null -ne $cfg.Languages) { $options.Languages = @($cfg.Languages | ForEach-Object { [string]$_ } | Where-Object { $_ }) }
     }
     if ($Edition) { $options.Edition = $Edition }
@@ -181,6 +185,20 @@ function Get-AdobeMuiCommandLine {
     $list = @($Languages)
     $value = if ($list -contains 'All') { 'ALL' } else { $list -join ',' }
     return ('LANG_LIST="{0}" SUPPRESSLANGSELECTION=1' -f $value)
+}
+
+function Get-AdobePropertyCommandLine {
+    # The Adobe properties of the options other than the language ones, for the CmdLine key of setup.ini.
+    # Each one is a documented property of the Reader MSI.
+    param([Parameter(Mandatory)]$Options)
+
+    $parts = @()
+    if ($Options.AcceptEula) { $parts += 'EULA_ACCEPT=YES' }
+    if ($Options.DisableDesktopShortcut) { $parts += 'DISABLEDESKTOPSHORTCUT=1' }
+    if ($Options.DisableChromeExtension) { $parts += 'ENABLE_CHROMEEXT=0' }
+    if ($Options.DisableBrowserIntegration) { $parts += 'DISABLE_BROWSER_INTEGRATION=YES' }
+    if ([string]$Options.UpdateMode -in @('0', '2', '3', '4')) { $parts += ('UPDATE_MODE=' + [string]$Options.UpdateMode) }
+    return ($parts -join ' ')
 }
 
 function Clear-AdobeContentFolder {
@@ -475,14 +493,14 @@ function Invoke-StageAdobeReader {
         Write-Log "Updated setup.ini patch      : $patchFileName"
     }
 
-    # MUI: the languages to install and the UI language following the OS.
-    # setup.exe hands the CmdLine value of setup.ini to msiexec.
+    # MUI: the languages to install and the UI language following the OS. The property options
+    # of both editions follow. setup.exe hands the CmdLine value of setup.ini to msiexec.
     $muiCommandLine = ''
-    if ($installOptions.Edition -eq 'MUI') {
-        $muiCommandLine = Get-AdobeMuiCommandLine -Languages $installOptions.Languages
-        Write-Log "setup.ini CmdLine            : $muiCommandLine"
-    }
-    Set-AdobeSetupIniCommandLine -Path (Join-Path $localContentPath "setup.ini") -CommandLine $muiCommandLine
+    if ($installOptions.Edition -eq 'MUI') { $muiCommandLine = Get-AdobeMuiCommandLine -Languages $installOptions.Languages }
+    $propertyCommandLine = Get-AdobePropertyCommandLine -Options $installOptions
+    $setupCommandLine = (@($muiCommandLine, $propertyCommandLine) | Where-Object { $_ }) -join ' '
+    if ($setupCommandLine) { Write-Log "setup.ini CmdLine            : $setupCommandLine" }
+    Set-AdobeSetupIniCommandLine -Path (Join-Path $localContentPath "setup.ini") -CommandLine $setupCommandLine
 
     $extractedFiles = Get-ChildItem -Path $localContentPath -File
     Write-Log "Extracted files              : $($extractedFiles.Count)"
