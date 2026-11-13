@@ -10,7 +10,7 @@ The search box above the tree finds a setting by name. Type a name, for example 
 
 A value that cannot be stored stops the save and opens its field. A port outside 1 to 65535 is one example.
 
-The Setup window and the Connections sections use the same fields. A value that you type in Setup is the value that Options shows.
+The footer of the main window shows the saved site code and site server. Options and Setup are the only places where you change them. The Setup window and the Connections sections use the same fields. A value that you type in Setup is the value that Options shows.
 
 ## When to use it
 

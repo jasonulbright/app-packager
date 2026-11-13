@@ -5426,6 +5426,21 @@ function Get-SidebarSystemState {
     }
 }
 
+# The footer shows the saved site code and the site server (SMS Provider) as read-only text. It stays hidden
+# while ConfigMgr is not in the systems in use. The site text comes from SuiteCommon.
+function Update-ApFooter {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Updates in-window text only.')]
+    param()
+    if (-not $window) { return }
+    try {
+        Update-SuiteFooter -Window $window -SiteCode ([string]$script:Prefs.SiteCode) -SiteServer ([string]$script:Prefs.ProviderMachineName)
+        $systems = $script:Prefs.Systems
+        $site = $window.FindName('txtFooterSite')
+        if ($site) { $site.Visibility = $(if (-not $systems -or $systems.ConfigMgr) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed }) }
+    }
+    catch { Add-LogLine -Message 'The footer was not updated.' }
+}
+
 function Update-SidebarForSystems {
     $state = Get-SidebarSystemState -Prefs $script:Prefs
 
@@ -5693,6 +5708,7 @@ $btnWorkbench.Add_Click({
 
 $btnOptions.Add_Click({
     Show-OptionsDialog -Owner $window
+    Update-ApFooter
 })
 
 # =============================================================================
@@ -10835,6 +10851,8 @@ $btnCheckLatest.Add_Click({
 
 # --- 2. Check ConfigMgr ---
 $btnCheckMECM.Add_Click({
+    # The check reads the saved site code and site server. The footer shows the same values.
+    Update-ApFooter
     if (-not $script:Prefs.DetectedTools.ConfigMgrConsole.Found) {
         Add-LogLine -Message "Check ConfigMgr requires the ConfigMgr Console. Not detected on this workstation."
         $txtStatus.Text = "ConfigMgr Console not installed."
@@ -11281,7 +11299,7 @@ function Get-CmImportRunSpec {
 
     if (-not $name) { return (& $fail 'Enter the exact name of the ConfigMgr application.') }
     if ($name -match '[\x00-\x1F]') { return (& $fail 'The application name holds a control character.') }
-    if ($site -notmatch '^[A-Za-z0-9]{3}$') { return (& $fail 'The site code is three letters or digits.') }
+    if ($site -notmatch '^[A-Za-z0-9]{3}$') { return (& $fail 'The site code is three letters or digits. Set it in Options, Connections, ConfigMgr.') }
     if (-not $root) { return (& $fail 'Enter the output folder.') }
     # IsPathRooted throws on these characters in Windows PowerShell 5.1, so they are checked first.
     if ($root -match '[\x00-\x1F"<>|]') { return (& $fail 'The output folder holds a character that a path cannot use.') }
@@ -11369,8 +11387,8 @@ function Show-CmImportDialog {
                          ToolTip="The exact name of the ConfigMgr application."/>
 
                 <TextBlock Text="Site Code" FontSize="14" FontWeight="Bold" Margin="0,10,0,4"/>
-                <TextBox x:Name="txtCmSite" FontSize="13" Width="120" HorizontalAlignment="Left" MaxLength="3"
-                         ToolTip="The three-character ConfigMgr site code."/>
+                <TextBox x:Name="txtCmSite" FontSize="13" Width="120" HorizontalAlignment="Left" MaxLength="3" IsReadOnly="True"
+                         ToolTip="Read-only: change the site code in Options, Connections, ConfigMgr."/>
 
                 <TextBlock Text="Output Folder" FontSize="12" FontWeight="Bold" Margin="0,10,0,4"/>
                 <DockPanel>
@@ -15254,6 +15272,9 @@ $lnkUpdateAvailable.Add_Click({ Open-UpdateReleasePage })
 $btnUpdateNow.Add_Click({ Invoke-SelfUpdate -Owner $window })
 
 $window.Add_Loaded({
+    try { Initialize-SuiteFooter -Window $window -StatusName 'txtStatus' -OnOpenOptions { if (-not $script:ActionButtonsEnabled) { return }; Show-OptionsDialog -Owner $window; Update-ApFooter } | Out-Null }
+    catch { Add-LogLine -Message 'The footer was not set up.' }
+    Update-ApFooter
     Add-LogLine -Message ("Loading packagers from: {0}" -f $PackagersRoot)
     Invoke-RefreshGrid
     Add-LogLine -Message ("{0} packager(s) loaded. Ready." -f $script:PackagerData.Count)
@@ -15287,6 +15308,7 @@ $window.Add_ContentRendered({
 
     if (Test-FirstRunWizardNeeded -Prefs $script:Prefs) {
         Show-FirstRunWizard -Owner $window
+        Update-ApFooter
     }
 })
 

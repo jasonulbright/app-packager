@@ -90,6 +90,8 @@ Section 'grid' {
 Section 'options' {
     Invoke-El (Get-El $win 'btnOptions'); $o = Find-LastLike 'Options*' 15
     Capture-OptionsTree $o
+    # Close the dialog without a save, so that it does not cover the main window in the next images.
+    Invoke-El (Get-El $o 'Cancel'); Start-Sleep -Seconds 2
 }
 Section 'check latest' {
     Check-Row 0; Shot $win 'grid-row-selected'
@@ -135,6 +137,25 @@ Section 'workbench' {
 Section 'add installer' {
     Invoke-El (Get-El $win 'btnAddInstaller'); $d = Wait-Dialog; Start-Sleep -Seconds 1; Shot $d 'add-installer-dialog'
     Focus-Win $d; Send-Keys '{ESC}'; Start-Sleep -Seconds 2
+}
+# The Installer Drop dialog for a README image. Add Installer opens a file dialog, and the chosen file opens the dialog.
+# A failure here is a note, not an error: the README keeps its old image and the other images are still replaced.
+Section 'installer drop' {
+    try {
+        $sample = Join-Path $work 'sample-setup.exe'
+        Copy-Item 'C:\Windows\ccmsetup\ccmsetup.exe' $sample -ErrorAction Stop
+        Invoke-El (Get-El $win 'btnAddInstaller'); [void](Wait-Dialog); Start-Sleep -Seconds 1
+        $fd = Find-Last 'Select Installers to Package' 20; Focus-Win $fd
+        Send-Keys ($sample -replace '([+^%~{}\[\]()])', '{$1}'); Send-Keys '{ENTER}'; Start-Sleep -Seconds 2
+        $d = Find-Last 'Installer Drop' 60; Start-Sleep -Seconds 3
+        Shot $d 'drop-intake'
+        $c = Get-El $d 'Cancel' -Quiet
+        if (-not $c) { throw 'The Installer Drop dialog has no Cancel button.' }
+        Invoke-El $c; Start-Sleep -Seconds 2
+    } catch {
+        Log ('note: no Installer Drop image: ' + $_.Exception.Message)
+        foreach ($name in 'Select Installers to Package', 'Installer Drop') { foreach ($w in @(Find-All $name)) { Focus-Win $w; Send-Keys '{ESC}'; Start-Sleep -Seconds 1 } }
+    }
 }
 Section 'convert' {
     Invoke-El (Get-El $win 'btnConvertCm'); $d = Find-Last 'Convert ConfigMgr App to Intune' 15; Start-Sleep -Seconds 1; Shot $d 'convert-dialog'

@@ -6,6 +6,8 @@ One command regenerates every image of this guide.
 
 `tools\guide-capture\Invoke-GuideCapture.ps1` copies the tool to a lab computer, starts it in an interactive session of a lab account, walks the windows and dialogs with Windows UI Automation, takes the screenshots, copies the PNG files back to `docs\images` and removes its files from the lab computer. It replaces only the images that exist already. With `-AddNew` it also adds new images.
 
+The command also takes the README images `main-dark.png`, `setup.png`, `workbench.png` and `drop-preview.png` from the same run, in the `screenshots` folder. The README images `one-click-plan.png` and `wsus-updates.png` have no capture step: the One Click plan needs a configured site with tracked applications, and the lab has no WSUS. They keep their old image.
+
 ## When to use it
 
 Use it after a change that alters a window, and before a release.

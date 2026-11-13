@@ -65,7 +65,7 @@ Select the count in the **CVEs** column. The window shows one line that states t
 
 **Refresh** looks the CVEs up again and ignores the saved result. **Copy CVE IDs** copies the IDs of the CVEs that affect the examined version. **Export report** writes the report for this application. Only `https` links open.
 
-The next images show the check for Google Chrome. The ConfigMgr version is 157.0.8103.40 and the latest version is 158.0.8127.37. The main window shows 17 CVEs, a maximum CVSS of 9.6, one CVE in the KEV catalog, and `17 of 17` in **Fixed by Update**.
+The next images show the check for Google Chrome. The ConfigMgr version is 157.0.8103.40 and the latest version is 158.0.8127.37. The main window shows 54 CVEs, a maximum CVSS of 9.6, one CVE in the KEV catalog, and `54 of 54` in **Fixed by Update**.
 
 ![The main window after Check CVEs for Google Chrome 157.0.8103.40 in the dark theme](../images/cve-chrome-grid.png)
 

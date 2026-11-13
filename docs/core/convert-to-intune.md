@@ -21,7 +21,7 @@ Use it to move an existing application to Intune, also when AppPackager did not 
 
 ![The Convert dialog](../images/convert-dialog.png)
 
-2. Type the exact application name, as the console shows it. Check the **Site Code** and the **Output Folder**.
+2. Type the exact application name, as the console shows it. Read the **Site Code** and check the **Output Folder**. The **Site Code** box is read-only: it shows the site code from Options. Change it in Options, Connections, ConfigMgr.
 3. Choose **Deployment Types**: `First match wins, like ConfigMgr (recommended)` or another rule. Each app after the first gets a requirement script that is false when an earlier deployment type applies.
 4. Set the options: **Native detection rules only**, **Convert deployment types with requirements Intune cannot check**, **Build the .intunewin files**, **Publish the apps to Intune**.
 5. Select **Preview**. The log shows each deployment type and its findings. The status bar says `Preview finished. The report is in <folder>.`
