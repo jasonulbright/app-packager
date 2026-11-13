@@ -26,14 +26,13 @@ Describe 'Static labels are not bold' {
         ($script:FwDocs | ForEach-Object { $_.Source }) -join ',' | Should -Match 'xaml|here-string'
     }
 
-    It 'finds text labels and field titles in the XAML (the scan is not empty)' {
+    It 'finds text labels in the XAML (the scan is not empty)' {
         $labels = 0; $titles = 0
         foreach ($d in $script:FwDocs) {
             $c = Get-FwLabelCount -Text $d.Text
             $labels += $c.Labels; $titles += $c.Titles
         }
         $labels | Should -BeGreaterThan 5
-        $titles | Should -BeGreaterOrEqual 0
     }
 
     It 'finds the script files of the app (the scan is not empty)' {
@@ -61,6 +60,7 @@ Describe 'Static labels are not bold' {
     }
 
     It 'keeps the app title bold in the XAML that names it' {
+        $script:FwConfig.AppTitleName.Count | Should -BeGreaterThan 0
         foreach ($name in $script:FwConfig.AppTitleName) {
             $hits = @($script:FwDocs | ForEach-Object { Get-FwNamedElementState -Text $_.Text -Name $name } | Where-Object { $_.Found })
             $hits.Count | Should -BeGreaterThan 0 -Because $name
@@ -111,6 +111,16 @@ Describe 'The font weight check itself' {
     It 'fails a bold key label that has a text value and no input (a bad sample)' {
         $text = $script:GoodSample.Replace('<ComboBox Grid.Row="1" Grid.Column="1"/>', '<TextBlock Grid.Row="1" Grid.Column="1" Text="value"/>')
         @(Get-FwXamlViolation -Text $text -Source 'sample').Count | Should -Be 1
+    }
+
+    It 'fails a bold header before a panel that holds an input, and passes a label directly before an input (bad sample)' {
+        $ns = 'xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"'
+        $bad = '<StackPanel ' + $ns + '><TextBlock Text="Library" FontWeight="Bold"/><StackPanel><TextBox/></StackPanel></StackPanel>'
+        $good = '<StackPanel ' + $ns + '><TextBlock Text="Name" FontWeight="Bold"/><TextBox/></StackPanel>'
+        @(Get-FwXamlViolation -Text $bad -Source 'sample').Count | Should -Be 1
+        @(Get-FwXamlViolation -Text $good -Source 'sample') | Should -BeNullOrEmpty
+        $count = Get-FwLabelCount -Text $good
+        $count.Titles | Should -Be 1
     }
 
     It 'passes a bold field title next to an input and a SemiBold header' {
