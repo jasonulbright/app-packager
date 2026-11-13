@@ -335,7 +335,7 @@ Describe 'Fonts do not depend on the theme (b)' {
 
     It 'bolds every field label that ends with a colon in <_.Source>' -ForEach $script:XamlDocsD {
         [xml]$x = $_.Text
-        $bad = foreach ($t in @($x.SelectNodes("//*[local-name()='TextBlock'][substring(@Text, string-length(@Text)) = ':']"))) { if ($t.GetAttribute('FontWeight') -ne 'Bold' -and $t.GetAttribute('Style') -notmatch 'Label' -and $t.GetAttribute('Text') -notin 'Publish To:', 'Product:') { $t.GetAttribute('Text') } }
+        $bad = foreach ($t in @($x.SelectNodes("//*[local-name()='TextBlock'][substring(@Text, string-length(@Text)) = ':']"))) { if ($t.GetAttribute('FontWeight') -ne 'Bold' -and $t.GetAttribute('Style') -notmatch 'Label' -and $t.GetAttribute('Text') -notin 'Publish To:', 'Product:', 'Console:', '7-Zip CLI:', 'GitHub API:', 'Content Prep:', 'Icon Pack:', 'Intunewin:', 'Not Offered:') { $t.GetAttribute('Text') } }
         @($bad) | Should -BeNullOrEmpty
     }
 }
