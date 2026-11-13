@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Restore the weight of the section headers, the log header, the progress title, the dropped file name, the About, Welcome and dialog prompt titles, the Workbench headings and the Not Offered By Discover label to SemiBold. The light theme change had made them bold.
+- Restore the normal weight of the About keys, the Detection, Product, Publish To and Install For labels, the Default Destinations label and four Workbench labels.
+- Only field titles and the app title are bold.
+
+### Added
+
+- Add FontWeight.Guard.Tests.ps1 and FontWeightGuardHelpers.ps1. They fail when a bold weight is set on a label that is not a field title or an app title, in XAML, in the XAML of the scripts and in code that sets a weight at run time. A label before a panel is not a field title.
+
 ## [2026.11.13.0136] - 2026-11-13
 
 ## 9 installer option fixes and a new Options window

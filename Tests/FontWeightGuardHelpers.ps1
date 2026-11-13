@@ -22,6 +22,7 @@ $script:FwInputType = @('TextBox', 'ComboBox', 'CheckBox', 'RadioButton', 'Passw
 # AllowedText     : the text of a label that was bold before the theme change and stays so (not a field title). Keep this list short.
 # ExemptType      : control types that are not labels. A button text is not a static label.
 # CodeAllowed     : 'Function:Variable' of a run-time FontWeight assignment that may set bold ('*' for any variable).
+#                   'Function:call' lets the calls in that function ask for a bold label (the function builds field titles).
 $script:FwConfig = @{
     FieldTitleStyle = @('WbLabel')
     AppTitleName    = @('txtAppTitle')
@@ -31,7 +32,7 @@ $script:FwConfig = @{
     StaticName      = @('txtProgressTitle', 'txtStatus', 'txtThemeLabel', 'lblLogOutput', 'txtDiscoverPrompt', 'txtCveTitle', 'txtPlanSummary')
     AllowedText     = @()
     ExemptType      = @('Button', 'ToggleButton', 'RepeatButton')
-    CodeAllowed     = @('Set-ConnectionTextTheme:title', 'New-PackagerPreferencesPanel:lbl', 'New-ProductFilterPanel:vendorCB')
+    CodeAllowed     = @('Set-ConnectionTextTheme:title', 'New-OptionsTextBlock:tb', 'New-OptionsFieldRow:call', 'New-PackagerPreferencesPanel:lbl', 'New-ProductFilterPanel:vendorCB')
 }
 # ------------------------------------------------------------------------------------------------------------------
 
@@ -301,6 +302,8 @@ function Get-FwCodeViolation {
             $afterParameter = $false
         }
         if (-not $asksBold) { continue }
+        $callFn = & $functionOf $c
+        if ($callFn -and $cfg.CodeAllowed -contains ('{0}:call' -f $callFn.Name)) { continue }
         if ($labelText -and ($labelText -match ':\s*$' -or $cfg.AllowedText -contains $labelText)) { continue }
         [void]$found.Add(('{0}: line {1}: the call {2} asks for a bold label "{3}" that is not a field title' -f $Label, $c.Extent.StartLineNumber, $c.GetCommandName(), $labelText))
     }
