@@ -130,9 +130,9 @@ function Split-CMSqlServerName {
     $parts = [pscustomobject]@{ Server = $text; Instance = ''; Port = 0 }
     if ($text -match '^(?<host>[^\\,]+)(?:\\(?<instance>[^\\,]+))?(?:,(?<port>\d{1,5}))?$') {
         $port = 0
-        if ($Matches['port']) { $port = [int]$Matches['port'] }
-        $parts.Server = $Matches['host'].Trim()
-        $parts.Instance = $Matches['instance'].Trim()
+        if ($Matches['port']) { $port = [int]([string]$Matches['port']) }
+        $parts.Server = ([string]$Matches['host']).Trim()
+        $parts.Instance = ([string]$Matches['instance']).Trim()
         $parts.Port = $port
     }
     return $parts

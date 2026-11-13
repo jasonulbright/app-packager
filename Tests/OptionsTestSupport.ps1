@@ -16,7 +16,7 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, Sys
 Add-Type -Path (Join-Path $Root 'Lib\ControlzEx.dll')
 Add-Type -Path (Join-Path $Root 'Lib\MahApps.Metro.dll')
 Import-Module (Join-Path $Root 'Lib\SuiteCommon\SuiteCommon.psd1') -Force -DisableNameChecking -Global
-foreach ($module in 'AppPackagerCommon', 'AppPackagerDiscovery', 'AppPackagerWsus', 'AppPackagerSigning') {
+foreach ($module in 'AppPackagerCommon', 'AppPackagerDiscovery', 'AppPackagerWsus', 'AppPackagerSigning', 'AppPackagerOneClick', 'AppPackagerWorkbench') {
     Import-Module (Join-Path $Root ('Packagers\{0}.psd1' -f $module)) -Force -Global -DisableNameChecking -ErrorAction SilentlyContinue
 }
 

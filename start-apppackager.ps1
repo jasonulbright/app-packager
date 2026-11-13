@@ -5975,7 +5975,7 @@ function New-ProductFilterPanel {
         <TextBlock Grid.Column="0" Text="Not offered by Discover" FontSize="13" FontWeight="Bold" VerticalAlignment="Center"
                    ToolTip="Apps that Discover unmanaged software leaves out after Don't ask again for selected."/>
         <TextBlock Grid.Column="1" x:Name="txtDiscoveryDismissed" FontSize="13" VerticalAlignment="Center" Margin="0,0,12,0"/>
-        <Button Grid.Column="2" x:Name="btnClearDiscoveryDismissed" Content="Clear list"
+        <Button Grid.Column="2" x:Name="btnClearDiscoveryDismissed" Content="Clear List"
                 Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                 ToolTip="Offers each hidden app again in the next discovery."/>
     </Grid>
@@ -6437,7 +6437,7 @@ function Select-OptionsFolder {
 function ConvertTo-OptionsItemList {
     # A combo box item is a string, or a hashtable with Label and Value.
     param($Items)
-    foreach ($item in @($Items)) {
+    foreach ($item in @($Items | Where-Object { $null -ne $_ })) {
         if ($item -is [hashtable]) { [pscustomobject]@{ Label = [string]$item.Label; Value = [string]$item.Value } }
         else { [pscustomobject]@{ Label = [string]$item; Value = [string]$item } }
     }
@@ -6603,7 +6603,7 @@ function New-OptionsFieldEditor {
             [void]$grid.ColumnDefinitions.Add($col0)
             [void]$grid.Children.Add($text)
             $index = 1
-            foreach ($b in @($Field.Buttons)) {
+            foreach ($b in @($Field.Buttons | Where-Object { $_ })) {
                 $btn = New-OptionsButton -Label ([string]$b.Label) -Tip ([string]$b.Tip)
                 $btn.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
                 $btn.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
@@ -6623,7 +6623,7 @@ function New-OptionsFieldEditor {
         }
         'Actions' {
             $panel = New-Object System.Windows.Controls.WrapPanel
-            foreach ($b in @($Field.Buttons)) {
+            foreach ($b in @($Field.Buttons | Where-Object { $_ })) {
                 $btn = New-OptionsButton -Label ([string]$b.Label) -Tip ([string]$b.Tip)
                 $btn.Margin = New-Object System.Windows.Thickness(0, 0, 8, 4)
                 [void]$panel.Children.Add($btn)
@@ -7296,7 +7296,7 @@ function Get-OptionsSectionDefinition {
         })
 
     $sections.Add(@{
-            Id = 'm365'; Title = 'Microsoft 365 Apps'; Parent = 'applications'; Kind = 'Fields'
+            Id = 'm365'; Title = 'Microsoft 365 Apps'; Parent = 'applications'; Kind = 'Fields'; Prefs = @('M365CustomConfig')
             Description = 'The Office Deployment Tool settings of the Microsoft 365 Apps, Project and Visio packagers.'
             Post = { param($Context, $Page) Initialize-OptionsM365Section -Context $Context -Page $Page }
             Fields = @(
@@ -7379,7 +7379,7 @@ function Get-OptionsSectionDefinition {
         })
 
     $sections.Add(@{
-            Id = 'localsources'; Title = 'Local installer sources'; Parent = 'applications'; Kind = 'Fields'
+            Id = 'localsources'; Title = 'Local installer sources'; Parent = 'applications'; Kind = 'Fields'; Prefs = @('LocalSourceFolders')
             Description = 'A packager whose download needs a sign-in stages the newest matching installer from its folder. Stage asks for the folder when it is empty.'
             Fields = @(@{ Id = 'local.rows'; Title = 'Folders'; Kind = 'Custom'; Tip = 'The installer folder of each packager that can stage a local installer.'; Keywords = 'local source installer folder packager file'
                     Build = { param($Field, $Context) New-OptionsLocalSourceEditor -Context $Context } })
@@ -7758,7 +7758,7 @@ function Initialize-OptionsWsusSection {
     $runOnServer = {
         param([scriptblock]$Action, $Extra)
         $window = $ctx.Owner
-        if ($window) { $window.Cursor = [System.Windows.Input.Cursors]::Wait }
+        if ($window) { Set-DialogBusyStatus -Dialog $window -Control $certEditor.Text -Text 'Contacting the WSUS server...' }
         try {
             $settings = Get-OptionsWsusSetting -Context $ctx
             if ([string]::IsNullOrWhiteSpace([string]$settings.ServerName)) { throw 'Enter the WSUS server first.' }
@@ -7886,9 +7886,8 @@ function Initialize-OptionsTestSection {
     $busy = {
         param($Editor, [scriptblock]$Work)
         $Editor.Buttons['run'].IsEnabled = $false
-        if ($ctx.Owner) { $ctx.Owner.Cursor = [System.Windows.Input.Cursors]::Wait }
-        & $Editor.Set 'Testing...'
-        Update-UiNow
+        if ($ctx.Owner) { Set-DialogBusyStatus -Dialog $ctx.Owner -Control $Editor.Text -Text 'Testing...' }
+        else { & $Editor.Set 'Testing...' }
         try { & $Editor.Set (& $Work) }
         finally {
             if ($ctx.Owner) { $ctx.Owner.Cursor = $null }
@@ -8196,7 +8195,7 @@ function Initialize-OptionsM365Section {
     $Page.Actions = @{ ImportM365 = $importFile }
     $importButton.Add_Click({
             $open = New-Object Microsoft.Win32.OpenFileDialog
-            $open.Title = 'Select the configuration.xml'
+            $open.Title = 'Select Configuration File'
             $open.Filter = 'Office Deployment Tool configuration (*.xml)|*.xml|All files (*.*)|*.*'
             if ($open.ShowDialog() -eq $true) { [void](& $importFile $open.FileName) }
         }.GetNewClosure())
@@ -8336,7 +8335,7 @@ function New-OptionsDialog {
             <TextBox x:Name="txtSearch" DockPanel.Dock="Top" Margin="12,0,12,8" FontSize="13"
                      Controls:TextBoxHelper.Watermark="Search settings"
                      Controls:TextBoxHelper.ClearTextButton="True"
-                     ToolTip="Type the name of a setting. Enter opens the first match."/>
+                     ToolTip="Type the name of a setting; Enter opens the first match."/>
             <Grid>
                 <TreeView x:Name="treeNav" BorderThickness="0" FontSize="13" ItemContainerStyle="{DynamicResource ThemedTreeViewItemStyle}"/>
                 <ListBox x:Name="lstSearch" BorderThickness="0" FontSize="13" Visibility="Collapsed" ItemContainerStyle="{DynamicResource ThemedListBoxItemStyle}"/>
@@ -8581,7 +8580,7 @@ function Show-FirstRunWizard {
             <StackPanel x:Name="stkWizard">
                 <TextBlock Text="Welcome to AppPackager" FontSize="20" Margin="0,0,0,6"/>
                 <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,12"
-                           Text="Select the systems you publish to, then fill in their settings. The sidebar has a publish button for each system. Options, Connections has the same settings."/>
+                           Text="Select the systems you publish to, then fill in their settings. The sidebar has a publish button for each system. You can change them later in Options."/>
             </StackPanel>
         </ScrollViewer>
 
@@ -8632,14 +8631,14 @@ function Show-FirstRunWizard {
         [void]$stack.Children.Add($block)
         return @{ Block = $block; Group = $group }
     }
-    $systems = & $newBlock 'Systems' @('sys.configmgr', 'sys.intune', 'sys.wsus')
+    $systemBlock = & $newBlock 'Systems' @('sys.configmgr', 'sys.intune', 'sys.wsus')
     $mecm = & $newBlock 'ConfigMgr' @('cm.siteCode', 'cm.provider', 'cm.fileShare', 'pkg.downloadRoot')
     $intune = & $newBlock 'Intune' @('int.tenant', 'int.client', 'int.secret')
     $wsus = & $newBlock 'WSUS' @('wsus.server', 'wsus.port', 'wsus.ssl')
 
-    $mecmBox = $systems.Group.Editors['sys.configmgr'].Focus
-    $intuneBox = $systems.Group.Editors['sys.intune'].Focus
-    $wsusBox = $systems.Group.Editors['sys.wsus'].Focus
+    $mecmBox = $systemBlock.Group.Editors['sys.configmgr'].Focus
+    $intuneBox = $systemBlock.Group.Editors['sys.intune'].Focus
+    $wsusBox = $systemBlock.Group.Editors['sys.wsus'].Focus
     $updateGroupState = {
         $mecm.Block.Visibility = $(if ($mecmBox.IsChecked -eq $true) { 'Visible' } else { 'Collapsed' })
         $intune.Block.Visibility = $(if ($intuneBox.IsChecked -eq $true) { 'Visible' } else { 'Collapsed' })
@@ -8655,14 +8654,14 @@ function Show-FirstRunWizard {
     # helpers and give each handler a separate $script:FirstRunDlgSaved flag.
     $btnWizSave.Add_Click({
         try {
-            foreach ($part in @($systems, $mecm, $intune, $wsus)) {
+            foreach ($part in @($systemBlock, $mecm, $intune, $wsus)) {
                 $problem = & $part.Group.Validate
                 if ($problem -and $part.Block.Visibility -eq 'Visible') {
                     [void](Show-ThemedMessage -Owner $dlg -Title 'Check the Value' -Message ([string]$problem.Message) -Buttons OK -Icon Warning)
                     return
                 }
             }
-            & $systems.Group.Commit
+            & $systemBlock.Group.Commit
             $useMecm = ($mecmBox.IsChecked -eq $true)
             $useIntune = ($intuneBox.IsChecked -eq $true)
             $useWsus = ($wsusBox.IsChecked -eq $true)

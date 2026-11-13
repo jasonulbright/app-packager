@@ -13,7 +13,7 @@ function Get-OptionsDefinitionFromLauncher {
 function Get-OptionsFieldFromLauncher {
     param([Parameter(Mandatory)][string]$Path)
     foreach ($section in @(Get-OptionsDefinitionFromLauncher -Path $Path)) {
-        foreach ($f in @($section.Fields)) { $f }
+        foreach ($f in @($section.Fields | Where-Object { $_ })) { $f }
     }
 }
 
@@ -22,7 +22,7 @@ function Get-OptionsFieldFromLauncher {
 $script:ProperWord = @(
     'ConfigMgr', 'Intune', 'WSUS', 'SQL', 'SSL', 'NVD', 'API', 'DP', 'DPs', 'UNC', 'ID', 'URL', 'CVE', 'CVEs', 'GitHub', 'SMS', 'Provider', 'ADDLOCAL', 'ADDONS', 'LTSR', 'CEIP', 'DPAPI',
     'Adobe', 'Acrobat', 'Reader', 'Beyond', 'Compare', 'Citrix', 'Workspace', 'App', 'Apps', 'DBeaver', 'Community', 'Microsoft', 'Server', 'Management', 'Studio', 'TeamViewer', 'Host',
-    'Package', 'Click', 'One', 'Content', 'Prep', 'Tool', 'Office', 'Deployment', 'Windows', 'Entra', 'Graph', 'Discover', 'Product', 'Teams', 'Zoom', 'WebEx', 'VDI', 'EPA', 'SSO',
+    'Protection', 'Package', 'Click', 'One', 'Content', 'Prep', 'Tool', 'Office', 'Deployment', 'Windows', 'Entra', 'Graph', 'Discover', 'Product', 'Teams', 'Zoom', 'WebEx', 'VDI', 'EPA', 'SSO',
     'Console', 'Test', 'Connection', 'HDX', 'MUI', 'AI', 'PFX', 'RDS', 'MSI', 'DevOps', 'Current', 'Release', 'Enterprise', 'Channel', 'Monthly', 'Online', 'Managed', 'Outlook', 'OneDrive', 'Skype',
     'Business', 'Excel', 'Word', 'PowerPoint', 'Publisher', 'OneNote', 'Access', 'Groove', 'Lync', 'Visual', 'Studio', 'Installer', 'Session', 'Recording', 'Local', 'App', 'StoreFront', 'Gateway',
     'FTP', 'SFTP', 'WebDAV', 'Quiet', 'Passive', 'System', 'User', 'Nested', 'Flat', 'None', 'Preferences', 'Advanced', 'Allow', 'Neighbor', 'Fallback'
@@ -33,7 +33,7 @@ function Test-SentenceCase {
     $clean = ($Text -replace '\.\.\.$', '').Trim()
     $words = @($clean -split '\s+' | Where-Object { $_ })
     if ($words.Count -eq 0) { return $true }
-    if ($words[0] -cnotmatch '^[A-Z0-9]') { return $false }
+    if ($words[0] -cnotmatch '^([A-Z0-9]|[a-z]+[A-Z])') { return $false }
     for ($i = 1; $i -lt $words.Count; $i++) {
         $w = $words[$i].Trim(',', ':', '(', ')', '/', '-')
         if (-not $w) { continue }

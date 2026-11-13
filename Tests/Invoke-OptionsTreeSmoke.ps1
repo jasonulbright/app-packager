@@ -234,7 +234,7 @@ try {
     $table = Get-OptionsFieldTable
     $wizard = $script:LauncherAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Show-FirstRunWizard' }, $false)
     $wizardIds = @([regex]::Matches($wizard.Extent.Text, '(?<![\w$.])(?:sys|cm|int|wsus|pkg)\.[A-Za-z]+') | ForEach-Object { $_.Value } | Sort-Object -Unique)
-    & $assert (@('cm.provider', 'cm.siteCode', 'int.client', 'int.secret', 'int.tenant', 'pkg.downloadRoot', 'wsus.port', 'wsus.server', 'wsus.ssl') | Where-Object { $wizardIds -notcontains $_ }).Count -eq 0 'the wizard asks for the Connections fields by their ids'
+    & $assert ((@('cm.provider', 'cm.siteCode', 'int.client', 'int.secret', 'int.tenant', 'pkg.downloadRoot', 'wsus.port', 'wsus.server', 'wsus.ssl') | Where-Object { $wizardIds -notcontains $_ }).Count -eq 0) 'the wizard asks for the Connections fields by their ids'
     & $assert (@($wizardIds | Where-Object { -not $table.ContainsKey($_) }).Count -eq 0) 'every field id of the wizard is a field of the Options definitions'
     & $assert ($wizard.Extent.Text -notmatch 'txtWiz|chkWiz(Mecm|Intune|Wsus)\b') 'the wizard keeps no copy of a Connections field'
     Set-Content -LiteralPath $global:FixturePrefsPath -Value $fullPrefs -Encoding UTF8

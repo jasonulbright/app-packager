@@ -34,7 +34,7 @@ Close the tool. Delete `AppPackager.preferences.json` and `AppPackager.windowsta
 
 ## Where each setting is edited
 
-Every key of `AppPackager.preferences.json`, `Packagers\citrix-workspace-switches.json` and `Packagers\teamviewer-host-config.json` has a field in Options, except the keys in the table below.
+Every key of `AppPackager.preferences.json`, `Packagers\citrix-workspace-switches.json` and `Packagers\teamviewer-host-config.json` has a field in the Options dialog, except the keys in the table below.
 
 | Key | Why Options has no field |
 |---|---|
@@ -44,7 +44,7 @@ Every key of `AppPackager.preferences.json`, `Packagers\citrix-workspace-switche
 | `CommandOverrides.Apps` | The command override dialog of the main window edits it for each application. |
 | `WorkbenchDataRoot` | File only. It sets the data folder of the Workbench. The variable `APP_PACKAGER_WORKBENCH_ROOT` overrides it. |
 | `Installation.EnableSSON` (Citrix Workspace App) | It follows **Single sign-on** in Options, Applications, Citrix Workspace App, Installation. |
-| `DetectedTools` | The tool detects the console, 7-Zip and the Content Prep Tool at start. Options, Tools shows them read-only. |
+| `DetectedTools` | The tool detects the console, 7-Zip and the Content Prep Tool at start. The Tools section shows them read-only. |
 
 The keys `DiscoverySqlInstance`, `DiscoverySqlPort`, `M365Options`, `M365CustomConfig`, `BeyondCompareOptions` and the new keys of `SSMSInstallOptions` and `AdobeReaderInstallOptions` are optional. A file without them loads with their defaults, and every other key keeps its name and its meaning. A name `server\instance,port` in `DiscoverySqlServer` still works, and Options shows it split.
 

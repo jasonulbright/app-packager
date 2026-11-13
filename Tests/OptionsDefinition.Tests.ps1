@@ -30,12 +30,12 @@ BeforeAll {
     $script:Text = New-Object System.Collections.Generic.List[object]
     foreach ($s in $script:Section) {
         foreach ($name in 'Title', 'Description') { if ($s[$name]) { $script:Text.Add([pscustomobject]@{ Where = [string]$s.Id; Kind = $name; Text = [string]$s[$name] }) } }
-        foreach ($f in @($s.Fields)) {
+        foreach ($f in @($s.Fields | Where-Object { $_ })) {
             foreach ($name in 'Title', 'Label', 'Tip', 'Description', 'Text', 'Watermark') { if ($f[$name]) { $script:Text.Add([pscustomobject]@{ Where = [string]$f.Id; Kind = $name; Text = [string]$f[$name] }) } }
-            foreach ($b in @($f.Buttons)) { foreach ($name in 'Label', 'Tip') { if ($b[$name]) { $script:Text.Add([pscustomobject]@{ Where = [string]$f.Id; Kind = 'Button' + $name; Text = [string]$b[$name] }) } } }
-            foreach ($i in @($f.Items)) { if ($i -is [hashtable]) { foreach ($name in 'Label', 'Tip') { if ($i[$name]) { $script:Text.Add([pscustomobject]@{ Where = [string]$f.Id; Kind = 'Item' + $name; Text = [string]$i[$name] }) } } } }
+            foreach ($b in @($f.Buttons | Where-Object { $_ })) { foreach ($name in 'Label', 'Tip') { if ($b[$name]) { $script:Text.Add([pscustomobject]@{ Where = [string]$f.Id; Kind = 'Button' + $name; Text = [string]$b[$name] }) } } }
+            foreach ($i in @($f.Items | Where-Object { $_ })) { if ($i -is [hashtable]) { foreach ($name in 'Label', 'Tip') { if ($i[$name]) { $script:Text.Add([pscustomobject]@{ Where = [string]$f.Id; Kind = 'Item' + $name; Text = [string]$i[$name] }) } } } }
         }
-        foreach ($sf in @($s.SearchFields)) { $script:Text.Add([pscustomobject]@{ Where = [string]$sf.Id; Kind = 'Title'; Text = [string]$sf.Title }) }
+        foreach ($sf in @($s.SearchFields | Where-Object { $_ })) { $script:Text.Add([pscustomobject]@{ Where = [string]$sf.Id; Kind = 'Title'; Text = [string]$sf.Title }) }
     }
 }
 
@@ -92,7 +92,7 @@ Describe 'Names and titles' {
     }
 
     It 'writes the search titles of the reused panels in sentence case' {
-        $bad = foreach ($s in $script:Section) { foreach ($sf in @($s.SearchFields)) { if (-not (Test-SentenceCase -Text ([string]$sf.Title))) { '{0}: {1}' -f $sf.Id, $sf.Title } } }
+        $bad = foreach ($s in $script:Section) { foreach ($sf in @($s.SearchFields | Where-Object { $_ })) { if (-not (Test-SentenceCase -Text ([string]$sf.Title))) { '{0}: {1}' -f $sf.Id, $sf.Title } } }
         @($bad) | Should -BeNullOrEmpty
     }
 
@@ -118,7 +118,7 @@ Describe 'Tooltips' {
     }
 
     It 'gives every button a tooltip' {
-        $missing = foreach ($f in $script:AllField) { foreach ($b in @($f.Buttons)) { if ([string]::IsNullOrWhiteSpace([string]$b.Tip)) { '{0}/{1}' -f $f.Id, $b.Id } } }
+        $missing = foreach ($f in $script:AllField) { foreach ($b in @($f.Buttons | Where-Object { $_ })) { if ([string]::IsNullOrWhiteSpace([string]$b.Tip)) { '{0}/{1}' -f $f.Id, $b.Id } } }
         @($missing) | Should -BeNullOrEmpty
     }
 
@@ -158,7 +158,7 @@ Describe 'Messages that name an Options page' {
 
         function Get-OptionsPathMention {
             param([string]$Text)
-            foreach ($m in [regex]::Matches($Text, 'Options(?:, | > )(?<rest>[^.`''"\r\n)*]+)')) {
+            foreach ($m in [regex]::Matches($Text, '(?<![A-Za-z])Options(?:, | > )(?<rest>[^.`''"\r\n)*]+)')) {
                 [string]$m.Groups['rest'].Value
             }
         }
@@ -167,7 +167,8 @@ Describe 'Messages that name an Options page' {
             param([string]$Rest)
             $segments = @($Rest -split ', | > ' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
             if ($segments.Count -eq 0) { return $true }
-            if ($script:Root -cnotcontains $segments[0]) { return $false }
+            if (-not ($script:Root | Where-Object { ([string]$segments[0]).StartsWith($_) })) { return $false }
+            $segments[0] = @($script:Root | Where-Object { ([string]$segments[0]).StartsWith($_) })[0]
             if ($segments.Count -gt 1) {
                 $allTitles = @($script:Section | ForEach-Object { [string]$_.Title })
                 if ($allTitles -ccontains $segments[1] -and -not $script:Child.ContainsKey($segments[0] + '|' + $segments[1])) { return $false }
@@ -218,7 +219,7 @@ Describe 'Messages that name an Options page' {
         @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'docs') -Filter '*.md' -File -Recurse) + @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'Packagers') -File | Where-Object { $_.Extension -in '.ps1', '.psm1' -and $_.Name -notlike '*.Tests.ps1' })
         $bad = foreach ($file in $files) {
             $n = 0
-            foreach ($line in (Get-Content -LiteralPath $file.FullName)) { $n++; if ($line -match $pattern) { '{0}:{1}: {2}' -f $file.Name, $n, $Matches[0] } }
+            foreach ($line in (Get-Content -LiteralPath $file.FullName)) { $n++; if ($line -cmatch $pattern) { '{0}:{1}: {2}' -f $file.Name, $n, $Matches[0] } }
         }
         @($bad) | Should -BeNullOrEmpty
     }

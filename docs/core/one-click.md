@@ -4,7 +4,7 @@ One Click is the unattended run for the applications that you track: it plans th
 
 ## What it does
 
-One Click runs Check Latest for each tracked application. With the action **Report only**, it stops after the check. With **Stage**, it also stages an application that has an update. With **Stage and Publish**, it also publishes to the destinations that you chose. It asks nothing during the run. An application that exists already follows the policy that you saved in One Click Settings.
+One Click runs Check Latest for each tracked application. With the action **Report only**, it stops after the check. With **Stage**, it also stages an application that has an update. With **Stage and Publish**, it also publishes to the destinations that you chose. It asks nothing during the run. An application that exists already follows the policy that you saved in Options, Updates and CVEs, One Click.
 
 ## When to use it
 

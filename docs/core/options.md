@@ -180,7 +180,7 @@ The action on an update, the default destinations, the policy for an existing Co
 
 #### Product filter
 
-Shows or hides single packagers in the main grid, grouped by vendor. **Not offered by Discover** counts the applications that Discover leaves out, and **Clear list** empties the list.
+Shows or hides single packagers in the main grid, grouped by vendor. **Not offered by Discover** counts the applications that Discover leaves out, and **Clear List** empties the list.
 
 ![The Product filter section](../images/options-product-filter.png)
 

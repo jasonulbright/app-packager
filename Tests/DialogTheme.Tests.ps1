@@ -141,7 +141,7 @@ Describe 'Options panels' {
     # The panels are loaded into the Options window and resolve ApButton from
     # its Window.Resources, so the styles must sit there, not in a child.
     It 'gives the Options window, which hosts the panels, the shared styles' {
-        $options = @($script:Windows | Where-Object { $_.Text -match 'x:Name="lstNav"' })
+        $options = @($script:Windows | Where-Object { $_.Text -match 'x:Name="treeNav"' })
         $options.Count | Should -Be 1
         $options[0].Text | Should -Match '<!--SHARED_STYLES-->'
     }

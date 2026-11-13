@@ -91,7 +91,7 @@ function Test-WizardCallback {
     $intuneBox = [pscustomobject]@{ IsChecked = ($Systems -contains 'Intune') }
     $wsusBox = [pscustomobject]@{ IsChecked = ($Systems -contains 'WSUS') }
     $Target = if ($Systems -contains 'ConfigMgr') { 'MECM' } elseif ($Systems -contains 'Intune') { 'IntuneOnly' } elseif ($Systems -contains 'WSUS') { 'WSUSOnly' } else { 'MECM' }
-    $systems = @{ Block = [pscustomobject]@{ Visibility = 'Visible' }; Group = @{ Validate = { $null }; Commit = {
+    $systemBlock = @{ Block = [pscustomobject]@{ Visibility = 'Visible' }; Group = @{ Validate = { $null }; Commit = {
                 $script:Prefs.Systems.ConfigMgr = [bool]$mecmBox.IsChecked; $script:Prefs.Systems.Intune = [bool]$intuneBox.IsChecked; $script:Prefs.Systems.Wsus = [bool]$wsusBox.IsChecked } } }
     $mecm = @{ Block = [pscustomobject]@{ Visibility = $(if ($mecmBox.IsChecked) { 'Visible' } else { 'Collapsed' }) }; Group = @{ Validate = { $null }; Commit = {
                 $script:Prefs.SiteCode = 'TEST'; $script:Prefs.ProviderMachineName = 'provider.example'; $script:Prefs.FileShareRoot = '\\server\content'; $script:Prefs.DownloadRoot = 'C:\temp\packages' } } }
