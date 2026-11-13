@@ -1852,7 +1852,7 @@ function Get-WsusPublishFailureHint {
     # mapped to the fix.
     param([AllowEmptyString()][string]$Message)
     switch -Regex ($Message) {
-        'Verification of file signature failed' { return 'This computer must trust the WSUS signing certificate: import it into the Local Computer Trusted Publishers store, and into Trusted Root Certification Authorities when it is self-signed. Options, WSUS Publishing, Export certificate saves it.' }
+        'Verification of file signature failed' { return 'This computer must trust the WSUS signing certificate: import it into the Local Computer Trusted Publishers store, and into Trusted Root Certification Authorities when it is self-signed. Options, Connections, WSUS, Export certificate saves it.' }
         'not a WSUS Administrator|Unauthorized' { return 'The account must be a member of the WSUS Administrators group on the server.' }
         'CreateDirectory failed' { return 'The UpdateServicesPackages or WSUSContent share on the server is missing, not shared, or not writable.' }
         'Failed to sign package' { return 'The server could not sign the package: check its signing certificate and that it reaches its time stamp server.' }
@@ -1936,7 +1936,7 @@ function Publish-WsusSoftwareUpdate {
         $certificateRead = $false
         Write-WsusLog ('WSUS signing certificate      : not readable ({0}); publishing continues' -f (Get-WsusErrorMessage -ErrorRecord $_)) -Level WARN
     }
-    if ($certificateRead -and -not $certificate) { throw ('WSUS server {0} has no signing certificate. Create or import one in Options, WSUS Publishing.' -f [string]$server.Name) }
+    if ($certificateRead -and -not $certificate) { throw ('WSUS server {0} has no signing certificate. Create or import one in Options, Connections, WSUS.' -f [string]$server.Name) }
     if ($certificate -and $certificate.Expired) { throw ('The WSUS signing certificate {0} expired on {1:yyyy-MM-dd}. Import a new one, then clients must trust it.' -f $certificate.Thumbprint, $certificate.NotAfter) }
 
     $payloadMegabytes = 0.0

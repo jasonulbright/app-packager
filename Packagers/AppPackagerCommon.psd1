@@ -126,6 +126,11 @@
 
         # ODT config XML
         'New-OdtConfigXml'
+        'Get-OdtGeneratedOption'
+        'Test-OdtConfigurationXml'
+        'Get-OdtUserConfigInfo'
+        'Get-OdtUserConfigPath'
+        'ConvertTo-OdtUserConfigXml'
 
         # Java vendor release helpers
         'Get-LatestTemurinRelease'

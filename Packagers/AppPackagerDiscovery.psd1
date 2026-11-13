@@ -8,6 +8,8 @@
 
     FunctionsToExport = @(
         'Resolve-CMDatabaseTarget'
+        'Split-CMSqlServerName'
+        'Join-CMSqlServerName'
         'Get-CMInventorySnapshot'
         'Find-DiscoveryCandidate'
         'Get-DiscoveryStatusText'

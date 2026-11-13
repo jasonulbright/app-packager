@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-# Options -> WSUS Publishing round trip: defaults, panel build, the SSL port
+# Options -> Connections -> WSUS round trip: defaults, section build, the SSL port
 # follow, commit and reload, and the background-context settings per
 # deployment target. No WSUS server is contacted and no dialog opens.
 $ErrorActionPreference = 'Stop'
@@ -15,7 +15,7 @@ $tokens = $null
 $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'start-apppackager.ps1'), [ref]$tokens, [ref]$errors)
 if ($errors) { throw ($errors.Message -join '; ') }
-foreach ($name in @('Expand-SharedStyle', 'Get-SharedStyleXaml', 'New-WsusPanel', 'Read-Preferences', 'Resolve-FirstRunCompleted', 'Get-DeploymentTargetNames',
+foreach ($name in @('Expand-SharedStyle', 'Get-SharedStyleXaml', 'Read-Preferences', 'Resolve-FirstRunCompleted', 'Get-DeploymentTargetNames',
                     'Test-DeploymentTargetSkipsSite', 'Test-DeploymentTargetPublishesToWsus', 'Get-WsusClassificationNameList',
                     'Get-WsusClassificationLabel', 'Get-WsusPublishConfigForContext',
                     'Get-IntunePublishConfigForContext')) {
@@ -30,6 +30,7 @@ $fixtureDir = Join-Path $env:TEMP ('ap-wsus-' + [guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $fixtureDir -Force)
 $script:fixturePath = Join-Path $fixtureDir 'preferences.json'
 function global:Get-PreferencesPath { $script:fixturePath }
+. (Join-Path $PSScriptRoot 'OptionsTestSupport.ps1') -Root $root -FixtureDir $fixtureDir
 
 $checks = 0
 $assert = {
@@ -48,29 +49,31 @@ try {
     & $assert ([string]$wsus.Classification -eq 'Updates' -and -not $wsus.PSObject.Properties['PackageType']) 'publishing defaults to the Updates classification and stores no package type'
     & $assert ($null -eq (Get-WsusPublishConfigForContext)) 'a ConfigMgr One Click destination hands no WSUS settings to the background run'
 
-    $panel = New-WsusPanel
-    & $assert ([string]$panel.Name -eq 'WSUS Publishing') 'the panel registers under its own Options section'
-    & $assert ($null -eq $panel.Element.FindName('cboWsusPackageType') -and [string]$panel.Element.FindName('txtWsusPolicy').Text -match 'older version') 'the panel offers no package type and states that updates need an older installed version'
-    & $assert ($panel.Element.FindName('cboWsusClassification').Items.Count -eq @(Get-WsusClassificationNames).Count) 'every classification is offered'
-    & $assert ($null -eq $panel.Element.FindName('btnWsusManage') -and $null -eq $panel.Element.FindName('btnWsusCatalog')) 'update management lives in the WSUS Updates window, not in Options'
+    $panel = New-OptionsTestPage -Id 'wsus'
+    $editors = $panel.Editors
+    $publishGroup = @((Get-OptionsSectionDefinitionById -Id 'wsus').Fields | Where-Object { $_.Id -eq 'wsus.pubGroup' })[0]
+    & $assert ($null -eq $editors['wsus.packageType'] -and [string]$publishGroup.Description -match 'older version') 'the section offers no package type and states that updates need an older installed version'
+    & $assert ($editors['wsus.classification'].Focus.Items.Count -eq @(Get-WsusClassificationNames).Count) 'every classification is offered'
+    & $assert ($null -eq $editors['wsus.manage'] -and $null -eq $editors['wsus.catalog']) 'update management lives in the WSUS Updates window, not in Options'
+    & $assert ($null -eq $editors['wsus.test']) 'the connection test lives in Options, Connections, Test connection'
 
     $api = Test-WsusAdministrationApi
     if (-not $api.Available) {
-        & $assert (-not $panel.Element.FindName('btnWsusTest').IsEnabled) 'without the WSUS API the server buttons are disabled'
-        & $assert ([string]$panel.Element.FindName('txtWsusStatus').Text -match 'not installed') 'the status line says the API is missing'
+        & $assert (-not $editors['wsus.certActions'].Buttons['create'].IsEnabled) 'without the WSUS API the server buttons are disabled'
+        & $assert ([string]$editors['wsus.cert'].Text.Text -match 'not installed') 'the certificate line says the API is missing'
     }
 
-    $ssl = $panel.Element.FindName('chkWsusSsl')
+    $ssl = $editors['wsus.ssl'].Focus
     $ssl.IsChecked = $true
-    & $assert ([string]$panel.Element.FindName('txtWsusPort').Text -eq '8531') 'turning SSL on moves a default port to 8531, also without a mouse click'
+    & $assert ((& $editors['wsus.port'].Get) -eq '8531') 'turning SSL on moves a default port to 8531, also without a mouse click'
     $ssl.IsChecked = $false
-    & $assert ([string]$panel.Element.FindName('txtWsusPort').Text -eq '8530') 'turning SSL off moves the port back to 8530'
+    & $assert ((& $editors['wsus.port'].Get) -eq '8530') 'turning SSL off moves the port back to 8530'
     $ssl.IsChecked = $true
 
-    $panel.Element.FindName('txtWsusServer').Text = ' wsus01.contoso.com '
-    $panel.Element.FindName('cboWsusClassification').SelectedIndex = @(Get-WsusClassificationNames).IndexOf('SecurityUpdates')
-    $panel.Element.FindName('cboWsusGroup').Text = ' Pilot '
-    $panel.Element.FindName('chkWsusDecline').IsChecked = $true
+    & $editors['wsus.server'].Set ' wsus01.contoso.com '
+    $editors['wsus.classification'].Focus.SelectedIndex = @(Get-WsusClassificationNames).IndexOf('SecurityUpdates')
+    & $editors['wsus.group'].Set ' Pilot '
+    & $editors['wsus.decline'].Set $true
     & $panel.Commit
     $script:Prefs.Intune.DeploymentTarget = 'WSUSOnly'
     $script:Prefs | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $script:fixturePath -Encoding UTF8
@@ -106,12 +109,17 @@ try {
     & $assert ([int]$reloaded.Wsus.PortNumber -eq 8530) 'an out-of-range port falls back to the default'
     & $assert ([string]$reloaded.Wsus.ServerName -eq 'wsus01.contoso.com') 'the valid values next to the bad ones are kept'
 
-    # A bad port typed in the panel keeps the stored one.
+    # A bad port typed in the section stops the save and leaves the stored one.
     $script:Prefs = $reloaded
-    $again = New-WsusPanel
-    $again.Element.FindName('txtWsusPort').Text = 'abc'
+    $again = New-OptionsTestPage -Id 'wsus'
+    & $again.Editors['wsus.port'].Set 'abc'
+    & $assert ($null -ne (& $again.Validate) -and (& $again.Validate).FieldId -eq 'wsus.port') 'a non-numeric port is refused'
+    & $again.Editors['wsus.port'].Set '70000'
+    & $assert ($null -ne (& $again.Validate)) 'a port above 65535 is refused'
+    & $again.Editors['wsus.port'].Set '9000'
+    & $assert ($null -eq (& $again.Validate)) 'a custom port in range is accepted'
     & $again.Commit
-    & $assert ([int]$script:Prefs.Wsus.PortNumber -eq 8530) 'a non-numeric port does not replace the stored port'
+    & $assert ([int]$script:Prefs.Wsus.PortNumber -eq 9000) 'a custom port is stored'
 
     $script:Prefs.Wsus.ServerName = ''
     & $assert ($null -eq (Get-WsusPublishConfigForContext)) 'no server means no WSUS settings for the background run'
@@ -149,9 +157,9 @@ try {
     # A host where the WSUS module failed to load still opens Options.
     Remove-Module AppPackagerWsus -Force
     $script:Prefs = Read-Preferences
-    $orphan = New-WsusPanel
-    & $assert (-not $orphan.Element.FindName('btnWsusTest').IsEnabled) 'without the WSUS module the panel builds with the server buttons disabled'
-    & $assert ([string]$orphan.Element.FindName('txtWsusStatus').Text -match 'did not load') 'the status line says the WSUS module did not load'
+    $orphan = New-OptionsTestPage -Id 'wsus'
+    & $assert (-not $orphan.Editors['wsus.certActions'].Buttons['create'].IsEnabled) 'without the WSUS module the section builds with the server buttons disabled'
+    & $assert ([string]$orphan.Editors['wsus.cert'].Text.Text -match 'did not load') 'the certificate line says the WSUS module did not load'
 
     Write-Host ''
     Write-Host ('PASS: WSUS options round trip, {0} checks' -f $script:checks)

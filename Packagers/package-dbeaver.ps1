@@ -27,7 +27,7 @@ ArpName: DBeaver [0-9]*
     without elevation. DBeaver release tags have no v prefix.
 
     Install scope and the AI-feature toggle default to Packagers\packager-preferences.json
-    under DBeaverInstallOptions, which is written by the Packager Preferences UI.
+    under DBeaverInstallOptions, which Options, Applications, DBeaver Community writes.
     -InstallScope and -DisableAI override the stored values.
 
 .PARAMETER SiteCode
@@ -60,7 +60,8 @@ ArpName: DBeaver [0-9]*
     stored preference.
 
 .PARAMETER DisableAI
-    Appends -Dai.disabled=true to the installed dbeaver.ini after install.
+    Sets the environment variable DBEAVER_AI_DISABLED=true after install: at
+    machine scope for a System install and at user scope for a User install.
     Omit to use the stored preference.
 
 .PARAMETER GetLatestVersionOnly
@@ -244,7 +245,7 @@ function Invoke-StageDBeaver {
     else {
         $installArgs   = "/allusers /S"
         $installArgList = '@(''/allusers'', ''/S'')'
-        $uninstallArgs = "/S"
+        $uninstallArgs = "/allusers /S"
         $uninstallArgList = '@(''/allusers'', ''/S'')'
         $installRootExpr  = 'Join-Path $env:ProgramFiles ''DBeaver'''
         $uninstallCommand = "C:\Program Files\DBeaver\Uninstall.exe"
@@ -257,11 +258,10 @@ function Invoke-StageDBeaver {
     )
 
     if ($options.DisableAI) {
-        # DBEAVER_AI_DISABLED is DBeaver's environment-variable form of the
-        # ini's -Dai.disabled=true. The variable survives upgrades (the
-        # installer replaces dbeaver.ini every run) and setting it is
-        # naturally idempotent. Scope follows the install scope: Machine for
-        # a system deployment, User for a user-context deployment.
+        # The installer replaces dbeaver.ini on every run, so the setting is the
+        # environment variable DBEAVER_AI_DISABLED, which survives upgrades and
+        # is idempotent. Scope follows the install scope: Machine for a system
+        # deployment, User for a user-context deployment.
         $envScope = if ($isUserScope) { 'User' } else { 'Machine' }
         $installLines += @(
             'if ($proc.ExitCode -ne 0) { exit $proc.ExitCode }',

@@ -61,22 +61,12 @@ try {
     $script:Prefs = Read-Preferences
     if ((Get-DefaultTitleModeForContext) -ne 'IncludeVersion') { throw 'Include version must win over Remove version' }
 
-    # The Options panel keeps the two boxes exclusive and saves the pair.
-    Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
-    Add-Type -Path (Join-Path $root 'Lib\ControlzEx.dll'); Add-Type -Path (Join-Path $root 'Lib\MahApps.Metro.dll')
-    foreach ($name in @('Expand-SharedStyle', 'Get-SharedStyleXaml', 'New-MecmPreferencesPanel', 'Get-IconPackManifestPath', 'Get-IconPackStatusText', 'Read-IconPackManifest', 'Get-IntuneWinToolCachePath', 'Invoke-DetectIntuneWinAppUtil')) {
-        $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
-        # Global: the panel's closures resolve helpers in their own module scope.
-        if ($fn) { Set-Item -Path ('function:global:' + $name) -Value ([scriptblock]::Create($fn.Body.Extent.Text.Trim('{', '}'))) }
-    }
-    # The reflected Get-IconPackRoot defaults its root to $PSScriptRoot, which is empty here.
-    function global:Get-IconPackRoot { param([string]$AppRoot) Join-Path (Join-Path $root 'Packagers') 'Icons' }
-    function global:Get-GitHubApiAuthStatus { [pscustomobject]@{ Authenticated = $false; Source = ''; Message = '' } }
-    foreach ($stub in 'Add-LogLine', 'Install-IconPack', 'Install-IconPackFromFile', 'Install-IntuneWinAppUtil', 'Save-Preferences') { Set-Item -Path ('function:global:' + $stub) -Value { } }
+    # The Options section keeps the two boxes exclusive and saves the pair.
+    . (Join-Path $PSScriptRoot 'OptionsTestSupport.ps1') -Root $root -FixtureDir $fixtureDir
     Set-Content -LiteralPath $script:fixturePath -Value '{}' -Encoding UTF8
     $script:Prefs = Read-Preferences
-    $panel = New-MecmPreferencesPanel
-    $inc = $panel.Element.FindName('chkTitleVersion'); $rem = $panel.Element.FindName('chkTitleNoVersion')
+    $page = New-OptionsTestPage -Id 'title'
+    $inc = $page.Editors['title.include'].Focus; $rem = $page.Editors['title.remove'].Focus
     if (-not $rem.IsEnabled) { throw 'Remove version must be available while Include version is off' }
     $rem.IsChecked = $true
     $inc.IsChecked = $true
@@ -84,8 +74,8 @@ try {
     $inc.IsChecked = $false
     if (-not $rem.IsEnabled) { throw 'Clearing Include version must enable Remove version again' }
     $rem.IsChecked = $true
-    & $panel.Commit
-    if ($script:Prefs.IncludeVersionInTitle -or -not $script:Prefs.RemoveVersionFromTitle) { throw 'The panel did not save Remove version from title' }
+    & $page.Commit
+    if ($script:Prefs.IncludeVersionInTitle -or -not $script:Prefs.RemoveVersionFromTitle) { throw 'The section did not save Remove version from title' }
     'PASS: the stored title policy reaches the background context'
 }
 finally {

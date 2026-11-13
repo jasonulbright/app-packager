@@ -558,7 +558,7 @@ if ($publishesToWsus -and $Package -and $exitCode -eq 0) {
         Import-Module (Join-Path $PackagersRoot 'AppPackagerWsus.psd1') -Force -ErrorAction Stop
         $wsusSettings = Resolve-CliWsusSettings -Bound $cliBoundParameters
         if ([string]::IsNullOrWhiteSpace([string]$wsusSettings.ServerName)) {
-            throw 'No WSUS server: pass -WsusServer or set the server in Options, WSUS Publishing.'
+            throw 'No WSUS server: pass -WsusServer or set the server in Options, Connections, WSUS.'
         }
         $staged = Resolve-StageManifestForBuild -BuildId ([string]$snapshot.BuildId) -SearchRoot $effectiveDownloadRoot
         $stagedManifest = Read-StageManifest -Path ([string]$staged.Path)

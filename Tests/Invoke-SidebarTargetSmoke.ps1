@@ -90,9 +90,9 @@ $cases = @(
     @{ Name = 'ConfigMgr not in use keeps WSUS enabled';               Actual = { $mecmOff.WsusEnabled -and $mecmOff.WsusUpdatesEnabled }; Expected = $true }
     @{ Name = 'WSUS not in use disables its buttons despite a server';  Actual = { $wsusOff.WsusEnabled -or $wsusOff.WsusUpdatesEnabled }; Expected = $false }
     @{ Name = 'WSUS not in use keeps ConfigMgr and Intune enabled';    Actual = { $wsusOff.MecmEnabled -and $wsusOff.IntuneEnabled }; Expected = $true }
-    @{ Name = 'Setup and Options both save the systems in use';        Actual = { ([regex]::Matches($source, '\$prefsRef\.Systems\.ConfigMgr\s*=')).Count -eq 2 }; Expected = $true }
+    @{ Name = 'Setup and Options both save the systems in use';        Actual = { ([regex]::Matches($source, "Pref = 'Systems\.ConfigMgr'")).Count -eq 1 -and $source -match '& \$systemBlock\.Group\.Commit' }; Expected = $true }
     @{ Name = 'the publish and One Click paths fall back to the packager default site code'; Actual = { ([regex]::Matches($source, 'if \(\[string\]::IsNullOrWhiteSpace\(\$siteCodeValue\)\) \{ \$siteCodeValue = ''MCM'' \}')).Count -ge 2 }; Expected = $true }
-    @{ Name = 'Setup without ConfigMgr saves an empty site code'; Actual = { $source -match '\} else \{\s+#[^\n]*\n\s+#[^\n]*\n\s+\$prefsRef\.SiteCode = ''''\s+\}' }; Expected = $true }
+    @{ Name = 'Setup without ConfigMgr saves an empty site code'; Actual = { $source -match 'else \{ \$prefsRef\.SiteCode = '''' \}' }; Expected = $true }
     @{ Name = 'Check Latest runs without a site code when ConfigMgr is not in use'; Actual = { $source -match 'if \(\$script:Prefs\.Systems\.ConfigMgr\) \{\s+Add-LogLine -Message \"The site code is required' }; Expected = $true }
     @{ Name = 'the sidebar refresh is wired to launch, Options, Setup and the button reset'; Actual = { $callCount -ge 5 }; Expected = $true }
     @{ Name = 'the retired target-driven refresh is gone';      Actual = { $source -notmatch 'Update-SidebarForDeploymentTarget|Get-SidebarTargetState' }; Expected = $true }

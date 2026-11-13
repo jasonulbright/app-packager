@@ -91,36 +91,31 @@ Describe 'Packager catalog' {
 
 Describe 'Options window' {
     BeforeAll {
-        $script:DialogText = (Get-LauncherFunction 'Show-OptionsDialog').Extent.Text
+        $script:DialogText = (Get-LauncherFunction 'New-OptionsDialog').Extent.Text
     }
 
-    It 'names its navigation entries after the panels they open' {
-        $listed = [regex]::Match($script:DialogText, '\$panelNames\s*=\s*@\((?<names>[^)]*)\)').Groups['names'].Value
-        $names = @([regex]::Matches($listed, "'([^']+)'") | ForEach-Object { $_.Groups[1].Value })
-        $names.Count | Should -Be 7
-        $factories = @([regex]::Matches($script:DialogText, '\{\s*(New-\w+Panel)\s*\}') | ForEach-Object { $_.Groups[1].Value })
-        $factories.Count | Should -Be 7
-        for ($i = 0; $i -lt 7; $i++) {
-            $text = (Get-LauncherFunction $factories[$i]).Extent.Text
-            $returned = [regex]::Match($text, "return @\{\s*Name\s*=\s*'([^']+)'").Groups[1].Value
-            $returned | Should -Be $names[$i] -Because $factories[$i]
-        }
+    It 'builds the tree from the section definitions' {
+        $script:DialogText | Should -Match 'Get-OptionsSectionDefinition'
+        $script:DialogText | Should -Match 'New-Object System.Windows.Controls.TreeViewItem'
     }
 
-    It 'builds a panel the first time its section is shown' {
-        $script:DialogText | Should -Match 'if \(\$null -eq \$panels\[\$idx\]\) \{ \$panels\[\$idx\] = & \$panelFactories\[\$idx\] \}'
-        $script:DialogText | Should -Not -Match '\$panels\s*=\s*@\(\s*\(New-'
+    It 'builds a section the first time it is shown' {
+        $script:DialogText | Should -Match 'if \(-not \$ctx\.Sections\.Contains\(\$Id\)\)'
+        $script:DialogText | Should -Match 'New-OptionsSectionPage -Definition \$def -Context \$ctx'
     }
 
-    It 'commits only the panels that were built' {
-        $script:DialogText | Should -Match 'foreach \(\$p in \$panels\) \{ if \(\$p -and \$p\.Commit\)'
+    It 'commits only the sections that were built' {
+        $script:DialogText | Should -Match 'foreach \(\$id in @\(\$ctx\.Sections\.Keys\)\) \{ \$page = \$ctx\.Sections\[\$id\]; if \(\$page -and \$page\.Commit\)'
     }
 
-    It 'does not wait for the GitHub status while the ConfigMgr panel is built' {
-        $panel = (Get-LauncherFunction 'New-MecmPreferencesPanel').Extent.Text
-        $withoutBackgroundScript = $panel -replace '(?s)\[void\]\$ghShell\.AddScript\(.*?\)\.AddArgument\(\$ghState\)\.AddArgument\(\(Join-Path \$PSScriptRoot[^\r\n]*', ''
+    It 'does not wait for the GitHub status while the section is built' {
+        $init = (Get-LauncherFunction 'Initialize-OptionsGitHubSection').Extent.Text
+        $init | Should -Not -Match 'Get-GitHubApiAuthStatus'
+        $check = (Get-LauncherFunction 'Start-OptionsGitHubCheck').Extent.Text
+        $withoutBackgroundScript = $check -replace '(?s)\[void\]\$shell\.AddScript\(.*?\)\.AddArgument\(\$state\)\.AddArgument\(\(Join-Path \$PSScriptRoot[^
+]*', ''
         $withoutBackgroundScript | Should -Not -Match 'Get-GitHubApiAuthStatus'
-        $panel | Should -Match 'Checking GitHub access'
-        $panel | Should -Match 'DispatcherTimer'
+        $check | Should -Match 'Checking GitHub access'
+        $check | Should -Match 'DispatcherTimer'
     }
 }

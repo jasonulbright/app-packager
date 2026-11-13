@@ -45,13 +45,37 @@ function Check-Row([int]$index) {
 }
 function Close-Win($w) { $w.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close(); Start-Sleep -Seconds 2 }
 
+# One image of every page of the Options tree, named options- and the tree text. A group node has no page.
+function Capture-OptionsTree($o) {
+    $treeItems = @($o.FindAll('Descendants', (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::TreeItem))))
+    if ($treeItems.Count -lt 30) { throw "The Options tree has $($treeItems.Count) nodes." }
+    $groups = @('Connections', 'Packaging', 'Applications', 'Updates and CVEs', 'Security')
+    foreach ($it in $treeItems) {
+        $name = $it.Current.Name
+        if ($name -in $groups) { continue }
+        Select-El $it; Start-Sleep -Milliseconds 900
+        Shot $o ('options-' + (($name.ToLowerInvariant() -replace '[^a-z0-9]+', '-').Trim('-')))
+    }
+    # The search box lists the matches in place of the tree.
+    Set-Text (Get-El $o 'txtSearch') 'sql'; Start-Sleep -Milliseconds 900; Shot $o 'options-search'
+    Set-Text (Get-El $o 'txtSearch') ''; Start-Sleep -Milliseconds 400
+}
+# The light theme shows the same pages. Three pages cover the controls of the window.
+function Capture-OptionsLight($o) {
+    foreach ($name in 'ConfigMgr', 'Microsoft 365 Apps', 'Product filter') {
+        $it = Find-Role $o 'TreeItem' $name
+        if (-not $it) { throw "No tree node $name" }
+        Select-El $it; Start-Sleep -Milliseconds 900
+        Shot $o ('light-options-' + (($name.ToLowerInvariant() -replace '[^a-z0-9]+', '-').Trim('-')))
+    }
+}
 Section 'setup' {
     $s = Find-Last 'Setup' 20; Shot $s 'setup-first-run'; Dump-Tree $s 'setup'
-    Toggle-El (Get-El $s 'chkWizIntune'); Start-Sleep -Milliseconds 600; Shot $s 'setup-intune'
-    Toggle-El (Get-El $s 'chkWizWsus'); Start-Sleep -Milliseconds 600; Shot $s 'setup-wsus'
-    Toggle-El (Get-El $s 'chkWizIntune'); Toggle-El (Get-El $s 'chkWizWsus'); Start-Sleep -Milliseconds 500
-    Set-Text (Get-El $s 'txtWizSC') $Capture.SiteCode; Set-Text (Get-El $s 'txtWizProvider') $Capture.SMSProvider
-    Set-Text (Get-El $s 'txtWizFS') '\\nosuchserver.contoso.com\sources$'; Set-Text (Get-El $s 'txtWizDL') $dl
+    Toggle-El (Get-El $s 'sys.intune'); Start-Sleep -Milliseconds 600; Shot $s 'setup-intune'
+    Toggle-El (Get-El $s 'sys.wsus'); Start-Sleep -Milliseconds 600; Shot $s 'setup-wsus'
+    Toggle-El (Get-El $s 'sys.intune'); Toggle-El (Get-El $s 'sys.wsus'); Start-Sleep -Milliseconds 500
+    Set-Text (Get-El $s 'cm.siteCode') $Capture.SiteCode; Set-Text (Get-El $s 'cm.provider') $Capture.SMSProvider
+    Set-Text (Get-El $s 'cm.fileShare') '\\nosuchserver.contoso.com\sources$'; Set-Text (Get-El $s 'pkg.downloadRoot') $dl
     Shot $s 'setup-configmgr-filled'
     Invoke-El (Get-El $s 'btnWizSave'); Start-Sleep -Seconds 3
     Shot $win 'main-first-start'
@@ -64,12 +88,8 @@ Section 'grid' {
     Set-Text (Get-El $win 'txtComment') 'Lab run'; Start-Sleep -Milliseconds 500; Shot $win 'sidebar-comment'; Set-Text (Get-El $win 'txtComment') ''
 }
 Section 'options' {
-    Invoke-El (Get-El $win 'btnOptions'); $o = Find-Last 'Options' 15
-    $names = @('configmgr', 'packager', 'one-click', 'product-filter', 'script-signing', 'wsus', 'about'); $i = 0
-    $items = @($o.FindAll('Descendants', (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem))))
-    if ($items.Count -ne $names.Count) { throw "Options has $($items.Count) pages, not $($names.Count)." }
-    foreach ($it in $items) { Select-El $it; Start-Sleep -Milliseconds 1000; Shot $o ('options-' + $names[$i]); $i++ }
-    Invoke-El (Get-El $o 'Cancel'); Start-Sleep -Seconds 1
+    Invoke-El (Get-El $win 'btnOptions'); $o = Find-LastLike 'Options*' 15
+    Capture-OptionsTree $o
 }
 Section 'check latest' {
     Check-Row 0; Shot $win 'grid-row-selected'
@@ -148,7 +168,7 @@ Section 'one click' {
 }
 Section 'light' {
     Toggle-El (Get-El $win 'toggleTheme'); Start-Sleep -Seconds 2; Shot $win 'light-main'
-    Invoke-El (Get-El $win 'btnOptions'); $o = Find-Last 'Options' 15; Start-Sleep -Seconds 1; Shot $o 'light-options'; Invoke-El (Get-El $o 'Cancel'); Start-Sleep -Seconds 1
+    Invoke-El (Get-El $win 'btnOptions'); $o = Find-LastLike 'Options*' 15; Start-Sleep -Seconds 1; Shot $o 'light-options'; Capture-OptionsLight $o; Invoke-El (Get-El $o 'Cancel'); Start-Sleep -Seconds 1
     Toggle-El (Get-El $win 'toggleTheme'); Start-Sleep -Seconds 1
 }
 Stop-App 'start-apppackager.ps1'

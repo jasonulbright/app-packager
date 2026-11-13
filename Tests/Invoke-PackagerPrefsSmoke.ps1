@@ -1,7 +1,7 @@
 #Requires -Version 5.1
-# Headless probe for the Options Packager Preferences panel: the Adobe
-# Acrobat Reader block enables its language boxes only for the MUI edition,
-# All languages replaces the list, and Commit writes the pair.
+# Headless probe for the Options Adobe Acrobat Reader section: the language
+# boxes are enabled only for the MUI edition, All languages replaces the list,
+# and Commit writes the edition, the languages and the property options.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $script:SharedStyleRootOverride = $root
@@ -36,44 +36,50 @@ $script:PassedChecks = 0
 $ok = { param([string]$m) $script:PassedChecks += 1; Write-Host ('  ok  ' + $m) }
 
 try {
-    Set-Content -LiteralPath $script:fixturePath -Value '{ "AdobeReaderInstallOptions": { "Edition": "MUI", "Languages": ["de_DE", "fr_FR"] } }' -Encoding UTF8
+    . (Join-Path $PSScriptRoot 'OptionsTestSupport.ps1') -Root $root -FixtureDir $fixtureDir
+    Set-Content -LiteralPath $global:FixturePrefsPath -Value '{ "AdobeReaderInstallOptions": { "Edition": "MUI", "Languages": ["de_DE", "fr_FR"] } }' -Encoding UTF8
     $script:Prefs = Read-Preferences
-    $panel = New-PackagerPreferencesPanel
-    $content = $panel.Element.FindName('panelContent')
-    $edition = @($content.Children | Where-Object { $_ -is [System.Windows.Controls.StackPanel] } | ForEach-Object { $_.Children } | Where-Object { $_ -is [System.Windows.Controls.ComboBox] -and $_.Items -contains 'Multilingual (MUI)' })[0]
-    $all = @($content.Children | Where-Object { $_ -is [System.Windows.Controls.CheckBox] -and $_.Content -eq 'All languages' })[0]
-    $wrap = @($content.Children | Where-Object { $_ -is [System.Windows.Controls.WrapPanel] })[0]
-    & $assert ($null -ne $edition -and $null -ne $all -and $null -ne $wrap) 'the Adobe block builds its edition list, All box and language list'
-    & $ok 'block present'
-    & $assert ($edition.SelectedIndex -eq 1 -and $wrap.IsEnabled -and $all.IsEnabled) 'a stored MUI selection enables the language list'
+    $page = New-OptionsTestPage -Id 'adobe'
+    $edition = $page.Editors['adobe.edition'].Focus
+    $languages = $page.Editors['adobe.languages']
+    $all = $languages.Boxes['All']
+    & $assert ($null -ne $edition -and $null -ne $all -and $languages.Boxes.Count -eq 27) 'the Adobe section builds its edition list, All box and 26 language boxes'
+    & $ok 'section present'
+    & $assert ($edition.SelectedItem.Tag -eq 'MUI' -and $all.IsEnabled -and $languages.Boxes['de_DE'].IsEnabled) 'a stored MUI selection enables the language list'
     # A string Content renders de_DE as deDE (access-key underscore).
-    & $assert (@($wrap.Children | Where-Object { $_.Content -isnot [System.Windows.Controls.TextBlock] }).Count -eq 0) 'every language box shows its code through a TextBlock'
-    $de = @($wrap.Children | Where-Object { $_.Content.Text -eq 'de_DE' })[0]
-    $fr = @($wrap.Children | Where-Object { $_.Content.Text -eq 'fr_FR' })[0]
-    $ja = @($wrap.Children | Where-Object { $_.Content.Text -eq 'ja_JP' })[0]
-    & $assert ($de.IsChecked -and $fr.IsChecked -and -not $ja.IsChecked) 'the stored languages are checked'
+    & $assert (@($languages.Boxes.Values | Where-Object { $_.Content -isnot [System.Windows.Controls.TextBlock] }).Count -eq 0) 'every language box shows its code through a TextBlock'
+    & $assert ($languages.Boxes['de_DE'].IsChecked -and $languages.Boxes['fr_FR'].IsChecked -and -not $languages.Boxes['ja_JP'].IsChecked) 'the stored languages are checked'
     & $ok 'stored languages shown'
 
     $edition.SelectedIndex = 0
-    & $assert (-not $wrap.IsEnabled -and -not $all.IsEnabled) 'the English edition disables the language controls'
+    & $assert (-not $all.IsEnabled -and -not $languages.Boxes['de_DE'].IsEnabled) 'the English edition disables the language controls'
     $edition.SelectedIndex = 1
     $all.IsChecked = $true
-    & $assert (-not $wrap.IsEnabled) 'All languages disables the list'
+    & $assert (-not $languages.Boxes['de_DE'].IsEnabled) 'All languages disables the list'
     & $ok 'enable rules'
 
-    & $panel.Commit
+    & $page.Commit
     & $assert ($script:Prefs.AdobeReaderInstallOptions.Edition -eq 'MUI' -and @($script:Prefs.AdobeReaderInstallOptions.Languages) -eq @('All')) 'Commit saves MUI with All'
     $all.IsChecked = $false
-    $ja.IsChecked = $true
-    & $panel.Commit
+    $languages.Boxes['ja_JP'].IsChecked = $true
+    & $page.Commit
     & $assert ((@($script:Prefs.AdobeReaderInstallOptions.Languages) -join ',') -eq 'de_DE,fr_FR,ja_JP') ('Commit saves the checked codes: ' + (@($script:Prefs.AdobeReaderInstallOptions.Languages) -join ','))
     $edition.SelectedIndex = 0
-    & $panel.Commit
+    & $page.Commit
     & $assert ($script:Prefs.AdobeReaderInstallOptions.Edition -eq 'English') 'Commit saves the English edition'
     & $ok 'commit'
 
+    # The Adobe property options reach the preferences.
+    & $page.Editors['adobe.eula'].Set $true
+    & $page.Editors['adobe.shortcut'].Set $true
+    & $page.Editors['adobe.update'].Set '3'
+    & $page.Commit
+    $stored = $script:Prefs.AdobeReaderInstallOptions
+    & $assert ($stored.AcceptEula -and $stored.DisableDesktopShortcut -and $stored.UpdateMode -eq '3' -and -not $stored.DisableChromeExtension) 'Commit saves the property options'
+    & $ok 'property options'
+
     Write-Host ''
-    Write-Host ('PASS: Packager Preferences probe, {0} checks' -f $script:PassedChecks)
+    Write-Host ('PASS: Adobe Acrobat Reader section probe, {0} checks' -f $script:PassedChecks)
 }
 finally {
     Remove-Item -LiteralPath $fixtureDir -Recurse -Force -ErrorAction SilentlyContinue

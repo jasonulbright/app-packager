@@ -80,7 +80,7 @@ A right-click on a row opens a menu with **Edit application**, **Open Log Folder
 
 | Message or symptom | Cause | Fix |
 |---|---|---|
-| The grid shows fewer applications than 312. | The Product Filter hides some. | Open **Options > Product Filter**. |
+| The grid shows fewer applications than 312. | The product filter hides some. | Open **Options > Updates and CVEs > Product filter**. |
 | A row says `Package error`. | The Package phase failed. | Read the log. See [Stage and Publish to ConfigMgr](stage-publish.md). |
 
 ## Links

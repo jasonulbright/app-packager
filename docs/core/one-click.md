@@ -4,7 +4,7 @@ One Click is the unattended run for the applications that you track: it plans th
 
 ## What it does
 
-One Click runs Check Latest for each tracked application. With the action **Report only**, it stops after the check. With **Stage**, it also stages an application that has an update. With **Stage and Publish**, it also publishes to the destinations that you chose. It asks nothing during the run. An application that exists already follows the policy that you saved in One Click Settings.
+One Click runs Check Latest for each tracked application. With the action **Report only**, it stops after the check. With **Stage**, it also stages an application that has an update. With **Stage and Publish**, it also publishes to the destinations that you chose. It asks nothing during the run. An application that exists already follows the policy that you saved in Options, Updates and CVEs, One Click.
 
 ## When to use it
 
@@ -12,17 +12,17 @@ Use it to keep a fixed set of applications current with one click, or from a sch
 
 ## Requirements
 
-- Tracked applications and destinations in **Options > One Click Settings**.
+- Tracked applications and destinations in **Options > Updates and CVEs > One Click**.
 - The settings of every destination that you use. See [Options dialog](options.md).
 
 ## Steps
 
 ### Choose what One Click tracks
 
-1. Select **Options**, then **One Click Settings**.
+1. Select **Options**, then **Updates and CVEs**, then **One Click**.
 2. Select **Track** for each application. Choose the action: **Report only**, **Stage** or **Stage and Publish**. Choose the default destinations and, for a row, its own destinations. A row without a destination is skipped.
 
-![One Click Settings](../images/options-one-click.png)
+![The One Click section](../images/options-one-click.png)
 
 ### Open the plan
 
@@ -58,7 +58,7 @@ During the run, the grid becomes a progress grid. A failed application does not 
 
 | Message or symptom | Cause | Fix |
 |---|---|---|
-| The plan window shows no rows. | No application is tracked. | Track applications in One Click Settings. |
+| The plan window shows no rows. | No application is tracked. | Track applications in Options, Updates and CVEs, One Click. |
 | A row is skipped. | The destination has the version, or has no box checked. | Read the reason in the row. Use **Force** to publish again. |
 
 ## Links

@@ -838,7 +838,7 @@ function Connect-CMSite {
     $provider = Resolve-CMProviderMachineName -ProviderMachineName $ProviderMachineName
     if ([string]::IsNullOrWhiteSpace($provider) -and
         -not (Get-PSDrive -Name $SiteCode -PSProvider CMSite -ErrorAction SilentlyContinue)) {
-        Write-Log "Configuration Manager PSDrive '$SiteCode' is not available and no provider machine name is configured. Set Provider Machine in ConfigMgr Preferences, copy the ProviderMachineName value from the AdminUI connect script, or set APP_PACKAGER_CM_PROVIDER." -Level ERROR
+        Write-Log "Configuration Manager PSDrive '$SiteCode' is not available and no provider machine name is configured. Set Site server / SMS Provider in Options > Connections > ConfigMgr, copy the ProviderMachineName value from the AdminUI connect script, or set APP_PACKAGER_CM_PROVIDER." -Level ERROR
         return $false
     }
     return (SuiteCommon\Connect-CMSite -SiteCode $SiteCode -SMSProvider $provider -SkipSiteVerification)
@@ -5091,7 +5091,7 @@ function Resolve-LocalSourceInstaller {
     $folder = Get-LocalSourceFolder -PackagerName $PackagerName -Override $Override
 
     if ([string]::IsNullOrWhiteSpace($folder)) {
-        throw "No installer source folder is set for $PackagerName. Choose one in Options > Packager Preferences > Local Installer Sources, or run Stage from the app to be prompted."
+        throw "No installer source folder is set for $PackagerName. Choose one in Options > Applications > Local installer sources, or run Stage from the app to be prompted."
     }
     if (-not (Test-Path -LiteralPath $folder -PathType Container)) {
         throw "Installer source folder for $PackagerName not found: $folder"
@@ -5127,15 +5127,216 @@ function ConvertTo-XmlAttributeValue {
     return [System.Security.SecurityElement]::Escape([string]$Value)
 }
 
+function Get-OdtGeneratedOption {
+    <#
+    .SYNOPSIS
+        The generated-configuration values of the Microsoft 365 packagers, from the
+        M365Options object of the packager preferences, as a hashtable that splats
+        into New-OdtConfigXml. A missing object or value keeps the packager default.
+    #>
+    param([AllowNull()]$Preferences)
+
+    $options = @{
+        Languages               = @('en-us')
+        OfficeMgmtCom           = $true
+        UpdatesEnabled          = $true
+        ForceAppShutdown        = $true
+        RemoveMsi               = $true
+        MigrateArch             = $false
+        SharedComputerLicensing = $false
+        DeviceBasedLicensing    = $false
+    }
+    if ($Preferences -and $Preferences.PSObject.Properties['M365Options'] -and $Preferences.M365Options) {
+        $stored = $Preferences.M365Options
+        foreach ($name in @('OfficeMgmtCom', 'UpdatesEnabled', 'ForceAppShutdown', 'RemoveMsi', 'MigrateArch', 'SharedComputerLicensing', 'DeviceBasedLicensing')) {
+            if ($stored.PSObject.Properties[$name] -and $null -ne $stored.$name) { $options[$name] = [bool]$stored.$name }
+        }
+        if ($stored.PSObject.Properties['Languages'] -and $null -ne $stored.Languages) {
+            $codes = @($stored.Languages | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -match '^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){1,2}$' })
+            if ($codes.Count -gt 0) { $options.Languages = $codes }
+        }
+    }
+    return $options
+}
+
+function ConvertFrom-OdtConfigText {
+    # Reads a configuration.xml text into an XmlDocument. A DOCTYPE and external entities are refused.
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+
+    $clean = $Text.TrimStart([char]0xFEFF)
+    $settings = New-Object System.Xml.XmlReaderSettings
+    $settings.DtdProcessing = [System.Xml.DtdProcessing]::Prohibit
+    $settings.XmlResolver = $null
+    $reader = [System.Xml.XmlReader]::Create((New-Object System.IO.StringReader($clean)), $settings)
+    try {
+        $document = New-Object System.Xml.XmlDocument
+        $document.XmlResolver = $null
+        $document.PreserveWhitespace = $false
+        $document.Load($reader)
+        return $document
+    }
+    finally { $reader.Dispose() }
+}
+
+function Test-OdtConfigurationXml {
+    <#
+    .SYNOPSIS
+        Checks a configuration.xml for the Microsoft 365 packagers: well-formed XML, a
+        Configuration root, and an Add element with at least one Product that has an ID.
+
+    .OUTPUTS
+        Valid, Errors (what stops the import), Notes (what the packager changes) and
+        ProductIds.
+    #>
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+
+    $errors = New-Object System.Collections.Generic.List[string]
+    $notes = New-Object System.Collections.Generic.List[string]
+    $productIds = New-Object System.Collections.Generic.List[string]
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        $errors.Add('The file is empty.')
+        return [pscustomobject]@{ Valid = $false; Errors = $errors.ToArray(); Notes = @(); ProductIds = @() }
+    }
+
+    $document = $null
+    try { $document = ConvertFrom-OdtConfigText -Text $Text }
+    catch { $errors.Add('The file is not well-formed XML: ' + $_.Exception.Message) }
+
+    if ($document) {
+        $root = $document.DocumentElement
+        if ($root.LocalName -cne 'Configuration') { $errors.Add(("The root element is '{0}'. An Office Deployment Tool configuration has the root element Configuration." -f $root.LocalName)) }
+        else {
+            $add = @($root.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -ceq 'Add' }) | Select-Object -First 1
+            if (-not $add) { $errors.Add('The file has no Add element. The packager needs an Add element with at least one Product.') }
+            else {
+                $products = @($add.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -ceq 'Product' })
+                if ($products.Count -eq 0) { $errors.Add('The Add element has no Product element.') }
+                foreach ($product in $products) {
+                    $id = $product.GetAttribute('ID')
+                    if ([string]::IsNullOrWhiteSpace($id)) { $errors.Add('A Product element has no ID attribute.') } else { $productIds.Add($id) }
+                }
+                $channel = $add.GetAttribute('Channel')
+                if ($channel -and $channel -notin @('MonthlyEnterprise', 'Current')) {
+                    $notes.Add(("Channel '{0}' is not supported by the packagers. They use the channel from Options." -f $channel))
+                }
+                $notes.Add('OfficeClientEdition, Version and SourcePath are set by the packager.')
+                $notes.Add('Every Microsoft 365 Apps, Project and Visio package uses this file with its Product elements, so list the products that you want in the file.')
+                $display = @($root.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -ceq 'Display' }) | Select-Object -First 1
+                if (-not $display -or $display.GetAttribute('Level') -cne 'None' -or $display.GetAttribute('AcceptEULA') -cne 'TRUE') {
+                    $notes.Add('Display is set to Level None and AcceptEULA TRUE, so that the install is silent.')
+                }
+            }
+        }
+    }
+    return [pscustomobject]@{ Valid = ($errors.Count -eq 0); Errors = $errors.ToArray(); Notes = $notes.ToArray(); ProductIds = $productIds.ToArray() }
+}
+
+function Get-OdtUserConfigInfo {
+    <#
+    .SYNOPSIS
+        The channel and the deploy mode that an imported configuration.xml selects.
+        Channel is MonthlyEnterprise or Current, or empty when the file names no
+        supported channel. DeployMode is Managed when the Add element has a
+        SourcePath and Online when it has none, which is how the Office
+        customization tool describes a local source and the CDN.
+    #>
+    param([Parameter(Mandatory)][string]$Text)
+
+    $document = ConvertFrom-OdtConfigText -Text $Text
+    $add = @($document.DocumentElement.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -ceq 'Add' }) | Select-Object -First 1
+    $channel = ''
+    $mode = 'Online'
+    if ($add) {
+        $value = $add.GetAttribute('Channel')
+        if ($value -in @('MonthlyEnterprise', 'Current')) { $channel = $value }
+        if ($add.GetAttribute('SourcePath')) { $mode = 'Managed' }
+    }
+    return [pscustomobject]@{ Channel = $channel; DeployMode = $mode }
+}
+
+function Get-OdtUserConfigPath {
+    <#
+    .SYNOPSIS
+        The path of the configuration.xml that Options imported, or '' when the packagers
+        generate the configuration. Throws when the preference selects the file and
+        the file is gone.
+    #>
+    param([AllowNull()]$Preferences)
+
+    if (-not $Preferences -or -not $Preferences.PSObject.Properties['M365UseCustomConfig'] -or -not [bool]$Preferences.M365UseCustomConfig) { return '' }
+    $path = [string]$Preferences.M365CustomConfigPath
+    if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw 'Options selects your own configuration.xml for Microsoft 365, and the stored file is missing. Import it again in Options, Applications, Microsoft 365 Apps.'
+    }
+    return $path
+}
+
+function ConvertTo-OdtUserConfigXml {
+    <#
+    .SYNOPSIS
+        Turns an imported configuration.xml into the install or download XML of one
+        packager. The packager sets OfficeClientEdition, Version and SourcePath and a
+        silent Display; every other element and attribute of the file stays.
+
+    .PARAMETER Channel
+        The channel to write when the file names none that is supported.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Text,
+        [Parameter(Mandatory)][string]$OfficeClientEdition,
+        [string]$Version,
+        [string]$SourcePath,
+        [ValidateSet('MonthlyEnterprise', 'Current')][string]$Channel = 'MonthlyEnterprise'
+    )
+
+    $check = Test-OdtConfigurationXml -Text $Text
+    if (-not $check.Valid) { throw ('The imported configuration.xml is not usable: ' + ($check.Errors -join ' ')) }
+    $document = ConvertFrom-OdtConfigText -Text $Text
+    $root = $document.DocumentElement
+    $add = @($root.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -ceq 'Add' }) | Select-Object -First 1
+
+    $add.SetAttribute('OfficeClientEdition', $OfficeClientEdition)
+    if ($add.GetAttribute('Channel') -notin @('MonthlyEnterprise', 'Current')) { $add.SetAttribute('Channel', $Channel) }
+    if ($Version -and $Version -ne 'Latest') { $add.SetAttribute('Version', $Version) } else { [void]$add.RemoveAttribute('Version') }
+    if ($SourcePath) { $add.SetAttribute('SourcePath', $SourcePath) } else { [void]$add.RemoveAttribute('SourcePath') }
+
+    $display = @($root.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -ceq 'Display' }) | Select-Object -First 1
+    if (-not $display) { $display = $document.CreateElement('Display'); [void]$root.AppendChild($display) }
+    $display.SetAttribute('Level', 'None')
+    $display.SetAttribute('AcceptEULA', 'TRUE')
+
+    $writerSettings = New-Object System.Xml.XmlWriterSettings
+    $writerSettings.OmitXmlDeclaration = $true
+    $writerSettings.Indent = $true
+    $writerSettings.IndentChars = '  '
+    $writerSettings.NewLineChars = "`r`n"
+    $writerSettings.NewLineHandling = [System.Xml.NewLineHandling]::Replace
+    $builder = New-Object System.Text.StringBuilder
+    $writer = [System.Xml.XmlWriter]::Create($builder, $writerSettings)
+    try { $document.Save($writer) } finally { $writer.Dispose() }
+
+    # The packagers write the file as ASCII, so characters above U+007F leave as numeric character references.
+    $xml = $builder.ToString()
+    $ascii = New-Object System.Text.StringBuilder
+    for ($i = 0; $i -lt $xml.Length; $i++) {
+        $c = $xml[$i]
+        if ([int]$c -lt 128) { [void]$ascii.Append($c) }
+        elseif ([char]::IsHighSurrogate($c) -and ($i + 1) -lt $xml.Length) { [void]$ascii.AppendFormat('&#x{0:X};', [char]::ConvertToUtf32($c, $xml[$i + 1])); $i++ }
+        else { [void]$ascii.AppendFormat('&#x{0:X};', [int]$c) }
+    }
+    return $ascii.ToString()
+}
+
 function New-OdtConfigXml {
     <#
     .SYNOPSIS
         Generates a full ODT configuration XML string for download or install.
 
     .DESCRIPTION
-        Builds the XML matching the production ODT template with all properties,
-        excluded apps, AppSettings, logging, etc. Used by all M365 packager
-        scripts for both download.xml and install.xml.
+        Builds the XML of the Microsoft 365 packagers from the product list, the
+        excluded apps and the install behavior values. With UserConfigPath, the
+        XML comes from the configuration.xml that Options imported, and the
+        packager sets only the edition, the version and the source path.
 
     .PARAMETER OfficeClientEdition
         Architecture: "32" or "64".
@@ -5158,6 +5359,16 @@ function New-OdtConfigXml {
     .PARAMETER CompanyName
         Value for the AppSettings Company name. Omit or pass empty to skip
         the AppSettings block entirely.
+
+    .PARAMETER Languages
+        Language IDs of each product. The first language sets the shell UI language.
+
+    .PARAMETER MigrateArch
+        Writes MigrateArch="TRUE", which changes an installed Office to OfficeClientEdition.
+        The ODT default is off.
+
+    .PARAMETER SharedComputerLicensing
+        Writes the SharedComputerLicensing property with the value 1. The ODT default is 0.
     #>
     param(
         [Parameter(Mandatory)][string]$OfficeClientEdition,
@@ -5167,11 +5378,23 @@ function New-OdtConfigXml {
         [ValidateSet('MonthlyEnterprise','Current')]
         [string]$Channel = 'MonthlyEnterprise',
         [string]$CompanyName,
-        # ExcludeApp IDs per product (e.g. 'Groove','Lync','Teams'). Defaults
-        # preserved from the prior hardcoded list so pre-pref callers behave
-        # identically. Pass @() to include everything.
-        [string[]]$ExcludeApps = @('Groove','Lync','OneDrive','Teams','Bing')
+        # ExcludeApp IDs per product (e.g. 'Groove','Lync','Teams'). Pass @() to include everything.
+        [string[]]$ExcludeApps = @('Groove','Lync','OneDrive','Teams'),
+        [string[]]$Languages = @('en-us'),
+        [bool]$OfficeMgmtCom = $true,
+        [bool]$UpdatesEnabled = $true,
+        [bool]$ForceAppShutdown = $true,
+        [bool]$RemoveMsi = $true,
+        [bool]$MigrateArch = $false,
+        [bool]$SharedComputerLicensing = $false,
+        [bool]$DeviceBasedLicensing = $false,
+        [string]$UserConfigPath = ''
     )
+
+    if ($UserConfigPath) {
+        $userText = [System.IO.File]::ReadAllText($UserConfigPath, [System.Text.Encoding]::UTF8)
+        return (ConvertTo-OdtUserConfigXml -Text $userText -OfficeClientEdition $OfficeClientEdition -Version $Version -SourcePath $SourcePath -Channel $Channel)
+    }
 
     $addAttrs = @()
     if ($SourcePath) {
@@ -5179,18 +5402,21 @@ function New-OdtConfigXml {
     }
     $addAttrs += 'OfficeClientEdition="{0}"' -f (ConvertTo-XmlAttributeValue $OfficeClientEdition)
     $addAttrs += 'Channel="{0}"' -f (ConvertTo-XmlAttributeValue $Channel)
-    $addAttrs += 'OfficeMgmtCOM="TRUE"'
+    if ($OfficeMgmtCom) { $addAttrs += 'OfficeMgmtCOM="TRUE"' }
     if ($Version -and $Version -ne 'Latest') {
         $addAttrs += 'Version="{0}"' -f (ConvertTo-XmlAttributeValue $Version)
     }
-    $addAttrs += 'MigrateArch="TRUE"'
+    if ($MigrateArch) { $addAttrs += 'MigrateArch="TRUE"' }
+
+    $languageIds = @($Languages | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($languageIds.Count -eq 0) { $languageIds = @('en-us') }
 
     $lines = @('<Configuration>')
     $lines += '  <Add {0}>' -f ($addAttrs -join ' ')
 
     foreach ($prodId in $ProductIds) {
         $lines += '    <Product ID="{0}">' -f (ConvertTo-XmlAttributeValue $prodId)
-        $lines += '      <Language ID="en-us" />'
+        foreach ($languageId in $languageIds) { $lines += '      <Language ID="{0}" />' -f (ConvertTo-XmlAttributeValue $languageId) }
         foreach ($appId in $ExcludeApps) {
             if (-not [string]::IsNullOrWhiteSpace($appId)) {
                 $lines += '      <ExcludeApp ID="{0}" />' -f (ConvertTo-XmlAttributeValue $appId)
@@ -5200,12 +5426,11 @@ function New-OdtConfigXml {
     }
 
     $lines += '  </Add>'
-    $lines += '  <Property Name="SharedComputerLicensing" Value="1" />'
-    $lines += '  <Property Name="FORCEAPPSHUTDOWN" Value="TRUE" />'
-    $lines += '  <Property Name="DeviceBasedLicensing" Value="0" />'
-    $lines += '  <Property Name="PinIconsToTaskbar" Value="FALSE" />'
-    $lines += '  <Property Name="SCLCacheOverride" Value="0" />'
-    $lines += '  <RemoveMSI />'
+    if ($SharedComputerLicensing) { $lines += '  <Property Name="SharedComputerLicensing" Value="1" />' }
+    if ($ForceAppShutdown) { $lines += '  <Property Name="FORCEAPPSHUTDOWN" Value="TRUE" />' }
+    if ($DeviceBasedLicensing) { $lines += '  <Property Name="DeviceBasedLicensing" Value="1" />' }
+    $lines += '  <Updates Enabled="{0}" />' -f $(if ($UpdatesEnabled) { 'TRUE' } else { 'FALSE' })
+    if ($RemoveMsi) { $lines += '  <RemoveMSI />' }
     if ($CompanyName) {
         $lines += '  <AppSettings>'
         $lines += '    <Setup Name="Company" Value="{0}" />' -f (ConvertTo-XmlAttributeValue $CompanyName)

@@ -90,6 +90,12 @@ function Find-All([string]$Name) {
     $cond = New-Object System.Windows.Automation.AndCondition((New-Object System.Windows.Automation.PropertyCondition($AE::NameProperty, $Name)), (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Window)))
     @($root.FindAll('Descendants', $cond))
 }
+function Find-LastLike([string]$Pattern, [int]$Seconds = 15) {
+    $cond = New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Window)
+    $end = (Get-Date).AddSeconds($Seconds)
+    do { $a = @($root.FindAll('Descendants', $cond) | Where-Object { $_.Current.Name -like $Pattern }); if ($a.Count) { return $a[$a.Count - 1] }; Start-Sleep -Milliseconds 400 } while ((Get-Date) -lt $end)
+    throw "no window $Pattern"
+}
 function Find-Last([string]$Name, [int]$Seconds = 15) {
     $end = (Get-Date).AddSeconds($Seconds); do { $a = Find-All $Name; if ($a.Count) { return $a[$a.Count - 1] }; Start-Sleep -Milliseconds 400 } while ((Get-Date) -lt $end); throw "no window $Name"
 }

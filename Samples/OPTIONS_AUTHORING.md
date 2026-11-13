@@ -20,7 +20,7 @@ Five factories ship today:
 
 - `New-MecmPreferencesPanel`
 - `New-PackagerPreferencesPanel`
-- `New-AppFlowPanel` (the "One Click Settings" panel)
+- `New-AppFlowPanel` (the "One Click" section)
 - `New-ProductFilterPanel`
 - `New-DeploymentConditionsPanel`
 
@@ -156,7 +156,7 @@ function New-MyPanel {
 
 ## Where to put owner-specific things
 
-Most panels never need to open sub-dialogs. If yours does (like Packager Preferences opening the CWA / M365 previews), the owner window is the master Options dialog. You do not have a direct reference to it at factory-build time, but you can get it from the panel element at click time:
+Most panels never need to open sub-dialogs. If yours does (like the Citrix Workspace App and Microsoft 365 Apps sections opening their previews), the owner window is the master Options dialog. You do not have a direct reference to it at factory-build time, but you can get it from the panel element at click time:
 
 ```powershell
 $btn.Add_Click({

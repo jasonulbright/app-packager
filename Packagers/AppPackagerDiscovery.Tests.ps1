@@ -171,6 +171,74 @@ Describe 'Resolve-CMDatabaseTarget' {
     }
 }
 
+Describe 'SQL Server name: instance and port' {
+    It 'splits <Name> into server, instance and port' -ForEach @(
+        @{ Name = 'sql01'; Server = 'sql01'; Instance = ''; Port = 0 }
+        @{ Name = 'sql01\INST'; Server = 'sql01'; Instance = 'INST'; Port = 0 }
+        @{ Name = 'sql01,1444'; Server = 'sql01'; Instance = ''; Port = 1444 }
+        @{ Name = ' sql01.contoso.com\INST,1444 '; Server = 'sql01.contoso.com'; Instance = 'INST'; Port = 1444 }
+        @{ Name = ''; Server = ''; Instance = ''; Port = 0 }
+    ) {
+        $parts = Split-CMSqlServerName -Name $Name
+        $parts.Server | Should -Be $Server
+        $parts.Instance | Should -Be $Instance
+        $parts.Port | Should -Be $Port
+    }
+
+    It 'leaves a name of another form whole' {
+        (Split-CMSqlServerName -Name 'a\b\c').Server | Should -Be 'a\b\c'
+        (Split-CMSqlServerName -Name 'sql01,port').Server | Should -Be 'sql01,port'
+    }
+
+    It 'joins server, instance and port in the order that SQL Server reads them' {
+        Join-CMSqlServerName -Server 'sql01' -Instance 'INST' -Port 1444 | Should -Be 'sql01\INST,1444'
+        Join-CMSqlServerName -Server 'sql01' | Should -Be 'sql01'
+        Join-CMSqlServerName -Server 'sql01' -Port 1444 | Should -Be 'sql01,1444'
+        Join-CMSqlServerName -Server 'sql01' -Instance 'INST' | Should -Be 'sql01\INST'
+        Join-CMSqlServerName -Server '' -Instance 'INST' -Port 1444 | Should -Be ''
+    }
+
+    It 'builds server\instance,port from the instance and port overrides' {
+        Mock -ModuleName AppPackagerDiscovery Get-DiscoverySiteDefinition { throw 'must not be called' }
+        $t = Resolve-CMDatabaseTarget -SiteCode 'MCM' -ServerOverride 'sql01' -DatabaseOverride 'CM_ALT' -InstanceOverride 'INST' -PortOverride 1444
+        $t.Server | Should -Be 'sql01\INST,1444'
+        $t.Database | Should -Be 'CM_ALT'
+    }
+
+    It 'still works with server\instance in the old server field' {
+        Mock -ModuleName AppPackagerDiscovery Get-DiscoverySiteDefinition { throw 'must not be called' }
+        $t = Resolve-CMDatabaseTarget -SiteCode 'MCM' -ServerOverride 'sql01\INST' -DatabaseOverride 'CM_ALT'
+        $t.Server | Should -Be 'sql01\INST'
+    }
+
+    It 'lets the instance and port fields win over a name in the old server field' {
+        Mock -ModuleName AppPackagerDiscovery Get-DiscoverySiteDefinition { throw 'must not be called' }
+        $t = Resolve-CMDatabaseTarget -SiteCode 'MCM' -ServerOverride 'sql01\OLD,1433' -DatabaseOverride 'CM_ALT' -InstanceOverride 'NEW' -PortOverride 1500
+        $t.Server | Should -Be 'sql01\NEW,1500'
+    }
+
+    It 'applies the instance and port overrides to the server of the site definition' {
+        Mock -ModuleName AppPackagerDiscovery Get-DiscoverySiteDefinition {
+            [pscustomobject]@{ SQLServerName = 'CM01.contoso.com'; SQLDatabaseName = 'CM_MCM' }
+        }
+        $t = Resolve-CMDatabaseTarget -SiteCode 'MCM' -ProviderMachineName 'cm01' -PortOverride 1444
+        $t.Server | Should -Be 'CM01.contoso.com,1444'
+        $t.Database | Should -Be 'CM_MCM'
+    }
+
+    It 'keeps the instance of the site definition when only the port is overridden' {
+        Mock -ModuleName AppPackagerDiscovery Get-DiscoverySiteDefinition {
+            [pscustomobject]@{ SQLServerName = 'SQL01.contoso.com'; SQLDatabaseName = 'CMINST\CM_ABC' }
+        }
+        $t = Resolve-CMDatabaseTarget -SiteCode 'ABC' -ProviderMachineName 'cm01' -PortOverride 1444
+        $t.Server | Should -Be 'SQL01.contoso.com\CMINST,1444'
+    }
+
+    It 'rejects a port outside 0 to 65535' {
+        { Resolve-CMDatabaseTarget -SiteCode 'MCM' -ServerOverride 'x' -DatabaseOverride 'y' -PortOverride 70000 } | Should -Throw
+    }
+}
+
 Describe 'Get-DiscoverySiteDefinition' {
     BeforeEach {
         $script:Disposed = New-Object System.Collections.Generic.List[string]
