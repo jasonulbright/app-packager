@@ -2,8 +2,9 @@
 # Headless probe for Discover unmanaged software: the prompt window and its
 # four buttons, the choice applied to the preferences, the finish step for a
 # failed, an empty and a found result, the background runspace start, time
-# limit and stop, and the SQL override fields in Options, ConfigMgr
-# Preferences. No SQL server is contacted and no window is shown.
+# limit and stop, and the SQL fields in Options, Connections, ConfigMgr
+# and the Not offered by Discover list in Options, Updates and CVEs, Product
+# filter. No SQL server is contacted and no window is shown.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $script:SharedStyleRootOverride = $root
@@ -18,7 +19,7 @@ $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'start-apppackager.ps1'), [ref]$tokens, [ref]$errors)
 if ($errors) { throw ($errors.Message -join '; ') }
 foreach ($name in @('Expand-SharedStyle', 'Get-SharedStyleXaml', 'Show-DiscoveryDialog', 'Get-DiscoveryPromptText', 'Invoke-DiscoveryChoice', 'Enable-DiscoveredApplication',
-                    'Add-DiscoveryDismissed', 'Resolve-DiscoveryButton', 'Complete-DiscoveryScan', 'Read-Preferences', 'Resolve-FirstRunCompleted', 'New-MecmPreferencesPanel',
+                    'Add-DiscoveryDismissed', 'Resolve-DiscoveryButton', 'Complete-DiscoveryScan', 'Read-Preferences', 'Resolve-FirstRunCompleted',
                     'Hide-BusyIndicator', 'Invoke-DiscoveryScan', 'Start-DiscoveryRunspace', 'Get-DiscoveryRunspaceState', 'Stop-DiscoveryRunspace', 'Stop-DiscoveryScan')) {
     $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
     if (-not $fn) { throw ('function not found: ' + $name) }
@@ -234,17 +235,20 @@ try {
     & $assert ((Get-DiscoveryRunspaceState -Job $null) -eq 'Done') 'no scan reads as done'
     Stop-DiscoveryRunspace -Job $null
 
-    # --- Options, ConfigMgr Preferences ---------------------------------------------
+    # --- Options, Connections, ConfigMgr and Product filter ----------------------------------
+    . (Join-Path $PSScriptRoot 'OptionsTestSupport.ps1') -Root $root -FixtureDir $fixtureDir
     Set-Content -LiteralPath $global:fixturePath -Value '{ "DiscoverySqlServer": "sql01", "DiscoverySqlDatabase": "CM_ABC", "DiscoveryDismissed": ["package-git.ps1", "package-vlc.ps1"] }'
     $script:Prefs = Read-Preferences
-    $panel = New-MecmPreferencesPanel
-    $el = $panel.Element
-    & $assert ($el.FindName('txtDiscoverySqlServer').Text -eq 'sql01' -and $el.FindName('txtDiscoverySqlDatabase').Text -eq 'CM_ABC') 'the panel shows the stored SQL overrides'
-    & $assert ($el.FindName('txtDiscoveryDismissed').Text -eq '2 app(s)' -and $el.FindName('btnClearDiscoveryDismissed').IsEnabled) 'the panel counts the apps not offered'
-    $el.FindName('txtDiscoverySqlServer').Text = ' cm01.contoso.com '
-    $el.FindName('txtDiscoverySqlDatabase').Text = ''
+    $cmPage = New-OptionsTestPage -Id 'cm'
+    & $assert ((& $cmPage.Editors['cm.sqlServer'].Get) -eq 'sql01' -and (& $cmPage.Editors['cm.sqlDatabase'].Get) -eq 'CM_ABC') 'the section shows the stored SQL server and database'
+    $filterPage = New-OptionsTestPage -Id 'productfilter'
+    $el = $filterPage.Element
+    & $assert ($el.FindName('txtDiscoveryDismissed').Text -eq '2 app(s)' -and $el.FindName('btnClearDiscoveryDismissed').IsEnabled) 'Product filter counts the apps not offered'
+    & $cmPage.Editors['cm.sqlServer'].Set ' cm01.contoso.com '
+    & $cmPage.Editors['cm.sqlDatabase'].Set ''
     & $click $el.FindName('btnClearDiscoveryDismissed')
-    & $panel.Commit
+    & $cmPage.Commit
+    & $filterPage.Commit
     & $assert ($script:Prefs.DiscoverySqlServer -eq 'cm01.contoso.com' -and $script:Prefs.DiscoverySqlDatabase -eq '') 'OK saves the trimmed server and an empty database'
     & $assert (@($script:Prefs.DiscoveryDismissed).Count -eq 0) 'Clear list empties the list on OK'
 }

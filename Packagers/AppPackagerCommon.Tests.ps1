@@ -606,24 +606,39 @@ Describe 'New-OdtConfigXml' {
             $xml | Should -Match 'Product ID="O365ProPlusRetail"'
         }
 
-        It 'excludes Groove, Lync, OneDrive, Teams, Bing' {
+        It 'excludes Groove, Lync, OneDrive and Teams, and not the retired Bing ID' {
             $xml | Should -Match 'ExcludeApp ID="Groove"'
             $xml | Should -Match 'ExcludeApp ID="Lync"'
             $xml | Should -Match 'ExcludeApp ID="OneDrive"'
             $xml | Should -Match 'ExcludeApp ID="Teams"'
-            $xml | Should -Match 'ExcludeApp ID="Bing"'
+            $xml | Should -Not -Match 'ExcludeApp ID="Bing"'
         }
 
-        It 'includes SharedComputerLicensing' {
-            $xml | Should -Match 'Name="SharedComputerLicensing" Value="1"'
+        It 'leaves out SharedComputerLicensing, which the Office Deployment Tool defaults to 0' {
+            $xml | Should -Not -Match 'SharedComputerLicensing'
         }
 
         It 'includes FORCEAPPSHUTDOWN' {
             $xml | Should -Match 'Name="FORCEAPPSHUTDOWN" Value="TRUE"'
         }
 
-        It 'includes MigrateArch' {
-            $xml | Should -Match 'MigrateArch="TRUE"'
+        It 'leaves out MigrateArch, so that a package never changes the installed architecture' {
+            $xml | Should -Not -Match 'MigrateArch'
+        }
+
+        It 'leaves out the properties that only repeat a default' {
+            $xml | Should -Not -Match 'DeviceBasedLicensing'
+            $xml | Should -Not -Match 'PinIconsToTaskbar'
+            $xml | Should -Not -Match 'SCLCacheOverride'
+        }
+
+        It 'keeps OfficeMgmtCOM and an explicit Updates element' {
+            $xml | Should -Match 'OfficeMgmtCOM="TRUE"'
+            $xml | Should -Match '<Updates Enabled="TRUE" />'
+        }
+
+        It 'writes the English language by default' {
+            $xml | Should -Match '<Language ID="en-us" />'
         }
 
         It 'includes RemoveMSI' {
@@ -733,6 +748,227 @@ Describe 'New-OdtConfigXml' {
 
         It 'includes OfficeClientEdition 32' {
             $xml | Should -Match 'OfficeClientEdition="32"'
+        }
+    }
+
+    Context 'install behavior options' {
+        BeforeAll {
+            $xml = New-OdtConfigXml -OfficeClientEdition '64' -Version '16.0.1.1' -ProductIds @('O365ProPlusRetail') `
+                -Languages @('de-de', 'fr-fr') -OfficeMgmtCom $false -UpdatesEnabled $false -ForceAppShutdown $false -RemoveMsi $false `
+                -MigrateArch $true -SharedComputerLicensing $true -DeviceBasedLicensing $true
+        }
+
+        It 'writes each language in order' {
+            $xml.IndexOf('Language ID="de-de"') | Should -BeLessThan $xml.IndexOf('Language ID="fr-fr"')
+            $xml | Should -Not -Match 'Language ID="en-us"'
+        }
+
+        It 'writes the properties that are on' {
+            $xml | Should -Match 'Name="SharedComputerLicensing" Value="1"'
+            $xml | Should -Match 'Name="DeviceBasedLicensing" Value="1"'
+            $xml | Should -Match 'MigrateArch="TRUE"'
+        }
+
+        It 'leaves out what is off' {
+            $xml | Should -Not -Match 'OfficeMgmtCOM'
+            $xml | Should -Not -Match 'FORCEAPPSHUTDOWN'
+            $xml | Should -Not -Match 'RemoveMSI'
+            $xml | Should -Match '<Updates Enabled="FALSE" />'
+        }
+
+        It 'stays well-formed' {
+            { [xml]$xml } | Should -Not -Throw
+        }
+    }
+}
+
+# ============================================================================
+# Imported configuration.xml of the Microsoft 365 packagers
+# ============================================================================
+
+Describe 'Microsoft 365 imported configuration.xml' {
+    BeforeAll {
+        $script:Own = @'
+<Configuration>
+  <Add OfficeClientEdition="32" Channel="Current" Version="16.0.1.1" SourcePath="D:\old">
+    <Product ID="O365ProPlusRetail">
+      <Language ID="de-de" />
+      <ExcludeApp ID="Access" />
+    </Product>
+  </Add>
+  <Property Name="SharedComputerLicensing" Value="1" />
+  <AppSettings><Setup Name="Company" Value="Caf&#xE9;" /></AppSettings>
+  <Display Level="Full" AcceptEULA="FALSE" />
+</Configuration>
+'@
+    }
+
+    Context 'Test-OdtConfigurationXml' {
+        It 'accepts a Configuration with an Add element and a Product that has an ID' {
+            $result = Test-OdtConfigurationXml -Text $script:Own
+            $result.Valid | Should -BeTrue
+            $result.ProductIds | Should -Be @('O365ProPlusRetail')
+        }
+
+        It 'lists what the packager changes' {
+            $result = Test-OdtConfigurationXml -Text $script:Own
+            ($result.Notes -join ' ') | Should -Match 'OfficeClientEdition, Version and SourcePath'
+            ($result.Notes -join ' ') | Should -Match 'Display is set'
+        }
+
+        It 'refuses <Name>' -ForEach @(
+            @{ Name = 'text that is not XML'; Text = 'not xml'; Pattern = 'not well-formed' }
+            @{ Name = 'an empty file'; Text = '   '; Pattern = 'empty' }
+            @{ Name = 'a broken tag'; Text = '<Configuration><Add></Configuration>'; Pattern = 'not well-formed' }
+            @{ Name = 'another root element'; Text = '<Settings><Add><Product ID="x" /></Add></Settings>'; Pattern = 'root element' }
+            @{ Name = 'a configuration without Add'; Text = '<Configuration><Display Level="None" /></Configuration>'; Pattern = 'no Add element' }
+            @{ Name = 'an Add without Product'; Text = '<Configuration><Add Channel="Current" /></Configuration>'; Pattern = 'no Product element' }
+            @{ Name = 'a Product without ID'; Text = '<Configuration><Add><Product /></Add></Configuration>'; Pattern = 'no ID attribute' }
+            @{ Name = 'a DOCTYPE'; Text = '<!DOCTYPE a [<!ENTITY x SYSTEM "file:///c:/windows/win.ini">]><Configuration><Add><Product ID="x">&x;</Product></Add></Configuration>'; Pattern = 'not well-formed' }
+        ) {
+            $result = Test-OdtConfigurationXml -Text $Text
+            $result.Valid | Should -BeFalse
+            ($result.Errors -join ' ') | Should -Match $Pattern
+        }
+
+        It 'accepts a file with a byte order mark' {
+            (Test-OdtConfigurationXml -Text ([string][char]0xFEFF + $script:Own)).Valid | Should -BeTrue
+        }
+    }
+
+    Context 'ConvertTo-OdtUserConfigXml' {
+        It 'sets the edition, the version and the source path of a download XML' {
+            $xml = ConvertTo-OdtUserConfigXml -Text $script:Own -OfficeClientEdition '64' -Version '16.0.19127.20532' -SourcePath 'C:\content'
+            $xml | Should -Match 'OfficeClientEdition="64"'
+            $xml | Should -Match 'Version="16\.0\.19127\.20532"'
+            $xml | Should -Match 'SourcePath="C:\\content"'
+            $xml | Should -Not -Match 'D:\\old'
+        }
+
+        It 'removes the version and the source path of an online install XML' {
+            $xml = ConvertTo-OdtUserConfigXml -Text $script:Own -OfficeClientEdition '64'
+            $xml | Should -Not -Match 'Version='
+            $xml | Should -Not -Match 'SourcePath='
+        }
+
+        It 'keeps the channel of the file, its products, its languages and its own settings' {
+            $xml = ConvertTo-OdtUserConfigXml -Text $script:Own -OfficeClientEdition '64'
+            $xml | Should -Match 'Channel="Current"'
+            $xml | Should -Match 'Product ID="O365ProPlusRetail"'
+            $xml | Should -Match 'Language ID="de-de"'
+            $xml | Should -Match 'ExcludeApp ID="Access"'
+            $xml | Should -Match 'SharedComputerLicensing'
+        }
+
+        It 'sets a silent display' {
+            $xml = ConvertTo-OdtUserConfigXml -Text $script:Own -OfficeClientEdition '64'
+            $xml | Should -Match 'Display Level="None" AcceptEULA="TRUE"'
+        }
+
+        It 'adds a silent display to a file without one' {
+            $xml = ConvertTo-OdtUserConfigXml -Text '<Configuration><Add><Product ID="x" /></Add></Configuration>' -OfficeClientEdition '64' -Channel 'MonthlyEnterprise'
+            $xml | Should -Match 'Display Level="None" AcceptEULA="TRUE"'
+            $xml | Should -Match 'Channel="MonthlyEnterprise"'
+        }
+
+        It 'writes ASCII only, with numeric character references for other characters' {
+            $text = $script:Own.Replace('Caf&#xE9;', ('Caf' + [char]0x00E9))
+            $xml = ConvertTo-OdtUserConfigXml -Text $text -OfficeClientEdition '64'
+            [regex]::IsMatch($xml, '[^\x00-\x7F]') | Should -BeFalse
+            $xml | Should -Match 'Caf&#xE9;'
+            { [xml]$xml } | Should -Not -Throw
+        }
+
+        It 'refuses a file that is not usable' {
+            { ConvertTo-OdtUserConfigXml -Text '<Configuration />' -OfficeClientEdition '64' } | Should -Throw '*not usable*'
+        }
+    }
+
+    Context 'Get-OdtUserConfigInfo' {
+        It 'reads the channel and selects the Managed mode when the file has a source path' {
+            $info = Get-OdtUserConfigInfo -Text $script:Own
+            $info.Channel | Should -Be 'Current'
+            $info.DeployMode | Should -Be 'Managed'
+        }
+
+        It 'selects the Online mode when the file has no source path' {
+            $info = Get-OdtUserConfigInfo -Text '<Configuration><Add Channel="MonthlyEnterprise"><Product ID="x" /></Add></Configuration>'
+            $info.Channel | Should -Be 'MonthlyEnterprise'
+            $info.DeployMode | Should -Be 'Online'
+        }
+
+        It 'reports no channel for one that the packagers do not support' {
+            (Get-OdtUserConfigInfo -Text '<Configuration><Add Channel="BetaChannel"><Product ID="x" /></Add></Configuration>').Channel | Should -Be ''
+        }
+    }
+
+    Context 'the stage path of every Microsoft 365 packager' {
+        It 'New-OdtConfigXml takes the imported file and the packager still sets the version and the source path' {
+            $file = Join-Path $TestDrive 'own.xml'
+            Set-Content -LiteralPath $file -Value $script:Own -Encoding UTF8
+            $download = New-OdtConfigXml -OfficeClientEdition '64' -Version '16.0.5.5' -ProductIds @('O365ProPlusRetail') -SourcePath 'C:\content' -UserConfigPath $file
+            $install = New-OdtConfigXml -OfficeClientEdition '64' -Version '16.0.5.5' -ProductIds @('O365ProPlusRetail') -UserConfigPath $file
+            $online = New-OdtConfigXml -OfficeClientEdition '64' -ProductIds @('O365ProPlusRetail') -UserConfigPath $file
+            $download | Should -Match 'SourcePath="C:\\content"'
+            $download | Should -Match 'Version="16\.0\.5\.5"'
+            $install | Should -Not -Match 'SourcePath='
+            $install | Should -Match 'Version="16\.0\.5\.5"'
+            $online | Should -Not -Match 'Version='
+            foreach ($xml in $download, $install, $online) { $xml | Should -Match 'Language ID="de-de"' }
+        }
+
+        It 'ignores the generated settings when a file is given' {
+            $file = Join-Path $TestDrive 'own2.xml'
+            Set-Content -LiteralPath $file -Value $script:Own -Encoding UTF8
+            $xml = New-OdtConfigXml -OfficeClientEdition '64' -ProductIds @('VisioProRetail') -CompanyName 'Other' -ExcludeApps @('Word') -Languages @('ja-jp') -UserConfigPath $file
+            $xml | Should -Not -Match 'VisioProRetail'
+            $xml | Should -Not -Match 'Other'
+            $xml | Should -Not -Match 'ja-jp'
+        }
+
+        It 'passes the imported file at every New-OdtConfigXml call of <Name>' -ForEach @(Get-ChildItem -LiteralPath $PSScriptRoot -Filter 'package-m365*.ps1' -File | ForEach-Object { @{ Name = $_.Name; Path = $_.FullName } }) {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$null)
+            $calls = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'New-OdtConfigXml' }, $true))
+            $calls.Count | Should -Be 4
+            foreach ($call in $calls) {
+                $names = @($call.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] } | ForEach-Object { $_.ParameterName })
+                $names | Should -Contain 'UserConfigPath'
+                $call.Extent.Text | Should -Match '@odtOptions'
+            }
+            $ast.Extent.Text | Should -Match 'Get-OdtUserConfigPath -Preferences \(Get-PackagerPreferences\)'
+            $ast.Extent.Text | Should -Match 'Get-OdtUserConfigInfo'
+        }
+
+        It 'reads the imported file only while the preference selects it' {
+            Get-OdtUserConfigPath -Preferences ([pscustomobject]@{ M365UseCustomConfig = $false; M365CustomConfigPath = 'x' }) | Should -Be ''
+            Get-OdtUserConfigPath -Preferences $null | Should -Be ''
+            { Get-OdtUserConfigPath -Preferences ([pscustomobject]@{ M365UseCustomConfig = $true; M365CustomConfigPath = (Join-Path $TestDrive 'missing.xml') }) } | Should -Throw '*stored file is missing*'
+            $file = Join-Path $TestDrive 'present.xml'
+            Set-Content -LiteralPath $file -Value $script:Own -Encoding UTF8
+            Get-OdtUserConfigPath -Preferences ([pscustomobject]@{ M365UseCustomConfig = $true; M365CustomConfigPath = $file }) | Should -Be $file
+        }
+    }
+
+    Context 'Get-OdtGeneratedOption' {
+        It 'returns the packager defaults for no preferences' {
+            $o = Get-OdtGeneratedOption -Preferences $null
+            $o.OfficeMgmtCom | Should -BeTrue
+            $o.UpdatesEnabled | Should -BeTrue
+            $o.ForceAppShutdown | Should -BeTrue
+            $o.RemoveMsi | Should -BeTrue
+            $o.MigrateArch | Should -BeFalse
+            $o.SharedComputerLicensing | Should -BeFalse
+            $o.DeviceBasedLicensing | Should -BeFalse
+            $o.Languages | Should -Be @('en-us')
+        }
+
+        It 'reads the stored values and drops a language code that is not valid' {
+            $prefs = [pscustomobject]@{ M365Options = [pscustomobject]@{ Languages = @('de-de', 'x y'); MigrateArch = $true; SharedComputerLicensing = $true } }
+            $o = Get-OdtGeneratedOption -Preferences $prefs
+            $o.Languages | Should -Be @('de-de')
+            $o.MigrateArch | Should -BeTrue
+            $o.SharedComputerLicensing | Should -BeTrue
+            $o.RemoveMsi | Should -BeTrue
         }
     }
 }

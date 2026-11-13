@@ -25,11 +25,11 @@ BeforeAll {
 
 Describe 'The scans find the documents' {
     It 'finds the main window, the Workbench, the dialogs and the panels' {
-        $script:XamlDocs.Count | Should -BeGreaterOrEqual 25
+        $script:XamlDocs.Count | Should -BeGreaterOrEqual 20
         @($script:XamlDocs | Where-Object { $_.Source -eq 'MainWindow.xaml' }).Count | Should -Be 1
         @($script:XamlDocs | Where-Object { $_.Source -eq 'WorkbenchWindow.xaml' }).Count | Should -Be 1
         @($script:XamlDocs | Where-Object { $_.Kind -eq 'window' }).Count | Should -BeGreaterOrEqual 15
-        @($script:XamlDocs | Where-Object { $_.Kind -eq 'panel' }).Count | Should -BeGreaterOrEqual 5
+        @($script:XamlDocs | Where-Object { $_.Kind -eq 'panel' }).Count | Should -BeGreaterOrEqual 4
     }
 
     It 'expands the shared style marker in every window of the start script' {
@@ -292,25 +292,30 @@ Describe 'Fonts do not depend on the theme (b)' {
         $_.Text | Should -Not -Match 'FontWeight(=|" Value=)"SemiBold"'
     }
 
-    It 'sets the title of the site code and SMS Provider boxes to bold 14 pt or more and the value to a normal weight below 14 pt in <_.Source>' -ForEach $script:XamlDocsD {
-        [xml]$x = $_.Text
-        foreach ($name in 'txtSC', 'txtProvider', 'txtWizSC', 'txtWizProvider', 'txtSite') {
-            $box = $x.SelectSingleNode(("//*[@*[local-name()='Name']='{0}']" -f $name))
-            if (-not $box) { continue }
-            $row = $box.GetAttribute('Grid.Row')
-            $title = $x.SelectSingleNode(("//*[local-name()='TextBlock'][@Grid.Row='{0}'][@Grid.Column='0']" -f $row))
-            if (-not $title) { $title = $box.PreviousSibling; while ($title -and $title.NodeType -ne 'Element') { $title = $title.PreviousSibling } }
-            $title | Should -Not -BeNullOrEmpty -Because $name
-            [double]$title.GetAttribute('FontSize') | Should -BeGreaterOrEqual 14 -Because ('title of ' + $name)
-            $title.GetAttribute('FontWeight') | Should -Be 'Bold' -Because ('title of ' + $name)
-            $box.GetAttribute('FontWeight') | Should -Not -Be 'Bold' -Because ('value of ' + $name)
-            if ($box.GetAttribute('FontSize')) { [double]$box.GetAttribute('FontSize') | Should -BeLessThan 14 -Because ('value of ' + $name) }
-        }
+    It 'builds the title of each Options field bold and 14 pt or larger, and its value in a normal weight below 14 pt' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($script:ShellPath, [ref]$null, [ref]$null)
+        $row = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'New-OptionsFieldRow' }, $false)
+        $row.Extent.Text | Should -Match 'New-OptionsTextBlock -Text \(\[string\]\$Field\.Title\) -Size 14 -Bold \$true'
+        $editor = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'New-OptionsFieldEditor' }, $false)
+        $editor.Extent.Text | Should -Not -Match 'FontWeight'
+        foreach ($size in [regex]::Matches($editor.Extent.Text, '\.FontSize = (\d+)')) { [int]$size.Groups[1].Value | Should -BeLessThan 14 }
     }
 
-    It 'finds the site code and SMS Provider boxes (the scan is not empty)' {
-        $names = foreach ($d in $script:XamlDocs) { [xml]$x = $d.Text; foreach ($n in 'txtSC', 'txtProvider', 'txtWizSC', 'txtWizProvider') { if ($x.SelectSingleNode(("//*[@*[local-name()='Name']='{0}']" -f $n))) { $n } } }
-        @($names | Sort-Object -Unique) | Should -Be @('txtProvider', 'txtSC', 'txtWizProvider', 'txtWizSC')
+    It 'sets a bold weight in the Options code only on the title of a field' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($script:ShellPath, [ref]$null, [ref]$null)
+        $optionFunction = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -match 'Options|FirstRunWizard' }, $false))
+        $optionFunction.Count | Should -BeGreaterThan 30
+        $bold = foreach ($fn in $optionFunction) {
+            foreach ($m in [regex]::Matches($fn.Extent.Text, 'FontWeights\]::Bold|-Bold \$true')) { $fn.Name }
+        }
+        @($bold | Sort-Object -Unique) | Should -Be @('New-OptionsFieldRow', 'New-OptionsTextBlock')
+    }
+
+    It 'keeps the site code and the SMS Provider as fields of Options and the Setup wizard' {
+        . (Join-Path $PSScriptRoot 'OptionsDefinitionHelpers.ps1')
+        $fields = Get-OptionsFieldFromLauncher -Path $script:ShellPath
+        @($fields | Where-Object { $_.Id -eq 'cm.siteCode' -and $_.Title -ceq 'Site code' }).Count | Should -Be 1
+        @($fields | Where-Object { $_.Id -eq 'cm.provider' -and $_.Title -ceq 'Site server / SMS Provider' }).Count | Should -Be 1
     }
 
     It 'uses the term SMS Provider and no other name for it in the XAML text' {
@@ -394,7 +399,7 @@ Describe 'Every button takes the shared themed style (d)' {
     It 'sets no size on a button that the start script creates, and gives it the inline style' {
         @(Get-CodeButtonSize -Path $script:ShellPath) | Should -BeNullOrEmpty
         $buttons = @(Get-CodeControl -Path $script:ShellPath -TypeName 'Button')
-        $buttons.Count | Should -BeGreaterOrEqual 2
+        $buttons.Count | Should -BeGreaterOrEqual 1
         foreach ($b in $buttons) { Get-CodeStyleKey -Function $b.Function -Variable $b.Variable | Should -BeIn @('DialogButton', 'DialogAccentButton', 'InlineButtonStyle') -Because $b.Variable }
         $script:ShellText | Should -Not -Match 'MahApps\.Styles\.Button'
     }

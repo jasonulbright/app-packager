@@ -85,20 +85,20 @@ function Test-WizardCallback {
     $dlg = New-Object FirstRunTestDialog
     $btnWizSave = New-Object FirstRunTestButton
     $btnWizSkip = New-Object FirstRunTestButton
-    $chkWizMecm = [pscustomobject]@{ IsChecked = ($Systems -contains 'ConfigMgr') }
-    $chkWizIntune = [pscustomobject]@{ IsChecked = ($Systems -contains 'Intune') }
-    $chkWizWsus = [pscustomobject]@{ IsChecked = ($Systems -contains 'WSUS') }
+    # The wizard builds each group of fields with the same code as the Options sections. The probe stands in
+    # for the groups: Commit writes what the fields of the group write, and Validate finds no problem.
+    $mecmBox = [pscustomobject]@{ IsChecked = ($Systems -contains 'ConfigMgr') }
+    $intuneBox = [pscustomobject]@{ IsChecked = ($Systems -contains 'Intune') }
+    $wsusBox = [pscustomobject]@{ IsChecked = ($Systems -contains 'WSUS') }
     $Target = if ($Systems -contains 'ConfigMgr') { 'MECM' } elseif ($Systems -contains 'Intune') { 'IntuneOnly' } elseif ($Systems -contains 'WSUS') { 'WSUSOnly' } else { 'MECM' }
-    $txtWizSC = [pscustomobject]@{ Text = ' TEST ' }
-    $txtWizProvider = [pscustomobject]@{ Text = ' provider.example ' }
-    $txtWizFS = [pscustomobject]@{ Text = ' \\server\content ' }
-    $txtWizDL = [pscustomobject]@{ Text = ' C:\temp\packages ' }
-    $txtWizTenant = [pscustomobject]@{ Text = ' tenant ' }
-    $txtWizClient = [pscustomobject]@{ Text = ' client ' }
-    $pwdWizSecret = [pscustomobject]@{ SecurePassword = (New-Object Security.SecureString) }
-    $txtWizWsusServer = [pscustomobject]@{ Text = ' wsus.example ' }
-    $txtWizWsusPort = [pscustomobject]@{ Text = ' 8531 ' }
-    $chkWizWsusSsl = [pscustomobject]@{ IsChecked = $true }
+    $systems = @{ Block = [pscustomobject]@{ Visibility = 'Visible' }; Group = @{ Validate = { $null }; Commit = {
+                $script:Prefs.Systems.ConfigMgr = [bool]$mecmBox.IsChecked; $script:Prefs.Systems.Intune = [bool]$intuneBox.IsChecked; $script:Prefs.Systems.Wsus = [bool]$wsusBox.IsChecked } } }
+    $mecm = @{ Block = [pscustomobject]@{ Visibility = $(if ($mecmBox.IsChecked) { 'Visible' } else { 'Collapsed' }) }; Group = @{ Validate = { $null }; Commit = {
+                $script:Prefs.SiteCode = 'TEST'; $script:Prefs.ProviderMachineName = 'provider.example'; $script:Prefs.FileShareRoot = '\\server\content'; $script:Prefs.DownloadRoot = 'C:\temp\packages' } } }
+    $intune = @{ Block = [pscustomobject]@{ Visibility = $(if ($intuneBox.IsChecked) { 'Visible' } else { 'Collapsed' }) }; Group = @{ Validate = { $null }; Commit = {
+                $script:Prefs.Intune.TenantId = 'tenant'; $script:Prefs.Intune.ClientId = 'client' } } }
+    $wsus = @{ Block = [pscustomobject]@{ Visibility = $(if ($wsusBox.IsChecked) { 'Visible' } else { 'Collapsed' }) }; Group = @{ Validate = { $null }; Commit = {
+                $script:Prefs.Wsus.ServerName = 'wsus.example'; $script:Prefs.Wsus.PortNumber = 8531; $script:Prefs.Wsus.UseSsl = $true } } }
     $chkWizDontAsk = [pscustomobject]@{ IsChecked = $Suppress }
 
     . $registrations
@@ -159,34 +159,7 @@ foreach ($scenario in @(
     catch { $failed++; Write-Output "FAIL: $($scenario.Action): $($_.Exception.Message)" }
 }
 
-# The wizard's WSUS port follows its SSL box until the operator types a port,
-# on real WPF controls. Setting IsChecked without a click is what a keyboard
-# or UI Automation toggle does.
-try {
-    Add-Type -AssemblyName PresentationFramework
-    $portStart = $source.IndexOf('$wizPortFollowsSsl')
-    $portEnd = $source.IndexOf('$currentTarget', [Math]::Max(0, $portStart))
-    if ($portStart -lt 0 -or $portEnd -lt 0) { throw 'Cannot locate the wizard port-follow registrations.' }
-    $portFollow = [scriptblock]::Create($source.Substring($portStart, $portEnd - $portStart))
-    $script:Prefs = [pscustomobject]@{ Wsus = [pscustomobject]@{ PortNumber = 8530 } }
-    $txtWizWsusPort = New-Object System.Windows.Controls.TextBox
-    $txtWizWsusPort.Text = '8530'
-    $chkWizWsusSsl = New-Object System.Windows.Controls.CheckBox
-    . $portFollow
-    $chkWizWsusSsl.IsChecked = $true
-    Assert-True ($txtWizWsusPort.Text -eq '8531') 'Ticking Use SSL did not move the default port to 8531.'
-    $chkWizWsusSsl.IsChecked = $false
-    Assert-True ($txtWizWsusPort.Text -eq '8530') 'Clearing Use SSL did not move the port back to 8530.'
-    $script:Prefs.Wsus.PortNumber = 443
-    $txtWizWsusPort = New-Object System.Windows.Controls.TextBox
-    $txtWizWsusPort.Text = '443'
-    $chkWizWsusSsl = New-Object System.Windows.Controls.CheckBox
-    . $portFollow
-    $chkWizWsusSsl.IsChecked = $true
-    Assert-True ($txtWizWsusPort.Text -eq '443') 'Use SSL replaced a port the operator chose.'
-    Write-Output 'PASS: WSUS port follows Use SSL'
-}
-catch { $failed++; Write-Output "FAIL: WSUS port follow: $($_.Exception.Message)" }
+# The WSUS port follows the Use SSL box in the shared field group. Invoke-OptionsTreeSmoke and Invoke-WsusOptionsSmoke run it on real controls.
 
 # The log line after a saved setup names every default One Click destination.
 try {

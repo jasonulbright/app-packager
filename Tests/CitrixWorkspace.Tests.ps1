@@ -227,6 +227,69 @@ Describe 'Citrix Workspace argument builder: ADDLOCAL' {
     }
 }
 
+Describe 'Citrix Workspace argument builder: options from the vendor install page' {
+    It 'emits /forceinstall right after /CleanInstall' {
+        Get-Args (New-CwaConfig @{ Installation = @{ CleanInstall = $true; ForceInstall = $true } }) | Should -Be @('/silent', '/CleanInstall', '/forceinstall')
+    }
+
+    It 'emits <Switch> only when <Key> is selected' -TestCases @(
+        @{ Key = 'BidirContentRedirection'; Switch = 'ALLOW_BIDIRCONTENTREDIRECTION=1' }
+        @{ Key = 'ClientHostedAppsUrl'; Switch = 'ALLOW_CLIENTHOSTEDAPPSURL=1' }
+        @{ Key = 'ForceLaa'; Switch = 'FORCE_LAA=1' }
+        @{ Key = 'LegacyFtaIcons'; Switch = 'LEGACYFTAICONS=True' }
+    ) {
+        Get-Args (New-CwaConfig @{ Installation = @{ $Key = $true } }) | Should -Be @('/silent', $Switch)
+        Get-Args (New-CwaConfig @{ Installation = @{ $Key = $false } }) | Should -Be @('/silent')
+    }
+
+    It 'emits DisableSetting for 0 to 3 and warns about another value' {
+        Get-Args (New-CwaConfig @{ Installation = @{ DisableSetting = '3' } }) | Should -Be @('/silent', 'DisableSetting=3')
+        $r = ConvertTo-CwaInstallArguments -Config (New-CwaConfig @{ Installation = @{ DisableSetting = '7' } }) -Stream 'Current'
+        $r.Arguments | Should -Be @('/silent')
+        @($r.Warnings).Count | Should -Be 1
+    }
+
+    It 'fixes the client name with ENABLE_DYNAMIC_CLIENT_NAME=No' {
+        Get-Args (New-CwaConfig @{ Installation = @{ ClientName = 'KIOSK01' } }) | Should -Be @('/silent', 'ENABLE_DYNAMIC_CLIENT_NAME=No', 'CLIENT_NAME=KIOSK01')
+    }
+
+    It 'refuses a client name with a space or a quote' {
+        $r = ConvertTo-CwaInstallArguments -Config (New-CwaConfig @{ Installation = @{ ClientName = 'bad name' } }) -Stream 'Current'
+        $r.Arguments | Should -Be @('/silent')
+        @($r.Warnings).Count | Should -Be 1
+    }
+
+    It 'emits /SkipSRAgentUpgrade only with the Session Recording agent on the Current Release' {
+        Get-Args (New-CwaConfig @{ Plugins = @{ SessionRecording = $true; SkipSRAgentUpgrade = $true } }) | Should -Be @('/silent', '/InstallSRAgent', '/SkipSRAgentUpgrade')
+        $r = ConvertTo-CwaInstallArguments -Config (New-CwaConfig @{ Plugins = @{ SkipSRAgentUpgrade = $true } }) -Stream 'Current'
+        $r.Arguments | Should -Be @('/silent')
+        @($r.Warnings).Count | Should -Be 1
+    }
+
+    It 'emits AutoUpdateStream and AURolloutPriority after AutoUpdateCheck' {
+        Get-Args (New-CwaConfig @{ UpdateAndTelemetry = @{ AutoUpdateCheck = 'auto'; AutoUpdateStream = 'LTSR'; AURolloutPriority = 'Slow' } }) |
+            Should -Be @('/silent', 'AutoUpdateCheck=auto', 'AutoUpdateStream=LTSR', 'AURolloutPriority=Slow')
+    }
+
+    It 'ignores the stream and the priority while AutoUpdateCheck is not set, with a warning for each' {
+        $r = ConvertTo-CwaInstallArguments -Config (New-CwaConfig @{ UpdateAndTelemetry = @{ AutoUpdateStream = 'LTSR'; AURolloutPriority = 'Fast' } }) -Stream 'Current'
+        $r.Arguments | Should -Be @('/silent')
+        @($r.Warnings).Count | Should -Be 2
+    }
+
+    It 'refuses a priority that the vendor page does not list' {
+        $r = ConvertTo-CwaInstallArguments -Config (New-CwaConfig @{ UpdateAndTelemetry = @{ AutoUpdateCheck = 'auto'; AURolloutPriority = 'Instant' } }) -Stream 'Current'
+        $r.Arguments | Should -Be @('/silent', 'AutoUpdateCheck=auto')
+        @($r.Warnings).Count | Should -Be 1
+    }
+
+    It 'adds CitrixEnterpriseBrowser to ADDLOCAL on the LTSR stream only' {
+        $cfg = New-CwaConfig @{ Components = @{ Customize = $true; ReceiverInside = $true; ICA_Client = $true; AM = $true; CitrixEnterpriseBrowser = $true } }
+        Get-Args $cfg 'LTSR' | Should -Be @('/silent', 'ADDLOCAL=ReceiverInside,ICA_Client,AM,CitrixEnterpriseBrowser')
+        Get-Args $cfg 'Current' | Should -Be @('/silent', 'ADDLOCAL=ReceiverInside,ICA_Client,AM')
+    }
+}
+
 Describe 'Citrix Workspace packager <Name>' -ForEach $PackagerCases {
     BeforeAll {
         $script:Ast = Get-PackagerAst $Name

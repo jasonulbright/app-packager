@@ -61,7 +61,7 @@ try {
 
     # OK: the panel commits into preferences, which are then written.
     $panel = New-ScriptSigningPanel
-    & $assert ([string]$panel.Name -eq 'Script Signing') 'the panel registers under its own Options section'
+    & $assert ([string]$panel.Name -eq 'Script signing') 'the panel registers under its own Options section'
     $panel.Element.FindName('chkSignDetection').IsChecked = $true
     $panel.Element.FindName('chkRequireDetection').IsChecked = $true
     $panel.Element.FindName('chkSignDeployment').IsChecked = $true

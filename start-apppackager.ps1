@@ -5725,7 +5725,7 @@ function New-AppFlowPanel {
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <TextBlock Grid.Row="0" Grid.Column="0" Text="Action on Update:" FontWeight="Bold" VerticalAlignment="Center" FontSize="12" Margin="0,0,8,0"/>
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Action on update" FontWeight="Bold" VerticalAlignment="Center" FontSize="12" Margin="0,0,8,0"/>
         <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" Grid.Row="0" Grid.Column="1" x:Name="cboAction" Width="190" VerticalAlignment="Center">
             <ComboBoxItem Content="Report only"/>
             <ComboBoxItem Content="Stage"/>
@@ -5735,14 +5735,14 @@ function New-AppFlowPanel {
                                 Header="Force on launch (ignore cadence)"
                                 OnContent="" OffContent="" MinWidth="0"
                                 VerticalAlignment="Center"/>
-        <TextBlock Grid.Row="1" Grid.Column="0" Text="Default Destinations:" FontWeight="Bold" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="Default destinations" FontWeight="Bold" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
         <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,8,0,0"
                     ToolTip="The destinations of every tracked app that has no selection of its own in the grid.">
             <CheckBox x:Name="chkOneClickMecm" Content="ConfigMgr" FontSize="12" Margin="0,0,16,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <CheckBox x:Name="chkOneClickWsus" Content="WSUS" FontSize="12" Margin="0,0,16,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <CheckBox x:Name="chkOneClickIntune" Content="Intune" FontSize="12" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
-        <TextBlock Grid.Row="2" Grid.Column="0" Text="Existing ConfigMgr App:" FontWeight="Bold" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
+        <TextBlock Grid.Row="2" Grid.Column="0" Text="Existing ConfigMgr app" FontWeight="Bold" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
         <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" Grid.Row="2" Grid.Column="1" x:Name="cboOneClickOnExisting" Width="190" VerticalAlignment="Center" Margin="0,8,0,0"
                   ToolTip="The action when the ConfigMgr application exists with another version.">
             <ComboBoxItem Content="Skip the application" Tag="Skip"/>
@@ -5891,7 +5891,7 @@ function New-AppFlowPanel {
         $prefsRef.Intune.PublishToIntune      = [bool]$newDefault.Intune
     }.GetNewClosure()
 
-    return @{ Name = 'One Click Settings'; Element = $element; Commit = $commit }
+    return @{ Name = 'One Click'; Element = $element; Commit = $commit }
 }
 
 function Show-PreviewDialog {
@@ -5966,6 +5966,19 @@ function New-ProductFilterPanel {
 <DockPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
            xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro">
+    <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="220"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <TextBlock Grid.Column="0" Text="Not offered by Discover" FontSize="13" FontWeight="Bold" VerticalAlignment="Center"
+                   ToolTip="Apps that Discover unmanaged software leaves out after Don't ask again for selected."/>
+        <TextBlock Grid.Column="1" x:Name="txtDiscoveryDismissed" FontSize="13" VerticalAlignment="Center" Margin="0,0,12,0"/>
+        <Button Grid.Column="2" x:Name="btnClearDiscoveryDismissed" Content="Clear list"
+                Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                ToolTip="Offers each hidden app again in the next discovery."/>
+    </Grid>
     <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
@@ -5989,6 +6002,17 @@ function New-ProductFilterPanel {
     $treeApps  = $element.FindName('treeApps')
     $btnSelAll = $element.FindName('btnSelAll')
     $btnSelNone= $element.FindName('btnSelNone')
+    $txtDiscoveryDismissed = $element.FindName('txtDiscoveryDismissed')
+    $btnClearDiscoveryDismissed = $element.FindName('btnClearDiscoveryDismissed')
+    $dismissedCount = @($script:Prefs.DiscoveryDismissed | Where-Object { $_ }).Count
+    $txtDiscoveryDismissed.Text = ('{0} app(s)' -f $dismissedCount)
+    $btnClearDiscoveryDismissed.IsEnabled = ($dismissedCount -gt 0)
+    $discoveryClear = @{ Pending = $false }
+    $btnClearDiscoveryDismissed.Add_Click({
+        $discoveryClear.Pending = $true
+        $txtDiscoveryDismissed.Text = '0 app(s) after OK'
+        $btnClearDiscoveryDismissed.IsEnabled = $false
+    }.GetNewClosure())
 
     $hiddenSet = [System.Collections.Generic.HashSet[string]]::new(
         [string[]]@($script:Prefs.HiddenApplications),
@@ -6003,7 +6027,6 @@ function New-ProductFilterPanel {
         $vendorItem = New-Object System.Windows.Controls.TreeViewItem
         $vendorCB = New-Object System.Windows.Controls.CheckBox
         $vendorCB.Content = if ($group.Name) { $group.Name } else { "(No Vendor)" }
-        $vendorCB.FontWeight = [System.Windows.FontWeights]::Bold
         $vendorItem.Header = $vendorCB
 
         $allChecked = $true
@@ -6057,9 +6080,10 @@ function New-ProductFilterPanel {
             }
         }
         $prefsRef.HiddenApplications = $hidden.ToArray()
+        if ($discoveryClear.Pending) { $prefsRef.DiscoveryDismissed = @() }
     }.GetNewClosure()
 
-    return @{ Name = 'Product Filter'; Element = $element; Commit = $commit }
+    return @{ Name = 'Product filter'; Element = $element; Commit = $commit }
 }
 
 function Show-CommandOverrideDialog {
@@ -6217,7 +6241,7 @@ function New-AboutPanel {
       xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
       VerticalScrollBarVisibility="Auto">
     <StackPanel>
-        <TextBlock Text="AppPackager" FontSize="20" FontWeight="Bold" Margin="0,0,0,2"/>
+        <TextBlock Text="About" FontSize="20" Margin="0,0,0,2"/>
         <TextBlock x:Name="txtAboutVersion" FontSize="13" Margin="0,0,0,14"
                    Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
         <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,14"
@@ -6241,9 +6265,9 @@ function New-AboutPanel {
                     <Run x:Name="runAboutRepo" Text="github.com"/>
                 </Hyperlink>
             </TextBlock>
-            <TextBlock Grid.Row="2" Grid.Column="0" Text="Last Update Check" FontWeight="Bold" FontSize="12" Margin="0,0,0,6"/>
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Last update check" FontWeight="Bold" FontSize="12" Margin="0,0,0,6"/>
             <TextBlock Grid.Row="2" Grid.Column="1" x:Name="txtAboutLastCheck" FontSize="12" Margin="0,0,0,6"/>
-            <TextBlock Grid.Row="3" Grid.Column="0" Text="Latest Release" FontWeight="Bold" FontSize="12"/>
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Latest release" FontWeight="Bold" FontSize="12"/>
             <TextBlock Grid.Row="3" Grid.Column="1" x:Name="txtAboutLatest" FontSize="12"/>
         </Grid>
         <StackPanel Orientation="Horizontal">
@@ -6663,7 +6687,7 @@ function New-OptionsFieldRow {
     [void]$grid.ColumnDefinitions.Add($titleColumn)
     [void]$grid.ColumnDefinitions.Add($valueColumn)
 
-    $title = New-OptionsTextBlock -Text ([string]$Field.Title) -Size 13 -Bold $true
+    $title = New-OptionsTextBlock -Text ([string]$Field.Title) -Size 14 -Bold $true
     $title.Margin = New-Object System.Windows.Thickness(0, 4, 12, 0)
     $title.VerticalAlignment = [System.Windows.VerticalAlignment]::Top
     $title.ToolTip = [string]$Field.Tip
@@ -7005,6 +7029,19 @@ function Search-OptionsIndex {
 # page), Fields (a page built from the field list) or Panel (a page built by a
 # factory). The tree text, the page title and the search use the same Title.
 # =============================================================================
+function Get-OptionsNonUiPreference {
+    # The preference keys that no field of the Options window edits, and who writes each one. A subtree
+    # has one entry. The inventory test fails for a key that is in neither this list nor a field.
+    return [ordered]@{
+        'FirstRunCompleted'         = 'The Setup wizard writes it. The box Do not show this again and Save set it.'
+        'DiscoveryEnabled'          = 'The Discover unmanaged software window writes it when an application is enabled.'
+        'DeploymentConditions.Apps' = 'The conditions dialog of the main window edits it for each application.'
+        'CommandOverrides.Apps'     = 'The command override dialog of the main window edits it for each application.'
+        'WorkbenchDataRoot'         = 'File only. It sets the data folder of the Workbench; APP_PACKAGER_WORKBENCH_ROOT overrides it.'
+        'cwa:Installation.EnableSSON' = 'It follows Single sign-on in Options, Applications, Citrix Workspace App, Installation.'
+    }
+}
+
 function Get-OptionsSectionDefinition {
     $channelItems = @(@{ Label = 'Monthly Enterprise Channel'; Value = 'MonthlyEnterprise' }, @{ Label = 'Current Channel'; Value = 'Current' })
     $deployItems = @(@{ Label = 'Managed (offline source)'; Value = 'Managed' }, @{ Label = 'Online (CDN)'; Value = 'Online' })
@@ -7021,8 +7058,8 @@ function Get-OptionsSectionDefinition {
             Description = 'Select the systems that AppPackager publishes to. The sidebar disables the button of a system that is not selected.'
             Fields = @(
                 @{ Id = 'sys.configmgr'; Title = 'ConfigMgr'; Kind = 'Check'; Pref = 'Systems.ConfigMgr'; Label = 'Publish to a ConfigMgr site'; Tip = 'Enables the sidebar buttons that read or change the ConfigMgr site.'; Keywords = 'systems in use' }
-                @{ Id = 'sys.intune'; Title = 'Intune'; Kind = 'Check'; Pref = 'Systems.Intune'; Label = 'Publish Win32 apps through Microsoft Graph'; Tip = 'Enables Publish to Intune. It needs the tenant ID, client ID and client secret.'; Keywords = 'systems in use' }
-                @{ Id = 'sys.wsus'; Title = 'WSUS'; Kind = 'Check'; Pref = 'Systems.Wsus'; Label = 'Publish updates to a WSUS server'; Tip = 'Enables Publish to WSUS and WSUS Updates. It needs the WSUS server name.'; Keywords = 'systems in use' }
+                @{ Id = 'sys.intune'; Title = 'Intune'; Kind = 'Check'; Pref = 'Systems.Intune'; Label = 'Publish Win32 apps through Microsoft Graph'; Tip = 'Enables Publish to Intune; it needs the tenant ID, client ID and client secret.'; Keywords = 'systems in use' }
+                @{ Id = 'sys.wsus'; Title = 'WSUS'; Kind = 'Check'; Pref = 'Systems.Wsus'; Label = 'Publish updates to a WSUS server'; Tip = 'Enables Publish to WSUS and WSUS Updates; it needs the WSUS server name.'; Keywords = 'systems in use' }
             )
         })
 
@@ -7031,7 +7068,7 @@ function Get-OptionsSectionDefinition {
             Description = 'The site that AppPackager publishes to and reads from.'
             Post = { param($Context, $Page) Initialize-OptionsConfigMgrSection -Context $Context -Page $Page }
             Fields = @(
-                @{ Id = 'cm.siteCode'; Title = 'Site code'; Kind = 'Text'; Pref = 'SiteCode'; MaxLength = 5; Width = 80; Tip = 'The ConfigMgr site code, for example MCM.' }
+                @{ Id = 'cm.siteCode'; Title = 'Site code'; Kind = 'Text'; Pref = 'SiteCode'; MaxLength = 5; Width = 80; Tip = 'The ConfigMgr site code, for example ABC.' }
                 @{ Id = 'cm.provider'; Title = 'Site server / SMS Provider'; Kind = 'Text'; Pref = 'ProviderMachineName'; MaxLength = 200; Tip = 'The computer name of the SMS Provider of the site.'; Keywords = 'smsprovider provider site server' }
                 @{ Id = 'cm.dbGroup'; Kind = 'Group'; Title = 'Site database'; Description = 'Discover unmanaged software reads this database. An empty field takes its value from the site definition.' }
                 @{ Id = 'cm.sqlServer'; Title = 'SQL server'; Kind = 'Text'; Pref = 'DiscoverySqlServer'; MaxLength = 200; Tip = 'The host name of the SQL Server that holds the site database.'; Keywords = 'discovery sql discover' }
@@ -7174,11 +7211,12 @@ function Get-OptionsSectionDefinition {
             Id = 'cwa.store'; Title = 'Store'; Parent = 'cwa'; Kind = 'Fields'; Keywords = 'citrix'
             Fields = @(
                 @{ Id = 'cwa.storeName'; Title = 'Store name'; Kind = 'Text'; Pref = 'cwa:Store.Name'; Width = 220; Tip = 'The friendly name of the StoreFront store (STORE0).' }
-                @{ Id = 'cwa.storeUrl'; Title = 'Store URL'; Kind = 'Text'; Pref = 'cwa:Store.Url'; Tip = 'The STORE0 URL: https://host/Citrix/Store/discovery for StoreFront, or https://host#StoreName for a Gateway.'; Keywords = 'storefront gateway' }
+                @{ Id = 'cwa.storeUrl'; Title = 'Store URL'; Kind = 'Text'; Pref = 'cwa:Store.Url'; Tip = 'STORE0 URL: StoreFront https://host/Citrix/Store/discovery, Gateway https://host#StoreName.'; Keywords = 'storefront gateway' }
             )
         })
     $sections.Add(@{
             Id = 'cwa.install'; Title = 'Installation'; Parent = 'cwa'; Kind = 'Fields'; Keywords = 'citrix'
+            Post = { param($Context, $Page) Initialize-OptionsCitrixInstallSection -Context $Context -Page $Page }
             Fields = @(
                 @{ Id = 'cwa.clean'; Title = 'Clean install'; Kind = 'Check'; Pref = 'cwa:Installation.CleanInstall'; Label = 'Remove leftover configuration before install (/CleanInstall)'; Tip = 'Removes configuration and registry data of an earlier installation before the install.' }
                 @{ Id = 'cwa.sso'; Title = 'Single sign-on'; Kind = 'Check'; Pref = 'cwa:Installation.IncludeSSON'; Label = 'Install the SSO component (/includeSSON, ENABLE_SSON=Yes)'; Tip = 'Installs the SSO component and turns on domain pass-through authentication.' }
@@ -7272,7 +7310,7 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'm365.languages'; Title = 'Languages'; Kind = 'Text'; Pref = 'M365Options.Languages'; Width = 300; Watermark = 'en-us'
                     ToText = { param($Value) (@($Value) -join ', ') }
                     FromText = { param($Text) @(([string]$Text) -split '[,;\s]+' | Where-Object { $_ } | ForEach-Object { $_.ToLowerInvariant() }) }
-                    Tip = 'The Office display languages as culture codes, for example en-us, de-de; the first sets the shell language.' }
+                    Tip = 'Culture codes of the Office display languages, such as en-us; the first sets the shell language.' }
                 @{ Id = 'm365.exclude'; Title = 'Excluded apps'; Kind = 'Multi'; Pref = 'M365ExcludeApps'; Columns = 2; Tip = 'The ExcludeApp IDs that the packagers write into the Office configuration.'
                     Items = @(
                         @{ Id = 'Access'; Label = 'Access'; Tip = 'Excludes Microsoft Access.' }
@@ -7305,17 +7343,17 @@ function Get-OptionsSectionDefinition {
             Description = 'The command line of the SSMS 22 setup. Recommended and optional components apply to the selected workloads.'
             Post = { param($Context, $Page) Initialize-OptionsSsmsSection -Context $Context -Page $Page }
             Fields = @(
-                @{ Id = 'ssms.ui'; Title = 'UI mode'; Kind = 'Combo'; Pref = 'SSMSInstallOptions.UIMode'; Default = 'Quiet'; Width = 200; Items = @('Quiet', 'Passive'); Tip = 'Quiet adds --quiet; Passive adds --passive and shows progress, which a required deployment cannot use.' }
+                @{ Id = 'ssms.ui'; Title = 'UI mode'; Kind = 'Combo'; Pref = 'SSMSInstallOptions.UIMode'; Default = 'Quiet'; Width = 200; Items = @('Quiet', 'Passive'); Tip = 'Quiet adds --quiet; Passive adds --passive and shows progress, which a required install cannot use.' }
                 @{ Id = 'ssms.path'; Title = 'Install path'; Kind = 'Text'; Pref = 'SSMSInstallOptions.InstallPath'; Width = 420; Tip = 'The --installPath value; empty uses the default folder, and detection and uninstall follow it.' }
                 @{ Id = 'ssms.dti'; Title = 'Download first'; Kind = 'Check'; Pref = 'SSMSInstallOptions.DownloadThenInstall'; Label = 'Download all packages before the install (--downloadThenInstall)'; Tip = 'Excludes --installWhileDownloading, which is the setup default.' }
                 @{ Id = 'ssms.noupdate'; Title = 'Installer update'; Kind = 'Check'; Pref = 'SSMSInstallOptions.NoUpdateInstaller'; Label = 'Do not update the Visual Studio Installer (--noUpdateInstaller)'; Tip = 'Documented with --quiet; setup fails when an installer update is required.' }
                 @{ Id = 'ssms.workloads'; Title = 'Workloads'; Kind = 'Multi'; Pref = 'SSMSInstallOptions.Workloads'; Columns = 2; Tip = 'The workloads to install; each one adds an --add switch, and none installs the core editor.'
                     Items = @(
-                        @{ Id = 'Microsoft.SqlServer.Workload.SSMS.AI'; Label = 'AI assistance'; Tip = 'Microsoft.SqlServer.Workload.SSMS.AI' }
-                        @{ Id = 'Microsoft.SqlServer.Workload.SSMS.BI'; Label = 'Business intelligence'; Tip = 'Microsoft.SqlServer.Workload.SSMS.BI' }
-                        @{ Id = 'Microsoft.SqlServer.Workload.SSMS.CodeTools'; Label = 'Code tools'; Tip = 'Microsoft.SqlServer.Workload.SSMS.CodeTools' }
-                        @{ Id = 'Microsoft.SqlServer.Workload.SSMS.DevOps'; Label = 'DevOps'; Tip = 'Microsoft.SqlServer.Workload.SSMS.DevOps' }
-                        @{ Id = 'Microsoft.SqlServer.Workload.SSMS.HybridAndMigration'; Label = 'Hybrid and migration'; Tip = 'Microsoft.SqlServer.Workload.SSMS.HybridAndMigration' }) }
+                        @{ Id = 'Microsoft.SqlServer.Workload.SSMS.AI'; Label = 'AI assistance'; Tip = 'Adds the workload Microsoft.SqlServer.Workload.SSMS.AI.' }
+                        @{ Id = 'Microsoft.SqlServer.Workload.SSMS.BI'; Label = 'Business intelligence'; Tip = 'Adds the workload Microsoft.SqlServer.Workload.SSMS.BI.' }
+                        @{ Id = 'Microsoft.SqlServer.Workload.SSMS.CodeTools'; Label = 'Code tools'; Tip = 'Adds the workload Microsoft.SqlServer.Workload.SSMS.CodeTools.' }
+                        @{ Id = 'Microsoft.SqlServer.Workload.SSMS.DevOps'; Label = 'DevOps'; Tip = 'Adds the workload Microsoft.SqlServer.Workload.SSMS.DevOps.' }
+                        @{ Id = 'Microsoft.SqlServer.Workload.SSMS.HybridAndMigration'; Label = 'Hybrid and migration'; Tip = 'Adds the workload Microsoft.SqlServer.Workload.SSMS.HybridAndMigration.' }) }
                 @{ Id = 'ssms.recommended'; Title = 'Recommended components'; Kind = 'Check'; Pref = 'SSMSInstallOptions.IncludeRecommended'; Label = 'Include recommended components (--includeRecommended)'; Tip = 'Needs at least one workload; without a workload the switch has no effect.' }
                 @{ Id = 'ssms.optional'; Title = 'Optional components'; Kind = 'Check'; Pref = 'SSMSInstallOptions.IncludeOptional'; Label = 'Include optional components (--includeOptional)'; Tip = 'Needs at least one workload; it increases the install size and duration.' }
                 @{ Id = 'ssms.languages'; Title = 'Languages'; Kind = 'Multi'; Pref = 'SSMSInstallOptions.Languages'; Columns = 7; Tip = 'The SSMS display languages (--addProductLang); none uses the language of the operating system.'
@@ -7399,7 +7437,7 @@ function Get-OptionsSectionDefinition {
 
     # ---------------------------------------------------------------- Tools
     $sections.Add(@{
-            Id = 'tools'; Title = 'Tools'; Kind = 'Fields'
+            Id = 'tools'; Title = 'Tools'; Kind = 'Fields'; Prefs = @('DetectedTools')
             Description = 'The tools that AppPackager detects when it starts.'
             Post = { param($Context, $Page) Initialize-OptionsToolsSection -Context $Context -Page $Page }
             Fields = @(
@@ -7477,7 +7515,7 @@ function Get-OptionsToolStatusText {
         'Console' {
             $cm = $Prefs.DetectedTools.ConfigMgrConsole
             if ($cm -and $cm.Found) { return @{ Text = ('{0} Detected  -  {1} v{2}' -f $check, $cm.DisplayName, $cm.DisplayVersion); Tip = ('Module: {0}' -f $cm.ModulePath) } }
-            return @{ Text = ($cross + ' Not detected  -  install the ConfigMgr console and restart AppPackager'); Tip = 'Detected at start through the uninstall registry key, SMS_ADMIN_UI_PATH and the usual install folders.' }
+            return @{ Text = ($cross + ' Not detected  -  install the ConfigMgr console and restart AppPackager'); Tip = 'Found at start through the uninstall key, SMS_ADMIN_UI_PATH and the usual install folders.' }
         }
         'SevenZip' {
             $sz = $Prefs.DetectedTools.SevenZipCli
@@ -7931,6 +7969,16 @@ function Initialize-OptionsSsmsSection {
     & $refresh
 }
 
+function Initialize-OptionsCitrixInstallSection {
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][hashtable]$Page)
+    # ENABLE_SSON follows the SSO component: the packager writes it only together with /includeSSON.
+    $sso = $Page.Editors['cwa.sso'].Focus
+    $Page.Group.ExtraCommit.Add({
+            param($ctx)
+            Set-OptionsPrefValue -Context $ctx -Path 'cwa:Installation.EnableSSON' -Value ($sso.IsChecked -eq $true)
+        }.GetNewClosure()) | Out-Null
+}
+
 function Initialize-OptionsCitrixPluginSection {
     param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][hashtable]$Page)
     $uber = $Page.Editors['cwa.uber'].Focus
@@ -8112,31 +8160,42 @@ function Initialize-OptionsM365Section {
     $useBox.Add_Unchecked($refresh)
     & $refresh
 
+    # The file is read, decoded by its byte order mark, checked and held in the window until OK stores it.
+    $importFile = {
+        param([string]$Path)
+        try {
+            $info = Get-Item -LiteralPath $Path -ErrorAction Stop
+            if ($info.Length -gt 2MB) { [void](Show-ThemedMessage -Owner $ctx.Owner -Title 'Import Failed' -Message 'The file is larger than 2 MB. A configuration.xml is a small text file.' -Buttons OK -Icon Error); return $false }
+            $reader = New-Object System.IO.StreamReader($info.FullName, [System.Text.Encoding]::UTF8, $true)
+            try { $text = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            $result = Test-OdtConfigurationXml -Text $text
+            if (-not $result.Valid) {
+                [void](Show-ThemedMessage -Owner $ctx.Owner -Title 'Import Failed' -Message ("The file is not a usable Office Deployment Tool configuration:`n`n" + (($result.Errors | ForEach-Object { '- ' + $_ }) -join "`n")) -Buttons OK -Icon Error)
+                return $false
+            }
+            # The stored copy is UTF-8 without a byte order mark.
+            $bytes = (New-Object System.Text.UTF8Encoding($false)).GetBytes($text.TrimStart([char]0xFEFF))
+            $state.Pending = @{ Bytes = $bytes; Text = $text }
+            $state.Removed = $false
+            $state.Name = $info.Name
+            $state.Size = [long]$bytes.Length
+            & $refresh
+            if ($result.Notes.Count -gt 0) {
+                [void](Show-ThemedMessage -Owner $ctx.Owner -Title 'File Imported' -Message ("The packager changes these parts of the file:`n`n" + (($result.Notes | ForEach-Object { '- ' + $_ }) -join "`n")) -Buttons OK -Icon Info)
+            }
+            return $true
+        }
+        catch {
+            [void](Show-ThemedMessage -Owner $ctx.Owner -Title 'Import Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The file could not be read.') -Buttons OK -Icon Error)
+            return $false
+        }
+    }.GetNewClosure()
+    $Page.Actions = @{ ImportM365 = $importFile }
     $importButton.Add_Click({
             $open = New-Object Microsoft.Win32.OpenFileDialog
             $open.Title = 'Select the configuration.xml'
             $open.Filter = 'Office Deployment Tool configuration (*.xml)|*.xml|All files (*.*)|*.*'
-            if ($open.ShowDialog() -ne $true) { return }
-            try {
-                $info = Get-Item -LiteralPath $open.FileName -ErrorAction Stop
-                if ($info.Length -gt 2MB) { [void](Show-ThemedMessage -Owner $ctx.Owner -Title 'Import Failed' -Message 'The file is larger than 2 MB. A configuration.xml is a small text file.' -Buttons OK -Icon Error); return }
-                $bytes = [System.IO.File]::ReadAllBytes($info.FullName)
-                $text = [System.Text.Encoding]::UTF8.GetString($bytes)
-                $result = Test-OdtConfigurationXml -Text $text
-                if (-not $result.Valid) {
-                    [void](Show-ThemedMessage -Owner $ctx.Owner -Title 'Import Failed' -Message ("The file is not a usable Office Deployment Tool configuration:`n`n" + (($result.Errors | ForEach-Object { '- ' + $_ }) -join "`n")) -Buttons OK -Icon Error)
-                    return
-                }
-                $state.Pending = @{ Bytes = $bytes; Text = $text }
-                $state.Removed = $false
-                $state.Name = $info.Name
-                $state.Size = [long]$info.Length
-                & $refresh
-                if ($result.Notes.Count -gt 0) {
-                    [void](Show-ThemedMessage -Owner $ctx.Owner -Title 'File Imported' -Message ("The packager changes these parts of the file:`n`n" + (($result.Notes | ForEach-Object { '- ' + $_ }) -join "`n")) -Buttons OK -Icon Info)
-                }
-            }
-            catch { [void](Show-ThemedMessage -Owner $ctx.Owner -Title 'Import Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The file could not be read.') -Buttons OK -Icon Error) }
+            if ($open.ShowDialog() -eq $true) { [void](& $importFile $open.FileName) }
         }.GetNewClosure())
 
     $removeButton.Add_Click({
@@ -14609,7 +14668,7 @@ function New-ScriptSigningPanel {
         <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,12"
                    Text="Authenticode signing for the scripts AppPackager generates. Signing a detection script does not sign install wrappers, and signing deployment scripts does not sign requirement scripts. A local signature check does not prove the certificate is trusted on your clients."/>
 
-        <TextBlock Text="Sign" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
+        <TextBlock Text="Sign" FontSize="15" Margin="0,0,0,6"/>
         <CheckBox x:Name="chkSignDetection" FontSize="12" Margin="0,0,0,4"
                   Content="Sign detection scripts" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                   ToolTip="Sign the generated and custom detection scripts."/>
@@ -14620,7 +14679,7 @@ function New-ScriptSigningPanel {
                   Content="Sign install and uninstall PowerShell scripts" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                   ToolTip="Sign the install and uninstall scripts and their launchers."/>
 
-        <TextBlock Text="Require Valid Signatures" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
+        <TextBlock Text="Require valid signatures" FontSize="15" Margin="0,0,0,6"/>
         <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,6"
                    Text="A publishing constraint, not a change to client execution policy. When a required category fails verification the build stops; there is no unsigned fallback."/>
         <CheckBox x:Name="chkRequireDetection" FontSize="12" Margin="0,0,0,4"
@@ -14630,7 +14689,7 @@ function New-ScriptSigningPanel {
         <CheckBox x:Name="chkRequireDeployment" FontSize="12" Margin="0,0,0,12"
                   Content="Require valid deployment script signatures" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
-        <TextBlock Text="Signing Identity" FontSize="13" FontWeight="Bold" Margin="0,0,0,6"/>
+        <TextBlock Text="Signing identity" FontSize="15" Margin="0,0,0,6"/>
         <Grid Margin="0,0,0,8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="150"/>
@@ -14645,7 +14704,7 @@ function New-ScriptSigningPanel {
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="Certificate Store" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Certificate store" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
             <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="0" Grid.Column="1" x:Name="cboSignStore" FontSize="12" Height="28" Margin="0,0,0,6"
                        ToolTip="Use CurrentUser\My, or LocalMachine\My with access to the private key."/>
 
@@ -14658,7 +14717,7 @@ function New-ScriptSigningPanel {
             <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" x:Name="txtSignCertDetail" FontSize="11" TextWrapping="Wrap"
                        Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,8"/>
 
-            <TextBlock Grid.Row="3" Grid.Column="0" Text="Timestamp Server" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Timestamp server" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
             <TextBox   Grid.Row="3" Grid.Column="1" x:Name="txtSignTimestamp" FontSize="12" Height="28" VerticalContentAlignment="Center" Margin="0,0,0,6"
                        Controls:TextBoxHelper.Watermark="none"
                        ToolTip="A timestamp keeps a signature valid after the certificate expires."/>
@@ -14828,7 +14887,7 @@ function New-ScriptSigningPanel {
         $prefsRef.ScriptSigning.HashAlgorithm       = 'SHA256'
     }.GetNewClosure()
 
-    return @{ Name = 'Script Signing'; Element = $element; Commit = $commit }
+    return @{ Name = 'Script signing'; Element = $element; Commit = $commit }
 }
 
 function Get-WsusClassificationLabel {
