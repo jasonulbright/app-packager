@@ -8,6 +8,8 @@ The Options dialog holds every setting of AppPackager. It has a tree of sections
 
 The search box above the tree finds a setting by name. Type a name, for example `sql port`. The list of matches replaces the tree. Press Enter to open the first match, or select another one. The window opens the section and puts the cursor in the field.
 
+![The search list for sql](../images/options-search.png)
+
 A value that cannot be stored stops the save and opens its field. A port outside 1 to 65535 is one example.
 
 The footer of the main window shows the saved site code and site server. Options and Setup are the only places where you change them. The Setup window and the Connections sections use the same fields. A value that you type in Setup is the value that Options shows.
@@ -30,6 +32,8 @@ Select **Options**. The ConfigMgr section opens.
 
 Select the systems that AppPackager publishes to. The sidebar disables the button of a system that is not selected.
 
+![The Systems in use section](../images/options-systems-in-use.png)
+
 #### ConfigMgr
 
 **Site code**, **Site server / SMS Provider**, the site database (**SQL server**, **SQL instance**, **SQL port**, **Database name**) and **Content share UNC**. Discover connects to `server\instance,port`. An empty database field takes its value from the site definition, and an empty database name means `CM_` and the site code. A name `server\instance,port` in the SQL server field shows split into the three fields. **Console status** shows whether the console is installed on this computer.
@@ -46,9 +50,13 @@ The server, the **Port**, **Use SSL**, the signing certificate, the classificati
 
 **Tenant ID**, **Client ID** and **Client secret** of the app registration. The secret is stored with DPAPI for the current Windows user. An empty box keeps the saved secret.
 
+![The Intune section](../images/options-intune.png)
+
 #### Test connection
 
 One button for each system. ConfigMgr reads the SMS Provider and opens the site database. WSUS connects to the server. Intune requests a Graph token. Each test uses the values that are in the fields, before you select OK.
+
+![The Test connection section](../images/options-test-connection.png)
 
 ### Packaging
 
@@ -56,17 +64,25 @@ One button for each system. ConfigMgr reads the SMS Provider and opens the site 
 
 **Download root**, the **Packagers folder** and **Content layout**.
 
+![The Folders section](../images/options-folders.png)
+
 #### Deployment type defaults
 
 The estimated and maximum runtime, **Fallback distribution points** and **Neighbor/default DP** of every deployment type that Publish to ConfigMgr creates.
+
+![The Deployment type defaults section](../images/options-deployment-type-defaults.png)
 
 #### Application title
 
 **Include version** and **Remove version**. Without a selection, a packager uses its own name.
 
+![The Application title section](../images/options-application-title.png)
+
 #### After Package
 
 **Distribute content**, **DP group**, **Test deployment**, **Test collection** and **Create collection**. The test deployment needs Distribute content and a DP group.
+
+![The After Package section](../images/options-after-package.png)
 
 ### Applications
 
@@ -74,57 +90,85 @@ The estimated and maximum runtime, **Fallback distribution points** and **Neighb
 
 The edition, the languages of the multilingual edition, and the Adobe properties `EULA_ACCEPT`, `DISABLEDESKTOPSHORTCUT`, `ENABLE_CHROMEEXT`, `DISABLE_BROWSER_INTEGRATION` and `UPDATE_MODE`.
 
+![The Adobe Acrobat Reader section](../images/options-adobe-acrobat-reader.png)
+
 #### Beyond Compare 5
 
 The **License key file** and the policy switches `/DisableRemoteProfiles` and `/DisableSavedPasswords`.
+
+![The Beyond Compare 5 section](../images/options-beyond-compare-5.png)
 
 #### Citrix Workspace App
 
 The **Preview** button shows the command line of the Current Release and LTSR packagers. Six sub-sections set the switches.
 
+![The Citrix Workspace App section](../images/options-citrix-workspace-app.png)
+
 #### Store
 
 The store name and URL (`STORE0`).
+
+![The Store section](../images/options-store.png)
 
 #### Installation
 
 `/CleanInstall`, single sign-on, App Protection, session pre-launch, self-service mode, `/forceinstall`, content and URL redirection, Local App Access, file-type icons, Advanced Preferences and the client name.
 
+![The Installation section](../images/options-installation.png)
+
 #### Plugins and add-ons
 
 The Teams, Zoom and WebEx VDI plug-ins, uberAgent, the EPA client and the Session Recording agent.
+
+![The Plugins and add-ons section](../images/options-plugins-and-add-ons.png)
 
 #### Update and telemetry
 
 Auto-update, update stream, rollout priority, CEIP and always-on tracing. The update stream and the rollout priority work only when Auto-update is set.
 
+![The Update and telemetry section](../images/options-update-and-telemetry.png)
+
 #### Store policy
 
 `ALLOWADDSTORE` and `ALLOWSAVEPWD`.
+
+![The Store policy section](../images/options-store-policy.png)
 
 #### Components ADDLOCAL
 
 The components of `ADDLOCAL`. With **Customize** cleared, the packager omits `ADDLOCAL`.
 
+![The Components ADDLOCAL section](../images/options-components-addlocal.png)
+
 #### DBeaver Community
 
 The install scope and the environment variable `DBEAVER_AI_DISABLED`.
+
+![The DBeaver Community section](../images/options-dbeaver-community.png)
 
 #### Microsoft 365 Apps
 
 Links to the Office Deployment Tool download and the configuration.xml reference, **Import** and **Use my own configuration.xml**, and the generated settings. See the steps below.
 
+![The Microsoft 365 Apps section](../images/options-microsoft-365-apps.png)
+
 #### SQL Server Management Studio
 
 The UI mode, the install path, the workloads, the languages and the other switches of the SSMS 22 setup.
+
+![The SQL Server Management Studio section](../images/options-sql-server-management-studio.png)
 
 #### TeamViewer Host
 
 The four settings that apply to a TeamViewer Host MSI only. The packager installs the EXE, which ignores them.
 
+![The TeamViewer Host section](../images/options-teamviewer-host.png)
+
 #### Local installer sources
 
 One folder for each packager whose download needs a sign-in. The caption names the packager file.
+
+![The Local installer sources section](../images/options-local-installer-sources.png)
 
 ### Updates and CVEs
 
@@ -144,6 +188,8 @@ Shows or hides single packagers in the main grid, grouped by vendor. **Not offer
 
 The **NVD API key**, the **Cache time** and **Automatic lookup**. See [Check CVEs](cve.md).
 
+![The CVE lookup section](../images/options-cve-lookup.png)
+
 ### Security
 
 #### Script signing
@@ -156,11 +202,15 @@ The Authenticode signing of the scripts that AppPackager stages: which kinds are
 
 Shows how AppPackager signs in to the GitHub API.
 
+![The GitHub API section](../images/options-github-api.png)
+
 ### Tools
 
 #### Tools
 
 The detected **Console**, **Content Prep Tool**, **7-Zip** and **Icon pack**. The values are read-only.
+
+![The Tools section](../images/options-tools.png)
 
 ### About
 
@@ -184,6 +234,12 @@ The Microsoft 365 Apps, Project and Visio packagers use the file. They still set
 The light theme gives the same dialog.
 
 ![The Options dialog in the light theme](../images/light-options.png)
+
+![The ConfigMgr section in the light theme](../images/light-options-configmgr.png)
+
+![The Microsoft 365 Apps section in the light theme](../images/light-options-microsoft-365-apps.png)
+
+![The Product filter section in the light theme](../images/light-options-product-filter.png)
 
 ### Without the console
 
