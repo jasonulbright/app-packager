@@ -945,7 +945,8 @@ function Initialize-SuiteTheme {
     $bc = [System.Windows.Media.BrushConverter]::new()
     $b = @{
         TitleBarActive    = $bc.ConvertFrom('#0078D4')
-        TitleBarInactive  = $bc.ConvertFrom('#4BA3E0')
+        TitleBarInactive  = $bc.ConvertFrom('#5F6B7A')
+        DarkTitleBarInactive = $bc.ConvertFrom('#6B6B6B')
         DarkButtonBg      = $bc.ConvertFrom('#1E1E1E')
         DarkButtonBorder  = $bc.ConvertFrom('#8C8C8C')
         DarkActiveBg      = $bc.ConvertFrom('#3A3A3A')
@@ -995,7 +996,8 @@ function Update-TitleBarBrushes {
     if ($IsDark) {
         # Clearing lets the dark MahApps theme supply its own brushes.
         $Window.ClearValue([MahApps.Metro.Controls.MetroWindow]::WindowTitleBrushProperty)
-        $Window.ClearValue([MahApps.Metro.Controls.MetroWindow]::NonActiveWindowTitleBrushProperty)
+        # The MahApps inactive brush (#808080) is 3.9:1 under white text. A fixed gray of 5.3:1 replaces it.
+        $Window.NonActiveWindowTitleBrush = $ctx.Brushes.DarkTitleBarInactive
     } else {
         $Window.WindowTitleBrush          = $ctx.Brushes.TitleBarActive
         $Window.NonActiveWindowTitleBrush = $ctx.Brushes.TitleBarInactive
@@ -1266,7 +1268,10 @@ function Set-DialogTheme {
     )
     $ctx = Get-SuiteThemeContext
     if ($null -eq $IsDark) { $IsDark = [bool](& $ctx.IsDarkGetter) }
-    if ($IsDark) { [void][ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($Dialog, 'Dark.Steel') }
+    if ($IsDark) {
+        [void][ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($Dialog, 'Dark.Steel')
+        $Dialog.NonActiveWindowTitleBrush = $ctx.Brushes.DarkTitleBarInactive
+    }
     else {
         [void][ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($Dialog, 'Light.Blue')
         $Dialog.WindowTitleBrush          = $ctx.Brushes.TitleBarActive
