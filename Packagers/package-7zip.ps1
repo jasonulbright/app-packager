@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: 7-Zip
 App: 7-Zip
 CMName: 7-Zip

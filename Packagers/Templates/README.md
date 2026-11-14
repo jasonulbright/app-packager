@@ -9,7 +9,7 @@ Skeleton packagers for new installer formats. Copy a template into
 grid picks it up automatically on next launch.
 
 These files live in a subfolder so they don't pollute the grid as
-"Not runnable" rows. Most are NOT runnable as-is — they carry
+"Not runnable" rows. Most are NOT runnable as-is - they carry
 `throw "TODO: ..."` guards in every phase. The PSADT template is the
 exception: every phase is implemented, and only the app identity
 markers (vendor/app/publisher, toolkit source path, version, detection)
@@ -40,7 +40,7 @@ need filling.
 ## House rules
 
 - Every packager keeps the Script deployment-type shape
-  (install.bat → install.ps1 calling the native installer) unless the
+  (install.bat -> install.ps1 calling the native installer) unless the
   format makes that impossible. MSIX goes through the Script path via
   Add-AppxProvisionedPackage to stay uniform with MSI / EXE packagers.
   PSADT packagers point the Script deployment type at the toolkit entry

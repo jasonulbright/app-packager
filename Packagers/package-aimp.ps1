@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: AIMP DevTeam
 App: AIMP
 CMName: AIMP

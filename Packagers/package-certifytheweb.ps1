@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Webprofusion
 App: Certify The Web
 CMName: Certify The Web

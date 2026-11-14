@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: CPUID
 App: CPU-Z
 CMName: CPU-Z

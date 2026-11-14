@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: PostgreSQL Global Development Group
 App: PostgreSQL 14 (x64)
 CMName: PostgreSQL 14

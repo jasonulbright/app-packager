@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Microsoft
 App: .NET 10 Desktop Runtime (x86+x64)
 CMName: Microsoft Windows Desktop Runtime - 10

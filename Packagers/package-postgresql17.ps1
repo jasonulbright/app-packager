@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: PostgreSQL Global Development Group
 App: PostgreSQL 17 (x64)
 CMName: PostgreSQL 17

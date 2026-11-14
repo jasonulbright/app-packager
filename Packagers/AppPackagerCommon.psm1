@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Shared module for AppPackager packager scripts.
 

@@ -1,4 +1,4 @@
-﻿@{
+@{
     RootModule        = 'SuiteCommon.psm1'
     ModuleVersion = '2026.11.13.0083'
     GUID              = '7c1f2a9e-4b3d-4f8a-9c6e-2d5b8e1a7f40'

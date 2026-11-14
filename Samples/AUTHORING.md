@@ -160,11 +160,11 @@ Align label:value lines to the width shown in existing packagers (30 chars for t
 
 ## Admin elevation
 
-No phase requires local admin. Stage derives detection from installer metadata (MSI properties via COM, file versions) instead of temp installs, downloads and extracts under the user-writable DownloadRoot, and Package needs network-share ACLs plus CM RBAC — neither is local elevation, so packaging works from a standard user account. Do not add a `Test-IsAdmin` gate to a new packager unless its Stage provably writes protected paths or runs vendor tooling that demands elevation; if it does, gate only that phase and exit with a clear message.
+No phase requires local admin. Stage derives detection from installer metadata (MSI properties via COM, file versions) instead of temp installs, downloads and extracts under the user-writable DownloadRoot, and Package needs network-share ACLs plus CM RBAC - neither is local elevation, so packaging works from a standard user account. Do not add a `Test-IsAdmin` gate to a new packager unless its Stage provably writes protected paths or runs vendor tooling that demands elevation; if it does, gate only that phase and exit with a clear message.
 
 ## Defaults, and where the operator's settings live
 
-A packager ships defaults, not policy. Whatever the script puts in the stage manifest — commands, detection, requirements, timing, install mode — is the starting point; the Application Workbench applies the operator's profile on top of it at stage time, and a value the profile does not set inherits yours. Write the manifest as if no profile existed and it stays correct either way.
+A packager ships defaults, not policy. Whatever the script puts in the stage manifest - commands, detection, requirements, timing, install mode - is the starting point; the Application Workbench applies the operator's profile on top of it at stage time, and a value the profile does not set inherits yours. Write the manifest as if no profile existed and it stays correct either way.
 
 Two consequences for new packagers:
 

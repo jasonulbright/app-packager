@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: CPUID
 App: HWMonitor
 CMName: HWMonitor

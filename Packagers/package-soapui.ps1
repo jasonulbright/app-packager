@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: SmartBear Software
 App: SoapUI Open Source
 CMName: SoapUI

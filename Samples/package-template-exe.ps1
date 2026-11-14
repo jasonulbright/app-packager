@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: TODO
 App: TODO
 CMName: TODO
