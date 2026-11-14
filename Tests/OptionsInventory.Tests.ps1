@@ -153,7 +153,7 @@ Describe 'The old Options window and the new one write the same keys' {
         $expected = @(
             'DiscoveryEnabled', 'DiscoverySqlInstance', 'DiscoverySqlPort', 'WorkbenchDataRoot', 'Vulnerability.CacheTtlMinutes',
             'M365Options.Languages', 'M365Options.OfficeMgmtCom', 'M365Options.UpdatesEnabled', 'M365Options.ForceAppShutdown', 'M365Options.RemoveMsi', 'M365Options.MigrateArch', 'M365Options.SharedComputerLicensing', 'M365Options.DeviceBasedLicensing',
-            'M365CustomConfig.Enabled', 'M365CustomConfig.FileName', 'M365CustomConfig.SizeBytes',
+            'M365CustomConfig.Enabled', 'M365CustomConfig.FileName', 'M365CustomConfig.SizeBytes', 'GitHub.TokenProtected',
             'SSMSInstallOptions.Workloads', 'SSMSInstallOptions.Languages', 'SSMSInstallOptions.NoCache',
             'AdobeReaderInstallOptions.AcceptEula', 'AdobeReaderInstallOptions.DisableDesktopShortcut', 'AdobeReaderInstallOptions.DisableChromeExtension', 'AdobeReaderInstallOptions.DisableBrowserIntegration', 'AdobeReaderInstallOptions.UpdateMode',
             'BeyondCompareOptions.DisableRemoteProfiles', 'BeyondCompareOptions.DisableSavedPasswords',

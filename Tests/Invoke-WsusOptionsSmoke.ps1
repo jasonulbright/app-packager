@@ -55,7 +55,7 @@ try {
     & $assert ($null -eq $editors['wsus.packageType'] -and [string]$publishGroup.Description -match 'older version') 'the section offers no package type and states that updates need an older installed version'
     & $assert ($editors['wsus.classification'].Focus.Items.Count -eq @(Get-WsusClassificationNames).Count) 'every classification is offered'
     & $assert ($null -eq $editors['wsus.manage'] -and $null -eq $editors['wsus.catalog']) 'update management lives in the WSUS Updates window, not in Options'
-    & $assert ($null -eq $editors['wsus.test']) 'the connection test lives in Options, Connections, Test connection'
+    & $assert ($null -eq $editors['wsus.test']) 'the connection test lives in Options, Connections, Test Connection'
 
     $api = Test-WsusAdministrationApi
     if (-not $api.Available) {

@@ -133,7 +133,7 @@ Some NVD records name a product with no version and no range. Most of them are o
 
 ## Options and settings of this page
 
-| Setting (Options > Updates and CVEs > CVE lookup) | Effect |
+| Setting (Options > Updates and CVEs > CVE Lookup) | Effect |
 |---|---|
 | NVD API key | Raises the NVD limit from 5 to 50 requests in 30 seconds. The variable `NVD_API_KEY` does the same. |
 | Cache time | How long a lookup result stays valid. 0 turns the cache off. |

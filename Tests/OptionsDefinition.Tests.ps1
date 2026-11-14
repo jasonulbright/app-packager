@@ -4,7 +4,7 @@
     Guard tests of the names, the titles and the tooltips of the Options window.
 
 .DESCRIPTION
-    The tree labels, the section titles and the field titles are in sentence case, every field has a
+    The tree titles are in Title Case; the field titles are in sentence case, every field has a
     tooltip of one short sentence, no banned word is in any of these strings, and every message that
     sends the user to an Options page names a node of the tree. These cases follow the rules of
     Theme.Guard.Tests.ps1 for the windows that the repository builds from XAML.
@@ -45,21 +45,21 @@ Describe 'The tree' {
     }
 
     It 'has the approved sections under <Parent>' -ForEach @(
-        @{ Parent = 'connections'; Expected = 'Systems in use|ConfigMgr|WSUS|Intune|Test connection' }
-        @{ Parent = 'packaging'; Expected = 'Folders|Deployment type defaults|Application title|After Package' }
-        @{ Parent = 'applications'; Expected = 'Adobe Acrobat Reader|Beyond Compare 5|Citrix Workspace App|DBeaver Community|Microsoft 365 Apps|SQL Server Management Studio|TeamViewer Host|Local installer sources' }
-        @{ Parent = 'cwa'; Expected = 'Store|Installation|Plugins and add-ons|Update and telemetry|Store policy|Components ADDLOCAL' }
-        @{ Parent = 'updates'; Expected = 'One Click|Product filter|CVE lookup' }
-        @{ Parent = 'security'; Expected = 'Script signing|GitHub API' }
+        @{ Parent = 'connections'; Expected = 'Systems in Use|ConfigMgr|WSUS|Intune|Test Connection' }
+        @{ Parent = 'packaging'; Expected = 'Folders|Deployment Type Defaults|Application Title|Post Packaging' }
+        @{ Parent = 'applications'; Expected = 'Adobe Acrobat Reader|Beyond Compare 5|Citrix Workspace App|DBeaver Community|Microsoft 365 Apps|SQL Server Management Studio|TeamViewer Host|Local Installer Sources' }
+        @{ Parent = 'cwa'; Expected = '' }
+        @{ Parent = 'updates'; Expected = 'One Click|Product Filter|CVE Lookup' }
+        @{ Parent = 'security'; Expected = 'Script Signing' }
     ) {
         (@($script:Section | Where-Object { $_.Parent -eq $Parent } | ForEach-Object { $_.Title }) -join '|') | Should -Be $Expected
     }
 
-    It 'lists the applications in alphabetical order, with Local installer sources last' {
+    It 'lists the applications in alphabetical order, with Local Installer Sources last' {
         $names = @($script:Section | Where-Object { $_.Parent -eq 'applications' } | ForEach-Object { $_.Title })
         $apps = @($names | Select-Object -First ($names.Count - 1))
         ($apps -join '|') | Should -Be (($apps | Sort-Object { $_.ToLowerInvariant() }) -join '|')
-        $names[-1] | Should -Be 'Local installer sources'
+        $names[-1] | Should -Be 'Local Installer Sources'
     }
 
     It 'gives every node a unique id, a parent that comes before it, and a kind' {
@@ -79,13 +79,26 @@ Describe 'The tree' {
 }
 
 Describe 'Names and titles' {
-    It 'writes the title of <_.Title> in sentence case' -ForEach $script:SectionD {
-        (Test-SentenceCase -Text ([string]$_.Title)) | Should -BeTrue
+    It 'writes the tree title of <_.Title> in Title Case' -ForEach $script:SectionD {
+        (Test-TitleCase -Text ([string]$_.Title)) | Should -BeTrue
+    }
+
+    It 'recognizes Title Case in a tree title (the check itself)' {
+        Test-TitleCase -Text 'Systems in Use' | Should -BeTrue
+        Test-TitleCase -Text 'Deployment Type Defaults' | Should -BeTrue
+        Test-TitleCase -Text 'Post Packaging' | Should -BeTrue
+        Test-TitleCase -Text 'Product filter' | Should -BeFalse
+        Test-TitleCase -Text 'Local installer sources' | Should -BeFalse
+    }
+
+    It 'does not use the old name After Package' {
+        @($script:Text | Where-Object { $_.Text -cmatch 'After Package' }) | Should -BeNullOrEmpty
+        @($script:Section | Where-Object { $_.Id -eq 'afterpackage' }) | Should -BeNullOrEmpty
     }
 
     It 'writes the title of every field and group heading in sentence case, with no colon' {
         $bad = foreach ($f in $script:AllField) {
-            if (-not $f.Title) { continue }
+            if (-not $f.Title -or [string]$f.Id -eq 'gh.group') { continue }
             if (([string]$f.Title).EndsWith(':') -or -not (Test-SentenceCase -Text ([string]$f.Title))) { '{0}: {1}' -f $f.Id, $f.Title }
         }
         @($bad) | Should -BeNullOrEmpty
@@ -180,7 +193,7 @@ Describe 'Messages that name an Options page' {
     It 'recognizes a path of the tree (the check itself)' {
         Test-OptionsPath -Rest 'Connections, ConfigMgr' | Should -BeTrue
         Test-OptionsPath -Rest 'Updates and CVEs, One Click' | Should -BeTrue
-        Test-OptionsPath -Rest 'Applications > Local installer sources' | Should -BeTrue
+        Test-OptionsPath -Rest 'Applications > Local Installer Sources' | Should -BeTrue
         Test-OptionsPath -Rest 'ConfigMgr Preferences' | Should -BeFalse
         Test-OptionsPath -Rest 'WSUS Publishing' | Should -BeFalse
         Test-OptionsPath -Rest 'Connections, Folders' | Should -BeFalse

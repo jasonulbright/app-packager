@@ -315,6 +315,30 @@ function Resolve-DeploymentTypeTiming {
 # Download with retry
 # ---------------------------------------------------------------------------
 
+function Get-StoredGitHubToken {
+    <#
+    .SYNOPSIS
+        Returns the GitHub token that Options, Tools saved, or '' when there is none.
+
+    .DESCRIPTION
+        The token sits in AppPackager.preferences.json as DPAPI text for the current Windows user.
+        Another account or another computer cannot read it, and the function then returns ''.
+        The token is never written to a log.
+    #>
+    $path = Join-Path (Split-Path -Parent $PSScriptRoot) 'AppPackager.preferences.json'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return '' }
+    try {
+        $data = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        $protected = [string]$data.GitHub.TokenProtected
+        if ([string]::IsNullOrWhiteSpace($protected)) { return '' }
+        $secure = ConvertTo-SecureString -String $protected -ErrorAction Stop
+        $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+        try { return [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+        finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+    }
+    catch { return '' }
+}
+
 function Get-GitHubApiCurlArgs {
     <#
     .SYNOPSIS
@@ -322,9 +346,9 @@ function Get-GitHubApiCurlArgs {
     .DESCRIPTION
         The unauthenticated GitHub API allows 60 requests per hour per source
         address; a version sweep over the catalog issues more than that. The
-        token comes from GITHUB_TOKEN, then GH_TOKEN, then the GitHub CLI's
-        stored login (gh auth token) when gh.exe is on the PATH and signed
-        in; with a token the call carries it as a bearer token and the limit
+        token comes from GITHUB_TOKEN, then GH_TOKEN, then the token that
+        Options, Tools saved, then the GitHub CLI's stored login (gh auth
+        token) when gh.exe is on the PATH and signed in; with a token the call carries it as a bearer token and the limit
         is 5000 per hour. Returns an empty array when no token is available,
         so callers can splat the result unconditionally. The CLI lookup runs
         once per process.
@@ -334,6 +358,7 @@ function Get-GitHubApiCurlArgs {
 
     $token = $env:GITHUB_TOKEN
     if ([string]::IsNullOrWhiteSpace($token)) { $token = $env:GH_TOKEN }
+    if ([string]::IsNullOrWhiteSpace($token)) { $token = Get-StoredGitHubToken }
     if ([string]::IsNullOrWhiteSpace($token)) {
         if ($null -eq $script:GitHubCliToken) {
             $script:GitHubCliToken = ''
@@ -5091,7 +5116,7 @@ function Resolve-LocalSourceInstaller {
     $folder = Get-LocalSourceFolder -PackagerName $PackagerName -Override $Override
 
     if ([string]::IsNullOrWhiteSpace($folder)) {
-        throw "No installer source folder is set for $PackagerName. Choose one in Options > Applications > Local installer sources, or run Stage from the app to be prompted."
+        throw "No installer source folder is set for $PackagerName. Choose one in Options > Applications > Local Installer Sources, or run Stage from the app to be prompted."
     }
     if (-not (Test-Path -LiteralPath $folder -PathType Container)) {
         throw "Installer source folder for $PackagerName not found: $folder"

@@ -86,7 +86,7 @@ $cases = @(
     @{ Name = 'an enabled WSUS button describes the older-version rule'; Actual = { $all.WsusToolTip -match 'older version' }; Expected = $true }
     @{ Name = 'a tenant without client and secret keeps Intune disabled'; Actual = { $half.IntuneEnabled }; Expected = $false }
     @{ Name = 'ConfigMgr not in use disables both ConfigMgr buttons despite console and site code'; Actual = { $mecmOff.CheckMecmEnabled -or $mecmOff.MecmEnabled }; Expected = $false }
-    @{ Name = 'ConfigMgr not in use says so and names Systems in use';   Actual = { $mecmOff.MecmToolTip -match 'not in use' -and $mecmOff.MecmToolTip -match 'Systems in use' }; Expected = $true }
+    @{ Name = 'ConfigMgr not in use says so and names Systems in Use';   Actual = { $mecmOff.MecmToolTip -match 'not in use' -and $mecmOff.MecmToolTip -match 'Systems in Use' }; Expected = $true }
     @{ Name = 'ConfigMgr not in use keeps WSUS enabled';               Actual = { $mecmOff.WsusEnabled -and $mecmOff.WsusUpdatesEnabled }; Expected = $true }
     @{ Name = 'WSUS not in use disables its buttons despite a server';  Actual = { $wsusOff.WsusEnabled -or $wsusOff.WsusUpdatesEnabled }; Expected = $false }
     @{ Name = 'WSUS not in use keeps ConfigMgr and Intune enabled';    Actual = { $wsusOff.MecmEnabled -and $wsusOff.IntuneEnabled }; Expected = $true }

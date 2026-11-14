@@ -109,7 +109,7 @@ Describe 'Options window' {
     }
 
     It 'does not wait for the GitHub status while the section is built' {
-        $init = (Get-LauncherFunction 'Initialize-OptionsGitHubSection').Extent.Text
+        $init = (Get-LauncherFunction 'Initialize-OptionsToolsSection').Extent.Text
         $init | Should -Not -Match 'Get-GitHubApiAuthStatus'
         $check = (Get-LauncherFunction 'Start-OptionsGitHubCheck').Extent.Text
         $withoutBackgroundScript = $check -replace '(?s)\[void\]\$shell\.AddScript\(.*?\)\.AddArgument\(\$state\)\.AddArgument\(\(Join-Path \$PSScriptRoot[^

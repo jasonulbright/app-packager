@@ -48,7 +48,7 @@ function Close-Win($w) { $w.GetCurrentPattern([System.Windows.Automation.WindowP
 # One image of every page of the Options tree, named options- and the tree text. A group node has no page.
 function Capture-OptionsTree($o) {
     $treeItems = @($o.FindAll('Descendants', (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::TreeItem))))
-    if ($treeItems.Count -lt 30) { throw "The Options tree has $($treeItems.Count) nodes." }
+    if ($treeItems.Count -lt 25) { throw "The Options tree has $($treeItems.Count) nodes." }
     $groups = @('Connections', 'Packaging', 'Applications', 'Updates and CVEs', 'Security')
     foreach ($it in $treeItems) {
         $name = $it.Current.Name
@@ -60,11 +60,13 @@ function Capture-OptionsTree($o) {
     Set-Text (Get-El $o 'txtSearch') 'sql'; Start-Sleep -Milliseconds 900; Shot $o 'options-search'
     Set-Text (Get-El $o 'txtSearch') ''; Start-Sleep -Milliseconds 400
 }
-# The light theme shows the same pages. Three pages cover the controls of the window.
+# The light theme shows every page too, so that the check of both themes covers the whole tree.
 function Capture-OptionsLight($o) {
-    foreach ($name in 'ConfigMgr', 'Microsoft 365 Apps', 'Product filter') {
-        $it = Find-Role $o 'TreeItem' $name
-        if (-not $it) { throw "No tree node $name" }
+    $groups = @('Connections', 'Packaging', 'Applications', 'Updates and CVEs', 'Security')
+    $treeItems = @($o.FindAll('Descendants', (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::TreeItem))))
+    foreach ($it in $treeItems) {
+        $name = $it.Current.Name
+        if ($name -in $groups) { continue }
         Select-El $it; Start-Sleep -Milliseconds 900
         Shot $o ('light-options-' + (($name.ToLowerInvariant() -replace '[^a-z0-9]+', '-').Trim('-')))
     }

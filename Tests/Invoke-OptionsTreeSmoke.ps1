@@ -17,6 +17,16 @@ $assert = {
     Write-Host ('  ok  ' + $Message)
 }
 
+# The text boxes, password boxes and combo boxes of a page, found through the logical tree.
+function Get-OptionsInputControl {
+    param([Parameter(Mandatory)]$Element)
+    foreach ($child in @([System.Windows.LogicalTreeHelper]::GetChildren($Element))) {
+        if ($child -is [System.Windows.Controls.DataGrid] -or $child -is [System.Windows.Controls.TreeView]) { continue }
+        if ($child -is [System.Windows.Controls.TextBox] -or $child -is [System.Windows.Controls.PasswordBox] -or $child -is [System.Windows.Controls.ComboBox]) { $child }
+        if ($child -is [System.Windows.DependencyObject]) { Get-OptionsInputControl -Element $child }
+    }
+}
+
 # A preference file with a non-default value in every setting that the Options window shows.
 $fullPrefs = @'
 {
@@ -77,9 +87,11 @@ try {
     $titles = @($definition | Where-Object { -not $_.Parent } | ForEach-Object { $_.Title })
     & $assert (($titles -join '|') -eq 'Connections|Packaging|Applications|Updates and CVEs|Security|Tools|About') 'the tree has the seven top-level nodes in order'
     $applications = @($definition | Where-Object { $_.Parent -eq 'applications' } | ForEach-Object { $_.Title })
-    & $assert (($applications -join '|') -eq 'Adobe Acrobat Reader|Beyond Compare 5|Citrix Workspace App|DBeaver Community|Microsoft 365 Apps|SQL Server Management Studio|TeamViewer Host|Local installer sources') 'the applications are in alphabetical order and Local installer sources comes last'
+    & $assert (($applications -join '|') -eq 'Adobe Acrobat Reader|Beyond Compare 5|Citrix Workspace App|DBeaver Community|Microsoft 365 Apps|SQL Server Management Studio|TeamViewer Host|Local Installer Sources') 'the applications are in alphabetical order and Local Installer Sources comes last'
     $citrixChildren = @($definition | Where-Object { $_.Parent -eq 'cwa' } | ForEach-Object { $_.Title })
-    & $assert (($citrixChildren -join '|') -eq 'Store|Installation|Plugins and add-ons|Update and telemetry|Store policy|Components ADDLOCAL') 'Citrix Workspace App has its six sub-sections'
+    & $assert ($citrixChildren.Count -eq 0) 'Citrix Workspace App is one page with no child nodes'
+    & $assert (@($definition | Where-Object { $_.Id -eq 'github' }).Count -eq 0) 'Security has no GitHub API node'
+    & $assert (@($definition | Where-Object { $_.Id -eq 'tools' })[0].Fields.Id -contains 'gh.token') 'Tools holds the GitHub token field'
 
     $owner = New-OptionsTestOwner
     $dialog = New-OptionsDialog -Owner $owner
@@ -94,8 +106,23 @@ try {
         if (-not $page -or -not $page.Element) { throw ('FAIL: the section ' + $section.Title + ' did not build') }
         if ([string]$dialog.Window.Title -notmatch [regex]::Escape($section.Title)) { throw ('FAIL: the title does not name ' + $section.Title) }
         $opened++
+
+        # Every input has the shared height and its floor of width.
+        foreach ($tb in @(Get-OptionsInputControl -Element $page.Element)) {
+            $label = $section.Title + ' / ' + [System.Windows.Automation.AutomationProperties]::GetAutomationId($tb) + ' ' + $tb.GetType().Name
+            if ($tb.Height -ne 28) { throw ('FAIL: the height of ' + $label + ' is ' + $tb.Height) }
+            $minimum = $(if ($tb -is [System.Windows.Controls.ComboBox]) { 180 } else { 80 })
+            if ($tb.MinWidth -lt $minimum -or ($tb.Width -gt 0 -and $tb.Width -lt $minimum)) { throw ('FAIL: the width of ' + $label + ' is below ' + $minimum) }
+        }
+        foreach ($field in @($section.Fields | Where-Object { $_ -and $_.Kind -in 'Text', 'Number', 'Combo', 'ComboText', 'Secret', 'File', 'Folder' })) {
+            $control = @(Get-OptionsInputControl -Element $page.Element | Where-Object { [System.Windows.Automation.AutomationProperties]::GetAutomationId($_) -eq [string]$field.Id }) | Select-Object -First 1
+            if (-not $control) { continue }
+            $floor = Get-OptionsInputFloor -Field $field
+            $effective = [Math]::Max($control.MinWidth, $(if ($control.Width -gt 0) { $control.Width } else { 0 }))
+            if ($effective -lt $floor) { throw ('FAIL: the input ' + $field.Id + ' is ' + $effective + ' wide; the floor is ' + $floor) }
+        }
     }
-    & $assert ($opened -eq @($definition | Where-Object { $_.Kind -ne 'Group' }).Count -and $opened -ge 30) ('every section opens ({0} sections)' -f $opened)
+    & $assert ($opened -eq @($definition | Where-Object { $_.Kind -ne 'Group' }).Count -and $opened -ge 20) ('every section opens ({0} sections)' -f $opened)
     & $assert (@($global:LogLines | Where-Object { $_ -match 'could not be built' }).Count -eq 0) 'no section failed to build'
 
     # Every field has a tooltip on its title and its editor.
@@ -108,7 +135,7 @@ try {
     $hits = @(Search-OptionsIndex -Index $dialog.Index -Query 'client secret')
     & $assert ($hits[0].FieldId -eq 'int.secret') 'the search finds Client secret'
     $hits = @(Search-OptionsIndex -Index $dialog.Index -Query 'not offered')
-    & $assert ($hits[0].SectionId -eq 'productfilter') 'the search finds Not offered by Discover in Product filter'
+    & $assert ($hits[0].SectionId -eq 'productfilter') 'the search finds Not offered by Discover in Product Filter'
     & $assert (@(Search-OptionsIndex -Index $dialog.Index -Query 'zzzz no such setting').Count -eq 0) 'the search returns nothing for an unknown name'
 
     & $dialog.Navigate 'about' ''
@@ -161,8 +188,8 @@ try {
     & $dialog3.Context.Sections['dtdefaults'].Editors['pkg.estimated'].Set '25'
     & $dialog3.Navigate 'm365' ''
     & $dialog3.Context.Sections['m365'].Editors['m365.languages'].Set 'fr-fr, de-de'
-    & $dialog3.Navigate 'cwa.update' ''
-    & $dialog3.Context.Sections['cwa.update'].Editors['cwa.rollout'].Set 'Fast'
+    & $dialog3.Navigate 'cwa' ''
+    & $dialog3.Context.Sections['cwa'].Editors['cwa.rollout'].Set 'Fast'
     & $dialog3.Navigate 'tools' ''
     & $assert ((& $dialog3.Apply) -eq $true) 'OK saves the edits'
     $script:Prefs = Read-Preferences

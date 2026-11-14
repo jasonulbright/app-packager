@@ -23,8 +23,8 @@ This guide did not connect to Intune or to a WSUS server. Everything on this pag
 ### Turn the systems on
 
 1. Select **Options**.
-2. Under **Connections**, on **Systems in use**, select **Intune**, **WSUS** or both.
-3. For Intune, open **Intune** and type the tenant ID, the client ID and the client secret. For WSUS, open **WSUS** and type the server. **Test connection** checks each system.
+2. Under **Connections**, on **Systems in Use**, select **Intune**, **WSUS** or both.
+3. For Intune, open **Intune** and type the tenant ID, the client ID and the client secret. For WSUS, open **WSUS** and type the server. **Test Connection** checks each system.
 
 ![The WSUS section](../images/options-wsus.png)
 

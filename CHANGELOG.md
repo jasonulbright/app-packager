@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Give every text box, password box and combo box of Options one height (28 px) and a floor of width: 80 px for a number, 200 px for a combo box, 360 px for a key, a path or a URL. The NVD API key, DP group, Test collection and Download root boxes are no longer one digit wide. The Options tree probe fails an input that breaks the floor.
+- Rename Options, Packaging, After Package to Post Packaging.
+- Write the tree titles of Options in Title Case. A Pester guard checks them.
+- Show all Citrix Workspace App switches on one page with six group headings, in place of five child nodes.
+- Move the GitHub API status from Options, Security to Options, Tools, under the name GitHub Authentication. The Security, GitHub API node is gone.
+
 ### Fixed
 
 - Show a text box and a combo box with a border of 3:1 contrast or more in the light theme. The MahApps border was 1.6:1 on white.
@@ -11,6 +19,7 @@
 
 ### Added
 
+- Add an optional GitHub token field to Options, Tools, GitHub Authentication. The token is stored with DPAPI for the current Windows user. The GitHub-backed packagers and the version monitor use GITHUB_TOKEN, then GH_TOKEN, then the saved token, then the `gh` login. A token gives 5000 requests per hour; without one the limit is 60.
 - Add Invoke-OptionsContrastSmoke.ps1. It opens every section of Options in the light and in the dark theme and checks the contrast of the text (4.5:1) and of the control borders (3:1), enabled and disabled. Tests\KnownContrastDefects.ps1 lists the known limits that SuiteCommon owns.
 
 ## [2026.11.13.0137] - 2026-11-13
