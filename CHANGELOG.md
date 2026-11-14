@@ -13,6 +13,7 @@
 ### Added
 
 - Add Invoke-OptionsContrastSmoke.ps1. It opens every section of Options in the light and in the dark theme and checks the contrast of the text (4.5:1) and of the control borders (3:1), enabled and disabled. Tests\KnownContrastDefects.ps1 lists the known limits that SuiteCommon owns.
+- Let the window probes that sit at -32000 show their windows at 80,80 when SUITE_VISIBLE_WINDOWS is 1, for the visible run in the labadmin session of CLIENT01.
 - Add one image of every page of the Options tree, the Options search, the light Options pages and the Installer Drop dialog to the user guide. Retake the guide images with the new borders and the dark and light themes.
 
 ## [2026.11.13.0137] - 2026-11-13

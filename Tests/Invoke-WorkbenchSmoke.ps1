@@ -65,7 +65,7 @@ try {
     $probeOwner = New-Object System.Windows.Window
     $probeOwner.Width = 10; $probeOwner.Height = 10
     $probeOwner.WindowStartupLocation = 'Manual'
-    $probeOwner.Left = -32000; $probeOwner.Top = -32000
+    $probeOwner.Left = $(if ($env:SUITE_VISIBLE_WINDOWS -eq '1') { 80 } else { -32000 }); $probeOwner.Top = $(if ($env:SUITE_VISIBLE_WINDOWS -eq '1') { 80 } else { -32000 })
 
     $assert = {
         param([bool]$Condition, [string]$Message)

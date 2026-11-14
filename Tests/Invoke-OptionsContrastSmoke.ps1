@@ -6,6 +6,7 @@
 # Each defect has a key. A defect that Tests\KnownContrastDefects.ps1 lists is a known limit of the shared theme and
 # does not fail the probe. A new defect fails it, and a listed defect that no longer happens fails it too.
 # Limits: the border check reads the BorderBrush of the control, not the parts of its template. Hover, focus and pressed states are not measured.
+# SUITE_VISIBLE_WINDOWS=1 puts the window at 80,80 and keeps each section on screen for 0.4 s (the visible lab run).
 # Run with -Report to print every defect and exit with 0.
 param([switch]$Report)
 $ErrorActionPreference = 'Stop'
@@ -95,7 +96,7 @@ try {
         $global:ContrastProbeDark = ($theme -eq 'dark')
         Initialize-SuiteTheme -Window $w -IsDarkGetter { [bool]$global:ContrastProbeDark }
         Set-DialogTheme -Dialog $w -IsDark ($theme -eq 'dark')
-        $w.WindowStartupLocation = 'Manual'; $w.Left = -32000; $w.Top = -32000; $w.ShowInTaskbar = $false
+        $w.WindowStartupLocation = 'Manual'; $w.Left = $(if ($env:SUITE_VISIBLE_WINDOWS -eq '1') { 80 } else { -32000 }); $w.Top = $(if ($env:SUITE_VISIBLE_WINDOWS -eq '1') { 80 } else { -32000 }); $w.ShowInTaskbar = ($env:SUITE_VISIBLE_WINDOWS -eq '1')
         $w.Show()
         Wait-Layout $w 6
         $rootGrid = Get-VisualDescendants $w | Where-Object { $_ -is [System.Windows.FrameworkElement] -and $_.Name -eq 'RootGrid' } | Select-Object -First 1
@@ -106,6 +107,7 @@ try {
                 if ($section.Kind -eq 'Group') { continue }
                 & $dialog.Navigate ([string]$section.Id) ''
                 Wait-Layout $w 2
+                if ($env:SUITE_VISIBLE_WINDOWS -eq '1') { Start-Sleep -Milliseconds 400 }
                 $sections++
                 $scan = $(if ($firstView) { $w } else { $dialog.Context.Sections[[string]$section.Id].Element })
                 foreach ($t in @(Get-TextContrast $w "" $scan)) {
