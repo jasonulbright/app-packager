@@ -77,7 +77,7 @@ Section 'setup' {
     Toggle-El (Get-El $s 'sys.wsus'); Start-Sleep -Milliseconds 600; Shot $s 'setup-wsus'
     Toggle-El (Get-El $s 'sys.intune'); Toggle-El (Get-El $s 'sys.wsus'); Start-Sleep -Milliseconds 500
     Set-Text (Get-El $s 'cm.siteCode') $Capture.SiteCode; Set-Text (Get-El $s 'cm.provider') $Capture.SMSProvider
-    Set-Text (Get-El $s 'cm.fileShare') '\\nosuchserver.contoso.com\sources$'; Set-Text (Get-El $s 'pkg.downloadRoot') $dl
+    Set-Text (Get-El $s 'cm.fileShare') '\\cm01.contoso.com\ContentShare$'; Set-Text (Get-El $s 'pkg.downloadRoot') $dl
     Shot $s 'setup-configmgr-filled'
     Invoke-El (Get-El $s 'btnWizSave'); Start-Sleep -Seconds 3
     Shot $win 'main-first-start'
