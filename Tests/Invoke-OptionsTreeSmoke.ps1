@@ -10,6 +10,7 @@ $fixtureDir = Join-Path $env:TEMP ('ap-options-tree-' + [guid]::NewGuid().ToStri
 . (Join-Path $PSScriptRoot 'OptionsTestSupport.ps1') -Root $root -FixtureDir $fixtureDir
 
 $script:PassedChecks = 0
+$script:LayoutChecked = 0
 $assert = {
     param([bool]$Condition, [string]$Message)
     if (-not $Condition) { throw ('FAIL: ' + $Message) }
@@ -24,6 +25,30 @@ function Get-OptionsInputControl {
         if ($child -is [System.Windows.Controls.DataGrid] -or $child -is [System.Windows.Controls.TreeView]) { continue }
         if ($child -is [System.Windows.Controls.TextBox] -or $child -is [System.Windows.Controls.PasswordBox] -or $child -is [System.Windows.Controls.ComboBox]) { $child }
         if ($child -is [System.Windows.DependencyObject]) { Get-OptionsInputControl -Element $child }
+    }
+}
+
+# Lays the element out at a width and fails on any input that is cut off at the right edge or is narrower than its floor.
+function Test-OptionsLayout {
+    param([Parameter(Mandatory)]$Element, [object[]]$Fields = @(), [Parameter(Mandatory)][string]$Label, [double]$NativeWidth = 900, [double]$SmallestWidth = 560)
+    foreach ($width in @($NativeWidth, $SmallestWidth)) {
+        $Element.Measure((New-Object System.Windows.Size($width, 6000)))
+        $Element.Arrange((New-Object System.Windows.Rect(0, 0, $width, [Math]::Max($Element.DesiredSize.Height, 10))))
+        $Element.UpdateLayout()
+        foreach ($c in @(Get-OptionsInputControl -Element $Element)) {
+            if ($c.ActualWidth -le 0) { continue }
+            $script:LayoutChecked += 1
+            $id = [System.Windows.Automation.AutomationProperties]::GetAutomationId($c)
+            $box = $c.TransformToAncestor($Element).TransformBounds((New-Object System.Windows.Rect(0, 0, $c.ActualWidth, $c.ActualHeight)))
+            if ($box.Right -gt $width + 0.5) { throw ('FAIL: {0} / {1} ends at {2} in a window with {3} of width' -f $Label, $id, [int]$box.Right, [int]$width) }
+            $field = @($Fields | Where-Object { $_ -and [string]$_.Id -eq $id }) | Select-Object -First 1
+            if ($field -and $width -eq $NativeWidth) {
+                $floor = Get-OptionsInputFloor -Field $field
+                if ($c.ActualWidth + 0.5 -lt $floor) { throw ('FAIL: {0} / {1} is {2} wide at the native size; the floor is {3}' -f $Label, $id, [int]$c.ActualWidth, $floor) }
+            }
+            if (-not $field -and $width -eq $NativeWidth -and $c -is [System.Windows.Controls.TextBox] -and $c.ActualWidth + 0.5 -lt 360) { throw ('FAIL: {0} / a text box without a field definition is {1} wide at the native size' -f $Label, [int]$c.ActualWidth) }
+            if ($c.ActualWidth + 0.5 -lt $c.MinWidth) { throw ('FAIL: {0} / {1} is narrower than its minimum' -f $Label, $id) }
+        }
     }
 }
 
@@ -107,20 +132,12 @@ try {
         if ([string]$dialog.Window.Title -notmatch [regex]::Escape($section.Title)) { throw ('FAIL: the title does not name ' + $section.Title) }
         $opened++
 
-        # Every input has the shared height and its floor of width.
+        # Every input has the shared height; the layout probe below checks its width at the native size and at the smallest size.
         foreach ($tb in @(Get-OptionsInputControl -Element $page.Element)) {
             $label = $section.Title + ' / ' + [System.Windows.Automation.AutomationProperties]::GetAutomationId($tb) + ' ' + $tb.GetType().Name
             if ($tb.Height -ne 28) { throw ('FAIL: the height of ' + $label + ' is ' + $tb.Height) }
-            $minimum = $(if ($tb -is [System.Windows.Controls.ComboBox]) { 180 } else { 80 })
-            if ($tb.MinWidth -lt $minimum -or ($tb.Width -gt 0 -and $tb.Width -lt $minimum)) { throw ('FAIL: the width of ' + $label + ' is below ' + $minimum) }
         }
-        foreach ($field in @($section.Fields | Where-Object { $_ -and $_.Kind -in 'Text', 'Number', 'Combo', 'ComboText', 'Secret', 'File', 'Folder' })) {
-            $control = @(Get-OptionsInputControl -Element $page.Element | Where-Object { [System.Windows.Automation.AutomationProperties]::GetAutomationId($_) -eq [string]$field.Id }) | Select-Object -First 1
-            if (-not $control) { continue }
-            $floor = Get-OptionsInputFloor -Field $field
-            $effective = [Math]::Max($control.MinWidth, $(if ($control.Width -gt 0) { $control.Width } else { 0 }))
-            if ($effective -lt $floor) { throw ('FAIL: the input ' + $field.Id + ' is ' + $effective + ' wide; the floor is ' + $floor) }
-        }
+        Test-OptionsLayout -Element $page.Element -Fields @($section.Fields) -Label $section.Title -NativeWidth 900 -SmallestWidth 560
     }
     & $assert ($opened -eq @($definition | Where-Object { $_.Kind -ne 'Group' }).Count -and $opened -ge 20) ('every section opens ({0} sections)' -f $opened)
     & $assert (@($global:LogLines | Where-Object { $_ -match 'could not be built' }).Count -eq 0) 'no section failed to build'
@@ -268,12 +285,17 @@ try {
     $script:Prefs = Read-Preferences
     $group = New-OptionsFieldGroup -Context (New-OptionsContext -Prefs $script:Prefs) -Field @($table['cm.siteCode'], $table['wsus.port'], $table['wsus.ssl'])
     & $assert ((& $group.Editors['cm.siteCode'].Get) -eq 'ABC' -and (& $group.Editors['wsus.port'].Get) -eq '8531') 'a group of the wizard fields shows the stored values'
+    # The wizard column is 700 wide at the native size and 570 at the smallest size: no field row is cut off.
+    $wizardGroup = New-OptionsFieldGroup -Context (New-OptionsContext -Prefs $script:Prefs) -Field @($table['cm.siteCode'], $table['cm.provider'], $table['cm.fileShare'], $table['pkg.downloadRoot'], $table['int.tenant'], $table['int.client'], $table['int.secret'], $table['wsus.server'], $table['wsus.port'], $table['wsus.ssl'])
+    Test-OptionsLayout -Element $wizardGroup.Element -Fields @($table['cm.siteCode'], $table['cm.provider'], $table['cm.fileShare'], $table['pkg.downloadRoot'], $table['int.tenant'], $table['int.client'], $table['int.secret'], $table['wsus.server'], $table['wsus.port']) -Label 'Setup wizard' -NativeWidth 700 -SmallestWidth 570
+    & $assert $true 'no field row of the Setup wizard is cut off at the native size or at the smallest size'
     Set-Content -LiteralPath $global:FixturePrefsPath -Value '{}' -Encoding UTF8
     $script:Prefs = Read-Preferences
     $fresh = New-OptionsFieldGroup -Context (New-OptionsContext -Prefs $script:Prefs) -Field @($table['wsus.port'], $table['wsus.ssl'])
     $fresh.Editors['wsus.ssl'].Focus.IsChecked = $true
     & $assert ((& $fresh.Editors['wsus.port'].Get) -eq '8531') 'in any group, Use SSL moves a default port to 8531'
 
+    & $assert ($script:LayoutChecked -ge 80) ('the layout probe measured {0} inputs' -f $script:LayoutChecked)
     Write-Host ''
     Write-Host ('PASS: Options tree probe, {0} checks' -f $script:PassedChecks)
 }

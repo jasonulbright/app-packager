@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.11.13.0138
+    Version    : 2026.11.14.0139
     Updated    : 2026-09-09
 #>
 
@@ -6470,12 +6470,9 @@ function ConvertTo-OptionsItemList {
 # A text field is Short (a code or a port), Medium (a name) or Long (a path, a key, a URL; the default).
 function Get-OptionsInputHeight { 28 }
 function Get-OptionsInputSizeName {
+    # A text field is Short (a code or a port, set with Size = 'Short') or Long (a name, a path, a key, a URL). A declared Width never narrows it.
     param([Parameter(Mandatory)][hashtable]$Field)
-    if ($Field.Size) { return [string]$Field.Size }
-    if ($Field.Width) {
-        if ([double]$Field.Width -le 100) { return 'Short' }
-        if ([double]$Field.Width -le 260) { return 'Medium' }
-    }
+    if ([string]$Field.Size -eq 'Short') { return 'Short' }
     return 'Long'
 }
 
@@ -6486,7 +6483,7 @@ function Get-OptionsInputFloor {
         'Number' { return 80 }
         { $_ -in 'Combo', 'ComboText' } { return 200 }
     }
-    switch (Get-OptionsInputSizeName -Field $Field) { 'Short' { return 80 } 'Medium' { return 220 } default { return 360 } }
+    switch (Get-OptionsInputSizeName -Field $Field) { 'Short' { return 80 } default { return 360 } }
 }
 
 function Get-OptionsInputWidth {
@@ -6498,18 +6495,25 @@ function Get-OptionsInputWidth {
             return [Math]::Max(200, $wanted)
         }
     }
-    switch (Get-OptionsInputSizeName -Field $Field) { 'Short' { return 80 } 'Medium' { return 260 } default { return 420 } }
+    switch (Get-OptionsInputSizeName -Field $Field) { 'Short' { return 80 } default { return 420 } }
+}
+
+function Get-OptionsInputHardMinimum {
+    # The width that an input keeps when the window is at its smallest size. The floor of Get-OptionsInputFloor holds at the native size.
+    param([Parameter(Mandatory)][hashtable]$Field)
+    switch ([string]$Field.Kind) { 'Number' { return 80 } { $_ -in 'Combo', 'ComboText' } { return 120 } }
+    if ((Get-OptionsInputSizeName -Field $Field) -eq 'Short') { return 80 }
+    return 160
 }
 
 function Set-OptionsInputSize {
+    # The input has a maximum width and shrinks when its row is narrower; the field row gives it a cell that is at most that wide.
     param([Parameter(Mandatory)]$Control, [Parameter(Mandatory)][hashtable]$Field, [switch]$Stretch)
     $Control.Height = (Get-OptionsInputHeight)
     $Control.VerticalContentAlignment = [System.Windows.VerticalAlignment]::Center
-    $Control.MinWidth = Get-OptionsInputFloor -Field $Field
-    if (-not $Stretch) {
-        $Control.Width = Get-OptionsInputWidth -Field $Field
-        $Control.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-    }
+    $Control.MinWidth = Get-OptionsInputHardMinimum -Field $Field
+    $Control.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Stretch
+    if (-not $Stretch) { $Control.MaxWidth = Get-OptionsInputWidth -Field $Field }
 }
 
 function Set-OptionsPanelInputSize {
@@ -6624,12 +6628,15 @@ function New-OptionsFieldEditor {
             $pwd.FontSize = 13
             $pwd.ToolTip = $tip
             Set-OptionsInputSize -Control $pwd -Field $Field
+            $pwdMax = $pwd.MaxWidth
+            $pwd.MaxWidth = [double]::PositiveInfinity
             $hint = New-OptionsTextBlock -Text 'A value is saved. Leave this empty to keep it.' -Size 12
             $hint.Margin = New-Object System.Windows.Thickness(0, 4, 0, 0)
             $hint.Visibility = [System.Windows.Visibility]::Collapsed
             $panel = New-Object System.Windows.Controls.StackPanel
             [void]$panel.Children.Add($pwd)
             [void]$panel.Children.Add($hint)
+            $panel.MaxWidth = $pwdMax
             $editor.Element = $panel
             $editor.Focus = $pwd
             $editor.Get = { $pwd.SecurePassword }.GetNewClosure()
@@ -6644,8 +6651,8 @@ function New-OptionsFieldEditor {
             $browse = New-OptionsButton -Label 'Browse...' -Tip ('Choose the ' + $(if ($kind -eq 'Folder') { 'folder' } else { 'file' }) + '.')
             $browse.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
             $grid = New-Object System.Windows.Controls.Grid
-            $grid.Width = (Get-OptionsInputWidth -Field $Field) + 110
-            $grid.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+            $grid.MaxWidth = (Get-OptionsInputWidth -Field $Field) + 110
+            $grid.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Stretch
             $col0 = New-Object System.Windows.Controls.ColumnDefinition
             $col1 = New-Object System.Windows.Controls.ColumnDefinition
             $col1.Width = [System.Windows.GridLength]::Auto
@@ -6779,10 +6786,27 @@ function New-OptionsFieldRow {
     [void]$grid.Children.Add($title)
 
     $element = $Editor.Element
-    $element.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
     if ($Field.Indent) { $element.Margin = New-Object System.Windows.Thickness([double]$Field.Indent, 0, 0, 0) }
-    [System.Windows.Controls.Grid]::SetColumn($element, 1)
-    [void]$grid.Children.Add($element)
+    if ([double]::IsInfinity($element.MaxWidth)) {
+        $element.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+        [System.Windows.Controls.Grid]::SetColumn($element, 1)
+        [void]$grid.Children.Add($element)
+    }
+    else {
+        # A cell that is at most as wide as the input and shrinks with the window; the input fills the cell.
+        $cell = New-Object System.Windows.Controls.Grid
+        $cellInput = New-Object System.Windows.Controls.ColumnDefinition
+        $cellInput.Width = New-Object System.Windows.GridLength(1000, [System.Windows.GridUnitType]::Star)
+        $cellInput.MaxWidth = $element.MaxWidth
+        $cellRest = New-Object System.Windows.Controls.ColumnDefinition
+        $cellRest.Width = New-Object System.Windows.GridLength(0.001, [System.Windows.GridUnitType]::Star)
+        [void]$cell.ColumnDefinitions.Add($cellInput)
+        [void]$cell.ColumnDefinitions.Add($cellRest)
+        $element.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Stretch
+        [void]$cell.Children.Add($element)
+        [System.Windows.Controls.Grid]::SetColumn($cell, 1)
+        [void]$grid.Children.Add($cell)
+    }
     $Editor.Row = $grid
     return $grid
 }
@@ -7157,9 +7181,9 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'cm.provider'; Title = 'Site server / SMS Provider'; Kind = 'Text'; Pref = 'ProviderMachineName'; MaxLength = 200; Tip = 'The computer name of the SMS Provider of the site.'; Keywords = 'smsprovider provider site server' }
                 @{ Id = 'cm.dbGroup'; Kind = 'Group'; Title = 'Site database'; Description = 'Discover unmanaged software reads this database. An empty field takes its value from the site definition.' }
                 @{ Id = 'cm.sqlServer'; Title = 'SQL server'; Kind = 'Text'; Pref = 'DiscoverySqlServer'; MaxLength = 200; Tip = 'The host name of the SQL Server that holds the site database.'; Keywords = 'discovery sql discover' }
-                @{ Id = 'cm.sqlInstance'; Title = 'SQL instance'; Kind = 'Text'; Pref = 'DiscoverySqlInstance'; MaxLength = 128; Width = 220; Tip = 'The named instance of the SQL Server; empty uses the default instance.'; Keywords = 'discovery sql discover' }
+                @{ Id = 'cm.sqlInstance'; Title = 'SQL instance'; Kind = 'Text'; Pref = 'DiscoverySqlInstance'; MaxLength = 128; Tip = 'The named instance of the SQL Server; empty uses the default instance.'; Keywords = 'discovery sql discover' }
                 @{ Id = 'cm.sqlPort'; Title = 'SQL port'; Kind = 'Number'; Pref = 'DiscoverySqlPort'; Min = 1; Max = 65535; ZeroIsEmpty = $true; Default = 0; Tip = 'The TCP port of the instance; empty uses port 1433 or SQL Server Browser.'; Keywords = 'discovery sql discover tcp' }
-                @{ Id = 'cm.sqlDatabase'; Title = 'Database name'; Kind = 'Text'; Pref = 'DiscoverySqlDatabase'; MaxLength = 128; Width = 220; Tip = 'The site database name; empty uses CM_ and the site code.'; Keywords = 'discovery sql discover cm_' }
+                @{ Id = 'cm.sqlDatabase'; Title = 'Database name'; Kind = 'Text'; Pref = 'DiscoverySqlDatabase'; MaxLength = 128; Tip = 'The site database name; empty uses CM_ and the site code.'; Keywords = 'discovery sql discover cm_' }
                 @{ Id = 'cm.sqlTarget'; Title = 'Discover reads'; Kind = 'Status'; Tip = 'The SQL Server name and database that Discover unmanaged software connects to.'; Keywords = 'discovery sql target' }
                 @{ Id = 'cm.shareGroup'; Kind = 'Group'; Title = 'Content source' }
                 @{ Id = 'cm.fileShare'; Title = 'Content share UNC'; Kind = 'Text'; Pref = 'FileShareRoot'; MaxLength = 200; Tip = 'The UNC path of the share that holds the application content sources.'; Keywords = 'file share root unc' }
@@ -7303,7 +7327,7 @@ function Get-OptionsSectionDefinition {
             Fields = @(
                 @{ Id = 'cwa.preview'; Title = 'Command-line preview'; Kind = 'Actions'; Tip = 'Shows the install command line that the Current Release and LTSR packagers build.'; Keywords = 'cwa citrix arguments'; Buttons = @(@{ Id = 'preview'; Label = 'Preview'; Tip = 'Shows the command line for both streams.' }) }
                 @{ Id = 'cwa.storeGroup'; Kind = 'Group'; Title = 'Store' }
-                @{ Id = 'cwa.storeName'; Title = 'Store name'; Kind = 'Text'; Pref = 'cwa:Store.Name'; Width = 220; Tip = 'The friendly name of the StoreFront store (STORE0).' }
+                @{ Id = 'cwa.storeName'; Title = 'Store name'; Kind = 'Text'; Pref = 'cwa:Store.Name'; Tip = 'The friendly name of the StoreFront store (STORE0).' }
                 @{ Id = 'cwa.storeUrl'; Title = 'Store URL'; Kind = 'Text'; Pref = 'cwa:Store.Url'; Tip = 'STORE0 URL: StoreFront https://host/Citrix/Store/discovery, Gateway https://host#StoreName.'; Keywords = 'storefront gateway' }
                 @{ Id = 'cwa.installGroup'; Kind = 'Group'; Title = 'Installation' }
                 @{ Id = 'cwa.clean'; Title = 'Clean install'; Kind = 'Check'; Pref = 'cwa:Installation.CleanInstall'; Label = 'Remove leftover configuration before install (/CleanInstall)'; Tip = 'Removes configuration and registry data of an earlier installation before the install.' }
@@ -7318,7 +7342,7 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'cwa.laa'; Title = 'Local App Access'; Kind = 'Check'; Pref = 'cwa:Installation.ForceLaa'; Label = 'Install Local App Access (FORCE_LAA=1)'; Tip = 'Installs Local App Access; it needs an admin install.' }
                 @{ Id = 'cwa.legacyicons'; Title = 'File-type icons'; Kind = 'Check'; Pref = 'cwa:Installation.LegacyFtaIcons'; Label = 'Hide file-type icons of subscribed apps (LEGACYFTAICONS=True)'; Tip = 'Hides the file-type icons of subscribed apps.' }
                 @{ Id = 'cwa.disablesetting'; Title = 'Advanced Preferences'; Kind = 'Combo'; Pref = 'cwa:Installation.DisableSetting'; Default = ''; Width = 300; Items = @($notSet, @{ Label = '0 - show Shortcuts and Reconnect'; Value = '0' }, @{ Label = '1 - show Reconnect only'; Value = '1' }, @{ Label = '2 - show Shortcuts only'; Value = '2' }, @{ Label = '3 - hide both'; Value = '3' }); Tip = 'Hides the Shortcuts and Reconnect options in Advanced Preferences (DisableSetting).' }
-                @{ Id = 'cwa.clientname'; Title = 'Client name'; Kind = 'Text'; Pref = 'cwa:Installation.ClientName'; MaxLength = 20; Width = 220; Tip = 'A fixed client device name; empty uses the computer name.'; Keywords = 'client_name dynamic' }
+                @{ Id = 'cwa.clientname'; Title = 'Client name'; Kind = 'Text'; Pref = 'cwa:Installation.ClientName'; MaxLength = 20; Tip = 'A fixed client device name; empty uses the computer name.'; Keywords = 'client_name dynamic' }
                 @{ Id = 'cwa.pluginsGroup'; Kind = 'Group'; Title = 'Plugins and add-ons' }
                 @{ Id = 'cwa.teams'; Title = 'MS Teams VDI plugin'; Kind = 'Check'; Pref = 'cwa:Plugins.MSTeamsPlugin'; Label = 'Install the plug-in (/InstallMSTeamsPlugin)'; Tip = 'Current Release only; the LTSR packagers ignore this setting.' }
                 @{ Id = 'cwa.zoom'; Title = 'Zoom VDI plugin'; Kind = 'Check'; Pref = 'cwa:Plugins.ZoomPlugin'; Label = 'Install the plug-in (Installzoomplugin, ADDONS=ZoomVDIPlugin)'; Tip = 'Current Release adds Installzoomplugin=N when cleared; LTSR adds ADDONS=ZoomVDIPlugin when set.' }
@@ -7363,10 +7387,10 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'm365.file'; Title = 'Imported file'; Kind = 'Status'; Tip = 'The name and size of the stored configuration.xml; the file stays on this computer.'; Keywords = 'import remove'; Buttons = @(@{ Id = 'import'; Label = 'Import...'; Tip = 'Checks a configuration.xml and stores a copy.' }, @{ Id = 'remove'; Label = 'Remove'; Tip = 'Deletes the stored copy.' }) }
                 @{ Id = 'm365.reason'; Kind = 'Note'; Text = '' }
                 @{ Id = 'm365.generatedGroup'; Kind = 'Group'; Title = 'Generated configuration' }
-                @{ Id = 'm365.company'; Title = 'Company name'; Kind = 'Text'; Pref = 'CompanyName'; MaxLength = 100; Width = 250; Tip = 'The organization name that the packagers write into the Office settings.' }
+                @{ Id = 'm365.company'; Title = 'Company name'; Kind = 'Text'; Pref = 'CompanyName'; MaxLength = 100; Tip = 'The organization name that the packagers write into the Office settings.' }
                 @{ Id = 'm365.channel'; Title = 'Channel'; Kind = 'Combo'; Pref = 'M365Channel'; Default = 'MonthlyEnterprise'; Width = 260; Items = $channelItems; Tip = 'The update channel of the Microsoft 365 Apps, Project and Visio packagers.' }
                 @{ Id = 'm365.deploy'; Title = 'Deploy mode'; Kind = 'Combo'; Pref = 'M365DeployMode'; Default = 'Managed'; Width = 260; Items = $deployItems; Tip = 'Managed downloads the Office source and pins the version; Online installs from the CDN.' }
-                @{ Id = 'm365.languages'; Title = 'Languages'; Kind = 'Text'; Pref = 'M365Options.Languages'; Width = 300; Watermark = 'en-us'
+                @{ Id = 'm365.languages'; Title = 'Languages'; Kind = 'Text'; Pref = 'M365Options.Languages'; Watermark = 'en-us'
                     ToText = { param($Value) (@($Value) -join ', ') }
                     FromText = { param($Text) @(([string]$Text) -split '[,;\s]+' | Where-Object { $_ } | ForEach-Object { $_.ToLowerInvariant() }) }
                     Tip = 'Culture codes of the Office display languages, such as en-us; the first sets the shell language.' }
@@ -7403,7 +7427,7 @@ function Get-OptionsSectionDefinition {
             Post = { param($Context, $Page) Initialize-OptionsSsmsSection -Context $Context -Page $Page }
             Fields = @(
                 @{ Id = 'ssms.ui'; Title = 'UI mode'; Kind = 'Combo'; Pref = 'SSMSInstallOptions.UIMode'; Default = 'Quiet'; Width = 200; Items = @('Quiet', 'Passive'); Tip = 'Quiet adds --quiet; Passive adds --passive and shows progress, which a required install cannot use.' }
-                @{ Id = 'ssms.path'; Title = 'Install path'; Kind = 'Text'; Pref = 'SSMSInstallOptions.InstallPath'; Width = 420; Tip = 'The --installPath value; empty uses the default folder, and detection and uninstall follow it.' }
+                @{ Id = 'ssms.path'; Title = 'Install path'; Kind = 'Text'; Pref = 'SSMSInstallOptions.InstallPath'; Tip = 'The --installPath value; empty uses the default folder, and detection and uninstall follow it.' }
                 @{ Id = 'ssms.dti'; Title = 'Download first'; Kind = 'Check'; Pref = 'SSMSInstallOptions.DownloadThenInstall'; Label = 'Download all packages before the install (--downloadThenInstall)'; Tip = 'Excludes --installWhileDownloading, which is the setup default.' }
                 @{ Id = 'ssms.noupdate'; Title = 'Installer update'; Kind = 'Check'; Pref = 'SSMSInstallOptions.NoUpdateInstaller'; Label = 'Do not update the Visual Studio Installer (--noUpdateInstaller)'; Tip = 'Documented with --quiet; setup fails when an installer update is required.' }
                 @{ Id = 'ssms.workloads'; Title = 'Workloads'; Kind = 'Multi'; Pref = 'SSMSInstallOptions.Workloads'; Columns = 2; Tip = 'The workloads to install; each one adds an --add switch, and none installs the core editor.'
@@ -7427,9 +7451,9 @@ function Get-OptionsSectionDefinition {
             Id = 'teamviewer'; Title = 'TeamViewer Host'; Parent = 'applications'; Kind = 'Fields'
             Description = 'The packager installs the TeamViewer Host EXE with /S, and the EXE ignores the four settings below. They apply to a TeamViewer Host MSI only; the packager logs a warning when they are set.'
             Fields = @(
-                @{ Id = 'tv.token'; Title = 'API token'; Kind = 'Text'; Pref = 'tv:ApiToken'; Width = 350; Tip = 'MSI only: the script token for APITOKEN; it is stored as text in teamviewer-host-config.json.'; Keywords = 'apitoken' }
-                @{ Id = 'tv.config'; Title = 'Custom config ID'; Kind = 'Text'; Pref = 'tv:CustomConfigId'; Width = 250; Tip = 'MSI only: CUSTOMCONFIGID of a custom Host module from the Management Console.' }
-                @{ Id = 'tv.assign'; Title = 'Assignment options'; Kind = 'Text'; Pref = 'tv:AssignmentOptions'; Width = 350; Tip = 'MSI only: the flags of ASSIGNMENTOPTIONS, for example --grant-easy-access or --reassign.' }
+                @{ Id = 'tv.token'; Title = 'API token'; Kind = 'Text'; Pref = 'tv:ApiToken'; Tip = 'MSI only: the script token for APITOKEN; it is stored as text in teamviewer-host-config.json.'; Keywords = 'apitoken' }
+                @{ Id = 'tv.config'; Title = 'Custom config ID'; Kind = 'Text'; Pref = 'tv:CustomConfigId'; Tip = 'MSI only: CUSTOMCONFIGID of a custom Host module from the Management Console.' }
+                @{ Id = 'tv.assign'; Title = 'Assignment options'; Kind = 'Text'; Pref = 'tv:AssignmentOptions'; Tip = 'MSI only: the flags of ASSIGNMENTOPTIONS, for example --grant-easy-access or --reassign.' }
                 @{ Id = 'tv.shortcut'; Title = 'Desktop shortcut'; Kind = 'Check'; Pref = 'tv:RemoveDesktopShortcut'; Label = 'Remove the desktop shortcut (MSI only)'; Tip = 'MSI only: ADDLOCAL=ALL REMOVE=f.DesktopShortcut removes the desktop shortcut.' }
             )
         })
@@ -8126,6 +8150,7 @@ function New-OptionsLocalSourceEditor {
     # One folder box for each packager that can stage a local installer.
     param([Parameter(Mandatory)][hashtable]$Context)
     $stack = New-Object System.Windows.Controls.StackPanel
+    $stack.MaxWidth = 640
     $boxes = [ordered]@{}
     $first = $null
     foreach ($row in @(Get-OptionsPackagerList -Context $Context | Where-Object { $_.LocalSource })) {
@@ -8139,15 +8164,15 @@ function New-OptionsLocalSourceEditor {
         $box.ToolTip = $tip
         $box.Height = (Get-OptionsInputHeight)
         $box.VerticalContentAlignment = [System.Windows.VerticalAlignment]::Center
-        $box.MinWidth = 360
+        $box.MinWidth = 160
         if ($Context.Prefs.LocalSourceFolders -and $Context.Prefs.LocalSourceFolders.PSObject.Properties[$base]) { $box.Text = [string]$Context.Prefs.LocalSourceFolders.$base }
         $browse = New-OptionsButton -Label 'Browse...' -Tip 'Choose the folder.'
         $browse.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
         $browse.Add_Click({ $picked = Select-OptionsFolder -Current $box.Text; if ($picked) { $box.Text = $picked } }.GetNewClosure())
         $line = New-Object System.Windows.Controls.DockPanel
         $line.LastChildFill = $true
-        $line.Width = 640
-        $line.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+        $line.MaxWidth = 640
+        $line.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Stretch
         [System.Windows.Controls.DockPanel]::SetDock($browse, [System.Windows.Controls.Dock]::Right)
         [void]$line.Children.Add($browse)
         [void]$line.Children.Add($box)

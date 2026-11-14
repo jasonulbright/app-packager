@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [2026.11.14.0139] - 2026-11-14
+
+## 62 checks in the Options tree probe
+
+### Fixed
+
+- Show the Browse button of the Setup wizard whole, at the native size and at the smallest size.
+- Give every text field of Options the same wide box, not a narrow one set by a declared width.
+- Shrink an Options input with its window, so no input is cut off at the right edge.
+
+### Added
+
+- Add a layout probe that fails any Options or Setup input cut off at the right edge or below its floor.
+
 ## [2026.11.13.0138] - 2026-11-13
 
 ## 1 page for each Options node, with inputs of one size

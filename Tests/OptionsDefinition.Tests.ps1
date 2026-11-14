@@ -91,6 +91,20 @@ Describe 'Names and titles' {
         Test-TitleCase -Text 'Local installer sources' | Should -BeFalse
     }
 
+    It 'gives a text, secret, file or folder field no width of its own and no narrow size except Short' {
+        $bad = foreach ($f in $script:AllField) {
+            if ([string]$f.Kind -notin 'Text', 'Secret', 'File', 'Folder') { continue }
+            if ($f.Width) { '{0}: declares Width {1}; a text field is Long, or Size = Short' -f $f.Id, $f.Width }
+            if ($f.Size -and [string]$f.Size -notin 'Short', 'Long') { '{0}: Size {1}' -f $f.Id, $f.Size }
+        }
+        @($bad) | Should -BeNullOrEmpty
+    }
+
+    It 'gives every combo box a width of 200 or more' {
+        $bad = foreach ($f in $script:AllField) { if ([string]$f.Kind -in 'Combo', 'ComboText' -and $f.Width -and [double]$f.Width -lt 200) { '{0}: Width {1}' -f $f.Id, $f.Width } }
+        @($bad) | Should -BeNullOrEmpty
+    }
+
     It 'does not use the old name After Package' {
         @($script:Text | Where-Object { $_.Text -cmatch 'After Package' }) | Should -BeNullOrEmpty
         @($script:Section | Where-Object { $_.Id -eq 'afterpackage' }) | Should -BeNullOrEmpty
