@@ -10,7 +10,6 @@
 param([switch]$Report)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-if ($env:COMPUTERNAME -ieq 'AYW') { Write-Host 'SKIP: window probes never run on the dev PC (AYW).'; exit 0 }
 $fixtureDir = Join-Path $env:TEMP ('ap-options-contrast-' + [guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $fixtureDir -Force)
 . (Join-Path $PSScriptRoot 'OptionsTestSupport.ps1') -Root $root -FixtureDir $fixtureDir
