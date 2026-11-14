@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Microsoft
 App: Power BI Desktop (x64)
 CMName: Power BI Desktop

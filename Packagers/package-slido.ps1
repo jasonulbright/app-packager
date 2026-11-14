@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Slido
 App: Slido for Windows
 CMName: Slido for Windows

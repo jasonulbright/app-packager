@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Amazon
 App: Amazon Corretto JDK 17 (x64)
 CMName: Amazon Corretto 17 (x64)

@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Cloud Software Group
 App: Citrix Workspace app for Windows (Current Release)
 CMName: Citrix Workspace CR

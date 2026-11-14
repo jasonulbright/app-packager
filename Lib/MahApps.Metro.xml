@@ -5076,62 +5076,62 @@
         </member>
         <member name="M:MahApps.Metro.Controls.HeaderedControlHelper.GetHeaderForeground(System.Windows.UIElement)">
             <summary>
-            Gets the value of the Foreground for the header.
+            Gets the value of the Foreground for the header.
             </summary>
         </member>
         <member name="M:MahApps.Metro.Controls.HeaderedControlHelper.SetHeaderForeground(System.Windows.UIElement,System.Windows.Media.Brush)">
             <summary>
-            Sets the value of the Foreground for the header.
+            Sets the value of the Foreground for the header.
             </summary>
         </member>
         <member name="M:MahApps.Metro.Controls.HeaderedControlHelper.GetHeaderBackground(System.Windows.UIElement)">
             <summary>
-            Gets the value of the Background for the header.
+            Gets the value of the Background for the header.
             </summary>
         </member>
         <member name="M:MahApps.Metro.Controls.HeaderedControlHelper.SetHeaderBackground(System.Windows.UIElement,System.Windows.Media.Brush)">
             <summary>
-            Sets the value of the Background for the header.
+            Sets the value of the Background for the header.
             </summary>
         </member>
         <member name="M:MahApps.Metro.Controls.HeaderedControlHelper.GetHeaderFontFamily(System.Windows.UIElement)">
             <summary>
-            Gets the value of the FontFamily for the header.
+            Gets the value of the FontFamily for the header.
             </summary>
         </member>
         <member name="M:MahApps.Metro.Controls.HeaderedControlHelper.SetHeaderFontFamily(System.Windows.UIElement,System.Windows.Media.FontFamily)">
             <summary>
-            Sets the value of the FontFamily for the header.
+            Sets the value of the FontFamily for the header.
             </summary>
         </member>
         <member name="M:MahApps.Metro.Controls.HeaderedControlHelper.GetHeaderFontSize(System.Windows.UIElement)">
             <summary>
-            Gets the value of the FontSize for the header.
+            Gets the value of the FontSize for the header.
             </summary>
         </member>
         <member name="M:MahApps.Metro.Controls.HeaderedControlHelper.SetHeaderFontSize(System.Windows.UIElement,System.Double)">
             <summary>
-            Sets the value of the FontSize for the header.
+            Sets the value of the FontSize for the header.
             </summary>
         </member>
         <member name="M:MahApps.Metro.Controls.HeaderedControlHelper.GetHeaderFontStretch(System.Windows.UIElement)">
             <summary>
-            Gets the value of the FontStretch for the header.
+            Gets the value of the FontStretch for the header.
             </summary>
         </member>
         <member name="M:MahApps.Metro.Controls.HeaderedControlHelper.SetHeaderFontStretch(System.Windows.UIElement,System.Windows.FontStretch)">
             <summary>
-            Sets the value of the FontStretch for the header.
+            Sets the value of the FontStretch for the header.
             </summary>
         </member>
         <member name="M:MahApps.Metro.Controls.HeaderedControlHelper.GetHeaderFontWeight(System.Windows.UIElement)">
             <summary>
-            Gets the value of the FontWeight for the header.
+            Gets the value of the FontWeight for the header.
             </summary>
         </member>
         <member name="M:MahApps.Metro.Controls.HeaderedControlHelper.SetHeaderFontWeight(System.Windows.UIElement,System.Windows.FontWeight)">
             <summary>
-            Sets the value of the FontWeight for the header.
+            Sets the value of the FontWeight for the header.
             </summary>
         </member>
         <member name="M:MahApps.Metro.Controls.HeaderedControlHelper.GetHeaderMargin(System.Windows.UIElement)">

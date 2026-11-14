@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Postman
 App: Postman (User)
 CMName: Postman

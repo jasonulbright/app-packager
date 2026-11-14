@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Microsoft
 App: Microsoft Visual C++ v14 Redistributable (x86+x64)
 CMName: Microsoft Visual C++ v14 Redistributable (x86+x64)

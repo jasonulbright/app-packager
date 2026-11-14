@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Microsoft
 App: SQL Server Management Studio 22
 CMName: SQL Server Management Studio

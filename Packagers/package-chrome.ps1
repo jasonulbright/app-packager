@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Google
 App: Google Chrome
 CMName: Google Chrome

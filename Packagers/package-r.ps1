@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: The R Foundation
 App: R for Windows
 CMName: R for Windows

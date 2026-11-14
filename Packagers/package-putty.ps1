@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Simon Tatham
 App: PuTTY
 CMName: PuTTY

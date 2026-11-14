@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Python Software Foundation
 App: Python
 CMName: Python

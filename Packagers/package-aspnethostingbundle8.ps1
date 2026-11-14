@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Microsoft
 App: ASP.NET 8 Server Hosting Bundle (x64)
 CMName: Microsoft .NET 8

@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: NoMachine
 App: NoMachine
 CMName: NoMachine

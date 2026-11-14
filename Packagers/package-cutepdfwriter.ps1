@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Acro Software Inc.
 App: CutePDF Writer
 CMName: CutePDF Writer

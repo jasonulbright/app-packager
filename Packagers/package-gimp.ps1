@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: The GIMP Team
 App: GIMP (x64)
 CMName: GIMP

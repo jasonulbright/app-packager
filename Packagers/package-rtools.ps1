@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: The R Foundation
 App: Rtools
 CMName: Rtools

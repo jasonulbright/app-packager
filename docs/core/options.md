@@ -102,17 +102,17 @@ The **License key file** and the policy switches `/DisableRemoteProfiles` and `/
 
 The **Preview** button shows the command line of the Current Release and LTSR packagers. Six groups on this one page set the switches.
 
-**Store** — the store name and URL (`STORE0`).
+**Store** - the store name and URL (`STORE0`).
 
-**Installation** — `/CleanInstall`, single sign-on, App Protection, session pre-launch, self-service mode, `/forceinstall`, content and URL redirection, Local App Access, file-type icons, Advanced Preferences and the client name.
+**Installation** - `/CleanInstall`, single sign-on, App Protection, session pre-launch, self-service mode, `/forceinstall`, content and URL redirection, Local App Access, file-type icons, Advanced Preferences and the client name.
 
-**Plugins and add-ons** — the Teams, Zoom and WebEx VDI plug-ins, uberAgent, the EPA client and the Session Recording agent.
+**Plugins and add-ons** - the Teams, Zoom and WebEx VDI plug-ins, uberAgent, the EPA client and the Session Recording agent.
 
-**Update and telemetry** — auto-update, update stream, rollout priority, CEIP and always-on tracing. The update stream and the rollout priority work only when Auto-update is set.
+**Update and telemetry** - auto-update, update stream, rollout priority, CEIP and always-on tracing. The update stream and the rollout priority work only when Auto-update is set.
 
-**Store policy** — `ALLOWADDSTORE` and `ALLOWSAVEPWD`.
+**Store policy** - `ALLOWADDSTORE` and `ALLOWSAVEPWD`.
 
-**Components ADDLOCAL** — the components of `ADDLOCAL`. With **Customize** cleared, the packager omits `ADDLOCAL`.
+**Components ADDLOCAL** - the components of `ADDLOCAL`. With **Customize** cleared, the packager omits `ADDLOCAL`.
 
 ![The Citrix Workspace App section](../images/options-citrix-workspace-app.png)
 

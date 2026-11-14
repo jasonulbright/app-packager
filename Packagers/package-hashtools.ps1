@@ -1,4 +1,4 @@
-﻿<#
+<#
 Vendor: Binary Fortress Software
 App: HashTools
 CMName: HashTools
