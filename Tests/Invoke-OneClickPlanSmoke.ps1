@@ -60,7 +60,8 @@ try {
     )
 
     $probeOwner = New-Object System.Windows.Window
-    $probeOwner.Width = 10; $probeOwner.Height = 10
+    # In a visible run the owner has a window size, so that CenterOwner places the dialog on the screen.
+    $probeOwner.Width = $(if ($env:SUITE_VISIBLE_WINDOWS -eq '1') { 1280 } else { 10 }); $probeOwner.Height = $(if ($env:SUITE_VISIBLE_WINDOWS -eq '1') { 800 } else { 10 })
     $probeOwner.WindowStartupLocation = 'Manual'
     $probeOwner.Left = $(if ($env:SUITE_VISIBLE_WINDOWS -eq '1') { 80 } else { -32000 }); $probeOwner.Top = $(if ($env:SUITE_VISIBLE_WINDOWS -eq '1') { 80 } else { -32000 })
 
@@ -70,6 +71,10 @@ try {
 
     Show-OneClickPlanDialog -Owner $probeOwner -Rows $rows -Action 'StageAndPackage' -Probe {
         param($p)
+        if ($env:SUITE_VISIBLE_WINDOWS -eq '1') {
+            $w = $p.Dialog; $vl = [System.Windows.SystemParameters]::VirtualScreenLeft; $vt = [System.Windows.SystemParameters]::VirtualScreenTop; $vw = [System.Windows.SystemParameters]::VirtualScreenWidth; $vh = [System.Windows.SystemParameters]::VirtualScreenHeight
+            $o = $probeOwner; $cl = $o.Left + ($o.Width - $w.Width) / 2; $ct = $o.Top + ($o.Height - $w.Height) / 2; & $assert ($cl -ge $vl -and $ct -ge $vt -and ($cl + $w.Width) -le ($vl + $vw) -and ($ct + $w.Height) -le ($vt + $vh)) ([string]::Format('the One Click dialog is centered on the screen: {0},{1} {2}x{3}; owner {4},{5} {6}x{7}; screen {8}x{9}', $cl, $ct, $w.Width, $w.Height, $o.Left, $o.Top, $o.Width, $o.Height, $vw, $vh))
+        }
         & $assert ($p.Rows.Count -eq 3) 'one plan row per tracked application'
         & $ok 'three plan rows'
 
