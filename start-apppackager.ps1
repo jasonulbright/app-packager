@@ -8150,6 +8150,7 @@ function New-OptionsLocalSourceEditor {
     # One folder box for each packager that can stage a local installer.
     param([Parameter(Mandatory)][hashtable]$Context)
     $stack = New-Object System.Windows.Controls.StackPanel
+    $stack.MaxWidth = 640
     $boxes = [ordered]@{}
     $first = $null
     foreach ($row in @(Get-OptionsPackagerList -Context $Context | Where-Object { $_.LocalSource })) {

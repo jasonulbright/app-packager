@@ -46,6 +46,7 @@ function Test-OptionsLayout {
                 $floor = Get-OptionsInputFloor -Field $field
                 if ($c.ActualWidth + 0.5 -lt $floor) { throw ('FAIL: {0} / {1} is {2} wide at the native size; the floor is {3}' -f $Label, $id, [int]$c.ActualWidth, $floor) }
             }
+            if (-not $field -and $width -eq $NativeWidth -and $c -is [System.Windows.Controls.TextBox] -and $c.ActualWidth + 0.5 -lt 360) { throw ('FAIL: {0} / a text box without a field definition is {1} wide at the native size' -f $Label, [int]$c.ActualWidth) }
             if ($c.ActualWidth + 0.5 -lt $c.MinWidth) { throw ('FAIL: {0} / {1} is narrower than its minimum' -f $Label, $id) }
         }
     }
@@ -286,7 +287,7 @@ try {
     & $assert ((& $group.Editors['cm.siteCode'].Get) -eq 'ABC' -and (& $group.Editors['wsus.port'].Get) -eq '8531') 'a group of the wizard fields shows the stored values'
     # The wizard column is 700 wide at the native size and 570 at the smallest size: no field row is cut off.
     $wizardGroup = New-OptionsFieldGroup -Context (New-OptionsContext -Prefs $script:Prefs) -Field @($table['cm.siteCode'], $table['cm.provider'], $table['cm.fileShare'], $table['pkg.downloadRoot'], $table['int.tenant'], $table['int.client'], $table['int.secret'], $table['wsus.server'], $table['wsus.port'], $table['wsus.ssl'])
-    Test-OptionsLayout -Element $wizardGroup.Element -Fields @($table['cm.siteCode'], $table['cm.provider'], $table['cm.fileShare'], $table['pkg.downloadRoot'], $table['int.tenant'], $table['int.client'], $table['int.secret'], $table['wsus.server']) -Label 'Setup wizard' -NativeWidth 700 -SmallestWidth 570
+    Test-OptionsLayout -Element $wizardGroup.Element -Fields @($table['cm.siteCode'], $table['cm.provider'], $table['cm.fileShare'], $table['pkg.downloadRoot'], $table['int.tenant'], $table['int.client'], $table['int.secret'], $table['wsus.server'], $table['wsus.port']) -Label 'Setup wizard' -NativeWidth 700 -SmallestWidth 570
     & $assert $true 'no field row of the Setup wizard is cut off at the native size or at the smallest size'
     Set-Content -LiteralPath $global:FixturePrefsPath -Value '{}' -Encoding UTF8
     $script:Prefs = Read-Preferences
