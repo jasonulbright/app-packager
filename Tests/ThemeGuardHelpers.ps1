@@ -79,7 +79,7 @@ function Get-ResourceKey {
 function Get-SharedStyleXaml {
     [xml]$main = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'MainWindow.xaml') -Raw
     $keys = @('ThemedButtonTemplate', 'ThemedButtonStyle', 'DialogAccentButton', 'DialogButton', 'InlineButtonStyle', 'LinkButtonStyle', 'GridLinkButtonStyle', 'ThemedListBoxItemStyle', 'ThemedComboBoxItemStyle', 'ThemedTreeViewItemStyle', 'GridRowStyle', 'GridCellStyle', 'PaddedGridCellStyle')
-    $types = @('ListBoxItem', 'ComboBoxItem', 'TreeViewItem', 'CheckBox')
+    $types = @('ListBoxItem', 'ComboBoxItem', 'TreeViewItem', 'CheckBox', 'TextBox', 'ComboBox', 'DataGridColumnHeader')
     $nodes = @($main.SelectNodes("//*[local-name()='ResourceDictionary']/*[local-name()='ControlTemplate' or local-name()='Style']") | Where-Object {
             $key = $_.GetAttribute('Key', $script:XamlKeyNamespace)
             ($key -and ($keys -contains $key)) -or (-not $key -and ($types -contains $_.GetAttribute('TargetType')))

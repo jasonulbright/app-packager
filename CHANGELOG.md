@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Show a text box and a combo box with a border of 3:1 contrast or more in the light theme. The MahApps border was 1.6:1 on white.
+- Show the muted text (notes, hints, the version) with MahApps.Brushes.Gray.MouseOver. The old brush was 2.7:1 on white in the light theme.
+- Show the column headers of a disabled grid with the gray text of the other disabled controls.
+
+### Added
+
+- Add Invoke-OptionsContrastSmoke.ps1. It opens every section of Options in the light and in the dark theme and checks the contrast of the text (4.5:1) and of the control borders (3:1), enabled and disabled. Tests\KnownContrastDefects.ps1 lists the known limits that SuiteCommon owns.
+
 ## [2026.11.13.0137] - 2026-11-13
 
 ## 1 footer that shows the site and the site server
