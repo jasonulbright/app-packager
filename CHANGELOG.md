@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [2026.11.14.0140] - 2026-11-14
+
+## 16 windows in the overflow probe
+
+### Added
+
+- Add a probe that shows every window and dialog at its native size and fails a control that is cut off.
+
 ## [2026.11.14.0139] - 2026-11-14
 
 ## 62 checks in the Options tree probe
