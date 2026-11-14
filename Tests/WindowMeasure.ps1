@@ -74,11 +74,11 @@ $script:MeasureFunctions = {
 
     function Get-TextContrast {
         # One row per visible piece of text: its colour, backdrop and ratio.
-        param($Window, [string]$Tag = '')
+        param($Window, [string]$Tag = '', $Root = $Window)
         $winBg = (Get-SolidColor $Window.Background)
         $under = if ($winBg) { Merge-Color $winBg.Color $winBg.Opacity ([System.Windows.Media.Colors]::Black) } else { [System.Windows.Media.Colors]::White }
         $rows = @()
-        foreach ($e in (Get-VisualDescendants $Window)) {
+        foreach ($e in (Get-VisualDescendants $Root)) {
             $fg = $null; $text = $null
             if ($e -is [System.Windows.Controls.TextBlock]) { $text = $e.Text; $fg = $e.Foreground }
             elseif ($e -is [System.Windows.Controls.TextBox]) { $text = $e.Text; $fg = $e.Foreground }

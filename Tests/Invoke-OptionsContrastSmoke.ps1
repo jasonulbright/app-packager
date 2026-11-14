@@ -55,24 +55,27 @@ function Get-ControlLabel {
 # The buttons, boxes and check boxes of the window, enabled and then disabled. A control inside the template of another
 # control (the clear button of a box, the arrow of a combo box) belongs to that control.
 function Get-OptionsControlContrast {
-    param($Window)
+    # -Root limits the scan to one part of the window (the page of a section); the window scan runs once.
+    param($Window, $Root = $Window)
     $rows = @()
-    $controls = @(Get-VisualDescendants $Window | Where-Object {
+    $controls = @(Get-VisualDescendants $Root | Where-Object {
             ($_ -is [System.Windows.Controls.Primitives.ButtonBase] -or $_ -is [System.Windows.Controls.TextBox] -or $_ -is [System.Windows.Controls.ComboBox]) -and
             $_.Name -notlike 'PART_*' -and $null -eq $_.TemplatedParent -and (Test-VisibleInTree $_) -and $_.ActualWidth -gt 0 })
-    foreach ($c in $controls) {
-        $local = $c.ReadLocalValue([System.Windows.UIElement]::IsEnabledProperty)
-        try {
-            $c.IsEnabled = $true; Wait-Layout $Window 2
-            $en = Get-ControlColors $c $Window
-            $c.IsEnabled = $false; Wait-Layout $Window 2
+    # Enabled first. Then the whole root is disabled at once, so that one layout pass serves every control.
+    $enabled = @{}
+    foreach ($c in $controls) { $enabled[$c] = Get-ControlColors $c $Window }
+    $local = $Root.ReadLocalValue([System.Windows.UIElement]::IsEnabledProperty)
+    try {
+        $Root.IsEnabled = $false; Wait-Layout $Window 2
+        foreach ($c in $controls) {
+            $en = $enabled[$c]
             $dis = Get-ControlColors $c $Window
+            $rows += [pscustomobject]@{ Name = (Get-ControlLabel $c); Type = $en.Type; EnabledText = $en.TextRatio; DisabledText = $dis.TextRatio; EnabledBorder = $en.BorderRatio; DisabledBorder = $dis.BorderRatio }
         }
-        finally {
-            if ($local -eq [System.Windows.DependencyProperty]::UnsetValue) { $c.ClearValue([System.Windows.UIElement]::IsEnabledProperty) } else { $c.IsEnabled = [bool]$local }
-            Wait-Layout $Window 1
-        }
-        $rows += [pscustomobject]@{ Name = (Get-ControlLabel $c); Type = $en.Type; EnabledText = $en.TextRatio; DisabledText = $dis.TextRatio; EnabledBorder = $en.BorderRatio; DisabledBorder = $dis.BorderRatio }
+    }
+    finally {
+        if ($local -eq [System.Windows.DependencyProperty]::UnsetValue) { $Root.ClearValue([System.Windows.UIElement]::IsEnabledProperty) } else { $Root.IsEnabled = [bool]$local }
+        Sync-Layout $Window
     }
     return $rows
 }
@@ -102,14 +105,15 @@ try {
             foreach ($section in $dialog.Definition) {
                 if ($section.Kind -eq 'Group') { continue }
                 & $dialog.Navigate ([string]$section.Id) ''
-                Wait-Layout $w 4
+                Wait-Layout $w 2
                 $sections++
-                foreach ($t in @(Get-TextContrast $w)) {
+                $scan = $(if ($sections -eq 1) { $w } else { $dialog.Context.Sections[[string]$section.Id].Element })
+                foreach ($t in @(Get-TextContrast $w "" $scan)) {
                     $large = $t.Icon -or ($t.Size -ge 24) -or ($t.Size -ge 18.66 -and $t.Bold)
                     $need = $(if ($large) { 3.0 } else { 4.5 })
                     if ($t.Ratio -lt $need) { $found[$theme][('text:' + $t.Text)] = ('[{0}] {1} on {2} = {3}' -f $section.Id, $t.Foreground, $t.Backdrop, $t.Ratio) }
                 }
-                foreach ($c in @(Get-OptionsControlContrast $w)) {
+                foreach ($c in @(Get-OptionsControlContrast $w $scan)) {
                     foreach ($m in 'EnabledText', 'DisabledText') { if ($null -ne $c.$m -and $c.$m -lt 4.5) { $found[$theme][('{0}:{1}' -f $c.Name, $m)] = ('[{0}] {1}' -f $section.Id, $c.$m) } }
                     foreach ($m in 'EnabledBorder', 'DisabledBorder') { if ($null -ne $c.$m -and $c.$m -lt 3.0) { $found[$theme][('{0}:{1}' -f $c.Name, $m)] = ('[{0}] {1}' -f $section.Id, $c.$m) } }
                 }
