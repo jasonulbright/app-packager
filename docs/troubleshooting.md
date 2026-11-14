@@ -25,7 +25,7 @@ None.
 | **Discover Unmanaged Software** says `Discovered 0 apps.` | No hidden packager matches the inventory, or the site has the applications already. | Read the status line. Check the inventory classes. |
 | **One Click** shows `No apps are tracked yet.` | No application is tracked. | Track applications in **Options > Updates and CVEs > One Click**. |
 | The CVE columns show `CPE missing`. | The packager has no CPE. | The row cannot be checked. |
-| The window shows fewer than 312 applications. | The product filter hides some. | Open **Options > Updates and CVEs > Product filter**. |
+| The window shows fewer than 312 applications. | The product filter hides some. | Open **Options > Updates and CVEs > Product Filter**. |
 | The Setup window does not show. | The preferences file exists. | Use **Options**. |
 
 ## Links

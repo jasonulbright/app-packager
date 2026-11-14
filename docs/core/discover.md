@@ -44,7 +44,7 @@ Use it to find out which packagers are worth turning on for your site.
 | Setting | Effect |
 |---|---|
 | SQL server, SQL instance, SQL port, Database name (Options > Connections > ConfigMgr) | The SQL Server of the site database. Discover connects to `server\instance,port`. An empty field uses the value of the site definition, and an empty database name uses `CM_` and the site code. A name `server\instance,port` in the SQL server field shows split into the three fields. |
-| Not offered by Discover (Options > Updates and CVEs > Product filter) | Shows how many applications Discover leaves out. **Clear List** empties it. |
+| Not offered by Discover (Options > Updates and CVEs > Product Filter) | Shows how many applications Discover leaves out. **Clear List** empties it. |
 
 ## Limits
 

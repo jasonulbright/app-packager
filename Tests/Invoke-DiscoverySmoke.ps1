@@ -235,7 +235,7 @@ try {
     & $assert ((Get-DiscoveryRunspaceState -Job $null) -eq 'Done') 'no scan reads as done'
     Stop-DiscoveryRunspace -Job $null
 
-    # --- Options, Connections, ConfigMgr and Product filter ----------------------------------
+    # --- Options, Connections, ConfigMgr and Product Filter ----------------------------------
     . (Join-Path $PSScriptRoot 'OptionsTestSupport.ps1') -Root $root -FixtureDir $fixtureDir
     Set-Content -LiteralPath $global:fixturePath -Value '{ "DiscoverySqlServer": "sql01", "DiscoverySqlDatabase": "CM_ABC", "DiscoveryDismissed": ["package-git.ps1", "package-vlc.ps1"] }'
     $script:Prefs = Read-Preferences
@@ -243,7 +243,7 @@ try {
     & $assert ((& $cmPage.Editors['cm.sqlServer'].Get) -eq 'sql01' -and (& $cmPage.Editors['cm.sqlDatabase'].Get) -eq 'CM_ABC') 'the section shows the stored SQL server and database'
     $filterPage = New-OptionsTestPage -Id 'productfilter'
     $el = $filterPage.Element
-    & $assert ($el.FindName('txtDiscoveryDismissed').Text -eq '2 app(s)' -and $el.FindName('btnClearDiscoveryDismissed').IsEnabled) 'Product filter counts the apps not offered'
+    & $assert ($el.FindName('txtDiscoveryDismissed').Text -eq '2 app(s)' -and $el.FindName('btnClearDiscoveryDismissed').IsEnabled) 'Product Filter counts the apps not offered'
     & $cmPage.Editors['cm.sqlServer'].Set ' cm01.contoso.com '
     & $cmPage.Editors['cm.sqlDatabase'].Set ''
     & $click $el.FindName('btnClearDiscoveryDismissed')

@@ -347,6 +347,10 @@ function Read-Preferences {
             TestCollectionName            = ''
             CreateTestCollectionIfMissing = $false
         }
+        # The token that the GitHub-backed packagers send. DPAPI-protected for the current Windows user; never plaintext.
+        GitHub               = [pscustomobject]@{
+            TokenProtected = ''
+        }
         Intune               = [pscustomobject]@{
             # One Click destination. MECM = ConfigMgr app; MECMAndIntune =
             # ConfigMgr app + Graph publish; IntuneOnly = stage + .intunewin +
@@ -638,6 +642,8 @@ function Read-Preferences {
                 try { $defaults.ContentDistribution.CreateTestCollectionIfMissing = [bool]$cd.CreateTestCollectionIfMissing } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ }
             }
         }
+
+        if ($null -ne $data.GitHub -and $null -ne $data.GitHub.TokenProtected) { $defaults.GitHub.TokenProtected = [string]$data.GitHub.TokenProtected }
 
         # Intune: .intunewin production and Graph publishing during Package.
         if ($null -ne $data.Intune) {
@@ -1005,13 +1011,14 @@ function Invoke-DetectSevenZipCli {
 function Get-GitHubApiAuthStatus {
     # Reports how the 90 GitHub-backed packagers will authenticate against
     # api.github.com, in the same order Get-GitHubApiCurlArgs resolves the
-    # token: GITHUB_TOKEN, GH_TOKEN, then the GitHub CLI's stored login.
+    # token: GITHUB_TOKEN, GH_TOKEN, the token saved in Options, Tools, then the GitHub CLI's stored login.
     # Anonymous calls are limited to 60 per hour per address, which a version
     # sweep over the catalog exceeds. The rate-limit probe is one request with
     # a short timeout; when it cannot complete the source is still reported.
     $source = ''
     if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) { $source = 'GITHUB_TOKEN environment variable' }
     elseif (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { $source = 'GH_TOKEN environment variable' }
+    elseif (-not [string]::IsNullOrWhiteSpace((Get-StoredGitHubToken))) { $source = 'token saved in Options, Tools' }
     else {
         $gh = Get-Command -Name 'gh.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($gh) {
@@ -5380,7 +5387,7 @@ function Get-SidebarSystemState {
     $mecmInUse   = [bool](-not $systems -or $systems.ConfigMgr)
     $intuneInUse = [bool]($systems -and $systems.Intune)
     $wsusInUse   = [bool]($systems -and $systems.Wsus)
-    $notInUse = 'not in use. Select it under Systems in use in Options, Connections.'
+    $notInUse = 'not in use. Select it under Systems in Use in Options, Connections.'
 
     $consoleFound = [bool]($Prefs.DetectedTools -and $Prefs.DetectedTools.ConfigMgrConsole -and $Prefs.DetectedTools.ConfigMgrConsole.Found)
     $siteCode = [string]$Prefs.SiteCode
@@ -6099,7 +6106,7 @@ function New-ProductFilterPanel {
         if ($discoveryClear.Pending) { $prefsRef.DiscoveryDismissed = @() }
     }.GetNewClosure()
 
-    return @{ Name = 'Product filter'; Element = $element; Commit = $commit }
+    return @{ Name = 'Product Filter'; Element = $element; Commit = $commit }
 }
 
 function Show-CommandOverrideDialog {
@@ -6459,6 +6466,66 @@ function ConvertTo-OptionsItemList {
     }
 }
 
+# One place for the size of every input: a height that is the same everywhere, and a width that has a floor.
+# A text field is Short (a code or a port), Medium (a name) or Long (a path, a key, a URL; the default).
+function Get-OptionsInputHeight { 28 }
+function Get-OptionsInputSizeName {
+    param([Parameter(Mandatory)][hashtable]$Field)
+    if ($Field.Size) { return [string]$Field.Size }
+    if ($Field.Width) {
+        if ([double]$Field.Width -le 100) { return 'Short' }
+        if ([double]$Field.Width -le 260) { return 'Medium' }
+    }
+    return 'Long'
+}
+
+function Get-OptionsInputFloor {
+    # The narrowest width that an input of this field may have.
+    param([Parameter(Mandatory)][hashtable]$Field)
+    switch ([string]$Field.Kind) {
+        'Number' { return 80 }
+        { $_ -in 'Combo', 'ComboText' } { return 200 }
+    }
+    switch (Get-OptionsInputSizeName -Field $Field) { 'Short' { return 80 } 'Medium' { return 220 } default { return 360 } }
+}
+
+function Get-OptionsInputWidth {
+    param([Parameter(Mandatory)][hashtable]$Field)
+    switch ([string]$Field.Kind) {
+        'Number' { return 90 }
+        { $_ -in 'Combo', 'ComboText' } {
+            $wanted = $(if ($Field.Width) { [double]$Field.Width } else { 360 })
+            return [Math]::Max(200, $wanted)
+        }
+    }
+    switch (Get-OptionsInputSizeName -Field $Field) { 'Short' { return 80 } 'Medium' { return 260 } default { return 420 } }
+}
+
+function Set-OptionsInputSize {
+    param([Parameter(Mandatory)]$Control, [Parameter(Mandatory)][hashtable]$Field, [switch]$Stretch)
+    $Control.Height = (Get-OptionsInputHeight)
+    $Control.VerticalContentAlignment = [System.Windows.VerticalAlignment]::Center
+    $Control.MinWidth = Get-OptionsInputFloor -Field $Field
+    if (-not $Stretch) {
+        $Control.Width = Get-OptionsInputWidth -Field $Field
+        $Control.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+    }
+}
+
+function Set-OptionsPanelInputSize {
+    # The sections that a XAML panel builds take the same height and a floor.
+    param([Parameter(Mandatory)]$Element)
+    foreach ($child in @([System.Windows.LogicalTreeHelper]::GetChildren($Element))) {
+        if ($child -is [System.Windows.Controls.DataGrid] -or $child -is [System.Windows.Controls.TreeView]) { continue }
+        if ($child -is [System.Windows.Controls.TextBox] -or $child -is [System.Windows.Controls.PasswordBox] -or $child -is [System.Windows.Controls.ComboBox]) {
+            $child.Height = (Get-OptionsInputHeight)
+            $child.VerticalContentAlignment = [System.Windows.VerticalAlignment]::Center
+            $child.MinWidth = $(if ($child -is [System.Windows.Controls.ComboBox]) { 180 } else { 80 })
+        }
+        if ($child -is [System.Windows.DependencyObject]) { Set-OptionsPanelInputSize -Element $child }
+    }
+}
+
 function New-OptionsFieldEditor {
     # Returns @{ Element; Focus; Get; Set } for one field definition. Get returns the
     # value as the field shows it; ConvertTo-OptionsPrefValue turns it into the stored type.
@@ -6474,8 +6541,7 @@ function New-OptionsFieldEditor {
             $tb.FontSize = 13
             $tb.ToolTip = $tip
             if ($Field.MaxLength) { $tb.MaxLength = [int]$Field.MaxLength }
-            if ($Field.Width) { $tb.Width = [double]$Field.Width; $tb.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left }
-            else { $tb.MaxWidth = 620 }
+            Set-OptionsInputSize -Control $tb -Field $Field
             if ($Field.Watermark) { [MahApps.Metro.Controls.TextBoxHelper]::SetWatermark($tb, [string]$Field.Watermark) }
             $editor.Element = $tb
             $editor.Focus = $tb
@@ -6486,9 +6552,8 @@ function New-OptionsFieldEditor {
             $tb = New-Object System.Windows.Controls.TextBox
             $tb.FontSize = 13
             $tb.ToolTip = $tip
-            $tb.Width = $(if ($Field.Width) { [double]$Field.Width } else { 80 })
+            Set-OptionsInputSize -Control $tb -Field $Field
             $tb.MaxLength = $(if ($Field.MaxLength) { [int]$Field.MaxLength } else { 5 })
-            $tb.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
             $panel = New-Object System.Windows.Controls.StackPanel
             $panel.Orientation = [System.Windows.Controls.Orientation]::Horizontal
             [void]$panel.Children.Add($tb)
@@ -6518,8 +6583,7 @@ function New-OptionsFieldEditor {
             $cmb = New-Object System.Windows.Controls.ComboBox
             $cmb.FontSize = 13
             $cmb.ToolTip = $tip
-            $cmb.Width = $(if ($Field.Width) { [double]$Field.Width } else { 360 })
-            $cmb.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+            Set-OptionsInputSize -Control $cmb -Field $Field
             $cmb.SetResourceReference([System.Windows.Controls.ItemsControl]::ItemContainerStyleProperty, 'ThemedComboBoxItemStyle')
             $source = $Field.Items
             if ($Field.ItemsFrom) { $source = & $Field.ItemsFrom }
@@ -6547,8 +6611,7 @@ function New-OptionsFieldEditor {
             $cmb.FontSize = 13
             $cmb.ToolTip = $tip
             $cmb.IsEditable = $true
-            $cmb.Width = $(if ($Field.Width) { [double]$Field.Width } else { 360 })
-            $cmb.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+            Set-OptionsInputSize -Control $cmb -Field $Field
             $cmb.SetResourceReference([System.Windows.Controls.ItemsControl]::ItemContainerStyleProperty, 'ThemedComboBoxItemStyle')
             $editor.Element = $cmb
             $editor.Focus = $cmb
@@ -6560,7 +6623,7 @@ function New-OptionsFieldEditor {
             $pwd = New-Object System.Windows.Controls.PasswordBox
             $pwd.FontSize = 13
             $pwd.ToolTip = $tip
-            $pwd.MaxWidth = 620
+            Set-OptionsInputSize -Control $pwd -Field $Field
             $hint = New-OptionsTextBlock -Text 'A value is saved. Leave this empty to keep it.' -Size 12
             $hint.Margin = New-Object System.Windows.Thickness(0, 4, 0, 0)
             $hint.Visibility = [System.Windows.Visibility]::Collapsed
@@ -6577,10 +6640,12 @@ function New-OptionsFieldEditor {
             $tb.FontSize = 13
             $tb.ToolTip = $tip
             if ($Field.MaxLength) { $tb.MaxLength = [int]$Field.MaxLength }
+            Set-OptionsInputSize -Control $tb -Field $Field -Stretch
             $browse = New-OptionsButton -Label 'Browse...' -Tip ('Choose the ' + $(if ($kind -eq 'Folder') { 'folder' } else { 'file' }) + '.')
             $browse.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
             $grid = New-Object System.Windows.Controls.Grid
-            $grid.MaxWidth = 700
+            $grid.Width = (Get-OptionsInputWidth -Field $Field) + 110
+            $grid.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
             $col0 = New-Object System.Windows.Controls.ColumnDefinition
             $col1 = New-Object System.Windows.Controls.ColumnDefinition
             $col1.Width = [System.Windows.GridLength]::Auto
@@ -6714,7 +6779,7 @@ function New-OptionsFieldRow {
     [void]$grid.Children.Add($title)
 
     $element = $Editor.Element
-    $element.HorizontalAlignment = $(if ($element.HorizontalAlignment -eq [System.Windows.HorizontalAlignment]::Stretch) { [System.Windows.HorizontalAlignment]::Left } else { $element.HorizontalAlignment })
+    $element.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
     if ($Field.Indent) { $element.Margin = New-Object System.Windows.Thickness([double]$Field.Indent, 0, 0, 0) }
     [System.Windows.Controls.Grid]::SetColumn($element, 1)
     [void]$grid.Children.Add($element)
@@ -6957,6 +7022,7 @@ function New-OptionsSectionPage {
 
     if ($Definition.Kind -eq 'Panel') {
         $panel = & $Definition.Factory
+        Set-OptionsPanelInputSize -Element $panel.Element
         $page = @{ Id = [string]$Definition.Id; Element = $panel.Element; Editors = @{}; Commit = $panel.Commit; Validate = $null; Panel = $panel }
         if ($Definition.SearchFields) {
             foreach ($sf in @($Definition.SearchFields)) {
@@ -7073,7 +7139,7 @@ function Get-OptionsSectionDefinition {
     $sections.Add(@{ Id = 'connections'; Title = 'Connections'; Kind = 'Group' })
 
     $sections.Add(@{
-            Id = 'systems'; Title = 'Systems in use'; Parent = 'connections'; Kind = 'Fields'
+            Id = 'systems'; Title = 'Systems in Use'; Parent = 'connections'; Kind = 'Fields'
             Description = 'Select the systems that AppPackager publishes to. The sidebar disables the button of a system that is not selected.'
             Fields = @(
                 @{ Id = 'sys.configmgr'; Title = 'ConfigMgr'; Kind = 'Check'; Pref = 'Systems.ConfigMgr'; Label = 'Publish to a ConfigMgr site'; Tip = 'Enables the sidebar buttons that read or change the ConfigMgr site.'; Keywords = 'systems in use' }
@@ -7087,7 +7153,7 @@ function Get-OptionsSectionDefinition {
             Description = 'The site that AppPackager publishes to and reads from.'
             Post = { param($Context, $Page) Initialize-OptionsConfigMgrSection -Context $Context -Page $Page }
             Fields = @(
-                @{ Id = 'cm.siteCode'; Title = 'Site code'; Kind = 'Text'; Pref = 'SiteCode'; MaxLength = 5; Width = 80; Tip = 'The ConfigMgr site code, for example ABC.' }
+                @{ Id = 'cm.siteCode'; Title = 'Site code'; Kind = 'Text'; Pref = 'SiteCode'; MaxLength = 5; Size = 'Short'; Tip = 'The ConfigMgr site code, for example ABC.' }
                 @{ Id = 'cm.provider'; Title = 'Site server / SMS Provider'; Kind = 'Text'; Pref = 'ProviderMachineName'; MaxLength = 200; Tip = 'The computer name of the SMS Provider of the site.'; Keywords = 'smsprovider provider site server' }
                 @{ Id = 'cm.dbGroup'; Kind = 'Group'; Title = 'Site database'; Description = 'Discover unmanaged software reads this database. An empty field takes its value from the site definition.' }
                 @{ Id = 'cm.sqlServer'; Title = 'SQL server'; Kind = 'Text'; Pref = 'DiscoverySqlServer'; MaxLength = 200; Tip = 'The host name of the SQL Server that holds the site database.'; Keywords = 'discovery sql discover' }
@@ -7110,7 +7176,7 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'wsus.port'; Title = 'Port'; Kind = 'Number'; Pref = 'Wsus.PortNumber'; Min = 1; Max = 65535; Default = 8530; Tip = 'The WSUS port; 8530 for HTTP and 8531 for HTTPS unless the site uses another port.'; Keywords = 'wsus port 8530 8531' }
                 @{ Id = 'wsus.ssl'; Title = 'Use SSL'; Kind = 'Check'; Pref = 'Wsus.UseSsl'; Label = 'Connect to the WSUS administration API over HTTPS'; Tip = 'Switches the port between 8530 and 8531 until you type a custom port.'; Keywords = 'wsus https tls' }
                 @{ Id = 'wsus.certGroup'; Kind = 'Group'; Title = 'Signing certificate'; Description = 'Clients install a locally published update only when the signing certificate is in their Trusted Publishers store, and in Trusted Root Certification Authorities when it is self-signed. The policy Allow signed updates from an intranet Microsoft update service location must be enabled (AcceptTrustedPublisherCerts = 1 under HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate).' }
-                @{ Id = 'wsus.cert'; Title = 'Certificate'; Kind = 'Status'; Tip = 'The signing certificate of the WSUS server; Test connection reads it.'; Keywords = 'wsus signing certificate' }
+                @{ Id = 'wsus.cert'; Title = 'Certificate'; Kind = 'Status'; Tip = 'The signing certificate of the WSUS server; Test Connection reads it.'; Keywords = 'wsus signing certificate' }
                 @{ Id = 'wsus.certActions'; Title = 'Certificate actions'; Kind = 'Actions'; Tip = 'Create, import or export the signing certificate of the WSUS server.'; Keywords = 'pfx self-signed export'; Buttons = @(
                         @{ Id = 'create'; Label = 'Create self-signed...'; Tip = 'Has the WSUS server create and use a self-signed signing certificate.' }
                         @{ Id = 'import'; Label = 'Import PFX...'; Tip = 'Imports a code-signing certificate from a PFX file.' }
@@ -7134,7 +7200,7 @@ function Get-OptionsSectionDefinition {
         })
 
     $sections.Add(@{
-            Id = 'test'; Title = 'Test connection'; Parent = 'connections'; Kind = 'Fields'
+            Id = 'test'; Title = 'Test Connection'; Parent = 'connections'; Kind = 'Fields'
             Description = 'Each button tests the values that are in the fields now, before you select OK.'
             Post = { param($Context, $Page) Initialize-OptionsTestSection -Context $Context -Page $Page }
             Fields = @(
@@ -7158,7 +7224,7 @@ function Get-OptionsSectionDefinition {
         })
 
     $sections.Add(@{
-            Id = 'dtdefaults'; Title = 'Deployment type defaults'; Parent = 'packaging'; Kind = 'Fields'
+            Id = 'dtdefaults'; Title = 'Deployment Type Defaults'; Parent = 'packaging'; Kind = 'Fields'
             Description = 'The values of every deployment type that Publish to ConfigMgr creates.'
             Fields = @(
                 @{ Id = 'pkg.estimated'; Title = 'Estimated runtime'; Kind = 'Number'; Pref = 'EstimatedRuntimeMins'; Min = 1; Max = 9999; Default = 15; MaxLength = 4; Unit = 'minutes'; Tip = 'The estimated installation time of a new deployment type, in minutes.' }
@@ -7169,7 +7235,7 @@ function Get-OptionsSectionDefinition {
         })
 
     $sections.Add(@{
-            Id = 'title'; Title = 'Application title'; Parent = 'packaging'; Kind = 'Fields'
+            Id = 'title'; Title = 'Application Title'; Parent = 'packaging'; Kind = 'Fields'
             Description = 'The naming rule of every Package run. Without a selection, a packager uses its own name.'
             Fields = @(
                 @{ Id = 'title.include'; Title = 'Include version'; Kind = 'Check'; Pref = 'IncludeVersionInTitle'; Label = 'Add the version to each application name'; Tip = 'Creates a separate application for each release.' }
@@ -7178,7 +7244,7 @@ function Get-OptionsSectionDefinition {
         })
 
     $sections.Add(@{
-            Id = 'afterpackage'; Title = 'After Package'; Parent = 'packaging'; Kind = 'Fields'
+            Id = 'postpackaging'; Title = 'Post Packaging'; Parent = 'packaging'; Kind = 'Fields'
             Description = 'The steps that follow Publish to ConfigMgr. The test deployment needs automatic distribution and a DP group.'
             Fields = @(
                 @{ Id = 'dist.auto'; Title = 'Distribute content'; Kind = 'Check'; Pref = 'ContentDistribution.AutoDistribute'; Label = 'Run Start-CMContentDistribution after Package'; Tip = 'Distributes the content to the DP group when Package finishes.' }
@@ -7218,71 +7284,6 @@ function Get-OptionsSectionDefinition {
             )
         })
 
-    $sections.Add(@{
-            Id = 'cwa'; Title = 'Citrix Workspace App'; Parent = 'applications'; Kind = 'Fields'
-            Description = 'The switches of the Current Release and LTSR packagers. The sections below set the store, the installation, the plug-ins, the updates, the store policy and the components.'
-            Post = { param($Context, $Page) Initialize-OptionsCitrixPreview -Context $Context -Page $Page }
-            Fields = @(
-                @{ Id = 'cwa.preview'; Title = 'Command-line preview'; Kind = 'Actions'; Tip = 'Shows the install command line that the Current Release and LTSR packagers build.'; Keywords = 'cwa citrix arguments'; Buttons = @(@{ Id = 'preview'; Label = 'Preview'; Tip = 'Shows the command line for both streams.' }) }
-            )
-        })
-    $sections.Add(@{
-            Id = 'cwa.store'; Title = 'Store'; Parent = 'cwa'; Kind = 'Fields'; Keywords = 'citrix'
-            Fields = @(
-                @{ Id = 'cwa.storeName'; Title = 'Store name'; Kind = 'Text'; Pref = 'cwa:Store.Name'; Width = 220; Tip = 'The friendly name of the StoreFront store (STORE0).' }
-                @{ Id = 'cwa.storeUrl'; Title = 'Store URL'; Kind = 'Text'; Pref = 'cwa:Store.Url'; Tip = 'STORE0 URL: StoreFront https://host/Citrix/Store/discovery, Gateway https://host#StoreName.'; Keywords = 'storefront gateway' }
-            )
-        })
-    $sections.Add(@{
-            Id = 'cwa.install'; Title = 'Installation'; Parent = 'cwa'; Kind = 'Fields'; Keywords = 'citrix'
-            Post = { param($Context, $Page) Initialize-OptionsCitrixInstallSection -Context $Context -Page $Page }
-            Fields = @(
-                @{ Id = 'cwa.clean'; Title = 'Clean install'; Kind = 'Check'; Pref = 'cwa:Installation.CleanInstall'; Label = 'Remove leftover configuration before install (/CleanInstall)'; Tip = 'Removes configuration and registry data of an earlier installation before the install.' }
-                @{ Id = 'cwa.sso'; Title = 'Single sign-on'; Kind = 'Check'; Pref = 'cwa:Installation.IncludeSSON'; Label = 'Install the SSO component (/includeSSON, ENABLE_SSON=Yes)'; Tip = 'Installs the SSO component and turns on domain pass-through authentication.' }
-                @{ Id = 'cwa.appprot'; Title = 'App Protection'; Kind = 'Check'; Pref = 'cwa:Installation.AppProtection'; Label = 'Start the App Protection component (startAppProtection)'; Tip = 'Starts the component; the installer already installs it, and it needs an admin install.' }
-                @{ Id = 'cwa.prelaunch'; Title = 'Session pre-launch'; Kind = 'Check'; Pref = 'cwa:Installation.SessionPreLaunch'; Label = 'Pre-launch a session at logon (ENABLEPRELAUNCH)'; Tip = 'Starts a Citrix session at logon so that applications start faster.' }
-                @{ Id = 'cwa.selfservice'; Title = 'Self-service mode'; Kind = 'Check'; Pref = 'cwa:Installation.SelfServiceMode'; Label = 'Show the self-service window (SELFSERVICEMODE)'; Tip = 'Shows the Citrix Workspace self-service window; cleared hides it.' }
-                @{ Id = 'cwa.forceinstall'; Title = 'Force install'; Kind = 'Check'; Pref = 'cwa:Installation.ForceInstall'; Label = 'Clean old Citrix data after a failed install (/forceinstall)'; Tip = 'Cleans old data when an install or upgrade fails; use it for a retry package.' }
-                @{ Id = 'cwa.featuresGroup'; Kind = 'Group'; Title = 'Features and client name' }
-                @{ Id = 'cwa.bidir'; Title = 'Content redirection'; Kind = 'Check'; Pref = 'cwa:Installation.BidirContentRedirection'; Label = 'Allow redirection in both directions (ALLOW_BIDIRCONTENTREDIRECTION=1)'; Tip = 'Allows content redirection between the client and the host in both directions.' }
-                @{ Id = 'cwa.hostedurl'; Title = 'URL redirection'; Kind = 'Check'; Pref = 'cwa:Installation.ClientHostedAppsUrl'; Label = 'Turn on URL redirection (ALLOW_CLIENTHOSTEDAPPSURL=1)'; Tip = 'Turns on URL redirection on the device.' }
-                @{ Id = 'cwa.laa'; Title = 'Local App Access'; Kind = 'Check'; Pref = 'cwa:Installation.ForceLaa'; Label = 'Install Local App Access (FORCE_LAA=1)'; Tip = 'Installs Local App Access; it needs an admin install.' }
-                @{ Id = 'cwa.legacyicons'; Title = 'File-type icons'; Kind = 'Check'; Pref = 'cwa:Installation.LegacyFtaIcons'; Label = 'Hide file-type icons of subscribed apps (LEGACYFTAICONS=True)'; Tip = 'Hides the file-type icons of subscribed apps.' }
-                @{ Id = 'cwa.disablesetting'; Title = 'Advanced Preferences'; Kind = 'Combo'; Pref = 'cwa:Installation.DisableSetting'; Default = ''; Width = 300; Items = @($notSet, @{ Label = '0 - show Shortcuts and Reconnect'; Value = '0' }, @{ Label = '1 - show Reconnect only'; Value = '1' }, @{ Label = '2 - show Shortcuts only'; Value = '2' }, @{ Label = '3 - hide both'; Value = '3' }); Tip = 'Hides the Shortcuts and Reconnect options in Advanced Preferences (DisableSetting).' }
-                @{ Id = 'cwa.clientname'; Title = 'Client name'; Kind = 'Text'; Pref = 'cwa:Installation.ClientName'; MaxLength = 20; Width = 220; Tip = 'A fixed client device name; empty uses the computer name.'; Keywords = 'client_name dynamic' }
-            )
-        })
-    $sections.Add(@{
-            Id = 'cwa.plugins'; Title = 'Plugins and add-ons'; Parent = 'cwa'; Kind = 'Fields'; Keywords = 'citrix plug-ins'
-            Post = { param($Context, $Page) Initialize-OptionsCitrixPluginSection -Context $Context -Page $Page }
-            Fields = @(
-                @{ Id = 'cwa.teams'; Title = 'MS Teams VDI plugin'; Kind = 'Check'; Pref = 'cwa:Plugins.MSTeamsPlugin'; Label = 'Install the plug-in (/InstallMSTeamsPlugin)'; Tip = 'Current Release only; the LTSR packagers ignore this setting.' }
-                @{ Id = 'cwa.zoom'; Title = 'Zoom VDI plugin'; Kind = 'Check'; Pref = 'cwa:Plugins.ZoomPlugin'; Label = 'Install the plug-in (Installzoomplugin, ADDONS=ZoomVDIPlugin)'; Tip = 'Current Release adds Installzoomplugin=N when cleared; LTSR adds ADDONS=ZoomVDIPlugin when set.' }
-                @{ Id = 'cwa.webex'; Title = 'WebEx VDI plugin'; Kind = 'Check'; Pref = 'cwa:Plugins.WebExPlugin'; Label = 'Install the plug-in (ADDONS=WebexVDIPlugin)'; Tip = 'Installs the WebEx VDI plugin engine.' }
-                @{ Id = 'cwa.uber'; Title = 'uberAgent'; Kind = 'Check'; Pref = 'cwa:Plugins.UberAgent'; Label = 'Install or upgrade uberAgent (/InstallUberAgent)'; Tip = 'Installs or upgrades the uberAgent monitoring plug-in.' }
-                @{ Id = 'cwa.uberskip'; Title = 'uberAgent upgrade'; Kind = 'Check'; Pref = 'cwa:Plugins.UberAgentSkipUpgrade'; Label = 'Skip the upgrade when uberAgent is present (/SkipUberAgentUpgrade)'; Tip = 'Installs uberAgent only when it is not on the device yet.' }
-                @{ Id = 'cwa.epa'; Title = 'EPA client'; Kind = 'Check'; Pref = 'cwa:Plugins.EPAClient'; Label = 'Install the EPA client (cleared adds InstallEPAClient=N)'; Tip = 'The Endpoint Analysis client for device posture checks.' }
-                @{ Id = 'cwa.sr'; Title = 'Session Recording agent'; Kind = 'Check'; Pref = 'cwa:Plugins.SessionRecording'; Label = 'Install the agent (/InstallSRAgent)'; Tip = 'Current Release only; the LTSR packagers ignore this setting.' }
-                @{ Id = 'cwa.srskip'; Title = 'Session Recording upgrade'; Kind = 'Check'; Pref = 'cwa:Plugins.SkipSRAgentUpgrade'; Label = 'Keep the agent that is on the device (/SkipSRAgentUpgrade)'; Tip = 'Keeps an installed Session Recording agent; Current Release only.' }
-            )
-        })
-    $sections.Add(@{
-            Id = 'cwa.update'; Title = 'Update and telemetry'; Parent = 'cwa'; Kind = 'Fields'; Keywords = 'citrix'
-            Fields = @(
-                @{ Id = 'cwa.autoupdate'; Title = 'Auto-update'; Kind = 'Combo'; Pref = 'cwa:UpdateAndTelemetry.AutoUpdateCheck'; Default = ''; Width = 200; Items = @($notSet, @{ Label = 'auto'; Value = 'auto' }, @{ Label = 'manual'; Value = 'manual' }, @{ Label = 'disabled'; Value = 'disabled' }); Tip = 'AutoUpdateCheck; (not set) omits the switch and the installer default applies.' }
-                @{ Id = 'cwa.stream'; Title = 'Update stream'; Kind = 'Combo'; Pref = 'cwa:UpdateAndTelemetry.AutoUpdateStream'; Default = ''; Width = 200; Items = @($notSet, @{ Label = 'LTSR'; Value = 'LTSR' }, @{ Label = 'Current'; Value = 'Current' }); Tip = 'AutoUpdateStream; it works only when Auto-update is set.' }
-                @{ Id = 'cwa.rollout'; Title = 'Rollout priority'; Kind = 'Combo'; Pref = 'cwa:UpdateAndTelemetry.AURolloutPriority'; Default = ''; Width = 200; Items = @($notSet, @{ Label = 'Auto'; Value = 'Auto' }, @{ Label = 'Fast'; Value = 'Fast' }, @{ Label = 'Medium'; Value = 'Medium' }, @{ Label = 'Slow'; Value = 'Slow' }); Tip = 'AURolloutPriority; it works only when Auto-update is set.' }
-                @{ Id = 'cwa.ceip'; Title = 'CEIP and telemetry'; Kind = 'Check'; Pref = 'cwa:UpdateAndTelemetry.EnableCEIP'; Label = 'Join the Customer Experience Improvement Program (EnableCEIP)'; Tip = 'Sends Citrix usage data when selected.' }
-                @{ Id = 'cwa.tracing'; Title = 'Always-on tracing'; Kind = 'Check'; Pref = 'cwa:UpdateAndTelemetry.EnableTracing'; Label = 'Turn on always-on diagnostic tracing (EnableTracing)'; Tip = 'Writes diagnostic traces on the device.' }
-            )
-        })
-    $sections.Add(@{
-            Id = 'cwa.policy'; Title = 'Store policy'; Parent = 'cwa'; Kind = 'Fields'; Keywords = 'citrix'
-            Fields = @(
-                @{ Id = 'cwa.addstore'; Title = 'Allow add store'; Kind = 'Combo'; Pref = 'cwa:StorePolicy.AllowAddStore'; Default = ''; Width = 280; Items = $cwaPolicyItems; Tip = 'ALLOWADDSTORE; (not set) omits the switch and the installer default S applies.' }
-                @{ Id = 'cwa.savepwd'; Title = 'Allow save password'; Kind = 'Combo'; Pref = 'cwa:StorePolicy.AllowSavePwd'; Default = ''; Width = 280; Items = $cwaPolicyItems; Tip = 'ALLOWSAVEPWD; (not set) omits the switch and the installer default S applies.' }
-            )
-        })
     $cwaComponents = @(
         @{ Name = 'ReceiverInside'; Label = 'ReceiverInside (core SDK)'; Tip = 'The core Workspace SDK services; required.'; Required = $true }
         @{ Name = 'ICA_Client'; Label = 'ICA_Client (HDX engine)'; Tip = 'Session launch and ICA protocol handling; required.'; Required = $true }
@@ -7296,10 +7297,49 @@ function Get-OptionsSectionDefinition {
         @{ Name = 'CitrixEnterpriseBrowser'; Label = 'CitrixEnterpriseBrowser (LTSR only)'; Tip = 'The Citrix Enterprise Browser; only the LTSR packagers write this key.' }
     )
     $sections.Add(@{
-            Id = 'cwa.components'; Title = 'Components ADDLOCAL'; Parent = 'cwa'; Kind = 'Fields'; Keywords = 'citrix addlocal'
-            Description = 'With Customize cleared, the installer uses its default components and the packager omits ADDLOCAL.'
-            Post = { param($Context, $Page) Initialize-OptionsCitrixComponentSection -Context $Context -Page $Page }
-            Fields = @(@{ Id = 'cwa.customize'; Title = 'Customize'; Kind = 'Check'; Pref = 'cwa:Components.Customize'; Label = 'Write ADDLOCAL with the components below'; Tip = 'When cleared, the packager omits ADDLOCAL and the installer default applies.' }) +
+            Id = 'cwa'; Title = 'Citrix Workspace App'; Parent = 'applications'; Kind = 'Fields'; Keywords = 'citrix store installation plugins update telemetry store policy components addlocal'
+            Description = 'The switches of the Current Release and LTSR packagers, in six groups: store, installation, plug-ins and add-ons, update and telemetry, store policy and components.'
+            Post = { param($Context, $Page) Initialize-OptionsCitrixSection -Context $Context -Page $Page }
+            Fields = @(
+                @{ Id = 'cwa.preview'; Title = 'Command-line preview'; Kind = 'Actions'; Tip = 'Shows the install command line that the Current Release and LTSR packagers build.'; Keywords = 'cwa citrix arguments'; Buttons = @(@{ Id = 'preview'; Label = 'Preview'; Tip = 'Shows the command line for both streams.' }) }
+                @{ Id = 'cwa.storeGroup'; Kind = 'Group'; Title = 'Store' }
+                @{ Id = 'cwa.storeName'; Title = 'Store name'; Kind = 'Text'; Pref = 'cwa:Store.Name'; Width = 220; Tip = 'The friendly name of the StoreFront store (STORE0).' }
+                @{ Id = 'cwa.storeUrl'; Title = 'Store URL'; Kind = 'Text'; Pref = 'cwa:Store.Url'; Tip = 'STORE0 URL: StoreFront https://host/Citrix/Store/discovery, Gateway https://host#StoreName.'; Keywords = 'storefront gateway' }
+                @{ Id = 'cwa.installGroup'; Kind = 'Group'; Title = 'Installation' }
+                @{ Id = 'cwa.clean'; Title = 'Clean install'; Kind = 'Check'; Pref = 'cwa:Installation.CleanInstall'; Label = 'Remove leftover configuration before install (/CleanInstall)'; Tip = 'Removes configuration and registry data of an earlier installation before the install.' }
+                @{ Id = 'cwa.sso'; Title = 'Single sign-on'; Kind = 'Check'; Pref = 'cwa:Installation.IncludeSSON'; Label = 'Install the SSO component (/includeSSON, ENABLE_SSON=Yes)'; Tip = 'Installs the SSO component and turns on domain pass-through authentication.' }
+                @{ Id = 'cwa.appprot'; Title = 'App Protection'; Kind = 'Check'; Pref = 'cwa:Installation.AppProtection'; Label = 'Start the App Protection component (startAppProtection)'; Tip = 'Starts the component; the installer already installs it, and it needs an admin install.' }
+                @{ Id = 'cwa.prelaunch'; Title = 'Session pre-launch'; Kind = 'Check'; Pref = 'cwa:Installation.SessionPreLaunch'; Label = 'Pre-launch a session at logon (ENABLEPRELAUNCH)'; Tip = 'Starts a Citrix session at logon so that applications start faster.' }
+                @{ Id = 'cwa.selfservice'; Title = 'Self-service mode'; Kind = 'Check'; Pref = 'cwa:Installation.SelfServiceMode'; Label = 'Show the self-service window (SELFSERVICEMODE)'; Tip = 'Shows the Citrix Workspace self-service window; cleared hides it.' }
+                @{ Id = 'cwa.forceinstall'; Title = 'Force install'; Kind = 'Check'; Pref = 'cwa:Installation.ForceInstall'; Label = 'Clean old Citrix data after a failed install (/forceinstall)'; Tip = 'Cleans old data when an install or upgrade fails; use it for a retry package.' }
+                @{ Id = 'cwa.featuresGroup'; Kind = 'Group'; Title = 'Features and client name' }
+                @{ Id = 'cwa.bidir'; Title = 'Content redirection'; Kind = 'Check'; Pref = 'cwa:Installation.BidirContentRedirection'; Label = 'Allow redirection in both directions (ALLOW_BIDIRCONTENTREDIRECTION=1)'; Tip = 'Allows content redirection between the client and the host in both directions.' }
+                @{ Id = 'cwa.hostedurl'; Title = 'URL redirection'; Kind = 'Check'; Pref = 'cwa:Installation.ClientHostedAppsUrl'; Label = 'Turn on URL redirection (ALLOW_CLIENTHOSTEDAPPSURL=1)'; Tip = 'Turns on URL redirection on the device.' }
+                @{ Id = 'cwa.laa'; Title = 'Local App Access'; Kind = 'Check'; Pref = 'cwa:Installation.ForceLaa'; Label = 'Install Local App Access (FORCE_LAA=1)'; Tip = 'Installs Local App Access; it needs an admin install.' }
+                @{ Id = 'cwa.legacyicons'; Title = 'File-type icons'; Kind = 'Check'; Pref = 'cwa:Installation.LegacyFtaIcons'; Label = 'Hide file-type icons of subscribed apps (LEGACYFTAICONS=True)'; Tip = 'Hides the file-type icons of subscribed apps.' }
+                @{ Id = 'cwa.disablesetting'; Title = 'Advanced Preferences'; Kind = 'Combo'; Pref = 'cwa:Installation.DisableSetting'; Default = ''; Width = 300; Items = @($notSet, @{ Label = '0 - show Shortcuts and Reconnect'; Value = '0' }, @{ Label = '1 - show Reconnect only'; Value = '1' }, @{ Label = '2 - show Shortcuts only'; Value = '2' }, @{ Label = '3 - hide both'; Value = '3' }); Tip = 'Hides the Shortcuts and Reconnect options in Advanced Preferences (DisableSetting).' }
+                @{ Id = 'cwa.clientname'; Title = 'Client name'; Kind = 'Text'; Pref = 'cwa:Installation.ClientName'; MaxLength = 20; Width = 220; Tip = 'A fixed client device name; empty uses the computer name.'; Keywords = 'client_name dynamic' }
+                @{ Id = 'cwa.pluginsGroup'; Kind = 'Group'; Title = 'Plugins and add-ons' }
+                @{ Id = 'cwa.teams'; Title = 'MS Teams VDI plugin'; Kind = 'Check'; Pref = 'cwa:Plugins.MSTeamsPlugin'; Label = 'Install the plug-in (/InstallMSTeamsPlugin)'; Tip = 'Current Release only; the LTSR packagers ignore this setting.' }
+                @{ Id = 'cwa.zoom'; Title = 'Zoom VDI plugin'; Kind = 'Check'; Pref = 'cwa:Plugins.ZoomPlugin'; Label = 'Install the plug-in (Installzoomplugin, ADDONS=ZoomVDIPlugin)'; Tip = 'Current Release adds Installzoomplugin=N when cleared; LTSR adds ADDONS=ZoomVDIPlugin when set.' }
+                @{ Id = 'cwa.webex'; Title = 'WebEx VDI plugin'; Kind = 'Check'; Pref = 'cwa:Plugins.WebExPlugin'; Label = 'Install the plug-in (ADDONS=WebexVDIPlugin)'; Tip = 'Installs the WebEx VDI plugin engine.' }
+                @{ Id = 'cwa.uber'; Title = 'uberAgent'; Kind = 'Check'; Pref = 'cwa:Plugins.UberAgent'; Label = 'Install or upgrade uberAgent (/InstallUberAgent)'; Tip = 'Installs or upgrades the uberAgent monitoring plug-in.' }
+                @{ Id = 'cwa.uberskip'; Title = 'uberAgent upgrade'; Kind = 'Check'; Pref = 'cwa:Plugins.UberAgentSkipUpgrade'; Label = 'Skip the upgrade when uberAgent is present (/SkipUberAgentUpgrade)'; Tip = 'Installs uberAgent only when it is not on the device yet.' }
+                @{ Id = 'cwa.epa'; Title = 'EPA client'; Kind = 'Check'; Pref = 'cwa:Plugins.EPAClient'; Label = 'Install the EPA client (cleared adds InstallEPAClient=N)'; Tip = 'The Endpoint Analysis client for device posture checks.' }
+                @{ Id = 'cwa.sr'; Title = 'Session Recording agent'; Kind = 'Check'; Pref = 'cwa:Plugins.SessionRecording'; Label = 'Install the agent (/InstallSRAgent)'; Tip = 'Current Release only; the LTSR packagers ignore this setting.' }
+                @{ Id = 'cwa.srskip'; Title = 'Session Recording upgrade'; Kind = 'Check'; Pref = 'cwa:Plugins.SkipSRAgentUpgrade'; Label = 'Keep the agent that is on the device (/SkipSRAgentUpgrade)'; Tip = 'Keeps an installed Session Recording agent; Current Release only.' }
+                @{ Id = 'cwa.updateGroup'; Kind = 'Group'; Title = 'Update and telemetry' }
+                @{ Id = 'cwa.autoupdate'; Title = 'Auto-update'; Kind = 'Combo'; Pref = 'cwa:UpdateAndTelemetry.AutoUpdateCheck'; Default = ''; Width = 200; Items = @($notSet, @{ Label = 'auto'; Value = 'auto' }, @{ Label = 'manual'; Value = 'manual' }, @{ Label = 'disabled'; Value = 'disabled' }); Tip = 'AutoUpdateCheck; (not set) omits the switch and the installer default applies.' }
+                @{ Id = 'cwa.stream'; Title = 'Update stream'; Kind = 'Combo'; Pref = 'cwa:UpdateAndTelemetry.AutoUpdateStream'; Default = ''; Width = 200; Items = @($notSet, @{ Label = 'LTSR'; Value = 'LTSR' }, @{ Label = 'Current'; Value = 'Current' }); Tip = 'AutoUpdateStream; it works only when Auto-update is set.' }
+                @{ Id = 'cwa.rollout'; Title = 'Rollout priority'; Kind = 'Combo'; Pref = 'cwa:UpdateAndTelemetry.AURolloutPriority'; Default = ''; Width = 200; Items = @($notSet, @{ Label = 'Auto'; Value = 'Auto' }, @{ Label = 'Fast'; Value = 'Fast' }, @{ Label = 'Medium'; Value = 'Medium' }, @{ Label = 'Slow'; Value = 'Slow' }); Tip = 'AURolloutPriority; it works only when Auto-update is set.' }
+                @{ Id = 'cwa.ceip'; Title = 'CEIP and telemetry'; Kind = 'Check'; Pref = 'cwa:UpdateAndTelemetry.EnableCEIP'; Label = 'Join the Customer Experience Improvement Program (EnableCEIP)'; Tip = 'Sends Citrix usage data when selected.' }
+                @{ Id = 'cwa.tracing'; Title = 'Always-on tracing'; Kind = 'Check'; Pref = 'cwa:UpdateAndTelemetry.EnableTracing'; Label = 'Turn on always-on diagnostic tracing (EnableTracing)'; Tip = 'Writes diagnostic traces on the device.' }
+                @{ Id = 'cwa.policyGroup'; Kind = 'Group'; Title = 'Store policy' }
+                @{ Id = 'cwa.addstore'; Title = 'Allow add store'; Kind = 'Combo'; Pref = 'cwa:StorePolicy.AllowAddStore'; Default = ''; Width = 280; Items = $cwaPolicyItems; Tip = 'ALLOWADDSTORE; (not set) omits the switch and the installer default S applies.' }
+                @{ Id = 'cwa.savepwd'; Title = 'Allow save password'; Kind = 'Combo'; Pref = 'cwa:StorePolicy.AllowSavePwd'; Default = ''; Width = 280; Items = $cwaPolicyItems; Tip = 'ALLOWSAVEPWD; (not set) omits the switch and the installer default S applies.' }
+                @{ Id = 'cwa.componentsGroup'; Kind = 'Group'; Title = 'Components ADDLOCAL'; Description = 'With Customize cleared, the installer uses its default components and the packager omits ADDLOCAL.' }
+                @{ Id = 'cwa.customize'; Title = 'Customize'; Kind = 'Check'; Pref = 'cwa:Components.Customize'; Label = 'Write ADDLOCAL with the components below'; Tip = 'When cleared, the packager omits ADDLOCAL and the installer default applies.' }
+            ) +
             @($cwaComponents | ForEach-Object { @{ Id = 'cwa.comp.' + $_.Name; Title = $_.Name; Kind = 'Check'; Pref = 'cwa:Components.' + $_.Name; Label = $_.Label; Tip = $_.Tip; Required = [bool]$_.Required; Indent = 0 } })
         })
 
@@ -7395,7 +7435,7 @@ function Get-OptionsSectionDefinition {
         })
 
     $sections.Add(@{
-            Id = 'localsources'; Title = 'Local installer sources'; Parent = 'applications'; Kind = 'Fields'; Prefs = @('LocalSourceFolders')
+            Id = 'localsources'; Title = 'Local Installer Sources'; Parent = 'applications'; Kind = 'Fields'; Prefs = @('LocalSourceFolders')
             Description = 'A packager whose download needs a sign-in stages the newest matching installer from its folder. Stage asks for the folder when it is empty.'
             Fields = @(@{ Id = 'local.rows'; Title = 'Folders'; Kind = 'Custom'; Tip = 'The installer folder of each packager that can stage a local installer.'; Keywords = 'local source installer folder packager file'
                     Build = { param($Field, $Context) New-OptionsLocalSourceEditor -Context $Context } })
@@ -7414,14 +7454,14 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'oc.track'; Title = 'Tracked applications'; Control = 'dgApps'; Keywords = 'track cadence days' })
         })
     $sections.Add(@{
-            Id = 'productfilter'; Title = 'Product filter'; Parent = 'updates'; Kind = 'Panel'; Factory = { New-ProductFilterPanel }
+            Id = 'productfilter'; Title = 'Product Filter'; Parent = 'updates'; Kind = 'Panel'; Factory = { New-ProductFilterPanel }
             Prefs = @('HiddenApplications', 'DiscoveryDismissed')
             SearchFields = @(
                 @{ Id = 'pf.hidden'; Title = 'Hidden applications'; Control = 'treeApps'; Keywords = 'vendor select all none show hide' }
                 @{ Id = 'pf.dismissed'; Title = 'Not offered by Discover'; Control = 'btnClearDiscoveryDismissed'; Keywords = 'discover unmanaged dismissed clear list' })
         })
     $sections.Add(@{
-            Id = 'cve'; Title = 'CVE lookup'; Parent = 'updates'; Kind = 'Fields'
+            Id = 'cve'; Title = 'CVE Lookup'; Parent = 'updates'; Kind = 'Fields'
             Description = 'Check CVEs reads the National Vulnerability Database. NVD allows 5 requests per 30 seconds without a key and 50 with one.'
             Fields = @(
                 @{ Id = 'cve.key'; Title = 'NVD API key'; Kind = 'Secret'; Pref = 'Vulnerability.NvdApiKeyProtected'; Tip = 'Stored with DPAPI for the current Windows user; empty keeps the saved key.'; Keywords = 'nvd' }
@@ -7433,7 +7473,7 @@ function Get-OptionsSectionDefinition {
     # ---------------------------------------------------------------- Security
     $sections.Add(@{ Id = 'security'; Title = 'Security'; Kind = 'Group' })
     $sections.Add(@{
-            Id = 'signing'; Title = 'Script signing'; Parent = 'security'; Kind = 'Panel'; Factory = { New-ScriptSigningPanel }
+            Id = 'signing'; Title = 'Script Signing'; Parent = 'security'; Kind = 'Panel'; Factory = { New-ScriptSigningPanel }
             Prefs = @('ScriptSigning')
             SearchFields = @(
                 @{ Id = 'sign.detection'; Title = 'Sign detection scripts'; Control = 'chkSignDetection' }
@@ -7447,12 +7487,6 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'sign.timestamp'; Title = 'Timestamp server'; Control = 'txtSignTimestamp' }
                 @{ Id = 'sign.timestampreq'; Title = 'Timestamp required'; Control = 'chkSignTimestampRequired' })
         })
-    $sections.Add(@{
-            Id = 'github'; Title = 'GitHub API'; Parent = 'security'; Kind = 'Fields'
-            Description = 'The GitHub-backed packagers and the version monitor send a token as a bearer token. A version check across the GitHub-backed packagers exceeds the anonymous limit of 60 requests per hour. A personal access token without scopes is enough.'
-            Post = { param($Context, $Page) Initialize-OptionsGitHubSection -Context $Context -Page $Page }
-            Fields = @(@{ Id = 'gh.status'; Title = 'GitHub API'; Kind = 'Status'; Tip = 'Shows how AppPackager signs in to the GitHub API: GITHUB_TOKEN, GH_TOKEN or gh auth login.'; Keywords = 'github token rate limit' })
-        })
 
     # ---------------------------------------------------------------- Tools
     $sections.Add(@{
@@ -7464,6 +7498,9 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'tools.contentprep'; Title = 'Content Prep Tool'; Kind = 'Status'; Tip = 'Shows whether IntuneWinAppUtil.exe is found.'; Keywords = 'intunewin intunewinapputil'; Buttons = @(@{ Id = 'download'; Label = 'Download'; Tip = 'Downloads the Microsoft Win32 Content Prep Tool.' }) }
                 @{ Id = 'tools.sevenzip'; Title = '7-Zip'; Kind = 'Status'; Tip = 'Shows whether 7z.exe is found; the Adobe Reader packager needs it.'; Keywords = '7z' }
                 @{ Id = 'tools.iconpack'; Title = 'Icon pack'; Kind = 'Status'; Tip = 'Shows the state of the packager icon pack.'; Keywords = 'icons'; Buttons = @(@{ Id = 'download'; Label = 'Download'; Tip = 'Downloads the icon pack and extracts it into Packagers\Icons.' }, @{ Id = 'file'; Label = 'Install from file...'; Tip = 'Installs the icon pack from a local or UNC zip file.' }) }
+                @{ Id = 'gh.group'; Kind = 'Group'; Title = 'GitHub Authentication'; Description = 'The GitHub-backed packagers and the version monitor send a token as a bearer token. A token raises the limit from 60 to 5000 requests per hour.' }
+                @{ Id = 'gh.status'; Title = 'Status'; Kind = 'Status'; Tip = 'Shows how AppPackager signs in to the GitHub API and the requests that are left this hour.'; Keywords = 'github authentication token rate limit gh' }
+                @{ Id = 'gh.token'; Title = 'GitHub token'; Kind = 'Secret'; Pref = 'GitHub.TokenProtected'; Tip = 'Optional, DPAPI-protected; 5000 requests per hour with a token, 60 without.'; Keywords = 'github key personal access token pat' }
             )
         })
 
@@ -7577,6 +7614,7 @@ function Initialize-OptionsToolsSection {
     $sevenZip = Get-OptionsToolStatusText -Prefs $prefs -Tool SevenZip
     & $Page.Editors['tools.sevenzip'].Set $sevenZip.Text
     $Page.Editors['tools.sevenzip'].Text.ToolTip = $sevenZip.Tip
+    Start-OptionsGitHubCheck -StatusText $Page.Editors['gh.status'].Text
 
     $prepEditor = $Page.Editors['tools.contentprep']
     $downloadButton = $prepEditor.Buttons['download']
@@ -7654,7 +7692,7 @@ function Start-OptionsGitHubCheck {
         if ($gh.Authenticated) { $StatusText.Text = ([string][char]0x2713 + ' Authenticated  -  ' + $gh.Source + $quota) }
         else {
             $remaining = $(if ($gh.Remaining) { ', ' + $gh.Remaining + ' remaining' } else { '' })
-            $StatusText.Text = ([string][char]0x2717 + ' Anonymous  -  60 requests/hour per address' + $remaining + '; set GITHUB_TOKEN or run gh auth login')
+            $StatusText.Text = ([string][char]0x2717 + ' Anonymous  -  60 requests/hour per address' + $remaining + '; type a token below, set GITHUB_TOKEN or run gh auth login')
         }
     }.GetNewClosure()
     $StatusText.Text = 'Checking GitHub access...'
@@ -7706,10 +7744,6 @@ function Start-OptionsGitHubCheck {
     }
 }
 
-function Initialize-OptionsGitHubSection {
-    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][hashtable]$Page)
-    Start-OptionsGitHubCheck -StatusText $Page.Editors['gh.status'].Text
-}
 
 # ---------------------------------------------------------------------------
 # WSUS and the connection tests
@@ -7754,7 +7788,7 @@ function Initialize-OptionsWsusSection {
     $buttons = $Page.Editors['wsus.certActions'].Buttons
     $groupEditor = $Page.Editors['wsus.group']
     $loadButton = $Page.Editors['wsus.groupLoad'].Buttons['load']
-    & $certEditor.Set 'Test connection reads the signing certificate of the server.'
+    & $certEditor.Set 'Test Connection reads the signing certificate of the server.'
 
     $api = $(if (Get-Command -Name Test-WsusAdministrationApi -ErrorAction SilentlyContinue) { Test-WsusAdministrationApi }
         else { [pscustomobject]@{ Available = $false; Version = ''; Reason = 'The WSUS publishing module did not load; reinstall AppPackager.' } })
@@ -7764,7 +7798,7 @@ function Initialize-OptionsWsusSection {
         & $certEditor.Set ([string][char]0x2717 + ' ' + [string]$api.Reason)
     }
 
-    # Test connection fills the certificate line when this section is built.
+    # Test Connection fills the certificate line when this section is built.
     $Context.OnWsusStatus = {
         param($Status)
         $formatted = Format-OptionsWsusStatus -Status $Status
@@ -7987,6 +8021,14 @@ function Initialize-OptionsSsmsSection {
     & $refresh
 }
 
+function Initialize-OptionsCitrixSection {
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][hashtable]$Page)
+    Initialize-OptionsCitrixInstallSection -Context $Context -Page $Page
+    Initialize-OptionsCitrixPluginSection -Context $Context -Page $Page
+    Initialize-OptionsCitrixComponentSection -Context $Context -Page $Page
+    Initialize-OptionsCitrixPreview -Context $Context -Page $Page
+}
+
 function Initialize-OptionsCitrixInstallSection {
     param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][hashtable]$Page)
     # ENABLE_SSON follows the SSO component: the packager writes it only together with /includeSSON.
@@ -8040,10 +8082,8 @@ function Initialize-OptionsCitrixPreview {
             $owner = $ctx.Owner
             try {
                 # The sections hold the settings in a working copy that OK saves; the preview reads the copy after the open sections write to it.
-                foreach ($pageId in @($ctx.Sections.Keys | Where-Object { $_ -like 'cwa.*' })) {
-                    $built = $ctx.Sections[$pageId]
-                    if ($built -and $built.Commit) { & $built.Commit }
-                }
+                $citrixPage = $ctx.Sections['cwa']
+                if ($citrixPage -and $citrixPage.Commit) { & $citrixPage.Commit }
                 $packagerPath = Join-Path $PackagersRoot 'package-citrixworkspace-cr.ps1'
                 $pt = $null; $pe = $null
                 $ast = [System.Management.Automation.Language.Parser]::ParseFile($packagerPath, [ref]$pt, [ref]$pe)
@@ -8097,14 +8137,16 @@ function New-OptionsLocalSourceEditor {
         $box = New-Object System.Windows.Controls.TextBox
         $box.FontSize = 13
         $box.ToolTip = $tip
-        $box.MaxWidth = 700
+        $box.Height = (Get-OptionsInputHeight)
+        $box.VerticalContentAlignment = [System.Windows.VerticalAlignment]::Center
+        $box.MinWidth = 360
         if ($Context.Prefs.LocalSourceFolders -and $Context.Prefs.LocalSourceFolders.PSObject.Properties[$base]) { $box.Text = [string]$Context.Prefs.LocalSourceFolders.$base }
         $browse = New-OptionsButton -Label 'Browse...' -Tip 'Choose the folder.'
         $browse.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
         $browse.Add_Click({ $picked = Select-OptionsFolder -Current $box.Text; if ($picked) { $box.Text = $picked } }.GetNewClosure())
         $line = New-Object System.Windows.Controls.DockPanel
         $line.LastChildFill = $true
-        $line.MaxWidth = 700
+        $line.Width = 640
         $line.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
         [System.Windows.Controls.DockPanel]::SetDock($browse, [System.Windows.Controls.Dock]::Right)
         [void]$line.Children.Add($browse)
@@ -11124,7 +11166,7 @@ function Invoke-DiscoveryChoice {
             $count = Add-DiscoveryDismissed -Prefs $script:Prefs -Script @($Choice.Scripts)
             try {
                 Save-Preferences -Prefs $script:Prefs
-                Add-LogLine -Message ("Discover unmanaged software: {0} app(s) will not be offered again. Clear the list in Options, Updates and CVEs, Product filter." -f $count)
+                Add-LogLine -Message ("Discover unmanaged software: {0} app(s) will not be offered again. Clear the list in Options, Updates and CVEs, Product Filter." -f $count)
             }
             catch {
                 $text = ('The dismissal was not saved and holds for this session only: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
@@ -14907,7 +14949,7 @@ function New-ScriptSigningPanel {
         $prefsRef.ScriptSigning.HashAlgorithm       = 'SHA256'
     }.GetNewClosure()
 
-    return @{ Name = 'Script signing'; Element = $element; Commit = $commit }
+    return @{ Name = 'Script Signing'; Element = $element; Commit = $commit }
 }
 
 function Get-WsusClassificationLabel {

@@ -28,7 +28,7 @@ Select **Options**. The ConfigMgr section opens.
 
 ### Connections
 
-#### Systems in use
+#### Systems in Use
 
 Select the systems that AppPackager publishes to. The sidebar disables the button of a system that is not selected.
 
@@ -52,7 +52,7 @@ The server, the **Port**, **Use SSL**, the signing certificate, the classificati
 
 ![The Intune section](../images/options-intune.png)
 
-#### Test connection
+#### Test Connection
 
 One button for each system. ConfigMgr reads the SMS Provider and opens the site database. WSUS connects to the server. Intune requests a Graph token. Each test uses the values that are in the fields, before you select OK.
 
@@ -66,23 +66,23 @@ One button for each system. ConfigMgr reads the SMS Provider and opens the site 
 
 ![The Folders section](../images/options-folders.png)
 
-#### Deployment type defaults
+#### Deployment Type Defaults
 
 The estimated and maximum runtime, **Fallback distribution points** and **Neighbor/default DP** of every deployment type that Publish to ConfigMgr creates.
 
-![The Deployment type defaults section](../images/options-deployment-type-defaults.png)
+![The Deployment Type Defaults section](../images/options-deployment-type-defaults.png)
 
-#### Application title
+#### Application Title
 
 **Include version** and **Remove version**. Without a selection, a packager uses its own name.
 
-![The Application title section](../images/options-application-title.png)
+![The Application Title section](../images/options-application-title.png)
 
-#### After Package
+#### Post Packaging
 
 **Distribute content**, **DP group**, **Test deployment**, **Test collection** and **Create collection**. The test deployment needs Distribute content and a DP group.
 
-![The After Package section](../images/options-after-package.png)
+![The Post Packaging section](../images/options-post-packaging.png)
 
 ### Applications
 
@@ -100,45 +100,21 @@ The **License key file** and the policy switches `/DisableRemoteProfiles` and `/
 
 #### Citrix Workspace App
 
-The **Preview** button shows the command line of the Current Release and LTSR packagers. Six sub-sections set the switches.
+The **Preview** button shows the command line of the Current Release and LTSR packagers. Six groups on this one page set the switches.
+
+**Store** — the store name and URL (`STORE0`).
+
+**Installation** — `/CleanInstall`, single sign-on, App Protection, session pre-launch, self-service mode, `/forceinstall`, content and URL redirection, Local App Access, file-type icons, Advanced Preferences and the client name.
+
+**Plugins and add-ons** — the Teams, Zoom and WebEx VDI plug-ins, uberAgent, the EPA client and the Session Recording agent.
+
+**Update and telemetry** — auto-update, update stream, rollout priority, CEIP and always-on tracing. The update stream and the rollout priority work only when Auto-update is set.
+
+**Store policy** — `ALLOWADDSTORE` and `ALLOWSAVEPWD`.
+
+**Components ADDLOCAL** — the components of `ADDLOCAL`. With **Customize** cleared, the packager omits `ADDLOCAL`.
 
 ![The Citrix Workspace App section](../images/options-citrix-workspace-app.png)
-
-#### Store
-
-The store name and URL (`STORE0`).
-
-![The Store section](../images/options-store.png)
-
-#### Installation
-
-`/CleanInstall`, single sign-on, App Protection, session pre-launch, self-service mode, `/forceinstall`, content and URL redirection, Local App Access, file-type icons, Advanced Preferences and the client name.
-
-![The Installation section](../images/options-installation.png)
-
-#### Plugins and add-ons
-
-The Teams, Zoom and WebEx VDI plug-ins, uberAgent, the EPA client and the Session Recording agent.
-
-![The Plugins and add-ons section](../images/options-plugins-and-add-ons.png)
-
-#### Update and telemetry
-
-Auto-update, update stream, rollout priority, CEIP and always-on tracing. The update stream and the rollout priority work only when Auto-update is set.
-
-![The Update and telemetry section](../images/options-update-and-telemetry.png)
-
-#### Store policy
-
-`ALLOWADDSTORE` and `ALLOWSAVEPWD`.
-
-![The Store policy section](../images/options-store-policy.png)
-
-#### Components ADDLOCAL
-
-The components of `ADDLOCAL`. With **Customize** cleared, the packager omits `ADDLOCAL`.
-
-![The Components ADDLOCAL section](../images/options-components-addlocal.png)
 
 #### DBeaver Community
 
@@ -164,7 +140,7 @@ The four settings that apply to a TeamViewer Host MSI only. The packager install
 
 ![The TeamViewer Host section](../images/options-teamviewer-host.png)
 
-#### Local installer sources
+#### Local Installer Sources
 
 One folder for each packager whose download needs a sign-in. The caption names the packager file.
 
@@ -178,13 +154,13 @@ The action on an update, the default destinations, the policy for an existing Co
 
 ![The One Click section](../images/options-one-click.png)
 
-#### Product filter
+#### Product Filter
 
 Shows or hides single packagers in the main grid, grouped by vendor. **Not offered by Discover** counts the applications that Discover leaves out, and **Clear List** empties the list.
 
-![The Product filter section](../images/options-product-filter.png)
+![The Product Filter section](../images/options-product-filter.png)
 
-#### CVE lookup
+#### CVE Lookup
 
 The **NVD API key**, the **Cache time** and **Automatic lookup**. See [Check CVEs](cve.md).
 
@@ -192,17 +168,11 @@ The **NVD API key**, the **Cache time** and **Automatic lookup**. See [Check CVE
 
 ### Security
 
-#### Script signing
+#### Script Signing
 
 The Authenticode signing of the scripts that AppPackager stages: which kinds are signed, which signatures are required, the certificate store and the certificate, and the timestamp server. **Test signing configuration** signs and verifies a temporary file. A required signature that fails stops the build. There is no unsigned fallback.
 
-![The Script signing section](../images/options-script-signing.png)
-
-#### GitHub API
-
-Shows how AppPackager signs in to the GitHub API.
-
-![The GitHub API section](../images/options-github-api.png)
+![The Script Signing section](../images/options-script-signing.png)
 
 ### Tools
 
@@ -210,9 +180,11 @@ Shows how AppPackager signs in to the GitHub API.
 
 The detected **Console**, **Content Prep Tool**, **7-Zip** and **Icon pack**. The values are read-only.
 
-![The Tools section](../images/options-tools.png)
+**GitHub Authentication** shows how AppPackager signs in to the GitHub API and how many requests are left this hour. The optional **GitHub token** field stores a personal access token with DPAPI for the current Windows user. The order is `GITHUB_TOKEN`, `GH_TOKEN`, the saved token, then the `gh` login. With a token the limit is 5000 requests per hour; without one it is 60.
 
 ### About
+
+![The Tools section](../images/options-tools.png)
 
 #### About
 
@@ -252,10 +224,10 @@ Without the console, the ConfigMgr section shows `Not detected` for it. The butt
 | Section | What it sets |
 |---|---|
 | Connections | Systems, ConfigMgr, WSUS, Intune and the connection tests. |
-| Packaging | Folders, deployment type defaults, the title rule and the steps after Package. |
+| Packaging | Folders, deployment type defaults, the title rule and the Post Packaging steps. |
 | Applications | The install options of seven applications and the local installer sources. |
 | Updates and CVEs | The tracked set and its destinations, the product filter and the CVE lookup. |
-| Security | Authenticode signing of staged scripts and the GitHub API. |
+| Security | Authenticode signing of staged scripts. |
 | Tools | The detected tools. |
 | About | Version and update check. |
 
@@ -272,7 +244,7 @@ Without the console, the ConfigMgr section shows `Not detected` for it. The butt
 | Message or symptom | Cause | Fix |
 |---|---|---|
 | **Console** shows `Not detected`. | The console is not installed, or its module is not found. | Install the console, or set `SMS_ADMIN_UI_PATH` to its `bin\i386` folder. Start the tool again. |
-| **GitHub API** shows `Anonymous`. | No token is set. | Set `GITHUB_TOKEN` or `GH_TOKEN`, or run `gh auth login`. |
+| **GitHub Authentication** shows `Anonymous`. | No token is set. | Type a **GitHub token** in Options, Tools, set `GITHUB_TOKEN` or `GH_TOKEN`, or run `gh auth login`. |
 | A signing test fails. | No certificate is chosen, or the key needs a PIN. | Choose a certificate by thumbprint. |
 | The save stops with a message about a port. | The port is not a whole number from 1 to 65535. | Correct the port. |
 | The import of a configuration.xml fails. | The file is not well-formed XML, or it has no `Add` element with a `Product`. | Correct the file. The message names the reason. |

@@ -127,6 +127,7 @@
         # ODT config XML
         'New-OdtConfigXml'
         'Get-OdtGeneratedOption'
+        'Get-StoredGitHubToken'
         'Test-OdtConfigurationXml'
         'Get-OdtUserConfigInfo'
         'Get-OdtUserConfigPath'

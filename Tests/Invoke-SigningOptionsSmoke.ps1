@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-# Options -> Script signing round trip: defaults are all off, a commit
+# Options -> Script Signing round trip: defaults are all off, a commit
 # reaches the preferences file and reloads, and a cancelled dialog leaves
 # nothing behind. No certificate store is written and no dialog opens.
 $ErrorActionPreference = 'Stop'
@@ -61,7 +61,7 @@ try {
 
     # OK: the panel commits into preferences, which are then written.
     $panel = New-ScriptSigningPanel
-    & $assert ([string]$panel.Name -eq 'Script signing') 'the panel registers under its own Options section'
+    & $assert ([string]$panel.Name -eq 'Script Signing') 'the panel registers under its own Options section'
     $panel.Element.FindName('chkSignDetection').IsChecked = $true
     $panel.Element.FindName('chkRequireDetection').IsChecked = $true
     $panel.Element.FindName('chkSignDeployment').IsChecked = $true
@@ -91,7 +91,7 @@ try {
     & $assert ([string](Read-Preferences).ScriptSigning.CertificateThumbprint -eq '') 'a malformed thumbprint is rejected on load'
 
     Write-Host ''
-    Write-Host ('PASS: Script signing options round trip, {0} checks' -f $script:checks)
+    Write-Host ('PASS: Script Signing options round trip, {0} checks' -f $script:checks)
 }
 finally {
     Remove-Item -LiteralPath $fixtureDir -Recurse -Force -ErrorAction SilentlyContinue

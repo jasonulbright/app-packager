@@ -58,10 +58,10 @@ This guide did not run a publish to a real share. A successful publish was not c
 | Site code, Site server / SMS Provider (Options > Connections > ConfigMgr) | The site that receives the application. |
 | Content share UNC (Options > Connections > ConfigMgr), Content layout (Options > Packaging > Folders) | The share and the folder shape of the content: **Nested** or flat. |
 | Download root (Options > Packaging > Folders) | The local folder of Stage. |
-| Estimated runtime, Maximum runtime (Options > Packaging > Deployment type defaults) | The runtime values of the deployment type. |
-| Fallback distribution points, Neighbor/default DP (Options > Packaging > Deployment type defaults) | The content options of the deployment type. |
-| Distribute content, DP group, Test deployment, Test collection (Options > Packaging > After Package) | Distribute the content to a distribution point group after Package, and deploy to a test collection after the distribution. |
-| Include version, Remove version (Options > Packaging > Application title) | The title rule of the application. |
+| Estimated runtime, Maximum runtime (Options > Packaging > Deployment Type Defaults) | The runtime values of the deployment type. |
+| Fallback distribution points, Neighbor/default DP (Options > Packaging > Deployment Type Defaults) | The content options of the deployment type. |
+| Distribute content, DP group, Test deployment, Test collection (Options > Packaging > Post Packaging) | Distribute the content to a distribution point group after Package, and deploy to a test collection after the distribution. |
+| Include version, Remove version (Options > Packaging > Application Title) | The title rule of the application. |
 
 ## Limits
 
