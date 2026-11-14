@@ -45,6 +45,7 @@
         'Update-SidebarButtonTheme'
         'Set-ButtonTheme'
         'Set-DialogTheme'
+        'Add-SuiteImplicitStyle'
         'Get-SuiteFooterStyle'
         'Format-SuiteFooterSite'
         'Initialize-SuiteFooter'
