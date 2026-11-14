@@ -5077,12 +5077,12 @@ function Set-DialogChromeFromOwner {
 
 # The styles that every dialog and the Application Workbench take from MainWindow.xaml, so that each style exists once.
 # A dialog marks the place with <!--SHARED_STYLES--> in its resource dictionary. Expand-SharedStyle replaces the marker
-# with the styles of the key list below and with the implicit item styles (ListBoxItem, ComboBoxItem, TreeViewItem, CheckBox).
+# with the styles of the key list below and with the implicit item styles (ListBoxItem, ComboBoxItem, TreeViewItem, CheckBox, TextBox, ComboBox, DataGridColumnHeader).
 # The functions hold no script variable but the cache, so that a window probe can publish them as they are.
 function Get-SharedStyleXaml {
     if ($null -ne $script:SharedStyleText) { return $script:SharedStyleText }
     $keys = @('ThemedButtonTemplate', 'ThemedButtonStyle', 'DialogAccentButton', 'DialogButton', 'InlineButtonStyle', 'LinkButtonStyle', 'GridLinkButtonStyle', 'ThemedListBoxItemStyle', 'ThemedComboBoxItemStyle', 'ThemedTreeViewItemStyle', 'GridRowStyle', 'GridCellStyle', 'PaddedGridCellStyle')
-    $types = @('ListBoxItem', 'ComboBoxItem', 'TreeViewItem', 'CheckBox')
+    $types = @('ListBoxItem', 'ComboBoxItem', 'TreeViewItem', 'CheckBox', 'TextBox', 'ComboBox', 'DataGridColumnHeader')
     $base = if ($script:SharedStyleRootOverride) { $script:SharedStyleRootOverride } else { $PSScriptRoot }
     [xml]$main = Get-Content -LiteralPath (Join-Path $base 'MainWindow.xaml') -Raw
     $nodes = @($main.SelectNodes("//*[local-name()='ResourceDictionary']/*[local-name()='ControlTemplate' or local-name()='Style']") | Where-Object {
@@ -5727,7 +5727,7 @@ function New-AppFlowPanel {
            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
            xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro">
     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" FontSize="12"
-               Foreground="{DynamicResource MahApps.Brushes.Gray3}" Margin="0,0,0,12"
+               Foreground="{DynamicResource MahApps.Brushes.Gray.MouseOver}" Margin="0,0,0,12"
                Text="One Click opens a plan of the apps you track here, then runs Check (and optionally Stage / Publish) without further prompts. Each row publishes to its own destinations; a row with no box checked is skipped. Rows that keep the default follow it when the default changes. The sidebar publish buttons choose their own destination per run."/>
     <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
         <Grid.ColumnDefinitions>
@@ -6001,7 +6001,7 @@ function New-ProductFilterPanel {
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <TextBlock Grid.Column="0" Text="Select which applications appear in the main grid. Uncheck to hide."
-                   FontSize="12" Foreground="{DynamicResource MahApps.Brushes.Gray3}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                   FontSize="12" Foreground="{DynamicResource MahApps.Brushes.Gray.MouseOver}" VerticalAlignment="Center" TextWrapping="Wrap"/>
         <StackPanel Grid.Column="1" Orientation="Horizontal">
             <Button x:Name="btnSelAll"  Content="Select All" Margin="6,0,0,0" Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <Button x:Name="btnSelNone" Content="Select None" Margin="6,0,0,0" Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
@@ -6259,7 +6259,7 @@ function New-AboutPanel {
     <StackPanel>
         <TextBlock Text="About" FontSize="20" Margin="0,0,0,2"/>
         <TextBlock x:Name="txtAboutVersion" FontSize="13" Margin="0,0,0,14"
-                   Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
+                   Foreground="{DynamicResource MahApps.Brushes.Gray.MouseOver}"/>
         <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,14"
                    Text="Automated application packaging for ConfigMgr, Intune and WSUS: vendor version checks, silent install wrappers, detection rules, and a publish button per destination. Built entirely in in-box PowerShell 5.1."/>
         <Grid Margin="0,0,0,14">
@@ -11005,8 +11005,8 @@ function Show-DiscoveryDialog {
         </Grid.RowDefinitions>
         <StackPanel Grid.Row="0" Margin="16,12,16,8">
             <TextBlock x:Name="txtDiscoverPrompt" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
-            <TextBlock x:Name="txtDiscoverStatus" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
-            <TextBlock FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
+            <TextBlock x:Name="txtDiscoverStatus" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray.MouseOver}"/>
+            <TextBlock FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray.MouseOver}"
                        Text="Each app is hidden by the Product Filter, has no ConfigMgr application, and is installed on at least one client. Enabled apps join the grid for Check, Stage and Package."/>
             <TextBlock x:Name="txtDiscoverNote" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Visibility="Collapsed"/>
         </StackPanel>
@@ -11379,7 +11379,7 @@ function Show-CmImportDialog {
         </Grid.RowDefinitions>
         <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="16,12,16,8">
-                <TextBlock FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
+                <TextBlock FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource MahApps.Brushes.Gray.MouseOver}"
                            Text="Reads the application from the ConfigMgr site and makes one Intune Win32 app for each deployment type. Nothing changes in ConfigMgr. Preview writes the report only. Convert also copies the content."/>
 
                 <TextBlock Text="ConfigMgr Application Name" FontSize="12" FontWeight="Bold" Margin="0,12,0,4"/>
@@ -11403,7 +11403,7 @@ function Show-CmImportDialog {
                     <ComboBoxItem Content="First match wins, like ConfigMgr (recommended)" Tag="PerDeploymentType"/>
                     <ComboBoxItem Content="Assign each app by group" Tag="AssignByGroup"/>
                 </ComboBox>
-                <TextBlock x:Name="txtCmStrategyHelp" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
+                <TextBlock x:Name="txtCmStrategyHelp" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray.MouseOver}"
                            Text="Each app after the first gets a requirement script that is false when an earlier deployment type applies."/>
 
                 <CheckBox x:Name="chkCmNative" Content="Native detection rules only" Margin="0,12,0,0"
@@ -11847,10 +11847,10 @@ function Show-CveDetailDialog {
         </Grid.RowDefinitions>
         <StackPanel Grid.Row="0" Margin="16,12,16,8">
             <TextBlock x:Name="txtCveTitle" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
-            <TextBlock x:Name="txtCveRange" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
+            <TextBlock x:Name="txtCveRange" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray.MouseOver}"/>
             <TextBlock x:Name="txtCveNote" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Visibility="Collapsed"/>
             <DockPanel Margin="0,6,0,0">
-                <TextBlock Text="Product:" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
+                <TextBlock Text="Product:" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="{DynamicResource MahApps.Brushes.Gray.MouseOver}"/>
                 <ItemsControl x:Name="productLinks">
                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
@@ -12172,10 +12172,10 @@ function Show-OneClickPlanDialog {
         </Grid.RowDefinitions>
         <StackPanel Grid.Row="0" Margin="16,12,16,8">
             <TextBlock x:Name="txtPlanSummary" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
-            <TextBlock x:Name="txtPlanAction" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
-            <TextBlock x:Name="txtPlanScope" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"/>
+            <TextBlock x:Name="txtPlanAction" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray.MouseOver}"/>
+            <TextBlock x:Name="txtPlanScope" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray.MouseOver}"/>
             <TextBlock x:Name="txtPlanBlocking" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Visibility="Collapsed"/>
-            <TextBlock x:Name="txtPlanHint" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray3}"
+            <TextBlock x:Name="txtPlanHint" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray.MouseOver}"
                        Text="Include and the destination boxes apply to this run only; Options, Updates and CVEs, One Click holds the saved values. Run asks nothing after it starts."/>
         </StackPanel>
         <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="1" x:Name="gridPlan" AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
