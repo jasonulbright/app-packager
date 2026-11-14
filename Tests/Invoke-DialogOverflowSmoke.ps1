@@ -7,7 +7,8 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $fixtureDir = Join-Path $env:TEMP ('ap-dialog-overflow-' + [guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $fixtureDir -Force)
-. (Join-Path $PSScriptRoot 'OptionsTestSupport.ps1') -Root $root -FixtureDir $fixtureDir
+try { . (Join-Path $PSScriptRoot 'OptionsTestSupport.ps1') -Root $root -FixtureDir $fixtureDir }
+catch { Remove-Item -LiteralPath $fixtureDir -Recurse -Force -ErrorAction SilentlyContinue; throw }
 
 # The files that the windows may carry that this probe cannot judge. Each entry names the reason.
 $script:Exempt = @{}
@@ -48,9 +49,11 @@ function Get-OverflowFinding {
                         $box = $child.TransformToAncestor($clipper).TransformBounds((New-Object System.Windows.Rect(0, 0, $child.ActualWidth, $child.ActualHeight)))
                         if ($box.Right -gt $limit + 1.5 -and $child.Name -ne 'PART_Border' -and -not ($child -is [System.Windows.Controls.Primitives.ScrollBar])) { $found.Add(('{0} ends at {1}; the window or scroll area is {2} wide' -f $id, [int]$box.Right, [int]$limit)) }
                     }
-                    $tight = ($child.DesiredSize.Width - $child.Margin.Left - $child.Margin.Right) - $child.ActualWidth
-                    if ($tight -gt 1.5 -and ($child -is [System.Windows.Controls.Button] -or $child -is [System.Windows.Controls.CheckBox] -or $child -is [System.Windows.Controls.RadioButton] -or $child -is [System.Windows.Controls.Label] -or ($child -is [System.Windows.Controls.TextBlock] -and $child.TextWrapping -eq [System.Windows.TextWrapping]::NoWrap -and $child.TextTrimming -eq [System.Windows.TextTrimming]::None -and $child.Text))) {
-                        $found.Add(('{0} needs {1} and has {2}' -f $id, [int]$child.DesiredSize.Width, [int]$child.ActualWidth))
+                    # A line of text that cannot wrap or trim needs its whole width; its slot is what the parent gave it.
+                    if ($child -is [System.Windows.Controls.TextBlock] -and $child.Text -and $child.TextWrapping -eq [System.Windows.TextWrapping]::NoWrap -and $child.TextTrimming -eq [System.Windows.TextTrimming]::None) {
+                        $face = New-Object System.Windows.Media.Typeface($child.FontFamily, $child.FontStyle, $child.FontWeight, $child.FontStretch)
+                        $formatted = New-Object System.Windows.Media.FormattedText($child.Text, [System.Globalization.CultureInfo]::CurrentCulture, [System.Windows.FlowDirection]::LeftToRight, $face, $child.FontSize, [System.Windows.Media.Brushes]::Black, 1.0)
+                        if ($formatted.WidthIncludingTrailingWhitespace -gt $child.ActualWidth + 1.5) { $found.Add(('{0} "{1}" needs {2} and has {3}' -f $id, $child.Text, [int]$formatted.WidthIncludingTrailingWhitespace, [int]$child.ActualWidth)) }
                     }
                 }
                 # The content of a scroll area is judged against its viewport; the parts of its template are not.
@@ -65,6 +68,7 @@ function Get-OverflowFinding {
     return $found
 }
 
+if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') { throw 'FAIL: run this probe in an STA process' }
 $total = 0
 $problems = New-Object System.Collections.Generic.List[string]
 try {
@@ -74,7 +78,7 @@ try {
             [xml]$xml = $doc.Text
             $window = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
         }
-        catch { Write-Host ('  skip  {0}: {1}' -f $doc.Source, $_.Exception.Message); continue }
+        catch { $problems.Add(('{0}: the window did not load: {1}' -f $doc.Source, $_.Exception.Message)); continue }
         $window.WindowStartupLocation = [System.Windows.WindowStartupLocation]::Manual
         $window.Left = 40; $window.Top = 40
         $window.ShowInTaskbar = $false
