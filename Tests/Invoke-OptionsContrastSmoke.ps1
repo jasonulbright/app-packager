@@ -5,6 +5,7 @@
 #   Border:   3:1 between the border of a control and the backdrop around it.
 # Each defect has a key. A defect that Tests\KnownContrastDefects.ps1 lists is a known limit of the shared theme and
 # does not fail the probe. A new defect fails it, and a listed defect that no longer happens fails it too.
+# Limits: the border check reads the BorderBrush of the control, not the parts of its template. Hover, focus and pressed states are not measured.
 # Run with -Report to print every defect and exit with 0.
 param([switch]$Report)
 $ErrorActionPreference = 'Stop'
@@ -102,12 +103,13 @@ try {
         $rootGrid = Get-VisualDescendants $w | Where-Object { $_ -is [System.Windows.FrameworkElement] -and $_.Name -eq 'RootGrid' } | Select-Object -First 1
         for ($i = 0; $rootGrid -and $i -lt 100 -and $rootGrid.Opacity -lt 0.999; $i++) { Start-Sleep -Milliseconds 50; Sync-Layout $w }
         try {
+            $firstView = $true
             foreach ($section in $dialog.Definition) {
                 if ($section.Kind -eq 'Group') { continue }
                 & $dialog.Navigate ([string]$section.Id) ''
                 Wait-Layout $w 2
                 $sections++
-                $scan = $(if ($sections -eq 1) { $w } else { $dialog.Context.Sections[[string]$section.Id].Element })
+                $scan = $(if ($firstView) { $w } else { $dialog.Context.Sections[[string]$section.Id].Element })
                 foreach ($t in @(Get-TextContrast $w "" $scan)) {
                     $large = $t.Icon -or ($t.Size -ge 24) -or ($t.Size -ge 18.66 -and $t.Bold)
                     $need = $(if ($large) { 3.0 } else { 4.5 })
@@ -117,6 +119,7 @@ try {
                     foreach ($m in 'EnabledText', 'DisabledText') { if ($null -ne $c.$m -and $c.$m -lt 4.5) { $found[$theme][('{0}:{1}' -f $c.Name, $m)] = ('[{0}] {1}' -f $section.Id, $c.$m) } }
                     foreach ($m in 'EnabledBorder', 'DisabledBorder') { if ($null -ne $c.$m -and $c.$m -lt 3.0) { $found[$theme][('{0}:{1}' -f $c.Name, $m)] = ('[{0}] {1}' -f $section.Id, $c.$m) } }
                 }
+                $firstView = $false
             }
             $tb = Get-TitleBarContrast $w
             if ($null -ne $tb.Active -and $tb.Active -lt 4.5) { $found[$theme]['titlebar:active'] = [string]$tb.Active }
