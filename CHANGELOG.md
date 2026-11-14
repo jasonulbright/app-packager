@@ -7,6 +7,7 @@
 - Show a text box and a combo box with a border of 3:1 contrast or more in the light theme. The MahApps border was 1.6:1 on white.
 - Show the muted text (notes, hints, the version) with MahApps.Brushes.Gray.MouseOver. The old brush was 2.7:1 on white in the light theme.
 - Show the column headers of a disabled grid with the gray text of the other disabled controls.
+- Refresh the vendored SuiteCommon library. The title bar of an inactive window has white text at 4.5:1 or more in both themes. The contrast probe sets the dialog theme with SuiteCommon and has no known defect left.
 
 ### Added
 

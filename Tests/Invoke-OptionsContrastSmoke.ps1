@@ -92,11 +92,10 @@ try {
         $owner = New-OptionsTestOwner
         $dialog = New-OptionsDialog -Owner $owner
         $w = $dialog.Window
-        [void][ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($w, $themeName)
-        if ($theme -eq 'light') {
-            $bc = [System.Windows.Media.BrushConverter]::new()
-            $w.WindowTitleBrush = $bc.ConvertFrom('#0078D4'); $w.NonActiveWindowTitleBrush = $bc.ConvertFrom('#4BA3E0')
-        }
+        # The same call that the shell makes for a dialog, so that the SuiteCommon title bar brushes are measured.
+        $global:ContrastProbeDark = ($theme -eq 'dark')
+        Initialize-SuiteTheme -Window $w -IsDarkGetter { [bool]$global:ContrastProbeDark }
+        Set-DialogTheme -Dialog $w -IsDark ($theme -eq 'dark')
         $w.WindowStartupLocation = 'Manual'; $w.Left = -32000; $w.Top = -32000; $w.ShowInTaskbar = $false
         $w.Show()
         Wait-Layout $w 6
