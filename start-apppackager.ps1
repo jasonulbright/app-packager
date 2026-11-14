@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.11.13.0137
+    Version    : 2026.11.13.0138
     Updated    : 2026-09-09
 #>
 
