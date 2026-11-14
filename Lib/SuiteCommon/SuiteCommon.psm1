@@ -1191,6 +1191,46 @@ function Update-SuiteFooter {
     $site.Text = Format-SuiteFooterSite -SiteCode $SiteCode -SiteServer $SiteServer
 }
 
+# Implicit styles that every suite window takes in both themes. A text box and a combo box show a Gray2 border: the
+# MahApps light border (#CCCCCC) is 1.6:1 on white and a border needs 3:1 (Gray2 is 4.0:1 light, 3.8:1 dark). A column
+# header in a disabled grid shows the gray text of the other disabled controls. The styles are built in code from the
+# MahApps styles of the window, once per window. A window that has an implicit style of its own for the type keeps it.
+# True when the dictionary, or a dictionary merged into it that does not come from MahApps or ControlzEx, holds the key.
+function Test-SuiteOwnResource {
+    param($Dictionary, $Key)
+    if ($null -eq $Dictionary) { return $false }
+    if (@($Dictionary.Keys) -contains $Key) { return $true }
+    foreach ($m in $Dictionary.MergedDictionaries) {
+        $src = [string]$m.Source
+        if ($src -match 'MahApps\.Metro|ControlzEx') { continue }
+        if (Test-SuiteOwnResource -Dictionary $m -Key $Key) { return $true }
+    }
+    return $false
+}
+
+function Add-SuiteImplicitStyle {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Adds styles to the resources of one window only.')]
+    param($Window)
+    if ($null -eq $Window -or $Window -isnot [System.Windows.FrameworkElement]) { return }
+    $ns = 'xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"'
+    # A dynamic resource reference needs the XAML reader: a setter made in code would keep the markup extension as its value.
+    $defs = @(
+        @{ Type = [System.Windows.Controls.TextBox]; Base = 'MahApps.Styles.TextBox'; Xaml = "<Style $ns TargetType=`"TextBox`"><Setter Property=`"BorderBrush`" Value=`"{DynamicResource MahApps.Brushes.Gray2}`"/></Style>" }
+        @{ Type = [System.Windows.Controls.ComboBox]; Base = 'MahApps.Styles.ComboBox'; Xaml = "<Style $ns TargetType=`"ComboBox`"><Setter Property=`"BorderBrush`" Value=`"{DynamicResource MahApps.Brushes.Gray2}`"/></Style>" }
+        @{ Type = [System.Windows.Controls.Primitives.DataGridColumnHeader]; Base = 'MahApps.Styles.DataGridColumnHeader'; Xaml = "<Style $ns TargetType=`"DataGridColumnHeader`"><Style.Triggers><Trigger Property=`"IsEnabled`" Value=`"False`"><Setter Property=`"Foreground`" Value=`"{DynamicResource MahApps.Brushes.Gray.MouseOver}`"/></Trigger></Style.Triggers></Style>" }
+    )
+    foreach ($d in $defs) {
+        # A window that has an implicit style of its own for the type, in its dictionary or in a merged one that does not
+        # come from MahApps, keeps it.
+        if (Test-SuiteOwnResource -Dictionary $Window.Resources -Key $d.Type) { continue }
+        $base = $Window.TryFindResource($d.Base)
+        if ($base -isnot [System.Windows.Style]) { continue }
+        $style = [System.Windows.Markup.XamlReader]::Parse($d.Xaml)
+        $style.BasedOn = $base
+        $Window.Resources.Add($d.Type, $style)
+    }
+}
+
 function Update-SidebarButtonTheme {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Mutates in-window brush properties only.')]
     param(
@@ -1239,6 +1279,7 @@ function Update-SidebarButtonTheme {
     if ($ctx.LogLabel) {
         $ctx.LogLabel.Foreground = if ($IsDark) { $b.LogLabelDark } else { $b.LogLabelLight }
     }
+    Add-SuiteImplicitStyle -Window $ctx.Window
     Set-ConnectionTextTheme -Window $ctx.Window -IsDark $IsDark
 }
 
@@ -1258,6 +1299,7 @@ function Set-ButtonTheme {
         foreach ($btn in @($ctx.OptionsButtons))  { $btn.Background = $b.LightOptBg; $btn.BorderBrush = $b.LightOptBorder; Set-ThemeForeground -Control $btn -IsDark $false -OnBlue $b.OnBlue }
         if ($ctx.LogLabel) { $ctx.LogLabel.Foreground = $b.LogLabelLight }
     }
+    Add-SuiteImplicitStyle -Window $ctx.Window
     Set-ConnectionTextTheme -Window $ctx.Window -IsDark $IsDark
 }
 
@@ -1268,6 +1310,7 @@ function Set-DialogTheme {
     )
     $ctx = Get-SuiteThemeContext
     if ($null -eq $IsDark) { $IsDark = [bool](& $ctx.IsDarkGetter) }
+    Add-SuiteImplicitStyle -Window $Dialog
     if ($IsDark) {
         [void][ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($Dialog, 'Dark.Steel')
         $Dialog.NonActiveWindowTitleBrush = $ctx.Brushes.DarkTitleBarInactive

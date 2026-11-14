@@ -62,7 +62,7 @@ try {
     $probeOwner = New-Object System.Windows.Window
     $probeOwner.Width = 10; $probeOwner.Height = 10
     $probeOwner.WindowStartupLocation = 'Manual'
-    $probeOwner.Left = -32000; $probeOwner.Top = -32000
+    $probeOwner.Left = $(if ($env:SUITE_VISIBLE_WINDOWS -eq '1') { 80 } else { -32000 }); $probeOwner.Top = $(if ($env:SUITE_VISIBLE_WINDOWS -eq '1') { 80 } else { -32000 })
 
     $assert = { param([bool]$Condition, [string]$Message) if (-not $Condition) { throw ('FAIL: ' + $Message) } }
     $script:PassedChecks = 0
@@ -149,7 +149,7 @@ try {
             & $script:SummaryModule { param($a, $b, $c) Get-OneClickPlanSummary -Plan $a -Prefs $b -Action $c } $Plan $Prefs $Action
         }
         try {
-            $p.Dialog.Left = -32000; $p.Dialog.Top = -32000; $p.Dialog.WindowStartupLocation = 'Manual'
+            $p.Dialog.Left = $(if ($env:SUITE_VISIBLE_WINDOWS -eq '1') { 80 } else { -32000 }); $p.Dialog.Top = $(if ($env:SUITE_VISIBLE_WINDOWS -eq '1') { 80 } else { -32000 }); $p.Dialog.WindowStartupLocation = 'Manual'
             $p.Dialog.Show()
             $timer = New-Object System.Windows.Threading.DispatcherTimer
             $timer.Interval = [TimeSpan]::FromSeconds(2)

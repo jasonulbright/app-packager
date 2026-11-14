@@ -16,11 +16,14 @@
 - Show the muted text (notes, hints, the version) with MahApps.Brushes.Gray.MouseOver. The old brush was 2.7:1 on white in the light theme.
 - Show the column headers of a disabled grid with the gray text of the other disabled controls.
 - Refresh the vendored SuiteCommon library. The title bar of an inactive window has white text at 4.5:1 or more in both themes. The contrast probe sets the dialog theme with SuiteCommon and has no known defect left.
+- Refresh the vendored SuiteCommon library again. Add-SuiteImplicitStyle gives every themed window the text box, combo box and grid header styles.
 
 ### Added
 
 - Add an optional GitHub token field to Options, Tools, GitHub Authentication. The token is stored with DPAPI for the current Windows user. The GitHub-backed packagers and the version monitor use GITHUB_TOKEN, then GH_TOKEN, then the saved token, then the `gh` login. A token gives 5000 requests per hour; without one the limit is 60.
 - Add Invoke-OptionsContrastSmoke.ps1. It opens every section of Options in the light and in the dark theme and checks the contrast of the text (4.5:1) and of the control borders (3:1), enabled and disabled. Tests\KnownContrastDefects.ps1 lists the known limits that SuiteCommon owns.
+- Let the window probes that sit at -32000 show their windows at 80,80 when SUITE_VISIBLE_WINDOWS is 1, for the visible run in the labadmin session of CLIENT01.
+- Add one image of every page of the Options tree, the Options search, the light Options pages and the Installer Drop dialog to the user guide. Retake the guide images with the new borders and the dark and light themes.
 
 ## [2026.11.13.0137] - 2026-11-13
 
