@@ -183,6 +183,7 @@ function Invoke-StageCryptomator {
     if (-not (Test-Path -LiteralPath $localMsi)) {
         Write-Log "Download URL                 : $($releaseInfo.DownloadUrl)"
         Write-Log "Downloading MSI..."
+        Assert-DownloadAvailable -Url $releaseInfo.DownloadUrl -What 'The installer file'
         Invoke-DownloadWithRetry -Url $releaseInfo.DownloadUrl -OutFile $localMsi
     }
     else {

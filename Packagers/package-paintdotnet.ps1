@@ -94,7 +94,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/paintdotnet/release/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/paintdotnet/release/releases?per_page=30"
 
 $VendorFolder = "dotPDN LLC"
 $AppFolder    = "Paint.NET (x64)"
@@ -104,7 +104,8 @@ $BaseDownloadRoot = Join-Path $DownloadRoot "PaintDotNet"
 # --- Functions ---
 
 
-function Get-LatestPaintDotNetVersion {
+function Get-PaintDotNetRelease {
+    # The newest release that carries the x64 MSI zip. The asset list decides; the file name is never built from the version.
     param([switch]$Quiet)
 
     Write-Log "GitHub releases API          : $GitHubApiUrl" -Quiet:$Quiet
@@ -113,14 +114,15 @@ function Get-LatestPaintDotNetVersion {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
-        $version = $release.tag_name -replace '^v', ''
-        if ([string]::IsNullOrWhiteSpace($version)) {
-            throw "Could not parse version from GitHub release."
+        $selected = Select-GitHubReleaseWithAsset -Releases @(ConvertFrom-Json $json) -AssetPattern '^paint\.net\..+\.winmsi\.x64\.zip$'
+        if (-not $selected) { throw "No Paint.NET release carries an x64 MSI zip." }
+        if ([string]::IsNullOrWhiteSpace($selected.Version)) { throw "Could not parse version from GitHub release." }
+        if ($selected.SkippedNewer.Count -gt 0) {
+            Write-Log ("Paint.NET {0} publishes no x64 MSI zip; packaging {1}." -f ($selected.SkippedNewer -join ', '), $selected.Version) -Level WARN -Quiet:$Quiet
         }
 
-        Write-Log "Latest Paint.NET version     : $version" -Quiet:$Quiet
-        return $version
+        Write-Log "Latest Paint.NET version     : $($selected.Version)" -Quiet:$Quiet
+        return $selected
     }
     catch {
         Write-Log "Failed to get Paint.NET version: $($_.Exception.Message)" -Level ERROR
@@ -128,6 +130,12 @@ function Get-LatestPaintDotNetVersion {
     }
 }
 
+function Get-LatestPaintDotNetVersion {
+    param([switch]$Quiet)
+    $selected = Get-PaintDotNetRelease -Quiet:$Quiet
+    if (-not $selected) { return $null }
+    return $selected.Version
+}
 
 # ---------------------------------------------------------------------------
 # Stage phase
@@ -143,11 +151,13 @@ function Invoke-StagePaintDotNet {
     Initialize-Folder -Path $BaseDownloadRoot
 
     # --- Get version ---
-    $version = Get-LatestPaintDotNetVersion
-    if (-not $version) { throw "Could not resolve Paint.NET version." }
+    $release = Get-PaintDotNetRelease
+    if (-not $release) { throw "Could not resolve Paint.NET version." }
+    $version = $release.Version
 
-    $zipFileName = "paint.net.${version}.winmsi.x64.zip"
-    $downloadUrl = "https://github.com/paintdotnet/release/releases/download/v${version}/${zipFileName}"
+    # The name and the URL come from the asset of the release, not from the version.
+    $zipFileName = $release.AssetName
+    $downloadUrl = $release.DownloadUrl
 
     Write-Log "Version                      : $version"
     Write-Log "Download URL                 : $downloadUrl"
@@ -159,6 +169,7 @@ function Invoke-StagePaintDotNet {
 
     if (-not (Test-Path -LiteralPath $localZip)) {
         Write-Log "Downloading Paint.NET ZIP..."
+        Assert-DownloadAvailable -Url $downloadUrl -What 'The installer file'
         Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localZip
     }
     else {

@@ -95,7 +95,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/PowerShell/PowerShell/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/PowerShell/PowerShell/releases?per_page=30"
 
 $VendorFolder = "Microsoft"
 $AppFolder    = "PowerShell 7 (x64)"
@@ -105,7 +105,9 @@ $BaseDownloadRoot = Join-Path $DownloadRoot "PowerShell7"
 # --- Functions ---
 
 
-function Get-LatestPowerShell7Version {
+function Get-PowerShell7Release {
+    # The newest release that carries the x64 MSI. The asset list decides: the newest release can ship without an MSI
+    # (7.7.0 does), and the file name is never built from the version.
     param([switch]$Quiet)
 
     Write-Log "GitHub releases API          : $GitHubApiUrl" -Quiet:$Quiet
@@ -114,14 +116,15 @@ function Get-LatestPowerShell7Version {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
-        $version = $release.tag_name -replace '^v', ''
-        if ([string]::IsNullOrWhiteSpace($version)) {
-            throw "Could not parse version from GitHub release."
-        }
+        $selected = Select-GitHubReleaseWithAsset -Releases @(ConvertFrom-Json $json) -AssetPattern '^PowerShell-.+-win-x64\.msi$'
+        if (-not $selected) { throw "No PowerShell 7 release carries an x64 MSI." }
+        if ([string]::IsNullOrWhiteSpace($selected.Version)) { throw "Could not parse version from GitHub release." }
 
-        Write-Log "Latest PowerShell 7 version  : $version" -Quiet:$Quiet
-        return $version
+        if ($selected.SkippedNewer.Count -gt 0) {
+            Write-Log ("PowerShell {0} publishes no MSI; packaging {1}." -f ($selected.SkippedNewer -join ', '), $selected.Version) -Level WARN -Quiet:$Quiet
+        }
+        Write-Log "Latest PowerShell 7 version  : $($selected.Version)" -Quiet:$Quiet
+        return $selected
     }
     catch {
         Write-Log "Failed to get PowerShell 7 version: $($_.Exception.Message)" -Level ERROR
@@ -129,6 +132,12 @@ function Get-LatestPowerShell7Version {
     }
 }
 
+function Get-LatestPowerShell7Version {
+    param([switch]$Quiet)
+    $selected = Get-PowerShell7Release -Quiet:$Quiet
+    if (-not $selected) { return $null }
+    return $selected.Version
+}
 
 # ---------------------------------------------------------------------------
 # Stage phase
@@ -144,11 +153,13 @@ function Invoke-StagePowerShell7 {
     Initialize-Folder -Path $BaseDownloadRoot
 
     # --- Get version ---
-    $version = Get-LatestPowerShell7Version
-    if (-not $version) { throw "Could not resolve PowerShell 7 version." }
+    $release = Get-PowerShell7Release
+    if (-not $release) { throw "Could not resolve PowerShell 7 version." }
+    $version = $release.Version
 
-    $MsiFileName = "PowerShell-${version}-win-x64.msi"
-    $downloadUrl = "https://github.com/PowerShell/PowerShell/releases/download/v${version}/${MsiFileName}"
+    # The name and the URL come from the asset of the release, not from the version.
+    $MsiFileName = $release.AssetName
+    $downloadUrl = $release.DownloadUrl
 
     Write-Log "Version                      : $version"
     Write-Log "Download URL                 : $downloadUrl"
@@ -207,7 +218,7 @@ function Invoke-StagePowerShell7 {
     # --- Generate content wrappers (custom install args for PS7) ---
     $installPs1 = (
         ('$msiPath = Join-Path $PSScriptRoot ''{0}''' -f $MsiFileName),
-        '$proc = Start-Process msiexec.exe -ArgumentList @(''/i'', "`"$msiPath`"", ''/quiet'', ''/norestart'', ''ADD_EXPLORER_CONTEXT_MENU_OPENPOWERSHELL=1'', ''ENABLE_PSREMOTING=1'', ''REGISTER_MANIFEST=1'', ''ADD_PATH=1'', ''USE_MU=0'', ''ENABLE_MU=0'') -Wait -PassThru -NoNewWindow',
+        '$proc = Start-Process msiexec.exe -ArgumentList @(''/i'', "`"$msiPath`"", ''/quiet'', ''/norestart'', ''ADD_EXPLORER_CONTEXT_MENU_OPENPOWERSHELL=1'', ''ENABLE_PSREMOTING=1'', ''REGISTER_MANIFEST=1'', ''ADD_PATH=1'', ''USE_MU=1'', ''ENABLE_MU=1'') -Wait -PassThru -NoNewWindow',
         'exit $proc.ExitCode'
     ) -join "`r`n"
 
@@ -232,7 +243,7 @@ function Invoke-StagePowerShell7 {
         SoftwareVersion = $productVersionRaw
         InstallerFile   = $MsiFileName
         InstallerType   = "MSI"
-        InstallArgs     = "/quiet /norestart ADD_EXPLORER_CONTEXT_MENU_OPENPOWERSHELL=1 ENABLE_PSREMOTING=1 REGISTER_MANIFEST=1 ADD_PATH=1 USE_MU=0 ENABLE_MU=0"
+        InstallArgs     = "/quiet /norestart ADD_EXPLORER_CONTEXT_MENU_OPENPOWERSHELL=1 ENABLE_PSREMOTING=1 REGISTER_MANIFEST=1 ADD_PATH=1 USE_MU=1 ENABLE_MU=1"
         UninstallArgs   = "/qn /norestart"
         ProductCode     = $productCode
         RunningProcess  = @("pwsh")

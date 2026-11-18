@@ -9942,6 +9942,7 @@ function Invoke-MultiAppPipeline {
                                 if ($cmp -lt 0)     { $row.Status = 'Update available' }
                                 elseif ($cmp -eq 0) { $row.Status = 'Up to date' }
                                 else                { $row.Status = 'Current newer' }
+                                if ($row.Status -eq 'Current newer') { $newerNote = Get-CurrentNewerNote -PackagerScript $scrName; if ($newerNote) { [void]$State.LogQueue.Enqueue(('Note: ' + $newerNote)) } }
                             } else {
                                 $row.Status = 'Latest retrieved'
                             }
@@ -11788,6 +11789,7 @@ $btnCheckMECM.Add_Click({
                     if ($cmp -lt 0)      { $row.Status = "Update available" }
                     elseif ($cmp -eq 0)  { $row.Status = "Up to date" }
                     else                 { $row.Status = "Current newer" }
+                    if ($row.Status -eq 'Current newer') { $newerNote = Get-CurrentNewerNote -PackagerScript ([string]$row.Script); if ($newerNote) { Add-LogLine -Message ('Note: ' + $newerNote) } }
                 }
                 else {
                     $row.Status = "ConfigMgr version retrieved"

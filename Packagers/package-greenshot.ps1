@@ -158,6 +158,7 @@ function Invoke-StageGreenshot {
 
     if (-not (Test-Path -LiteralPath $localExe)) {
         Write-Log "Downloading Greenshot..."
+        Assert-DownloadAvailable -Url $downloadUrl -What 'The installer file'
         Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localExe
     }
     else {

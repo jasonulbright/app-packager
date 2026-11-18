@@ -157,6 +157,7 @@ function Invoke-StageSoapUI {
 
     if (-not (Test-Path -LiteralPath $localExe)) {
         Write-Log "Downloading SoapUI..."
+        Assert-DownloadAvailable -Url $downloadUrl -What 'The installer file'
         Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localExe
     }
     else {
