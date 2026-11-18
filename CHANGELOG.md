@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add Minimum Windows release to Options, Connections, Intune. Publish to Intune sends it as the minimum supported Windows release.
+
 ## [2026.11.14.0141] - 2026-11-14
 
 ## 0 non-ASCII bytes in the text files
