@@ -5077,7 +5077,7 @@ function Invoke-CveMonitor {
     # the update fixes, without one it lists what stays open. An application
     # that ConfigMgr does not hold is not looked up.
     $deployed = @($rows | Where-Object { -not $_.Failed -and (ConvertTo-CveVersionKey -Version ([string]$_.CurrentVersion)) })
-    $lookedUp = 0; $cveTotal = 0; $fixedTotal = 0; $openTotal = 0; $kevTotal = 0
+    $lookedUp = 0; $cveTotal = 0; $fixedTotal = 0; $openTotal = 0; $kevTotal = 0; $cveFailed = 0
     $ownResults = @{}
     if (-not $SkipCve -and $deployed.Count -gt 0) {
         $kev = $null
@@ -5091,7 +5091,7 @@ function Invoke-CveMonitor {
                 $cells = Get-CveGridCells -Summary $summary -Cpe $row.Cpe
                 $row.CveCount = $cells.Count
                 Set-CveCellsPair -Row $row
-                if ($res.Error) { Write-Log ('[cve] {0}: {1}' -f $row.Application, $res.Error) -Level WARN; $failed++; continue }
+                if ($res.Error) { Write-Log ('[cve] {0}: {1}' -f $row.Application, $res.Error) -Level WARN; $failed++; $cveFailed++; continue }
                 try { Update-PackagerHistory -PackagerName $base -Event VulnChecked -Data $summary } catch { <# Reading or writing packager history is bookkeeping; the main result does not depend on it. #> $null = $_ }
                 $ownResults[[string]$row.Script] = $res
                 $lookedUp++
@@ -5106,8 +5106,12 @@ function Invoke-CveMonitor {
                 Write-Log ('[cve] CVE lookup failed for {0}: {1}' -f $row.Application, $_.Exception.Message) -Level WARN
                 $row.CveCount = 'Error'
                 $failed++
+                $cveFailed++
             }
         }
+        # Some products may be left unchecked (NVD limit or timeout); one line says so.
+        $notice = Get-NvdBatchNotice -Total ($lookedUp + $cveFailed) -Failed $cveFailed
+        if ($notice) { Write-Log ('[cve] ' + $notice) -Level WARN }
     }
 
     $reportRows = Get-CveReportRows -Rows $rows -Results $ownResults -MarkCached
@@ -9840,6 +9844,11 @@ function Invoke-MultiAppPipeline {
         # Check CVEs results by script name, read by the CVE window's
         # completion hook (a cache write can fail after a good lookup).
         CveResults             = [hashtable]::Synchronized(@{})
+        # The line a Check CVEs run ends with when some rows were not checked.
+        Notice                 = ''
+        # Check CVEs: the step text and the lookups left, read by the NVD wait status.
+        CveStep                = ''
+        CveLeft                = 0
     })
     $script:ConflictPromptOpen = $false
     # The timer tick runs after this function returns; its parameters are out
@@ -9882,6 +9891,7 @@ function Invoke-MultiAppPipeline {
             $rows = @($RowsIn)
             $n = $rows.Count
             $i = 0
+            $cveWaitHooked = $false
             foreach ($row in $rows) {
                 while ([bool]$State.Paused -and -not [bool]$State.CancelRequested) {
                     $State.Step = 'Paused before next app'
@@ -9974,6 +9984,17 @@ function Invoke-MultiAppPipeline {
 
                     'CheckCve' {
                         $State.Step = ('CVEs {0}/{1}: {2}' -f $i, $n, $app)
+                        $State.CveStep = [string]$State.Step
+                        $State.CveLeft = ($n - $i + 1)
+                        if (-not $cveWaitHooked) {
+                            # While the pacer waits for the NVD limit the status says so and counts the lookups left.
+                            Set-NvdWaitCallback -Callback ({
+                                param($Seconds)
+                                if ($Seconds -gt 0) { $State.Step = Get-NvdWaitStatusText -LookupsLeft ([int]$State.CveLeft) -Seconds $Seconds }
+                                else { $State.Step = [string]$State.CveStep }
+                            }.GetNewClosure())
+                            $cveWaitHooked = $true
+                        }
                         [void]$State.LogQueue.Enqueue(('CVEs: {0} ({1})' -f $app, $scrName))
                         $cpe     = [string]$row.Cpe
                         $current = [string]$row.CurrentVersion
@@ -10917,12 +10938,21 @@ function Invoke-MultiAppPipeline {
                     }
                 }
             }
+            if ($Op -eq 'CheckCve') {
+                # Some rows may be left unchecked (NVD limit or timeout); one line says so.
+                $notice = Get-NvdBatchNotice -Total ($counts['Checked'] + $counts['CheckFailed']) -Failed $counts['CheckFailed']
+                if ($notice) {
+                    $State.Notice = $notice
+                    [void]$State.LogQueue.Enqueue($notice)
+                }
+            }
             $State.Counts = $counts
         }
         catch {
             $State.ErrorMsg = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')
         }
         finally {
+            if ($Op -eq 'CheckCve') { try { Set-NvdWaitCallback -Callback $null } catch { $null = $_ } }
             $State.Done = $true
         }
     }).AddArgument($Operation).AddArgument($rowsArray).AddArgument($Context).AddArgument($script:BgState)
@@ -11027,6 +11057,9 @@ function Invoke-MultiAppPipeline {
                 if ($script:BgOperation -eq 'CheckLatest' -and -not [bool]$doneState.Canceled) { Add-LogLine -Message (Get-CheckResultSummaryLine -Check 'Check Latest' -Rows @($script:BgRows)) }
                 if ([bool]$doneState.Canceled) {
                     $txtStatus.Text = 'Canceled.'
+                }
+                elseif ($doneState.Notice) {
+                    $txtStatus.Text = [string]$doneState.Notice
                 }
                 else {
                     $txtStatus.Text = 'Complete.'

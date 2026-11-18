@@ -8,6 +8,7 @@
 
 - Add the App Installer (WinGet) packager. It provisions the package for all users without the Store.
 - Log one line with the count of products that need an update after Check Latest and Check ConfigMgr.
+- Add a waiting status and a closing notice to Check CVEs for the NVD limit.
 
 ### Fixed
 
@@ -18,6 +19,7 @@
 - Install PowerShell 7 with Microsoft Update on (USE_MU=1, ENABLE_MU=1) and note in the log that newer versions arrive through Microsoft Update.
 - Check that the installer file exists before the download of Paint.NET, Positron, KeePass, WinSCP, SoapUI, Cryptomator, DAX Studio, Greenshot and Colour Contrast Analyser, and stop with a clear message when it does not.
 - Read the Paint.NET installer from the asset list of the release.
+- Fix Check CVEs when NVD does not answer. The row says not checked, never clean.
 
 ## [2026.11.18.0144] - 2026-11-18
 

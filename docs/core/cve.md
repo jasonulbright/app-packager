@@ -129,9 +129,9 @@ Some NVD records name a product with no version and no range. Most of them are o
 
 1. The tool uses the records that it saved for the product, if it has them. The result names the date of those records.
 2. Without saved records, the tool asks Shodan CVEDB for each version. Shodan CVEDB gives no version ranges, so the tool compares its answers for the two versions.
-3. When both fail, the row shows `Error`. A failed lookup is not saved, and an earlier result stays in place.
+3. When both fail, or when NVD does not answer and Shodan CVEDB lists no record, the row shows `Error` and the log says `NVD did not answer (timeout); not checked`. The row is never shown as clean. A failed lookup is not saved, and an earlier result stays in place.
 
-A timeout, a network error and the answers 403, 429 and 503 are tried twice more before the fallback. The wait is the `Retry-After` time of the answer when it has one (at most 120 seconds), else 6 seconds, then 12 seconds.
+A timeout, a network error and the answers 403, 429 and 503 are tried twice more before the fallback. The wait is the `Retry-After` time of the answer when it has one (at most 120 seconds), else 6 seconds, then 12 seconds. A run in which some rows could not be checked ends with one line: `CVE lookup finished: 9 of 12 products checked, 3 could not be checked (NVD limit or timeout); run Check CVEs again later`.
 
 ## Options and settings of this page
 
@@ -143,7 +143,7 @@ A timeout, a network error and the answers 403, 429 and 503 are tried twice more
 
 ## Limits
 
-- NVD allows 5 requests in 30 seconds without a key and asks for 6 seconds between requests. The tool sends one request every 6 seconds without a key and one every 0.6 seconds with a key. The first lookup of a product reads all its records: one request for each 2000 records. A large run is slow without a key.
+- NVD allows 5 requests in 30 seconds without a key and asks for 6 seconds between requests. The tool sends one request every 6 seconds without a key and one every 0.6 seconds with a key. The status line says `Waiting for the NVD request limit: N lookups left, about M s` while it waits. The first lookup of a product reads all its records: one request for each 2000 records. A large run is slow without a key.
 - All App Packager windows and the scheduled monitor of the same user share one limit. The request times are in `%LOCALAPPDATA%\AppPackager
 vd-limit.json`, guarded by a lock. A damaged file or a lock that is not free never stops a lookup. The tool then uses the limit of its own process and writes a warning to the log.
 - The tool saves the records of each product in `%LOCALAPPDATA%\AppPackager\vuln-products` and the result of each lookup in `%LOCALAPPDATA%\AppPackager\vuln-results`. It uses both for six hours. A second lookup of the same product with other versions makes no NVD request in that time.
@@ -161,6 +161,7 @@ vd-limit.json`, guarded by a lock. A damaged file or a lock that is not free nev
 | `Not in NVD` | NVD holds no record under the product name of the `CPE` header. The product has no known CVE, or NVD files it under another name. | Search the product in the NVD CPE dictionary. When NVD uses another name, correct the `CPE` header. See [A product that NVD does not know](#a-product-that-nvd-does-not-know). |
 | The count is 0 for a product with known CVEs. | The CVEs do not affect the examined version, or NVD files them under a second product name. | Open the NVD link of the CVE window and compare the CPE name and the version ranges. Add the second name to the `CPE` header. |
 | The run is slow and repeats. | NVD throttles calls without a key. | Set an NVD API key. |
+| `NVD did not answer (timeout); not checked` | NVD did not answer in 60 seconds, three times. | The product is not checked. Run Check CVEs again later. |
 | The source says `records saved ...; NVD did not answer`. | NVD failed and the tool used the saved records. | Run Check CVEs again later. |
 
 ## Links
