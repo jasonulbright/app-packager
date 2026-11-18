@@ -2,18 +2,21 @@
 
 ## [Unreleased]
 
-### Changed
+## [2026.11.18.0145] - 2026-11-18
 
-- Use ConfigMgr terms in the packager help, the README and the guide.
-- Accept ConfigMgr, ConfigMgrAndIntune and ConfigMgrAndWSUS as deployment targets on the command line. The old target names still work.
-
-## 315 packagers: App Installer (WinGet) added
+## 315 packagers: App Installer added, PowerShell 7 and NVD fixes
 
 ### Added
 
 - Add the App Installer (WinGet) packager. It provisions the package for all users without the Store.
 - Log one line with the count of products that need an update after Check Latest and Check ConfigMgr.
 - Add a waiting status and a closing notice to Check CVEs for the NVD limit.
+- Add a test that every packager has an icon in the pinned icon pack.
+
+### Changed
+
+- Use ConfigMgr terms in the packager help, the README and the guide.
+- Accept ConfigMgr, ConfigMgrAndIntune and ConfigMgrAndWSUS as deployment targets on the command line. The old target names still work.
 
 ### Fixed
 
@@ -26,6 +29,7 @@
 - Read the Paint.NET installer from the asset list of the release.
 - Package the newest release that has the installer in 75 packagers that read GitHub releases. A newest release without the installer no longer stops them.
 - Fix Check CVEs when NVD does not answer. The row says not checked, never clean.
+- Stop only the processes that the guide capture tool started, by process id. It no longer stops processes by a command-line pattern. A guard test fails when a tool script does.
 
 ## [2026.11.18.0144] - 2026-11-18
 
@@ -33,13 +37,8 @@
 
 ### Added
 
-- Add a test that every packager has an icon in the pinned icon pack.
 - Add the Bruno packager. It installs the x64 MSI for all users and checks the file against the SHA-256 digest of the GitHub release when GitHub lists one.
 - Add the PowerShell 7 (Devolutions) packager. It installs the signed Microsoft-payload MSI.
-
-### Fixed
-
-- The guide capture tool stops only the processes that it started, by process id. It no longer stops PowerShell processes by command-line pattern, which could end the window of another session. A new guard test fails when a tool script stops a process by a pattern.
 
 ## [2026.11.18.0143] - 2026-11-18
 
