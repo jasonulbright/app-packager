@@ -144,6 +144,7 @@
         'Get-SupersedenceFallbackApplicationId'
         'Invoke-SupersedenceStepAndLog'
         'Invoke-SupersedenceApply'
+        'Get-CheckResultSummaryLine'
         'Set-CMApplicationIdentityMarker'
         'Get-SupersedenceApplicationKeyword'
         'Get-SupersedenceOldApplicationCandidate'
