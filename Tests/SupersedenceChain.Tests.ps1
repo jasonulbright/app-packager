@@ -143,7 +143,11 @@ Describe 'Recording an installed value and accepting a block' {
         $props = @($settings.InstalledValues.PSObject.Properties)
         $props.Count | Should -Be 1
         $props[0].Value | Should -Be '24.08.0'
-        { Get-ExactGuardVerdict -Manifest ([pscustomobject]@{ SoftwareVersion = '1' }) -Clause ([pscustomobject]@{ ExpectedValue = '1' }) -TitleKey 'a' -Recorded @{ 'a|1' = '1'; 'A|1' = '2' } } | Should -Not -Throw
+        # A hash literal is not case sensitive, so the two keys that differ by case are added one by one.
+        $recorded = [System.Collections.Hashtable]::new()
+        $recorded['a|1'] = '1'
+        $recorded['A|1'] = '2'
+        { Get-ExactGuardVerdict -Manifest ([pscustomobject]@{ SoftwareVersion = '1' }) -Clause ([pscustomobject]@{ ExpectedValue = '1' }) -TitleKey 'a' -Recorded $recorded } | Should -Not -Throw
     }
 
     It 'stores an acceptance once and per version' {
