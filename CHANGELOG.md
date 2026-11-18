@@ -9,6 +9,7 @@
 - Add supersedence to ConfigMgr publish. Replace and Replace and uninstall link the new application to the older one.
 - Add -VersionRule, -Supersedence, -RecordInstalledValue, -AcceptExactBlock and -RewriteOldVersions to Invoke-AppPackagerBuild.
 - Add Install options review to Options, Packaging, Folders. It skips the Stage review.
+- Add a supersedence-only pass to One Click that retries a failed step.
 - Add a Configure dialog before Stage for apps with install options. Continue applies per run.
 - Add the ReviewBeforeStage packager header tag. It keeps the Stage review when Options skips it.
 - Translate ConfigMgr requirements into Intune requirement rules on publish.

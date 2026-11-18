@@ -48,11 +48,16 @@ During the run, the grid becomes a progress grid. A failed application does not 
 | Policy for an existing application | Overwrite or Skip, applied without a question. |
 | **Force** | Ignores the guard that skips a version that a destination already has. |
 
+### Supersedence in a run
+
+When the supersedence mode of Options, Packaging, Supersedence is not Off, the ConfigMgr publish of a run also links the new application to the older one. If that step fails, the application stays on the site and the row shows Published with the warning `supersedence not applied`. One Click keeps the version as pending in the history. The next run does not publish the version again. It runs the lookup of the older application and the supersedence step for that application, and nothing else: it stages nothing and publishes nothing. The plan shows the step `Supersedence` for such a row. The step reads the relations that exist and adds only the missing ones, so a second run is safe. When it succeeds, or when it finds no older version, the pending state ends and the row outcome is Superseded. When it fails again, the version stays pending. **Force** publishes the version again instead.
+
 ## Limits
 
 - A version that a destination already has is not published there again, unless **Force** is set. The tool reads the history from `%LOCALAPPDATA%\AppPackager\app-history.json`.
 - A destination that refused a version is not tried again for that version unless **Force** is set.
 - An application without its local source folder is dropped before the run starts.
+- The supersedence-only pass reads the identity of the application line from the manifest of the last stage. Without that manifest the pass reports `stage-manifest.json not found`, and the version stays pending until you stage the application once.
 
 ## Troubleshooting
 

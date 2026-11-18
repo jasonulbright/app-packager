@@ -17,6 +17,8 @@
         'Test-OneClickRecordInstance'
         'Get-OneClickPublishedVersion'
         'Set-OneClickPublishedVersion'
+        'Clear-OneClickSupersedencePending'
+        'Get-OneClickSupersedenceFailure'
         'Get-OneClickNotSupportedVersion'
         'Get-OneClickNotSupportedReason'
         'Set-OneClickNotSupported'
