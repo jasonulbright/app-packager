@@ -4856,11 +4856,14 @@ function New-MECMApplicationFromManifest {
                         $testCollection = if ($null -ne $cd.TestCollectionName) { ([string]$cd.TestCollectionName).Trim() } else { '' }
                         if ($cd.DeployToTestCollection -and -not [string]::IsNullOrWhiteSpace($testCollection)) {
                             try {
-                                $collection = Get-CMDeviceCollection -Name $testCollection -ErrorAction SilentlyContinue
+                                $isUserCollection = ($cd.PSObject.Properties['TestCollectionIsUser'] -and [bool]$cd.TestCollectionIsUser)
+                                $limitingName = if ($isUserCollection) { 'All Users' } else { 'All Systems' }
+                                $collection = if ($isUserCollection) { Get-CMUserCollection -Name $testCollection -ErrorAction SilentlyContinue } else { Get-CMDeviceCollection -Name $testCollection -ErrorAction SilentlyContinue }
                                 if (-not $collection -and [bool]$cd.CreateTestCollectionIfMissing) {
-                                    Write-Log "Creating test collection     : '$testCollection' (direct membership, limited to All Systems)"
-                                    New-CMDeviceCollection -Name $testCollection -LimitingCollectionName 'All Systems' -ErrorAction Stop | Out-Null
-                                    $collection = Get-CMDeviceCollection -Name $testCollection -ErrorAction SilentlyContinue
+                                    Write-Log "Creating test collection     : '$testCollection' (direct membership, limited to $limitingName)"
+                                    if ($isUserCollection) { New-CMUserCollection -Name $testCollection -LimitingCollectionName $limitingName -ErrorAction Stop | Out-Null }
+                                    else { New-CMDeviceCollection -Name $testCollection -LimitingCollectionName $limitingName -ErrorAction Stop | Out-Null }
+                                    $collection = if ($isUserCollection) { Get-CMUserCollection -Name $testCollection -ErrorAction SilentlyContinue } else { Get-CMDeviceCollection -Name $testCollection -ErrorAction SilentlyContinue }
                                 }
                                 if (-not $collection) {
                                     Write-Log "Test deployment skipped      : collection '$testCollection' not found (enable 'Create collection if it does not exist' or create it first)" -Level WARN
