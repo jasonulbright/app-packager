@@ -28,6 +28,7 @@
 
 ### Added
 
+- Add a test that every packager has an icon in the pinned icon pack.
 - Add the Bruno packager. It installs the x64 MSI for all users and checks the file against the SHA-256 digest of the GitHub release when GitHub lists one.
 - Add the PowerShell 7 (Devolutions) packager. It installs the signed Microsoft-payload MSI.
 
