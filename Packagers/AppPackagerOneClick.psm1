@@ -284,12 +284,60 @@ function Get-OneClickPublishedVersion {
     if (-not (Test-OneClickRecordInstance -Record $record -Instance $Instance)) { return $null }
     $get = { param($name) if ($record -is [System.Collections.IDictionary]) { if ($record.Contains($name)) { $record[$name] } } elseif ($record.PSObject.Properties[$name]) { $record.PSObject.Properties[$name].Value } }
     return [pscustomobject]@{
-        Version  = [string](& $get 'Version')
-        At       = [string](& $get 'At')
-        Id       = [string](& $get 'Id')
-        Instance = ('' + (& $get 'Instance'))
-        Build    = ('' + (& $get 'Build'))
+        Version             = [string](& $get 'Version')
+        At                  = [string](& $get 'At')
+        Id                  = [string](& $get 'Id')
+        Instance            = ('' + (& $get 'Instance'))
+        Build               = ('' + (& $get 'Build'))
+        SupersedencePending = ([string](& $get 'SupersedencePending') -eq 'True')
+        SupersedenceReason  = ('' + (& $get 'SupersedenceReason'))
     }
+}
+
+function Clear-OneClickSupersedencePending {
+    <#
+    .SYNOPSIS
+        Ends the pending state of the supersedence step for one application.
+    .DESCRIPTION
+        The ConfigMgr record keeps its version, time, identifier and build. Mutates the hashtable that
+        Read-PackagerHistory returns; the caller saves it. Does nothing when the record is not pending.
+    #>
+    param(
+        [Parameter(Mandatory)][hashtable]$History,
+        [Parameter(Mandatory)][string]$PackagerName
+    )
+    if (-not $History.ContainsKey($PackagerName) -or $null -eq $History[$PackagerName]) { return $History }
+    $entry = ConvertTo-OneClickHashtable -Value $History[$PackagerName]
+    $History[$PackagerName] = $entry
+    if (-not $entry.ContainsKey('Published') -or $null -eq $entry['Published']) { return $History }
+    $published = ConvertTo-OneClickHashtable -Value $entry['Published']
+    $entry['Published'] = $published
+    if (-not $published.ContainsKey('ConfigMgr') -or $null -eq $published['ConfigMgr']) { return $History }
+    $record = ConvertTo-OneClickHashtable -Value $published['ConfigMgr']
+    $record.Remove('SupersedencePending')
+    $record.Remove('SupersedenceReason')
+    $published['ConfigMgr'] = $record
+    return $History
+}
+
+function Get-OneClickSupersedenceFailure {
+    <#
+    .SYNOPSIS
+        The reason the supersedence step gave, read from the output of a ConfigMgr publish.
+    .DESCRIPTION
+        A publish that succeeded but whose supersedence step failed logs "Published, supersedence not applied: <reason>".
+        The application is complete, so this is a state of its own and not a failed or partial publish. A publish that
+        did not succeed (a non-zero exit code, as when a content step failed) outranks it and gives an empty text.
+    .OUTPUTS
+        [string] The reason; empty when the step did not fail or the publish failed.
+    #>
+    param([AllowEmptyString()][string]$Text, [int]$ExitCode = 0)
+    if ($ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($Text)) { return '' }
+    $found = [regex]::Matches($Text, '(?m)Published, supersedence not applied:\s*(.*?)\s*$')
+    if ($found.Count -eq 0) { return '' }
+    $reason = $found[$found.Count - 1].Groups[1].Value.Trim()
+    if ($reason) { return $reason }
+    return 'the site gave no reason.'
 }
 
 function Set-OneClickPublishedVersion {
@@ -311,7 +359,11 @@ function Set-OneClickPublishedVersion {
         # The destination instance (Get-OneClickInstanceKey) and the build
         # identity (profile, revision, signing policy) this publish carried.
         [AllowEmptyString()][string]$Instance = '',
-        [AllowEmptyString()][string]$Build = ''
+        [AllowEmptyString()][string]$Build = '',
+        # The application is on the site but the supersedence step failed: the
+        # version stays pending for a supersedence-only pass of a later run.
+        [switch]$SupersedenceNotApplied,
+        [AllowEmptyString()][string]$SupersedenceReason = ''
     )
     if (-not $History.ContainsKey($PackagerName) -or $null -eq $History[$PackagerName]) {
         $History[$PackagerName] = @{ LastChecked = $null; LastStaged = $null; LastPackaged = $null; LastKnownVersion = $null; LastResult = $null }
@@ -331,13 +383,19 @@ function Set-OneClickPublishedVersion {
         foreach ($p in $published.PSObject.Properties) { $h[$p.Name] = $p.Value }
         $published = $h
     }
-    $published[$Destination] = @{
+    $record = @{
         Version  = $Version
         At       = $At.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
         Id       = $Id
         Instance = $Instance
         Build    = $Build
     }
+    # Only the ConfigMgr destination has supersedence. A new publish replaces the record, so it clears an earlier pending state.
+    if ($SupersedenceNotApplied -and $Destination -eq 'ConfigMgr') {
+        $record['SupersedencePending'] = $true
+        $record['SupersedenceReason'] = $SupersedenceReason
+    }
+    $published[$Destination] = $record
     $entry['Published'] = $published
     if ($entry.ContainsKey('NotSupported') -and $null -ne $entry['NotSupported']) {
         $refusals = ConvertTo-OneClickHashtable -Value $entry['NotSupported']
@@ -520,15 +578,18 @@ function Get-OneClickPlan {
         $destinations = Get-OneClickDestinations -Prefs $Prefs -PackagerName $name
         $lastPublished = [ordered]@{}
         $lastRefused = @{}
+        $pendingSupersedence = $false
         foreach ($d in $script:OneClickDestinations) {
             $rec = Get-OneClickPublishedVersion -HistoryEntry $entry -Destination $d -Instance $instances[$d]
             $lastPublished[$d] = $(if ($rec) { $rec.Version } else { '' })
+            if ($d -eq 'ConfigMgr' -and $rec -and $rec.SupersedencePending) { $pendingSupersedence = $true }
             $lastRefused[$d] = Get-OneClickNotSupportedVersion -HistoryEntry $entry -Destination $d -Instance $instances[$d]
         }
 
         $reasons = New-Object System.Collections.Generic.List[string]
         $publishTo = New-Object System.Collections.Generic.List[string]
         $notPublishable = New-Object System.Collections.Generic.List[string]
+        $supersedenceOnly = $false
         $selected = @($script:OneClickDestinations | Where-Object { [bool]$destinations.$_ })
 
         $planned = ''
@@ -566,6 +627,12 @@ function Get-OneClickPlan {
                             $reasons.Add(('{0}: not supported' -f $d)); continue
                         }
                         if (-not $Force -and -not [string]::IsNullOrWhiteSpace($latest) -and $lastPublished[$d] -eq $latest) {
+                            # The version is on the site and only its supersedence step failed: the run does not publish it again.
+                            # It runs the lookup and the supersedence step for the application, and nothing else.
+                            if ($d -eq 'ConfigMgr' -and $pendingSupersedence) {
+                                $supersedenceOnly = $true
+                                $reasons.Add(('{0}: {1} already published, supersedence pending' -f $d, $latest)); continue
+                            }
                             $reasons.Add(('{0}: {1} already published' -f $d, $latest)); continue
                         }
                         $publishTo.Add($d)
@@ -575,6 +642,11 @@ function Get-OneClickPlan {
                         # The version is unknown until the check runs; publish
                         # decisions wait for it.
                         $steps += 'Publish after check'
+                    }
+                    if ($supersedenceOnly) {
+                        # Nothing is staged for a row that only applies supersedence.
+                        if ($publishTo.Count -eq 0) { $steps = @($steps | Where-Object { $_ -ne 'Stage' }) }
+                        $steps += 'Supersedence'
                     }
                 }
                 $planned = ($steps -join ', ')
@@ -595,6 +667,7 @@ function Get-OneClickPlan {
             LastWSUS      = $lastPublished['WSUS']
             LastIntune    = $lastPublished['Intune']
             PublishTo     = $publishTo.ToArray()
+            SupersedenceOnly = $supersedenceOnly
             NotPublishable = $notPublishable.ToArray()
             Planned       = $planned
             Reason        = ($reasons -join '; ')
@@ -634,6 +707,8 @@ function Get-OneClickPlanSummary {
     if ($Plan.Count -ne $included.Count) { $line += (', {0} skipped' -f ($Plan.Count - $included.Count)) }
     if ($Action -eq 'StageAndPackage') {
         $line += ': ' + (($script:OneClickDestinations | ForEach-Object { '{0} to {1}' -f $counts[$_], $_ }) -join ', ')
+        $passes = @($included | Where-Object { $_.PSObject.Properties['SupersedenceOnly'] -and $_.SupersedenceOnly }).Count
+        if ($passes -gt 0) { $line += (', {0} supersedence only' -f $passes) }
     }
     else {
         $line += $(if ($Action -eq 'Stage') { ': check and stage, no publish' } else { ': check only, no publish' })
@@ -712,6 +787,9 @@ function Write-OneClickReport {
     $failed = @($Rows | Where-Object { (& $get $_ 'Outcome') -eq 'Failed' }).Count
     $notSupported = @($Rows | Where-Object { (& $get $_ 'Outcome') -eq 'Not supported' }).Count
     $skipped = @($Rows | Where-Object { (& $get $_ 'Outcome') -eq 'Skipped' }).Count
+    $superseded = @($Rows | Where-Object { (& $get $_ 'Outcome') -eq 'Superseded' }).Count
+    # A row that published with a failed supersedence step stays Published; its ConfigMgr result says so.
+    $notApplied = @($Rows | Where-Object { (& $get $_ 'ResultConfigMgr') -match 'supersedence not applied' }).Count
 
     $lines = New-Object System.Collections.Generic.List[string]
     $lines.Add('# One Click run ' + ([datetime]$Run.Started).ToString('yyyy-MM-dd HH:mm'))
@@ -728,6 +806,8 @@ function Write-OneClickReport {
     $lines.Add('| Published | ' + $published + ' |')
     $lines.Add('| Not supported | ' + $notSupported + ' |')
     $lines.Add('| Skipped | ' + $skipped + ' |')
+    if ($superseded -gt 0) { $lines.Add('| Supersedence applied | ' + $superseded + ' |') }
+    if ($notApplied -gt 0) { $lines.Add('| Supersedence not applied | ' + $notApplied + ' |') }
     $lines.Add('| Failed | ' + $failed + ' |')
     $lines.Add('')
     if ($Run.PSObject.Properties['Scope'] -and $Run.Scope) {
@@ -841,7 +921,7 @@ Export-ModuleMember -Function @(
     'Get-OneClickDestinationNames', 'ConvertTo-OneClickDestinationSet', 'Get-OneClickDestinations',
     'Test-OneClickDestinationInUse', 'Get-OneClickDestinationScope',
     'Get-OneClickInstanceKey', 'Get-OneClickInstanceKeys', 'Test-OneClickRecordInstance',
-    'Get-OneClickPublishedVersion', 'Set-OneClickPublishedVersion',
+    'Get-OneClickPublishedVersion', 'Set-OneClickPublishedVersion', 'Clear-OneClickSupersedencePending', 'Get-OneClickSupersedenceFailure',
     'Get-OneClickNotSupportedVersion', 'Get-OneClickNotSupportedReason', 'Set-OneClickNotSupported',
     'Get-OneClickCadenceDays', 'Get-OneClickPlan', 'Get-OneClickPlanSummary', 'Select-OneClickRunDestinations',
     'Get-OneClickReportFolder', 'Write-OneClickReport', 'Get-OneClickReportList'

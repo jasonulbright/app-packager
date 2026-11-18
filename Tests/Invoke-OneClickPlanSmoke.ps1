@@ -240,6 +240,23 @@ try {
     }
     function global:Get-PackagerMetadata { param($Path) [pscustomobject]@{ UpdateCadenceDays = 7 } }
 
+    # --- Supersedence-only pass: a version on the site whose supersedence step is pending ---
+    [void](Set-OneClickPublishedVersion -History $script:History -PackagerName 'package-alpha' -Destination 'ConfigMgr' -Version '1.0' -Id 'Alpha 1.0' -SupersedenceNotApplied -SupersedenceReason 'access denied')
+    Show-OneClickPlanDialog -Owner $probeOwner -Rows $rows -Action 'StageAndPackage' -Probe {
+        param($p)
+        $alpha = $p.Rows | Where-Object { $_.Packager -eq 'package-alpha' }
+        & $assert ($alpha.Planned -eq 'Check, Stage, Publish to WSUS, Supersedence') ('a pending supersedence step plans the pass and no ConfigMgr publish: ' + [string]$alpha.Planned)
+        & $assert ([string]$alpha.Reason -like '*ConfigMgr: 1.0 already published, supersedence pending*') ('the reason names the pending step: ' + [string]$alpha.Reason)
+        & $assert ($p.Summary.Text -match ', 1 supersedence only$') ('the count line names the pass: ' + $p.Summary.Text)
+        & $ok 'supersedence-only pass planned'
+        $p.Force.IsChecked = $true
+        & $p.Refresh
+        & $assert ($alpha.Planned -eq 'Check, Stage, Publish to ConfigMgr+WSUS') ('Force publishes the version again instead of the pass: ' + [string]$alpha.Planned)
+        & $ok 'force replaces the pass'
+        $p.Force.IsChecked = $false
+    }
+    $script:History.Remove('package-alpha')
+
     # --- One Click Settings panel: per-row boxes round trip ---------------
     $script:Prefs.Wsus.ServerName = 'wsus01'
     function global:Get-Packagers { param($Root) @(

@@ -479,3 +479,174 @@ Describe 'Test collection kind in the destination scope' {
         Get-OneClickDestinationScope -Prefs (New-TestPrefs) -Destination 'ConfigMgr' | Should -Match 'deploy to collection '
     }
 }
+
+Describe 'Supersedence-only pass of One Click' {
+    BeforeAll {
+        function New-PendingHistory {
+            param([string]$Version = '2.0', [string]$Instance = '')
+            $history = @{}
+            Set-OneClickPublishedVersion -History $history -PackagerName 'package-a' -Destination 'ConfigMgr' -Version $Version -Id 'App A 2.0' -Instance $Instance `
+                -SupersedenceNotApplied -SupersedenceReason 'access denied' | Out-Null
+            return $history
+        }
+    }
+
+    Context 'the pending state of a publish' {
+        It 'keeps the version as published and marks it pending with the reason' {
+            $history = New-PendingHistory
+            $rec = Get-OneClickPublishedVersion -HistoryEntry $history['package-a'] -Destination 'ConfigMgr'
+            $rec.Version | Should -Be '2.0'
+            $rec.Id | Should -Be 'App A 2.0'
+            $rec.SupersedencePending | Should -BeTrue
+            $rec.SupersedenceReason | Should -Be 'access denied'
+        }
+        It 'is not pending after a publish whose step succeeded' {
+            $history = @{}
+            Set-OneClickPublishedVersion -History $history -PackagerName 'package-a' -Destination 'ConfigMgr' -Version '2.0' -Id 'App A 2.0' | Out-Null
+            (Get-OneClickPublishedVersion -HistoryEntry $history['package-a'] -Destination 'ConfigMgr').SupersedencePending | Should -BeFalse
+        }
+        It 'clears the pending state when the version is published again' {
+            $history = New-PendingHistory
+            Set-OneClickPublishedVersion -History $history -PackagerName 'package-a' -Destination 'ConfigMgr' -Version '2.0' -Id 'App A 2.0' | Out-Null
+            (Get-OneClickPublishedVersion -HistoryEntry $history['package-a'] -Destination 'ConfigMgr').SupersedencePending | Should -BeFalse
+        }
+        It 'never marks WSUS or Intune as pending' {
+            $history = @{}
+            Set-OneClickPublishedVersion -History $history -PackagerName 'package-a' -Destination 'WSUS' -Version '2.0' -SupersedenceNotApplied | Out-Null
+            Set-OneClickPublishedVersion -History $history -PackagerName 'package-a' -Destination 'Intune' -Version '2.0' -SupersedenceNotApplied | Out-Null
+            (Get-OneClickPublishedVersion -HistoryEntry $history['package-a'] -Destination 'WSUS').SupersedencePending | Should -BeFalse
+            (Get-OneClickPublishedVersion -HistoryEntry $history['package-a'] -Destination 'Intune').SupersedencePending | Should -BeFalse
+        }
+        It 'survives a JSON round trip' {
+            $history = New-PendingHistory
+            $back = ($history | ConvertTo-Json -Depth 6 | ConvertFrom-Json)
+            $rec = Get-OneClickPublishedVersion -HistoryEntry $back.'package-a' -Destination 'ConfigMgr'
+            $rec.SupersedencePending | Should -BeTrue
+            $rec.SupersedenceReason | Should -Be 'access denied'
+        }
+        It 'ends the pending state and keeps the rest of the record' {
+            $history = New-PendingHistory -Instance 'mcm@cm01'
+            Clear-OneClickSupersedencePending -History $history -PackagerName 'package-a' | Out-Null
+            $rec = Get-OneClickPublishedVersion -HistoryEntry $history['package-a'] -Destination 'ConfigMgr' -Instance 'mcm@cm01'
+            $rec.SupersedencePending | Should -BeFalse
+            $rec.SupersedenceReason | Should -Be ''
+            $rec.Version | Should -Be '2.0'
+            $rec.Id | Should -Be 'App A 2.0'
+            $rec.Instance | Should -Be 'mcm@cm01'
+        }
+        It 'ends the pending state of a record read from JSON' {
+            $back = (New-PendingHistory | ConvertTo-Json -Depth 6 | ConvertFrom-Json)
+            $history = @{ 'package-a' = $back.'package-a' }
+            Clear-OneClickSupersedencePending -History $history -PackagerName 'package-a' | Out-Null
+            (Get-OneClickPublishedVersion -HistoryEntry $history['package-a'] -Destination 'ConfigMgr').SupersedencePending | Should -BeFalse
+        }
+        It 'does nothing for an application without history or without a ConfigMgr record' {
+            { Clear-OneClickSupersedencePending -History @{} -PackagerName 'package-a' } | Should -Not -Throw
+            $history = @{}
+            Set-OneClickPublishedVersion -History $history -PackagerName 'package-a' -Destination 'WSUS' -Version '1.0' | Out-Null
+            { Clear-OneClickSupersedencePending -History $history -PackagerName 'package-a' } | Should -Not -Throw
+            (Get-OneClickPublishedVersion -HistoryEntry $history['package-a'] -Destination 'WSUS').Version | Should -Be '1.0'
+        }
+    }
+
+    Context 'the reason in the output of a publish' {
+        It 'reads the reason of a publish that succeeded' {
+            $text = "[2026-11-18 10:00:00] [INFO ] Created ConfigMgr application : App A 2.0`r`n[2026-11-18 10:00:05] [WARN ] Published, supersedence not applied: access denied`r`n[2026-11-18 10:00:06] [INFO ] Done"
+            Get-OneClickSupersedenceFailure -Text $text | Should -Be 'access denied'
+        }
+        It 'gives a failed content step precedence: a failed publish is not a pending supersedence' {
+            $text = '[WARN ] Published, supersedence not applied: access denied'
+            Get-OneClickSupersedenceFailure -Text $text -ExitCode 1 | Should -Be ''
+        }
+        It 'gives nothing for a run without a failed step' {
+            Get-OneClickSupersedenceFailure -Text '[INFO ] Supersedence                 : App A 2.0 supersedes App A 1.0' | Should -Be ''
+            Get-OneClickSupersedenceFailure -Text '' | Should -Be ''
+        }
+        It 'says that the site gave no reason when the line has none' {
+            Get-OneClickSupersedenceFailure -Text '[WARN ] Published, supersedence not applied:' | Should -Be 'the site gave no reason.'
+        }
+    }
+
+    Context 'the plan' {
+        It 'plans the pass and no publish for a version that is on the site with its step pending' {
+            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECM') -History (New-PendingHistory) -Action 'StageAndPackage')[0]
+            $row.SupersedenceOnly | Should -BeTrue
+            $row.PublishTo | Should -BeNullOrEmpty
+            $row.Planned | Should -Be 'Check, Supersedence'
+            $row.Reason | Should -Be 'ConfigMgr: 2.0 already published, supersedence pending'
+            $row.Include | Should -BeTrue
+        }
+        It 'publishes the other destinations and runs the pass in the same row' {
+            $history = New-PendingHistory
+            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECMAndWSUS') -History $history -Action 'StageAndPackage')[0]
+            $row.SupersedenceOnly | Should -BeTrue
+            $row.PublishTo | Should -Be @('WSUS')
+            $row.Planned | Should -Be 'Check, Stage, Publish to WSUS, Supersedence'
+        }
+        It 'publishes a newer version in full and runs no pass' {
+            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.1') -Prefs (New-TestPrefs -Target 'MECM') -History (New-PendingHistory) -Action 'StageAndPackage')[0]
+            $row.SupersedenceOnly | Should -BeFalse
+            $row.PublishTo | Should -Be @('ConfigMgr')
+        }
+        It 'publishes again instead when Force is set' {
+            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECM') -History (New-PendingHistory) -Action 'StageAndPackage' -Force)[0]
+            $row.SupersedenceOnly | Should -BeFalse
+            $row.PublishTo | Should -Be @('ConfigMgr')
+        }
+        It 'runs no pass for a version without a pending step' {
+            $history = @{}
+            Set-OneClickPublishedVersion -History $history -PackagerName 'package-a' -Destination 'ConfigMgr' -Version '2.0' | Out-Null
+            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECM') -History $history -Action 'StageAndPackage')[0]
+            $row.SupersedenceOnly | Should -BeFalse
+            $row.Reason | Should -Be 'ConfigMgr: 2.0 already published'
+        }
+        It 'runs the pass only in a run that publishes' {
+            $stage = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECM') -History (New-PendingHistory) -Action 'Stage')[0]
+            $stage.SupersedenceOnly | Should -BeFalse
+            $stage.Planned | Should -Be 'Check, Stage'
+            $report = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECM') -History (New-PendingHistory) -Action 'Report' -Force)[0]
+            $report.SupersedenceOnly | Should -BeFalse
+        }
+        It 'ignores a pending record that belongs to another site' {
+            $history = New-PendingHistory -Instance 'xyz@other'
+            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECM') -History $history -Action 'StageAndPackage')[0]
+            $row.SupersedenceOnly | Should -BeFalse
+            $row.PublishTo | Should -Be @('ConfigMgr')
+        }
+        It 'does not plan the pass for a destination that is not ready' {
+            $prefs = New-TestPrefs -Target 'MECM'
+            $prefs.SiteCode = ''
+            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs $prefs -History (New-PendingHistory) -Action 'StageAndPackage')[0]
+            $row.SupersedenceOnly | Should -BeFalse
+            $row.NotPublishable | Should -Contain 'ConfigMgr'
+        }
+        It 'names the passes in the count line' {
+            $plan = @(Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECM') -History (New-PendingHistory) -Action 'StageAndPackage')
+            (Get-OneClickPlanSummary -Plan $plan -Prefs (New-TestPrefs -Target 'MECM') -Action 'StageAndPackage').Line | Should -Match ', 1 supersedence only$'
+            $none = @(Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECM') -Action 'StageAndPackage')
+            (Get-OneClickPlanSummary -Plan $none -Prefs (New-TestPrefs -Target 'MECM') -Action 'StageAndPackage').Line | Should -Not -Match 'supersedence'
+        }
+    }
+
+    Context 'the report' {
+        It 'counts a pass and a publish whose step failed, and keeps the row as published' {
+            $run = [pscustomobject]@{ Started = [datetime]'2026-04-05T10:00:00'; Ended = [datetime]'2026-04-05T10:01:00'; Operator = 'o'; Computer = 'c'; Action = 'StageAndPackage' }
+            $rows = @(
+                [pscustomobject]@{ Packager = 'package-a'; Application = 'App A'; Version = '2.0'; Outcome = 'Published'; ResultConfigMgr = 'published App A 2.0, supersedence not applied'; IdConfigMgr = 'App A 2.0'; DetailConfigMgr = 'Published, supersedence not applied: access denied'; Reason = '' }
+                [pscustomobject]@{ Packager = 'package-b'; Application = 'App B'; Version = '1.1'; Outcome = 'Superseded'; ResultConfigMgr = 'supersedence applied: App B 1.1 supersedes App B 1.0'; IdConfigMgr = 'App B 1.1'; Reason = '' }
+            )
+            $paths = Write-OneClickReport -Run $run -Rows $rows -Folder (Join-Path $TestDrive 'OneClickSup')
+            $md = Get-Content $paths.MarkdownPath -Raw
+            $md | Should -Match '\| Published \| 1 \|'
+            $md | Should -Match '\| Supersedence applied \| 1 \|'
+            $md | Should -Match '\| Supersedence not applied \| 1 \|'
+            $md | Should -Match 'App A, ConfigMgr: Published, supersedence not applied: access denied'
+        }
+        It 'leaves the two lines out of a report that has neither' {
+            $run = [pscustomobject]@{ Started = [datetime]'2026-04-05T11:00:00'; Ended = [datetime]'2026-04-05T11:01:00'; Operator = 'o'; Computer = 'c'; Action = 'StageAndPackage' }
+            $rows = @([pscustomobject]@{ Packager = 'package-a'; Application = 'App A'; Version = '2.0'; Outcome = 'Published'; ResultConfigMgr = 'published App A 2.0'; Reason = '' })
+            $md = Get-Content (Write-OneClickReport -Run $run -Rows $rows -Folder (Join-Path $TestDrive 'OneClickSup2')).MarkdownPath -Raw
+            $md | Should -Not -Match 'Supersedence'
+        }
+    }
+}

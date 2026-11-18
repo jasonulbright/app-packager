@@ -2285,6 +2285,49 @@ function Get-OneClickObservedSkipReason {
     return ''
 }
 
+function Invoke-OneClickSupersedencePass {
+    # The supersedence-only pass of One Click for one application whose version is on the site and whose supersedence
+    # step failed at the publish. It runs the lookup of the older application and the supersedence step, and nothing
+    # else: it stages nothing and publishes nothing. The identity marker comes from the manifest of the last stage; the
+    # mode and the version rule resolve as at a publish. Status is NotRun, NoOlderVersion, Applied or NotApplied. It never throws.
+    param(
+        [Parameter(Mandatory)][string]$ApplicationName,
+        [Parameter(Mandatory)][string]$Version,
+        [Parameter(Mandatory)][string]$PackagerPath,
+        [AllowEmptyString()][string]$DownloadRoot = '',
+        [Parameter(Mandatory)][string]$SiteCode,
+        [AllowEmptyString()][string]$ProviderMachineName = ''
+    )
+    $lines = New-Object System.Collections.Generic.List[string]
+    $result = { param($status, $message, $warnings = @()) [pscustomobject]@{ Status = $status; Message = $message; Warnings = @($warnings); Lines = @($lines) } }
+    $savedLocation = Get-Location
+    try {
+        $manifestPath = Find-NewestStageManifestForPackager -PackagerPath $PackagerPath -DownloadRoot $DownloadRoot
+        if ([string]::IsNullOrWhiteSpace($manifestPath) -or -not (Test-Path -LiteralPath $manifestPath)) {
+            return (& $result 'NotApplied' 'stage-manifest.json not found, so the identity of the application line cannot be read. Stage the application once.')
+        }
+        $manifest = Read-StageManifest -Path $manifestPath
+        $contentPath = Split-Path -Parent $manifestPath
+        $fallbackId = 'catalog:' + [System.IO.Path]::GetFileNameWithoutExtension($PackagerPath)
+        $plan = Get-SupersedencePlan -Manifest $manifest -Settings (Get-SupersedenceSettings) -CommandLine (Get-SupersedenceCommandLine) `
+            -MsiProductVersion { param($m) Get-SupersedenceMsiProductVersion -Manifest $m -ContentPath $contentPath }.GetNewClosure() `
+            -FallbackApplicationId $fallbackId
+        foreach ($line in $plan.Log) { $lines.Add([string]$line) }
+        if ($plan.Refusal) { return (& $result 'NotApplied' ([string]$plan.Refusal)) }
+        if ($plan.Mode -eq 'Off') { return (& $result 'NotRun' 'the supersedence mode is Off.') }
+        if ([string]::IsNullOrWhiteSpace([string]$plan.Marker)) { return (& $result 'NotRun' 'the application has no identity marker.') }
+        if (-not [bool](Connect-CMSite -SiteCode $SiteCode -ProviderMachineName $ProviderMachineName)) {
+            return (& $result 'NotApplied' ('the connection to site {0} failed.' -f $SiteCode))
+        }
+        Set-Location ('{0}:' -f $SiteCode) -ErrorAction Stop
+        # The application of this title and version must be on the site, or nothing is applied.
+        $step = Invoke-SupersedenceStep -NewApplicationName $ApplicationName -NewVersion $Version -Marker ([string]$plan.Marker) -Mode ([string]$plan.Mode) -RequirePublished
+        return (& $result ([string]$step.Status) ([string]$step.Message) @($step.Warnings))
+    }
+    catch { return (& $result 'NotApplied' (Get-UserErrorText -ErrorRecord $_ -Fallback 'the supersedence step failed. See the log file.')) }
+    finally { Set-Location $savedLocation -ErrorAction SilentlyContinue }
+}
+
 function Get-MecmCurrentVersionByCMName {
     param(
         [Parameter(Mandatory)][string]$SiteCode,
@@ -9830,7 +9873,7 @@ function Invoke-MultiAppPipeline {
 
         $counts = [ordered]@{
             Checked = 0; Updated = 0; Reported = 0; Staged = 0; Packaged = 0; StageAndPackage = 0; Published = 0
-            NoChange = 0; Skipped = 0; NotSupported = 0; Failed = 0; CheckFailed = 0
+            NoChange = 0; Skipped = 0; NotSupported = 0; Failed = 0; CheckFailed = 0; Superseded = 0
         }
 
         try {
@@ -10213,6 +10256,8 @@ function Invoke-MultiAppPipeline {
                         # build republishes even when the version matches.
                         $publishTo = @()
                         $skipReasons = @()
+                        # ConfigMgr holds this version and only its supersedence step is open: the pass runs and nothing is published again.
+                        $supersedencePass = $null
                         # What the site holds now, read once: the publish record
                         # below says only what this tool published earlier.
                         $observedCm = ''
@@ -10258,6 +10303,11 @@ function Invoke-MultiAppPipeline {
                                 }
                                 $sameBuild = (-not $buildKey) -or (-not $rec) -or (-not $rec.Build) -or ($rec.Build -eq $buildKey)
                                 if (-not $Ctx.ForceFlag -and -not $buildStale -and $sameBuild -and $rec -and $rec.Version -eq [string]$latest) {
+                                    if ($d -eq 'ConfigMgr' -and $rec.SupersedencePending) {
+                                        $supersedencePass = $rec
+                                        $skipReasons += ('ConfigMgr: {0} already published, supersedence pending' -f $latest)
+                                        continue
+                                    }
                                     $skipReasons += ('{0}: {1} already published' -f $d, $latest)
                                     if ($pr) { $pr.('Result' + $d) = ('already published ' + $latest) }
                                     continue
@@ -10272,18 +10322,67 @@ function Invoke-MultiAppPipeline {
                                 $publishTo += $d
                             }
                         }
+                        # The supersedence-only pass: the lookup and the supersedence step for the application that is on the
+                        # site. It stages nothing and publishes nothing, and it runs before any other work of the row.
+                        $passOutcome = ''
+                        if ($supersedencePass) {
+                            & $setStep ('applying supersedence for ' + $app)
+                            $row.Status = 'Applying supersedence...'
+                            [void]$State.LogQueue.Enqueue(('Supersedence only: {0} {1}' -f $app, $latest))
+                            $pass = $null
+                            if ([string]::IsNullOrWhiteSpace([string]$supersedencePass.Id)) {
+                                $pass = [pscustomobject]@{ Status = 'NotApplied'; Message = 'the publish record has no application name.'; Warnings = @(); Lines = @() }
+                            }
+                            else {
+                                $pass = Invoke-OneClickSupersedencePass -ApplicationName ([string]$supersedencePass.Id) -Version ([string]$latest) -PackagerPath $path `
+                                    -DownloadRoot $planDownloadRoot -SiteCode ([string]$Ctx.SiteCode) -ProviderMachineName ([string]$Ctx.ProviderMachineName)
+                            }
+                            foreach ($line in @($pass.Lines)) { [void]$State.LogQueue.Enqueue(('  ' + $line)) }
+                            foreach ($warning in @($pass.Warnings)) { [void]$State.LogQueue.Enqueue(('  Supersedence warning: ' + $warning)) }
+                            [void]$State.LogQueue.Enqueue(('Supersedence: {0}: {1}' -f $pass.Status, $pass.Message))
+                            $passText = ''
+                            switch ($pass.Status) {
+                                { $_ -in @('Applied', 'NoOlderVersion') } {
+                                    # Nothing is left to do for this version: the pending state ends.
+                                    try {
+                                        $h = Read-PackagerHistory
+                                        [void](Clear-OneClickSupersedencePending -History $h -PackagerName $baseName)
+                                        Save-PackagerHistory -History $h
+                                    } catch { [void]$State.LogQueue.Enqueue(('History write failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))) }
+                                    $passText = $(if ($pass.Status -eq 'Applied') { 'supersedence applied: ' + $pass.Message } else { 'supersedence: ' + $pass.Message })
+                                    $passOutcome = 'Superseded'
+                                    $counts['Superseded']++
+                                }
+                                'NotApplied' {
+                                    # The version stays pending for the next run.
+                                    $passText = 'supersedence not applied: ' + $pass.Message
+                                    if ($pr) { $pr.DetailConfigMgr = 'Published, supersedence not applied: ' + $pass.Message }
+                                    $passOutcome = 'Skipped'
+                                    $counts['Skipped']++
+                                }
+                                default {
+                                    $passText = 'supersedence not run: ' + $pass.Message
+                                    $passOutcome = 'Skipped'
+                                    $counts['Skipped']++
+                                }
+                            }
+                            if ($pr) { $pr.ResultConfigMgr = $passText; $pr.IdConfigMgr = [string]$supersedencePass.Id }
+                            $skipReasons += ('ConfigMgr: ' + $passText)
+                        }
                         $needStage = $Ctx.ForceFlag -or $buildStale -or $stageStale -or ($publishTo.Count -gt 0)
                         if (-not $needStage) {
-                            $row.Status = 'Up to date'
-                            [void]$State.LogQueue.Enqueue(('No change - skipping: ' + $app))
-                            $counts['NoChange']++
-                            & $finish 'Skipped' 'up to date'
+                            $row.Status = $(if ($passOutcome) { 'Supersedence' } else { 'Up to date' })
+                            if (-not $passOutcome) {
+                                [void]$State.LogQueue.Enqueue(('No change - skipping: ' + $app))
+                                $counts['NoChange']++
+                            }
+                            & $finish $(if ($passOutcome) { $passOutcome } else { 'Skipped' }) $(if ($passOutcome) { $skipReasons -join '; ' } else { 'up to date' })
                             continue
                         }
                         if ($Ctx.Action -eq 'StageAndPackage' -and $publishTo.Count -eq 0 -and -not $stageStale -and -not $buildStale -and -not $Ctx.ForceFlag) {
-                            $row.Status = 'Up to date'
-                            $counts['NoChange']++
-                            & $finish 'Skipped' ($skipReasons -join '; ')
+                            $row.Status = $(if ($passOutcome) { 'Supersedence' } else { 'Up to date' })
+                            if (-not $passOutcome) { $counts['NoChange']++ }
+                            & $finish $(if ($passOutcome) { $passOutcome } else { 'Skipped' }) ($skipReasons -join '; ')
                             continue
                         }
 
@@ -10343,6 +10442,7 @@ function Invoke-MultiAppPipeline {
                             $id = ''
                             $ok = $false
                             $present = $false
+                            $supersedenceFailure = ''
                             try {
                                 switch ($d) {
                                     'ConfigMgr' {
@@ -10391,6 +10491,14 @@ function Invoke-MultiAppPipeline {
                                             $ok = $true
                                             $resultText = ('published ' + $id)
                                             if ($pkg.PSObject.Properties['IntuneWin'] -and $pkg.IntuneWin) { $intuneWinNote = $pkg.IntuneWin }
+                                            # The application is complete and the run did not fail: the row is published with a warning,
+                                            # and the version stays pending for a supersedence-only pass of the next run.
+                                            $supersedenceFailure = Get-OneClickSupersedenceFailure -Text $pkg.StdOut -ExitCode $pkg.ExitCode
+                                            if ($supersedenceFailure) {
+                                                $resultText = ('published {0}, supersedence not applied' -f $id)
+                                                $detail = 'Published, supersedence not applied: ' + $supersedenceFailure
+                                                $skipReasons += 'ConfigMgr: supersedence not applied, the next run applies it'
+                                            }
                                         }
                                     }
                                     'WSUS' {
@@ -10444,7 +10552,8 @@ function Invoke-MultiAppPipeline {
                                 try {
                                     $h = Read-PackagerHistory
                                     [void](Set-OneClickPublishedVersion -History $h -PackagerName $baseName -Destination $d -Version ([string]$latest) -Id $id `
-                                        -Instance ([string]$(if ($Ctx.InstanceKeys) { $Ctx.InstanceKeys[$d] } else { '' })) -Build $buildKey)
+                                        -Instance ([string]$(if ($Ctx.InstanceKeys) { $Ctx.InstanceKeys[$d] } else { '' })) -Build $buildKey `
+                                        -SupersedenceNotApplied:([bool]$supersedenceFailure) -SupersedenceReason ([string]$supersedenceFailure))
                                     Save-PackagerHistory -History $h
                                 } catch { [void]$State.LogQueue.Enqueue(('History write failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))) }
                             }
@@ -13874,7 +13983,8 @@ function Show-OneClickPlanDialog {
             $paths = & $writeReport (Get-Date) $canceled
             $published = @($planRows | Where-Object { $_.Outcome -eq 'Published' }).Count
             $failed = @($planRows | Where-Object { $_.Outcome -eq 'Failed' }).Count
-            $txtSummary.Text = ('{0}: {1} published, {2} failed. Report: {3}' -f $(if ($canceled) { 'Canceled' } else { 'Complete' }), $published, $failed, (Split-Path -Leaf $paths.MarkdownPath))
+            $superseded = @($planRows | Where-Object { $_.Outcome -eq 'Superseded' }).Count
+            $txtSummary.Text = ('{0}: {1} published, {2} failed{3}. Report: {4}' -f $(if ($canceled) { 'Canceled' } else { 'Complete' }), $published, $failed, $(if ($superseded -gt 0) { ', {0} superseded' -f $superseded } else { '' }), (Split-Path -Leaf $paths.MarkdownPath))
             $btnClose.IsEnabled = $true
         }.GetNewClosure()
 
