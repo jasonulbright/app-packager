@@ -88,7 +88,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/FreeCAD/FreeCAD/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/FreeCAD/FreeCAD/releases?per_page=30"
 
 $VendorFolder = "FreeCAD Team"
 $AppFolder    = "FreeCAD"
@@ -170,7 +170,7 @@ function Get-LatestFreeCadRelease {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '(?i)^FreeCAD_.*-Windows-x86_64-.*installer\.exe$' }
         if ($release.prerelease) { throw "Latest FreeCAD release is flagged prerelease; refusing to stage." }
 
         $version = $release.tag_name -replace '^v', ''

@@ -92,7 +92,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/TurboVNC/turbovnc/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/TurboVNC/turbovnc/releases?per_page=30"
 
 $VendorFolder = "The VirtualGL Project"
 $AppFolder    = "TurboVNC"
@@ -143,8 +143,7 @@ function Get-LatestTurboVncRelease {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch GitHub release info: $GitHubApiUrl" }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '^TurboVNC-.*-x64\.exe$' }
         $version = $release.tag_name -replace '^[vV]', ''
         if ($version -notmatch '^\d+(\.\d+)+$') {
             throw "Unrecognized TurboVNC release tag: $($release.tag_name)"

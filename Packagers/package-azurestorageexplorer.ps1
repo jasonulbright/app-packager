@@ -97,7 +97,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/microsoft/AzureStorageExplorer/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/microsoft/AzureStorageExplorer/releases?per_page=30"
 
 $VendorFolder = "Microsoft"
 $AppFolder    = "Azure Storage Explorer"
@@ -146,8 +146,7 @@ function Get-LatestStorageExplorerRelease {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -eq $AssetName }
         $version = $release.tag_name -replace '^v', ''
         if ($version -notmatch '^\d+(\.\d+)+$') {
             throw "Could not parse a version from the release tag: $($release.tag_name)"

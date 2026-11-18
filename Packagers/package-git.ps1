@@ -95,7 +95,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/git-for-windows/git/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/git-for-windows/git/releases?per_page=30"
 
 $VendorFolder = "Git for Windows"
 $AppFolder    = "Git for Windows"
@@ -114,7 +114,7 @@ function Get-LatestGitRelease {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch Git release info: $GitHubApiUrl" }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '^Git-(?<ver>[\d.]+)-64-bit\.exe$' }
 
         # tag_name format: "v2.53.0.windows.1"
         $tagName = $release.tag_name

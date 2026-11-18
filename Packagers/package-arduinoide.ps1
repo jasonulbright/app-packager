@@ -92,7 +92,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/arduino/arduino-ide/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/arduino/arduino-ide/releases?per_page=30"
 
 $VendorFolder = "Arduino"
 $AppFolder    = "Arduino IDE"
@@ -145,8 +145,7 @@ function Get-LatestArduinoIdeRelease {
         $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API: $GitHubApiUrl" }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '(?i)_Windows_64bit\.msi$' }
         $version = $release.tag_name -replace '^v', ''
         if ([string]::IsNullOrWhiteSpace($version)) {
             throw "Could not parse version from GitHub release tag."

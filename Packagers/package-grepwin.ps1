@@ -86,7 +86,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/stefankueng/grepWin/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/stefankueng/grepWin/releases?per_page=30"
 
 $VendorFolder = "Stefan Kueng"
 $AppFolder    = "grepWin"
@@ -132,7 +132,7 @@ function Get-LatestGrepWinRelease {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '(?i)^grepWin-[\d\.]+-x64\.msi$' }
         if ($release.prerelease) { throw "Latest grepWin release is flagged prerelease; refusing to stage." }
 
         $tagVersion = $release.tag_name -replace '^v', ''

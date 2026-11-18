@@ -84,7 +84,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/rancher-sandbox/rancher-desktop/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/rancher-sandbox/rancher-desktop/releases?per_page=30"
 
 $VendorFolder = "SUSE"
 $AppFolder    = "Rancher Desktop"
@@ -131,7 +131,7 @@ function Get-LatestRancherDesktopRelease {
         $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '^Rancher\.Desktop\.Setup\..+\.msi$' }
         $version = $release.tag_name -replace '^v', ''
         if ([string]::IsNullOrWhiteSpace($version)) {
             throw "Could not parse version from GitHub release tag."

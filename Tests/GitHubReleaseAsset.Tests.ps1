@@ -184,3 +184,85 @@ Describe 'Packagers that build a download URL' {
         $text | Should -Not -Match 'paint\.net\.\$\{version\}'
     }
 }
+
+Describe 'Select-GitHubReleaseByAsset and Select-GitHubReleaseJson' {
+    BeforeAll {
+        $script:Newest = New-FakeRelease 'v2.0.0' '2026-11-10T10:00:00Z' @('app-2.0.0.zip')
+        $script:Older = New-FakeRelease 'v1.9.0' '2026-10-01T10:00:00Z' @('app-1.9.0-x64.msi', 'app-1.9.0.zip')
+        $script:Filter = { $_.name -match '\.msi$' }
+    }
+
+    It 'returns the release object of the newest release that has the installer' {
+        $r = Select-GitHubReleaseByAsset -Releases @($script:Newest, $script:Older) -AssetFilter $script:Filter
+        $r.tag_name | Should -Be 'v1.9.0'
+        $newer = New-FakeRelease 'v2.0.0' '2026-11-10T10:00:00Z' @('app-2.0.0-x64.msi')
+        (Select-GitHubReleaseByAsset -Releases @($script:Older, $newer) -AssetFilter $script:Filter).tag_name | Should -Be 'v2.0.0'
+    }
+
+    It 'returns the newest published release when none has the installer, so the packager reports its own message' {
+        $r = Select-GitHubReleaseByAsset -Releases @($script:Newest, (New-FakeRelease 'v1.0.0' '2026-01-01T00:00:00Z' @('a.zip'))) -AssetFilter $script:Filter
+        $r.tag_name | Should -Be 'v2.0.0'
+    }
+
+    It 'passes over a draft and a pre-release, and reads the nested array of Windows PowerShell 5.1' {
+        $draft = New-FakeRelease 'v3.0.0' '2026-11-12T10:00:00Z' @('app-3.0.0.msi') -Draft
+        $json = ConvertTo-Json -Depth 6 -InputObject @($draft, $script:Newest, $script:Older)
+        $parsed = ConvertFrom-Json $json
+        (Select-GitHubReleaseByAsset -Releases @($parsed) -AssetFilter $script:Filter).tag_name | Should -Be 'v1.9.0'
+    }
+
+    It 'returns nothing for an empty list' {
+        Select-GitHubReleaseByAsset -Releases @() -AssetFilter $script:Filter | Should -BeNullOrEmpty
+    }
+
+    It 'returns the JSON text of the newest release that matches the pattern' {
+        $json = ConvertTo-Json -Depth 6 -InputObject @($script:Newest, $script:Older)
+        $text = Select-GitHubReleaseJson -Json $json -Pattern '"browser_download_url":\s*"(?<url>[^"]*?/(?<file>app-[\d.]+-x64\.msi))"'
+        $m = [regex]::Match($text, '"browser_download_url":\s*"(?<url>[^"]*?/(?<file>app-[\d.]+-x64\.msi))"')
+        $m.Success | Should -BeTrue
+        $m.Groups['file'].Value | Should -Be 'app-1.9.0-x64.msi'
+        (ConvertFrom-Json $text).tag_name | Should -Be 'v1.9.0'
+    }
+
+    It 'returns the newest release as text when no release matches' {
+        $json = ConvertTo-Json -Depth 6 -InputObject @($script:Newest, $script:Older)
+        (ConvertFrom-Json (Select-GitHubReleaseJson -Json $json -Pattern 'no-such-installer')).tag_name | Should -Be 'v2.0.0'
+    }
+}
+
+Describe 'Packagers that read GitHub releases (guard)' {
+    BeforeAll {
+        $script:Packagers = @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'Packagers') -Filter 'package-*.ps1' -File)
+        # They read releases/latest and take no installer from its asset list.
+        $script:LatestAllowed = @{
+            'package-brave.ps1'      = 'The installer is the unversioned vendor endpoint; the release only names the version.'
+            'package-cloudcompare.ps1' = 'The URL is derived from the release and a HEAD request verifies it before the download.'
+            'package-positron.ps1'   = 'The installer is on the vendor CDN; the file is checked before the download.'
+        }
+        # They read the list of releases and choose in their own code.
+        $script:ListAllowed = @('bitwarden', 'iapdesktop', 'joplin', 'obsidian', 'pwsafe', 'semeru-jdk8', 'semeru-jdk11', 'semeru-jdk17', 'semeru-jre8', 'semeru-jre11', 'semeru-jre17', 'appinstaller', 'devolutionspowershell') | ForEach-Object { "package-$_.ps1" }
+    }
+
+    It 'reads no releases/latest, except the named packagers' {
+        $bad = @($script:Packagers | Where-Object {
+                ([System.IO.File]::ReadAllText($_.FullName) -match 'api\.github\.com/repos/[^"''\s]+/releases/latest') -and -not $script:LatestAllowed.ContainsKey($_.Name)
+            } | ForEach-Object { $_.Name })
+        $bad -join ', ' | Should -BeNullOrEmpty -Because 'a packager that reads releases/latest stops when the newest release has no installer: use the list and Select-GitHubReleaseByAsset'
+    }
+
+    It 'chooses the release with a helper when it reads the list, except the named packagers' {
+        $bad = @($script:Packagers | Where-Object {
+                $t = [System.IO.File]::ReadAllText($_.FullName)
+                ($t -match 'api\.github\.com/repos/[^"''\s]+/releases\?') -and ($t -notmatch 'Select-GitHubRelease(ByAsset|Json|WithAsset)') -and ($script:ListAllowed -notcontains $_.Name)
+            } | ForEach-Object { $_.Name })
+        $bad -join ', ' | Should -BeNullOrEmpty
+    }
+
+    It 'builds no download URL from the version without a check of the file' {
+        $bad = @($script:Packagers | Where-Object {
+                $t = [System.IO.File]::ReadAllText($_.FullName)
+                ($t -match 'github\.com/[^"''\s]+/releases/download/[^"''\s]*\$\{?version') -and ($t -notmatch 'Assert-DownloadAvailable') -and ($t -notmatch 'Select-GitHubReleaseWithAsset')
+            } | ForEach-Object { $_.Name })
+        $bad -join ', ' | Should -BeNullOrEmpty
+    }
+}

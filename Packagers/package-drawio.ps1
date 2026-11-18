@@ -83,7 +83,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/jgraph/drawio-desktop/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/jgraph/drawio-desktop/releases?per_page=30"
 
 $VendorFolder = "JGraph"
 $AppFolder    = "draw.io"
@@ -102,7 +102,7 @@ function Get-LatestDrawioRelease {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '\.msi$' -and $_.name -notmatch 'arm' }
         $version = $release.tag_name -replace '^v', ''
         if ([string]::IsNullOrWhiteSpace($version)) {
             throw "Could not parse version from GitHub release tag."

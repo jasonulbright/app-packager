@@ -83,7 +83,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/OpenShot/openshot-qt/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/OpenShot/openshot-qt/releases?per_page=30"
 
 $VendorFolder = "OpenShot Studios"
 $AppFolder    = "OpenShot Video Editor"
@@ -133,7 +133,7 @@ function Get-LatestOpenShotRelease {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '(?i)-x86_64\.exe$' }
         $version = [string]$release.tag_name -replace '^v', ''
         if ([string]::IsNullOrWhiteSpace($version)) {
             throw "Could not parse version from GitHub release tag."

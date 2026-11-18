@@ -143,6 +143,8 @@
         'Invoke-SupersedenceStep'
         'Get-SupersedenceFallbackApplicationId'
         'Select-GitHubReleaseWithAsset'
+        'Select-GitHubReleaseByAsset'
+        'Select-GitHubReleaseJson'
         'Get-CurrentNewerNote'
         'Assert-DownloadAvailable'
         'Invoke-SupersedenceStepAndLog'

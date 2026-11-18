@@ -95,7 +95,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/zulip/zulip-desktop/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/zulip/zulip-desktop/releases?per_page=30"
 
 $VendorFolder = "Zulip"
 $AppFolder    = "Zulip Desktop"
@@ -140,8 +140,7 @@ function Get-LatestZulipRelease {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch GitHub release info: $GitHubApiUrl" }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match $rx }
         $rx = '^Zulip-(?<ver>\d+(?:\.\d+)+)-x64\.msi$'
         $asset = $release.assets | Where-Object { $_.name -match $rx } | Select-Object -First 1
         if (-not $asset) {

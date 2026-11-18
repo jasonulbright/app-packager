@@ -89,7 +89,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/usebruno/bruno/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/usebruno/bruno/releases?per_page=30"
 
 $VendorFolder = "Bruno Software"
 $AppFolder    = "Bruno"
@@ -108,7 +108,7 @@ function Get-LatestBrunoRelease {
         $json = (curl.exe -L --fail --silent --show-error --max-time 60 @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '_x64_win\.msi$' }
         $version = $release.tag_name -replace '^v', ''
         if ($version -notmatch '^\d+(\.\d+){1,3}$') {
             throw "Could not parse a version from the GitHub release tag '$($release.tag_name)'."

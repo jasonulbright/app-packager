@@ -95,7 +95,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/Yubico/yubikey-manager/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/Yubico/yubikey-manager/releases?per_page=30"
 
 $VendorFolder = "Yubico"
 $AppFolder    = "YubiKey Manager CLI"
@@ -133,8 +133,7 @@ function Get-LatestYubiKeyManagerCliRelease {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch GitHub release info: $GitHubApiUrl" }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match $rx }
         # Anchored so the detached .sig signature sharing the asset name is not taken.
         $rx = '^yubikey-manager-(?<ver>\d+(?:\.\d+)+)-win64\.msi$'
         $asset = $release.assets | Where-Object { $_.name -match $rx } | Select-Object -First 1

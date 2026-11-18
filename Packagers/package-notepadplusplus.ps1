@@ -93,7 +93,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/notepad-plus-plus/notepad-plus-plus/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/notepad-plus-plus/notepad-plus-plus/releases?per_page=30"
 
 $VendorFolder = "Notepad++"
 $AppFolder    = "Notepad++"
@@ -112,7 +112,7 @@ function Get-LatestNotepadPlusPlusVersion {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch GitHub release info: $GitHubApiUrl" }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -like "*Installer.x64.exe" }
         $version = $release.tag_name -replace '^v'
 
         $downloadUrl = $null

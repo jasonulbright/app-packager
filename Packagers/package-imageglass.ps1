@@ -85,7 +85,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/d2phap/ImageGlass/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/d2phap/ImageGlass/releases?per_page=30"
 
 $VendorFolder = "ImageGlass"
 $AppFolder    = "ImageGlass"
@@ -132,8 +132,7 @@ function Get-LatestImageGlassRelease {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '^ImageGlass_(?<ver>\d+(\.\d+)+)_win-x64\.msi$' }
         $asset = $release.assets |
             Where-Object { $_.name -match '^ImageGlass_(?<ver>\d+(\.\d+)+)_win-x64\.msi$' } |
             Select-Object -First 1

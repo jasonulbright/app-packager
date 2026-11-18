@@ -92,7 +92,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/peazip/PeaZip/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/peazip/PeaZip/releases?per_page=30"
 
 $VendorFolder = "Giorgio Tani"
 $AppFolder    = "PeaZip"
@@ -142,8 +142,7 @@ function Get-LatestPeaZipRelease {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch GitHub release info: $GitHubApiUrl" }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '^peazip-\d+(\.\d+)+\.WIN64\.exe$' }
         $version = $release.tag_name -replace '^[vV]', ''
         if ($version -notmatch '^\d+(\.\d+)+$') {
             throw "Unrecognized PeaZip release tag: $($release.tag_name)"

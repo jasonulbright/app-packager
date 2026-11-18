@@ -87,7 +87,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/releases?per_page=30"
 
 $VendorFolder = "Jan De Dobbeleer"
 $AppFolder    = "Oh My Posh"
@@ -182,7 +182,7 @@ function Get-LatestOhMyPoshRelease {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -eq $MsixFileName }
         $version = [string]$release.tag_name -replace '^v', ''
         if ([string]::IsNullOrWhiteSpace($version)) {
             throw "Could not parse version from GitHub release tag."

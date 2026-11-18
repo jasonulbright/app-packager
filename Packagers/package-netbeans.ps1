@@ -99,7 +99,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/codelerity/netbeans-packages/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/codelerity/netbeans-packages/releases?per_page=30"
 
 $VendorFolder = "Apache Software Foundation"
 $AppFolder    = "Apache NetBeans"
@@ -142,8 +142,7 @@ function Get-LatestNetBeansRelease {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch GitHub release info: $GitHubApiUrl" }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match $pattern }
         # The tag carries a build suffix (v31-build1); the asset name carries
         # the NetBeans version alone, which is also the compiled AppVersion.
         $pattern = '^Apache-NetBeans-(?<ver>\d+(?:\.\d+)*)\.exe$'

@@ -99,7 +99,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/jasonulbright/signing-suite/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/jasonulbright/signing-suite/releases?per_page=30"
 
 $VendorFolder = "Jason Ulbright"
 $AppFolder    = "Signing Suite"
@@ -155,8 +155,7 @@ function Get-LatestSigningSuiteRelease {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch GitHub release info: $GitHubApiUrl" }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { ConvertFrom-SigningSuiteAssetName -Name ([string]$_.name) }
         # The release also carries a portable zip and checksums.txt; only the
         # setup asset name carries the four-part version.
         $asset = $release.assets |

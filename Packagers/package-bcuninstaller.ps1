@@ -96,7 +96,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/Klocman/Bulk-Crap-Uninstaller/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/Klocman/Bulk-Crap-Uninstaller/releases?per_page=30"
 
 $VendorFolder = "Marcin Szeniak"
 $AppFolder    = "Bulk Crap Uninstaller"
@@ -138,8 +138,7 @@ function Get-LatestBCUninstallerRelease {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch GitHub release info: $GitHubApiUrl" }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '^BCUninstaller_(?<ver>\d+(?:\.\d+)+)_setup\.exe$' }
         # The release tag drops trailing zero segments (v6.2), so the version
         # comes from the asset name, which always carries three segments.
         $asset = $release.assets |

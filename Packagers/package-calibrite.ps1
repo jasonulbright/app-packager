@@ -93,7 +93,7 @@ if ($StageOnly -and $PackageOnly) {
 
 # --- Configuration ---
 $DownloadPageUrl = "https://calibrite.com/us/software-downloads/"
-$ReleaseApiUrl   = "https://api.github.com/repos/LUMESCA/calibrite-profiler-releases/releases/latest"
+$ReleaseApiUrl   = "https://api.github.com/repos/LUMESCA/calibrite-profiler-releases/releases?per_page=30"
 
 $VendorFolder = "Calibrite"
 $AppFolder    = "Calibrite PROFILER"
@@ -143,7 +143,7 @@ function Resolve-CalibriteRelease {
         $json = (curl.exe -L --fail --silent --show-error -H "Accept: application/vnd.github+json" @(Get-GitHubApiCurlArgs) $ReleaseApiUrl) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch Calibrite PROFILER release metadata." }
 
-        $release = $json | ConvertFrom-Json
+        $release = Select-GitHubReleaseByAsset -Releases @($json | ConvertFrom-Json) -AssetFilter { $_.name -match '^calibrite-PROFILER-Setup-\d+(\.\d+)+\.exe$' }
         if (-not $release -or -not $release.assets) { throw "Release metadata contained no assets." }
 
         $asset = $release.assets |

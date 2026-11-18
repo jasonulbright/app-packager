@@ -95,7 +95,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/veracrypt/VeraCrypt/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/veracrypt/VeraCrypt/releases?per_page=30"
 
 $VendorFolder = "AM Crypto"
 $AppFolder    = "VeraCrypt"
@@ -142,8 +142,7 @@ function Get-LatestVeraCryptRelease {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '^VeraCrypt_Setup_x64_.*\.msi$' }
         $version = $release.tag_name -replace '^VeraCrypt[_-]', ''
         if ([string]::IsNullOrWhiteSpace($version)) {
             throw "Could not parse version from GitHub release tag: $($release.tag_name)"

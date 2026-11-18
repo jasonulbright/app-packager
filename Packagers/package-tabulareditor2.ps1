@@ -97,7 +97,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/TabularEditor/TabularEditor/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/TabularEditor/TabularEditor/releases?per_page=30"
 
 $VendorFolder = "Tabular Editor ApS"
 $AppFolder    = "Tabular Editor 2"
@@ -147,8 +147,7 @@ function Get-LatestTabularEditor2Release {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch GitHub release info: $GitHubApiUrl" }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -eq $AssetName }
         $version = ([string]$release.tag_name).TrimStart('v')
         if ($version -notmatch '^\d+(\.\d+)+$') {
             throw "Release tag is not a plain version: $($release.tag_name)"

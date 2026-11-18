@@ -86,7 +86,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/greenshot/greenshot/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/greenshot/greenshot/releases?per_page=30"
 
 $VendorFolder = "Greenshot"
 $AppFolder    = "Greenshot"
@@ -107,6 +107,7 @@ function Get-LatestGreenshotRelease {
         $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
+        $json = Select-GitHubReleaseJson -Json $json -Pattern '"name":\s*"Greenshot-INSTALLER-(?<ver>.*?)-RELEASE\.exe"'
         $m = [regex]::Match($json, '"name":\s*"Greenshot-INSTALLER-(?<ver>.*?)-RELEASE\.exe"')
         if (-not $m.Success) { throw "Could not locate an installer asset in the latest release." }
 

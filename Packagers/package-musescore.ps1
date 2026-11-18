@@ -84,7 +84,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/musescore/MuseScore/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/musescore/MuseScore/releases?per_page=30"
 
 $VendorFolder = "MuseScore"
 $AppFolder    = "MuseScore Studio"
@@ -132,6 +132,7 @@ function Get-LatestMuseScoreRelease {
         $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
+        $json = Select-GitHubReleaseJson -Json $json -Pattern '"browser_download_url":\s*"(?<url>[^"]*?/(?<file>MuseScore-Studio-[^"/]*?-x86_64\.msi))"'
         $tagMatch = [regex]::Match($json, '"tag_name":\s*"v?(?<ver>\d+(?:\.\d+)+)"')
         if (-not $tagMatch.Success) { throw "Could not read a version from the latest release tag." }
         $version = $tagMatch.Groups['ver'].Value

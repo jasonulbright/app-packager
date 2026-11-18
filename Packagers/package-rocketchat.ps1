@@ -86,7 +86,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/RocketChat/Rocket.Chat.Electron/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/RocketChat/Rocket.Chat.Electron/releases?per_page=30"
 
 $VendorFolder = "Rocket.Chat"
 $AppFolder    = "Rocket.Chat Desktop"
@@ -137,7 +137,7 @@ function Get-LatestRocketChatRelease {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '^rocketchat-.+-win-x64\.msi$' }
         $version = $release.tag_name -replace '^v', ''
         if ([string]::IsNullOrWhiteSpace($version)) {
             throw "Could not parse version from GitHub release tag."

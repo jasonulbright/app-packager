@@ -86,7 +86,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/rainmeter/rainmeter/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/rainmeter/rainmeter/releases?per_page=30"
 
 $VendorFolder = "Rainmeter"
 $AppFolder    = "Rainmeter"
@@ -133,7 +133,7 @@ function Get-LatestRainmeterRelease {
         $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '^Rainmeter-(?<ver>\d+(\.\d+)+)\.exe$' }
         $asset = $release.assets |
             Where-Object { $_.name -match '^Rainmeter-(?<ver>\d+(\.\d+)+)\.exe$' } |
             Select-Object -First 1

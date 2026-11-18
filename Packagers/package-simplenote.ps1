@@ -96,7 +96,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/Automattic/simplenote-electron/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/Automattic/simplenote-electron/releases?per_page=30"
 
 $VendorFolder = "Automattic"
 $AppFolder    = "Simplenote"
@@ -134,8 +134,7 @@ function Get-LatestSimplenoteRelease {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch GitHub release info: $GitHubApiUrl" }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match $rx }
         # The release also ships ia32, appx, and an arch-less alias of the same
         # build, so the pattern is anchored to the x64 NSIS installer.
         $rx = '^Simplenote-win-(?<ver>\d+(?:\.\d+)+)-x64\.exe$'

@@ -84,7 +84,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/cli/cli/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/cli/cli/releases?per_page=30"
 
 $VendorFolder = "GitHub"
 $AppFolder    = "GitHub CLI"
@@ -130,8 +130,7 @@ function Get-LatestGitHubCliRelease {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -like '*_windows_amd64.msi' }
         $version = $release.tag_name -replace '^v', ''
         if ([string]::IsNullOrWhiteSpace($version)) {
             throw "Could not parse version from GitHub release tag."

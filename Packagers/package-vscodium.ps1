@@ -95,7 +95,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/VSCodium/vscodium/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/VSCodium/vscodium/releases?per_page=30"
 
 $VendorFolder = "VSCodium"
 $AppFolder    = "VSCodium"
@@ -133,8 +133,7 @@ function Get-LatestVSCodiumRelease {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch GitHub release info: $GitHubApiUrl" }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match $rx }
         # Anchored so the updates-disabled MSI and the .sha1/.sha256 sidecars
         # that share the prefix are not taken.
         $rx = '^VSCodium-x64-(?<ver>\d+(?:\.\d+)+)\.msi$'

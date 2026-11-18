@@ -93,7 +93,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/Kitware/CMake/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/Kitware/CMake/releases?per_page=30"
 
 $VendorFolder = "Kitware"
 $AppFolder    = "CMake"
@@ -140,8 +140,7 @@ function Get-LatestCMakeRelease {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch GitHub release info: $GitHubApiUrl" }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '^cmake-(?<ver>\d+(?:\.\d+)+)-windows-x86_64\.msi$' }
         $asset = $release.assets |
             Where-Object { $_.name -match '^cmake-(?<ver>\d+(?:\.\d+)+)-windows-x86_64\.msi$' } |
             Select-Object -First 1

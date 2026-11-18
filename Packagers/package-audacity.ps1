@@ -86,7 +86,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/audacity/audacity/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/audacity/audacity/releases?per_page=30"
 
 $VendorFolder = "Audacity Team"
 $AppFolder    = "Audacity"
@@ -105,7 +105,7 @@ function Get-LatestAudacityRelease {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match 'audacity-win-[\d.]+-x86_64\.msi$' }
         # Audacity tags use Audacity- prefix, not v
         $version = $release.tag_name -replace '^Audacity-', ''
         if ([string]::IsNullOrWhiteSpace($version)) {
