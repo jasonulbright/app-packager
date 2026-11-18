@@ -4919,6 +4919,24 @@ function Find-CMGlobalConditionByName {
     return $null
 }
 
+function Get-ConditionTemplateScriptText {
+    <#
+    .SYNOPSIS
+        The script body of a Script-kind condition template.
+
+    .DESCRIPTION
+        The template's own ScriptText when set, otherwise the generated VPN
+        detection script. The ConfigMgr global condition and the Intune
+        requirement rule use the same text.
+    #>
+    param([Parameter(Mandatory)][pscustomobject]$Template)
+
+    if ($Template.PSObject.Properties['ScriptText'] -and $Template.ScriptText) {
+        return (@($Template.ScriptText) -join "`r`n")
+    }
+    return (New-VpnConditionScriptText -AdapterPatterns @($Template.AdapterPatterns) -AliasPattern ([string]$Template.AliasPattern))
+}
+
 function Get-ConditionScriptContentIdentity {
     <#
     .SYNOPSIS
@@ -4935,13 +4953,7 @@ function Get-ConditionScriptContentIdentity {
     #>
     param([Parameter(Mandatory)][pscustomobject]$Template)
 
-    $scriptText = ''
-    if ($Template.PSObject.Properties['ScriptText'] -and $Template.ScriptText) {
-        $scriptText = (@($Template.ScriptText) -join "`r`n")
-    }
-    else {
-        $scriptText = New-VpnConditionScriptText -AdapterPatterns @($Template.AdapterPatterns) -AliasPattern ([string]$Template.AliasPattern)
-    }
+    $scriptText = Get-ConditionTemplateScriptText -Template $Template
 
     $policy = Resolve-CommonSigningPolicy
     $sign = Get-PolicyFlag -Policy $policy -Name 'SignRequirements'
@@ -8714,6 +8726,244 @@ function Test-IntuneManifestHasRules {
     return ($Manifest.PSObject.Properties['IntuneRules'] -and @($Manifest.IntuneRules).Count -gt 0)
 }
 
+function ConvertFrom-RequirementsJson {
+    <#
+    .SYNOPSIS
+        The requirement specs in the APP_PACKAGER_REQUIREMENTS JSON of a run.
+
+    .DESCRIPTION
+        The JSON is { SchemaVersion, Rules: [...] }, which the main window sets
+        from the saved deployment conditions of an application. Malformed JSON
+        throws instead of publishing without the rules the operator configured.
+    #>
+    param([AllowEmptyString()][string]$Json = '')
+
+    if ([string]::IsNullOrWhiteSpace($Json)) { return @() }
+    try { $parsed = $Json | ConvertFrom-Json -ErrorAction Stop }
+    catch { throw "APP_PACKAGER_REQUIREMENTS is not valid JSON: $($_.Exception.Message)" }
+    if ($parsed -and $parsed.PSObject.Properties['Rules'] -and $parsed.Rules) { return @($parsed.Rules) }
+    return @()
+}
+
+function Get-IntuneRequirementDropKey {
+    <#
+    .SYNOPSIS
+        The key that names one requirement rule of one application in Intune.AcceptedRequirementDrops.
+
+    .DESCRIPTION
+        The identity tag of the application in Intune (the tag that finds the
+        app again on the next publish), a bar and the condition id. It does not
+        change with the version.
+    #>
+    param([Parameter(Mandatory)][pscustomobject]$Manifest, [AllowEmptyString()][string]$ConditionId = '')
+
+    return ('{0}|{1}' -f (Get-IntuneIdentityTag -Manifest $Manifest), $ConditionId)
+}
+
+function Get-IntuneRequirementSpecs {
+    <#
+    .SYNOPSIS
+        The requirement specs that the Intune publish of a manifest applies.
+
+    .DESCRIPTION
+        The same two sources as the ConfigMgr publish
+        (Get-DeploymentTypeRequirementSpecs): the Requirements array of the
+        manifest and the specs the run applies beside it (the saved deployment
+        conditions). A spec that repeats an earlier one is applied once.
+    #>
+    param([Parameter(Mandatory)][pscustomobject]$Manifest, [AllowNull()][object[]]$Extra = @())
+
+    $specs = New-Object System.Collections.Generic.List[object]
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $sources = @()
+    if ($Manifest.PSObject.Properties['Requirements'] -and $Manifest.Requirements) { $sources += @($Manifest.Requirements) }
+    if ($Extra) { $sources += @($Extra) }
+    foreach ($spec in $sources) {
+        if ($null -eq $spec) { continue }
+        $value = $(if ($spec -is [System.Collections.IDictionary]) { $spec['Value'] } else { $spec.Value })
+        $cultures = $(if ($spec -is [System.Collections.IDictionary]) { $spec['Cultures'] } else { $spec.Cultures })
+        $identity = '{0}|{1}|{2}' -f [string]$(if ($spec -is [System.Collections.IDictionary]) { $spec['ConditionId'] } else { $spec.ConditionId }), [string]$value, (@($cultures) -join ',')
+        if ($seen.Add($identity)) { $specs.Add($spec) }
+    }
+    return @($specs.ToArray())
+}
+
+function Get-IntuneRequirementScriptPlan {
+    <#
+    .SYNOPSIS
+        Binds one requirement spec to its condition template and writes the check script.
+
+    .DESCRIPTION
+        Graph has no rule for a WMI value, an operating system language or a
+        custom condition, so each becomes a PowerShell requirement rule that
+        prints True or False and passes on the expected output. The binding is
+        the one of the ConfigMgr publish: an unknown value or a missing value
+        fails here too. A spec that cannot become such a script throws; the
+        caller records the message as the gap.
+
+    .OUTPUTS
+        [pscustomobject] Template, Script, Expected, IsScriptCondition.
+    #>
+    param([Parameter(Mandatory)]$Spec, [Parameter(Mandatory)]$Templates)
+
+    $read = { param($Object, $Name) if ($Object -is [System.Collections.IDictionary]) { if ($Object.Contains($Name)) { $Object[$Name] } else { $null } } elseif ($Object.PSObject.Properties[$Name]) { $Object.$Name } else { $null } }
+    $quote = { param($Text) "'" + ([string]$Text -replace "'", "''") + "'" }
+
+    $id = [string](& $read $Spec 'ConditionId')
+    $template = @($Templates.Conditions | Where-Object { [string]$_.Id -eq $id } | Select-Object -First 1)[0]
+    if (-not $template) {
+        throw ("The requirement names the condition '{0}', which is not in the condition templates." -f $id)
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$template.GlobalConditionName)) {
+        throw ("Condition template '{0}' has no GlobalConditionName." -f $template.Id)
+    }
+
+    $ruleType = [string]$template.RuleType
+    $kind = [string]$template.Kind
+    $rawValue = & $read $Spec 'Value'
+    $value = $null
+    $cultures = @()
+    $boolValue = $false
+    switch ($ruleType) {
+        'CommonValue' {
+            $value = $(if ($null -eq $rawValue) { $null } else { [string]$rawValue })
+            $mapping = @()
+            if ($template.PSObject.Properties['Values'] -and $template.Values) { $mapping = @($template.Values.PSObject.Properties) }
+            if ($mapping.Count -gt 0) {
+                $mapped = $template.Values.PSObject.Properties[[string]$value]
+                if (-not $mapped) {
+                    throw ("Condition '{0}' has no mapping for value '{1}' (known: {2})." -f $id, $value, (($mapping | ForEach-Object { $_.Name }) -join ', '))
+                }
+                $value = [string]$mapped.Value
+            }
+            if ([string]::IsNullOrWhiteSpace($value)) { throw ("Condition '{0}' requires a Value." -f $id) }
+        }
+        'OperatingSystemLanguage' {
+            foreach ($culture in @(& $read $Spec 'Cultures')) {
+                if ([string]::IsNullOrWhiteSpace([string]$culture)) { continue }
+                # A name that is not a language tag is a gap on every host; a newer .NET accepts some unknown names.
+                if ([string]$culture -cnotmatch '^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$') { throw ("The culture code '{0}' is not valid (for example de-DE)." -f $culture) }
+                $cultures += [System.Globalization.CultureInfo]::GetCultureInfo([string]$culture).Name
+            }
+            if ($cultures.Count -eq 0) { throw ("Condition '{0}' requires at least one culture code (e.g. de-DE)." -f $id) }
+        }
+        'Boolean' {
+            if ($rawValue -is [bool]) { $boolValue = $rawValue }
+            else {
+                $text = $(if ($null -eq $rawValue) { '' } else { [string]$rawValue })
+                $parsed = $false
+                if (-not [bool]::TryParse($text, [ref]$parsed)) { throw ("Condition '{0}' requires a boolean Value (got '{1}')." -f $id, $text) }
+                $boolValue = $parsed
+            }
+        }
+        default { throw ("Condition '{0}' has unsupported RuleType '{1}'." -f $id, $ruleType) }
+    }
+
+    $checkScript = $null
+    $expected = $true
+    if ($ruleType -ceq 'CommonValue' -and $kind -ceq 'Wql') {
+        if ([string]::IsNullOrWhiteSpace([string]$template.Namespace) -or [string]::IsNullOrWhiteSpace([string]$template.Class) -or [string]::IsNullOrWhiteSpace([string]$template.Property)) {
+            throw ("The condition '{0}' names no WMI namespace, class and property." -f $template.Id)
+        }
+        # A WMI property name goes into the script as code, so it must be a plain name.
+        if ([string]$template.Property -cnotmatch '^[A-Za-z0-9_]+$') { throw ("The WMI property name '{0}' is not a plain name." -f $template.Property) }
+        # True when some row of the WMI class has the value; the ConfigMgr rule compares with IsEquals.
+        $checkScript = @(
+            '$ErrorActionPreference = ''SilentlyContinue'''
+            ('$values = @(Get-CimInstance -Namespace {0} -ClassName {1} | ForEach-Object {{ [string]$_.{2} }})' -f (& $quote $template.Namespace), (& $quote $template.Class), $template.Property)
+            ('Write-Output ($values -contains {0})' -f (& $quote $value))
+        ) -join "`r`n"
+    }
+    elseif ($ruleType -ceq 'OperatingSystemLanguage' -and $kind -ceq 'BuiltIn') {
+        # True when the installed UI language of the operating system is one of the cultures.
+        $checkScript = @(
+            ('$cultures = @({0})' -f ((@($cultures) | ForEach-Object { & $quote $_ }) -join ', '))
+            '$name = [System.Globalization.CultureInfo]::InstalledUICulture.Name'
+            'Write-Output ($cultures -contains $name)'
+        ) -join "`r`n"
+    }
+    elseif ($ruleType -ceq 'Boolean' -and $kind -ceq 'Script') {
+        $checkScript = Get-ConditionTemplateScriptText -Template $template
+        $expected = $boolValue
+    }
+    else {
+        throw ("The condition '{0}' ({1} condition with the rule type {2}) has no Intune requirement rule." -f $template.Id, $kind, $ruleType)
+    }
+
+    return [pscustomobject]@{
+        Template          = $template
+        Script            = $checkScript
+        Expected          = $expected
+        IsScriptCondition = ($kind -ceq 'Script')
+    }
+}
+
+function ConvertTo-IntuneRequirementRules {
+    <#
+    .SYNOPSIS
+        Turns ConfigMgr requirement specs into Intune requirement rules.
+
+    .DESCRIPTION
+        Each spec becomes a win32LobAppPowerShellScriptRule of rule type
+        requirement, or a gap: the message that says why no Intune rule exists.
+        A gap never throws. With -SignScripts, a script condition follows the
+        signing policy of the requirement category like the ConfigMgr global
+        condition does; a required signature that is not produced throws,
+        because no accepted drop covers it. The scripts that this module writes
+        itself (WMI value, language) are never signed.
+
+    .OUTPUTS
+        [pscustomobject[]] Spec, Rule (hashtable or $null), Gap, Translated.
+    #>
+    param(
+        [AllowNull()][object[]]$Specs = @(),
+        [Parameter(Mandatory)]$Templates,
+        [switch]$SignScripts
+    )
+
+    $result = New-Object System.Collections.Generic.List[object]
+    foreach ($spec in @($Specs)) {
+        if ($null -eq $spec) { continue }
+        $plan = $null
+        $gap = $null
+        try { $plan = Get-IntuneRequirementScriptPlan -Spec $spec -Templates $Templates }
+        catch { $gap = [string]$_.Exception.Message }
+        if ($null -eq $plan) {
+            $result.Add([pscustomobject]@{ Spec = $spec; Rule = $null; Gap = $gap; Translated = $false })
+            continue
+        }
+
+        $template = $plan.Template
+        $content = [System.Text.Encoding]::UTF8.GetBytes([string]$plan.Script)
+        $enforce = $false
+        if ($SignScripts -and $plan.IsScriptCondition) {
+            $policy = Resolve-CommonSigningPolicy
+            $require = [bool](Get-PolicyFlag -Policy $policy -Name 'RequireRequirements')
+            if ($require -or (Get-PolicyFlag -Policy $policy -Name 'SignRequirements')) {
+                $identity = Get-ConditionScriptContentIdentity -Template $template
+                $content = [byte[]]$identity.Bytes
+                $enforce = ($require -and [bool]$identity.Signed)
+            }
+        }
+        $name = $(if ([string]::IsNullOrWhiteSpace([string]$template.GlobalConditionName)) { [string]$template.Id } else { [string]$template.GlobalConditionName })
+        if ($name.Length -gt 100) { $name = $name.Substring(0, 100) }
+        $rule = @{
+            '@odata.type'         = '#microsoft.graph.win32LobAppPowerShellScriptRule'
+            ruleType              = 'requirement'
+            displayName           = $name
+            enforceSignatureCheck = $enforce
+            runAs32Bit            = $false
+            runAsAccount          = 'system'
+            scriptContent         = [Convert]::ToBase64String($content)
+            operationType         = 'string'
+            operator              = 'equal'
+            comparisonValue       = $(if ($plan.Expected) { 'True' } else { 'False' })
+        }
+        $result.Add([pscustomobject]@{ Spec = $spec; Rule = $rule; Gap = $null; Translated = $true })
+    }
+    return @($result.ToArray())
+}
+
 function Get-IntuneCompatibilityFindings {
     <#
     .SYNOPSIS
@@ -8725,15 +8975,43 @@ function Get-IntuneCompatibilityFindings {
         half-created app. Severity Blocking refuses the target; Review needs an
         operator decision; Info records a capability the adapter does not carry.
 
+        Each ConfigMgr requirement of the application is translated to an Intune
+        requirement rule (ConvertTo-IntuneRequirementRules). A requirement with
+        no Intune rule is a Blocking finding, RequirementNotTranslatable, unless
+        its drop is in AcceptedDrops (the Intune.AcceptedRequirementDrops
+        setting); then it is a Review finding, RequirementDropped. Building the
+        list never signs a script.
+
+    .PARAMETER Requirements
+        Requirement specs that the run applies beside the Requirements array of
+        the manifest (the saved deployment conditions).
+
+    .PARAMETER AcceptedDrops
+        Keys (Get-IntuneRequirementDropKey) of the rules that may be left out of the app.
+
+    .PARAMETER Templates
+        The condition templates that the specs bind to; the saved or built-in ones when omitted.
+
     .OUTPUTS
-        [pscustomobject[]] Severity, Code, Message.
+        [pscustomobject[]] Severity, Code, Message, DropKey, CanAcceptDrop.
     #>
-    param([Parameter(Mandatory)][pscustomobject]$Manifest)
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Manifest,
+        [AllowNull()][object[]]$Requirements = @(),
+        [AllowNull()][string[]]$AcceptedDrops = @(),
+        [AllowNull()]$Templates = $null
+    )
 
     $findings = New-Object System.Collections.Generic.List[object]
     $add = {
-        param($Severity, $Code, $Message)
-        $findings.Add([pscustomobject]@{ Severity = $Severity; Code = $Code; Message = $Message })
+        param($Severity, $Code, $Message, $DropKey)
+        $findings.Add([pscustomobject]@{
+                Severity      = $Severity
+                Code          = $Code
+                Message       = $Message
+                DropKey       = $(if ($DropKey) { [string]$DropKey } else { $null })
+                CanAcceptDrop = [bool]($DropKey -and $Severity -eq 'Blocking')
+            })
     }
 
     # Multi-DT means the same thing here as in Get-ManifestDeploymentTypeSpecs: more than one
@@ -8785,10 +9063,25 @@ function Get-IntuneCompatibilityFindings {
         }
     }
 
-    $requirements = @()
-    if ($Manifest.PSObject.Properties['Requirements'] -and $Manifest.Requirements) { $requirements = @($Manifest.Requirements) }
-    if ($requirements.Count -gt 0) {
-        & $add 'Review' 'RequirementsNotTranslated' ("This application carries {0} ConfigMgr requirement rule(s). The Intune adapter does not translate them, so the published app has no equivalent gating." -f $requirements.Count)
+    # A manifest with finished Graph rules carries its requirements in them.
+    if (-not (Test-IntuneManifestHasRules -Manifest $Manifest)) {
+        $requirementSpecs = @(Get-IntuneRequirementSpecs -Manifest $Manifest -Extra $Requirements)
+        if ($requirementSpecs.Count -gt 0) {
+            if ($null -eq $Templates) { $Templates = Get-ConditionTemplates }
+            foreach ($translation in @(ConvertTo-IntuneRequirementRules -Specs $requirementSpecs -Templates $Templates)) {
+                $conditionId = [string]$(if ($translation.Spec -is [System.Collections.IDictionary]) { $translation.Spec['ConditionId'] } else { $translation.Spec.ConditionId })
+                $dropKey = Get-IntuneRequirementDropKey -Manifest $Manifest -ConditionId $conditionId
+                if ($translation.Translated) {
+                    & $add 'Info' 'RequirementTranslated' ("The requirement '{0}' is published as a PowerShell requirement rule." -f $conditionId)
+                }
+                elseif (@($AcceptedDrops) -contains $dropKey) {
+                    & $add 'Review' 'RequirementDropped' ("The requirement '{0}' has no Intune rule ({1}) and its drop is accepted for this application, so the published app is not gated by it." -f $conditionId, $translation.Gap)
+                }
+                else {
+                    & $add 'Blocking' 'RequirementNotTranslatable' ("The requirement '{0}' has no Intune rule: {1} The app would install on devices that ConfigMgr skips. Remove the requirement, or accept its drop by adding this entry to the setting Intune.AcceptedRequirementDrops: {2}" -f $conditionId, $translation.Gap, $dropKey) $dropKey
+                }
+            }
+        }
     }
 
     $architecture = [string]$Manifest.Architecture
@@ -8902,14 +9195,19 @@ function Publish-IntuneWin32App {
         [ValidateSet('x86', 'x64', 'arm64')][string]$Architecture = 'x64',
         [string]$GraphBase = 'https://graph.microsoft.com/v1.0',
         [int]$PollTimeoutSec = 600,
-        [AllowEmptyString()][string]$IconPath = ''
+        [AllowEmptyString()][string]$IconPath = '',
+        # Requirement specs the run applies beside the manifest's own (the saved deployment conditions).
+        [AllowNull()][object[]]$Requirements = @(),
+        # Intune.AcceptedRequirementDrops: the requirements that may be left out of the app.
+        [AllowNull()][string[]]$AcceptedRequirementDrops = @(),
+        [AllowNull()]$ConditionTemplates = $null
     )
 
     $meta = Get-IntuneWinEncryptionInfo -Path $IntuneWinPath
 
     # Compatibility is decided before the first Graph mutation: a blocking gap
     # must not leave a half-created app behind in the tenant.
-    $findings = @(Get-IntuneCompatibilityFindings -Manifest $Manifest)
+    $findings = @(Get-IntuneCompatibilityFindings -Manifest $Manifest -Requirements $Requirements -AcceptedDrops $AcceptedRequirementDrops -Templates $ConditionTemplates)
     foreach ($finding in $findings) {
         $level = if ($finding.Severity -eq 'Info') { 'INFO' } else { 'WARN' }
         Write-Log ("Intune compatibility         : [{0}] {1} - {2}" -f $finding.Severity, $finding.Code, $finding.Message) -Level $level
@@ -8921,7 +9219,23 @@ function Publish-IntuneWin32App {
 
     $rules = @()
     if (Test-IntuneManifestHasRules -Manifest $Manifest) { $rules = @($Manifest.IntuneRules) }
-    else { $rules = @(ConvertTo-IntuneWin32Rules -Manifest $Manifest) }
+    else {
+        $rules = @(ConvertTo-IntuneWin32Rules -Manifest $Manifest)
+        # The requirement rules follow the detection rules. A rule with no Intune form is left out
+        # only when its drop was accepted; the findings above already refused every other one, and
+        # this check holds for a caller that passes its own findings.
+        $requirementSpecs = @(Get-IntuneRequirementSpecs -Manifest $Manifest -Extra $Requirements)
+        if ($requirementSpecs.Count -gt 0) {
+            $templates = $(if ($null -ne $ConditionTemplates) { $ConditionTemplates } else { Get-ConditionTemplates })
+            foreach ($translation in @(ConvertTo-IntuneRequirementRules -Specs $requirementSpecs -Templates $templates -SignScripts)) {
+                $conditionId = [string]$(if ($translation.Spec -is [System.Collections.IDictionary]) { $translation.Spec['ConditionId'] } else { $translation.Spec.ConditionId })
+                if ($translation.Translated) { $rules += $translation.Rule }
+                elseif (@($AcceptedRequirementDrops) -notcontains (Get-IntuneRequirementDropKey -Manifest $Manifest -ConditionId $conditionId)) {
+                    throw ("The requirement '{0}' has no Intune rule: {1}" -f $conditionId, $translation.Gap)
+                }
+            }
+        }
+    }
 
     $installCommand = if (-not [string]::IsNullOrWhiteSpace([string]$Manifest.InstallCommandLine)) { [string]$Manifest.InstallCommandLine } else { 'install.bat' }
     $uninstallCommand = if (-not [string]::IsNullOrWhiteSpace([string]$Manifest.UninstallCommandLine)) { [string]$Manifest.UninstallCommandLine } else { 'uninstall.bat' }
@@ -9161,4 +9475,4 @@ function Publish-IntuneWin32App {
     }
 }
 
-Export-ModuleMember -Function Get-IntuneWinEncryptionInfo, Export-IntuneWinPayload, Get-MsGraphToken, Invoke-GraphJson, Invoke-AzureBlobUpload, ConvertTo-IntuneWin32Rules, Publish-IntuneWin32App, Get-IntuneCompatibilityFindings, Get-IntuneAllowedArchitecture, Get-IntuneIdentityTag, Get-IntuneScriptRuleSettings, New-IntuneDetectionScriptRule
+Export-ModuleMember -Function Get-IntuneWinEncryptionInfo, Export-IntuneWinPayload, Get-MsGraphToken, Invoke-GraphJson, Invoke-AzureBlobUpload, ConvertTo-IntuneWin32Rules, Publish-IntuneWin32App, Get-IntuneCompatibilityFindings, ConvertTo-IntuneRequirementRules, ConvertFrom-RequirementsJson, Get-IntuneRequirementSpecs, Get-IntuneRequirementDropKey, Get-IntuneAllowedArchitecture, Get-IntuneIdentityTag, Get-IntuneScriptRuleSettings, New-IntuneDetectionScriptRule

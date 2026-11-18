@@ -11,6 +11,9 @@
 - Add Install options review to Options, Packaging, Folders. It skips the Stage review.
 - Add a Configure dialog before Stage for apps with install options. Continue applies per run.
 - Add the ReviewBeforeStage packager header tag. It keeps the Stage review when Options skips it.
+- Translate ConfigMgr requirements into Intune requirement rules on publish.
+- Block the Intune publish of a requirement that has no Intune rule.
+- Add Accepted requirement drops to Options, Connections, Intune. A review dialog stores it.
 
 ## [2026.11.18.0142] - 2026-11-18
 

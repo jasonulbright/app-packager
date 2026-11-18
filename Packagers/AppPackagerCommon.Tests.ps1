@@ -4795,13 +4795,24 @@ Describe 'Get-IntuneCompatibilityFindings' {
         @(Get-IntuneCompatibilityFindings -Manifest $m | Where-Object { $_.Code -eq 'TimingNotApplied' }).Severity | Should -Be 'Info'
     }
 
-    It 'reports untranslated ConfigMgr requirements for review' {
+    It 'blocks a ConfigMgr requirement that has no Intune rule' {
         $m = [pscustomobject]@{
             AppName = 'A'; Architecture = 'x64'; SetupFile = 'install.bat'
             Detection = [pscustomobject]@{ Type = 'RegistryKey'; RegistryKeyRelative = 'K'; Is64Bit = $true }
             Requirements = @([pscustomobject]@{ ConditionId = 'vpn' })
         }
-        @(Get-IntuneCompatibilityFindings -Manifest $m | Where-Object { $_.Code -eq 'RequirementsNotTranslated' }).Severity | Should -Be 'Review'
+        @(Get-IntuneCompatibilityFindings -Manifest $m | Where-Object { $_.Code -eq 'RequirementNotTranslatable' }).Severity | Should -Be 'Blocking'
+    }
+
+    It 'translates a ConfigMgr requirement that has an Intune rule' {
+        $m = [pscustomobject]@{
+            AppName = 'A'; Architecture = 'x64'; SetupFile = 'install.bat'
+            Detection = [pscustomobject]@{ Type = 'RegistryKey'; RegistryKeyRelative = 'K'; Is64Bit = $true }
+            Requirements = @([pscustomobject]@{ ConditionId = 'cpu-arch'; Value = 'x64' })
+        }
+        $f = @(Get-IntuneCompatibilityFindings -Manifest $m)
+        @($f | Where-Object { $_.Code -eq 'RequirementTranslated' }).Severity | Should -Be 'Info'
+        @($f | Where-Object { $_.Severity -eq 'Blocking' }).Count | Should -Be 0
     }
 
     It 'passes a plain native manifest with no blocking finding' {
@@ -4860,6 +4871,61 @@ Describe 'Publish-IntuneWin32App request bodies' {
         $create.Body['setupFilePath'] | Should -Be 'toolkit\Invoke-AppDeployToolkit.exe'
         $create.Body['notes'] | Should -Be 'AppPackager:catalog:package-widget/managed-1'
         $create.Body['installCommandLine'] | Should -Be 'Invoke-AppDeployToolkit.exe -DeploymentType Install'
+    }
+
+    It 'sends the requirements of the application as PowerShell requirement rules after the detection rules' {
+        New-IntuneMocks
+        Mock Invoke-GraphJson -ModuleName AppPackagerCommon {
+            $script:GraphCalls.Add([pscustomobject]@{ Method = $Method; Uri = $Uri; Body = $Body })
+            if ($Method -eq 'GET' -and $Uri -match 'mobileApps\?') { return [pscustomobject]@{ value = @() } }
+            if ($Method -eq 'GET') { return [pscustomobject]@{ azureStorageUri = 'https://blob.invalid/x'; uploadState = 'commitFileSuccess' } }
+            return [pscustomobject]@{ id = 'app-1' }
+        }
+        $manifest = $script:IntuneManifest.PSObject.Copy()
+        $manifest | Add-Member -NotePropertyName Requirements -NotePropertyValue @([pscustomobject]@{ ConditionId = 'cpu-arch'; Value = 'x64' }) -Force
+
+        Publish-IntuneWin32App -TenantId 't' -ClientId 'c' -ClientSecret 's' `
+            -IntuneWinPath (Join-Path $TestDrive 'w.intunewin') -Manifest $manifest `
+            -Requirements @([pscustomobject]@{ ConditionId = 'os-language'; Cultures = @('de-DE') }) | Should -Be 'app-1'
+
+        $create = @($script:GraphCalls | Where-Object { $_.Method -eq 'POST' -and $_.Uri -match 'mobileApps$' })[0]
+        $rules = @($create.Body['rules'])
+        @($rules | Where-Object { $_['ruleType'] -eq 'detection' }).Count | Should -Be 1
+        $requirementRules = @($rules | Where-Object { $_['ruleType'] -eq 'requirement' })
+        $requirementRules.Count | Should -Be 2
+        $requirementRules[0]['@odata.type'] | Should -Be '#microsoft.graph.win32LobAppPowerShellScriptRule'
+        @($requirementRules | ForEach-Object { $_['displayName'] }) | Should -Be @('APKG - CPU Architecture', 'Operating System Language')
+        $rules[0]['ruleType'] | Should -Be 'detection'
+    }
+
+    It 'refuses a requirement that has no Intune rule before the first Graph call' {
+        New-IntuneMocks
+        Mock Invoke-GraphJson -ModuleName AppPackagerCommon { $script:GraphCalls.Add([pscustomobject]@{ Method = $Method; Uri = $Uri }) ; [pscustomobject]@{ value = @() } }
+        $manifest = $script:IntuneManifest.PSObject.Copy()
+        $manifest | Add-Member -NotePropertyName Requirements -NotePropertyValue @([pscustomobject]@{ ConditionId = 'no-such-condition' }) -Force
+
+        { Publish-IntuneWin32App -TenantId 't' -ClientId 'c' -ClientSecret 's' -IntuneWinPath (Join-Path $TestDrive 'w.intunewin') -Manifest $manifest } |
+            Should -Throw '*RequirementNotTranslatable*Intune.AcceptedRequirementDrops*'
+        $script:GraphCalls.Count | Should -Be 0
+    }
+
+    It 'publishes without a requirement whose drop is accepted' {
+        New-IntuneMocks
+        Mock Invoke-GraphJson -ModuleName AppPackagerCommon {
+            $script:GraphCalls.Add([pscustomobject]@{ Method = $Method; Uri = $Uri; Body = $Body })
+            if ($Method -eq 'GET' -and $Uri -match 'mobileApps\?') { return [pscustomobject]@{ value = @() } }
+            if ($Method -eq 'GET') { return [pscustomobject]@{ azureStorageUri = 'https://blob.invalid/x'; uploadState = 'commitFileSuccess' } }
+            return [pscustomobject]@{ id = 'app-1' }
+        }
+        $manifest = $script:IntuneManifest.PSObject.Copy()
+        $manifest | Add-Member -NotePropertyName Requirements -NotePropertyValue @([pscustomobject]@{ ConditionId = 'no-such-condition' }) -Force
+        $key = Get-IntuneRequirementDropKey -Manifest $manifest -ConditionId 'no-such-condition'
+
+        Publish-IntuneWin32App -TenantId 't' -ClientId 'c' -ClientSecret 's' -IntuneWinPath (Join-Path $TestDrive 'w.intunewin') `
+            -Manifest $manifest -AcceptedRequirementDrops @($key) | Should -Be 'app-1'
+
+        $create = @($script:GraphCalls | Where-Object { $_.Method -eq 'POST' -and $_.Uri -match 'mobileApps$' })[0]
+        @($create.Body['rules'] | Where-Object { $_['ruleType'] -eq 'requirement' }).Count | Should -Be 0
     }
 
     It 'updates the app carrying this identity tag rather than the first name match' {
