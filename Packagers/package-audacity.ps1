@@ -23,13 +23,13 @@ ArpName: Audacity [0-9]*
       -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
     Audacity 4.0 moved from an Inno Setup EXE to an MSI (audacity-win-<ver>-x86_64.msi).
-    GitHub release tags use the Audacity- prefix (e.g. Audacity-4.0.0).
+    GitHub release tags use the Audacity- prefix (for example Audacity-4.0.0).
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -55,7 +55,7 @@ ArpName: Audacity [0-9]*
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed
+    - Configuration Manager console installed
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>

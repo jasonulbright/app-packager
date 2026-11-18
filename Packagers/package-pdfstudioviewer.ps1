@@ -27,10 +27,10 @@ ArpName: PDF Studio Viewer*
       -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -55,7 +55,7 @@ ArpName: PDF Studio Viewer*
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed
+    - Configuration Manager console installed
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>
@@ -142,9 +142,9 @@ function Get-PdfStudioViewerVersion {
     .DESCRIPTION
         The vendor publishes a single unversioned URL and states no version on
         the download page. The installer's own version resource is the only
-        published version fact, and it sits in the PE header ahead of the
+        published version value, and it sits in the PE header ahead of the
         install4j payload, so a range request for the first megabytes is enough
-        to read it without pulling the full ~170 MB file.
+        to read it without downloading the full ~170 MB file.
     #>
     param([switch]$Quiet)
 

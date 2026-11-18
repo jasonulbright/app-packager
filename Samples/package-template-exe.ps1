@@ -22,7 +22,7 @@ ArpArch: x64
     Read Samples/AUTHORING.md before editing this template.
 
     Before writing detection code: install the EXE once into a
-    disposable VM and confirm what it actually writes. EXE behavior is
+    disposable VM and confirm what it writes. EXE behavior is
     vendor-specific and changes between versions more often than MSI.
 #>
 

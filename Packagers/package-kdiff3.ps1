@@ -25,11 +25,11 @@ ArpName: KDiff3*
       -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
     The PSDrive is assumed to already exist in the session.
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -37,7 +37,7 @@ ArpName: KDiff3*
 
 .PARAMETER DownloadRoot
     Local root folder for staging downloaded installers.
-    Each packager creates a subfolder under this path (e.g., <DownloadRoot>\KDiff3).
+    Each packager creates a subfolder under this path (for example, <DownloadRoot>\KDiff3).
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
@@ -61,7 +61,7 @@ ArpName: KDiff3*
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
+    - Configuration Manager console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>
@@ -133,7 +133,7 @@ function Get-LatestKDiff3Release {
     .DESCRIPTION
         The archive is a flat directory holding every platform for every
         release, and source-only releases are published without Windows
-        binaries, so the highest version that actually carries a
+        binaries, so the highest version that carries a
         windows-x86_64 exe wins rather than the highest version present.
     #>
     param([switch]$Quiet)

@@ -184,7 +184,7 @@ The Authenticode signing of the scripts that AppPackager stages: which kinds are
 
 The detected **Console**, **Content Prep Tool**, **7-Zip** and **Icon pack**. The values are read-only.
 
-**GitHub Authentication** shows how AppPackager signs in to the GitHub API and how many requests are left this hour. The optional **GitHub token** field stores a personal access token with DPAPI for the current Windows user. The order is `GITHUB_TOKEN`, `GH_TOKEN`, the saved token, then the `gh` login. With a token the limit is 5000 requests per hour; without one it is 60.
+**GitHub Authentication** shows how AppPackager signs in to the GitHub API and how many requests are left this hour. The optional **GitHub token** field stores a personal access token with DPAPI for the current Windows user. The order is `GITHUB_TOKEN`, `GH_TOKEN`, the saved token, then the `gh` sign-in. With a token the limit is 5000 requests per hour; without one it is 60.
 
 ### About
 

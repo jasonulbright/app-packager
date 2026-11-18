@@ -25,10 +25,10 @@ ArpName: Obsidian
       -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -53,7 +53,7 @@ ArpName: Obsidian
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed
+    - Configuration Manager console installed
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>
@@ -122,7 +122,7 @@ function Get-LatestObsidianRelease {
     .DESCRIPTION
         The obsidian-releases repository carries mobile-only releases whose tag
         outranks the newest desktop build and which publish no Windows asset,
-        so the newest non-prerelease that actually carries an Obsidian-<ver>.exe
+        so the newest non-prerelease that carries an Obsidian-<ver>.exe
         wins rather than the release tagged latest.
     #>
     param([switch]$Quiet)

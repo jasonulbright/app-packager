@@ -17,7 +17,7 @@ ArpName: NVIDIA Graphics Driver [0-9]*
 .DESCRIPTION
     Queries NVIDIA's AjaxDriverService.php JSON endpoint with pinned psid/pfid
     for the GeForce RTX 50 Series flagship (covers all current Maxwell+
-    GeForce GTX/RTX cards via the unified DCH driver), downloads the latest
+    GeForce GTX/RTX cards through the unified DCH driver), downloads the latest
     Game Ready WHQL installer, stages content to a versioned local folder,
     and creates a ConfigMgr Application with ARP registry-based detection on
     the constant NVIDIA Display.Driver uninstall GUID.
@@ -28,7 +28,7 @@ ArpName: NVIDIA Graphics Driver [0-9]*
 
     The psid/pfid pinning answers the typical "combo box ambiguity" of the
     NVIDIA download page: one DCH driver covers the whole current GeForce
-    line, so the specific flagship pfid is just a key into the version
+    line, so the specific flagship pfid is a key into the version
     lookup -- the resulting installer is identical regardless of which
     current-series pfid you pin.
 
@@ -36,10 +36,10 @@ ArpName: NVIDIA Graphics Driver [0-9]*
     and exits.
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -70,7 +70,7 @@ ArpName: NVIDIA Graphics Driver [0-9]*
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed
+    - Configuration Manager console installed
     - Write access to FileServerPath
     - Outbound HTTPS to gfwsl.geforce.com and us.download.nvidia.com
 #>

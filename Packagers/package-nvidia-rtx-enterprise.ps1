@@ -17,7 +17,7 @@ ArpName: none
 .DESCRIPTION
     Queries NVIDIA's AjaxDriverService.php JSON endpoint with pinned psid/pfid
     for the NVIDIA RTX PRO Series flagship (covers all current RTX PRO /
-    RTX A-series workstation cards via the unified Quadro Certified DCH
+    RTX A-series workstation cards through the unified Quadro Certified DCH
     driver), downloads the latest WHQL Enterprise installer, stages content
     to a versioned local folder, and creates a ConfigMgr Application with ARP
     registry-based detection on the constant NVIDIA Display.Driver
@@ -38,10 +38,10 @@ ArpName: none
     and exits.
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -72,7 +72,7 @@ ArpName: none
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed
+    - Configuration Manager console installed
     - Write access to FileServerPath
     - Outbound HTTPS to gfwsl.geforce.com and us.download.nvidia.com
 #>

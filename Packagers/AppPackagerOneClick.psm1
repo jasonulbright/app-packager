@@ -27,8 +27,8 @@ function ConvertTo-OneClickDestinationSet {
     .SYNOPSIS
         Normalizes any destination description to the three flags.
     .DESCRIPTION
-        Accepts a deployment target name (MECM, MECMAndIntune, IntuneOnly,
-        MECMAndWSUS, WSUSOnly), an object with ConfigMgr, WSUS and Intune
+        Accepts a deployment target name (ConfigMgr, ConfigMgrAndIntune, IntuneOnly,
+        ConfigMgrAndWSUS, WSUSOnly; the old names MECM, MECMAndIntune and MECMAndWSUS still work), an object with ConfigMgr, WSUS and Intune
         properties, or a list of destination names.
     #>
     param($Value)
@@ -38,10 +38,10 @@ function ConvertTo-OneClickDestinationSet {
 
     if ($Value -is [string]) {
         switch ($Value) {
-            'MECM'          { $set.ConfigMgr = $true }
-            'MECMAndIntune' { $set.ConfigMgr = $true; $set.Intune = $true }
+            { $_ -in 'ConfigMgr', 'MECM' }                  { $set.ConfigMgr = $true }
+            { $_ -in 'ConfigMgrAndIntune', 'MECMAndIntune' } { $set.ConfigMgr = $true; $set.Intune = $true }
             'IntuneOnly'    { $set.Intune = $true }
-            'MECMAndWSUS'   { $set.ConfigMgr = $true; $set.WSUS = $true }
+            { $_ -in 'ConfigMgrAndWSUS', 'MECMAndWSUS' }     { $set.ConfigMgr = $true; $set.WSUS = $true }
             'WSUSOnly'      { $set.WSUS = $true }
             default         { $set.ConfigMgr = $true }
         }

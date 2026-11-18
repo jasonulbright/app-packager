@@ -39,14 +39,14 @@ Change to the install folder (by default %LOCALAPPDATA%\AppPackager) or to the r
 .\Invoke-AppPackagerBuild.ps1 -Application catalog:package-7zip -Profile Managed -Stage
 
 # Stage and package, with run overrides for this build only
-.\Invoke-AppPackagerBuild.ps1 -Application package-git.ps1 -Profile default -Target MECM -Stage -Package -EstimatedMinutes 10 -MaximumMinutes 25
+.\Invoke-AppPackagerBuild.ps1 -Application package-git.ps1 -Profile default -Target ConfigMgr -Stage -Package -EstimatedMinutes 10 -MaximumMinutes 25
 ```
 
 ### Supersedence
 
 ```powershell
 # Publish with the version rule Exact and Replace and uninstall, for this run only
-.\Invoke-AppPackagerBuild.ps1 -Application catalog:package-7zip -Target MECM -Package -VersionRule Exact -Supersedence ReplaceAndUninstall
+.\Invoke-AppPackagerBuild.ps1 -Application catalog:package-7zip -Target ConfigMgr -Package -VersionRule Exact -Supersedence ReplaceAndUninstall
 
 # Record the value that you read from the installed product, so that the Exact guard can allow Exact for this version
 .\Invoke-AppPackagerBuild.ps1 -Application catalog:package-7zip -Version 24.08 -RecordInstalledValue 24.08
@@ -72,7 +72,7 @@ This guide did not run these commands. It ran the same actions through the windo
 |---|---|
 | `-Application` | `catalog:package-7zip`, `custom:<script>`, `byo:<id>` or a packager file name. |
 | `-Profile` | A profile name or id. `default` when omitted. |
-| `-Target` | `ContentOnly`, `MECM`, `MECMAndIntune`, `IntuneOnly`, `MECMAndWSUS` or `WSUSOnly`. |
+| `-Target` | `ContentOnly`, `ConfigMgr`, `ConfigMgrAndIntune`, `IntuneOnly`, `ConfigMgrAndWSUS` or `WSUSOnly`. The old names `MECM`, `MECMAndIntune` and `MECMAndWSUS` still work. |
 | `-Stage`, `-Package` | One or both phases. At least one is required. |
 | `-Version` | Package this version instead of the latest. |
 | `-DownloadRoot` | The local staging root. |
@@ -87,7 +87,7 @@ This guide did not run these commands. It ran the same actions through the windo
 
 ## Limits
 
-- A WSUS target publishes the manifest that the same run staged. `MECMAndWSUS` needs `-Stage` and `-Package` together.
+- A WSUS target publishes the manifest that the same run staged. `ConfigMgrAndWSUS` needs `-Stage` and `-Package` together.
 - A run override outranks the saved profile for this build only.
 
 ## Troubleshooting

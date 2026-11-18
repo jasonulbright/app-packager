@@ -48,8 +48,8 @@ Use it to find out which packagers are worth turning on for your site.
 
 ## Limits
 
-- The views of the database bypass the role-based administration of the console. Give `db_datareader` only to accounts that may read the inventory of all clients.
-- Discover reads distinct software titles and application names. It reads no client name and no client count, and it writes nothing.
+- The views of the database bypass the role-based administration of the console. Give `db_datareader` only to accounts that may read the inventory of all devices.
+- Discover reads distinct software titles and application names. It reads no client name and no device count, and it writes nothing.
 - A scan stops after 600 seconds.
 - A per-user install is not in the machine-wide inventory.
 - Some packagers share one Add/Remove Programs name with a sibling, for example Citrix Workspace Current Release and LTSR. Discover offers the owner of each group.

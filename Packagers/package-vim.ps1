@@ -25,14 +25,14 @@ ArpName: Vim [0-9]*
     The version is resolved from the GitHub releases API for the
     vim/vim-win32-installer repository.
 
-    The ARP key uses the major.minor format (e.g., "Vim 9.2") which remains
+    The ARP key uses the major.minor format (for example, "Vim 9.2") which remains
     stable across patch updates, making it reliable for ConfigMgr detection.
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -60,7 +60,7 @@ ArpName: Vim [0-9]*
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed
+    - Configuration Manager console installed
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>

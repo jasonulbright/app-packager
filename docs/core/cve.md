@@ -54,7 +54,7 @@ Use it to decide which updates are urgent, and to see which vulnerabilities stay
 
 The **Status** column of a row with an update shows the same result in words, for example `Update available (fixes 5 of 15 CVEs, 1 in KEV)`.
 
-### Read the CVE window
+### View the CVE window
 
 Select the count in the **CVEs** column. The window shows one line that states the result, the product links, and one row for each CVE.
 
@@ -157,7 +157,7 @@ vd-limit.json`, guarded by a lock. A damaged file or a lock that is not free nev
 |---|---|---|
 | `CPE missing` | The packager has no `CPE` header. | The row cannot be checked. |
 | `No version` | The row has no ConfigMgr version and no latest version. | Run Check Latest or Check ConfigMgr. |
-| `Error` | NVD and Shodan CVEDB did not answer, or a version has no number. | Read the log line of the application. Run Check CVEs again later. |
+| `Error` | NVD and Shodan CVEDB did not answer, or a version has no number. | View the log line of the application. Run Check CVEs again later. |
 | `Not in NVD` | NVD holds no record under the product name of the `CPE` header. The product has no known CVE, or NVD files it under another name. | Search the product in the NVD CPE dictionary. When NVD uses another name, correct the `CPE` header. See [A product that NVD does not know](#a-product-that-nvd-does-not-know). |
 | The count is 0 for a product with known CVEs. | The CVEs do not affect the examined version, or NVD files them under a second product name. | Open the NVD link of the CVE window and compare the CPE name and the version ranges. Add the second name to the `CPE` header. |
 | The run is slow and repeats. | NVD throttles calls without a key. | Set an NVD API key. |

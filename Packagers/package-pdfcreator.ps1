@@ -21,7 +21,7 @@ ArpName: PDFCreator
 
     The free edition ships only as a setup executable; the vendor's MSI is
     restricted to the Professional and Terminal Server editions. The setup
-    selects every optional component when /COMPONENTS is omitted, which pulls
+    selects every optional component when /COMPONENTS is omitted, which installs
     in the PDF Architect promotion; the install wrapper passes
     /COMPONENTS=none so neither PDF Architect nor Images2PDF is installed.
 
@@ -30,10 +30,10 @@ ArpName: PDFCreator
       -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -58,7 +58,7 @@ ArpName: PDFCreator
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed
+    - Configuration Manager console installed
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>
@@ -125,7 +125,7 @@ function Get-LatestPdfCreatorRelease {
     .DESCRIPTION
         The vendor publishes no version index; the stable channel is a redirect
         that lands on a versioned CDN path. A one-byte range request resolves
-        that path without pulling the ~150 MB setup, and the version comes from
+        that path without downloading the ~150 MB setup, and the version comes from
         the resolved URL rather than the filename's underscore form.
     #>
     param([switch]$Quiet)

@@ -2615,7 +2615,7 @@ function Export-WorkbenchBundle {
 
     .DESCRIPTION
         The bundle carries a schema version and a SHA-256 for every entry.
-        Tenant credentials and machine-local connection settings are never
+        Tenant credentials and computer-local connection settings are never
         part of a bundle; BYO installer binaries are included only with
         -IncludeSources and the manifest states when they are absent.
     #>

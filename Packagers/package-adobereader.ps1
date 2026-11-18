@@ -27,8 +27,8 @@ RequiresTools: 7-Zip
     "Adobe Acrobat Reader" regardless of Adobe's branding changes.
 
     Adobe Acrobat version notation:
-      Release notes use format NN.NNN.NNNNN (e.g., 25.001.21223)
-      Download URL uses the same parts concatenated (e.g., 2500121223)
+      Release notes use format NN.NNN.NNNNN (for example, 25.001.21223)
+      Download URL uses the same parts concatenated (for example, 2500121223)
 
     Supports two-phase operation:
       -StageOnly    Download, read FileVersion, generate content wrappers, write manifest
@@ -46,11 +46,11 @@ RequiresTools: 7-Zip
     stored preference.
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
     The PSDrive is assumed to already exist in the session.
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -58,7 +58,7 @@ RequiresTools: 7-Zip
 
 .PARAMETER DownloadRoot
     Local root folder for staging downloaded installers.
-    Each packager creates a subfolder under this path (e.g., <DownloadRoot>\AdobeReader).
+    Each packager creates a subfolder under this path (for example, <DownloadRoot>\AdobeReader).
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
@@ -89,7 +89,7 @@ RequiresTools: 7-Zip
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
+    - Configuration Manager console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>

@@ -24,11 +24,11 @@ ArpName: HandBrake*
       -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
     The PSDrive is assumed to already exist in the session.
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -55,10 +55,10 @@ ArpName: HandBrake*
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
+    - Configuration Manager console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
-    - Target machines need the .NET Desktop Runtime that the release requires;
+    - Target computers need the .NET Desktop Runtime that the release requires;
       the GUI installer does not carry it.
 #>
 

@@ -18,14 +18,14 @@ ArpName: Microsoft Visual Studio Code
 .DESCRIPTION
     Downloads the latest stable VS Code x64 system installer from the official
     update.code.visualstudio.com endpoint, stages content to a versioned local
-    folder, and creates a machine-context ConfigMgr Application with file-version
+    folder, and creates a system-context ConfigMgr Application with file-version
     detection under Program Files.
 
     This packager is intentionally separate from the user installer package.
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed (ConfigurationManager module available)
+    - Configuration Manager console installed (ConfigurationManager module available)
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>

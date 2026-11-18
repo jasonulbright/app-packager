@@ -27,11 +27,11 @@ ArpName: Android Studio
     installer instead of downloading it again.
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
     The PSDrive is assumed to already exist in the session.
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -39,7 +39,7 @@ ArpName: Android Studio
 
 .PARAMETER DownloadRoot
     Local root folder for staging downloaded installers.
-    Each packager creates a subfolder under this path (e.g., <DownloadRoot>\AndroidStudio).
+    Each packager creates a subfolder under this path (for example, <DownloadRoot>\AndroidStudio).
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
@@ -63,7 +63,7 @@ ArpName: Android Studio
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
+    - Configuration Manager console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>

@@ -24,7 +24,7 @@
     Target folder. Defaults to %LOCALAPPDATA%\AppPackager.
 
 .PARAMETER Version
-    Release version to install, e.g. "1.5.0.4". Defaults to the latest release.
+    Release version to install, for example "1.5.0.4". Defaults to the latest release.
 
 .PARAMETER Force
     Replace the folder even when it holds no recognizable AppPackager install.

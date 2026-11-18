@@ -32,7 +32,7 @@ ArpName: none
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed (Package phase)
+    - Configuration Manager console installed (Package phase)
     - Write access to FileServerPath (Package phase)
     - Internet access (Stage phase)
 #>

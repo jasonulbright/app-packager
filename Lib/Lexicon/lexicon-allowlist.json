@@ -251,6 +251,11 @@
       "file": "tests/ApplicationPackagerEngine.Tests/SilentSwitchDatabaseTests.cs",
       "rule": "LX-041",
       "reason": "Supported installer format (package format of the package manager and NuGet), owner decision D-33. The support stays; this is not a use of the product as a source or a tool."
+    },
+    {
+      "file": "src/ApplicationPackagerEngine/Services/MecmTarget.cs",
+      "rule": "LX-011",
+      "reason": "Generated script text that hash tests and byte fixtures pin (decision D-33, owner default O-5: the user-visible target value is renamed, this generated text stays)."
     }
   ]
 }

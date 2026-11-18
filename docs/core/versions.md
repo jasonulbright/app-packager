@@ -72,7 +72,7 @@ The Options dialog shows the console as not detected.
 | Message or symptom | Cause | Fix |
 |---|---|---|
 | **Check ConfigMgr** is disabled. | The console is not found on this computer. | Install the console. Set `SMS_ADMIN_UI_PATH` to its `bin\i386` folder if it is installed in a custom path. |
-| The latest version stays empty. | The vendor site did not answer, or GitHub refused the anonymous calls. | Read the log. Set `GITHUB_TOKEN` or run `gh auth login`. |
+| The latest version stays empty. | The vendor site did not answer, or GitHub refused the anonymous calls. | View the log. Set `GITHUB_TOKEN` or run `gh auth login`. |
 
 ## Links
 

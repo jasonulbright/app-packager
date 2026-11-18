@@ -26,7 +26,7 @@ ArpName: GeoGebra Classic*
       - Every build ships the same ProductCode and no UpgradeCode, so a newer
         build cannot major-upgrade an installed one. The generated install.ps1
         adds REINSTALL=ALL REINSTALLMODE=vomus when the ProductCode is already
-        registered, and omits it on a clean machine where those properties are
+        registered, and omits it on a clean computer where those properties are
         an error.
 
     Supports two-phase operation:
@@ -34,10 +34,10 @@ ArpName: GeoGebra Classic*
       -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -62,7 +62,7 @@ ArpName: GeoGebra Classic*
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed
+    - Configuration Manager console installed
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>

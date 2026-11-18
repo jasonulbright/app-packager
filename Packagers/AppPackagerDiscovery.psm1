@@ -415,7 +415,7 @@ function Get-CMInventorySnapshot {
     .SYNOPSIS
         Reads distinct Add or Remove Programs titles (32-bit and 64-bit
         views) and current ConfigMgr Application names. Throws a plain message
-        on a denied login, an unreachable server or a wrong database.
+        on a denied sign-in, an unreachable server or a wrong database.
     #>
     param(
         [Parameter(Mandatory)][string]$Server,

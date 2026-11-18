@@ -35,7 +35,7 @@ The rights come from the README of the tool and the Microsoft documentation. The
 
 ## Limits
 
-- The SQL views that Discover reads bypass the role-based administration of the console. Give `db_datareader` only to accounts that may read the inventory of all clients.
+- The SQL views that Discover reads bypass the role-based administration of the console. Give `db_datareader` only to accounts that may read the inventory of all devices.
 
 ## Troubleshooting
 

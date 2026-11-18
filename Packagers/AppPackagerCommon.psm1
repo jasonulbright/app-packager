@@ -475,7 +475,7 @@ function Get-GitHubApiCurlArgs {
         The unauthenticated GitHub API allows 60 requests per hour per source
         address; a version sweep over the catalog issues more than that. The
         token comes from GITHUB_TOKEN, then GH_TOKEN, then the token that
-        Options, Tools saved, then the GitHub CLI's stored login (gh auth
+        Options, Tools saved, then the GitHub CLI's stored sign-in (gh auth
         token) when gh.exe is on the PATH and signed in; with a token the call carries it as a bearer token and the limit
         is 5000 per hour. Returns an empty array when no token is available,
         so callers can splat the result unconditionally. The CLI lookup runs
@@ -537,7 +537,7 @@ function ConvertTo-SafeCurlUrl {
 function Invoke-DownloadWithRetry {
     <#
     .SYNOPSIS
-        Downloads a file via curl.exe, falling back to Invoke-WebRequest, with
+        Downloads a file through curl.exe, falling back to Invoke-WebRequest, with
         a single retry on failure.
 
     .DESCRIPTION
@@ -609,7 +609,7 @@ function Invoke-DownloadWithRetry {
 
             Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -ErrorAction Stop
 
-            Write-Log "Download succeeded via Invoke-WebRequest fallback." -Quiet:$Quiet
+            Write-Log "Download succeeded through Invoke-WebRequest fallback." -Quiet:$Quiet
             return
         }
         catch {
@@ -623,7 +623,7 @@ function Invoke-DownloadWithRetry {
         }
 
         if ($attempt -lt $maxAttempts) {
-            Write-Log ("Download attempt {0} failed via both curl.exe and Invoke-WebRequest. Will retry." -f $attempt) -Level WARN -Quiet:$Quiet
+            Write-Log ("Download attempt {0} failed through both curl.exe and Invoke-WebRequest. Will retry." -f $attempt) -Level WARN -Quiet:$Quiet
         }
     }
 
@@ -991,7 +991,7 @@ function Connect-CMSite {
     $provider = Resolve-CMProviderMachineName -ProviderMachineName $ProviderMachineName
     if ([string]::IsNullOrWhiteSpace($provider) -and
         -not (Get-PSDrive -Name $SiteCode -PSProvider CMSite -ErrorAction SilentlyContinue)) {
-        Write-Log "Configuration Manager PSDrive '$SiteCode' is not available and no provider machine name is configured. Set Site server / SMS Provider in Options > Connections > ConfigMgr, copy the ProviderMachineName value from the AdminUI connect script, or set APP_PACKAGER_CM_PROVIDER." -Level ERROR
+        Write-Log "Configuration Manager PSDrive '$SiteCode' is not available and no provider computer name is configured. Set Site server / SMS Provider in Options > Connections > ConfigMgr, copy the ProviderMachineName value from the AdminUI connect script, or set APP_PACKAGER_CM_PROVIDER." -Level ERROR
         return $false
     }
     return (SuiteCommon\Connect-CMSite -SiteCode $SiteCode -SMSProvider $provider -SkipSiteVerification)
@@ -2238,7 +2238,7 @@ function Add-StageIcon {
 function Set-CMApplicationIconFromManifest {
     <#
     .SYNOPSIS
-        Applies a manifest's icon to an existing CM application.
+        Applies a manifest's icon to an existing ConfigMgr application.
 
     .DESCRIPTION
         Warns and returns on any failure. A missing or rejected icon is not a
@@ -2614,7 +2614,7 @@ function Write-ContentWrappers {
 
     .PARAMETER InstallBatExitCode
         Exit code expression for install.bat. Default: '%ERRORLEVEL%'.
-        Use '3010' for products that always require reboot (e.g. VMware Tools).
+        Use '3010' for products that always require reboot (for example VMware Tools).
 
     .PARAMETER UninstallBatExitCode
         Exit code expression for uninstall.bat. Default: '%ERRORLEVEL%'.
@@ -2754,7 +2754,7 @@ function New-MsiWrapperContent {
         array-based ArgumentList (avoiding quoting issues). Returns a hashtable
         with Install and Uninstall keys.
 
-        -ExtraInstallArgs: optional MSI properties (e.g. "APITOKEN=xxx",
+        -ExtraInstallArgs: optional MSI properties (for example "APITOKEN=xxx",
         'ASSIGNMENTOPTIONS="--grant-easy-access"') appended to the install
         command line. Each entry becomes one Start-Process argument.
 
@@ -2817,7 +2817,7 @@ function New-MsixWrapperContent {
         install.ps1) so ConfigMgr treats it the same way as MSI / EXE packagers.
 
     .DESCRIPTION
-        ConfigMgr also supports a native MSIX deployment type via
+        ConfigMgr also supports a native MSIX deployment type through
         Add-CMWindowsAppxDeploymentType, but the house rule is Script
         deployment for everything we can shoehorn that way (single code
         path, uniform logging, consistent detection authoring). These
@@ -2827,11 +2827,11 @@ function New-MsixWrapperContent {
 
         -MsixFileName  : name of the .msix / .appx / .msixbundle in the
                          package content folder.
-        -Provisioned   : when true (default), installs via
+        -Provisioned   : when true (default), installs through
                          Add-AppxProvisionedPackage -Online so all users
                          (including new accounts) get the app. Uninstall
                          uses Remove-AppxProvisionedPackage.
-                         When false, installs per-user via Add-AppxPackage.
+                         When false, installs per-user through Add-AppxPackage.
         -SignatureSha1 : optional SHA1 thumbprint of the expected signing
                          certificate. When set, install.ps1 verifies the
                          MSIX is signed by that cert before invoking the
@@ -2928,7 +2928,7 @@ function New-ExeWrapperContent {
         array-based ArgumentList for the installer EXE. Returns a hashtable
         with Install and Uninstall keys.
 
-        For products where uninstall uses a different command (e.g. registry
+        For products where uninstall uses a different command (for example registry
         lookup, msiexec), the caller should build uninstall content directly
         and pass it to Write-ContentWrappers.
 
@@ -3010,7 +3010,7 @@ function New-TargetSecretBlock {
 
     .DESCRIPTION
         The generated lines create a 32 character random value on the target,
-        store it machine-protected (DPAPI, LocalMachine) in a folder that only
+        store it computer-protected (DPAPI, LocalMachine) in a folder that only
         SYSTEM, Administrators and the installing account can read, and leave it
         in the named variable for the installer argument list. A later run reuses the stored value so
         the file always matches the product, but only from a folder that those
@@ -5056,7 +5056,7 @@ function Get-NextPatchVersion {
         Used by packagers whose detection accepts the packaged version OR its
         immediate successor, so last month's still-active deployment stops
         reinstalling over an in-place upgrade. Returns $null when the last
-        component is not purely numeric (e.g. preview/rc suffixes), so callers
+        component is not purely numeric (for example preview/rc suffixes), so callers
         can fall back to single-version detection.
     #>
     param([Parameter(Mandatory)][string]$Version)
@@ -5601,7 +5601,7 @@ function Get-OrCreateGlobalConditionFromTemplate {
         Resolves a condition template to a CM global condition, creating it when absent.
 
     .DESCRIPTION
-        Must be called from the CM site drive. Built-in and WQL conditions match
+        Must be called from the ConfigMgr site drive. Built-in and WQL conditions match
         by name, so an existing site condition of any origin is attached rather
         than duplicated.
 
@@ -5880,7 +5880,7 @@ function New-DeploymentTypeRequirementRules {
         Builds CM requirement rule objects from condition templates and specs.
 
     .DESCRIPTION
-        Must be called from the CM site drive. Unknown condition ids and
+        Must be called from the ConfigMgr site drive. Unknown condition ids and
         unmapped values throw so a package run never creates a deployment
         type missing rules the operator asked for.
 
@@ -5929,7 +5929,7 @@ function New-DeploymentTypeRequirementRules {
                     $cultures += [System.Globalization.CultureInfo]::GetCultureInfo([string]$c)
                 }
                 if ($cultures.Count -eq 0) {
-                    throw "Condition '$condId' requires at least one culture code (e.g. de-DE)."
+                    throw "Condition '$condId' requires at least one culture code (for example de-DE)."
                 }
                 $rules += New-CMRequirementRuleOperatingSystemLanguageValue -InputObject $gc -RuleOperator OneOf -Culture $cultures
             }
@@ -6152,7 +6152,7 @@ function Resolve-DetectionScriptTransport {
 function Get-CMDeploymentTypeDetectionScript {
     <#
     .SYNOPSIS
-        Reads back the detection script a deployment type actually stored.
+        Reads back the detection script a deployment type stored.
 
     .DESCRIPTION
         The read-back reads the application document, not the deployment type
@@ -6311,7 +6311,7 @@ function New-MECMApplicationFromManifest {
         Creates a ConfigMgr application with Script deployment type from a stage manifest.
 
     .DESCRIPTION
-        Reads a stage manifest object and creates a CM Application with a single
+        Reads a stage manifest object and creates a ConfigMgr application with a single
         Script deployment type. Supports all detection methods:
 
           RegistryKeyValue  Single registry value comparison (IsEquals or GreaterEquals)
@@ -6320,7 +6320,7 @@ function New-MECMApplicationFromManifest {
           Script            PowerShell script-based detection
           Compound          Multiple clauses joined by AND or OR
 
-        Handles CM site connection, duplicate app check, New-CMApplication with
+        Handles ConfigMgr site connection, duplicate app check, New-CMApplication with
         task-sequence eligibility, detection clause creation, Add-CMScriptDeploymentType
         with gold standard parameters, optional PostExecutionBehavior, and
         revision history cleanup.
@@ -6374,7 +6374,7 @@ function New-MECMApplicationFromManifest {
     try {
         $step = "Connect-CMSite (SiteCode=$SiteCode)"
         if (-not (Connect-CMSite -SiteCode $SiteCode)) {
-            throw "CM site connection failed."
+            throw "ConfigMgr site connection failed."
         }
 
         $appName = Get-PackagedApplicationName -AppName $Manifest.AppName -Version $Manifest.SoftwareVersion
@@ -6569,7 +6569,7 @@ function New-MECMApplicationFromManifest {
         }
 
         if (-not $cmApp) {
-            Write-Log "Creating CM Application      : $appName"
+            Write-Log "Creating ConfigMgr application      : $appName"
             $step = "New-CMApplication ('$appName')"
             $cmAppParams = @{
                 Name             = $appName
@@ -6744,7 +6744,7 @@ function New-MECMApplicationFromManifest {
                 # Reconnect to CM site for Add-CMScriptDeploymentType
                 $step = "Connect-CMSite reconnect (SiteCode=$SiteCode)"
                 if (-not (Connect-CMSite -SiteCode $SiteCode)) {
-                    throw "CM site reconnection failed."
+                    throw "ConfigMgr site reconnection failed."
                 }
             }
 
@@ -7420,10 +7420,10 @@ function New-OdtConfigXml {
         Architecture: "32" or "64".
 
     .PARAMETER Version
-        Full M365 version string (e.g. "16.0.19127.20532").
+        Full M365 version string (for example "16.0.19127.20532").
 
     .PARAMETER ProductIds
-        Array of product IDs (e.g. @('O365ProPlusRetail') or
+        Array of product IDs (for example @('O365ProPlusRetail') or
         @('O365ProPlusRetail', 'VisioProRetail')).
 
     .PARAMETER SourcePath
@@ -7797,7 +7797,7 @@ function Update-PackagerHistory {
     .SYNOPSIS
         Records an event against a packager in the history file.
     .PARAMETER PackagerName
-        Script base name without extension, e.g. 'package-chrome'.
+        Script base name without extension, for example 'package-chrome'.
     .PARAMETER Event
         What happened: Checked | Staged | Packaged | CmChecked | VulnChecked.
         CmChecked records the version ConfigMgr holds (LastCmVersion,
@@ -8968,7 +8968,7 @@ function Export-IntuneWinPayload {
 function Get-MsGraphToken {
     <#
     .SYNOPSIS
-        Acquires an app-only Graph token via the client-credentials flow.
+        Acquires an app-only Graph token through the client-credentials flow.
     #>
     param(
         [Parameter(Mandatory)][string]$TenantId,
@@ -9101,7 +9101,7 @@ function Get-IntuneScriptRuleSettings {
 
     .DESCRIPTION
         Signature enforcement only asks the client to verify; it never signs.
-        It is set when the detection category actually produced a valid
+        It is set when the detection category produced a valid
         signature, or when policy requires one - and a required signature that
         was not produced stops the publish instead of shipping an unenforced
         rule. Script host bitness comes from the definition, not a constant.
@@ -9460,7 +9460,7 @@ function Get-IntuneRequirementScriptPlan {
                 if ([string]$culture -cnotmatch '^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$') { throw ("The culture code '{0}' is not valid (for example de-DE)." -f $culture) }
                 $cultures += [System.Globalization.CultureInfo]::GetCultureInfo([string]$culture).Name
             }
-            if ($cultures.Count -eq 0) { throw ("Condition '{0}' requires at least one culture code (e.g. de-DE)." -f $id) }
+            if ($cultures.Count -eq 0) { throw ("Condition '{0}' requires at least one culture code (for example de-DE)." -f $id) }
         }
         'Boolean' {
             if ($rawValue -is [bool]) { $boolValue = $rawValue }
@@ -9778,7 +9778,7 @@ function Get-IntuneNotesIdentityTags {
 function Publish-IntuneWin32App {
     <#
     .SYNOPSIS
-        Publishes a packaged .intunewin as an Intune Win32 app via Graph.
+        Publishes a packaged .intunewin as an Intune Win32 app through Graph.
 
     .DESCRIPTION
         The complete v1.0 flow: create the win32LobApp (metadata, commands,

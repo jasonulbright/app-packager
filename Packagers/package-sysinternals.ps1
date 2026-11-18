@@ -27,7 +27,7 @@ ArpName: none
     traditional installer. The install wrapper extracts the ZIP to
     C:\Program Files\Sysinternals. The uninstall wrapper removes the folder.
 
-    The suite uses date-based versioning (e.g. 2026.2.4) derived from the
+    The suite uses date-based versioning (for example 2026.2.4) derived from the
     Last-Modified header on the download ZIP. Individual tools have their own
     independent version numbers.
 
@@ -36,10 +36,10 @@ ArpName: none
     pre-accept by setting registry keys under HKCU:\Software\Sysinternals.
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -67,7 +67,7 @@ ArpName: none
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed
+    - Configuration Manager console installed
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>

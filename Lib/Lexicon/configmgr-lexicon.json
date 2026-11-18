@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "configmgr-lexicon",
-  "version": "2026.11.18.5",
+  "version": "2026.11.18.8",
   "updated": "2026-11-18",
   "description": "Vocabulary and flagged phrases for user-facing text about Microsoft Configuration Manager. Terms and rules only, no Microsoft text. Every entry cites a Microsoft Learn URL or a code reference.",
   "fields": {
@@ -127,7 +127,9 @@
         "\\bMachine\\s*:\\s*X\\b",
         "\\bv_CITargetedMachines\\b",
         "\\bPE machine\\b",
-        "\\bmachine type\\b"
+        "\\bmachine type\\b",
+        "\\bSetEnvironmentVariable\\b",
+        "\\bmachine-(?:readable|fetchable)\\b"
       ],
       "context": "Allowed in fixed names: Machine Policy, per-machine, machine scope, virtual machine, state machine, v_CITargetedMachines.",
       "replacement": "Use device (the ConfigMgr object type, console node Devices), computer, or endpoint for the generic word. Write 'VM' or 'virtual machine' for a virtual machine.",
@@ -153,8 +155,8 @@
         "\\b(?:number|count|list) of clients\\b",
         "\\bclients? (?:in|of) (?:the|a|this) (?:collection|site|list)\\b",
         "\\b(?:all|each|every|these|those|remote|matching|selected|online|offline|unreachable) clients\\b(?! (?:policy|settings|agent|version|health|check))",
-        "\\bclient (?:name|list|count)\\b",
-        "\\bper client\\b"
+        "\\bper client\\b",
+        "\\bclient (?:list|count)\\b"
       ],
       "allowWhen": [
         "\\bConfiguration Manager clients?\\b",
@@ -185,7 +187,9 @@
         "\\bdevice health\\b",
         "\\bhealth of the device\\b"
       ],
-      "allowWhen": [],
+      "allowWhen": [
+        "\\bDuo Desktop\\b"
+      ],
       "context": "When the text means the state of the Configuration Manager client agent.",
       "replacement": "client health (console: Monitoring, Client Status; views v_CH_ClientSummary, v_CH_EvalResults)",
       "source": [
@@ -341,9 +345,10 @@
         "\\bMCM:",
         "\\bMCM\\\\",
         "\\bName\\s*:?\\s*MCM\\b",
-        "^MCM$"
+        "^MCM$",
+        "\\bold (?:value )?names?\\b"
       ],
-      "context": "Never in prose. MCM is allowed only as the literal site code of the lab. MECM is allowed only as a literal parameter value that the code defines.",
+      "context": "Never in prose. MCM is allowed only as the literal site code of the lab. MECM is allowed only as an old value name that still loads (the ConfigMgr names are the current ones) or as byte-pinned generated text.",
       "replacement": "ConfigMgr. For a site code example use a three-character code such as XYZ, as Learn does.",
       "source": [
         "vault POLICY section 4 (D-72)",
@@ -351,7 +356,7 @@
       ],
       "status": "verified",
       "severity": "error",
-      "notes": "App Packager has a deployment target value named MECM: a literal in code, to be renamed only with the target value (owner decision)."
+      "notes": "The deployment target values are ConfigMgr, ConfigMgrAndIntune and ConfigMgrAndWSUS (owner default O-5); the old MECM names stay accepted as aliases, with tests."
     },
     {
       "id": "LX-012",
@@ -583,7 +588,21 @@
         "\\bpatch (?:file|package|version|level|facts?|code)\\b",
         "\\bPATCHFILE\\b",
         "\\b(?:major|minor|first|fifth|semver|semantic)\\b",
-        "\\bsoftware update groups?\\b"
+        "\\bsoftware update groups?\\b",
+        "\\b(?:patch|update/patch) (?:component|release|letter|update|updates|field|fields|part|number)\\b",
+        "\\b(?:successor|next|the first|a) patch\\b",
+        "\\bYYYY\\.MM\\.PATCH\\b",
+        "\\bpatch of the vendor line\\b",
+        "\\bbefore the patch would\\b",
+        "\\bCorretto patch\\b",
+        "\\bfinal patch\\b",
+        "\\bpatch committedContentVersion\\b",
+        "\\bsetup\\.ini patch\\b",
+        "\\bsetup\\.ini, an external MSI cab, a patch\\b",
+        "\\bpatch[ -]level\\b",
+        "\\bsemantic\\b",
+        "\\bpatch/build\\b",
+        "\\bpatch letter\\b"
       ],
       "context": "'Patch' is allowed for a Windows Installer patch (.msp), Patch Tuesday and a product patch version. 'Update group' is never allowed without 'software'.",
       "replacement": "software update, Software Update Group",
@@ -661,7 +680,9 @@
         "\\bClickOnce\\b",
         "\\bone[- ]click\\b",
         "\\bclick-through\\b",
-        "\\bOne Click\\b"
+        "\\bOne Click\\b",
+        "\\bClick-to-Run\\b",
+        "\\bclick again to start download\\b"
       ],
       "context": "Allowed in right-click, double-click and ClickOnce.",
       "replacement": "select (mouse or touch), choose",
@@ -691,7 +712,10 @@
         "\\blast logon\\b",
         "\\bLogon\\b",
         "\\bSQL (?:Server )?logins?\\b",
-        "\\bWindows logins?\\b"
+        "\\bWindows logins?\\b",
+        "\\bLogin failed\\b",
+        "\\brequested by the login\\b",
+        "\\bgh auth login\\b"
       ],
       "context": "Never for authentication. A log file entry is not a login.",
       "replacement": "sign in",
@@ -756,7 +780,9 @@
         "\\bsupercharg\\w+",
         "\\bgame[- ]chang\\w+"
       ],
-      "allowWhen": [],
+      "allowWhen": [
+        "\\belapsed prior to completion\\b"
+      ],
       "context": "Never. Marketing and filler words.",
       "replacement": "use, to, before; delete the adjective and state the fact",
       "source": [

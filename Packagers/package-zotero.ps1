@@ -27,11 +27,11 @@ ArpName: Zotero*
       -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
     The PSDrive is assumed to already exist in the session.
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -39,7 +39,7 @@ ArpName: Zotero*
 
 .PARAMETER DownloadRoot
     Local root folder for staging downloaded installers.
-    Each packager creates a subfolder under this path (e.g., <DownloadRoot>\Zotero).
+    Each packager creates a subfolder under this path (for example, <DownloadRoot>\Zotero).
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
@@ -63,7 +63,7 @@ ArpName: Zotero*
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
+    - Configuration Manager console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>
@@ -128,7 +128,7 @@ function Get-LatestZoteroRelease {
     .DESCRIPTION
         The download page carries no version string; the redirector encodes it
         in the 302 Location. Headers are fetched without following the redirect
-        so version resolution does not pull the full installer body.
+        so version resolution does not download the full installer body.
     #>
     param([switch]$Quiet)
 

@@ -25,7 +25,7 @@ ArpName: none
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed (ConfigurationManager module available)
+    - Configuration Manager console installed (ConfigurationManager module available)
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>

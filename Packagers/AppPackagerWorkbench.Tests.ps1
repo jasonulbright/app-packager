@@ -4,7 +4,7 @@
     Pester 5.x tests for the AppPackagerWorkbench module.
 
 .DESCRIPTION
-    Uses a temporary data root via APP_PACKAGER_WORKBENCH_ROOT. Touches no
+    Uses a temporary data root with APP_PACKAGER_WORKBENCH_ROOT. Touches no
     network, no ConfigMgr, no certificate store, and no real installer.
 
 .EXAMPLE

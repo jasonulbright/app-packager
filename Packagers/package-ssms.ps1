@@ -31,7 +31,7 @@ ArpName: SQL Server Management Studio [0-9]* | Microsoft SQL Server Management S
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed (Package phase)
+    - Configuration Manager console installed (Package phase)
     - Write access to FileServerPath (Package phase)
     - Internet access during install unless using a layout in a future packager
 #>
