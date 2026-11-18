@@ -384,7 +384,7 @@ The optional **Administrative Comment** field sits in the sidebar below the Opti
 ### Grid features
 
 - **Filter box** - narrows the grid by application, vendor, status, or CM name as you type
-- **Right-click context menu** on any row - Edit application, Open Log Folder, Open Staged Folder, Open Network Share, Copy Latest Version
+- **Right-click context menu** on any row - Edit application, Use as old application, Open Log Folder, Open Staged Folder, Open Network Share, Copy Latest Version
 - **Ctrl+Click** any row to open the vendor's product page in the default browser
 - **Row hover tooltips** - hover over any row to see the application's description from the packager script
 - **Selection cycle header** - clicking the checkbox column header cycles none -> all -> updates only -> none; selection acts on the rows the filter shows and the glyph reflects the current bulk state

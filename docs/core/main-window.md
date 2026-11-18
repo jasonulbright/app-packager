@@ -70,7 +70,7 @@ Use the **Dark Theme** switch at the bottom of the sidebar. The window size, the
 | Comment field | Sets the administrative comment of the run. |
 | Theme switch | Dark or light. |
 
-A right-click on a row opens a menu with **Edit application**, **Open Log Folder**, **Open Staged Folder**, **Open Network Share** and **Copy Latest Version**. A Ctrl+click on a row opens the product page of the vendor. This guide did not capture the menu.
+A right-click on a row opens a menu with **Edit application**, **Use as old application**, **Open Log Folder**, **Open Staged Folder**, **Open Network Share** and **Copy Latest Version**. A Ctrl+click on a row opens the product page of the vendor. This guide did not capture the menu.
 
 ## Limits
 
