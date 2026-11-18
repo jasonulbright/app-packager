@@ -89,10 +89,10 @@ try {
     $config = Get-WsusPublishConfigForContext
     & $assert ($config -is [hashtable] -and [string]$config.ServerName -eq 'wsus01.contoso.com' -and [int]$config.PortNumber -eq 8531 -and -not $config.ContainsKey('PackageType')) 'the WSUS-only target hands the saved settings, without a package type, to the background run'
     & $assert ($null -eq (Get-IntunePublishConfigForContext)) 'a WSUS target never hands out Intune credentials'
-    $script:Prefs.Intune.DeploymentTarget = 'MECM'
+    $script:Prefs.Intune.DeploymentTarget = 'ConfigMgr'
     $buttonConfig = Get-WsusPublishConfigForContext -Target 'WSUSOnly'
     & $assert ($buttonConfig -is [hashtable] -and [string]$buttonConfig.ServerName -eq 'wsus01.contoso.com') 'the Publish to WSUS button hands the saved settings to its run whatever One Click publishes to'
-    & $assert ($null -eq (Get-WsusPublishConfigForContext -Target 'MECM') -and $null -eq (Get-WsusPublishConfigForContext -Target 'IntuneOnly')) 'the ConfigMgr and Intune buttons hand no WSUS settings to their runs'
+    & $assert ($null -eq (Get-WsusPublishConfigForContext -Target 'ConfigMgr') -and $null -eq (Get-WsusPublishConfigForContext -Target 'IntuneOnly')) 'the ConfigMgr and Intune buttons hand no WSUS settings to their runs'
     & $assert ($null -eq (Get-IntunePublishConfigForContext -Target 'WSUSOnly')) 'the Publish to WSUS button never hands out Intune credentials'
     $script:Prefs.Intune.DeploymentTarget = 'WSUSOnly'
 

@@ -1262,6 +1262,35 @@ function Invoke-LegacyPreferenceMigration {
 # Run snapshots
 # ---------------------------------------------------------------------------
 
+function ConvertTo-CurrentDeploymentTarget {
+    <#
+    .SYNOPSIS
+        Maps any spelling of a deployment target to the current name.
+
+    .DESCRIPTION
+        The current names are ContentOnly, ConfigMgr, ConfigMgrAndIntune,
+        IntuneOnly, ConfigMgrAndWSUS and WSUSOnly. The old names MECM,
+        MECMAndIntune and MECMAndWSUS still load, so a preferences file, a
+        run snapshot or a plan file from an earlier build keeps working. The
+        match ignores case and surrounding spaces. A value that is no target
+        name returns Default, so every read boundary names its own fallback.
+    #>
+    param(
+        [AllowNull()][AllowEmptyString()]$Value,
+        [AllowNull()][AllowEmptyString()][string]$Default = ''
+    )
+
+    switch (([string]$Value).Trim().ToUpperInvariant()) {
+        'CONTENTONLY' { return 'ContentOnly' }
+        { $_ -in 'CONFIGMGR', 'MECM' } { return 'ConfigMgr' }
+        { $_ -in 'CONFIGMGRANDINTUNE', 'MECMANDINTUNE' } { return 'ConfigMgrAndIntune' }
+        'INTUNEONLY' { return 'IntuneOnly' }
+        { $_ -in 'CONFIGMGRANDWSUS', 'MECMANDWSUS' } { return 'ConfigMgrAndWSUS' }
+        'WSUSONLY' { return 'WSUSOnly' }
+    }
+    return $Default
+}
+
 function New-BuildId {
     return ('{0}-{1}' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), ([guid]::NewGuid().ToString('N').Substring(0, 8)))
 }
@@ -1280,7 +1309,7 @@ function New-RunSnapshot {
     param(
         [Parameter(Mandatory)][string]$ApplicationId,
         [string]$ProfileId = 'default',
-        [ValidateSet('ContentOnly', 'MECM', 'MECMAndIntune', 'IntuneOnly', 'MECMAndWSUS', 'WSUSOnly')][string]$Target = 'MECM',
+        [ValidateSet('ContentOnly', 'ConfigMgr', 'ConfigMgrAndIntune', 'IntuneOnly', 'ConfigMgrAndWSUS', 'WSUSOnly', 'MECM', 'MECMAndIntune', 'MECMAndWSUS')][string]$Target = 'ConfigMgr',
         [AllowNull()]$RunOverrides,
         [AllowNull()]$SigningPolicy,
         [string]$PackagerScriptPath,
@@ -1324,7 +1353,7 @@ function New-RunSnapshot {
         AssetPaths         = $assets
         RunOverrides       = $overrides
         SigningPolicy      = (ConvertTo-WorkbenchHashtable -InputObject $SigningPolicy)
-        Target             = $Target
+        Target             = (ConvertTo-CurrentDeploymentTarget -Value $Target -Default 'ConfigMgr')
         DataRoot           = $DataRoot
         DownloadRoot       = $DownloadRoot
         PackagerScriptPath = $PackagerScriptPath
@@ -1411,6 +1440,10 @@ function Get-RunSnapshot {
         throw "Run snapshot schema $($snapshot.SchemaVersion) is newer than this build supports ($script:WorkbenchProfileSchemaVersion): $Path"
     }
     $data = ConvertTo-WorkbenchHashtable -InputObject $snapshot
+    # A snapshot of an earlier build, or one that the desktop app wrote, can carry an old target name.
+    if ($data.ContainsKey('Target') -and -not [string]::IsNullOrWhiteSpace([string]$data['Target'])) {
+        $data['Target'] = ConvertTo-CurrentDeploymentTarget -Value $data['Target'] -Default ([string]$data['Target'])
+    }
     $data['Path'] = $Path
     return [pscustomobject]$data
 }
@@ -2780,7 +2813,7 @@ function Write-PublicationRecord {
     param(
         [Parameter(Mandatory)][string]$ApplicationId,
         [Parameter(Mandatory)][string]$BuildId,
-        [Parameter(Mandatory)][ValidateSet('ContentOnly', 'MECM', 'Intune')][string]$Target,
+        [Parameter(Mandatory)][ValidateSet('ContentOnly', 'ConfigMgr', 'Intune', 'MECM')][string]$Target,
         [string]$ProfileId = 'default',
         [string]$RemoteAppId,
         [string]$SiteOrTenant,
@@ -2798,7 +2831,7 @@ function Write-PublicationRecord {
         ApplicationId = $ApplicationId
         ProfileId     = $ProfileId
         BuildId       = $BuildId
-        Target        = $Target
+        Target        = $(if ($Target -eq 'MECM') { 'ConfigMgr' } else { $Target })
         RemoteAppId   = $RemoteAppId
         SiteOrTenant  = $SiteOrTenant
         Result        = $Result
@@ -2832,6 +2865,7 @@ Export-ModuleMember -Function @(
     'Resolve-EffectiveSettings'
     'Invoke-LegacyPreferenceMigration'
     'New-BuildId'
+    'ConvertTo-CurrentDeploymentTarget'
     'New-RunSnapshot'
     'Get-RunSnapshot'
     'Resolve-WorkbenchTokens'

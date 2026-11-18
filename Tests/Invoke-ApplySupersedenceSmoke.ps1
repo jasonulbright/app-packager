@@ -65,7 +65,7 @@ function New-ProbePrefs {
         Systems       = [pscustomobject]@{ ConfigMgr = $ConfigMgr; Intune = $false; Wsus = $false }
         SiteCode      = 'MCM'
         DetectedTools = [pscustomobject]@{ ConfigMgrConsole = [pscustomobject]@{ Found = $true } }
-        Intune        = [pscustomobject]@{ TenantId = ''; ClientId = ''; ClientSecretProtected = ''; DeploymentTarget = 'MECM' }
+        Intune        = [pscustomobject]@{ TenantId = ''; ClientId = ''; ClientSecretProtected = ''; DeploymentTarget = 'ConfigMgr' }
         Wsus          = [pscustomobject]@{ ServerName = '' }
         Supersedence  = [pscustomobject]@{ Mode = $Mode; TitleOverrides = [pscustomobject]@{} }
     }

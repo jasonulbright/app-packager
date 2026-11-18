@@ -50,7 +50,7 @@ function New-TestPrefs {
             TenantId              = $(if ($Intune) { 'tenant' } else { '' })
             ClientId              = $(if ($Intune) { 'client' } else { '' })
             ClientSecretProtected = $(if ($Intune) { 'protected' } else { '' })
-            DeploymentTarget      = 'MECM'
+            DeploymentTarget      = 'ConfigMgr'
         }
         Wsus          = [pscustomobject]@{ ServerName = $WsusServer }
         Supersedence  = [pscustomobject]@{ Mode = $SupersedenceMode; TitleOverrides = [pscustomobject]@{} }
