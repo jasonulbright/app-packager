@@ -301,6 +301,19 @@ function Read-Preferences {
         RemoveVersionFromTitle = $false
         # Keeps the (x64), (x86) or (ARM64) tag of an application name; off removes a trailing tag.
         AppendArchitectureToTitle = $true
+        # The version rule of the published detection (Minimum: this version or newer; Exact: this version
+        # only) and the supersedence mode (Off, Replace, Replace and uninstall). The shipped values change nothing.
+        Supersedence         = [pscustomobject]@{
+            Mode                 = 'Off'
+            ConfigMgrVersionRule = 'Minimum'
+            IntuneVersionRule    = 'Minimum'
+            # Per title, keyed by the application identifier: @{ 'catalog:package-x' = @{ VersionRule = 'Minimum'; Mode = 'Replace' } }.
+            TitleOverrides       = [pscustomobject]@{}
+            # Installed values that a test install read, keyed '<application identifier>|<version>'.
+            InstalledValues      = [pscustomobject]@{}
+            # Blocks of the Exact guard that the administrator accepted, keyed '<application identifier>|<version>'.
+            AcceptedExactBlocks  = @()
+        }
         # The systems the sidebar publishes to. Setup and Options set them;
         # a button of a system not in use stays disabled whatever else is set.
         Systems              = [pscustomobject]@{
@@ -569,6 +582,43 @@ function Read-Preferences {
         }
         if ($null -ne $data.RemoveVersionFromTitle) {
             try { $defaults.RemoveVersionFromTitle = [bool]$data.RemoveVersionFromTitle } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ }
+        }
+
+        # Supersedence: the words are validated; a word that is not allowed keeps the default (or drops the override).
+        if ($null -ne $data.Supersedence) {
+            $sup = $data.Supersedence
+            $ruleOf = { param($text) $t = ([string]$text).Trim(); if ($t -ieq 'Minimum') { 'Minimum' } elseif ($t -ieq 'Exact') { 'Exact' } else { $null } }
+            $modeOf = {
+                param($text)
+                $t = ([string]$text).Trim().ToLowerInvariant().Replace('_', '-').Replace(' ', '-')
+                if ($t -eq 'off') { 'Off' } elseif ($t -eq 'replace') { 'Replace' } elseif ($t -in @('replace-uninstall', 'replaceanduninstall', 'replace-and-uninstall')) { 'Replace and uninstall' } else { $null }
+            }
+            $word = & $modeOf $sup.Mode;                 if ($word) { $defaults.Supersedence.Mode = $word }
+            $word = & $ruleOf $sup.ConfigMgrVersionRule; if ($word) { $defaults.Supersedence.ConfigMgrVersionRule = $word }
+            $word = & $ruleOf $sup.IntuneVersionRule;    if ($word) { $defaults.Supersedence.IntuneVersionRule = $word }
+            if ($null -ne $sup.TitleOverrides) {
+                $overrideProps = [ordered]@{}
+                foreach ($prop in $sup.TitleOverrides.PSObject.Properties) {
+                    $key = ([string]$prop.Name).Trim()
+                    if ([string]::IsNullOrWhiteSpace($key) -or $null -eq $prop.Value) { continue }
+                    $entry = [ordered]@{}
+                    $word = & $ruleOf $prop.Value.VersionRule; if ($word) { $entry['VersionRule'] = $word }
+                    $word = & $modeOf $prop.Value.Mode;        if ($word) { $entry['Mode'] = $word }
+                    if ($entry.Count -gt 0) { $overrideProps[$key] = [pscustomobject]$entry }
+                }
+                $defaults.Supersedence.TitleOverrides = [pscustomobject]$overrideProps
+            }
+            if ($null -ne $sup.InstalledValues) {
+                $valueProps = [ordered]@{}
+                foreach ($prop in $sup.InstalledValues.PSObject.Properties) {
+                    if ([string]$prop.Name -notmatch '^[^|]+\|[^|]{1,64}$') { continue }
+                    if ([string]$prop.Value -match '^[0-9][0-9A-Za-z.+_-]{0,63}$') { $valueProps[[string]$prop.Name] = [string]$prop.Value }
+                }
+                $defaults.Supersedence.InstalledValues = [pscustomobject]$valueProps
+            }
+            if ($null -ne $sup.AcceptedExactBlocks) {
+                $defaults.Supersedence.AcceptedExactBlocks = @(@($sup.AcceptedExactBlocks) | ForEach-Object { [string]$_ } | Where-Object { $_ -match '^[^|]+\|[^|]{1,64}$' } | Select-Object -Unique)
+            }
         }
 
         # AppFlow: 1-click Full Run settings. Schema is additive; missing key
@@ -2601,13 +2651,23 @@ function Invoke-PackagerIntunePublish {
         [Parameter(Mandatory)][hashtable]$Config,
         [AllowEmptyString()][string]$Comment = ''
     )
-    $pubNote = [pscustomobject]@{ Ok = $false; Message = ''; AppId = '' }
+    $pubNote = [pscustomobject]@{ Ok = $false; Message = ''; AppId = ''; SupersedenceLog = @() }
     try {
         $manifest = Read-StageManifest -Path $IntuneNote.ManifestPath
         if ($manifest.PSObject.Properties['DeploymentTypes'] -and $manifest.DeploymentTypes) {
             $pubNote.Message = 'variant-split app; Intune publish skipped (single-payload apps only for now).'
         }
         else {
+            # The Intune version rule (Exact writes the operator equal). A refused plan publishes nothing. Intune
+            # supersedence is not available, so only the version rule applies here.
+            $contentPath = Split-Path -Parent $IntuneNote.ManifestPath
+            $supersedencePlan = Get-SupersedencePlan -Manifest $manifest -Settings (Get-SupersedenceSettings) -CommandLine (Get-SupersedenceCommandLine) `
+                -PublishesToConfigMgr $false -PublishesToIntune $true `
+                -MsiProductVersion { param($m) Get-SupersedenceMsiProductVersion -Manifest $m -ContentPath $contentPath }.GetNewClosure() `
+                -FallbackApplicationId (Get-SupersedenceFallbackApplicationId)
+            $pubNote.SupersedenceLog = @($supersedencePlan.Log)
+            if ($supersedencePlan.Refusal) { throw $supersedencePlan.Refusal }
+            $manifest = $supersedencePlan.IntuneManifest
             # The staged icon lives in the content version folder next
             # to the manifest, not beside the .intunewin.
             $publishArgs = @{}
@@ -7180,6 +7240,9 @@ function Get-OptionsNonUiPreference {
         'DeploymentConditions.Apps' = 'The conditions dialog of the main window edits it for each application.'
         'CommandOverrides.Apps'     = 'The command override dialog of the main window edits it for each application.'
         'WorkbenchDataRoot'         = 'File only. It sets the data folder of the Workbench; APP_PACKAGER_WORKBENCH_ROOT overrides it.'
+        'Supersedence.TitleOverrides' = 'File only. It holds the version rule and the supersedence mode of one application, keyed by its identifier.'
+        'Supersedence.InstalledValues' = 'The command line writes it with -RecordInstalledValue. It holds the value read from an installed product.'
+        'Supersedence.AcceptedExactBlocks' = 'The command line writes it with -AcceptExactBlock. It holds the titles and versions whose Exact guard block is accepted.'
         'cwa:Installation.EnableSSON' = 'It follows Single sign-on in Options, Applications, Citrix Workspace App, Installation.'
     }
 }
@@ -7313,6 +7376,18 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'dist.collection'; Title = 'Test collection'; Kind = 'Text'; Pref = 'ContentDistribution.TestCollectionName'; MaxLength = 255; Tip = 'The exact name of the device collection that receives the test deployment.' }
                 @{ Id = 'dist.user'; Title = 'User collection'; Kind = 'Check'; Pref = 'ContentDistribution.TestCollectionIsUser'; Label = 'The test collection is a user collection'; Tip = 'Deploys to a user collection, limited to All Users, instead of a device collection.' }
                 @{ Id = 'dist.create'; Title = 'Create collection'; Kind = 'Check'; Pref = 'ContentDistribution.CreateTestCollectionIfMissing'; Label = 'Create the collection if it does not exist'; Tip = 'Creates the collection with All Systems as the limiting collection.' }
+            )
+        })
+
+    $versionRuleItems = @(@{ Label = 'Minimum (this version or newer)'; Value = 'Minimum' }, @{ Label = 'Exact (this version only)'; Value = 'Exact' })
+    $supersedenceModeItems = @(@{ Label = 'Off'; Value = 'Off' }, @{ Label = 'Replace'; Value = 'Replace' }, @{ Label = 'Replace and uninstall'; Value = 'Replace and uninstall' })
+    $sections.Add(@{
+            Id = 'supersedence'; Title = 'Supersedence'; Parent = 'packaging'; Kind = 'Fields'
+            Description = 'The version rule sets the operator of the version clause in the detection that is published. The shipped values are Minimum and Off, so nothing changes until you choose. The command line options -VersionRule and -Supersedence outrank these values. Intune supersedence is not available.'
+            Fields = @(
+                @{ Id = 'sup.cmRule'; Title = 'Version rule, ConfigMgr'; Kind = 'Combo'; Pref = 'Supersedence.ConfigMgrVersionRule'; Default = 'Minimum'; Width = 260; Items = $versionRuleItems; Tip = 'Exact writes IsEquals when the installed value equals the expected value.'; Keywords = 'detection operator equals greater' }
+                @{ Id = 'sup.inRule'; Title = 'Version rule, Intune'; Kind = 'Combo'; Pref = 'Supersedence.IntuneVersionRule'; Default = 'Minimum'; Width = 260; Items = $versionRuleItems; Tip = 'Exact writes the operator equal to the version rule of the Intune detection.'; Keywords = 'detection operator equal greater' }
+                @{ Id = 'sup.mode'; Title = 'Supersedence mode, ConfigMgr'; Kind = 'Combo'; Pref = 'Supersedence.Mode'; Default = 'Off'; Width = 260; Items = $supersedenceModeItems; Tip = 'Replace and uninstall needs the ConfigMgr version rule Exact.'; Keywords = 'replace uninstall older version' }
             )
         })
 

@@ -42,6 +42,22 @@ Change to the install folder (by default %LOCALAPPDATA%\AppPackager) or to the r
 .\Invoke-AppPackagerBuild.ps1 -Application package-git.ps1 -Profile default -Target MECM -Stage -Package -EstimatedMinutes 10 -MaximumMinutes 25
 ```
 
+### Supersedence
+
+```powershell
+# Publish with the version rule Exact and Replace and uninstall, for this run only
+.\Invoke-AppPackagerBuild.ps1 -Application catalog:package-7zip -Target MECM -Package -VersionRule Exact -Supersedence ReplaceAndUninstall
+
+# Record the value that you read from the installed product, so that the Exact guard can allow Exact for this version
+.\Invoke-AppPackagerBuild.ps1 -Application catalog:package-7zip -Version 24.08 -RecordInstalledValue 24.08
+
+# Show what the rewrite of the old applications would change, then write it
+.\Invoke-AppPackagerBuild.ps1 -Application catalog:package-7zip -RewriteOldVersions plan
+.\Invoke-AppPackagerBuild.ps1 -Application catalog:package-7zip -RewriteOldVersions apply -Yes
+```
+
+The version rule Exact writes `IsEquals` to the version clause only when a value read from the installed product equals the expected value. A publish that the Exact guard blocks creates nothing. The rewrite log is `supersedence-rewrite.jsonl` in the Workbench data folder; `restore` reads it and writes the old operator back.
+
 ### Convert a ConfigMgr application
 
 ```powershell
@@ -63,6 +79,10 @@ This guide did not run these commands. It ran the same actions through the windo
 | `-EstimatedMinutes`, `-MaximumMinutes` | Run overrides. They are never written to the profile. |
 | `-SiteCode`, `-ProviderMachineName`, `-FileServerPath`, `-Comment` | The ConfigMgr values. |
 | `-WsusServer`, `-WsusPort`, `-WsusUseSsl`, `-WsusApprovalGroup` | The WSUS values. |
+| `-VersionRule` | `Minimum` or `Exact`. It outranks the title override and the site default of Options, Packaging, Supersedence. |
+| `-Supersedence` | `Off`, `Replace` or `ReplaceAndUninstall`. `ReplaceAndUninstall` needs `-VersionRule Exact`. |
+| `-RecordInstalledValue`, `-AcceptExactBlock` | Run alone. They store the value read from the installed product, or the acceptance of a block of the Exact guard, for `-Application` and `-Version`. |
+| `-RewriteOldVersions`, `-Yes`, `-Architecture` | `plan`, `apply` or `restore`. It runs alone. It changes the version clause of the old applications of the line from `GreaterEquals` to `IsEquals`. `apply` and `restore` write only with `-Yes`. `-Architecture` names the architecture of the line (`x64` when omitted). |
 
 ## Limits
 

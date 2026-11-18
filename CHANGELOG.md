@@ -8,6 +8,10 @@
 
 ### Added
 
+- Add Supersedence to Options, Packaging. Set the version rule and the supersedence mode.
+- Add version rule Exact to ConfigMgr and Intune publish. It writes IsEquals when an installed value matches.
+- Add supersedence to ConfigMgr publish. Replace and Replace and uninstall link the new application to the older one.
+- Add -VersionRule, -Supersedence, -RecordInstalledValue, -AcceptExactBlock and -RewriteOldVersions to Invoke-AppPackagerBuild.
 - Add a switch for the architecture tag to Options, Packaging, Application Title.
 - Add User collection to Options, Packaging, Post Packaging. The test deployment can target a user collection limited to All Users.
 - Add Check at startup to Options, Tools. Turn it off to skip the update lookup at launch.
