@@ -437,3 +437,33 @@ Describe 'Destinations a run publishes to' {
         @(Select-OneClickRunDestinations -Selected @('WSUS') -NotPublishable @('WSUS')).Count | Should -Be 0
     }
 }
+
+Describe 'Default cadence days' {
+    It 'is 7 when the preferences carry no default' {
+        Get-OneClickCadenceDays -Prefs (New-TestPrefs) -PackagerName 'package-a' | Should -Be 7
+    }
+
+    It 'takes the preference default when the header and the override set none' {
+        $prefs = New-TestPrefs
+        $prefs.AppFlow | Add-Member -NotePropertyName DefaultCadenceDays -NotePropertyValue 30
+        Get-OneClickCadenceDays -Prefs $prefs -PackagerName 'package-a' | Should -Be 30
+    }
+
+    It 'lets the packager header outrank the default' {
+        $prefs = New-TestPrefs
+        $prefs.AppFlow | Add-Member -NotePropertyName DefaultCadenceDays -NotePropertyValue 30
+        Get-OneClickCadenceDays -Prefs $prefs -PackagerName 'package-a' -HeaderDays 14 | Should -Be 14
+    }
+
+    It 'lets the per-app override outrank the header and the default' {
+        $prefs = New-TestPrefs -CadenceOverrides @{ 'package-a' = 2 }
+        $prefs.AppFlow | Add-Member -NotePropertyName DefaultCadenceDays -NotePropertyValue 30
+        Get-OneClickCadenceDays -Prefs $prefs -PackagerName 'package-a' -HeaderDays 14 | Should -Be 2
+    }
+
+    It 'ignores a default below 1' {
+        $prefs = New-TestPrefs
+        $prefs.AppFlow | Add-Member -NotePropertyName DefaultCadenceDays -NotePropertyValue 0
+        Get-OneClickCadenceDays -Prefs $prefs -PackagerName 'package-a' | Should -Be 7
+    }
+}

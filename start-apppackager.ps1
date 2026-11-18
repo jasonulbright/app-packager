@@ -309,6 +309,8 @@ function Read-Preferences {
             Action           = 'Report'
             CadenceOverrides = [pscustomobject]@{}
             ForceOnLaunch    = $false
+            # Days a version check stays fresh when the packager header and the per-app cadence set none.
+            DefaultCadenceDays = 7
             # Destinations per tracked application; a row without an entry
             # uses DefaultDestinations. OnExisting decides a ConfigMgr
             # application that already exists without a prompt.
@@ -622,6 +624,8 @@ function Read-Preferences {
                 $defaults.AppFlow.DefaultDestinations.WSUS      = ($target -in @('MECMAndWSUS', 'WSUSOnly'))
                 $defaults.AppFlow.DefaultDestinations.Intune    = ($target -in @('MECMAndIntune', 'IntuneOnly'))
             }
+            $cadence = 0
+            if ([int]::TryParse([string]$af.DefaultCadenceDays, [ref]$cadence) -and $cadence -ge 1 -and $cadence -le 365) { $defaults.AppFlow.DefaultCadenceDays = $cadence }
             if ([string]$af.OnExisting -in @('Skip', 'Overwrite')) { $defaults.AppFlow.OnExisting = [string]$af.OnExisting }
         }
 
@@ -5751,6 +5755,7 @@ function New-AppFlowPanel {
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <TextBlock Grid.Row="0" Grid.Column="0" Text="Action on update" FontWeight="Bold" VerticalAlignment="Center" FontSize="12" Margin="0,0,8,0"/>
         <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" Grid.Row="0" Grid.Column="1" x:Name="cboAction" Width="190" VerticalAlignment="Center">
@@ -5775,6 +5780,9 @@ function New-AppFlowPanel {
             <ComboBoxItem Content="Skip the application" Tag="Skip"/>
             <ComboBoxItem Content="Overwrite it" Tag="Overwrite"/>
         </ComboBox>
+        <TextBlock Grid.Row="3" Grid.Column="0" Text="Default cadence (days)" FontWeight="Bold" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
+        <TextBox Grid.Row="3" Grid.Column="1" x:Name="txtOneClickCadenceDays" Width="360" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,8,0,0" MaxLength="3"
+                 ToolTip="Days a version check stays fresh, from 1 to 365. A packager header or a per-app cadence overrides it."/>
     </Grid>
     <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" x:Name="dgApps" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
               GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0" BorderThickness="0"
@@ -5828,6 +5836,7 @@ function New-AppFlowPanel {
     $chkOneClickWsus   = $element.FindName('chkOneClickWsus')
     $chkOneClickIntune = $element.FindName('chkOneClickIntune')
     $cboOneClickOnExisting = $element.FindName('cboOneClickOnExisting')
+    $txtOneClickCadenceDays = $element.FindName('txtOneClickCadenceDays')
 
     $currentPrefs = $script:Prefs.AppFlow
     $defaultSet = ConvertTo-OneClickDestinationSet -Value $currentPrefs.DefaultDestinations
@@ -5835,6 +5844,7 @@ function New-AppFlowPanel {
     $chkOneClickWsus.IsChecked   = [bool]$defaultSet.WSUS
     $chkOneClickIntune.IsChecked = [bool]$defaultSet.Intune
     $cboOneClickOnExisting.SelectedIndex = $(if ([string]$currentPrefs.OnExisting -eq 'Overwrite') { 1 } else { 0 })
+    $txtOneClickCadenceDays.Text = [string]$(if ($currentPrefs.PSObject.Properties['DefaultCadenceDays'] -and [int]$currentPrefs.DefaultCadenceDays -ge 1) { [int]$currentPrefs.DefaultCadenceDays } else { 7 })
     $trackedSet = [System.Collections.Generic.HashSet[string]]::new(
         [string[]]@($currentPrefs.Tracked),
         [System.StringComparer]::OrdinalIgnoreCase)
@@ -5914,6 +5924,8 @@ function New-AppFlowPanel {
         $prefsRef.AppFlow.Destinations        = [pscustomobject]$destProps
         $prefsRef.AppFlow.DefaultDestinations = $newDefault
         $prefsRef.AppFlow.OnExisting          = [string]$cboOneClickOnExisting.SelectedItem.Tag
+        $newCadence = 0
+        if ([int]::TryParse($txtOneClickCadenceDays.Text.Trim(), [ref]$newCadence) -and $newCadence -ge 1 -and $newCadence -le 365) { $prefsRef.AppFlow.DefaultCadenceDays = $newCadence }
         $prefsRef.Intune.DeploymentTarget     = ConvertTo-DeploymentTargetName -Destinations $newDefault
         $prefsRef.Intune.PublishToIntune      = [bool]$newDefault.Intune
     }.GetNewClosure()
@@ -7481,6 +7493,7 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'oc.force'; Title = 'Force on launch'; Control = 'toggleForce' }
                 @{ Id = 'oc.destinations'; Title = 'Default destinations'; Control = 'chkOneClickMecm'; Keywords = 'configmgr wsus intune' }
                 @{ Id = 'oc.existing'; Title = 'Existing ConfigMgr app'; Control = 'cboOneClickOnExisting' }
+                @{ Id = 'oc.cadence'; Title = 'Default cadence'; Control = 'txtOneClickCadenceDays'; Keywords = 'days check fresh' }
                 @{ Id = 'oc.track'; Title = 'Tracked applications'; Control = 'dgApps'; Keywords = 'track cadence days' })
         })
     $sections.Add(@{
