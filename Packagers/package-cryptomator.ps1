@@ -84,7 +84,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/cryptomator/cryptomator/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/cryptomator/cryptomator/releases?per_page=30"
 
 $VendorFolder = "Skymatic"
 $AppFolder    = "Cryptomator"
@@ -132,6 +132,7 @@ function Get-LatestCryptomatorRelease {
         $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
+        $json = Select-GitHubReleaseJson -Json $json -Pattern '"name":\s*"Cryptomator-(?<ver>\d+(?:\.\d+)+)-x64\.msi"'
         $m = [regex]::Match($json, '"name":\s*"Cryptomator-(?<ver>\d+(?:\.\d+)+)-x64\.msi"')
         if (-not $m.Success) { throw "Could not locate an x64 MSI asset in the latest release." }
 

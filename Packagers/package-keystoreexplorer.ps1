@@ -92,7 +92,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/kaikramer/keystore-explorer/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/kaikramer/keystore-explorer/releases?per_page=30"
 
 $VendorFolder = "Kai Kramer"
 $AppFolder    = "KeyStore Explorer"
@@ -147,8 +147,7 @@ function Get-LatestKeyStoreExplorerRelease {
         $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '^kse-\d+-setup\.exe$' }
         $asset = $release.assets |
             Where-Object { $_.name -match '^kse-\d+-setup\.exe$' } |
             Select-Object -First 1

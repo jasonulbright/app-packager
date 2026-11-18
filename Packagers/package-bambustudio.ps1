@@ -92,7 +92,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/bambulab/BambuStudio/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/bambulab/BambuStudio/releases?per_page=30"
 
 $VendorFolder = "Bambu Lab"
 $AppFolder    = "Bambu Studio"
@@ -155,7 +155,7 @@ function Get-LatestBambuStudioRelease {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch GitHub release info: $GitHubApiUrl" }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '^Bambu_Studio_win.*\.exe$' }
         $version = ConvertTo-BambuStudioVersion -Tag $release.tag_name
 
         # Asset names carry a build timestamp and have changed prefix across

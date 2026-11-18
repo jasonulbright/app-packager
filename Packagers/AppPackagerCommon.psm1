@@ -408,6 +408,65 @@ function Assert-DownloadAvailable {
     Write-Log ("Download check               : {0} answers HTTP {1}" -f $Url, $code)
 }
 Export-ModuleMember -Function Assert-DownloadAvailable
+function Select-GitHubReleaseByAsset {
+    <#
+    .SYNOPSIS
+        The newest published release whose asset list passes the filter of the packager; the release object itself.
+    .DESCRIPTION
+        A packager that reads releases/latest stops when the newest release ships without its installer. This reads the list of
+        releases and returns the newest published release (no draft, no pre-release) that has an asset which passes
+        -AssetFilter. The filter is the test of the packager on one asset ($_ is the asset). When no release passes, the newest
+        published release is returned, so the packager reports its own "asset not found" message. The release objects are
+        returned as they are; the code of the packager that follows does not change. A passed-over newer release is named
+        in the log.
+    #>
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][AllowNull()][object[]]$Releases,
+        [Parameter(Mandatory)][scriptblock]$AssetFilter
+    )
+    $flat = @(); foreach ($entry in @($Releases)) { $flat += $entry }
+    $ordered = @($flat | Where-Object { $_ -and -not [bool]$_.draft -and -not [bool]$_.prerelease } |
+            Sort-Object -Property @{ Expression = { $d = [datetime]::MinValue; if ([datetime]::TryParse([string]$_.published_at, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal, [ref]$d)) { $d } else { [datetime]::MinValue } }; Descending = $true })
+    if ($ordered.Count -eq 0) { return $null }
+    $skipped = New-Object System.Collections.Generic.List[string]
+    foreach ($release in $ordered) {
+        $match = @($release.assets | Where-Object $AssetFilter) | Select-Object -First 1
+        if ($match) {
+            if ($skipped.Count -gt 0) { Write-Log ("Release {0} has no matching installer; using {1}." -f ($skipped -join ', '), [string]$release.tag_name) -Level WARN }
+            return $release
+        }
+        $skipped.Add([string]$release.tag_name)
+    }
+    return $ordered[0]
+}
+Export-ModuleMember -Function Select-GitHubReleaseByAsset
+function Select-GitHubReleaseJson {
+    <#
+    .SYNOPSIS
+        The JSON text of the newest published release that matches a pattern; for packagers that read the release as text.
+    .DESCRIPTION
+        Same rule as Select-GitHubReleaseByAsset, for a packager that matches a regular expression against the JSON text of
+        the release. The pattern is the pattern of the packager. When no release matches, the newest published release is
+        returned, so the packager reports its own message.
+    #>
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Json, [Parameter(Mandatory)][string]$Pattern)
+    $parsed = ConvertFrom-Json $Json
+    $flat = @(); foreach ($entry in @($parsed)) { $flat += $entry }
+    $ordered = @($flat | Where-Object { $_ -and -not [bool]$_.draft -and -not [bool]$_.prerelease } |
+            Sort-Object -Property @{ Expression = { $d = [datetime]::MinValue; if ([datetime]::TryParse([string]$_.published_at, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal, [ref]$d)) { $d } else { [datetime]::MinValue } }; Descending = $true })
+    if ($ordered.Count -eq 0) { return $Json }
+    $skipped = New-Object System.Collections.Generic.List[string]
+    foreach ($release in $ordered) {
+        $text = ConvertTo-Json -InputObject $release -Depth 20 -Compress
+        if ([regex]::IsMatch($text, $Pattern)) {
+            if ($skipped.Count -gt 0) { Write-Log ("Release {0} has no matching installer; using {1}." -f ($skipped -join ', '), [string]$release.tag_name) -Level WARN }
+            return $text
+        }
+        $skipped.Add([string]$release.tag_name)
+    }
+    return (ConvertTo-Json -InputObject $ordered[0] -Depth 20 -Compress)
+}
+Export-ModuleMember -Function Select-GitHubReleaseJson
 function Get-GitHubApiCurlArgs {
     <#
     .SYNOPSIS

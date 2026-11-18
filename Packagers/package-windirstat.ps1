@@ -88,7 +88,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl    = "https://api.github.com/repos/windirstat/windirstat/releases/latest"
+$GitHubApiUrl    = "https://api.github.com/repos/windirstat/windirstat/releases?per_page=30"
 $MsiFileName     = "WinDirStat-x64.msi"
 
 $VendorFolder = "WinDirStat"
@@ -108,7 +108,7 @@ function Get-LatestWinDirStatVersion {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -eq $MsiFileName }
         $tagName = $release.tag_name
         # Tag format: "release/v2.5.0" -> version "2.5.0"
         $version = $tagName -replace '^release/v', '' -replace '^v', ''

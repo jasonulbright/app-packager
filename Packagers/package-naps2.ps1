@@ -84,7 +84,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/cyanfish/naps2/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/cyanfish/naps2/releases?per_page=30"
 
 $VendorFolder = "NAPS2"
 $AppFolder    = "NAPS2"
@@ -132,6 +132,7 @@ function Get-LatestNaps2Release {
         $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
+        $json = Select-GitHubReleaseJson -Json $json -Pattern '"browser_download_url":\s*"(?<url>[^"]*?/(?<file>naps2-(?<ver>\d+(?:\.\d+)+)-win-x64\.msi))"'
         $m = [regex]::Match($json, '"browser_download_url":\s*"(?<url>[^"]*?/(?<file>naps2-(?<ver>\d+(?:\.\d+)+)-win-x64\.msi))"')
         if (-not $m.Success) { throw "Could not locate a win-x64 MSI asset in the latest release." }
 

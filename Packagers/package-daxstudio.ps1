@@ -85,7 +85,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/DaxStudio/DaxStudio/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/DaxStudio/DaxStudio/releases?per_page=30"
 
 $VendorFolder = "DAX Studio"
 $AppFolder    = "DAX Studio"
@@ -131,6 +131,7 @@ function Get-LatestDaxStudioRelease {
         $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
+        $json = Select-GitHubReleaseJson -Json $json -Pattern '"name":\s*"DaxStudio_(?<ver>\d+(?:_\d+)+)_setup\.exe"'
         $m = [regex]::Match($json, '"name":\s*"DaxStudio_(?<ver>\d+(?:_\d+)+)_setup\.exe"')
         if (-not $m.Success) { throw "Could not locate a setup asset in the latest release." }
 

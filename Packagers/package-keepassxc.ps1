@@ -94,7 +94,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/keepassxreboot/keepassxc/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/keepassxreboot/keepassxc/releases?per_page=30"
 
 $VendorFolder = "KeePassXC"
 $AppFolder    = "KeePassXC"
@@ -142,8 +142,7 @@ function Get-LatestKeePassXCRelease {
         $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '^KeePassXC-(\d+(?:\.\d+)+)-Win64\.msi$' }
         $asset = $release.assets |
             Where-Object { $_.name -match '^KeePassXC-(\d+(?:\.\d+)+)-Win64\.msi$' } |
             Select-Object -First 1

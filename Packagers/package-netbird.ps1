@@ -84,7 +84,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/netbirdio/netbird/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/netbirdio/netbird/releases?per_page=30"
 
 $VendorFolder = "NetBird"
 $AppFolder    = "NetBird"
@@ -132,6 +132,7 @@ function Get-LatestNetBirdRelease {
         $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
+        $json = Select-GitHubReleaseJson -Json $json -Pattern '"browser_download_url":\s*"(?<url>[^"]*?/(?<file>netbird_installer_(?<ver>\d+(?:\.\d+)+)_windows_amd64\.msi))"'
         $m = [regex]::Match($json, '"browser_download_url":\s*"(?<url>[^"]*?/(?<file>netbird_installer_(?<ver>\d+(?:\.\d+)+)_windows_amd64\.msi))"')
         if (-not $m.Success) { throw "Could not locate a windows_amd64 MSI asset in the latest release." }
 

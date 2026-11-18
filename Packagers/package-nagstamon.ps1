@@ -84,7 +84,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/HenriWahl/Nagstamon/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/HenriWahl/Nagstamon/releases?per_page=30"
 
 $VendorFolder = "Henri Wahl"
 $AppFolder    = "Nagstamon"
@@ -134,6 +134,7 @@ function Get-LatestNagstamonRelease {
         $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
+        $json = Select-GitHubReleaseJson -Json $json -Pattern '"browser_download_url":\s*"(?<url>[^"]*?/(?<file>Nagstamon-(?<ver>\d+(?:\.\d+)+)-win64_setup\.exe))"'
         $m = [regex]::Match($json, '"browser_download_url":\s*"(?<url>[^"]*?/(?<file>Nagstamon-(?<ver>\d+(?:\.\d+)+)-win64_setup\.exe))"')
         if (-not $m.Success) { throw "Could not locate a win64 setup asset in the latest release." }
 

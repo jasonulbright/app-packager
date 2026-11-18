@@ -85,7 +85,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$ReleasesApiUrl = "https://api.github.com/repos/mattermost/desktop/releases/latest"
+$ReleasesApiUrl = "https://api.github.com/repos/mattermost/desktop/releases?per_page=30"
 
 $VendorFolder = "Mattermost"
 $AppFolder    = "Mattermost Desktop"
@@ -133,8 +133,7 @@ function Get-LatestMattermostRelease {
         $json = (& curl.exe -L --fail --silent --show-error -H "Accept: application/vnd.github+json" @(Get-GitHubApiCurlArgs) $ReleasesApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query the mattermost/desktop releases API." }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -like '*win-x64.msi' }
         $tag = [string]$release.tag_name
         if ([string]::IsNullOrWhiteSpace($tag)) { throw "Release has no tag_name." }
 

@@ -92,7 +92,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/karakun/OpenWebStart/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/karakun/OpenWebStart/releases?per_page=30"
 
 $VendorFolder = "Karakun AG"
 $AppFolder    = "OpenWebStart"
@@ -139,8 +139,7 @@ function Get-LatestOpenWebStartRelease {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch GitHub release info: $GitHubApiUrl" }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '^OpenWebStart_windows-x64_.*\.exe$' }
         $version = $release.tag_name -replace '^[vV]', ''
         if ($version -notmatch '^\d+(\.\d+)+$') {
             throw "Unrecognized OpenWebStart release tag: $($release.tag_name)"

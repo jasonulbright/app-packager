@@ -109,7 +109,7 @@ if ($StageOnly -and $PackageOnly) {
 
 # --- Configuration ---
 # DBeaver tags have no v prefix (e.g. "25.3.5")
-$GitHubApiUrl = "https://api.github.com/repos/dbeaver/dbeaver/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/dbeaver/dbeaver/releases?per_page=30"
 
 $VendorFolder = "DBeaver"
 $AppFolder    = "DBeaver Community"
@@ -153,7 +153,7 @@ function Get-LatestDBeaverRelease {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match 'dbeaver-ce-.*-windows-x86_64\.exe$' }
         # DBeaver tags have no v prefix
         $version = $release.tag_name.Trim()
         if ([string]::IsNullOrWhiteSpace($version)) {

@@ -99,7 +99,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/NickeManarin/ScreenToGif/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/NickeManarin/ScreenToGif/releases?per_page=30"
 
 $VendorFolder = "Nicke Manarin"
 $AppFolder    = "ScreenToGif"
@@ -137,8 +137,7 @@ function Get-LatestScreenToGifRelease {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch GitHub release info: $GitHubApiUrl" }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match $rx }
         # The release also ships Light (runtime-dependent), MSIX, and portable
         # assets whose names share the prefix, so the pattern is anchored.
         $rx = '^ScreenToGif\.(?<ver>\d+(?:\.\d+)+)\.Setup\.x64\.msi$'

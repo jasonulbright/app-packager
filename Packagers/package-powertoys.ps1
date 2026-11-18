@@ -86,7 +86,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/microsoft/PowerToys/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/microsoft/PowerToys/releases?per_page=30"
 
 $VendorFolder = "Microsoft"
 $AppFolder    = "PowerToys"
@@ -105,7 +105,7 @@ function Get-LatestPowerToysRelease {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match 'PowerToysSetup-[\d.]+-x64\.exe$' }
         $version = $release.tag_name -replace '^v', ''
         if ([string]::IsNullOrWhiteSpace($version)) {
             throw "Could not parse version from GitHub release tag."

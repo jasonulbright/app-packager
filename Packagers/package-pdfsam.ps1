@@ -83,7 +83,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/torakiki/pdfsam/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/torakiki/pdfsam/releases?per_page=30"
 
 $VendorFolder = "Sober Lemur"
 $AppFolder    = "PDFsam Basic"
@@ -130,7 +130,7 @@ function Get-LatestPdfsamRelease {
         $json = (curl.exe -L --fail --silent --show-error -H "User-Agent: app-packager" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join "`n"
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '^pdfsam-basic-.*-windows-x64\.msi$' }
         $version = $release.tag_name -replace '^v', ''
         if ([string]::IsNullOrWhiteSpace($version)) {
             throw "Could not parse version from GitHub release tag."

@@ -87,7 +87,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/raspberrypi/rpi-imager/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/raspberrypi/rpi-imager/releases?per_page=30"
 
 $VendorFolder = "Raspberry Pi Ltd"
 $AppFolder    = "Raspberry Pi Imager"
@@ -139,7 +139,7 @@ function Get-LatestRpiImagerRelease {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '^imager-.+\.exe$' }
         $tag = [string]$release.tag_name
         if ([string]::IsNullOrWhiteSpace($tag)) {
             throw "Could not parse version from GitHub release tag."

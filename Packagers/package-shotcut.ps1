@@ -95,7 +95,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/mltframework/shotcut/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/mltframework/shotcut/releases?per_page=30"
 
 $VendorFolder = "Meltytech"
 $AppFolder    = "Shotcut"
@@ -137,8 +137,7 @@ function Get-LatestShotcutRelease {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch GitHub release info: $GitHubApiUrl" }
 
-        $release = ConvertFrom-Json $json
-
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match $rx }
         # The release also carries win_ARM, Linux, and macOS assets, plus a zip
         # of the same win64 build, so the pattern is anchored to the exe.
         $rx = '^shotcut-win64-(?<ver>\d+(?:\.\d+)+)\.exe$'

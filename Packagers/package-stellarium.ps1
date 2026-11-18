@@ -93,7 +93,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/Stellarium/stellarium/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/Stellarium/stellarium/releases?per_page=30"
 
 $VendorFolder = "Stellarium"
 $AppFolder    = "Stellarium"
@@ -143,7 +143,7 @@ function Get-LatestStellariumRelease {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query the GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '^stellarium-.+-qt6-win64\.exe$' }
         $version = $release.tag_name -replace '^v', ''
         if ([string]::IsNullOrWhiteSpace($version)) {
             throw "Could not parse a version from the GitHub release tag."

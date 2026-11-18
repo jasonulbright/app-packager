@@ -84,7 +84,7 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/sqlitebrowser/sqlitebrowser/releases/latest"
+$GitHubApiUrl = "https://api.github.com/repos/sqlitebrowser/sqlitebrowser/releases?per_page=30"
 
 $VendorFolder = "DB Browser for SQLite"
 $AppFolder    = "DB Browser for SQLite"
@@ -129,7 +129,7 @@ function Get-LatestSqliteBrowserRelease {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $release = ConvertFrom-Json $json
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -match '^DB\.Browser\.for\.SQLite-v.*-win64\.msi$' }
         $version = ($release.tag_name -replace '^v', '').Trim()
         if ([string]::IsNullOrWhiteSpace($version)) {
             throw "Could not parse version from GitHub release tag."
