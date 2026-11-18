@@ -11,6 +11,9 @@
 - Add Install options review to Options, Packaging, Folders. It skips the Stage review.
 - Add a Configure dialog before Stage for apps with install options. Continue applies per run.
 - Add the ReviewBeforeStage packager header tag. It keeps the Stage review when Options skips it.
+- Translate ConfigMgr requirements into Intune requirement rules on publish.
+- Block the Intune publish of a requirement that has no Intune rule.
+- Add Accepted requirement drops to Options, Connections, Intune. A review dialog stores it.
 
 ## [2026.11.18.0142] - 2026-11-18
 
@@ -18,9 +21,6 @@
 
 ### Added
 
-- Translate ConfigMgr requirements into Intune requirement rules on publish.
-- Block the Intune publish of a requirement that has no Intune rule.
-- Add Accepted requirement drops to Options, Connections, Intune. A review dialog stores it.
 - Add a switch for the architecture tag to Options, Packaging, Application Title.
 - Add User collection to Options, Packaging, Post Packaging. The test deployment can target a user collection limited to All Users.
 - Add Check at startup to Options, Tools. Turn it off to skip the update lookup at launch.
