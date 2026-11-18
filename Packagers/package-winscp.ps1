@@ -194,6 +194,7 @@ function Invoke-StageWinSCP {
         $downloadUrl = Get-WinSCPDownloadUrl -Version $version
 
         Write-Log "Downloading installer..."
+        Assert-DownloadAvailable -Url $downloadUrl -What 'The installer file'
         Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localExe -ExtraCurlArgs @('-L', '--max-redirs', '10')
 
         if (-not (Test-DownloadedInstaller -Path $localExe)) {

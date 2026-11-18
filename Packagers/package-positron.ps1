@@ -176,6 +176,7 @@ function Invoke-StagePositron {
 
     if (-not (Test-Path -LiteralPath $localExe)) {
         Write-Log "Downloading Positron installer..."
+        Assert-DownloadAvailable -Url $downloadUrl -What 'The installer file'
         Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localExe
     }
     else {

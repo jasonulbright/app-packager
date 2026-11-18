@@ -339,6 +339,75 @@ function Get-StoredGitHubToken {
     catch { return '' }
 }
 
+function Select-GitHubReleaseWithAsset {
+    <#
+    .SYNOPSIS
+        The newest published release that carries an installer asset, read from the asset list of each release.
+    .DESCRIPTION
+        releases/latest names the newest release, but a release can ship without the installer that a packager needs
+        (PowerShell 7.7.0 publishes no MSI). This reads the assets and never builds a file name from the version.
+        A draft or a pre-release is not a candidate. The result holds the release, the asset, the version from the tag,
+        the download URL of the asset and the versions of the newer releases that were passed over. Returns $null when no
+        release carries the asset.
+    #>
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][AllowNull()][object[]]$Releases,
+        [Parameter(Mandatory)][string]$AssetPattern
+    )
+    # Windows PowerShell 5.1 returns a JSON array as one object that holds the array; flatten any nesting.
+    $flat = @(); foreach ($entry in @($Releases)) { $flat += $entry }
+    $ordered = @($flat | Where-Object { $_ -and -not [bool]$_.draft -and -not [bool]$_.prerelease } |
+            Sort-Object -Property @{ Expression = { $d = [datetime]::MinValue; if ([datetime]::TryParse([string]$_.published_at, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal, [ref]$d)) { $d } else { [datetime]::MinValue } }; Descending = $true })
+    $skipped = New-Object System.Collections.Generic.List[string]
+    foreach ($release in $ordered) {
+        $asset = @($release.assets | Where-Object { $_ -and ([string]$_.name) -match $AssetPattern }) | Select-Object -First 1
+        $version = ([string]$release.tag_name) -replace '^v', ''
+        if ($asset) {
+            return [pscustomobject]@{
+                Release = $release; Asset = $asset; Version = $version; Tag = [string]$release.tag_name
+                AssetName = [string]$asset.name; DownloadUrl = [string]$asset.browser_download_url; SkippedNewer = @($skipped)
+            }
+        }
+        $skipped.Add($version)
+    }
+    return $null
+}
+Export-ModuleMember -Function Select-GitHubReleaseWithAsset
+
+function Get-CurrentNewerNote {
+    <#
+    .SYNOPSIS
+        The note for a product whose installed version is newer than the version of the catalog, when that is expected.
+    .DESCRIPTION
+        PowerShell 7 devices that were installed from the MSI take newer versions through Microsoft Update (the MSI property
+        USE_MU), also when the release of the newer version publishes no MSI. For such a product a version newer than the
+        catalog is compliant. Returns an empty string for any other packager.
+    #>
+    param([AllowEmptyString()][AllowNull()][string]$PackagerScript)
+    if ([string]::IsNullOrWhiteSpace($PackagerScript)) { return '' }
+    switch -Regex ([System.IO.Path]::GetFileName($PackagerScript)) {
+        '^package-powershell7\.ps1$' { return 'Newer versions arrive through Microsoft Update, so a newer installed version is compliant.' }
+        default { return '' }
+    }
+}
+Export-ModuleMember -Function Get-CurrentNewerNote
+function Assert-DownloadAvailable {
+    <#
+    .SYNOPSIS
+        Stops with a clear message when the installer file is not published at the URL, before any download starts.
+    .DESCRIPTION
+        A version feed or a release tag can run ahead of the file (a release without the installer, a file that is not
+        uploaded yet). A range request of the first byte answers without a download. A status other than 200 or 206 stops the run.
+    #>
+    param([Parameter(Mandatory)][string]$Url, [string]$What = 'The installer file')
+    $code = ''
+    try { $code = ([string]((curl.exe -L --silent --range 0-0 --output NUL --write-out '%{http_code}' --max-time 60 --max-redirs 10 $Url) -join '')).Trim() } catch { $code = 'error' }
+    if ($code -notin @('200', '206')) {
+        throw ("{0} is not published at {1} (HTTP status {2}). The version was announced before the file was published, or the file moved. Nothing was downloaded." -f $What, $Url, $(if ($code) { $code } else { 'none' }))
+    }
+    Write-Log ("Download check               : {0} answers HTTP {1}" -f $Url, $code)
+}
+Export-ModuleMember -Function Assert-DownloadAvailable
 function Get-GitHubApiCurlArgs {
     <#
     .SYNOPSIS

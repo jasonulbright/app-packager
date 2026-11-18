@@ -184,6 +184,7 @@ function Invoke-StageDaxStudio {
 
     if (-not (Test-Path -LiteralPath $localExe)) {
         Write-Log "Downloading DAX Studio..."
+        Assert-DownloadAvailable -Url $downloadUrl -What 'The installer file'
         Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localExe
     }
     else {

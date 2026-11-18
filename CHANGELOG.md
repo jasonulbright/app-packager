@@ -14,6 +14,10 @@
 - Fix the NVD request limit. Requests without a key are 6 seconds apart.
 - Fix the NVD limit across windows and the version monitor. They share one limit.
 - Fix the NVD retry. It honors Retry-After and retries timeouts.
+- Package the newest PowerShell 7 release that has an MSI. The packager reads the asset list and names the release that has none.
+- Install PowerShell 7 with Microsoft Update on (USE_MU=1, ENABLE_MU=1) and note in the log that newer versions arrive through Microsoft Update.
+- Check that the installer file exists before the download of Paint.NET, Positron, KeePass, WinSCP, SoapUI, Cryptomator, DAX Studio, Greenshot and Colour Contrast Analyser, and stop with a clear message when it does not.
+- Read the Paint.NET installer from the asset list of the release.
 
 ## [2026.11.18.0144] - 2026-11-18
 

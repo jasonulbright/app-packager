@@ -181,6 +181,7 @@ function Invoke-StageKeePass {
         $downloadUrl = Get-KeePassDownloadUrl -Version $version
 
         Write-Log "Downloading MSI..."
+        Assert-DownloadAvailable -Url $downloadUrl -What 'The installer file'
         Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localMsi -ExtraCurlArgs @('-L', '--max-redirs', '10')
     }
     else {
