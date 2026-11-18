@@ -293,6 +293,8 @@ function Read-Preferences {
         DiscoverySqlPort     = 0
         DiscoverySqlDatabase = ''
         FirstRunCompleted    = $false
+        # Looks for a newer release at launch; off keeps the launch free of the lookup.
+        CheckForUpdatesAtStartup = $true
         IncludeVersionInTitle = $false
         # Strips the release version from a vendor product name; applies only
         # while IncludeVersionInTitle is off.
@@ -442,6 +444,7 @@ function Read-Preferences {
         if ([string]$data.ContentFallback -in @('Allow','Deny')) { $defaults.ContentFallback = [string]$data.ContentFallback }
         if ([string]$data.SlowNetworkDeploymentMode -in @('Download','DoNothing')) { $defaults.SlowNetworkDeploymentMode = [string]$data.SlowNetworkDeploymentMode }
         if ($null -ne $data.CompanyName)            { $defaults.CompanyName          = [string]$data.CompanyName }
+        if ($null -ne $data.CheckForUpdatesAtStartup) { try { $defaults.CheckForUpdatesAtStartup = [bool]$data.CheckForUpdatesAtStartup } catch { <# Reading a boolean setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
 
         # M365Channel: validate against current set; migrate legacy SemiAnnual
         # and SemiAnnualPreview to MonthlyEnterprise (SAEC retired from the UI).
@@ -3236,6 +3239,7 @@ function Start-UpdateCheck {
     # Never let a failed or slow check touch launch: everything below is
     # best-effort and the caller keeps going regardless.
     try {
+        if ($script:Prefs.PSObject.Properties['CheckForUpdatesAtStartup'] -and -not [bool]$script:Prefs.CheckForUpdatesAtStartup) { return }
         # Inside a suite install the suite release is the update: its
         # installer replaces every tool at once. The lookup and its daily
         # cache are shared with the launcher and the other tools.
@@ -7544,6 +7548,8 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'tools.contentprep'; Title = 'Content Prep Tool'; Kind = 'Status'; Tip = 'Shows whether IntuneWinAppUtil.exe is found.'; Keywords = 'intunewin intunewinapputil'; Buttons = @(@{ Id = 'download'; Label = 'Download'; Tip = 'Downloads the Microsoft Win32 Content Prep Tool.' }) }
                 @{ Id = 'tools.sevenzip'; Title = '7-Zip'; Kind = 'Status'; Tip = 'Shows whether 7z.exe is found; the Adobe Reader packager needs it.'; Keywords = '7z' }
                 @{ Id = 'tools.iconpack'; Title = 'Icon pack'; Kind = 'Status'; Tip = 'Shows the state of the packager icon pack.'; Keywords = 'icons'; Buttons = @(@{ Id = 'download'; Label = 'Download'; Tip = 'Downloads the icon pack and extracts it into Packagers\Icons.' }, @{ Id = 'file'; Label = 'Install from file...'; Tip = 'Installs the icon pack from a local or UNC zip file.' }) }
+                @{ Id = 'upd.group'; Kind = 'Group'; Title = 'Updates'; Description = 'AppPackager looks for a newer release when it starts.' }
+                @{ Id = 'upd.check'; Title = 'Check at startup'; Kind = 'Check'; Pref = 'CheckForUpdatesAtStartup'; Label = 'Look for a newer release when AppPackager starts'; Tip = 'Turn it off to skip the lookup at launch.'; Keywords = 'update release version' }
                 @{ Id = 'gh.group'; Kind = 'Group'; Title = 'GitHub Authentication'; Description = 'The GitHub-backed packagers and the version monitor send a token as a bearer token. A token raises the limit from 60 to 5000 requests per hour.' }
                 @{ Id = 'gh.status'; Title = 'Status'; Kind = 'Status'; Tip = 'Shows how AppPackager signs in to the GitHub API and the requests that are left this hour.'; Keywords = 'github authentication token rate limit gh' }
                 @{ Id = 'gh.token'; Title = 'GitHub token'; Kind = 'Secret'; Pref = 'GitHub.TokenProtected'; Tip = 'Optional, DPAPI-protected; 5000 requests per hour with a token, 60 without.'; Keywords = 'github key personal access token pat' }
