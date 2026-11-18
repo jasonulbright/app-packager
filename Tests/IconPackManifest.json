@@ -1,0 +1,1962 @@
+{
+  "PackVersion": "2026.11.18.0014",
+  "MinAppVersion": "1.5.0.0",
+  "Icons": [
+    {
+      "File": "7zip.png",
+      "Packager": "7zip",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "adobereader.png",
+      "Packager": "adobereader",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "agentransack.png",
+      "Packager": "agentransack",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "aimp.png",
+      "Packager": "aimp",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "amazondcv.png",
+      "Packager": "amazondcv",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "amazonworkspaces.png",
+      "Packager": "amazonworkspaces",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "anaconda.png",
+      "Packager": "anaconda",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "androidstudio.png",
+      "Packager": "androidstudio",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "anyburn.png",
+      "Packager": "anyburn",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "anydesk.png",
+      "Packager": "anydesk",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "apppackagersuite.png",
+      "Packager": "apppackagersuite",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "arduinoide.png",
+      "Packager": "arduinoide",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "asperaconnect.png",
+      "Packager": "asperaconnect",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "aspnethostingbundle10.png",
+      "Packager": "aspnethostingbundle10",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 320
+    },
+    {
+      "File": "aspnethostingbundle8.png",
+      "Packager": "aspnethostingbundle8",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 320
+    },
+    {
+      "File": "audacity.png",
+      "Packager": "audacity",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "awscli.png",
+      "Packager": "awscli",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "awssamcli.png",
+      "Packager": "awssamcli",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "awsssmplugin.png",
+      "Packager": "awsssmplugin",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 400
+    },
+    {
+      "File": "awstools.png",
+      "Packager": "awstools",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 460
+    },
+    {
+      "File": "awsvpnclient.png",
+      "Packager": "awsvpnclient",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "axcrypt.png",
+      "Packager": "axcrypt",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "azurecli.png",
+      "Packager": "azurecli",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 400
+    },
+    {
+      "File": "azurefunctionscore.png",
+      "Packager": "azurefunctionscore",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "azurepowershell.png",
+      "Packager": "azurepowershell",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "azurestorageexplorer.png",
+      "Packager": "azurestorageexplorer",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "bambustudio.png",
+      "Packager": "bambustudio",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "bcuninstaller.png",
+      "Packager": "bcuninstaller",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "beyondcompare5.png",
+      "Packager": "beyondcompare5",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "bitwarden.png",
+      "Packager": "bitwarden",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "bleachbit.png",
+      "Packager": "bleachbit",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "blender.png",
+      "Packager": "blender",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "boxdrive.png",
+      "Packager": "boxdrive",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "brave.png",
+      "Packager": "brave",
+      "SourceKind": "InnerExe",
+      "PixelSize": 256
+    },
+    {
+      "File": "bruno.png",
+      "Packager": "bruno",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "bulkrenameutility.png",
+      "Packager": "bulkrenameutility",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "calibre.png",
+      "Packager": "calibre",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "calibrite.png",
+      "Packager": "calibrite",
+      "SourceKind": "PeResource",
+      "PixelSize": 512
+    },
+    {
+      "File": "ccleaner.png",
+      "Packager": "ccleaner",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "certifytheweb.png",
+      "Packager": "certifytheweb",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "chefworkstation.png",
+      "Packager": "chefworkstation",
+      "SourceKind": "InnerExe",
+      "PixelSize": 256
+    },
+    {
+      "File": "chrome.png",
+      "Packager": "chrome",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "chromeremotedesktophost.png",
+      "Packager": "chromeremotedesktophost",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "citrixworkspace-cr.png",
+      "Packager": "citrixworkspace-cr",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "citrixworkspace-ltsr-arm64.png",
+      "Packager": "citrixworkspace-ltsr-arm64",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "citrixworkspace-ltsr-x64.png",
+      "Packager": "citrixworkspace-ltsr-x64",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "citrixworkspace-ltsr-x86.png",
+      "Packager": "citrixworkspace-ltsr-x86",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "clockify.png",
+      "Packager": "clockify",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "cloudcompare.png",
+      "Packager": "cloudcompare",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "cloudflarewarp.png",
+      "Packager": "cloudflarewarp",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "cmake.png",
+      "Packager": "cmake",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "codemeterruntime.png",
+      "Packager": "codemeterruntime",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "colourcontrastanalyser.png",
+      "Packager": "colourcontrastanalyser",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "corretto-jdk11-x64.png",
+      "Packager": "corretto-jdk11-x64",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "corretto-jdk11-x86.png",
+      "Packager": "corretto-jdk11-x86",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "corretto-jdk17.png",
+      "Packager": "corretto-jdk17",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "corretto-jdk21.png",
+      "Packager": "corretto-jdk21",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "corretto-jdk25.png",
+      "Packager": "corretto-jdk25",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "corretto-jdk8-x64.png",
+      "Packager": "corretto-jdk8-x64",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "corretto-jdk8-x86.png",
+      "Packager": "corretto-jdk8-x86",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "cpuz.png",
+      "Packager": "cpuz",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "cryptomator.png",
+      "Packager": "cryptomator",
+      "SourceKind": "MsiIconTablePe",
+      "PixelSize": 256
+    },
+    {
+      "File": "cura.png",
+      "Packager": "cura",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "cutepdfwriter.png",
+      "Packager": "cutepdfwriter",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "cyberduck.png",
+      "Packager": "cyberduck",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "datagrip.png",
+      "Packager": "datagrip",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "daxstudio.png",
+      "Packager": "daxstudio",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "dbbrowsersqlite.png",
+      "Packager": "dbbrowsersqlite",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "dbeaver.png",
+      "Packager": "dbeaver",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "dbvisualizer.png",
+      "Packager": "dbvisualizer",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "defraggler.png",
+      "Packager": "defraggler",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "dellcommandupdate.png",
+      "Packager": "dellcommandupdate",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "devolutionspowershell.png",
+      "Packager": "devolutionspowershell",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "displaylink.png",
+      "Packager": "displaylink",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "dngrep.png",
+      "Packager": "dngrep",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "dotnet10both.png",
+      "Packager": "dotnet10both",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "dotnet8.png",
+      "Packager": "dotnet8",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "dotnet9x64.png",
+      "Packager": "dotnet9x64",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "draftable.png",
+      "Packager": "draftable",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "drawio.png",
+      "Packager": "drawio",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "duodesktop.png",
+      "Packager": "duodesktop",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "edge.png",
+      "Packager": "edge",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "everything.png",
+      "Packager": "everything",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "firefox.png",
+      "Packager": "firefox",
+      "SourceKind": "InnerExe",
+      "PixelSize": 256
+    },
+    {
+      "File": "firefoxesr.png",
+      "Packager": "firefoxesr",
+      "SourceKind": "InnerExe",
+      "PixelSize": 256
+    },
+    {
+      "File": "freecad.png",
+      "Packager": "freecad",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "gcpw.png",
+      "Packager": "gcpw",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "geogebra.png",
+      "Packager": "geogebra",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "gephi.png",
+      "Packager": "gephi",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "gimp.png",
+      "Packager": "gimp",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "git.png",
+      "Packager": "git",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "githubcli.png",
+      "Packager": "githubcli",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "githubdesktop.png",
+      "Packager": "githubdesktop",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "go.png",
+      "Packager": "go",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "goland.png",
+      "Packager": "goland",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "googledrive.png",
+      "Packager": "googledrive",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "gpg4win.png",
+      "Packager": "gpg4win",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "graphviz.png",
+      "Packager": "graphviz",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "greenshot.png",
+      "Packager": "greenshot",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "grepwin.png",
+      "Packager": "grepwin",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "gsudo.png",
+      "Packager": "gsudo",
+      "SourceKind": "InnerExe",
+      "PixelSize": 256
+    },
+    {
+      "File": "handbrake.png",
+      "Packager": "handbrake",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "hashtools.png",
+      "Packager": "hashtools",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "heidisql.png",
+      "Packager": "heidisql",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "hwmonitor.png",
+      "Packager": "hwmonitor",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "iapdesktop.png",
+      "Packager": "iapdesktop",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "imageglass.png",
+      "Packager": "imageglass",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "inkscape.png",
+      "Packager": "inkscape",
+      "SourceKind": "GitHubAvatar",
+      "PixelSize": 460
+    },
+    {
+      "File": "intunedebugtoolkit.png",
+      "Packager": "intunedebugtoolkit",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 460
+    },
+    {
+      "File": "irfanview.png",
+      "Packager": "irfanview",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "jabradirect.png",
+      "Packager": "jabradirect",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "joplin.png",
+      "Packager": "joplin",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "kdiff3.png",
+      "Packager": "kdiff3",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "keepass.png",
+      "Packager": "keepass",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "keepassxc.png",
+      "Packager": "keepassxc",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "keystoreexplorer.png",
+      "Packager": "keystoreexplorer",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "kreya.png",
+      "Packager": "kreya",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "krita.png",
+      "Packager": "krita",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 512
+    },
+    {
+      "File": "liberica-jdk21.png",
+      "Packager": "liberica-jdk21",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "libreoffice.png",
+      "Packager": "libreoffice",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "m365apps-x64.png",
+      "Packager": "m365apps-x64",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "m365apps-x86.png",
+      "Packager": "m365apps-x86",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "m365project-x64.png",
+      "Packager": "m365project-x64",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "m365project-x86.png",
+      "Packager": "m365project-x86",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "m365visio-x64.png",
+      "Packager": "m365visio-x64",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "m365visio-x86.png",
+      "Packager": "m365visio-x86",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "malwarebytes.png",
+      "Packager": "malwarebytes",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "mariadb-server.png",
+      "Packager": "mariadb-server",
+      "SourceKind": "GitHubAvatar",
+      "PixelSize": 460
+    },
+    {
+      "File": "mattermost.png",
+      "Packager": "mattermost",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "mongodbcompass.png",
+      "Packager": "mongodbcompass",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "mremoteng.png",
+      "Packager": "mremoteng",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "msodbcsql18.png",
+      "Packager": "msodbcsql18",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "msoledb.png",
+      "Packager": "msoledb",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "ms-openjdk17-exe.png",
+      "Packager": "ms-openjdk17-exe",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 387
+    },
+    {
+      "File": "ms-openjdk17-exe-user.png",
+      "Packager": "ms-openjdk17-exe-user",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 387
+    },
+    {
+      "File": "ms-openjdk17-msi.png",
+      "Packager": "ms-openjdk17-msi",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 387
+    },
+    {
+      "File": "ms-openjdk17-msi-user.png",
+      "Packager": "ms-openjdk17-msi-user",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 387
+    },
+    {
+      "File": "ms-openjdk21-exe.png",
+      "Packager": "ms-openjdk21-exe",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 387
+    },
+    {
+      "File": "ms-openjdk21-exe-user.png",
+      "Packager": "ms-openjdk21-exe-user",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 387
+    },
+    {
+      "File": "ms-openjdk21-msi.png",
+      "Packager": "ms-openjdk21-msi",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 387
+    },
+    {
+      "File": "ms-openjdk21-msi-user.png",
+      "Packager": "ms-openjdk21-msi-user",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 387
+    },
+    {
+      "File": "ms-openjdk25-exe.png",
+      "Packager": "ms-openjdk25-exe",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 387
+    },
+    {
+      "File": "ms-openjdk25-exe-user.png",
+      "Packager": "ms-openjdk25-exe-user",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 387
+    },
+    {
+      "File": "ms-openjdk25-msi.png",
+      "Packager": "ms-openjdk25-msi",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 387
+    },
+    {
+      "File": "ms-openjdk25-msi-user.png",
+      "Packager": "ms-openjdk25-msi-user",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 387
+    },
+    {
+      "File": "msvcruntimes.png",
+      "Packager": "msvcruntimes",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "msvcruntimesx64.png",
+      "Packager": "msvcruntimesx64",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "msvcruntimesx86.png",
+      "Packager": "msvcruntimesx86",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "musescore.png",
+      "Packager": "musescore",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "mysqlconnectornet.png",
+      "Packager": "mysqlconnectornet",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "nagstamon.png",
+      "Packager": "nagstamon",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "naps2.png",
+      "Packager": "naps2",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "netbeans.png",
+      "Packager": "netbeans",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "netbird.png",
+      "Packager": "netbird",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "netlogo.png",
+      "Packager": "netlogo",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "networkmanager.png",
+      "Packager": "networkmanager",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "nextcloud.png",
+      "Packager": "nextcloud",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "nodejs.png",
+      "Packager": "nodejs",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "nomachine.png",
+      "Packager": "nomachine",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "notepadplusplus.png",
+      "Packager": "notepadplusplus",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "nvda.png",
+      "Packager": "nvda",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "nvidia-geforce.png",
+      "Packager": "nvidia-geforce",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "nvidia-rtx-enterprise.png",
+      "Packager": "nvidia-rtx-enterprise",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "obsidian.png",
+      "Packager": "obsidian",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "ocenaudio.png",
+      "Packager": "ocenaudio",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "ohmyposh.png",
+      "Packager": "ohmyposh",
+      "SourceKind": "InnerExe",
+      "PixelSize": 256
+    },
+    {
+      "File": "omnissahorizonclient.png",
+      "Packager": "omnissahorizonclient",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "openshot.png",
+      "Packager": "openshot",
+      "SourceKind": "PeResource",
+      "PixelSize": 512
+    },
+    {
+      "File": "openvpn.png",
+      "Packager": "openvpn",
+      "SourceKind": "GitHubAvatar",
+      "PixelSize": 267
+    },
+    {
+      "File": "openwebstart.png",
+      "Packager": "openwebstart",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "opera.png",
+      "Packager": "opera",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "orcaslicer.png",
+      "Packager": "orcaslicer",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "ownclouddesktop.png",
+      "Packager": "ownclouddesktop",
+      "SourceKind": "MsiIconTablePe",
+      "PixelSize": 512
+    },
+    {
+      "File": "paintdotnet.png",
+      "Packager": "paintdotnet",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "pandoc.png",
+      "Packager": "pandoc",
+      "SourceKind": "GitHubAvatar",
+      "PixelSize": 420
+    },
+    {
+      "File": "parallelsclient.png",
+      "Packager": "parallelsclient",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "pathcopycopy.png",
+      "Packager": "pathcopycopy",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "pdf24creator.png",
+      "Packager": "pdf24creator",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "pdfcreator.png",
+      "Packager": "pdfcreator",
+      "SourceKind": "InnerExe",
+      "PixelSize": 256
+    },
+    {
+      "File": "pdfgear.png",
+      "Packager": "pdfgear",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "pdfsam.png",
+      "Packager": "pdfsam",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "pdfstudioviewer.png",
+      "Packager": "pdfstudioviewer",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "peazip.png",
+      "Packager": "peazip",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "pgadmin4.png",
+      "Packager": "pgadmin4",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "picpick.png",
+      "Packager": "picpick",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "pidgin.png",
+      "Packager": "pidgin",
+      "SourceKind": "GitHubAvatar",
+      "PixelSize": 460
+    },
+    {
+      "File": "positron.png",
+      "Packager": "positron",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 512
+    },
+    {
+      "File": "postgresql13.png",
+      "Packager": "postgresql13",
+      "SourceKind": "GitHubAvatar",
+      "PixelSize": 460
+    },
+    {
+      "File": "postgresql14.png",
+      "Packager": "postgresql14",
+      "SourceKind": "GitHubAvatar",
+      "PixelSize": 460
+    },
+    {
+      "File": "postgresql15.png",
+      "Packager": "postgresql15",
+      "SourceKind": "GitHubAvatar",
+      "PixelSize": 460
+    },
+    {
+      "File": "postgresql16.png",
+      "Packager": "postgresql16",
+      "SourceKind": "GitHubAvatar",
+      "PixelSize": 460
+    },
+    {
+      "File": "postgresql17.png",
+      "Packager": "postgresql17",
+      "SourceKind": "GitHubAvatar",
+      "PixelSize": 460
+    },
+    {
+      "File": "postman.png",
+      "Packager": "postman",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "powerbi-desktop.png",
+      "Packager": "powerbi-desktop",
+      "SourceKind": "PeResource",
+      "PixelSize": 512
+    },
+    {
+      "File": "powershell7.png",
+      "Packager": "powershell7",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "powertoys.png",
+      "Packager": "powertoys",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "protonvpn.png",
+      "Packager": "protonvpn",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "pspad.png",
+      "Packager": "pspad",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "putty.png",
+      "Packager": "putty",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "pwsafe.png",
+      "Packager": "pwsafe",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "pycharm.png",
+      "Packager": "pycharm",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "python.png",
+      "Packager": "python",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "qgis.png",
+      "Packager": "qgis",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "qgis-ltr.png",
+      "Packager": "qgis-ltr",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "r.png",
+      "Packager": "r",
+      "SourceKind": "GitHubAvatar",
+      "PixelSize": 460
+    },
+    {
+      "File": "rainmeter.png",
+      "Packager": "rainmeter",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "rancherdesktop.png",
+      "Packager": "rancherdesktop",
+      "SourceKind": "InnerExe",
+      "PixelSize": 256
+    },
+    {
+      "File": "redshiftodbc.png",
+      "Packager": "redshiftodbc",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "remotedesktopmanager.png",
+      "Packager": "remotedesktopmanager",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "renderdoc.png",
+      "Packager": "renderdoc",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "rocketchat.png",
+      "Packager": "rocketchat",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "rpiimager.png",
+      "Packager": "rpiimager",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "rstudio.png",
+      "Packager": "rstudio",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "rtools.png",
+      "Packager": "rtools",
+      "SourceKind": "GitHubAvatar",
+      "PixelSize": 460
+    },
+    {
+      "File": "rustdesk.png",
+      "Packager": "rustdesk",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "rvtools.png",
+      "Packager": "rvtools",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "salesforcecli.png",
+      "Packager": "salesforcecli",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "screentogif.png",
+      "Packager": "screentogif",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "semeru-jdk11.png",
+      "Packager": "semeru-jdk11",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "semeru-jdk17.png",
+      "Packager": "semeru-jdk17",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "semeru-jdk8.png",
+      "Packager": "semeru-jdk8",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "semeru-jre11.png",
+      "Packager": "semeru-jre11",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "semeru-jre17.png",
+      "Packager": "semeru-jre17",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "semeru-jre8.png",
+      "Packager": "semeru-jre8",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "sharepointonlinemanagementshell.png",
+      "Packager": "sharepointonlinemanagementshell",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "sharex.png",
+      "Packager": "sharex",
+      "SourceKind": "GitHubAvatar",
+      "PixelSize": 256
+    },
+    {
+      "File": "shotcut.png",
+      "Packager": "shotcut",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "signingsuite.png",
+      "Packager": "signingsuite",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "simplenote.png",
+      "Packager": "simplenote",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "slack.png",
+      "Packager": "slack",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "slido.png",
+      "Packager": "slido",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "smartty.png",
+      "Packager": "smartty",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 348
+    },
+    {
+      "File": "smathstudio.png",
+      "Packager": "smathstudio",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "soapui.png",
+      "Packager": "soapui",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "softerraldapbrowser.png",
+      "Packager": "softerraldapbrowser",
+      "SourceKind": "MsiIconTablePe",
+      "PixelSize": 256
+    },
+    {
+      "File": "spectrapdf.png",
+      "Packager": "spectrapdf",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "sqlserver2022express.png",
+      "Packager": "sqlserver2022express",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "ssms.png",
+      "Packager": "ssms",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "stellarium.png",
+      "Packager": "stellarium",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "syncbackfree.png",
+      "Packager": "syncbackfree",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "synologydriveclient.png",
+      "Packager": "synologydriveclient",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "sysinternals.png",
+      "Packager": "sysinternals",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 280
+    },
+    {
+      "File": "tableaudesktop.png",
+      "Packager": "tableaudesktop",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "tableauprep.png",
+      "Packager": "tableauprep",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "tableaureader.png",
+      "Packager": "tableaureader",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "tabulareditor2.png",
+      "Packager": "tabulareditor2",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "tailscale.png",
+      "Packager": "tailscale",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "teams-new.png",
+      "Packager": "teams-new",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "teamspeak3client.png",
+      "Packager": "teamspeak3client",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "teamviewer.png",
+      "Packager": "teamviewer",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "teamviewerhost.png",
+      "Packager": "teamviewerhost",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "temurin-jdk11-x64.png",
+      "Packager": "temurin-jdk11-x64",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "temurin-jdk11-x86.png",
+      "Packager": "temurin-jdk11-x86",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "temurin-jdk17.png",
+      "Packager": "temurin-jdk17",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "temurin-jdk21.png",
+      "Packager": "temurin-jdk21",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "temurin-jdk25.png",
+      "Packager": "temurin-jdk25",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "temurin-jdk8-x64.png",
+      "Packager": "temurin-jdk8-x64",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "temurin-jdk8-x86.png",
+      "Packager": "temurin-jdk8-x86",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "temurin-jre11-x64.png",
+      "Packager": "temurin-jre11-x64",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "temurin-jre11-x86.png",
+      "Packager": "temurin-jre11-x86",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "temurin-jre17.png",
+      "Packager": "temurin-jre17",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "temurin-jre21.png",
+      "Packager": "temurin-jre21",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "temurin-jre25.png",
+      "Packager": "temurin-jre25",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "temurin-jre8-x64.png",
+      "Packager": "temurin-jre8-x64",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "temurin-jre8-x86.png",
+      "Packager": "temurin-jre8-x86",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "teracopy.png",
+      "Packager": "teracopy",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "thonny.png",
+      "Packager": "thonny",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "thunderbird.png",
+      "Packager": "thunderbird",
+      "SourceKind": "InnerExe",
+      "PixelSize": 256
+    },
+    {
+      "File": "tightvnc.png",
+      "Packager": "tightvnc",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "tortoisegit.png",
+      "Packager": "tortoisegit",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "tortoisehg.png",
+      "Packager": "tortoisehg",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "tortoisesvn.png",
+      "Packager": "tortoisesvn",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "treesizefree.png",
+      "Packager": "treesizefree",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "turbovnc.png",
+      "Packager": "turbovnc",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "typora.png",
+      "Packager": "typora",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "ultravnc.png",
+      "Packager": "ultravnc",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "unityhub.png",
+      "Packager": "unityhub",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "urbackupclient.png",
+      "Packager": "urbackupclient",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "vagrant.png",
+      "Packager": "vagrant",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "veracrypt.png",
+      "Packager": "veracrypt",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "vim.png",
+      "Packager": "vim",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "vlc.png",
+      "Packager": "vlc",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "vscode.png",
+      "Packager": "vscode",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "vscode-system.png",
+      "Packager": "vscode-system",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "vscode-user.png",
+      "Packager": "vscode-user",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "vscodium.png",
+      "Packager": "vscodium",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "webex.png",
+      "Packager": "webex",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "webstorm.png",
+      "Packager": "webstorm",
+      "SourceKind": "InnerExe",
+      "PixelSize": 256
+    },
+    {
+      "File": "webview2.png",
+      "Packager": "webview2",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "windirstat.png",
+      "Packager": "windirstat",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "windowsadk.png",
+      "Packager": "windowsadk",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 256
+    },
+    {
+      "File": "windowsadmincenter.png",
+      "Packager": "windowsadmincenter",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "windowspeaddon.png",
+      "Packager": "windowspeaddon",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 498
+    },
+    {
+      "File": "winmerge.png",
+      "Packager": "winmerge",
+      "SourceKind": "InnerExe",
+      "PixelSize": 256
+    },
+    {
+      "File": "winrar.png",
+      "Packager": "winrar",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "winscp.png",
+      "Packager": "winscp",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "wireguard.png",
+      "Packager": "wireguard",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "wireshark.png",
+      "Packager": "wireshark",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "xencenter.png",
+      "Packager": "xencenter",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "xenserver-vmtools.png",
+      "Packager": "xenserver-vmtools",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "xnviewmp.png",
+      "Packager": "xnviewmp",
+      "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "yubicoauthenticator.png",
+      "Packager": "yubicoauthenticator",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 300
+    },
+    {
+      "File": "yubicopivtool.png",
+      "Packager": "yubicopivtool",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "yubikeymanagercli.png",
+      "Packager": "yubikeymanagercli",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 300
+    },
+    {
+      "File": "zeal.png",
+      "Packager": "zeal",
+      "SourceKind": "InnerExe",
+      "PixelSize": 256
+    },
+    {
+      "File": "zoom.png",
+      "Packager": "zoom",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "zotero.png",
+      "Packager": "zotero",
+      "SourceKind": "InnerExe",
+      "PixelSize": 256
+    },
+    {
+      "File": "zulip.png",
+      "Packager": "zulip",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "zulu-jdk11.png",
+      "Packager": "zulu-jdk11",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "zulu-jdk17.png",
+      "Packager": "zulu-jdk17",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "zulu-jdk8.png",
+      "Packager": "zulu-jdk8",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "zulu-jre11.png",
+      "Packager": "zulu-jre11",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "zulu-jre17.png",
+      "Packager": "zulu-jre17",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "zulu-jre8.png",
+      "Packager": "zulu-jre8",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "dotnet9x86.png",
+      "Packager": "dotnet9x86",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "dotnet11x64.png",
+      "Packager": "dotnet11x64",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 512
+    },
+    {
+      "File": "aspnethostingbundle9.png",
+      "Packager": "aspnethostingbundle9",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 320
+    },
+    {
+      "File": "aspnethostingbundle11.png",
+      "Packager": "aspnethostingbundle11",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 320
+    },
+    {
+      "File": "powershell7lts.png",
+      "Packager": "powershell7lts",
+      "SourceKind": "MsiIconTable",
+      "PixelSize": 256
+    },
+    {
+      "File": "filezilla.png",
+      "Packager": "filezilla",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "foxitreader.png",
+      "Packager": "foxitreader",
+      "SourceKind": "InstalledApp",
+      "PixelSize": 256
+    },
+    {
+      "File": "wiztree.png",
+      "Packager": "wiztree",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 445
+    },
+    {
+      "File": "anypointstudio.png",
+      "Packager": "anypointstudio",
+      "SourceKind": "Supplied",
+      "PixelSize": 256
+    },
+    {
+      "File": "vmwaretools.png",
+      "Packager": "vmwaretools",
+      "SourceKind": "Supplied",
+      "PixelSize": 256
+    },
+    {
+      "File": "vs2026.png",
+      "Packager": "vs2026",
+      "SourceKind": "Supplied",
+      "PixelSize": 256
+    },
+    {
+      "File": "vs2026community.png",
+      "Packager": "vs2026community",
+      "SourceKind": "Supplied",
+      "PixelSize": 256
+    }
+  ]
+}
