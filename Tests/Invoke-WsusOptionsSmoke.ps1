@@ -16,7 +16,7 @@ $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'start-apppackager.ps1'), [ref]$tokens, [ref]$errors)
 if ($errors) { throw ($errors.Message -join '; ') }
 foreach ($name in @('Expand-SharedStyle', 'Get-SharedStyleXaml', 'Read-Preferences', 'Resolve-FirstRunCompleted', 'Get-DeploymentTargetNames',
-                    'Test-DeploymentTargetSkipsSite', 'Test-DeploymentTargetPublishesToWsus', 'Get-WsusClassificationNameList',
+                    'Test-DeploymentTargetSkipsSite', 'Test-DeploymentTargetPublishesToWsus', 'Test-DeploymentTargetPublishesToIntune', 'Get-WsusClassificationNameList',
                     'Get-WsusClassificationLabel', 'Get-WsusPublishConfigForContext',
                     'Get-IntunePublishConfigForContext')) {
     $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)

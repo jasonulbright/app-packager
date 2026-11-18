@@ -533,6 +533,8 @@ Describe 'Run snapshots' {
         @{ Given = 'MECMAndWSUS'; Expected = 'ConfigMgrAndWSUS' }
         @{ Given = 'IntuneOnly'; Expected = 'IntuneOnly' }
         @{ Given = 'WSUSOnly'; Expected = 'WSUSOnly' }
+        @{ Given = 'IntuneAndWSUS'; Expected = 'IntuneAndWSUS' }
+        @{ Given = 'ConfigMgrAndIntuneAndWSUS'; Expected = 'ConfigMgrAndIntuneAndWSUS' }
         @{ Given = 'ContentOnly'; Expected = 'ContentOnly' }
     ) {
         param($Given, $Expected)
@@ -550,6 +552,8 @@ Describe 'Run snapshots' {
         @{ Written = 'IntuneOnly'; Expected = 'IntuneOnly' }
         @{ Written = 'WSUSOnly'; Expected = 'WSUSOnly' }
         @{ Written = 'ContentOnly'; Expected = 'ContentOnly' }
+        @{ Written = 'IntuneAndWSUS'; Expected = 'IntuneAndWSUS' }
+        @{ Written = 'ConfigMgrAndIntuneAndWSUS'; Expected = 'ConfigMgrAndIntuneAndWSUS' }
         @{ Written = 'MECM'; Expected = 'ConfigMgr' }
         @{ Written = 'MECMAndIntune'; Expected = 'ConfigMgrAndIntune' }
         @{ Written = 'MECMAndWSUS'; Expected = 'ConfigMgrAndWSUS' }
@@ -583,6 +587,11 @@ Describe 'Deployment target names' {
     ) {
         param($Given, $Expected)
         ConvertTo-CurrentDeploymentTarget -Value $Given | Should -BeExactly $Expected
+    }
+
+    It 'maps the two combinations that have no ConfigMgr base' {
+        ConvertTo-CurrentDeploymentTarget -Value 'intuneandwsus' | Should -BeExactly 'IntuneAndWSUS'
+        ConvertTo-CurrentDeploymentTarget -Value 'ConfigMgrAndIntuneAndWSUS' | Should -BeExactly 'ConfigMgrAndIntuneAndWSUS'
     }
 
     It 'returns the default for a value that is no target name' {

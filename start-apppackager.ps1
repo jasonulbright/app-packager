@@ -118,50 +118,64 @@ function Get-PreferencesPath {
 }
 
 function Get-DeploymentTargetNames {
-    # The current names. The old names MECM, MECMAndIntune and MECMAndWSUS still
-    # load: ConvertTo-CurrentDeploymentTarget maps them at every read.
-    return @('ConfigMgr', 'ConfigMgrAndIntune', 'IntuneOnly', 'ConfigMgrAndWSUS', 'WSUSOnly')
+    # The current names of the seven publish targets. The destinations ConfigMgr,
+    # Intune and WSUS are independent and optional; each name lists its own. The
+    # old names MECM, MECMAndIntune and MECMAndWSUS still load:
+    # ConvertTo-CurrentDeploymentTarget maps them at every read.
+    return @(Get-DeploymentPublishTargetNames)
 }
 
 function Get-KnownDeploymentTarget {
-    # The current name of a stored or passed target, or Default when the value is no run target.
-    param([AllowNull()][AllowEmptyString()]$Value, [string]$Default = 'ConfigMgr')
+    # The current name of a stored or passed publish target. A value that is no publish
+    # target name stops the run with the valid names; it never selects a destination.
+    param([AllowNull()][AllowEmptyString()]$Value)
     $name = ConvertTo-CurrentDeploymentTarget -Value $Value -Default ''
     if ($name -in (Get-DeploymentTargetNames)) { return $name }
-    return $Default
+    throw ("The target '{0}' is not valid. Use one of: {1}." -f [string]$Value, ((Get-DeploymentTargetNames) -join ', '))
 }
 
 function ConvertTo-DeploymentTargetName {
-    # The nearest single target for the code paths that still read one; a
-    # set of all three or WSUS+Intune has no name and maps to its ConfigMgr
-    # or WSUS part.
+    # The name of a set of destinations for the code paths that read one name. Every
+    # combination has its own name; no destination gives an empty string, never ConfigMgr.
     param([Parameter(Mandatory)]$Destinations)
     $cm = [bool]$Destinations.ConfigMgr; $wsus = [bool]$Destinations.WSUS; $intune = [bool]$Destinations.Intune
+    if ($cm -and $intune -and $wsus) { return 'ConfigMgrAndIntuneAndWSUS' }
+    if ($intune -and $wsus) { return 'IntuneAndWSUS' }
     if ($cm -and $wsus) { return 'ConfigMgrAndWSUS' }
     if ($cm -and $intune) { return 'ConfigMgrAndIntune' }
     if ($cm) { return 'ConfigMgr' }
     if ($wsus) { return 'WSUSOnly' }
     if ($intune) { return 'IntuneOnly' }
-    return 'ConfigMgr'
+    return ''
 }
 
 function Test-DeploymentTargetSkipsSite {
-    # Intune-only and WSUS-only runs stop at Stage: no site connection, no
-    # share copy, no ConfigMgr application.
+    # A target without the ConfigMgr destination stops at Stage: no site connection,
+    # no share copy, no ConfigMgr application. A value that is no target name has no
+    # ConfigMgr destination either.
     param([AllowEmptyString()][string]$DeploymentTarget)
-    return ((ConvertTo-CurrentDeploymentTarget -Value $DeploymentTarget) -in @('IntuneOnly', 'WSUSOnly'))
+    $destinations = Get-DeploymentTargetDestinations -Target $DeploymentTarget
+    return (-not ($destinations -and $destinations.ConfigMgr))
 }
 
 function Test-DeploymentTargetPublishesToWsus {
     param([AllowEmptyString()][string]$DeploymentTarget)
-    return ((ConvertTo-CurrentDeploymentTarget -Value $DeploymentTarget) -in @('ConfigMgrAndWSUS', 'WSUSOnly'))
+    $destinations = Get-DeploymentTargetDestinations -Target $DeploymentTarget
+    return [bool]($destinations -and $destinations.WSUS)
+}
+
+function Test-DeploymentTargetPublishesToIntune {
+    param([AllowEmptyString()][string]$DeploymentTarget)
+    $destinations = Get-DeploymentTargetDestinations -Target $DeploymentTarget
+    return [bool]($destinations -and $destinations.Intune)
 }
 
 function Get-PublishRowOutcome {
     # Row status after one application's publish run. Kind is Success,
-    # Skipped, NotSupported or Failed. An Intune or WSUS run succeeds only
-    # when its publish succeeds; a ConfigMgr run that also publishes to WSUS
-    # carries the WSUS result as a status suffix.
+    # Skipped, NotSupported or Failed. A run without the ConfigMgr destination
+    # succeeds only when each of its Intune and WSUS publishes succeeds; a run with
+    # the ConfigMgr destination that also publishes to Intune or WSUS carries those
+    # results as a status suffix.
     param([Parameter(Mandatory)]$Result, [AllowEmptyString()][string]$DeploymentTarget)
 
     $DeploymentTarget = ConvertTo-CurrentDeploymentTarget -Value $DeploymentTarget -Default $DeploymentTarget
@@ -183,16 +197,20 @@ function Get-PublishRowOutcome {
     if ($Result.ExitCode -ne 0) {
         return (& $make 'Failed' $(if ($siteFree) { 'Publish error' } else { 'Package error' }) $false)
     }
-    if ($DeploymentTarget -eq 'WSUSOnly') {
-        if ($wsus -and $wsus.Ok) { return (& $make 'Success' $(if ($wsusWarned) { 'Published, warning' } else { 'Published' }) $true) }
-        if ($wsusRefused) { return (& $make 'NotSupported' 'WSUS: not supported' $false) }
-        return (& $make 'Failed' 'Publish error' $false)
+    $destinations = Get-DeploymentTargetDestinations -Target $DeploymentTarget
+    if ($siteFree -and $destinations -and ($destinations.Intune -or $destinations.WSUS)) {
+        # Without the ConfigMgr destination, the run succeeds only when each requested publish succeeds.
+        if ($destinations.Intune -and -not ($intune -and $intune.Ok)) { return (& $make 'Failed' 'Publish error' $false) }
+        if ($destinations.WSUS) {
+            if ($wsus -and $wsus.Ok) { return (& $make 'Success' $(if ($wsusWarned) { 'Published, warning' } else { 'Published' }) $true) }
+            if ($wsusRefused -and -not $destinations.Intune) { return (& $make 'NotSupported' 'WSUS: not supported' $false) }
+            return (& $make 'Failed' 'Publish error' $false)
+        }
+        return (& $make 'Success' 'Published' $true)
     }
-    if ($DeploymentTarget -eq 'IntuneOnly') {
-        if ($intune -and $intune.Ok) { return (& $make 'Success' 'Published' $true) }
-        return (& $make 'Failed' 'Publish error' $false)
-    }
-    return (& $make 'Success' ('Packaged' + $wsusSuffix) $false)
+    $intuneSuffix = ''
+    if ($destinations -and $destinations.Intune -and -not ($intune -and $intune.Ok)) { $intuneSuffix = ', Intune failed' }
+    return (& $make 'Success' ('Packaged' + $wsusSuffix + $intuneSuffix) $false)
 }
 
 function Get-WsusClassificationNameList {
@@ -386,12 +404,13 @@ function Read-Preferences {
             TokenProtected = ''
         }
         Intune               = [pscustomobject]@{
-            # One Click destination. ConfigMgr = ConfigMgr app; ConfigMgrAndIntune =
-            # ConfigMgr app + Graph publish; IntuneOnly = stage + .intunewin +
-            # Graph publish, no site touch; ConfigMgrAndWSUS = ConfigMgr app + WSUS
-            # publish; WSUSOnly = stage + WSUS publish, no site touch. The
-            # sidebar publish buttons set their own destination per run. The old
-            # names MECM, MECMAndIntune and MECMAndWSUS still load.
+            # The name of the default destinations. ConfigMgr, Intune and WSUS are
+            # independent and optional; each name lists its own: ConfigMgr, IntuneOnly,
+            # WSUSOnly, ConfigMgrAndIntune, ConfigMgrAndWSUS, IntuneAndWSUS and
+            # ConfigMgrAndIntuneAndWSUS. A name without ConfigMgr never touches the site.
+            # ConfigMgr is only the default of this setting. The sidebar publish buttons
+            # set their own destination per run. The old names MECM, MECMAndIntune and
+            # MECMAndWSUS still load. A value that is no target name selects no destination.
             DeploymentTarget      = 'ConfigMgr'
             PublishToIntune       = $false
             TenantId              = ''
@@ -695,10 +714,15 @@ function Read-Preferences {
             elseif ($null -ne $data.Intune -and $null -ne $data.Intune.DeploymentTarget) {
                 # A preferences file from before the per-row destinations
                 # carries one saved target.
-                $target = ConvertTo-CurrentDeploymentTarget -Value $data.Intune.DeploymentTarget -Default ([string]$data.Intune.DeploymentTarget)
-                $defaults.AppFlow.DefaultDestinations.ConfigMgr = ($target -notin @('IntuneOnly', 'WSUSOnly'))
-                $defaults.AppFlow.DefaultDestinations.WSUS      = ($target -in @('ConfigMgrAndWSUS', 'WSUSOnly'))
-                $defaults.AppFlow.DefaultDestinations.Intune    = ($target -in @('ConfigMgrAndIntune', 'IntuneOnly'))
+                $legacyDestinations = Get-DeploymentTargetDestinations -Target $data.Intune.DeploymentTarget
+                if (-not $legacyDestinations) {
+                    # A value that is no target name selects no destination. It never selects ConfigMgr.
+                    Write-Warning ("The target '{0}' in the preferences file is not valid. The tool selects no default destination. Use one of: {1}." -f [string]$data.Intune.DeploymentTarget, ((Get-DeploymentPublishTargetNames) -join ', '))
+                    $legacyDestinations = [pscustomobject]@{ ConfigMgr = $false; WSUS = $false; Intune = $false }
+                }
+                $defaults.AppFlow.DefaultDestinations.ConfigMgr = [bool]$legacyDestinations.ConfigMgr
+                $defaults.AppFlow.DefaultDestinations.WSUS      = [bool]$legacyDestinations.WSUS
+                $defaults.AppFlow.DefaultDestinations.Intune    = [bool]$legacyDestinations.Intune
             }
             $cadence = 0
             if ([int]::TryParse([string]$af.DefaultCadenceDays, [ref]$cadence) -and $cadence -ge 1 -and $cadence -le 365) { $defaults.AppFlow.DefaultCadenceDays = $cadence }
@@ -737,9 +761,17 @@ function Read-Preferences {
             if ($savedTarget -and $savedTarget -ne 'ContentOnly') {
                 $defaults.Intune.DeploymentTarget = $savedTarget
             }
-            elseif ($defaults.Intune.PublishToIntune) {
+            elseif ($defaults.Intune.PublishToIntune -and [string]::IsNullOrWhiteSpace([string]$data.Intune.DeploymentTarget)) {
                 # Pre-1.4.0.14 prefs expressed publishing as a bare toggle.
                 $defaults.Intune.DeploymentTarget = 'ConfigMgrAndIntune'
+            }
+            elseif ($null -ne $data.Intune.DeploymentTarget) {
+                # The stored value is empty or no target name: the name follows the saved
+                # default destinations, which can be none. It never becomes ConfigMgr by itself.
+                if (-not [string]::IsNullOrWhiteSpace([string]$data.Intune.DeploymentTarget)) {
+                    Write-Warning ("The target '{0}' in the preferences file is not valid. The tool uses the default destinations instead. Use one of: {1}." -f [string]$data.Intune.DeploymentTarget, ((Get-DeploymentPublishTargetNames) -join ', '))
+                }
+                $defaults.Intune.DeploymentTarget = ConvertTo-DeploymentTargetFromDestinations -Destinations $defaults.AppFlow.DefaultDestinations
             }
             if ($null -ne $data.Intune.TenantId)              { $defaults.Intune.TenantId              = [string]$data.Intune.TenantId }
             if ($null -ne $data.Intune.ClientId)              { $defaults.Intune.ClientId              = [string]$data.Intune.ClientId }
@@ -2213,7 +2245,7 @@ function Compare-SemVer {
 function Invoke-PackagerGetLatestVersion {
     param(
         [Parameter(Mandatory)][string]$PackagerPath,
-        [Parameter(Mandatory)][string]$SiteCode,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$SiteCode,
         [string]$FileServerPath = $null,
         [string]$DownloadRoot = $null,
         [string]$M365Channel = $null,
@@ -2223,7 +2255,10 @@ function Invoke-PackagerGetLatestVersion {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "powershell.exe"
     $psi.WorkingDirectory = Split-Path -Parent $PackagerPath
-    $argsBase = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PackagerPath, '-SiteCode', $SiteCode, '-GetLatestVersionOnly')
+    $argsBase = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PackagerPath)
+    # An empty site code (a run without the ConfigMgr destination) leaves the packager's own default; the query never connects to a site.
+    if ($SiteCode) { $argsBase += @('-SiteCode', $SiteCode) }
+    $argsBase += '-GetLatestVersionOnly'
     if ($FileServerPath -and (Test-PackagerSupportsFileServerPath -PackagerPath $PackagerPath)) {
         $argsBase += @('-FileServerPath', $FileServerPath)
     }
@@ -2686,10 +2721,10 @@ function Invoke-PackagerStage {
 function Invoke-PackagerPackage {
     param(
         [Parameter(Mandatory)][string]$PackagerPath,
-        [Parameter(Mandatory)][string]$SiteCode,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$SiteCode,
         [string]$ProviderMachineName = '',
         [AllowEmptyString()][string]$Comment = '',
-        [Parameter(Mandatory)][string]$FileServerPath,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$FileServerPath,
         [Parameter(Mandatory)][string]$LogFolder,
         [string]$DownloadRoot = $null,
         [string]$M365Channel = $null,
@@ -2701,7 +2736,7 @@ function Invoke-PackagerPackage {
         [string]$IntuneWinToolPath = '',
         [hashtable]$IntunePublishConfig = $null,
         [hashtable]$WsusPublishConfig = $null,
-        [ValidateSet('ConfigMgr', 'ConfigMgrAndIntune', 'IntuneOnly', 'ConfigMgrAndWSUS', 'WSUSOnly', 'MECM', 'MECMAndIntune', 'MECMAndWSUS')][string]$DeploymentTarget = 'ConfigMgr',
+        [ValidateSet('ConfigMgr', 'ConfigMgrAndIntune', 'IntuneOnly', 'ConfigMgrAndWSUS', 'WSUSOnly', 'IntuneAndWSUS', 'ConfigMgrAndIntuneAndWSUS', 'MECM', 'MECMAndIntune', 'MECMAndWSUS')][string]$DeploymentTarget = 'ConfigMgr',
         [ValidateSet('Nested','Flat')][string]$ContentLayout = 'Nested',
         [string]$RequirementsJson = '',
         [string]$VariantsJson = '',
@@ -2740,16 +2775,20 @@ function Invoke-PackagerPackage {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "powershell.exe"
     $psi.WorkingDirectory = Split-Path -Parent $PackagerPath
-    # Intune-only and WSUS-only runs stop at Stage: no site connection, no
-    # share copy, no ConfigMgr application. The .intunewin build, the Graph
-    # publish and the WSUS publish below work entirely from the local staged
-    # content.
-    $DeploymentTarget = ConvertTo-CurrentDeploymentTarget -Value $DeploymentTarget -Default 'ConfigMgr'
+    # A target without the ConfigMgr destination stops at Stage: no site
+    # connection, no share copy, no ConfigMgr application. The .intunewin build,
+    # the Graph publish and the WSUS publish below work entirely from the local
+    # staged content. Each publish runs only when the target names its destination.
+    $DeploymentTarget = ConvertTo-CurrentDeploymentTarget -Value $DeploymentTarget -Default $DeploymentTarget
     $skipsSite = Test-DeploymentTargetSkipsSite -DeploymentTarget $DeploymentTarget
     $phaseSwitch = if ($skipsSite) { '-StageOnly' } else { '-PackageOnly' }
-    $argsBase = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PackagerPath, $phaseSwitch, '-SiteCode', $SiteCode, '-Comment', $Comment, '-LogPath', $structuredLog)
-    if (Test-PackagerSupportsFileServerPath -PackagerPath $PackagerPath) {
-        $argsBase += @('-FileServerPath', $FileServerPath)
+    $argsBase = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PackagerPath, $phaseSwitch, '-Comment', $Comment, '-LogPath', $structuredLog)
+    if (-not $skipsSite) {
+        # The site code and the content share belong to the ConfigMgr destination only.
+        $argsBase += @('-SiteCode', $SiteCode)
+        if (Test-PackagerSupportsFileServerPath -PackagerPath $PackagerPath) {
+            $argsBase += @('-FileServerPath', $FileServerPath)
+        }
     }
     if ($DownloadRoot) { $argsBase += @('-DownloadRoot', $DownloadRoot) }
     if ($ContentLayout) { $argsBase += @('-ContentLayout', $ContentLayout) }
@@ -2779,13 +2818,13 @@ function Invoke-PackagerPackage {
     # Runs only after integrity passes; failures ride on the result for the
     # caller to surface, never thrown - the ConfigMgr application already exists
     # by this point. A WSUS-only run has no network content to place it beside.
-    $intuneOnly = ($DeploymentTarget -eq 'IntuneOnly')
-    if ((($CreateIntuneWin -and -not $skipsSite) -or $intuneOnly) -and $result.ExitCode -eq 0) {
+    $publishesToIntune = Test-DeploymentTargetPublishesToIntune -DeploymentTarget $DeploymentTarget
+    if ((($CreateIntuneWin -and -not $skipsSite) -or $publishesToIntune) -and $result.ExitCode -eq 0) {
         $intuneNote = Invoke-PackagerIntuneWinPostStep -Result $result -PackagerPath $PackagerPath -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -ToolPath $IntuneWinToolPath -ContentLayout $ContentLayout -SkipNetworkCopy:$intuneOnly
-        if ($intuneOnly -and -not $IntunePublishConfig -and $intuneNote.Ok) {
+        if ($publishesToIntune -and -not $IntunePublishConfig -and $intuneNote.Ok) {
             $result | Add-Member -NotePropertyName IntunePublish -NotePropertyValue ([pscustomobject]@{ Ok = $false; Message = 'Intune credentials not configured; set Tenant ID, Client ID and Client secret in Options, Connections, Intune.' }) -Force
         }
-        if ($IntunePublishConfig -and $intuneNote.Ok) {
+        if ($publishesToIntune -and $IntunePublishConfig -and $intuneNote.Ok) {
             $pubNote = Invoke-PackagerIntunePublish -IntuneNote $intuneNote -Config $IntunePublishConfig -Comment $Comment -RequirementsJson $RequirementsJson
             $result | Add-Member -NotePropertyName IntunePublish -NotePropertyValue $pubNote -Force
         }
@@ -3311,7 +3350,7 @@ function Get-IntunePublishConfigForContext {
         if (-not $i) { return $null }
         $target = if ($Target) { $Target } else { [string]$i.DeploymentTarget }
         if (Test-DeploymentTargetPublishesToWsus -DeploymentTarget $target) { return $null }
-        if ((ConvertTo-CurrentDeploymentTarget -Value $target) -notin @('ConfigMgrAndIntune', 'IntuneOnly') -and -not [bool]$i.PublishToIntune) { return $null }
+        if (-not (Test-DeploymentTargetPublishesToIntune -DeploymentTarget $target) -and -not [bool]$i.PublishToIntune) { return $null }
         if ([string]::IsNullOrWhiteSpace([string]$i.TenantId) -or
             [string]::IsNullOrWhiteSpace([string]$i.ClientId) -or
             [string]::IsNullOrWhiteSpace([string]$i.ClientSecretProtected)) { return $null }
@@ -10775,7 +10814,7 @@ function Invoke-MultiAppPipeline {
                         # IntuneOnly and WSUSOnly have no site to query; the query
                         # would open a provider connection, so it is skipped before that.
                         if ($Ctx.Action -in @('Stage','StageAndPackage') -and (Test-DeploymentTargetSkipsSite -DeploymentTarget ([string]$Ctx.DeploymentTarget))) {
-                            [void]$State.LogQueue.Enqueue(('ConfigMgr pre-flight skipped for {0}: deployment target is {1}.' -f $app, $(if ([string]$Ctx.DeploymentTarget -eq 'WSUSOnly') { 'WSUS only' } else { 'Intune only' })))
+                            [void]$State.LogQueue.Enqueue(('ConfigMgr checks skipped for {0}: the target {1} has no ConfigMgr destination.' -f $app, [string]$Ctx.DeploymentTarget))
                         }
                         elseif ($Ctx.Action -in @('Stage','StageAndPackage')) {
                             $cmName = [string]$row.CMName
@@ -13253,13 +13292,13 @@ function Confirm-IntuneRequirementReview {
 }
 
 function Start-PublishRun {
-    param([Parameter(Mandatory)][ValidateSet('ConfigMgr', 'IntuneOnly', 'WSUSOnly', 'MECM')][string]$Target)
+    param([Parameter(Mandatory)][ValidateSet('ConfigMgr', 'ConfigMgrAndIntune', 'IntuneOnly', 'ConfigMgrAndWSUS', 'WSUSOnly', 'IntuneAndWSUS', 'ConfigMgrAndIntuneAndWSUS', 'MECM', 'MECMAndIntune', 'MECMAndWSUS')][string]$Target)
 
     $Target = ConvertTo-CurrentDeploymentTarget -Value $Target
 
     # Intune and WSUS runs never touch the site or the share, so the console,
     # SiteCode, and content share gates apply only to ConfigMgr runs.
-    $intuneOnlyRun = ($Target -eq 'IntuneOnly')
+    $intuneOnlyRun = (Test-DeploymentTargetPublishesToIntune -DeploymentTarget $Target)
     $siteFreeRun = Test-DeploymentTargetSkipsSite -DeploymentTarget $Target
     if (-not $siteFreeRun -and -not $script:Prefs.DetectedTools.ConfigMgrConsole.Found) {
         Add-LogLine -Message "Publish to ConfigMgr requires the ConfigMgr Console. Not detected on this workstation."
@@ -13276,9 +13315,8 @@ function Start-PublishRun {
         $txtStatus.Text = "The site code is required."
         return
     }
-    # Invoke-PackagerPackage binds SiteCode as a mandatory string, which
-    # refuses an empty value; a site-free run never reads it.
-    if ([string]::IsNullOrWhiteSpace($siteCodeValue)) { $siteCodeValue = 'MCM' }
+    # A site-free run never reads the site code or the content share; an empty value is passed on as it is.
+    if ($siteFreeRun) { $siteCodeValue = '' }
 
     $fsPathValue = $script:Prefs.FileShareRoot
     if (-not $siteFreeRun -and [string]::IsNullOrWhiteSpace($fsPathValue)) {
@@ -13307,11 +13345,9 @@ function Start-PublishRun {
         return
     }
 
-    $txtStatus.Text = switch ($Target) {
-        'IntuneOnly' { 'Publishing selected applications to Intune...' }
-        'WSUSOnly'   { 'Publishing selected applications to WSUS...' }
-        default      { 'Publishing selected applications to ConfigMgr...' }
-    }
+    $runDestinations = Get-DeploymentTargetDestinations -Target $Target
+    $runLabels = @(); if ($runDestinations.ConfigMgr) { $runLabels += 'ConfigMgr' }; if ($runDestinations.Intune) { $runLabels += 'Intune' }; if ($runDestinations.WSUS) { $runLabels += 'WSUS' }
+    $txtStatus.Text = 'Publishing selected applications to ' + $(if ($runLabels.Count -gt 1) { ($runLabels[0..($runLabels.Count - 2)] -join ', ') + ' and ' + $runLabels[-1] } else { $runLabels[0] }) + '...'
     $toolPath = Get-IntuneWinToolPathForContext
     $rowsForPlan = $selectedRows
     Invoke-MultiAppPipeline -Operation Package -Rows $selectedRows -Context @{
@@ -14724,8 +14760,8 @@ function Get-WorkbenchRunPlanForContext {
 
     $plan = @{}
     if (-not (Test-WorkbenchModuleAvailable)) { return $plan }
-    $Target = ConvertTo-CurrentDeploymentTarget -Value $Target -Default $Target
-    if ([string]$Target -notin (@('ContentOnly') + (Get-DeploymentTargetNames))) { $Target = 'ConfigMgr' }
+    # A target that is no target name records ContentOnly: no destination, and never ConfigMgr.
+    $Target = ConvertTo-CurrentDeploymentTarget -Value $Target -Default 'ContentOnly'
     $signing = Get-WorkbenchSigningPolicy
     $downloadRoot = [string]$script:Prefs.DownloadRoot
     $dataRoot = Get-WorkbenchDataRoot
@@ -16301,7 +16337,8 @@ function New-WorkbenchPipelineContext {
         [AllowEmptyString()][string]$BuildId = '',
         [AllowEmptyString()][string]$Target = ''
     )
-    $target = ConvertTo-CurrentDeploymentTarget -Value $(if ($Target) { $Target } else { [string]$script:Prefs.Intune.DeploymentTarget }) -Default 'ConfigMgr'
+    $target = $(if ($Target) { $Target } else { [string]$script:Prefs.Intune.DeploymentTarget })
+    $target = ConvertTo-CurrentDeploymentTarget -Value $target -Default $target
     $toolPath = Get-IntuneWinToolPathForContext
     $context = @{
         DownloadRoot      = $script:Prefs.DownloadRoot

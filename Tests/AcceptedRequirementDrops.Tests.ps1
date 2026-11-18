@@ -20,7 +20,7 @@ BeforeAll {
         if (-not $node) { throw "start-apppackager.ps1 no longer defines $Name." }
         $node
     }
-    foreach ($name in 'Read-Preferences', 'Resolve-FirstRunCompleted', 'Get-IntunePublishConfigForContext', 'Test-DeploymentTargetPublishesToWsus', 'Get-OptionsSectionDefinition',
+    foreach ($name in 'Read-Preferences', 'Resolve-FirstRunCompleted', 'Get-IntunePublishConfigForContext', 'Test-DeploymentTargetPublishesToWsus', 'Test-DeploymentTargetPublishesToIntune', 'Get-OptionsSectionDefinition',
         'Invoke-PackagerIntunePublish', 'Show-IntuneReviewDialog', 'Get-IntuneReviewFinding', 'Confirm-IntuneRequirementReview') {
         . ([scriptblock]::Create((Get-LauncherFunction $name).Extent.Text))
     }

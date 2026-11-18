@@ -36,6 +36,12 @@
 .EXAMPLE
     .\Invoke-AppPackagerBuild.ps1 -Application catalog:package-7zip -Profile Managed -Stage
 
+    Targets name the destinations of a publish. ConfigMgr, Intune and WSUS are
+    independent and optional: a target that does not name ConfigMgr needs no site,
+    share or Configuration Manager console. The names are ContentOnly (no destination), ConfigMgr,
+    IntuneOnly, WSUSOnly, ConfigMgrAndIntune, ConfigMgrAndWSUS, IntuneAndWSUS and
+    ConfigMgrAndIntuneAndWSUS. -Package cannot publish to Intune. Publish to Intune
+    in the application window.
     WSUS targets:
       WSUSOnly     Package stages the application and publishes its
                    installer to WSUS; no site, share, or console.
@@ -63,7 +69,7 @@ param(
 
     [string]$Version,
 
-    [ValidateSet('ContentOnly', 'ConfigMgr', 'ConfigMgrAndIntune', 'IntuneOnly', 'ConfigMgrAndWSUS', 'WSUSOnly', 'MECM', 'MECMAndIntune', 'MECMAndWSUS')]
+    [ValidateSet('ContentOnly', 'ConfigMgr', 'ConfigMgrAndIntune', 'IntuneOnly', 'ConfigMgrAndWSUS', 'WSUSOnly', 'IntuneAndWSUS', 'ConfigMgrAndIntuneAndWSUS', 'MECM', 'MECMAndIntune', 'MECMAndWSUS')]
     [string]$Target = 'ConfigMgr',
 
     [switch]$Stage,
@@ -177,12 +183,16 @@ Import-Module (Join-Path $PackagersRoot 'AppPackagerWorkbench.psd1') -Force -Err
 
 # The old value names MECM, MECMAndIntune and MECMAndWSUS still work: the workbench module maps them to the current names.
 $Target = ConvertTo-CurrentDeploymentTarget -Value $Target -Default $Target
-$publishesToWsus = ($Target -in @('ConfigMgrAndWSUS', 'WSUSOnly'))
+# The destinations ConfigMgr, Intune and WSUS are independent and optional. A value that is
+# not a target name never selects a destination; the parameter validation lists the valid names.
+$targetDestinations = Get-DeploymentTargetDestinations -Target $Target
+$publishesToWsus = [bool]($targetDestinations -and $targetDestinations.WSUS)
+$publishesToConfigMgr = [bool]($targetDestinations -and $targetDestinations.ConfigMgr)
 $cliBoundParameters = @{} + $PSBoundParameters
-if ($Target -eq 'ConfigMgrAndWSUS' -and $Package -and -not $Stage) {
-    throw 'A ConfigMgrAndWSUS package publishes the build staged in the same run; pass -Stage together with -Package.'
+if ($publishesToConfigMgr -and $publishesToWsus -and $Package -and -not $Stage) {
+    throw "With the target $Target, -Package publishes the build that the same run staged. Pass -Stage together with -Package."
 }
-if ($Package -and $Target -in @('ConfigMgrAndIntune', 'IntuneOnly')) {
+if ($Package -and $targetDestinations -and $targetDestinations.Intune) {
     throw "Target $Target cannot be packaged from the command line: Intune publishing runs only from the application window. Use -Target ConfigMgr, WSUSOnly or ContentOnly, or publish to Intune from the window."
 }
 if ($Target -eq 'ContentOnly' -and $Package) {
@@ -520,7 +530,7 @@ function Invoke-CliPackagerPhase {
     $startInfo = New-Object System.Diagnostics.ProcessStartInfo
     $startInfo.FileName = 'powershell.exe'
     $startInfo.WorkingDirectory = Split-Path -Parent $packagerPath
-    $siteFree = ($Target -in @('IntuneOnly', 'WSUSOnly'))
+    $siteFree = -not $publishesToConfigMgr
     $phaseSwitch = if ($Phase -eq 'Stage' -or $siteFree) { '-StageOnly' } else { '-PackageOnly' }
     $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $packagerPath, $phaseSwitch, '-LogPath', $structuredLog)
 
@@ -603,7 +613,7 @@ function Invoke-CliAdHocPhases {
             $stageResult = @(New-AdHocStage @stageArguments | Where-Object { $_ -and $_.PSObject.Properties['StagedPath'] })[-1]
             [void]$phases.Add([pscustomobject]@{ Phase = 'Stage'; ExitCode = 0; StagedPath = $stageResult.StagedPath })
         }
-        if ($Package -and $Target -notin @('ContentOnly', 'IntuneOnly', 'WSUSOnly')) {
+        if ($Package -and $publishesToConfigMgr) {
             $resolvedSite = if ($SiteCode) { $SiteCode } elseif ((Get-CliPreference 'SiteCode')) { [string](Get-CliPreference 'SiteCode') } else { 'MCM' }
             $resolvedProvider = if ($ProviderMachineName) { $ProviderMachineName } elseif ((Get-CliPreference 'ProviderMachineName')) { [string](Get-CliPreference 'ProviderMachineName') } else { '' }
             $resolvedShare = if ($FileServerPath) { $FileServerPath } elseif ((Get-CliPreference 'FileShareRoot')) { [string](Get-CliPreference 'FileShareRoot') } else { '' }

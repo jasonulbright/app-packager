@@ -97,7 +97,7 @@ $cases = @(
     @{ Name = 'Apply Supersedence is disabled when ConfigMgr is not in use and says so'; Actual = { -not $mecmOff.ApplySupersedenceEnabled -and $mecmOff.ApplySupersedenceToolTip -match 'not in use' }; Expected = $true }
     @{ Name = 'Apply Supersedence is disabled without a site code';  Actual = { $noSite.ApplySupersedenceEnabled }; Expected = $false }
     @{ Name = 'Setup and Options both save the systems in use';        Actual = { ([regex]::Matches($source, "Pref = 'Systems\.ConfigMgr'")).Count -eq 1 -and $source -match '& \$systemBlock\.Group\.Commit' }; Expected = $true }
-    @{ Name = 'the publish and One Click paths fall back to the packager default site code'; Actual = { ([regex]::Matches($source, 'if \(\[string\]::IsNullOrWhiteSpace\(\$siteCodeValue\)\) \{ \$siteCodeValue = ''MCM'' \}')).Count -ge 2 }; Expected = $true }
+    @{ Name = 'the One Click path falls back to the packager default site code and a run without the ConfigMgr destination passes none'; Actual = { (([regex]::Matches($source, 'if \(\[string\]::IsNullOrWhiteSpace\(\$siteCodeValue\)\) \{ \$siteCodeValue = ''MCM'' \}')).Count -ge 1) -and ($source -match 'if \(\$siteFreeRun\) \{ \$siteCodeValue = '''' \}') }; Expected = $true }
     @{ Name = 'Setup without ConfigMgr saves an empty site code'; Actual = { $source -match 'else \{ \$prefsRef\.SiteCode = '''' \}' }; Expected = $true }
     @{ Name = 'Check Latest runs without a site code when ConfigMgr is not in use'; Actual = { $source -match 'if \(\$script:Prefs\.Systems\.ConfigMgr\) \{\s+Add-LogLine -Message \"The site code is required' }; Expected = $true }
     @{ Name = 'the sidebar refresh is wired to launch, Options, Setup and the button reset'; Actual = { $callCount -ge 5 }; Expected = $true }

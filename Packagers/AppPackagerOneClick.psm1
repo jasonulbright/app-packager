@@ -28,8 +28,10 @@ function ConvertTo-OneClickDestinationSet {
         Normalizes any destination description to the three flags.
     .DESCRIPTION
         Accepts a deployment target name (ConfigMgr, ConfigMgrAndIntune, IntuneOnly,
-        ConfigMgrAndWSUS, WSUSOnly; the old names MECM, MECMAndIntune and MECMAndWSUS still work), an object with ConfigMgr, WSUS and Intune
-        properties, or a list of destination names.
+        ConfigMgrAndWSUS, WSUSOnly, IntuneAndWSUS, ConfigMgrAndIntuneAndWSUS;
+        the old names MECM, MECMAndIntune and MECMAndWSUS still work), an object with ConfigMgr, WSUS and Intune
+        properties, or a list of destination names. The destinations are independent and
+        optional. A name that is no target name selects no destination.
     #>
     param($Value)
 
@@ -42,8 +44,11 @@ function ConvertTo-OneClickDestinationSet {
             { $_ -in 'ConfigMgrAndIntune', 'MECMAndIntune' } { $set.ConfigMgr = $true; $set.Intune = $true }
             'IntuneOnly'    { $set.Intune = $true }
             { $_ -in 'ConfigMgrAndWSUS', 'MECMAndWSUS' }     { $set.ConfigMgr = $true; $set.WSUS = $true }
+            'IntuneAndWSUS' { $set.Intune = $true; $set.WSUS = $true }
+            'ConfigMgrAndIntuneAndWSUS' { $set.ConfigMgr = $true; $set.Intune = $true; $set.WSUS = $true }
             'WSUSOnly'      { $set.WSUS = $true }
-            default         { $set.ConfigMgr = $true }
+            # A name that is no target name selects no destination. It never selects ConfigMgr.
+            default         { }
         }
         return [pscustomobject]$set
     }

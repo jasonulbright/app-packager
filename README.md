@@ -455,7 +455,7 @@ Or drive one application through a workbench profile without the GUI:
 | `-Application` | `catalog:package-7zip`, `custom:<script>`, `byo:<id>`, or a packager file name |
 | `-Profile` | Profile name or id; `default` (the packager's own behavior) when omitted |
 | `-Version` | Package this version instead of the latest |
-| `-Target` | `ContentOnly`, `ConfigMgr` (default), `ConfigMgrAndIntune`, `IntuneOnly`, `ConfigMgrAndWSUS`, `WSUSOnly`. The old names `MECM`, `MECMAndIntune` and `MECMAndWSUS` still load. |
+| `-Target` | One of the target names in the table below. The default is `ConfigMgr`. The old names `MECM`, `MECMAndIntune` and `MECMAndWSUS` still load. |
 | `-WsusServer` / `-WsusPort` / `-WsusUseSsl` | WSUS server for the WSUS targets. Each value not given comes from the Wsus section of the preferences file. |
 | `-WsusClassification` | The WSUS classification of the published update |
 | `-WsusApprovalGroup` / `-WsusDeclineSuperseded` | Approve each new update for a computer group; decline the AppPackager updates of the same application that have a lower version |
@@ -466,7 +466,22 @@ Or drive one application through a workbench profile without the GUI:
 | `-SiteCode` / `-ProviderMachineName` / `-FileServerPath` | ConfigMgr connection and share, as the packagers take them |
 | `-Comment` | Administrative comment stored on the application |
 
-It creates the run snapshot, sets the child environment and launches the packager exactly as the GUI does, so a scheduled build and a selection of the button produces the same content. A WSUS target publishes the manifest staged in the same run, so `ConfigMgrAndWSUS` needs `-Stage` and `-Package` together. The result object carries a `Wsus` block. A failed publish sets exit code 1. A failed approval or decline after a successful publish also sets exit code 1, and `Wsus.Warnings` names it. A `custom:` script lives under `<workbench data root>\scripts`, outside the install folder, and must import `AppPackagerCommon.psd1` by its full path; it builds from the command line only, since the main grid lists the `Packagers` folder.
+A target names the destinations of a publish. ConfigMgr, Intune and WSUS are independent, and each one is optional. A target that does not name ConfigMgr needs no site code, no content share and no Configuration Manager console. The default value of `-Target` is `ConfigMgr`. You can choose any other target. A value that is not a target name stops the run and lists the valid names. It never selects a destination.
+
+| Target | ConfigMgr | Intune | WSUS |
+|---|---|---|---|
+| `ContentOnly` | No | No | No |
+| `ConfigMgr` | Yes | No | No |
+| `IntuneOnly` | No | Yes | No |
+| `WSUSOnly` | No | No | Yes |
+| `ConfigMgrAndIntune` | Yes | Yes | No |
+| `ConfigMgrAndWSUS` | Yes | No | Yes |
+| `IntuneAndWSUS` | No | Yes | Yes |
+| `ConfigMgrAndIntuneAndWSUS` | Yes | Yes | Yes |
+
+`-Package` cannot publish to Intune. Use `-Stage` for a target that names Intune, and publish to Intune in the application window.
+
+It creates the run snapshot, sets the child environment and launches the packager exactly as the GUI does, so a scheduled build and a selection of the button produces the same content. A WSUS target publishes the manifest staged in the same run, so a target that names both ConfigMgr and WSUS needs `-Stage` and `-Package` together. The result object carries a `Wsus` block. A failed publish sets exit code 1. A failed approval or decline after a successful publish also sets exit code 1, and `Wsus.Warnings` names it. A `custom:` script lives under `<workbench data root>\scripts`, outside the install folder, and must import `AppPackagerCommon.psd1` by its full path; it builds from the command line only, since the main grid lists the `Packagers` folder.
 
 ### Rewrite old versions
 

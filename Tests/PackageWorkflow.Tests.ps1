@@ -5,7 +5,7 @@ BeforeAll {
     $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\start-apppackager.ps1'), [ref]$t, [ref]$e)
     if ($e) { throw ($e.Message -join '; ') }
     foreach ($name in @('Invoke-PackagerPackageWithConflictPrompt', 'Get-TitleModesMapForContext', 'Get-DefaultTitleModeForContext',
-                        'Test-DeploymentTargetSkipsSite', 'Test-DeploymentTargetPublishesToWsus', 'Get-PublishRowOutcome')) {
+                        'Test-DeploymentTargetSkipsSite', 'Test-DeploymentTargetPublishesToWsus', 'Test-DeploymentTargetPublishesToIntune', 'Get-PublishRowOutcome')) {
         $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
         . ([scriptblock]::Create($fn.Extent.Text))
     }

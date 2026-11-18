@@ -36,6 +36,9 @@
         # Runs and finalization
         'New-BuildId'
         'ConvertTo-CurrentDeploymentTarget'
+        'Get-DeploymentPublishTargetNames'
+        'Get-DeploymentTargetDestinations'
+        'ConvertTo-DeploymentTargetFromDestinations'
         'New-RunSnapshot'
         'Get-RunSnapshot'
         'Resolve-WorkbenchTokens'

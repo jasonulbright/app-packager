@@ -85,6 +85,8 @@ Describe 'Get-OneClickDestinations' {
         @{ Saved = 'ConfigMgrAndWSUS'; Cm = $true; Wsus = $true; Intune = $false }
         @{ Saved = 'IntuneOnly'; Cm = $false; Wsus = $false; Intune = $true }
         @{ Saved = 'WSUSOnly'; Cm = $false; Wsus = $true; Intune = $false }
+        @{ Saved = 'IntuneAndWSUS'; Cm = $false; Wsus = $true; Intune = $true }
+        @{ Saved = 'ConfigMgrAndIntuneAndWSUS'; Cm = $true; Wsus = $true; Intune = $true }
         @{ Saved = 'MECM'; Cm = $true; Wsus = $false; Intune = $false }
         @{ Saved = 'MECMAndIntune'; Cm = $true; Wsus = $false; Intune = $true }
         @{ Saved = 'MECMAndWSUS'; Cm = $true; Wsus = $true; Intune = $false }
@@ -95,6 +97,11 @@ Describe 'Get-OneClickDestinations' {
         $set.ConfigMgr | Should -Be $Cm
         $set.WSUS | Should -Be $Wsus
         $set.Intune | Should -Be $Intune
+    }
+    It 'selects no destination for a saved value that is no target name' {
+        $prefs = '{ "Intune": { "DeploymentTarget": "Nonsense" }, "AppFlow": { "Tracked": [] } }' | ConvertFrom-Json
+        $set = Get-OneClickDestinations -Prefs $prefs -PackagerName 'package-a'
+        ($set.ConfigMgr -or $set.WSUS -or $set.Intune) | Should -BeFalse
     }
     It 'uses ConfigMgr when the preferences name no target' {
         $set = Get-OneClickDestinations -Prefs ([pscustomobject]@{ AppFlow = [pscustomobject]@{ Tracked = @() } }) -PackagerName 'package-a'
