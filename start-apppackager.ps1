@@ -2422,7 +2422,9 @@ function Invoke-ProcessWithStreaming {
         # Idle timeout: kill the child if no stdout line arrives for this long.
         # Default 30 min covers slow MSIs without leaving silently-hung processes
         # wedging the GUI forever.
-        [int]$IdleTimeoutSeconds = 1800
+        [int]$IdleTimeoutSeconds = 1800,
+        # Polled on every pass; when it answers true the child and its children are stopped and the result says Cancelled.
+        [AllowNull()][scriptblock]$ShouldCancel = $null
     )
 
     $p = New-Object System.Diagnostics.Process
@@ -2437,6 +2439,7 @@ function Invoke-ProcessWithStreaming {
 
         $lastActivity = [DateTime]::UtcNow
         $timedOut = $false
+        $cancelled = $false
 
         while ($true) {
             if ($lineTask.IsCompleted) {
@@ -2447,12 +2450,18 @@ function Invoke-ProcessWithStreaming {
 
                 if ($LogTextBox) {
                     $displayLine = $line -replace '^\[[\d: -]+\] \[\w+\s*\] ', ''
-                    if ($displayLine.Trim()) {
+                    # A line that carries a result for the window (APRESULT:) is data, not log text.
+                    if ($displayLine.Trim() -and -not $displayLine.StartsWith('APRESULT:')) {
                         Add-LogLine -Message ("  {0}" -f $displayLine)
                     }
                 }
 
                 $lineTask = $reader.ReadLineAsync()
+            }
+
+            if ($ShouldCancel -and (& $ShouldCancel)) {
+                $cancelled = $true
+                break
             }
 
             # Idle timeout: child has stopped emitting stdout. Don't wait forever.
@@ -2471,7 +2480,15 @@ function Invoke-ProcessWithStreaming {
             Start-Sleep -Milliseconds 50
         }
 
-        if ($timedOut) {
+        if ($cancelled) {
+            # The child may have started children of its own: taskkill stops the whole tree.
+            try { & taskkill.exe /PID $p.Id /T /F 2>&1 | Out-Null } catch { <# Stopping the tree is best-effort; Kill follows. #> $null = $_ }
+            try { $p.Kill() } catch { <# The process may have ended already. #> $null = $_ }
+            [void]$p.WaitForExit(5000)
+            # A line that was read after the last pass is still in the pipe.
+            while ($lineTask.IsCompleted -and $null -ne $lineTask.Result) { $outLines.Add($lineTask.Result); $lineTask = $reader.ReadLineAsync() }
+        }
+        elseif ($timedOut) {
             try { $p.Kill() } catch { <# Killing a timed-out process is best-effort; the code logs the timeout. #> $null = $_ }
             [void]$p.WaitForExit(5000)
             $outLines.Add("[ERROR] Packager idle for $IdleTimeoutSeconds seconds; killed by Invoke-ProcessWithStreaming.")
@@ -2494,6 +2511,7 @@ function Invoke-ProcessWithStreaming {
             StructuredLog = $StructuredLog
             StdOut        = $stdout
             StdErr        = $stderr
+            Cancelled     = $cancelled
         }
     }
     finally {
@@ -5262,6 +5280,8 @@ $btnPublishWsus  = $window.FindName('btnPublishWsus')
 $btnWsusUpdates  = $window.FindName('btnWsusUpdates')
 $btnAddInstaller = $window.FindName('btnAddInstaller')
 $btnConvertCm    = $window.FindName('btnConvertCm')
+$btnRewriteOld   = $window.FindName('btnRewriteOld')
+$btnRestoreOld   = $window.FindName('btnRestoreOld')
 $btnWorkbench    = $window.FindName('btnWorkbench')
 $btnFullRun      = $window.FindName('btnFullRun')
 $btnOptions      = $window.FindName('btnOptions')
@@ -5296,7 +5316,7 @@ $btnCancelPipeline = $window.FindName('btnCancelPipeline')
 [ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($window, "Dark.Steel")
 
 # Palette and button/label theming come from SuiteCommon.
-$script:WorkflowButtons = @($btnFullRun, $btnCheckLatest, $btnCheckMECM, $btnDiscover, $btnConvertCm, $btnCheckCve, $btnStage, $btnPackage, $btnApplySupersedence, $btnPublishIntune, $btnPublishWsus, $btnWsusUpdates, $btnCveReport, $btnWorkbench, $btnAddInstaller)
+$script:WorkflowButtons = @($btnFullRun, $btnCheckLatest, $btnCheckMECM, $btnDiscover, $btnConvertCm, $btnRewriteOld, $btnRestoreOld, $btnCheckCve, $btnStage, $btnPackage, $btnApplySupersedence, $btnPublishIntune, $btnPublishWsus, $btnWsusUpdates, $btnCveReport, $btnWorkbench, $btnAddInstaller)
 $script:OptionsButtons  = @($btnOptions)
 
 Initialize-SuiteTheme -Window $window `
@@ -5618,6 +5638,8 @@ function Set-ActionButtonsEnabled {
     $btnCheckMECM.IsEnabled     = $Enabled
     $btnDiscover.IsEnabled      = $Enabled
     $btnConvertCm.IsEnabled     = $Enabled
+    $btnRewriteOld.IsEnabled    = $Enabled
+    $btnRestoreOld.IsEnabled    = $Enabled
     $btnCheckCve.IsEnabled      = $Enabled
     $btnCveReport.IsEnabled     = $Enabled
     $btnStage.IsEnabled         = $Enabled
@@ -5704,6 +5726,10 @@ function Get-SidebarSystemState {
         CheckMecmToolTip     = $(if ($mecmReason) { 'Check ConfigMgr: ' + $mecmReason } else { 'Query ConfigMgr for the currently deployed version of each checked app' })
         MecmEnabled          = (-not $mecmReason)
         MecmToolTip          = $(if ($mecmReason) { 'Publish to ConfigMgr: ' + $mecmReason } else { 'Build a ConfigMgr Application and Deployment Type for every checked app' })
+        RewriteEnabled       = (-not $mecmReason)
+        RewriteToolTip       = $(if ($mecmReason) { 'Rewrite Old Versions: ' + $mecmReason } else { 'Change the version clause of the older applications of the checked application''s product line from GreaterEquals to IsEquals, so that the uninstall through supersedence is reported as successful. Shows the plan first and keeps a log; Undo restores the old operator. Check one application.' })
+        RestoreEnabled       = (-not $mecmReason)
+        RestoreToolTip       = $(if ($mecmReason) { 'Restore Old Versions: ' + $mecmReason } else { 'Write the old operator back on the older applications of the checked application''s product line, from the log of an earlier Rewrite Old Versions. Only the rewrites of this line. Shows the plan first. Check one application.' })
         IntuneEnabled        = $intuneReady
         IntuneToolTip        = $(if ($intuneReady) { 'Stage every checked app, build its .intunewin, and publish it to Intune' } else { 'Publish to Intune: ' + $intuneReason })
         WsusEnabled          = $wsusReady
@@ -5738,7 +5764,7 @@ function Update-SidebarForSystems {
     # keeps every button disabled through $script:ActionButtonsEnabled.
     $pairs = @(
         @($btnCheckMECM, 'CheckMecm'), @($btnDiscover, 'Discover'), @($btnConvertCm, 'ConvertCm'), @($btnPackage, 'Mecm'), @($btnApplySupersedence, 'ApplySupersedence'), @($btnPublishIntune, 'Intune'),
-        @($btnPublishWsus, 'Wsus'), @($btnWsusUpdates, 'WsusUpdates')
+        @($btnPublishWsus, 'Wsus'), @($btnWsusUpdates, 'WsusUpdates'), @($btnRewriteOld, 'Rewrite'), @($btnRestoreOld, 'Restore')
     )
     foreach ($pair in $pairs) {
         $button = $pair[0]
@@ -12312,6 +12338,450 @@ $btnConvertCm.Add_Click({
     if ($choice.Action -eq 'Cancel') { return }
     Start-CmImportRun -Spec $choice.Spec -OutputRoot $choice.OutputRoot
 })
+
+# =============================================================================
+# Rewrite Old Versions and Restore Old Versions
+# -----------------------------------------------------------------------------
+# The optional rewrite of the version clause of the older applications of one line, from GreaterEquals to IsEquals, and the way
+# back from the log. The window shows the plan first (the clauses, what is left and why, the effect on the devices) and writes
+# only after the confirmation. The read of the site and the writes run in a child process of Invoke-AppPackagerBuild.ps1, as the
+# conversion does, so that the window keeps its own location and session. The log supersedence-rewrite.jsonl is the way back.
+# =============================================================================
+function Get-RewriteTargetForRow {
+    # The line of one grid row: its application identifier and its identity marker. The marker comes from the newest stage manifest of
+    # the row, as the publish wrote it; a row that was never staged has the marker of its application, its active profile and the
+    # architecture x64. It reads no ConfigMgr site.
+    param([Parameter(Mandatory)]$Row, [AllowEmptyString()][string]$DownloadRoot = '')
+
+    $target = [pscustomobject]@{ Ok = $false; Error = ''; ApplicationId = ''; Marker = ''; Application = [string]$Row.Application }
+    try { $applicationId = [string](New-ApplicationId -Kind Catalog -ScriptPath ([string]$Row.FullPath)) }
+    catch { $target.Error = ('The application identifier could not be made: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'See the log file.')); return $target }
+    $profileId = 'default'
+    try {
+        $active = [string](Get-ApplicationDefinition -ApplicationId $applicationId).ActiveProfileId
+        if ($active) { $profileId = $active }
+    }
+    catch { <# The active profile is optional here; the default profile names the line. #> $null = $_ }
+    $manifestPath = $null
+    try { $manifestPath = Find-NewestStageManifestForPackager -PackagerPath ([string]$Row.FullPath) -DownloadRoot (Get-WorkbenchProfileDownloadRoot -DownloadRoot $DownloadRoot -ProfileId $profileId) }
+    catch { <# A folder that cannot be searched has no manifest; the marker of the application and the profile stands. #> $null = $_ }
+    if ($manifestPath) {
+        try { $manifest = Read-StageManifest -Path $manifestPath }
+        catch { $target.Error = ('The stage manifest {0} could not be read: {1}' -f $manifestPath, (Get-UserErrorText -ErrorRecord $_ -Fallback 'See the log file.')); return $target }
+    }
+    else { $manifest = [pscustomobject]@{ ApplicationId = $applicationId; ProfileId = $profileId; Architecture = 'x64' } }
+    $marker = Get-SupersedenceIdentityMarker -Manifest $manifest -FallbackApplicationId $applicationId
+    if (-not $marker) { $target.Error = 'This application has no identity marker, so its line cannot be found.'; return $target }
+    $manifestId = $(if ($manifest.PSObject.Properties['ApplicationId']) { [string]$manifest.ApplicationId } else { '' })
+    $target.ApplicationId = $(if ($manifestId) { $manifestId.Trim() } else { $applicationId })
+    $target.Marker = $marker
+    $target.Ok = $true
+    return $target
+}
+
+function Get-RewriteChildArgument {
+    # The command line of the child that reads the site (plan), rewrites (apply) or restores. Touches no WPF type and starts nothing.
+    param(
+        [Parameter(Mandatory)][ValidateSet('plan', 'apply', 'restore')][string]$Mode,
+        [Parameter(Mandatory)]$Target,
+        [Parameter(Mandatory)][string]$SiteCode,
+        [AllowEmptyString()][string]$ProviderMachineName = '',
+        [AllowEmptyString()][string]$ShownPlan = '',
+        [Parameter(Mandatory)][string]$ScriptPath
+    )
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $ScriptPath, '-Application', [string]$Target.ApplicationId,
+        '-RewriteOldVersions', $Mode, '-IdentityMarker', [string]$Target.Marker, '-SiteCode', $SiteCode, '-Json')
+    if ($ProviderMachineName.Trim()) { $arguments += @('-ProviderMachineName', $ProviderMachineName.Trim()) }
+    if ($Mode -ne 'plan') { $arguments += '-Yes' }
+    if ($Mode -eq 'apply' -and $ShownPlan) { $arguments += @('-ShownPlan', $ShownPlan) }
+    return $arguments
+}
+
+function Invoke-RewriteChild {
+    # Runs the child with the console module and the SMS Provider that the window found, shows its lines in the log, and reads its
+    # APRESULT line. ShouldCancel is polled while the child runs; when it answers true the child and its children are stopped.
+    param([Parameter(Mandatory)][string[]]$Arguments, [AllowNull()][scriptblock]$ShouldCancel = $null)
+
+    $logFolder = Join-Path $PSScriptRoot 'Logs'
+    if (-not (Test-Path -LiteralPath $logFolder)) { New-Item -ItemType Directory -Path $logFolder -Force | Out-Null }
+    $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = 'powershell.exe'
+    $psi.WorkingDirectory = $PSScriptRoot
+    Set-ProcessStartInfoArgumentList -StartInfo $psi -Arguments $Arguments
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $childEnvironment = Get-CmImportChildEnvironment `
+        -ModulePath $(if ($script:Prefs.DetectedTools -and $script:Prefs.DetectedTools.ConfigMgrConsole) { [string]$script:Prefs.DetectedTools.ConfigMgrConsole.ModulePath } else { '' }) `
+        -ProviderMachineName ([string]$script:Prefs.ProviderMachineName) `
+        -ParentAdminUiPath ([string]$env:SMS_ADMIN_UI_PATH) -ParentProvider ([string]$env:APP_PACKAGER_CM_PROVIDER)
+    foreach ($name in $childEnvironment.Keys) { $psi.EnvironmentVariables[$name] = [string]$childEnvironment[$name] }
+    # The child reads and writes the same log as the window.
+    $psi.EnvironmentVariables['APP_PACKAGER_WORKBENCH_ROOT'] = [string](Get-WorkbenchDataRoot)
+
+    $run = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog (Join-Path $logFolder ("rewrite-old-versions-{0}.out.log" -f $stamp)) `
+        -ErrLog (Join-Path $logFolder ("rewrite-old-versions-{0}.err.log" -f $stamp)) -LogTextBox $txtLog -ShouldCancel $ShouldCancel
+    $parsed = $null
+    foreach ($line in @(([string]$run.StdOut) -split "`r?`n")) {
+        if ($line.StartsWith('APRESULT:')) {
+            try { $parsed = $line.Substring('APRESULT:'.Length) | ConvertFrom-Json -ErrorAction Stop } catch { $parsed = $null }
+        }
+    }
+    return [pscustomobject]@{ ExitCode = [int]$run.ExitCode; Cancelled = [bool]$run.Cancelled; Result = $parsed; StdErr = [string]$run.StdErr; StdOut = [string]$run.StdOut }
+}
+
+function New-RewriteOldVersionsDialog {
+    # The window of the plan: the clauses, the notes and the confirmation before the run; the result and Undo after it. Run and Undo
+    # take a script block that answers true once the operator asked to cancel, and return the result (Items, Stop, Summary,
+    # UndoAvailable). Nothing runs before Confirm, and Confirm stays off until the box of a destructive plan is checked.
+    param(
+        [Parameter(Mandatory)]$Owner,
+        [Parameter(Mandatory)]$ChangePlan,
+        [Parameter(Mandatory)][scriptblock]$Run,
+        [AllowNull()][scriptblock]$Undo = $null
+    )
+
+    $dlgXaml = @'
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="Rewrite Old Versions" Width="820" Height="540" MinWidth="620" MinHeight="400"
+    WindowStartupLocation="CenterOwner" TitleCharacterCasing="Normal"
+    ShowIconOnTitleBar="False" ShowMinButton="False"
+    GlowBrush="{DynamicResource MahApps.Brushes.Accent}" NonActiveGlowBrush="{DynamicResource MahApps.Brushes.Accent}" BorderThickness="1">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <!--SHARED_STYLES-->        </ResourceDictionary>
+    </Window.Resources>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <StackPanel Grid.Row="0" Margin="16,12,16,8">
+            <TextBlock x:Name="txtRewriteSummary" FontSize="14" TextWrapping="Wrap"/>
+            <TextBox x:Name="txtRewriteNotes" IsReadOnly="True" TextWrapping="Wrap" FontSize="12" Margin="0,8,0,0" MaxHeight="150"
+                     VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Checks and impact"/>
+        </StackPanel>
+        <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="1" x:Name="gridRewritePlan"
+                  AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" HeadersVisibility="Column" RowHeaderWidth="0" SelectionMode="Single"
+                  Margin="16,0,16,8" AutomationProperties.Name="Changes">
+            <DataGrid.Columns>
+                <DataGridTextColumn x:Name="colPlanAction" Header="Action" Binding="{Binding Action}" Width="150" MinWidth="110"/>
+                <DataGridTextColumn x:Name="colPlanTarget" Header="Object" Binding="{Binding Target}" Width="3*" MinWidth="200"/>
+                <DataGridTextColumn x:Name="colPlanDetail" Header="Detail" Binding="{Binding Detail}" Width="2*" MinWidth="160"/>
+            </DataGrid.Columns>
+        </DataGrid>
+        <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="1" x:Name="gridRewriteResult"
+                  AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" HeadersVisibility="Column" RowHeaderWidth="0" SelectionMode="Single"
+                  Margin="16,0,16,8" Visibility="Collapsed" AutomationProperties.Name="Results">
+            <DataGrid.Columns>
+                <DataGridTextColumn x:Name="colResultOutcome" Header="Result" Binding="{Binding Outcome}" Width="100" MinWidth="100"/>
+                <DataGridTextColumn x:Name="colResultAction" Header="Action" Binding="{Binding Action}" Width="130" MinWidth="110"/>
+                <DataGridTextColumn x:Name="colResultTarget" Header="Object" Binding="{Binding Target}" Width="3*" MinWidth="180"/>
+                <DataGridTextColumn x:Name="colResultMessage" Header="Message" Binding="{Binding Message}" Width="3*" MinWidth="160"/>
+            </DataGrid.Columns>
+        </DataGrid>
+        <CheckBox Grid.Row="2" x:Name="chkRewriteConfirm" Margin="16,0,16,8">
+            <TextBlock x:Name="txtRewriteConfirm" TextWrapping="Wrap"/>
+        </CheckBox>
+        <Border Grid.Row="3" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
+            <WrapPanel Margin="16,10,16,10" HorizontalAlignment="Right">
+                <Button x:Name="btnRewriteConfirm" Content="Confirm" Margin="0,0,8,0"
+                        Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <Button x:Name="btnRewriteUndo" Content="Undo" Margin="0,0,8,0" Visibility="Collapsed"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        ToolTip="Writes the old operator back on the site, from the log."/>
+                <Button x:Name="btnRewriteCancel" Content="Cancel" Margin="0,0,8,0" IsCancel="True"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <Button x:Name="btnRewriteClose" Content="Close" Visibility="Collapsed"
+                        Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            </WrapPanel>
+        </Border>
+    </Grid>
+</Controls:MetroWindow>
+'@
+    [xml]$xml = Expand-SharedStyle $dlgXaml
+    $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
+    $dlg.Title = [string]$ChangePlan.Title
+    Install-TitleBarDragFallback -Window $dlg
+    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
+
+    $txtSummary = $dlg.FindName('txtRewriteSummary')
+    $txtNotes = $dlg.FindName('txtRewriteNotes')
+    $gridPlan = $dlg.FindName('gridRewritePlan')
+    $gridResult = $dlg.FindName('gridRewriteResult')
+    $chkConfirm = $dlg.FindName('chkRewriteConfirm')
+    $txtConfirm = $dlg.FindName('txtRewriteConfirm')
+    $btnConfirm = $dlg.FindName('btnRewriteConfirm')
+    $btnUndo = $dlg.FindName('btnRewriteUndo')
+    $btnCancel = $dlg.FindName('btnRewriteCancel')
+    $btnClose = $dlg.FindName('btnRewriteClose')
+
+    # A long object name or message wraps in its cell instead of being cut off.
+    foreach ($name in 'colPlanTarget', 'colPlanDetail', 'colResultTarget', 'colResultMessage') {
+        $col = $dlg.FindName($name)
+        $wrap = [System.Windows.Style]::new([System.Windows.Controls.TextBlock], $col.ElementStyle)
+        $wrap.Setters.Add([System.Windows.Setter]::new([System.Windows.Controls.TextBlock]::TextWrappingProperty, [System.Windows.TextWrapping]::Wrap))
+        $col.ElementStyle = $wrap
+    }
+
+    $planRows = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
+    foreach ($item in @($ChangePlan.Items)) { $planRows.Add([pscustomobject]@{ Action = [string]$item.Action; Target = [string]$item.Target; Detail = [string]$item.Detail }) }
+    $gridPlan.ItemsSource = $planRows
+    $resultRows = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
+    $gridResult.ItemsSource = $resultRows
+
+    $notes = @($ChangePlan.Notes | Where-Object { $_ })
+    $txtNotes.Text = ($notes -join "`r`n")
+    if ($notes.Count -eq 0) { $txtNotes.Visibility = [System.Windows.Visibility]::Collapsed }
+    $txtConfirm.Text = [string]$ChangePlan.DestructiveConfirmation
+    $chkConfirm.IsChecked = $false
+    if (-not $ChangePlan.IsDestructive) { $chkConfirm.Visibility = [System.Windows.Visibility]::Collapsed }
+    $btnConfirm.Content = [string]$ChangePlan.ActionName
+    $hasUndo = [bool]($ChangePlan.HasUndo -and $null -ne $Undo)
+    $needsCheck = [bool]$ChangePlan.IsDestructive
+    $changeCount = @($ChangePlan.Items).Count
+
+    $state = @{ Stage = 'Review'; Cancel = $false; Busy = $false; Confirmed = $false; Result = $null; UndoResult = $null }
+    $visible = { param([bool]$Show) $(if ($Show) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed }) }
+
+    # One place sets what each stage shows: Review, Running, Done, Undoing, Undone.
+    $setStage = {
+        param([string]$Stage)
+        $state.Stage = $Stage
+        $state.Busy = ($Stage -eq 'Running' -or $Stage -eq 'Undoing')
+        $review = ($Stage -eq 'Review')
+        $gridPlan.Visibility = & $visible $review
+        $gridResult.Visibility = & $visible (-not $review)
+        $chkConfirm.IsEnabled = $review
+        $btnConfirm.Visibility = & $visible ($Stage -eq 'Review' -or $Stage -eq 'Running')
+        $btnConfirm.IsEnabled = ($review -and (-not $needsCheck -or $chkConfirm.IsChecked -eq $true))
+        $undoStage = ($Stage -eq 'Done' -or $Stage -eq 'Undoing' -or $Stage -eq 'Undone')
+        $undoOffered = ($hasUndo -and $undoStage -and -not ($state.Result -and $state.Result.UndoAvailable -eq $false))
+        $btnUndo.Visibility = & $visible $undoOffered
+        $btnUndo.IsEnabled = ($Stage -eq 'Done')
+        $btnCancel.Visibility = & $visible ($Stage -eq 'Review' -or $Stage -eq 'Running' -or $Stage -eq 'Undoing')
+        $btnClose.Visibility = & $visible ($Stage -eq 'Done' -or $Stage -eq 'Undone')
+    }.GetNewClosure()
+
+    $summaryForReview = $(if ($changeCount -eq 1) { '1 change. Review the list, then confirm.' } else { ('{0} changes. Review the list, then confirm.' -f $changeCount) })
+    $txtSummary.Text = $summaryForReview
+    & $setStage 'Review'
+
+    $showResult = {
+        param($Result, [string]$Prefix)
+        $resultRows.Clear()
+        foreach ($row in @($Result.Items)) { $resultRows.Add([pscustomobject]@{ Outcome = [string]$row.Outcome; Action = [string]$row.Action; Target = [string]$row.Target; Message = [string]$row.Message }) }
+        $txtSummary.Text = ($Prefix + [string]$Result.Summary)
+    }.GetNewClosure()
+    $failedResult = {
+        param([string]$Text, $Items)
+        $rows = @($Items | ForEach-Object { New-SupersedenceChangeRow -Item $_ -Succeeded $false -Message 'No result: the run failed before this change reported.' })
+        New-SupersedenceChangeResult -Rows $rows -Stop 'Failed' -UndoAvailable $false -Summary $Text
+    }.GetNewClosure()
+    $cancelCheck = { [bool]$state.Cancel }.GetNewClosure()
+
+    $chkConfirm.Add_Checked({ if ($state.Stage -eq 'Review') { $btnConfirm.IsEnabled = $true } }.GetNewClosure())
+    $chkConfirm.Add_Unchecked({ if ($state.Stage -eq 'Review') { $btnConfirm.IsEnabled = (-not $needsCheck) } }.GetNewClosure())
+
+    $confirm = {
+        if ($state.Stage -ne 'Review') { return }
+        if ($needsCheck -and $chkConfirm.IsChecked -ne $true) { return }
+        $state.Confirmed = $true
+        $state.Cancel = $false
+        & $setStage 'Running'
+        $txtSummary.Text = 'Running...'
+        $result = $null
+        try { $result = & $Run $cancelCheck }
+        catch {
+            Add-LogLine -Message ('{0} failed: {1}' -f [string]$ChangePlan.LogName, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The log file has the details.'))
+            $result = & $failedResult 'The run failed. The log has the details.' @($ChangePlan.Items)
+        }
+        $state.Result = $result
+        & $showResult $result ''
+        & $setStage 'Done'
+        $canUndo = [bool]@($result.Items | Where-Object { $_.Succeeded -or $_.PartialChange }).Count
+        $btnUndo.IsEnabled = ($hasUndo -and $canUndo -and $result.UndoAvailable -ne $false)
+    }.GetNewClosure()
+
+    $undo = {
+        if ($state.Stage -ne 'Done' -or -not $hasUndo) { return }
+        $state.Cancel = $false
+        & $setStage 'Undoing'
+        $txtSummary.Text = 'Undoing...'
+        $result = $null
+        try { $result = & $Undo $cancelCheck }
+        catch {
+            Add-LogLine -Message ('Undo of {0} failed: {1}' -f [string]$ChangePlan.LogName, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The log file has the details.'))
+            $result = & $failedResult 'The run failed. The log has the details.' @()
+        }
+        $state.UndoResult = $result
+        & $showResult $result 'Undo: '
+        & $setStage 'Undone'
+    }.GetNewClosure()
+
+    $btnConfirm.Add_Click($confirm)
+    $btnUndo.Add_Click($undo)
+    $btnCancel.Add_Click({
+        if ($state.Busy) {
+            $state.Cancel = $true
+            $txtSummary.Text = 'Cancelling... The run stops at the next step.'
+            return
+        }
+        $dlg.Close()
+    }.GetNewClosure())
+    $btnClose.Add_Click({ if (-not $state.Busy) { $dlg.Close() } }.GetNewClosure())
+    # A run that works keeps the window: the close box asks it to cancel.
+    $dlg.Add_Closing({ param($sender, $e) if ($state.Busy) { $e.Cancel = $true; $state.Cancel = $true } }.GetNewClosure())
+
+    return @{
+        Window = $dlg; State = $state; Summary = $txtSummary; Notes = $txtNotes; PlanGrid = $gridPlan; ResultGrid = $gridResult
+        ConfirmBox = $chkConfirm; ConfirmButton = $btnConfirm; UndoButton = $btnUndo; CancelButton = $btnCancel; CloseButton = $btnClose
+        Outcome = { [pscustomobject]@{ Confirmed = [bool]$state.Confirmed; Result = $state.Result; UndoResult = $state.UndoResult } }.GetNewClosure()
+    }
+}
+
+function Show-RewriteOldVersionsDialog {
+    # Returns Confirmed, Result and UndoResult. Closing the window before the confirmation changes nothing.
+    param(
+        [Parameter(Mandatory)]$Owner,
+        [Parameter(Mandatory)]$ChangePlan,
+        [Parameter(Mandatory)][scriptblock]$Run,
+        [AllowNull()][scriptblock]$Undo = $null
+    )
+    $dialog = New-RewriteOldVersionsDialog -Owner $Owner -ChangePlan $ChangePlan -Run $Run -Undo $Undo
+    [void]$dialog.Window.ShowDialog()
+    return (& $dialog.Outcome)
+}
+
+function Start-RewriteOldVersionsRun {
+    # The buttons Rewrite Old Versions and Restore Old Versions. One checked application at a time. Rewrite reads the line from the
+    # site and shows the plan; when no clause is left to rewrite and an earlier rewrite is pending, it offers that restore. Restore
+    # reads only the log. Nothing is written before the confirmation in the window.
+    param([Parameter(Mandatory)][ValidateSet('Rewrite', 'Restore')][string]$Mode)
+
+    $label = $(if ($Mode -eq 'Rewrite') { 'Rewrite Old Versions' } else { 'Restore Old Versions' })
+    if (Test-PipelineBusy) {
+        Add-LogLine -Message ('{0}: another run is in progress. Wait for it to finish.' -f $label)
+        return
+    }
+    $sidebar = Get-SidebarSystemState -Prefs $script:Prefs
+    if (-not $(if ($Mode -eq 'Rewrite') { $sidebar.RewriteEnabled } else { $sidebar.RestoreEnabled })) {
+        $reason = [string]$(if ($Mode -eq 'Rewrite') { $sidebar.RewriteToolTip } else { $sidebar.RestoreToolTip })
+        Add-LogLine -Message $reason
+        $txtStatus.Text = $reason
+        return
+    }
+    $selected = @(Get-SelectedRows)
+    if ($selected.Count -ne 1) {
+        Add-LogLine -Message ('{0} works on one checked application at a time.' -f $label)
+        $txtStatus.Text = 'Check one application.'
+        return
+    }
+    $target = Get-RewriteTargetForRow -Row $selected[0] -DownloadRoot ([string]$script:Prefs.DownloadRoot)
+    if (-not $target.Ok) {
+        Add-LogLine -Message ('{0}: {1}' -f $label, $target.Error)
+        $txtStatus.Text = ('{0} not possible.' -f $label)
+        return
+    }
+
+    $logPath = Join-Path (Get-WorkbenchDataRoot) 'supersedence-rewrite.jsonl'
+    $cliPath = Join-Path $PSScriptRoot 'Invoke-AppPackagerBuild.ps1'
+    $site = [string]$script:Prefs.SiteCode
+    $provider = [string]$script:Prefs.ProviderMachineName
+    $marker = [string]$target.Marker
+    Set-ActionButtonsEnabled -Enabled $false
+    try {
+        $plan = $null
+        $pending = @(Get-SupersedenceRewritePending -LogPath $logPath -Marker $marker)
+        $change = $null
+        if ($Mode -eq 'Rewrite') {
+            $txtStatus.Text = ('Reading the line of {0} from the site...' -f $target.Application)
+            Add-LogLine -Message ('Rewrite Old Versions: reading the line of {0}' -f $target.Application)
+            Show-BusyIndicator -Title $label -Step ('Reading the line of {0} from the site...' -f $target.Application)
+            try { $read = Invoke-RewriteChild -Arguments (Get-RewriteChildArgument -Mode plan -Target $target -SiteCode $site -ProviderMachineName $provider -ScriptPath $cliPath) }
+            finally { Hide-BusyIndicator }
+            if (-not $read.Result -or [string]$read.Result.Kind -ne 'Plan') {
+                $detail = ([string]$read.StdErr).Trim()
+                Add-LogLine -Message ('Rewrite Old Versions failed: the site could not be read.{0}' -f $(if ($detail) { ' ' + $detail } else { ' The log has the details.' }))
+                $txtStatus.Text = 'Rewrite Old Versions failed.'
+                return
+            }
+            $plan = $read.Result.Plan
+            foreach ($item in @($plan.Items | Where-Object { -not $_.Rewrites })) { Add-LogLine -Message ('  left: {0} / {1}: {2}' -f $item.Application, $item.DeploymentType, $item.Skip) }
+            foreach ($blocked in @($plan.Blocked)) { Add-LogLine -Message ('  blocked: {0}' -f $blocked) }
+            $change = New-SupersedenceRewriteChangePlan -Plan $plan -Restorable $pending.Count
+        }
+        $restoreChange = $(if (-not $change) { New-SupersedenceRestoreChangePlan -Pending $pending } else { $null })
+        if (-not $change -and -not $restoreChange) {
+            $message = $(if ($Mode -eq 'Rewrite') { 'No old version of this line has a clause that the rewrite can change, and no earlier rewrite is pending. The log lists each clause and why it is left.' } else { 'No earlier rewrite of this line is pending in the log.' })
+            Add-LogLine -Message ('{0}: {1}' -f $label, $(if ($Mode -eq 'Rewrite') { 'nothing to rewrite and nothing to restore.' } else { 'no earlier rewrite of this line is pending.' }))
+            $txtStatus.Text = $(if ($Mode -eq 'Rewrite') { 'Nothing to rewrite.' } else { 'Nothing to restore.' })
+            [void](Show-ThemedMessage -Owner $window -Title $label -Message $message -Buttons OK -Icon Info)
+            return
+        }
+
+        $items = $(if ($change) { @($change.Items) } else { @() })
+        $runRestore = {
+            param($shouldCancel)
+            $started = [datetimeoffset]::UtcNow
+            $now = @(Get-SupersedenceRewritePending -LogPath $logPath -Marker $marker | ForEach-Object { ConvertTo-SupersedenceRestoreChangeItem -Entry $_ })
+            $child = Invoke-RewriteChild -Arguments (Get-RewriteChildArgument -Mode restore -Target $target -SiteCode $site -ProviderMachineName $provider -ScriptPath $cliPath) -ShouldCancel $shouldCancel
+            return (ConvertFrom-SupersedenceChildRun -Run $child -Items $now -Entries @(Get-SupersedenceLogEntrySince -LogPath $logPath -Since $started) -Kind Restore)
+        }.GetNewClosure()
+        $runRewrite = {
+            param($shouldCancel)
+            $started = [datetimeoffset]::UtcNow
+            $planFile = Join-Path ([System.IO.Path]::GetTempPath()) ('ap-rewrite-plan-{0}.json' -f [guid]::NewGuid().ToString('N'))
+            try {
+                Set-Content -LiteralPath $planFile -Value (ConvertTo-Json -InputObject $plan -Depth 8) -Encoding UTF8
+                $child = Invoke-RewriteChild -Arguments (Get-RewriteChildArgument -Mode apply -Target $target -SiteCode $site -ProviderMachineName $provider -ShownPlan $planFile -ScriptPath $cliPath) -ShouldCancel $shouldCancel
+            }
+            finally { Remove-Item -LiteralPath $planFile -Force -ErrorAction SilentlyContinue }
+            return (ConvertFrom-SupersedenceChildRun -Run $child -Items $items -Entries @(Get-SupersedenceLogEntrySince -LogPath $logPath -Since $started))
+        }.GetNewClosure()
+
+        $shown = $(if ($change) { $change } else { $restoreChange })
+        Add-LogLine -Message ('{0}: {1} to confirm for {2}' -f $label, $shown.ActionName, $target.Application)
+        $outcome = $(if ($change) { Show-RewriteOldVersionsDialog -Owner $window -ChangePlan $change -Run $runRewrite -Undo $runRestore }
+            else { Show-RewriteOldVersionsDialog -Owner $window -ChangePlan $restoreChange -Run $runRestore })
+        if ($outcome.Result) {
+            Add-LogLine -Message ('{0}: {1}' -f $shown.Title, $outcome.Result.Summary)
+            foreach ($row in @($outcome.Result.Items)) { Add-LogLine -Message ('  {0}: {1}: {2}' -f $row.Outcome, $row.Target, $row.Message) }
+        }
+        if ($outcome.UndoResult) {
+            Add-LogLine -Message ('Restore: {0}' -f $outcome.UndoResult.Summary)
+            foreach ($row in @($outcome.UndoResult.Items)) { Add-LogLine -Message ('  {0}: {1}: {2}' -f $row.Outcome, $row.Target, $row.Message) }
+        }
+        if (-not $outcome.Confirmed) { Add-LogLine -Message ('{0}: not confirmed; nothing was changed.' -f $shown.Title) }
+        $txtStatus.Text = $(if (-not $outcome.Confirmed) { '{0} not confirmed.' -f $shown.Title }
+            elseif ($outcome.Result -and $outcome.Result.Stop -eq 'Completed') { '{0} finished.' -f $shown.Title }
+            else { '{0} stopped; see the log.' -f $shown.Title })
+    }
+    catch {
+        $message = ('{0} failed: {1}' -f $label, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
+        Add-LogLine -Message $message
+        $txtStatus.Text = $message
+    }
+    finally {
+        Hide-BusyIndicator
+        Set-ActionButtonsEnabled -Enabled $true
+    }
+}
+
+$btnRewriteOld.Add_Click({ Start-RewriteOldVersionsRun -Mode Rewrite })
+$btnRestoreOld.Add_Click({ Start-RewriteOldVersionsRun -Mode Restore })
 
 # --- 3. Stage Packages ---
 $btnStage.Add_Click({

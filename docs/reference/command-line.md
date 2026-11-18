@@ -83,6 +83,7 @@ This guide did not run these commands. It ran the same actions through the windo
 | `-Supersedence` | `Off`, `Replace` or `ReplaceAndUninstall`. `ReplaceAndUninstall` needs `-VersionRule Exact`. |
 | `-RecordInstalledValue`, `-AcceptExactBlock` | Run alone. They store the value read from the installed product, or the acceptance of a block of the Exact guard, for `-Application` and `-Version`. |
 | `-RewriteOldVersions`, `-Yes`, `-Architecture` | `plan`, `apply` or `restore`. It runs alone. It changes the version clause of the old applications of the line from `GreaterEquals` to `IsEquals`. `apply` and `restore` write only with `-Yes`. `-Architecture` names the architecture of the line (`x64` when omitted). |
+| `-IdentityMarker`, `-Json`, `-ShownPlan` | The window uses these with `-RewriteOldVersions`. `-IdentityMarker` is the marker of the line from the stage manifest, instead of `-Profile` and `-Architecture`. `-Json` writes one `APRESULT:` line with the plan or the result as JSON. `-ShownPlan` is the file of the plan that the window showed: `apply` reads the site again and writes only when the clauses are the same. |
 
 ## Limits
 
