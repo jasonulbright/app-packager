@@ -388,6 +388,9 @@ function Read-Preferences {
             ClientSecretProtected = ''
             # The minimum Windows release of every Intune app that is published.
             MinimumWindowsRelease = 'Windows10_21H2'
+            # Requirements with no Intune rule that may be left out of an Intune app. Each entry is the
+            # identity tag of the app in Intune, a bar and the condition id.
+            AcceptedRequirementDrops = @()
         }
         Wsus                 = [pscustomobject]@{
             ServerName        = ''
@@ -729,6 +732,9 @@ function Read-Preferences {
             if ($null -ne $data.Intune.ClientId)              { $defaults.Intune.ClientId              = [string]$data.Intune.ClientId }
             if ($null -ne $data.Intune.ClientSecretProtected) { $defaults.Intune.ClientSecretProtected = [string]$data.Intune.ClientSecretProtected }
             if ([string]$data.Intune.MinimumWindowsRelease -match '^Windows(10|11)_[0-9A-Za-z]{2,8}$') { $defaults.Intune.MinimumWindowsRelease = [string]$data.Intune.MinimumWindowsRelease }
+            if ($null -ne $data.Intune.AcceptedRequirementDrops) {
+                $defaults.Intune.AcceptedRequirementDrops = @(@($data.Intune.AcceptedRequirementDrops) | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ } | Select-Object -Unique)
+            }
             # A stale Intune toggle must not publish to Intune from a WSUS target.
             if ([string]$defaults.Intune.DeploymentTarget -in @('MECMAndWSUS', 'WSUSOnly')) {
                 $defaults.Intune.PublishToIntune = $false
@@ -2690,7 +2696,7 @@ function Invoke-PackagerPackage {
             $result | Add-Member -NotePropertyName IntunePublish -NotePropertyValue ([pscustomobject]@{ Ok = $false; Message = 'Intune credentials not configured; set Tenant ID, Client ID and Client secret in Options, Connections, Intune.' }) -Force
         }
         if ($IntunePublishConfig -and $intuneNote.Ok) {
-            $pubNote = Invoke-PackagerIntunePublish -IntuneNote $intuneNote -Config $IntunePublishConfig -Comment $Comment
+            $pubNote = Invoke-PackagerIntunePublish -IntuneNote $intuneNote -Config $IntunePublishConfig -Comment $Comment -RequirementsJson $RequirementsJson
             $result | Add-Member -NotePropertyName IntunePublish -NotePropertyValue $pubNote -Force
         }
         if ($intuneNote) {
@@ -2714,7 +2720,9 @@ function Invoke-PackagerIntunePublish {
     param(
         [Parameter(Mandatory)]$IntuneNote,
         [Parameter(Mandatory)][hashtable]$Config,
-        [AllowEmptyString()][string]$Comment = ''
+        [AllowEmptyString()][string]$Comment = '',
+        # The APP_PACKAGER_REQUIREMENTS JSON of the run: the saved deployment conditions of the app.
+        [AllowEmptyString()][string]$RequirementsJson = ''
     )
     $pubNote = [pscustomobject]@{ Ok = $false; Message = ''; AppId = ''; SupersedenceLog = @() }
     try {
@@ -2741,6 +2749,10 @@ function Invoke-PackagerIntunePublish {
                 if (Test-Path -LiteralPath $iconFile) { $publishArgs.IconPath = $iconFile }
             }
             if ($Config.ContainsKey('MinimumWindowsRelease') -and -not [string]::IsNullOrWhiteSpace([string]$Config.MinimumWindowsRelease)) { $publishArgs.MinimumSupportedWindowsRelease = [string]$Config.MinimumWindowsRelease }
+            # The requirements of the app become Intune requirement rules; a drop that the administrator accepted is left out.
+            $requirementSpecs = @(ConvertFrom-RequirementsJson -Json $RequirementsJson)
+            if ($requirementSpecs.Count -gt 0) { $publishArgs.Requirements = $requirementSpecs }
+            if ($Config.ContainsKey('AcceptedRequirementDrops')) { $publishArgs.AcceptedRequirementDrops = [string[]]@($Config.AcceptedRequirementDrops) }
             $pubId = Publish-IntuneWin32App -TenantId $Config.TenantId -ClientId $Config.ClientId -ClientSecret $Config.ClientSecret -IntuneWinPath $IntuneNote.LocalPath -Manifest $manifest -Description $Comment @publishArgs
             $pubNote.Ok = $true
             $pubNote.AppId = [string]$pubId
@@ -3217,7 +3229,8 @@ function Get-IntunePublishConfigForContext {
         $ptr = [Runtime.InteropServices.Marshal]::SecureStringToGlobalAllocUnicode($sec)
         try { $plain = [Runtime.InteropServices.Marshal]::PtrToStringUni($ptr) }
         finally { [Runtime.InteropServices.Marshal]::ZeroFreeGlobalAllocUnicode($ptr) }
-        return @{ TenantId = [string]$i.TenantId; ClientId = [string]$i.ClientId; ClientSecret = $plain; MinimumWindowsRelease = [string]$i.MinimumWindowsRelease }
+        return @{ TenantId = [string]$i.TenantId; ClientId = [string]$i.ClientId; ClientSecret = $plain; MinimumWindowsRelease = [string]$i.MinimumWindowsRelease
+            AcceptedRequirementDrops = @(@($i.AcceptedRequirementDrops) | Where-Object { $_ } | ForEach-Object { [string]$_ }) }
     } catch { return $null }
 }
 
@@ -7468,6 +7481,10 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'int.tenant'; Title = 'Tenant ID'; Kind = 'Text'; Pref = 'Intune.TenantId'; Tip = 'The Entra tenant ID, as a GUID or a domain name.'; Keywords = 'entra azure' }
                 @{ Id = 'int.client'; Title = 'Client ID'; Kind = 'Text'; Pref = 'Intune.ClientId'; Tip = 'The client ID of an app registration with DeviceManagementApps.ReadWrite.All.'; Keywords = 'app registration graph' }
                 @{ Id = 'int.secret'; Title = 'Client secret'; Kind = 'Secret'; Pref = 'Intune.ClientSecretProtected'; Tip = 'Stored with DPAPI for the current Windows user; empty keeps the saved secret.'; Keywords = 'dpapi' }
+                @{ Id = 'int.drops'; Title = 'Accepted requirement drops'; Kind = 'Text'; Pref = 'Intune.AcceptedRequirementDrops'; Watermark = 'AppPackager:catalog:package-example/default|vpn-connected'
+                    ToText = { param($Value) (@($Value) -join '; ') }
+                    FromText = { param($Text) , @(([string]$Text -split '[;\r\n]+') | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique) }
+                    Tip = 'Requirements with no Intune rule that may be left out; separate entries with semicolons.'; Keywords = 'requirement rule drop accept translate gate' }
                 @{ Id = 'int.minWin'; Title = 'Minimum Windows release'; Kind = 'Combo'; Pref = 'Intune.MinimumWindowsRelease'; Default = 'Windows10_21H2'; Width = 260; Items = $windowsReleaseItems; Tip = 'The oldest Windows release that an Intune app is offered to.'; Keywords = 'minimum supported windows release' }
             )
         })
@@ -10162,7 +10179,7 @@ function Invoke-MultiAppPipeline {
                                         if (-not $intuneWinNote.Ok) { $resultText = ('intunewin failed: ' + $intuneWinNote.Message) }
                                         elseif (-not $Ctx.IntunePublishConfig) { $resultText = 'Intune credentials not configured' }
                                         else {
-                                            $note = Invoke-PackagerIntunePublish -IntuneNote $intuneWinNote -Config $Ctx.IntunePublishConfig -Comment $Ctx.Comment
+                                            $note = Invoke-PackagerIntunePublish -IntuneNote $intuneWinNote -Config $Ctx.IntunePublishConfig -Comment $Ctx.Comment -RequirementsJson $(if ($Ctx.RequirementsByApp) { [string]$Ctx.RequirementsByApp[$baseName] } else { '' })
                                             [void]$State.LogQueue.Enqueue(('Intune publish: ' + $note.Message))
                                             if ($note.Ok) { $ok = $true; $id = [string]$note.AppId; $resultText = ('published ' + $id) }
                                             else { $resultText = [string]$note.Message }
@@ -12139,6 +12156,133 @@ function Confirm-WsusPublishPrerequisites {
 # --- 4. Publish to ConfigMgr, Intune or WSUS ---
 # Each sidebar button names its own destination for this run; One Click keeps
 # the destination saved in Options, Updates and CVEs, One Click.
+function Show-IntuneReviewDialog {
+    # Three-way answer; a two-button themed message cannot express Cancel
+    # alongside a second way to continue. Returns Continue, Accept or Cancel.
+    # Accept stores the drop of every requirement that has no Intune rule.
+    param([Parameter(Mandatory)]$Owner, [Parameter(Mandatory)][string]$Message, [switch]$CanAccept)
+
+    if ($script:IntuneReviewPromptOverride) {
+        return [string](& $script:IntuneReviewPromptOverride $Message $CanAccept.IsPresent)
+    }
+
+    $dlgXaml = @'
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="Intune Review" Width="600" SizeToContent="Height" MinWidth="480"
+    WindowStartupLocation="CenterOwner" TitleCharacterCasing="Normal"
+    GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+    BorderThickness="1" ResizeMode="NoResize" ShowIconOnTitleBar="False">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <!--SHARED_STYLES-->        </ResourceDictionary>
+    </Window.Resources>
+    <StackPanel Margin="18,16,18,14">
+        <ScrollViewer MaxHeight="360" VerticalScrollBarVisibility="Auto" Margin="0,0,0,16">
+            <TextBlock x:Name="txtReview" TextWrapping="Wrap" FontSize="12"/>
+        </ScrollViewer>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="btnReviewContinue" Content="Continue" Margin="0,0,8,0"
+                    Style="{DynamicResource DialogAccentButton}"
+                    Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnReviewAccept" Content="Accept dropped requirements and continue" Margin="0,0,8,0"
+                    Style="{DynamicResource DialogButton}"
+                    Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnReviewCancel" Content="Cancel" IsCancel="True"
+                    Style="{DynamicResource DialogButton}"
+                    Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+        </StackPanel>
+    </StackPanel>
+</Controls:MetroWindow>
+'@
+    [xml]$dx = Expand-SharedStyle $dlgXaml
+    $reader = New-Object System.Xml.XmlNodeReader $dx
+    $dlg = [System.Windows.Markup.XamlReader]::Load($reader)
+    Install-TitleBarDragFallback -Window $dlg
+    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
+    $dlg.FindName('txtReview').Text = $Message
+    if (-not $CanAccept) { $dlg.FindName('btnReviewAccept').Visibility = [System.Windows.Visibility]::Collapsed }
+    # ShowDialog keeps this frame alive while the handlers run, so the
+    # answer travels through script scope rather than a local.
+    $script:IntuneReviewChoice = 'Cancel'
+    $dlg.FindName('btnReviewContinue').Add_Click({ $script:IntuneReviewChoice = 'Continue'; $dlg.Close() })
+    $dlg.FindName('btnReviewAccept').Add_Click({ $script:IntuneReviewChoice = 'Accept'; $dlg.Close() })
+    $dlg.FindName('btnReviewCancel').Add_Click({ $script:IntuneReviewChoice = 'Cancel'; $dlg.Close() })
+    [void]$dlg.ShowDialog()
+    return [string]$script:IntuneReviewChoice
+}
+
+function Get-IntuneReviewFinding {
+    # The Intune compatibility findings of the newest staged build of one packager,
+    # with the requirements that the saved deployment conditions add. Returns nothing
+    # when the packager has no staged build, or when it is a variant-split app (its
+    # Intune publish is skipped). Never throws.
+    param(
+        [Parameter(Mandatory)][string]$PackagerPath,
+        [string]$DownloadRoot = '',
+        [AllowEmptyString()][string]$RequirementsJson = '',
+        [string[]]$AcceptedDrops = @()
+    )
+    try {
+        $manifestPath = Find-NewestStageManifestForPackager -PackagerPath $PackagerPath -DownloadRoot $DownloadRoot
+        if (-not $manifestPath) { return }
+        $manifest = Read-StageManifest -Path $manifestPath
+        if ($manifest.PSObject.Properties['DeploymentTypes'] -and $manifest.DeploymentTypes) { return }
+        $specs = @(ConvertFrom-RequirementsJson -Json $RequirementsJson)
+        Get-IntuneCompatibilityFindings -Manifest $manifest -Requirements $specs -AcceptedDrops $AcceptedDrops
+    }
+    catch {
+        Add-LogLine -Message ('Intune review: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The staged build could not be read.'))
+    }
+}
+
+function Confirm-IntuneRequirementReview {
+    # The review before a publish to Intune: the findings of each selected app, in the log
+    # and, when one is not information only, in a dialog. A blocked app is refused by its own
+    # publish; Cancel stops the run. Accept stores the drop of each requirement that has no
+    # Intune rule in Intune.AcceptedRequirementDrops. Returns $true to continue.
+    param([Parameter(Mandatory)]$Owner, [Parameter(Mandatory)][array]$Rows, [hashtable]$RequirementsByApp = @{})
+
+    $lines = New-Object System.Collections.Generic.List[string]
+    $acceptable = New-Object System.Collections.Generic.List[string]
+    $accepted = @(@($script:Prefs.Intune.AcceptedRequirementDrops) | Where-Object { $_ } | ForEach-Object { [string]$_ })
+    foreach ($row in @($Rows)) {
+        $baseName = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script)
+        $requirementsJson = $(if ($RequirementsByApp -and $RequirementsByApp.ContainsKey($baseName)) { [string]$RequirementsByApp[$baseName] } else { '' })
+        foreach ($finding in @(Get-IntuneReviewFinding -PackagerPath ([string]$row.FullPath) -DownloadRoot ([string]$script:Prefs.DownloadRoot) -RequirementsJson $requirementsJson -AcceptedDrops $accepted)) {
+            if ($finding.CanAcceptDrop) { $acceptable.Add([string]$finding.DropKey) }
+            Add-LogLine -Message ('{0}: Intune compatibility: [{1}] {2} - {3}' -f $row.Application, $finding.Severity, $finding.Code, $finding.Message)
+            if ($finding.Severity -ne 'Info') { $lines.Add(('{0}: [{1}] {2} - {3}' -f $row.Application, $finding.Severity, $finding.Code, $finding.Message)) }
+        }
+    }
+    if ($lines.Count -eq 0) { return $true }
+
+    $answer = Show-IntuneReviewDialog -Owner $Owner -Message ($lines -join "`n`n") -CanAccept:($acceptable.Count -gt 0)
+    if ($answer -eq 'Accept' -and $acceptable.Count -gt 0) {
+        try {
+            $merged = New-Object System.Collections.Generic.List[string]
+            $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+            foreach ($key in @($accepted) + @($acceptable)) { if ($seen.Add($key)) { $merged.Add($key) } }
+            $script:Prefs.Intune.AcceptedRequirementDrops = @($merged.ToArray())
+            Save-Preferences -Prefs $script:Prefs
+        }
+        catch {
+            Add-LogLine -Message ('Intune review: the accepted drops were not stored ({0}). The run is canceled.' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
+            return $false
+        }
+        foreach ($key in @($acceptable | Select-Object -Unique)) { Add-LogLine -Message ('Intune review: the drop of the requirement is accepted ({0}).' -f $key) }
+        return $true
+    }
+    return ($answer -eq 'Continue')
+}
+
 function Start-PublishRun {
     param([Parameter(Mandatory)][ValidateSet('MECM', 'IntuneOnly', 'WSUSOnly')][string]$Target)
 
@@ -12183,6 +12327,12 @@ function Start-PublishRun {
     $selectedRows = Get-SelectedRows
     if ($selectedRows.Count -eq 0) {
         Add-LogLine -Message "No rows selected."
+        return
+    }
+
+    if ($intuneOnlyRun -and -not (Confirm-IntuneRequirementReview -Owner $window -Rows $selectedRows -RequirementsByApp (Get-RequirementsMapForContext))) {
+        Add-LogLine -Message 'Publish to Intune canceled at the review.'
+        $txtStatus.Text = 'Canceled.'
         return
     }
 

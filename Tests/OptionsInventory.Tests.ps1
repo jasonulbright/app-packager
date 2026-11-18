@@ -157,7 +157,7 @@ Describe 'The old Options window and the new one write the same keys' {
             'SSMSInstallOptions.Workloads', 'SSMSInstallOptions.Languages', 'SSMSInstallOptions.NoCache',
             'AdobeReaderInstallOptions.AcceptEula', 'AdobeReaderInstallOptions.DisableDesktopShortcut', 'AdobeReaderInstallOptions.DisableChromeExtension', 'AdobeReaderInstallOptions.DisableBrowserIntegration', 'AdobeReaderInstallOptions.UpdateMode',
             'BeyondCompareOptions.DisableRemoteProfiles', 'BeyondCompareOptions.DisableSavedPasswords',
-            'ScriptSigning.HashAlgorithm', 'Intune.MinimumWindowsRelease', 'AppFlow.DefaultCadenceDays', 'CheckForUpdatesAtStartup', 'SkipConfigReview', 'ContentDistribution.TestCollectionIsUser', 'AppendArchitectureToTitle',
+            'ScriptSigning.HashAlgorithm', 'Intune.MinimumWindowsRelease', 'AppFlow.DefaultCadenceDays', 'CheckForUpdatesAtStartup', 'SkipConfigReview', 'Intune.AcceptedRequirementDrops', 'ContentDistribution.TestCollectionIsUser', 'AppendArchitectureToTitle',
             'Supersedence.Mode', 'Supersedence.ConfigMgrVersionRule', 'Supersedence.IntuneVersionRule', 'Supersedence.TitleOverrides', 'Supersedence.InstalledValues', 'Supersedence.AcceptedExactBlocks'
         )
         $unexpected = @($new | Where-Object { $expected -notcontains $_ })
