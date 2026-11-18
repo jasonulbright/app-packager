@@ -32,6 +32,7 @@ None.
 | `%LOCALAPPDATA%\AppPackager\update-check.json` | The result of the daily update check. |
 | `%LOCALAPPDATA%\AppPackager\vuln-results\` | The CVE results, one file for each CPE and version pair, used for six hours. |
 | `%LOCALAPPDATA%\AppPackager\vuln-products\` | The NVD records of each product, used for six hours. |
+| `%LOCALAPPDATA%\AppPackager\nvd-limit.json` | The times of the latest NVD requests. Every App Packager process of the user reads it to keep one request limit. |
 | `%LOCALAPPDATA%\AppPackagerData\Workbench\` | The Workbench profiles and the build records. |
 
 ## Limits

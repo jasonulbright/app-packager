@@ -8,6 +8,12 @@
 
 - Add the App Installer (WinGet) packager. It provisions the package for all users without the Store.
 
+### Fixed
+
+- Fix the NVD request limit. Requests without a key are 6 seconds apart.
+- Fix the NVD limit across windows and the version monitor. They share one limit.
+- Fix the NVD retry. It honors Retry-After and retries timeouts.
+
 ## [2026.11.18.0144] - 2026-11-18
 
 ## 314 packagers: Bruno and PowerShell 7 added
