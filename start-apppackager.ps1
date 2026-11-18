@@ -350,6 +350,8 @@ function Read-Preferences {
             DeployToTestCollection        = $false
             TestCollectionName            = ''
             CreateTestCollectionIfMissing = $false
+            # True: the test collection is a user collection (limited to All Users) instead of a device collection.
+            TestCollectionIsUser          = $false
         }
         # The token that the GitHub-backed packagers send. DPAPI-protected for the current Windows user; never plaintext.
         GitHub               = [pscustomobject]@{
@@ -646,6 +648,9 @@ function Read-Preferences {
             }
             if ($null -ne $cd.TestCollectionName) {
                 $defaults.ContentDistribution.TestCollectionName = [string]$cd.TestCollectionName
+            }
+            if ($null -ne $cd.TestCollectionIsUser) {
+                try { $defaults.ContentDistribution.TestCollectionIsUser = [bool]$cd.TestCollectionIsUser } catch { <# Reading a boolean setting from the preferences file; a bad value keeps the default. #> $null = $_ }
             }
             if ($null -ne $cd.CreateTestCollectionIfMissing) {
                 try { $defaults.ContentDistribution.CreateTestCollectionIfMissing = [bool]$cd.CreateTestCollectionIfMissing } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ }
@@ -7300,6 +7305,7 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'dist.group'; Title = 'DP group'; Kind = 'Text'; Pref = 'ContentDistribution.DPGroupName'; MaxLength = 200; Tip = 'The exact name of the distribution point group.'; Keywords = 'distribution point group' }
                 @{ Id = 'dist.test'; Title = 'Test deployment'; Kind = 'Check'; Pref = 'ContentDistribution.DeployToTestCollection'; Label = 'Deploy to the test collection after distribution'; Tip = 'Creates an Available deployment for the test collection.' }
                 @{ Id = 'dist.collection'; Title = 'Test collection'; Kind = 'Text'; Pref = 'ContentDistribution.TestCollectionName'; MaxLength = 255; Tip = 'The exact name of the device collection that receives the test deployment.' }
+                @{ Id = 'dist.user'; Title = 'User collection'; Kind = 'Check'; Pref = 'ContentDistribution.TestCollectionIsUser'; Label = 'The test collection is a user collection'; Tip = 'Deploys to a user collection, limited to All Users, instead of a device collection.' }
                 @{ Id = 'dist.create'; Title = 'Create collection'; Kind = 'Check'; Pref = 'ContentDistribution.CreateTestCollectionIfMissing'; Label = 'Create the collection if it does not exist'; Tip = 'Creates the collection with All Systems as the limiting collection.' }
             )
         })

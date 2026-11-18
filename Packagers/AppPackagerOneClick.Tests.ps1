@@ -467,3 +467,15 @@ Describe 'Default cadence days' {
         Get-OneClickCadenceDays -Prefs $prefs -PackagerName 'package-a' | Should -Be 7
     }
 }
+
+Describe 'Test collection kind in the destination scope' {
+    It 'names a user collection' {
+        $prefs = New-TestPrefs
+        $prefs.ContentDistribution | Add-Member -NotePropertyName TestCollectionIsUser -NotePropertyValue $true
+        Get-OneClickDestinationScope -Prefs $prefs -Destination 'ConfigMgr' | Should -Match 'deploy to user collection '
+    }
+
+    It 'keeps the device wording when the key is absent or false' {
+        Get-OneClickDestinationScope -Prefs (New-TestPrefs) -Destination 'ConfigMgr' | Should -Match 'deploy to collection '
+    }
+}

@@ -183,7 +183,7 @@ function Get-OneClickDestinationScope {
             $cd = $null
             if ($Prefs.PSObject.Properties['ContentDistribution']) { $cd = $Prefs.ContentDistribution }
             if ($cd -and [bool]$cd.AutoDistribute -and -not [string]::IsNullOrWhiteSpace([string]$cd.DPGroupName)) { $parts += ('distribute to DP group ' + $cd.DPGroupName) }
-            if ($cd -and [bool]$cd.DeployToTestCollection -and -not [string]::IsNullOrWhiteSpace([string]$cd.TestCollectionName)) { $parts += ('deploy to collection ' + $cd.TestCollectionName) }
+            if ($cd -and [bool]$cd.DeployToTestCollection -and -not [string]::IsNullOrWhiteSpace([string]$cd.TestCollectionName)) { $parts += ('deploy to ' + $(if ($cd.PSObject.Properties['TestCollectionIsUser'] -and [bool]$cd.TestCollectionIsUser) { 'user collection ' } else { 'collection ' }) + $cd.TestCollectionName) }
             if ($parts.Count -eq 0) { return 'application only, no distribution, no deployment' }
             return ($parts -join '; ')
         }
