@@ -2227,11 +2227,15 @@ function Invoke-PackagerGetLatestVersion {
     try {
         $p.StartInfo = $psi
         $null = $p.Start()
+        Register-RunChild -Process $p
         $stdoutTask = $p.StandardOutput.ReadToEndAsync()
         $stderrTask = $p.StandardError.ReadToEndAsync()
 
-        if (-not $p.WaitForExit(30000)) {
-            try { $p.Kill() } catch { <# Killing a timed-out process is best-effort; the code throws a timeout error right after. #> $null = $_ }
+        # Cancel ends the packager and the processes it started (curl.exe) within a fraction of a second.
+        $waited = Wait-RunChild -Process $p -TimeoutSeconds 30
+        if ($waited -eq 'Cancelled') { throw (New-Object System.OperationCanceledException 'The run was cancelled.') }
+        if ($waited -eq 'TimedOut') {
+            Stop-ProcessTreeById -ProcessId $p.Id
             throw "Packager timed out after 30 seconds."
         }
 
@@ -2259,7 +2263,10 @@ function Invoke-PackagerGetLatestVersion {
         return ([string]$version[0]).Trim()
     }
     finally {
-        if ($p) { try { $p.Dispose() } catch { <# Disposing the process object is cleanup. #> $null = $_ } }
+        if ($p) {
+            try { Unregister-RunChild -ProcessId $p.Id } catch { <# The process id is read once for the registry; a process that never started has none. #> $null = $_ }
+            try { $p.Dispose() } catch { <# Disposing the process object is cleanup. #> $null = $_ }
+        }
     }
 }
 
@@ -2474,6 +2481,7 @@ function Invoke-ProcessWithStreaming {
     try {
         $p.StartInfo = $StartInfo
         $null = $p.Start()
+        Register-RunChild -Process $p
 
         $outLines = New-Object System.Collections.Generic.List[string]
         $errTask = $p.StandardError.ReadToEndAsync()
@@ -2502,8 +2510,9 @@ function Invoke-ProcessWithStreaming {
                 $lineTask = $reader.ReadLineAsync()
             }
 
-            if ($ShouldCancel -and (& $ShouldCancel)) {
+            if (($ShouldCancel -and (& $ShouldCancel)) -or (Test-RunCancelRequested)) {
                 $cancelled = $true
+                Set-RunAborted
                 break
             }
 
@@ -2541,6 +2550,9 @@ function Invoke-ProcessWithStreaming {
             [void]$p.WaitForExit(5000)
         }
 
+        # The Cancel button stops the registered children at once; a child that ended with a failure after Cancel counts as cancelled.
+        if (-not $cancelled -and (Test-RunCancelRequested) -and $p.HasExited -and $p.ExitCode -ne 0) { $cancelled = $true; Set-RunAborted }
+
         $stdout = ($outLines -join "`r`n")
         $stderr = if ($errTask.IsCompleted) { $errTask.Result } else { "" }
 
@@ -2558,7 +2570,10 @@ function Invoke-ProcessWithStreaming {
         }
     }
     finally {
-        if ($p) { try { $p.Dispose() } catch { <# Disposing the process object is cleanup. #> $null = $_ } }
+        if ($p) {
+            try { Unregister-RunChild -ProcessId $p.Id } catch { <# The process id is read once for the registry; a process that never started has none. #> $null = $_ }
+            try { $p.Dispose() } catch { <# Disposing the process object is cleanup. #> $null = $_ }
+        }
     }
 }
 
@@ -5880,6 +5895,30 @@ function Hide-BusyIndicator {
     $btnCancelPipeline.IsEnabled = $false
 }
 
+function Start-UiRun {
+    # A run that works on the window thread (Check ConfigMgr, the conversion). It gets the same run state as a background
+    # run, so Cancel, the child process functions and closing the window treat it the same way.
+    param([int]$Total = 0)
+    $script:UiRun = [hashtable]::Synchronized(@{ CancelRequested = $false; Aborted = $false; DoneCount = 0; TotalCount = $Total })
+    Set-RunState -State $script:UiRun
+}
+
+function Stop-UiRun {
+    $script:UiRun = $null
+    Set-RunState -State $null
+    [void](Stop-RunChildren)
+}
+
+function Test-UiRunCancelled {
+    # Lets the window handle a click on Cancel (the loop runs on the window thread), then says whether Cancel was asked.
+    if (-not $script:UiRun) { return $false }
+    [void][System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke(
+        [System.Windows.Threading.DispatcherPriority]::Background,
+        [Action]{ }
+    )
+    return [bool]$script:UiRun.CancelRequested
+}
+
 function Set-DialogBusyStatus {
     # For a dialog or option page: the status line says what runs, and the
     # wait cursor is an addition to it.
@@ -5911,6 +5950,16 @@ $btnCancelPipeline.Add_Click({
         Stop-DiscoveryScan
         return
     }
+    if ($script:UiRun -and -not $script:BgState) {
+        if ([bool]$script:UiRun.CancelRequested) { return }
+        $script:UiRun.CancelRequested = $true
+        $btnCancelPipeline.IsEnabled = $false
+        # The download or child process in flight ends now; the loop stops after the product it is working on.
+        [void](Stop-RunChildren)
+        Add-LogLine -Message 'Cancel requested. The run stops after the product in flight.'
+        $txtProgressStep.Text = 'Cancelling...'
+        return
+    }
     if (-not $script:BgState -or $script:BgState.Done) { return }
 
     $script:BgState.CancelRequested = $true
@@ -5918,8 +5967,10 @@ $btnCancelPipeline.Add_Click({
     $btnPausePipeline.Content = 'Pause'
     $btnPausePipeline.IsEnabled = $false
     $btnCancelPipeline.IsEnabled = $false
-    Add-LogLine -Message 'Cancel requested. Current app will finish before the run stops.'
-    $txtProgressStep.Text = 'Cancel pending...'
+    # The download or packager child of the product in flight ends now; the run stops after that product.
+    [void](Stop-RunChildren)
+    Add-LogLine -Message 'Cancel requested. The product in flight is stopped and the run ends.'
+    $txtProgressStep.Text = 'Cancelling...'
 })
 
 function Get-SelectedRows {
@@ -9831,6 +9882,10 @@ function Invoke-MultiAppPipeline {
         Paused          = $false
         CancelRequested = $false
         Canceled        = $false
+        # Cancel stopped the product in flight (a child process ended); DoneCount and TotalCount feed the cancelled line.
+        Aborted         = $false
+        DoneCount       = 0
+        TotalCount      = 0
         LogQueue        = New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]'
         Succeeded       = New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]'
         Counts          = $null
@@ -9851,6 +9906,8 @@ function Invoke-MultiAppPipeline {
         CveLeft                = 0
     })
     $script:ConflictPromptOpen = $false
+    # The packager, download and lookup functions read this state: Cancel ends the child process of the product in flight.
+    Set-RunState -State $script:BgState
     # The timer tick runs after this function returns; its parameters are out
     # of scope there.
     $script:BgContext   = $Context
@@ -9891,6 +9948,7 @@ function Invoke-MultiAppPipeline {
             $rows = @($RowsIn)
             $n = $rows.Count
             $i = 0
+            $State.TotalCount = $n
             $cveWaitHooked = $false
             foreach ($row in $rows) {
                 while ([bool]$State.Paused -and -not [bool]$State.CancelRequested) {
@@ -9899,7 +9957,8 @@ function Invoke-MultiAppPipeline {
                 }
                 if ([bool]$State.CancelRequested) {
                     $State.Canceled = $true
-                    [void]$State.LogQueue.Enqueue('Canceled. Stopped before starting the next app.')
+                    $State.DoneCount = $i
+                    [void]$State.LogQueue.Enqueue((Get-CancelledSummaryLine -Done $i -Total $n))
                     break
                 }
 
@@ -9928,6 +9987,13 @@ function Invoke-MultiAppPipeline {
                     if ([string]$plan.DownloadRoot) { $planDownloadRoot = [string]$plan.DownloadRoot }
                 }
                 $planSigning = [string]$Ctx.SigningJson
+
+                # What the product looked like before this step: Cancel that stops it in flight puts this back.
+                $snapStatus = $row.Status
+                $snapLatest = $row.LatestVersion
+                $snapCounts = @{}; foreach ($countKey in @($counts.Keys)) { $snapCounts[$countKey] = $counts[$countKey] }
+                $snapCells = @{}
+                foreach ($cell in 'CveCount', 'CveCvss', 'CveKev', 'CveEpss', 'CveChecked', 'CveFixed', 'CveNewest', 'CveUpdated') { if ($row.PSObject.Properties[$cell]) { $snapCells[$cell] = $row.$cell } }
 
                 switch ($Op) {
                     'CheckLatest' {
@@ -10937,6 +11003,19 @@ function Invoke-MultiAppPipeline {
                         }
                     }
                 }
+                if ([bool]$State.Aborted) {
+                    # Cancel stopped this product in flight. It keeps what it had before, and the finished products keep their results.
+                    $row.Status = $snapStatus
+                    $row.LatestVersion = $snapLatest
+                    Clear-StaleCveCells -Row $row
+                    foreach ($cell in @($snapCells.Keys)) { $row.$cell = $snapCells[$cell] }
+                    foreach ($key in @($snapCounts.Keys)) { $counts[$key] = $snapCounts[$key] }
+                    $State.Canceled = $true
+                    $State.DoneCount = $i - 1
+                    [void]$State.LogQueue.Enqueue(('Stopped {0} while it was running.' -f $app))
+                    [void]$State.LogQueue.Enqueue((Get-CancelledSummaryLine -Done ($i - 1) -Total $n))
+                    break
+                }
             }
             if ($Op -eq 'CheckCve') {
                 # Some rows may be left unchecked (NVD limit or timeout); one line says so.
@@ -11056,7 +11135,7 @@ function Invoke-MultiAppPipeline {
                 # One line with the count of the products that need an update. Check Latest selects nothing, so the line has no selection count.
                 if ($script:BgOperation -eq 'CheckLatest' -and -not [bool]$doneState.Canceled) { Add-LogLine -Message (Get-CheckResultSummaryLine -Check 'Check Latest' -Rows @($script:BgRows)) }
                 if ([bool]$doneState.Canceled) {
-                    $txtStatus.Text = 'Canceled.'
+                    $txtStatus.Text = Get-CancelledSummaryLine -Done ([int]$doneState.DoneCount) -Total ([int]$doneState.TotalCount)
                 }
                 elseif ($doneState.Notice) {
                     $txtStatus.Text = [string]$doneState.Notice
@@ -11080,6 +11159,8 @@ function Invoke-MultiAppPipeline {
             $btnCancelPipeline.IsEnabled = $true
             $script:BgTimer = $null
             $script:BgState = $null
+            Set-RunState -State $null
+            [void](Stop-RunChildren)
             if ($script:BgContext -and $script:BgContext.ContainsKey('OneClickDone')) { try { & $script:BgContext.OneClickDone $doneState } catch { Add-LogLine -Message ('One Click report failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) } }
             if ($script:BgContext -and $script:BgContext.ContainsKey('CveDone')) { try { & $script:BgContext.CveDone $doneState } catch { Add-LogLine -Message ('CVE window update failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) } }
         }
@@ -11398,9 +11479,13 @@ function Invoke-AdHocPipeline {
         Paused          = $false
         CancelRequested = $false
         Canceled        = $false
+        Aborted         = $false
+        DoneCount       = 0
+        TotalCount      = 0
         LogQueue        = New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]'
         Counts          = $null
     })
+    Set-RunState -State $script:BgState
 
     Set-ActionButtonsEnabled -Enabled $false
     $window.Cursor = [System.Windows.Input.Cursors]::Wait
@@ -11433,6 +11518,7 @@ function Invoke-AdHocPipeline {
             $jobs = @($JobsIn)
             $n = $jobs.Count
             $i = 0
+            $State.TotalCount = $n
             foreach ($job in $jobs) {
                 while ([bool]$State.Paused -and -not [bool]$State.CancelRequested) {
                     $State.Step = 'Paused before next installer'
@@ -11440,7 +11526,9 @@ function Invoke-AdHocPipeline {
                 }
                 if ([bool]$State.CancelRequested) {
                     $State.Canceled = $true
-                    [void]$State.LogQueue.Enqueue('Canceled. Stopped before the next installer.')
+                    # A product whose child process Cancel stopped is not done.
+                    $State.DoneCount = $(if ([bool]$State.Aborted) { $i - 1 } else { $i })
+                    [void]$State.LogQueue.Enqueue((Get-CancelledSummaryLine -Done ([int]$State.DoneCount) -Total $n))
                     break
                 }
 
@@ -11556,7 +11644,7 @@ function Invoke-AdHocPipeline {
                 }
                 # One line with the count of the products that need an update. Check Latest selects nothing, so the line has no selection count.
                 if ($script:BgOperation -eq 'CheckLatest' -and -not [bool]$doneState.Canceled) { Add-LogLine -Message (Get-CheckResultSummaryLine -Check 'Check Latest' -Rows @($script:BgRows)) }
-                $txtStatus.Text = if ([bool]$doneState.Canceled) { 'Canceled.' } else { 'Complete.' }
+                $txtStatus.Text = if ([bool]$doneState.Canceled) { Get-CancelledSummaryLine -Done ([int]$doneState.DoneCount) -Total ([int]$doneState.TotalCount) } else { 'Complete.' }
             }
 
             $progressOverlay.Visibility = [System.Windows.Visibility]::Collapsed
@@ -11567,6 +11655,8 @@ function Invoke-AdHocPipeline {
             $btnCancelPipeline.IsEnabled = $true
             $script:BgTimer = $null
             $script:BgState = $null
+            Set-RunState -State $null
+            [void](Stop-RunChildren)
         }
     })
     $script:BgTimer.Start()
@@ -11781,14 +11871,18 @@ $btnCheckMECM.Add_Click({
     }
 
     Set-ActionButtonsEnabled -Enabled $false
-    Show-BusyIndicator -Title 'Checking ConfigMgr'
+    Show-BusyIndicator -Title 'Checking ConfigMgr' -AllowCancel
+    Start-UiRun -Total @($selectedRows).Count
 
     try {
         $txtStatus.Text = "Querying ConfigMgr for selected products..."
 
         $cmTotal = @($selectedRows).Count
         $cmIndex = 0
+        $cmCancelled = $false
         foreach ($row in $selectedRows) {
+            # Cancel stops before the next product; the finished products keep their results.
+            if (Test-UiRunCancelled) { $cmCancelled = $true; break }
             $cmIndex++
             Set-BusyStep -Text (Format-BusyStep -Verb 'ConfigMgr' -Index $cmIndex -Total $cmTotal -Name ([string]$row.Application))
 
@@ -11841,6 +11935,15 @@ $btnCheckMECM.Add_Click({
             }
         }
 
+        if ($cmCancelled -or (Test-UiRunCancelled)) {
+            # The selection stays as the user left it.
+            Hide-BusyIndicator
+            $dataGrid.Items.Refresh()
+            $cmLine = Get-CancelledSummaryLine -Done $cmIndex -Total $cmTotal
+            Add-LogLine -Message $cmLine
+            $txtStatus.Text = $cmLine
+            return
+        }
         Hide-BusyIndicator
         Select-OnlyUpdateAvailable
         $dataGrid.Items.Refresh()
@@ -11863,6 +11966,7 @@ $btnCheckMECM.Add_Click({
         if ([bool]$script:Prefs.Vulnerability.LookupAfterCheckCm) { $script:CveAfterCmRows = $selectedRows }
     }
     finally {
+        Stop-UiRun
         Hide-BusyIndicator
         Set-ActionButtonsEnabled -Enabled $true
     }
@@ -12426,7 +12530,8 @@ function Start-CmImportRun {
     param([Parameter(Mandatory)]$Spec, [AllowEmptyString()][string]$OutputRoot = '')
 
     Set-ActionButtonsEnabled -Enabled $false
-    Show-BusyIndicator -Title 'Converting a ConfigMgr application' -Step 'Starting the conversion...'
+    Show-BusyIndicator -Title 'Converting a ConfigMgr application' -Step 'Starting the conversion...' -AllowCancel
+    Start-UiRun -Total 1
     $script:CmImportRunning = $true
     try {
         $logFolder = Join-Path $PSScriptRoot 'Logs'
@@ -12454,7 +12559,12 @@ function Start-CmImportRun {
         Set-BusyStep -Text 'Converting the ConfigMgr application. The log shows the progress.'
         # A content copy can print nothing for a long time, so the idle limit is one hour.
         $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -LogTextBox $txtLog -IdleTimeoutSeconds 3600
-        $text = Get-CmImportOutcomeText -ExitCode ([int]$result.ExitCode) -StdErr ([string]$result.StdErr) -Mode ([string]$Spec.Mode) -OutputRoot $OutputRoot
+        if ([bool]$result.Cancelled -or (Test-RunAborted)) {
+            $text = (Get-CancelledSummaryLine -Done 0 -Total 1) + ' The conversion was stopped; check the application in the console before you run it again.'
+        }
+        else {
+            $text = Get-CmImportOutcomeText -ExitCode ([int]$result.ExitCode) -StdErr ([string]$result.StdErr) -Mode ([string]$Spec.Mode) -OutputRoot $OutputRoot
+        }
         Add-LogLine -Message $text
         $txtStatus.Text = $text
     }
@@ -12465,6 +12575,7 @@ function Start-CmImportRun {
     }
     finally {
         $script:CmImportRunning = $false
+        Stop-UiRun
         Hide-BusyIndicator
         Set-ActionButtonsEnabled -Enabled $true
     }
@@ -16893,6 +17004,11 @@ $window.Add_Closing({
         DarkTheme    = ($toggleTheme.IsOn -eq $true)
         DebugColumns = ($toggleDebugCols.IsOn -eq $true)
     }
+
+    # The child processes of a run (packager scripts, curl.exe) end with the window, by process id.
+    if ($script:BgState) { $script:BgState.CancelRequested = $true }
+    [void](Stop-RunChildren)
+    Set-RunState -State $null
 
     # Tear down the async pipeline without blocking shutdown: a stuck
     # pipeline stops asynchronously and the runspace closes async so the

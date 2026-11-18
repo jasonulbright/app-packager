@@ -7827,6 +7827,9 @@ function Update-PackagerHistory {
         [System.Collections.IDictionary]$Data,
         [string]$Scope = ''
     )
+    # A product that Cancel stopped in flight leaves no trace in the history (the run reverts its row).
+    if (Test-RunAborted) { return }
+
 
     $history = Read-PackagerHistory
     if (-not $history.ContainsKey($PackagerName)) {
@@ -8883,6 +8886,149 @@ function Get-CheckResultSummaryLine {
 }
 Export-ModuleMember -Function Get-CheckResultSummaryLine
 
+# ---------------------------------------------------------------------------
+# Cancel for every run (Q-69). The window sets one run state for the run that is active. The state is kept in the
+# application domain, so the background runspace and the window thread see the same object. Every child process that
+# a run starts is registered by its process id; Cancel and closing the window stop those processes and no others
+# (vault: testing-policy, "Process rules on a lab VM").
+# ---------------------------------------------------------------------------
+function Set-RunState {
+    <#
+    .SYNOPSIS
+        Makes a state the state of the run that is active, or clears it with $null. The state is a synchronized hashtable
+        with CancelRequested, Aborted, Done counts and so on.
+    #>
+    [CmdletBinding()]
+    param([AllowNull()]$State)
+    [AppDomain]::CurrentDomain.SetData('AppPackager.RunState', $State)
+}
+
+function Get-RunState {
+    [CmdletBinding()]
+    param()
+    return [AppDomain]::CurrentDomain.GetData('AppPackager.RunState')
+}
+
+function Test-RunCancelRequested {
+    [CmdletBinding()]
+    param()
+    $state = Get-RunState
+    return [bool]($state -and [bool]$state['CancelRequested'])
+}
+
+function Test-RunAborted {
+    # True when a child process of the active run was stopped because of Cancel.
+    [CmdletBinding()]
+    param()
+    $state = Get-RunState
+    return [bool]($state -and [bool]$state['Aborted'])
+}
+
+function Set-RunAborted {
+    [CmdletBinding()]
+    param()
+    $state = Get-RunState
+    if ($state) { $state['Aborted'] = $true }
+}
+
+function Get-RunChildRegistry {
+    [CmdletBinding()]
+    param()
+    $registry = [AppDomain]::CurrentDomain.GetData('AppPackager.RunChildren')
+    if (-not $registry) {
+        $registry = New-Object 'System.Collections.Concurrent.ConcurrentDictionary[int,long]'
+        [AppDomain]::CurrentDomain.SetData('AppPackager.RunChildren', $registry)
+    }
+    return , $registry
+}
+
+function Register-RunChild {
+    # Records a process that the run started: its id and its start time (the start time tells a reused id apart).
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][System.Diagnostics.Process]$Process)
+    $ticks = 0L
+    try { $ticks = $Process.StartTime.Ticks } catch { $ticks = 0L }
+    $registry = Get-RunChildRegistry
+    $registry[[int]$Process.Id] = $ticks
+}
+
+function Unregister-RunChild {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][int]$ProcessId)
+    $ignored = 0L
+    [void](Get-RunChildRegistry).TryRemove($ProcessId, [ref]$ignored)
+}
+
+function Stop-ProcessTreeById {
+    <#
+    .SYNOPSIS
+        Stops one process and the processes it started, by process id. Returns nothing.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][int]$ProcessId)
+    try { & taskkill.exe /PID $ProcessId /T /F 2>&1 | Out-Null } catch { <# Stopping the tree is best-effort; Kill follows. #> $null = $_ }
+    $p = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    if ($p) { try { $p.Kill() } catch { <# The process may have ended already. #> $null = $_ } }
+}
+
+function Stop-RunChildren {
+    <#
+    .SYNOPSIS
+        Stops every process that the active run registered, by process id and only when its start time still matches.
+        Returns the number of processes that were stopped.
+    #>
+    [CmdletBinding()]
+    param()
+    $stopped = 0
+    $registry = Get-RunChildRegistry
+    foreach ($entry in @($registry.ToArray())) {
+        $p = Get-Process -Id $entry.Key -ErrorAction SilentlyContinue
+        $same = $false
+        if ($p) { try { $same = ($entry.Value -eq 0L) -or ($p.StartTime.Ticks -eq $entry.Value) } catch { $same = $false } }
+        if ($same) { Stop-ProcessTreeById -ProcessId $entry.Key; $stopped++ }
+        $gone = 0L
+        [void]$registry.TryRemove($entry.Key, [ref]$gone)
+    }
+    return $stopped
+}
+
+function Wait-RunChild {
+    <#
+    .SYNOPSIS
+        Waits for a child process of the run, and ends it within a fraction of a second when the run is cancelled.
+    .DESCRIPTION
+        Returns Exited, TimedOut or Cancelled. On Cancelled the process and the processes it started are stopped by id and
+        the run state says Aborted. A process that was stopped from outside because of Cancel (the Cancel button stops the
+        registered children at once) also counts as Cancelled when it ends with a failure.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Diagnostics.Process]$Process,
+        [int]$TimeoutSeconds = 30,
+        [int]$PollMilliseconds = 100
+    )
+    $start = [DateTime]::UtcNow
+    while ($true) {
+        if (Test-RunCancelRequested) {
+            if (-not $Process.HasExited) { Stop-ProcessTreeById -ProcessId $Process.Id; [void]$Process.WaitForExit(3000) }
+            Set-RunAborted
+            return 'Cancelled'
+        }
+        if ($Process.WaitForExit($PollMilliseconds)) {
+            if ((Test-RunCancelRequested) -and $Process.ExitCode -ne 0) { Set-RunAborted; return 'Cancelled' }
+            return 'Exited'
+        }
+        if ($TimeoutSeconds -gt 0 -and ([DateTime]::UtcNow - $start).TotalSeconds -gt $TimeoutSeconds) { return 'TimedOut' }
+    }
+}
+
+function Get-CancelledSummaryLine {
+    # The line that the status and the log show when a run was cancelled: how many products were done.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][int]$Done, [Parameter(Mandatory)][int]$Total)
+    return ('Cancelled: {0} of {1} {2} done.' -f $Done, $Total, $(if ($Total -eq 1) { 'product' } else { 'products' }))
+}
+Export-ModuleMember -Function Set-RunState, Get-RunState, Test-RunCancelRequested, Test-RunAborted, Set-RunAborted, Register-RunChild, Unregister-RunChild, Stop-ProcessTreeById, Stop-RunChildren, Wait-RunChild, Get-CancelledSummaryLine
 Export-ModuleMember -Function Get-DeploymentTypeContentOptions
 
 # ---------------------------------------------------------------------------
