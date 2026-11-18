@@ -548,10 +548,10 @@
                                 Style="{StaticResource DialogButton}"
                                 ToolTip="Pause after the current app finishes."/>
                         <Button x:Name="btnCancelPipeline"
-                                Content="Cancel After Current App"
+                                Content="Cancel"
                                 Style="{StaticResource DialogButton}"
                                 Margin="0"
-                                ToolTip="Stop the run after the current app finishes."/>
+                                ToolTip="Stop the run and end the product in flight."/>
                     </StackPanel>
                 </StackPanel>
             </Border>
