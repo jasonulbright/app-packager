@@ -321,3 +321,18 @@ Describe 'The grid menu and the dialog' {
         $script:ShellText | Should -Match '(?s)function Open-OldApplicationDialog.*Push-Location.*Pop-Location'
     }
 }
+
+Describe 'Open-OldApplicationDialog site calls' {
+    # The dialog calls the search, link and unlink blocks while the site drive is not the current location. Each block connects first.
+    BeforeAll {
+        $script:StartText = [System.IO.File]::ReadAllText((Join-Path $script:RepoRoot 'start-apppackager.ps1'))
+    }
+
+    It 'connects to the site in the search, the link and the unlink block' -ForEach @(
+        @{ Name = 'reader' }, @{ Name = 'linker' }, @{ Name = 'unlinker' }
+    ) {
+        $match = [regex]::Match($script:StartText, '(?s)\$' + $Name + ' = \{(.*?)\}\.GetNewClosure\(\)')
+        $match.Success | Should -BeTrue
+        $match.Groups[1].Value | Should -Match 'Connect-CMSite'
+    }
+}
