@@ -2,13 +2,18 @@
 
 ## [Unreleased]
 
+## 315 packagers: App Installer (WinGet) added
+
+### Added
+
+- Add the App Installer (WinGet) packager. It provisions the package for all users without the Store.
+
 ## [2026.11.18.0144] - 2026-11-18
 
 ## 314 packagers: Bruno and PowerShell 7 added
 
 ### Added
 
-- Add the App Installer (WinGet) packager. It provisions the package for all users without the Store.
 - Add the Bruno packager. It installs the x64 MSI for all users and checks the file against the SHA-256 digest of the GitHub release when GitHub lists one.
 - Add the PowerShell 7 (Devolutions) packager. It installs the signed Microsoft-payload MSI.
 
