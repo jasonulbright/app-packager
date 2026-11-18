@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [2026.11.18.0142] - 2026-11-18
+
+## 5 changes: settings parity and fixes
+
 ### Added
 
 - Add a switch for the architecture tag to Options, Packaging, Application Title.
