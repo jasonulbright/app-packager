@@ -73,10 +73,10 @@ Describe 'The capture tool takes the lab lock and keeps to its own folder' {
         $script:Code | Should -Not -Match '(?m)^\$session = New-PSSession'
     }
 
-    It 'cleans up in order: stop the task, stop the processes, unregister, delete the folder, release the lock' {
+    It 'cleans up in order: stop the task, stop the recorded processes, unregister, delete the folder, release the lock' {
         $try = $script:Ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.TryStatementAst] }, $false) | Select-Object -First 1
         $finally = $try.Finally.Extent.Text
-        $order = @('Stop-ScheduledTask', 'Stop-Process', 'Unregister-ScheduledTask', 'Remove-Item $r', 'Remove-Item -LiteralPath $path') | ForEach-Object { $finally.IndexOf($_) }
+        $order = @('Stop-ScheduledTask', 'stopRecorded', 'Unregister-ScheduledTask', 'Remove-Item $r', 'Remove-Item -LiteralPath $path') | ForEach-Object { $finally.IndexOf($_) }
         $order | Should -Not -Contain -1
         $sorted = @($order | Sort-Object)
         ($order -join ',') | Should -Be ($sorted -join ',')
