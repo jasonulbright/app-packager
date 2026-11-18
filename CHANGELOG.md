@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [2026.11.18.0143] - 2026-11-18
+
+## 17 changes: supersedence, review before staging, requirement translation
+
 ### Added
 
 - Add Supersedence to Options, Packaging. Set the version rule and the supersedence mode.
