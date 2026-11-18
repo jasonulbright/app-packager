@@ -295,6 +295,8 @@ function Read-Preferences {
         FirstRunCompleted    = $false
         # Looks for a newer release at launch; off keeps the launch free of the lookup.
         CheckForUpdatesAtStartup = $true
+        # Stage shows the install options of an application with some, for the run; on skips that and uses the saved values.
+        SkipConfigReview = $false
         IncludeVersionInTitle = $false
         # Strips the release version from a vendor product name; applies only
         # while IncludeVersionInTitle is off.
@@ -463,6 +465,7 @@ function Read-Preferences {
         if ($null -ne $data.CompanyName)            { $defaults.CompanyName          = [string]$data.CompanyName }
         if ($null -ne $data.AppendArchitectureToTitle) { try { $defaults.AppendArchitectureToTitle = [bool]$data.AppendArchitectureToTitle } catch { <# Reading a boolean setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
         if ($null -ne $data.CheckForUpdatesAtStartup) { try { $defaults.CheckForUpdatesAtStartup = [bool]$data.CheckForUpdatesAtStartup } catch { <# Reading a boolean setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
+        if ($null -ne $data.SkipConfigReview) { try { $defaults.SkipConfigReview = [bool]$data.SkipConfigReview } catch { <# Reading a boolean setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
 
         # M365Channel: validate against current set; migrate legacy SemiAnnual
         # and SemiAnnualPreview to MonthlyEnterprise (SAEC retired from the UI).
@@ -901,6 +904,30 @@ function Set-DeploymentTypeContentEnvironment {
     $env:APP_PACKAGER_TITLE_APPEND_ARCH = $(if ($Prefs.PSObject.Properties['AppendArchitectureToTitle'] -and -not [bool]$Prefs.AppendArchitectureToTitle) { '0' } else { '1' })
 }
 
+function Get-PackagerPreferenceMirror {
+    # The part of the preferences that the packagers read from Packagers\packager-preferences.json. Save-Preferences
+    # writes it, and the review before staging compares it to find what a run changes.
+    param([Parameter(Mandatory)]$Prefs, [string]$Folder = '')
+    # Folder is the Packagers folder; empty takes the one that the window uses.
+    if (-not $Folder) { $Folder = [string]$PackagersRoot }
+    # The packagers read the imported file from this path, and only while the box is selected and the file exists.
+    $customPath = Join-Path $Folder 'm365-configuration.user.xml'
+    $useCustom = ([bool]$Prefs.M365CustomConfig.Enabled -and (Test-Path -LiteralPath $customPath -PathType Leaf))
+    return [ordered]@{
+        CompanyName               = $Prefs.CompanyName
+        M365ExcludeApps           = @($Prefs.M365ExcludeApps)
+        SSMSInstallOptions        = $Prefs.SSMSInstallOptions
+        DBeaverInstallOptions     = $Prefs.DBeaverInstallOptions
+        AdobeReaderInstallOptions = $Prefs.AdobeReaderInstallOptions
+        BeyondCompareKeyFile      = [string]$Prefs.BeyondCompareKeyFile
+        BeyondCompareOptions      = $Prefs.BeyondCompareOptions
+        M365Options               = $Prefs.M365Options
+        M365UseCustomConfig       = $useCustom
+        M365CustomConfigPath      = $(if ($useCustom) { $customPath } else { '' })
+        LocalSourceFolders        = $Prefs.LocalSourceFolders
+    }
+}
+
 function Save-Preferences {
     param([Parameter(Mandatory)][pscustomobject]$Prefs)
 
@@ -918,20 +945,8 @@ function Save-Preferences {
                 $pkgPrefs[$prop.Name] = $prop.Value
             }
         }
-        $pkgPrefs["CompanyName"]     = $Prefs.CompanyName
-        $pkgPrefs["M365ExcludeApps"] = @($Prefs.M365ExcludeApps)
-        $pkgPrefs["SSMSInstallOptions"] = $Prefs.SSMSInstallOptions
-        $pkgPrefs["DBeaverInstallOptions"] = $Prefs.DBeaverInstallOptions
-        $pkgPrefs["AdobeReaderInstallOptions"] = $Prefs.AdobeReaderInstallOptions
-        $pkgPrefs["BeyondCompareKeyFile"] = [string]$Prefs.BeyondCompareKeyFile
-        $pkgPrefs["BeyondCompareOptions"] = $Prefs.BeyondCompareOptions
-        $pkgPrefs["M365Options"] = $Prefs.M365Options
-        # The packagers read the imported file from this path, and only while the box is selected and the file exists.
-        $customPath = Join-Path (Join-Path $PSScriptRoot "Packagers") "m365-configuration.user.xml"
-        $useCustom = ([bool]$Prefs.M365CustomConfig.Enabled -and (Test-Path -LiteralPath $customPath -PathType Leaf))
-        $pkgPrefs["M365UseCustomConfig"] = $useCustom
-        $pkgPrefs["M365CustomConfigPath"] = $(if ($useCustom) { $customPath } else { "" })
-        $pkgPrefs["LocalSourceFolders"] = $Prefs.LocalSourceFolders
+        $mirror = Get-PackagerPreferenceMirror -Prefs $Prefs -Folder (Join-Path $PSScriptRoot "Packagers")
+        foreach ($key in $mirror.Keys) { $pkgPrefs[$key] = $mirror[$key] }
         $pkgPrefs | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $pkgPrefsPath -Encoding UTF8
     }
     catch {
@@ -1231,6 +1246,7 @@ function Get-PackagerMetadata {
         SupportsInstallModes = @()
         LocalSource       = $false
         LocalSourceRequired = $false
+        ReviewBeforeStage = $false
         WsusSupport       = $null
         WsusSupportReason = $null
         ArpName           = $null
@@ -1242,7 +1258,7 @@ function Get-PackagerMetadata {
 
     # Every key test below starts with the same prefix; one match per line
     # rules out the lines that carry no key, which are nearly all of them.
-    $keyLine = New-Object System.Text.RegularExpressions.Regex('^\s*(?:#\s*)?(?:Vendor|App|CMName|VendorUrl|CPE|ReleaseNotesUrl|DownloadPageUrl|SecurityAdvisoryUrl|SupportsVariants|SupportsInstallModes|LocalSource|WsusSupport|ArpName|ArpVersion|ArpArch|UpdateCadenceDays|Application)\s*:', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $keyLine = New-Object System.Text.RegularExpressions.Regex('^\s*(?:#\s*)?(?:Vendor|App|CMName|VendorUrl|CPE|ReleaseNotesUrl|DownloadPageUrl|SecurityAdvisoryUrl|SupportsVariants|SupportsInstallModes|LocalSource|ReviewBeforeStage|WsusSupport|ArpName|ArpVersion|ArpArch|UpdateCadenceDays|Application)\s*:', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
 
     $inSynopsis = $false
     foreach ($line in $lines) {
@@ -1268,6 +1284,10 @@ function Get-PackagerMetadata {
         if (-not $meta.LocalSource -and $l -match '^\s*(?:#\s*)?LocalSource\s*:\s*(Required|Optional)\s*$') {
             $meta.LocalSource = $true
             $meta.LocalSourceRequired = ($Matches[1] -eq 'Required')
+            continue
+        }
+        if (-not $meta.ReviewBeforeStage -and $l -match '^\s*(?:#\s*)?ReviewBeforeStage\s*:\s*(Yes|No)\s*$') {
+            $meta.ReviewBeforeStage = ($Matches[1] -eq 'Yes')
             continue
         }
         if ($null -eq $meta.WsusSupport -and $l -match '^\s*(?:#\s*)?WsusSupport\s*:\s*(Yes|No)\s*(?:\(\s*([A-Za-z|]+)\s*\))?\s*$') {
@@ -1311,6 +1331,7 @@ function Get-PackagerMetadata {
         SupportsInstallModes = @($meta.SupportsInstallModes)
         LocalSource       = [bool]$meta.LocalSource
         LocalSourceRequired = [bool]$meta.LocalSourceRequired
+        ReviewBeforeStage = [bool]$meta.ReviewBeforeStage
         WsusSupport       = $meta.WsusSupport
         WsusSupportReason = $meta.WsusSupportReason
         ArpName           = $meta.ArpName
@@ -1367,6 +1388,7 @@ function Get-Packagers {
                 SupportsInstallModes = @($m.SupportsInstallModes)
                 LocalSource       = [bool]$m.LocalSource
                 LocalSourceRequired = [bool]$m.LocalSourceRequired
+                ReviewBeforeStage = [bool]$m.ReviewBeforeStage
                 CPE               = [string]$m.CPE
                 SecurityAdvisoryUrl = [string]$m.SecurityAdvisoryUrl
                 ArpName           = [string]$m.ArpName
@@ -2473,6 +2495,31 @@ function Invoke-ProcessWithStreaming {
     }
 }
 
+function New-PackagerRunEnvironment {
+    # Turns the run options of the review before staging ({ Preferences; Files = name -> content }) into the
+    # value of APP_PACKAGER_RUN_OPTIONS: the files are written under Folder and the value names their paths.
+    # The saved preference files stay as they are. Returns @{ Json; Preferences }.
+    param(
+        [Parameter(Mandatory)][string]$RunOptionsJson,
+        [Parameter(Mandatory)][string]$Folder
+    )
+    $options = $RunOptionsJson | ConvertFrom-Json -ErrorAction Stop
+    $paths = [ordered]@{}
+    if ($options.PSObject.Properties['Files'] -and $options.Files) {
+        foreach ($file in $options.Files.PSObject.Properties) {
+            if (-not (Test-Path -LiteralPath $Folder)) { [void](New-Item -ItemType Directory -Path $Folder -Force) }
+            $path = Join-Path $Folder ([System.IO.Path]::GetFileName($file.Name))
+            ConvertTo-Json -InputObject $file.Value -Depth 8 | Set-Content -LiteralPath $path -Encoding UTF8
+            $paths[[System.IO.Path]::GetFileName($file.Name)] = $path
+        }
+    }
+    $preferences = $(if ($options.PSObject.Properties['Preferences'] -and $options.Preferences) { $options.Preferences } else { [pscustomobject]@{} })
+    return [pscustomobject]@{
+        Json        = (ConvertTo-Json -InputObject ([ordered]@{ Preferences = $preferences; Files = $paths }) -Depth 8 -Compress)
+        Preferences = $preferences
+    }
+}
+
 function Invoke-PackagerStage {
     param(
         [Parameter(Mandatory)][string]$PackagerPath,
@@ -2486,6 +2533,7 @@ function Invoke-PackagerStage {
         [string]$RunSnapshotPath = '',
         [string]$SigningJson = '',
         [string]$WorkbenchDataRoot = '',
+        [string]$RunOptionsJson = '',
         [System.Windows.Controls.TextBox]$LogTextBox = $null
     )
 
@@ -2499,28 +2547,45 @@ function Invoke-PackagerStage {
     $errLog         = Join-Path $LogFolder ("{0}-stage-{1}.err.log" -f $base, $stamp)
     $structuredLog  = Join-Path $LogFolder ("{0}-stage-{1}.structured.log" -f $base, $stamp)
 
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = "powershell.exe"
-    $psi.WorkingDirectory = Split-Path -Parent $PackagerPath
-    $argsBase = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PackagerPath, '-StageOnly', '-LogPath', $structuredLog)
-    if ($DownloadRoot) { $argsBase += @('-DownloadRoot', $DownloadRoot) }
-    if ($M365Channel) { $argsBase += @('-M365Channel', $M365Channel) }
-    if ($M365DeployMode) { $argsBase += @('-M365DeployMode', $M365DeployMode) }
-    Set-ProcessStartInfoArgumentList -StartInfo $psi -Arguments $argsBase
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError  = $true
-    $psi.UseShellExecute = $false
-    $psi.CreateNoWindow  = $true
-    # Pass detected-tool paths to the packager via env vars so it can use
-    # non-default install locations. Packagers that need these tools check
-    # the env var first and fall back to Program Files\<tool> defaults.
-    # Variant splits and the install mode shape the staged content, so
-    # they travel with the Stage child too.
-    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -VariantsJson $VariantsJson -InstallMode $InstallMode -RunSnapshotPath $RunSnapshotPath -SigningJson $SigningJson -WorkbenchDataRoot $WorkbenchDataRoot -DownloadRoot $DownloadRoot
+    # The review before staging can change install options for this run. The packager reads them from
+    # APP_PACKAGER_RUN_OPTIONS; the files it names live in a folder that this run removes at its end.
+    $runFolder = Join-Path ([System.IO.Path]::GetTempPath()) ('AppPackager-run-' + [guid]::NewGuid().ToString('N'))
+    $runEnvironment = $null
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($RunOptionsJson)) {
+            $runEnvironment = New-PackagerRunEnvironment -RunOptionsJson $RunOptionsJson -Folder $runFolder
+            if ($runEnvironment.Preferences.PSObject.Properties['M365Channel']) { $M365Channel = [string]$runEnvironment.Preferences.M365Channel }
+            if ($runEnvironment.Preferences.PSObject.Properties['M365DeployMode']) { $M365DeployMode = [string]$runEnvironment.Preferences.M365DeployMode }
+        }
 
-    $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -StructuredLog $structuredLog -LogTextBox $LogTextBox
-    Assert-PackagerStageIntegrity -Result $result -PackagerPath $PackagerPath -DownloadRoot $DownloadRoot
-    return $result
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "powershell.exe"
+        $psi.WorkingDirectory = Split-Path -Parent $PackagerPath
+        $argsBase = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PackagerPath, '-StageOnly', '-LogPath', $structuredLog)
+        if ($DownloadRoot) { $argsBase += @('-DownloadRoot', $DownloadRoot) }
+        if ($M365Channel) { $argsBase += @('-M365Channel', $M365Channel) }
+        if ($M365DeployMode) { $argsBase += @('-M365DeployMode', $M365DeployMode) }
+        Set-ProcessStartInfoArgumentList -StartInfo $psi -Arguments $argsBase
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError  = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow  = $true
+        # Pass detected-tool paths to the packager via env vars so it can use
+        # non-default install locations. Packagers that need these tools check
+        # the env var first and fall back to Program Files\<tool> defaults.
+        # Variant splits and the install mode shape the staged content, so
+        # they travel with the Stage child too.
+        Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -VariantsJson $VariantsJson -InstallMode $InstallMode -RunSnapshotPath $RunSnapshotPath -SigningJson $SigningJson -WorkbenchDataRoot $WorkbenchDataRoot -DownloadRoot $DownloadRoot
+
+        if ($runEnvironment) { $psi.EnvironmentVariables['APP_PACKAGER_RUN_OPTIONS'] = [string]$runEnvironment.Json }
+
+        $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -StructuredLog $structuredLog -LogTextBox $LogTextBox
+        Assert-PackagerStageIntegrity -Result $result -PackagerPath $PackagerPath -DownloadRoot $DownloadRoot
+        return $result
+    }
+    finally {
+        if (Test-Path -LiteralPath $runFolder) { Remove-Item -LiteralPath $runFolder -Recurse -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 function Invoke-PackagerPackage {
@@ -2970,6 +3035,92 @@ function Confirm-LocalSourceFolders {
     }
     if ($changed) { Save-Preferences -Prefs $script:Prefs }
     return $kept.ToArray()
+}
+
+function Get-StageReviewSection {
+    # The Options section that holds the install options of a packager, or '' for a packager without any.
+    # The review shows that section, so the field definitions exist once, in Get-OptionsSectionDefinition.
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Script)
+    $base = [System.IO.Path]::GetFileNameWithoutExtension($Script)
+    $fixed = @{
+        'package-ssms'           = 'ssms'
+        'package-dbeaver'        = 'dbeaver'
+        'package-adobereader'    = 'adobe'
+        'package-beyondcompare5' = 'bc5'
+        'package-teamviewerhost' = 'teamviewer'
+    }
+    if ($fixed.ContainsKey($base)) { return [string]$fixed[$base] }
+    if ($base -match '^package-m365') { return 'm365' }
+    if ($base -match '^package-citrixworkspace-') { return 'cwa' }
+    return ''
+}
+
+function Test-StageReviewNeeded {
+    # The review shows for an application with install options, unless Options skips it. A packager header
+    # with ReviewBeforeStage: Yes shows it whatever Options says (APD: a definition with ReviewBeforeStage).
+    param([Parameter(Mandatory)]$Row, [Parameter(Mandatory)]$Prefs)
+    if (-not (Get-StageReviewSection -Script ([string]$Row.Script))) { return $false }
+    if ($Row.PSObject.Properties['ReviewBeforeStage'] -and [bool]$Row.ReviewBeforeStage) { return $true }
+    $skip = ($Prefs.PSObject.Properties['SkipConfigReview'] -and [bool]$Prefs.SkipConfigReview)
+    return (-not $skip)
+}
+
+function Get-StageReviewRunOptions {
+    # What the review changed against the saved values, as the JSON that Invoke-PackagerStage forwards to
+    # the packager for this run: { Preferences = {...}; Files = { name = content } }. Empty when nothing changed.
+    param(
+        [Parameter(Mandatory)]$Saved,
+        [Parameter(Mandatory)]$Edited,
+        [hashtable]$SavedAux = @{},
+        [hashtable]$EditedAux = @{},
+        [string]$Folder = ''
+    )
+    # A list field with nothing selected is stored as one empty item; it reads back as an empty list, so it counts as one.
+    # The Microsoft 365 languages field stores one language as a text, not as a list; both read back the same.
+    $text = { param($v) ((ConvertTo-Json -InputObject $v -Depth 8 -Compress) -replace '\[(?:null,?)+\]', '[]') -replace '"Languages":("[^"]*")', '"Languages":[$1]' }
+    $same = { param($a, $b) (& $text $a) -ceq (& $text $b) }
+    $savedMirror = Get-PackagerPreferenceMirror -Prefs $Saved -Folder $Folder
+    $editedMirror = Get-PackagerPreferenceMirror -Prefs $Edited -Folder $Folder
+    $preferences = [ordered]@{}
+    foreach ($key in $editedMirror.Keys) {
+        if (-not (& $same $savedMirror[$key] $editedMirror[$key])) { $preferences[$key] = $editedMirror[$key] }
+    }
+    # The Microsoft 365 packagers get the channel and the deploy mode as parameters, not from the file.
+    foreach ($key in 'M365Channel', 'M365DeployMode') {
+        if ([string]$Saved.$key -cne [string]$Edited.$key) { $preferences[$key] = [string]$Edited.$key }
+    }
+    $files = [ordered]@{}
+    $names = [ordered]@{ cwa = 'citrix-workspace-switches.json'; tv = 'teamviewer-host-config.json' }
+    foreach ($aux in $names.Keys) {
+        if ($EditedAux.ContainsKey($aux) -and -not (& $same $SavedAux[$aux] $EditedAux[$aux])) { $files[$names[$aux]] = $EditedAux[$aux] }
+    }
+    if ($preferences.Count -eq 0 -and $files.Count -eq 0) { return '' }
+    return (& $text ([ordered]@{ Preferences = $preferences; Files = $files }))
+}
+
+function Confirm-StageReview {
+    # Runs on the UI thread before the Stage button and a Workbench stage: the review of the install options
+    # of each application that has some, one at a time. Continue keeps the application and records what
+    # changed for this run only; Cancel skips the application and logs it. Batch runs and One Click never
+    # call it. Returns @{ Rows = the applications that stay; RunOptionsByApp = base name -> run options JSON }.
+    param([array]$Rows)
+
+    $kept = New-Object System.Collections.Generic.List[object]
+    $byApp = @{}
+    foreach ($row in @($Rows)) {
+        if (-not (Test-StageReviewNeeded -Row $row -Prefs $script:Prefs)) { $kept.Add($row); continue }
+        $choice = Show-StageReviewDialog -Owner $window -Application ([string]$row.Application) -SectionId (Get-StageReviewSection -Script ([string]$row.Script)) -Prefs $script:Prefs
+        if (-not $choice.Continue) {
+            Add-LogLine -Message ('Skipped {0}: the review before staging was cancelled.' -f [string]$row.Application)
+            continue
+        }
+        if ($choice.RunOptionsJson) {
+            $byApp[[System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script)] = [string]$choice.RunOptionsJson
+            Add-LogLine -Message ('Install options of {0} for this run: changed from the saved values.' -f [string]$row.Application)
+        }
+        $kept.Add($row)
+    }
+    return @{ Rows = $kept.ToArray(); RunOptionsByApp = $byApp }
 }
 
 function ConvertTo-CommandsJson {
@@ -7342,6 +7493,8 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'pkg.downloadRoot'; Title = 'Download root'; Kind = 'Folder'; Pref = 'DownloadRoot'; MaxLength = 200; Tip = 'The local folder where Stage downloads and builds the installer content.'; Keywords = 'stage download folder' }
                 @{ Id = 'pkg.packagers'; Title = 'Packagers folder'; Kind = 'Status'; Tip = 'The folder that holds the package-*.ps1 files of the catalog.'; Keywords = 'catalog'; Buttons = @(@{ Id = 'open'; Label = 'Open'; Tip = 'Opens the packagers folder in Explorer.' }) }
                 @{ Id = 'pkg.layout'; Title = 'Content layout'; Kind = 'Combo'; Pref = 'ContentLayout'; Default = 'Nested'; Items = @(@{ Label = 'Nested - Applications\Vendor\App\Version'; Value = 'Nested' }, @{ Label = 'Flat - Applications\Vendor-App-Version'; Value = 'Flat' }); Tip = 'Nested keeps the versions of an app together; Flat uses one folder for each package.'; Keywords = 'share folder structure' }
+                @{ Id = 'pkg.reviewGroup'; Kind = 'Group'; Title = 'Before staging'; Description = 'Stage shows the install options of an application that has some, for that run. The saved values are the start. A packager with ReviewBeforeStage: Yes in its header always shows them.' }
+                @{ Id = 'pkg.skipReview'; Title = 'Install options review'; Kind = 'Check'; Pref = 'SkipConfigReview'; Label = 'Skip the review before staging and use the saved values'; Tip = 'Only the Stage button shows the review; batch runs and One Click never do.'; Keywords = 'configuration review stage install options prompt dialog' }
             )
         })
 
@@ -8475,11 +8628,17 @@ function Initialize-OptionsM365Section {
     $Page.Group.ExtraValidate.Add({
             param($context)
             if ($useBox.IsEnabled -and $useBox.IsChecked -eq $true) { return $null }
-            $codes = @(([string](Get-OptionsLiveText -Context $context -FieldId 'm365.languages')) -split '[,;\s]+' | Where-Object { $_ })
-            $bad = @($codes | Where-Object { $_ -notmatch '^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){1,2}$' })
-            if ($bad.Count -gt 0) { return @{ FieldId = 'm365.languages'; Message = ('Languages must be culture codes such as en-us or de-de. Not valid: {0}.' -f ($bad -join ', ')) } }
-            return $null
+            return (Test-OptionsM365Language -Context $context)
         }.GetNewClosure()) | Out-Null
+}
+
+function Test-OptionsM365Language {
+    # Returns @{ FieldId; Message } when the languages field holds a value that is not a culture code, else $null.
+    param([Parameter(Mandatory)][hashtable]$Context)
+    $codes = @(([string](Get-OptionsLiveText -Context $Context -FieldId 'm365.languages')) -split '[,;\s]+' | Where-Object { $_ })
+    $bad = @($codes | Where-Object { $_ -notmatch '^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){1,2}$' })
+    if ($bad.Count -gt 0) { return @{ FieldId = 'm365.languages'; Message = ('Languages must be culture codes such as en-us or de-de. Not valid: {0}.' -f ($bad -join ', ')) } }
+    return $null
 }
 
 # =============================================================================
@@ -8735,6 +8894,154 @@ function Show-OptionsDialog {
     [void]$dialog.Window.ShowDialog()
     if ($dialog.Result.Saved) { Add-LogLine -Message 'Options saved.' }
 }
+# =============================================================================
+# Review before staging - the install options of one application, asked before
+# Stage. The fields are the fields of the Options section of that application,
+# built by the same code, so the definitions exist once. The dialog starts from
+# the saved values and works on a copy: Continue returns what differs, for this
+# run only, and nothing in the preferences or in the packager settings files
+# changes.
+# =============================================================================
+function Get-StageReviewDefinition {
+    # The Options section to review. The Microsoft 365 section drops the imported configuration.xml rows:
+    # importing or removing that file stores it, and a review stores nothing.
+    param([Parameter(Mandatory)][hashtable]$Definition, [Parameter(Mandatory)]$Prefs)
+    if ([string]$Definition.Id -ne 'm365') { return $Definition }
+    $drop = @('m365.links', 'm365.customGroup', 'm365.useCustom', 'm365.file', 'm365.reason', 'm365.previewGroup', 'm365.preview')
+    $copy = $Definition.Clone()
+    $fields = New-Object System.Collections.Generic.List[object]
+    $custom = ($Prefs.PSObject.Properties['M365CustomConfig'] -and [bool]$Prefs.M365CustomConfig.Enabled)
+    if ($custom) {
+        $fields.Add(@{ Id = 'm365.customNote'; Kind = 'Note'; Text = 'A configuration.xml that you imported in Options is in use, so the packagers ignore the generated settings below.' })
+    }
+    foreach ($field in @($Definition.Fields)) {
+        if ([string]$field.Id -notin $drop) { $fields.Add($field) }
+    }
+    $copy.Fields = $fields.ToArray()
+    $copy.Post = { param($Context, $Page) $Page.Group.ExtraValidate.Add({ param($context) Test-OptionsM365Language -Context $context }.GetNewClosure()) | Out-Null }
+    $copy.Prefs = @()
+    return $copy
+}
+
+function New-StageReviewDialog {
+    param(
+        [Parameter(Mandatory)]$Owner,
+        [Parameter(Mandatory)][string]$Application,
+        [Parameter(Mandatory)][string]$SectionId,
+        [Parameter(Mandatory)]$Prefs
+    )
+
+    $dlgXaml = @'
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="Configure"
+    Width="900" Height="700"
+    MinWidth="640" MinHeight="460"
+    WindowStartupLocation="CenterOwner"
+    TitleCharacterCasing="Normal"
+    ShowIconOnTitleBar="False"
+    ShowMinButton="False"
+    GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+    NonActiveGlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+    BorderThickness="1">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <!--SHARED_STYLES-->        </ResourceDictionary>
+    </Window.Resources>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock x:Name="txtIntro" Grid.Row="0" TextWrapping="Wrap" FontSize="12" Margin="24,16,24,10"/>
+        <ContentControl Grid.Row="1" x:Name="contentArea" Margin="24,0,12,12"/>
+        <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="20,12,20,12">
+                <Button x:Name="btnContinue" Content="Continue" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <Button x:Name="btnCancel" Content="Cancel" IsCancel="True" Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Controls:MetroWindow>
+'@
+
+    [xml]$xml = Expand-SharedStyle $dlgXaml
+    $reader = New-Object System.Xml.XmlNodeReader $xml
+    $dlg = [System.Windows.Markup.XamlReader]::Load($reader)
+    $dlg.Title = ('Configure: ' + $Application)
+    Install-TitleBarDragFallback -Window $dlg
+    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
+
+    $dlg.FindName('txtIntro').Text = ('Review the install options of {0}. They start from the values saved in Options and apply to this stage only; Options keeps the saved values.' -f $Application)
+    $contentArea = $dlg.FindName('contentArea')
+    $btnContinue = $dlg.FindName('btnContinue')
+    $btnCancel = $dlg.FindName('btnCancel')
+
+    # The dialog edits a copy of the preferences. The saved ones stay as they are.
+    $edited = ConvertTo-Json -InputObject $Prefs -Depth 8 | ConvertFrom-Json
+    $ctx = New-OptionsContext -Prefs $edited
+    $ctx.Owner = $dlg
+    $ctx.FieldTable = Get-OptionsFieldTable
+    $savedAux = @{ cwa = (Read-CwaSwitches); tv = (Read-TvHostConfig) }
+
+    $definition = @(Get-OptionsSectionDefinition | Where-Object { [string]$_.Id -eq $SectionId })[0]
+    if (-not $definition) { throw ('The Options section {0} does not exist.' -f $SectionId) }
+    $page = New-OptionsSectionPage -Definition (Get-StageReviewDefinition -Definition $definition -Prefs $Prefs) -Context $ctx
+    $ctx.Sections[$SectionId] = $page
+    # The dialog title names the application, so the section heading is not repeated.
+    foreach ($child in @($page.Element.Content.Children)) {
+        if ($child -is [System.Windows.Controls.TextBlock] -and [string]$child.Tag -eq 'section-title') { $child.Visibility = [System.Windows.Visibility]::Collapsed }
+    }
+    $contentArea.Content = $page.Element
+
+    $result = @{ Continue = $false; RunOptionsJson = '' }
+    $apply = {
+        $problem = & $page.Validate
+        if ($problem) {
+            $editor = $(if ($page.Editors.Contains([string]$problem.FieldId)) { $page.Editors[[string]$problem.FieldId] } else { $null })
+            if ($editor -and $editor.Focus) { [void]$editor.Focus.Focus() }
+            [void](Show-ThemedMessage -Owner $dlg -Title 'Check the Value' -Message ([string]$problem.Message) -Buttons OK -Icon Warning)
+            return $false
+        }
+        try {
+            & $page.Commit
+            $result.RunOptionsJson = Get-StageReviewRunOptions -Saved $Prefs -Edited $edited -SavedAux $savedAux -EditedAux $ctx.Aux
+            $result.Continue = $true
+            return $true
+        }
+        catch {
+            [void](Show-ThemedMessage -Owner $dlg -Title 'Review Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Error)
+            return $false
+        }
+    }.GetNewClosure()
+
+    $btnContinue.Add_Click({ if (& $apply) { $dlg.Close() } }.GetNewClosure())
+    $btnCancel.Add_Click({ $dlg.Close() }.GetNewClosure())
+
+    return @{ Window = $dlg; Context = $ctx; Page = $page; Edited = $edited; Apply = $apply; Result = $result; ContinueButton = $btnContinue; CancelButton = $btnCancel }
+}
+
+function Show-StageReviewDialog {
+    # Returns @{ Continue = [bool]; RunOptionsJson = [string] }. Closing the window counts as Cancel.
+    param(
+        [Parameter(Mandatory)]$Owner,
+        [Parameter(Mandatory)][string]$Application,
+        [Parameter(Mandatory)][string]$SectionId,
+        [Parameter(Mandatory)]$Prefs
+    )
+    $dialog = New-StageReviewDialog -Owner $Owner -Application $Application -SectionId $SectionId -Prefs $Prefs
+    [void]$dialog.Window.ShowDialog()
+    return @{ Continue = [bool]$dialog.Result.Continue; RunOptionsJson = [string]$dialog.Result.RunOptionsJson }
+}
+
 
 # =============================================================================
 # First-run setup wizard - the systems and the minimum settings of each system.
@@ -9415,6 +9722,7 @@ function Invoke-MultiAppPipeline {
                                 -SevenZipPath $Ctx.SevenZipPath `
                                 -VariantsJson $(if ($Ctx.VariantsByApp) { [string]$Ctx.VariantsByApp[$baseName] } else { '' }) `
                                 -InstallMode $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' }) `
+                                -RunOptionsJson $(if ($Ctx.RunOptionsByApp) { [string]$Ctx.RunOptionsByApp[$baseName] } else { '' }) `
                                 -RunSnapshotPath $planSnapshot -SigningJson $planSigning -WorkbenchDataRoot $planDataRoot
 
                             if ($res.ExitCode -eq 0) {
@@ -11784,9 +12092,16 @@ $btnStage.Add_Click({
         $txtStatus.Text = "Nothing to stage."
         return
     }
+    $review = Confirm-StageReview -Rows $selectedRows
+    $selectedRows = @($review.Rows)
+    if ($selectedRows.Count -eq 0) {
+        $txtStatus.Text = "Nothing to stage."
+        return
+    }
 
     $txtStatus.Text = "Staging selected packages..."
     Invoke-MultiAppPipeline -Operation Stage -Rows $selectedRows -Context @{
+        RunOptionsByApp   = $review.RunOptionsByApp
         DownloadRoot      = $dlRootValue
         M365Channel       = $script:Prefs.M365Channel
         M365DeployMode    = $script:Prefs.M365DeployMode
@@ -14842,8 +15157,12 @@ function Invoke-WorkbenchRun {
         [AllowEmptyString()][string]$BuildId = '',
         [AllowEmptyString()][string]$Target = ''
     )
+    $review = $null
     if ($Operation -eq 'Stage') {
         $Rows = @(Confirm-LocalSourceFolders -Rows $Rows)
+        if ($Rows.Count -eq 0) { return }
+        $review = Confirm-StageReview -Rows $Rows
+        $Rows = @($review.Rows)
         if ($Rows.Count -eq 0) { return }
     }
     if ($Operation -eq 'Package') {
@@ -14854,6 +15173,7 @@ function Invoke-WorkbenchRun {
         if (-not (Confirm-WsusPublishPrerequisites -Target $Target)) { return }
     }
     $context = New-WorkbenchPipelineContext -Operation $Operation -Rows $Rows -BuildId $BuildId -Target $Target
+    if ($review) { $context['RunOptionsByApp'] = $review.RunOptionsByApp }
     Invoke-MultiAppPipeline -Operation $Operation -Rows $Rows -Context $context
 }
 

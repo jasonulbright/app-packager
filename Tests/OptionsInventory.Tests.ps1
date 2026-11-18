@@ -157,7 +157,7 @@ Describe 'The old Options window and the new one write the same keys' {
             'SSMSInstallOptions.Workloads', 'SSMSInstallOptions.Languages', 'SSMSInstallOptions.NoCache',
             'AdobeReaderInstallOptions.AcceptEula', 'AdobeReaderInstallOptions.DisableDesktopShortcut', 'AdobeReaderInstallOptions.DisableChromeExtension', 'AdobeReaderInstallOptions.DisableBrowserIntegration', 'AdobeReaderInstallOptions.UpdateMode',
             'BeyondCompareOptions.DisableRemoteProfiles', 'BeyondCompareOptions.DisableSavedPasswords',
-            'ScriptSigning.HashAlgorithm', 'Intune.MinimumWindowsRelease', 'AppFlow.DefaultCadenceDays', 'CheckForUpdatesAtStartup', 'ContentDistribution.TestCollectionIsUser', 'AppendArchitectureToTitle',
+            'ScriptSigning.HashAlgorithm', 'Intune.MinimumWindowsRelease', 'AppFlow.DefaultCadenceDays', 'CheckForUpdatesAtStartup', 'SkipConfigReview', 'ContentDistribution.TestCollectionIsUser', 'AppendArchitectureToTitle',
             'Supersedence.Mode', 'Supersedence.ConfigMgrVersionRule', 'Supersedence.IntuneVersionRule', 'Supersedence.TitleOverrides', 'Supersedence.InstalledValues', 'Supersedence.AcceptedExactBlocks'
         )
         $unexpected = @($new | Where-Object { $expected -notcontains $_ })
@@ -233,13 +233,13 @@ Describe 'Save-Preferences mirrors only known keys into packager-preferences.jso
         @{ Key = 'CompanyName' }, @{ Key = 'M365ExcludeApps' }, @{ Key = 'SSMSInstallOptions' }, @{ Key = 'DBeaverInstallOptions' }, @{ Key = 'AdobeReaderInstallOptions' },
         @{ Key = 'BeyondCompareKeyFile' }, @{ Key = 'BeyondCompareOptions' }, @{ Key = 'M365Options' }, @{ Key = 'LocalSourceFolders' }
     ) {
-        $text = ($script:Ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Save-Preferences' }, $false)).Extent.Text
-        $text | Should -Match ('\$pkgPrefs\["{0}"\]' -f $Key)
+        $text = ($script:Ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-PackagerPreferenceMirror' }, $false)).Extent.Text
+        $text | Should -Match ('(?m)^\s*{0}\s+=' -f $Key)
         @($script:PrefLeaf | Where-Object { $_ -eq $Key -or $_.StartsWith($Key + '.') }).Count | Should -BeGreaterThan 0
     }
 
     It 'writes the imported Microsoft 365 file only while it is selected and present' {
-        $text = ($script:Ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Save-Preferences' }, $false)).Extent.Text
+        $text = ($script:Ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-PackagerPreferenceMirror' }, $false)).Extent.Text
         $text | Should -Match 'M365UseCustomConfig'
         $text | Should -Match 'Test-Path -LiteralPath \$customPath -PathType Leaf'
         $text | Should -Match 'm365-configuration\.user\.xml'
@@ -255,6 +255,7 @@ Describe 'Save-Preferences mirrors only known keys into packager-preferences.jso
         $saveText = ($script:Ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Save-Preferences' }, $false)).Extent.Text.Replace('$PSScriptRoot', ("'" + $root + "'"))
         function Set-DeploymentTypeContentEnvironment { param($Prefs) }
         . ([scriptblock]::Create($saveText))
+        . ([scriptblock]::Create(($script:Ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-PackagerPreferenceMirror' }, $false)).Extent.Text.Replace('$PSScriptRoot', ("'" + $root + "'"))))
         Save-Preferences -Prefs $prefs
         $mirror = Get-Content -LiteralPath (Join-Path $root 'Packagers\packager-preferences.json') -Raw | ConvertFrom-Json
         $mirror.M365UseCustomConfig | Should -BeTrue
