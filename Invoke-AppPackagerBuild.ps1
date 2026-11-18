@@ -29,6 +29,9 @@
       APP_PACKAGER_REQUIREMENTS / _VARIANTS / _COMMANDS / _INSTALL_MODE /
       _TITLE_MODE                 legacy bridge for consumers not yet reading
                                   the snapshot
+      APP_PACKAGER_VERSION_RULE / _SUPERSEDENCE
+                                  the command line level of the version rule
+                                  and the supersedence mode
 
 .EXAMPLE
     .\Invoke-AppPackagerBuild.ps1 -Application catalog:package-7zip -Profile Managed -Stage
@@ -97,14 +100,58 @@ param(
 
     [string]$WsusApprovalGroup,
 
-    [switch]$WsusDeclineSuperseded
+    [switch]$WsusDeclineSuperseded,
+
+    # Supersedence. -VersionRule and -Supersedence outrank the title override and the site default of Options.
+    [ValidateSet('Minimum', 'Exact')]
+    [string]$VersionRule,
+
+    # Off, Replace or ReplaceAndUninstall (also replace-uninstall). ReplaceAndUninstall needs -VersionRule Exact.
+    [string]$Supersedence,
+
+    # plan, apply or restore: changes the version clause of the OLD applications of the line from GreaterEquals to IsEquals.
+    # It runs alone: it does not stage or package. apply and restore write only with -Yes.
+    [ValidateSet('plan', 'apply', 'restore')]
+    [string]$RewriteOldVersions,
+
+    [switch]$Yes,
+
+    # The value read from the installed product of -Application and -Version (the Exact guard compares it). Runs alone.
+    [string]$RecordInstalledValue,
+
+    # Accepts the block of the Exact guard for -Application and -Version. The clause is then written as Minimum. Runs alone.
+    [switch]$AcceptExactBlock,
+
+    # The architecture part of the identity marker of -RewriteOldVersions: the architecture that the packager publishes.
+    [ValidateSet('x64', 'x86', 'arm64')]
+    [string]$Architecture = 'x64'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if (-not $Stage -and -not $Package) {
+$supersedenceRecord = ($PSBoundParameters.ContainsKey('RecordInstalledValue') -or $AcceptExactBlock)
+$supersedenceRewrite = $PSBoundParameters.ContainsKey('RewriteOldVersions')
+if (-not $Stage -and -not $Package -and -not $supersedenceRecord -and -not $supersedenceRewrite) {
     throw 'Specify -Stage, -Package, or both.'
+}
+$supersedenceModeToken = $null
+if ($PSBoundParameters.ContainsKey('Supersedence')) {
+    $supersedenceModeToken = switch -Regex (([string]$Supersedence).Trim().ToLowerInvariant().Replace('_', '-').Replace(' ', '-')) {
+        '^off$' { 'Off' } '^replace$' { 'Replace' } '^(replace-uninstall|replaceanduninstall|replace-and-uninstall)$' { 'ReplaceAndUninstall' } default { $null }
+    }
+    if (-not $supersedenceModeToken) { throw "Unknown -Supersedence value '$Supersedence'; expected Off, Replace or ReplaceAndUninstall." }
+}
+if ($PSBoundParameters.ContainsKey('VersionRule') -and $supersedenceModeToken -eq 'ReplaceAndUninstall' -and $VersionRule -eq 'Minimum') {
+    throw 'Replace and uninstall needs the version rule Exact. With Minimum, the detection of the old application still finds the new version after the uninstall, and the uninstall is reported as failed. Set the version rule to Exact, or set the supersedence mode to Replace or Off.'
+}
+if ($supersedenceRewrite -and ($Stage -or $Package -or $supersedenceRecord)) { throw '-RewriteOldVersions runs alone: it does not stage or package.' }
+if ($Yes -and -not $supersedenceRewrite) { throw '-Yes applies to -RewriteOldVersions only.' }
+if ($supersedenceRecord) {
+    if ($PSBoundParameters.ContainsKey('RecordInstalledValue') -and $AcceptExactBlock) { throw '-RecordInstalledValue and -AcceptExactBlock are separate runs; give one.' }
+    if ($Stage -or $Package) { throw '-RecordInstalledValue and -AcceptExactBlock run alone: they do not stage, package or rewrite.' }
+    if (-not $PSBoundParameters.ContainsKey('Version')) { throw '-RecordInstalledValue and -AcceptExactBlock need -Version: the value belongs to one version.' }
+    if ($PSBoundParameters.ContainsKey('Profile')) { throw '-Profile does not apply to -RecordInstalledValue and -AcceptExactBlock: the value belongs to the title and the version.' }
 }
 $publishesToWsus = ($Target -in @('MECMAndWSUS', 'WSUSOnly'))
 $cliBoundParameters = @{} + $PSBoundParameters
@@ -229,6 +276,67 @@ function Get-CliPreference {
     return $preferences.$Name
 }
 $applicationId = Resolve-CliApplication -Value $Application -Root $PackagersRoot
+
+if ($supersedenceRecord) {
+    # The value or the acceptance is stored in the Supersedence section of the preferences file, under the key that the Exact guard reads.
+    Import-Module (Join-Path $PackagersRoot 'AppPackagerCommon.psd1') -Force -ErrorAction Stop
+    $recordSettings = Get-SupersedenceSettings -PreferencesPath $PreferencesPath
+    if ($AcceptExactBlock) { $recordKey = Add-SupersedenceAcceptedBlock -Settings $recordSettings -TitleKey $applicationId -Version $Version; $recordText = "Accepted the Exact block: $recordKey" }
+    else { $recordKey = Set-SupersedenceInstalledValue -Settings $recordSettings -TitleKey $applicationId -Version $Version -InstalledValue $RecordInstalledValue; $recordText = "Recorded the installed value '$RecordInstalledValue' under $recordKey" }
+    $recordRoot = $(if ($null -ne $preferences) { $preferences } else { [pscustomobject]@{} })
+    $recordSection = [pscustomobject]@{
+        Mode = $recordSettings.Mode; ConfigMgrVersionRule = $recordSettings.ConfigMgrVersionRule; IntuneVersionRule = $recordSettings.IntuneVersionRule
+        TitleOverrides = $recordSettings.TitleOverrides; InstalledValues = $recordSettings.InstalledValues; AcceptedExactBlocks = @($recordSettings.AcceptedExactBlocks)
+    }
+    if ($recordRoot.PSObject.Properties['Supersedence']) { $recordRoot.Supersedence = $recordSection } else { Add-Member -InputObject $recordRoot -NotePropertyName Supersedence -NotePropertyValue $recordSection }
+    Set-Content -LiteralPath $PreferencesPath -Value ($recordRoot | ConvertTo-Json -Depth 8) -Encoding UTF8
+    Write-Host $recordText
+    return
+}
+
+if ($supersedenceRewrite) {
+    # The optional rewrite of the version clause of the old applications of the line. plan reads the site and prints what would
+    # change; apply and restore write only after -Yes, and the log is the way back.
+    Import-Module (Join-Path $PackagersRoot 'AppPackagerCommon.psd1') -Force -ErrorAction Stop
+    $siteCodeValue = $(if ($PSBoundParameters.ContainsKey('SiteCode')) { $SiteCode } else { [string](Get-CliPreference 'SiteCode') })
+    if ([string]::IsNullOrWhiteSpace($siteCodeValue)) { throw '-RewriteOldVersions needs a ConfigMgr site: pass -SiteCode or set it in Options.' }
+    if ($ProviderMachineName) { $env:APP_PACKAGER_CM_PROVIDER = $ProviderMachineName }
+    elseif ((Get-CliPreference 'ProviderMachineName')) { $env:APP_PACKAGER_CM_PROVIDER = [string](Get-CliPreference 'ProviderMachineName') }
+    $rewriteProfile = $(if ($PSBoundParameters.ContainsKey('Profile')) { Resolve-CliProfile -ApplicationId $applicationId -Value $Profile } else { 'default' })
+    $rewriteMarker = Get-SupersedenceIdentityMarker -Manifest ([pscustomobject]@{ ApplicationId = $applicationId; ProfileId = $rewriteProfile; Architecture = $Architecture })
+    $rewriteSettings = Get-SupersedenceSettings -PreferencesPath $PreferencesPath
+    $rewriteLog = Join-Path (Get-WorkbenchDataRoot) 'supersedence-rewrite.jsonl'
+    if (-not (Connect-CMSite -SiteCode $siteCodeValue)) { throw 'The ConfigMgr site connection failed.' }
+    if ($RewriteOldVersions -eq 'restore') {
+        $logEntries = $(if (Test-Path -LiteralPath $rewriteLog) { @(Read-SupersedenceRewriteLog -Text (Get-Content -LiteralPath $rewriteLog -Raw -Encoding UTF8)) } else { @() })
+        $pending = @(Get-SupersedenceRestoreEntry -Log $logEntries -Applications @($logEntries | ForEach-Object { $_.Application } | Select-Object -Unique) -Line $rewriteMarker)
+        Write-Host ("Log: {0}. {1} deployment type(s) to restore." -f $rewriteLog, $pending.Count)
+        foreach ($entry in $pending) { Write-Host ("  restore: {0} / {1}: back to {2}" -f $entry.Application, $entry.DeploymentType, $entry.OldOperator) }
+        if (-not $Yes) { throw 'restore writes the old operator back on the site. Run it again with -Yes.' }
+        $restored = Invoke-SupersedenceRestore -SiteCode $siteCodeValue -Marker $rewriteMarker -LogPath $rewriteLog
+        foreach ($failure in $restored.Failures) { Write-Error $failure -ErrorAction Continue }
+        Write-Host ("Restored {0} deployment type(s); {1} failed." -f @($restored.Written).Count, @($restored.Failures).Count)
+        if (@($restored.Failures).Count -gt 0) { exit 1 }
+        return
+    }
+    $rewritePlan = Get-SupersedenceRewriteScopePlan -Marker $rewriteMarker -TitleKey $applicationId -Settings $rewriteSettings
+    Write-Host ("Old applications of the line: {0} with a clause to rewrite; {1} clause(s) in all." -f $rewritePlan.ApplicationCount, $rewritePlan.ClauseCount)
+    foreach ($blocked in $rewritePlan.Blocked) { Write-Host "  blocked: $blocked" }
+    foreach ($item in $rewritePlan.Items) {
+        if ($item.Rewrites) { Write-Host ("  rewrite: {0} / {1}: GreaterEquals -> IsEquals" -f $item.Application, $item.DeploymentType) }
+        else { Write-Host ("  left: {0} / {1}: {2}" -f $item.Application, $item.DeploymentType, $item.Skip) }
+    }
+    if ($RewriteOldVersions -eq 'plan') { Write-Host (Get-SupersedenceRewriteConfirmationText); return }
+    if (-not $Yes) { throw ("apply changes the detection of the old applications. {0} Run it again with -Yes." -f (Get-SupersedenceRewriteConfirmationText)) }
+    if ($rewritePlan.ClauseCount -eq 0) { Write-Host 'Nothing to rewrite.'; return }
+    # The log is written ahead, one entry at a time, before the site changes: it is the only way back.
+    $rewritten = Invoke-SupersedenceRewrite -Plan $rewritePlan -SiteCode $siteCodeValue -Marker $rewriteMarker -LogPath $rewriteLog
+    foreach ($failure in $rewritten.Failures) { Write-Error $failure -ErrorAction Continue }
+    Write-Host ("Rewrote {0} deployment type(s); {1} failed. Log: {2}" -f @($rewritten.Written).Count, @($rewritten.Failures).Count, $rewriteLog)
+    if (@($rewritten.Failures).Count -gt 0) { exit 1 }
+    return
+}
+
 $profileId = Resolve-CliProfile -ApplicationId $applicationId -Value $Profile
 $profileObject = Get-Profile -ApplicationId $applicationId -ProfileId $profileId
 
@@ -334,6 +442,9 @@ $legacy = @{
     APP_PACKAGER_WORKBENCH_ROOT = (Get-WorkbenchDataRoot)
 }
 if ($signingJson) { $legacy['APP_PACKAGER_SIGNING'] = $signingJson }
+# The command line level of the version rule and the supersedence mode; the module reads them and they outrank the other levels.
+if ($PSBoundParameters.ContainsKey('VersionRule')) { $legacy['APP_PACKAGER_VERSION_RULE'] = $VersionRule }
+if ($supersedenceModeToken) { $legacy['APP_PACKAGER_SUPERSEDENCE'] = $supersedenceModeToken }
 
 $requirementsJson = ConvertTo-CliRequirementsJson -Profile $profileObject
 if ($requirementsJson) { $legacy['APP_PACKAGER_REQUIREMENTS'] = $requirementsJson }

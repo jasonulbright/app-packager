@@ -2651,13 +2651,23 @@ function Invoke-PackagerIntunePublish {
         [Parameter(Mandatory)][hashtable]$Config,
         [AllowEmptyString()][string]$Comment = ''
     )
-    $pubNote = [pscustomobject]@{ Ok = $false; Message = ''; AppId = '' }
+    $pubNote = [pscustomobject]@{ Ok = $false; Message = ''; AppId = ''; SupersedenceLog = @() }
     try {
         $manifest = Read-StageManifest -Path $IntuneNote.ManifestPath
         if ($manifest.PSObject.Properties['DeploymentTypes'] -and $manifest.DeploymentTypes) {
             $pubNote.Message = 'variant-split app; Intune publish skipped (single-payload apps only for now).'
         }
         else {
+            # The Intune version rule (Exact writes the operator equal). A refused plan publishes nothing. Intune
+            # supersedence is not available, so only the version rule applies here.
+            $contentPath = Split-Path -Parent $IntuneNote.ManifestPath
+            $supersedencePlan = Get-SupersedencePlan -Manifest $manifest -Settings (Get-SupersedenceSettings) -CommandLine (Get-SupersedenceCommandLine) `
+                -PublishesToConfigMgr $false -PublishesToIntune $true `
+                -MsiProductVersion { param($m) Get-SupersedenceMsiProductVersion -Manifest $m -ContentPath $contentPath }.GetNewClosure() `
+                -FallbackApplicationId (Get-SupersedenceFallbackApplicationId)
+            $pubNote.SupersedenceLog = @($supersedencePlan.Log)
+            if ($supersedencePlan.Refusal) { throw $supersedencePlan.Refusal }
+            $manifest = $supersedencePlan.IntuneManifest
             # The staged icon lives in the content version folder next
             # to the manifest, not beside the .intunewin.
             $publishArgs = @{}
