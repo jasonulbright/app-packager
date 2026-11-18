@@ -953,7 +953,7 @@ The grid shows **CVEs** (the CVEs that affect the examined version), **Max CVSS*
 
 Check ConfigMgr also records the ConfigMgr version in `app-history.json` with the site code, and the grid shows it on the next launch when the site code still matches. With **Look up CVEs after Check ConfigMgr** on (Options, Updates and CVEs, CVE Lookup), Check ConfigMgr chains into Check CVEs for the same rows.
 
-NVD allows 5 requests per 30 seconds without a key and 50 with one. Set the key in Options, Updates and CVEs, CVE Lookup, **NVD API key**, or in the `NVD_API_KEY` environment variable. A request for a key is at https://nvd.nist.gov/developers/request-an-api-key.
+NVD allows 5 requests per 30 seconds without a key and 50 with one. The tool spaces the requests evenly, 6 seconds apart without a key and 0.6 seconds with one, and every App Packager process of the user shares one limit through `%LOCALAPPDATA%\AppPackager\nvd-limit.json`. Set the key in Options, Updates and CVEs, CVE Lookup, **NVD API key**, or in the `NVD_API_KEY` environment variable. A request for a key is at https://nvd.nist.gov/developers/request-an-api-key.
 
 For a scheduled run without the window see [Vendor Version Monitor](#vendor-version-monitor).
 

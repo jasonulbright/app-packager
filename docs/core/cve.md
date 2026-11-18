@@ -131,6 +131,8 @@ Some NVD records name a product with no version and no range. Most of them are o
 2. Without saved records, the tool asks Shodan CVEDB for each version. Shodan CVEDB gives no version ranges, so the tool compares its answers for the two versions.
 3. When both fail, the row shows `Error`. A failed lookup is not saved, and an earlier result stays in place.
 
+A timeout, a network error and the answers 403, 429 and 503 are tried twice more before the fallback. The wait is the `Retry-After` time of the answer when it has one (at most 120 seconds), else 6 seconds, then 12 seconds.
+
 ## Options and settings of this page
 
 | Setting (Options > Updates and CVEs > CVE Lookup) | Effect |
@@ -141,7 +143,9 @@ Some NVD records name a product with no version and no range. Most of them are o
 
 ## Limits
 
-- NVD allows 5 requests in 30 seconds without a key. The first lookup of a product reads all its records: one request for each 2000 records. A large run is slow without a key.
+- NVD allows 5 requests in 30 seconds without a key and asks for 6 seconds between requests. The tool sends one request every 6 seconds without a key and one every 0.6 seconds with a key. The first lookup of a product reads all its records: one request for each 2000 records. A large run is slow without a key.
+- All App Packager windows and the scheduled monitor of the same user share one limit. The request times are in `%LOCALAPPDATA%\AppPackager
+vd-limit.json`, guarded by a lock. A damaged file or a lock that is not free never stops a lookup. The tool then uses the limit of its own process and writes a warning to the log.
 - The tool saves the records of each product in `%LOCALAPPDATA%\AppPackager\vuln-products` and the result of each lookup in `%LOCALAPPDATA%\AppPackager\vuln-results`. It uses both for six hours. A second lookup of the same product with other versions makes no NVD request in that time.
 - The result is as correct as the NVD record. When NVD lists a wrong range for a CVE, the tool reports that CVE for the wrong versions.
 - A CVE that NVD has not yet analyzed has no version data and does not show.
