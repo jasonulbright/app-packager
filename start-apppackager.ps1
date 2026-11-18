@@ -6801,8 +6801,9 @@ function Open-OldApplicationDialog {
         }
         finally { Pop-Location }
     }.GetNewClosure()
-    $linker = { param($Name) Push-Location; try { Set-SupersedenceOldApplication -ApplicationName $Name -Marker $marker -Confirmed } finally { Pop-Location } }.GetNewClosure()
-    $unlinker = { param($Name) Push-Location; try { Clear-SupersedenceOldApplication -ApplicationName $Name -Marker $marker -Confirmed } finally { Pop-Location } }.GetNewClosure()
+    # Each block connects to the site first: the site drive is not the current location when the dialog calls it, and the cmdlets need it.
+    $linker = { param($Name) Push-Location; try { if (-not (Connect-CMSite -SiteCode $siteCode -ProviderMachineName ([string]$script:Prefs.ProviderMachineName))) { throw 'The ConfigMgr site connection failed. See the log file.' }; Set-SupersedenceOldApplication -ApplicationName $Name -Marker $marker -Confirmed } finally { Pop-Location } }.GetNewClosure()
+    $unlinker = { param($Name) Push-Location; try { if (-not (Connect-CMSite -SiteCode $siteCode -ProviderMachineName ([string]$script:Prefs.ProviderMachineName))) { throw 'The ConfigMgr site connection failed. See the log file.' }; Clear-SupersedenceOldApplication -ApplicationName $Name -Marker $marker -Confirmed } finally { Pop-Location } }.GetNewClosure()
     Show-OldApplicationDialog -Owner $Owner -NewTitle $newTitle -NewVersion $newVersion -Marker $marker -SearchText ([string]$Row.Application) -Search $reader -Link $linker -Unlink $unlinker
 }
 

@@ -21,6 +21,10 @@
 - Add Restore Old Versions to the sidebar. It writes the old operator back.
 - Add -Json, -IdentityMarker and -ShownPlan to -RewriteOldVersions of Invoke-AppPackagerBuild.
 
+### Fixed
+
+- Fix Use as old application: link and remove link connect to the site first.
+
 ## [2026.11.18.0142] - 2026-11-18
 
 ## 5 changes: settings parity and fixes
