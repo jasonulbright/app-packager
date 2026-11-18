@@ -18,6 +18,9 @@
 
 ### Added
 
+- Translate ConfigMgr requirements into Intune requirement rules on publish.
+- Block the Intune publish of a requirement that has no Intune rule.
+- Add Accepted requirement drops to Options, Connections, Intune. A review dialog stores it.
 - Add a switch for the architecture tag to Options, Packaging, Application Title.
 - Add User collection to Options, Packaging, Post Packaging. The test deployment can target a user collection limited to All Users.
 - Add Check at startup to Options, Tools. Turn it off to skip the update lookup at launch.
