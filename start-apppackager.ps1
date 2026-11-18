@@ -5782,7 +5782,7 @@ function New-AppFlowPanel {
         </ComboBox>
         <TextBlock Grid.Row="3" Grid.Column="0" Text="Default cadence (days)" FontWeight="Bold" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
         <TextBox Grid.Row="3" Grid.Column="1" x:Name="txtOneClickCadenceDays" Width="360" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,8,0,0" MaxLength="3"
-                 ToolTip="Days a version check stays fresh, from 1 to 365. A packager header or a per-app cadence overrides it."/>
+                 ToolTip="Days a version check stays fresh, from 1 to 365."/>
     </Grid>
     <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" x:Name="dgApps" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
               GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0" BorderThickness="0"
@@ -5925,7 +5925,10 @@ function New-AppFlowPanel {
         $prefsRef.AppFlow.DefaultDestinations = $newDefault
         $prefsRef.AppFlow.OnExisting          = [string]$cboOneClickOnExisting.SelectedItem.Tag
         $newCadence = 0
-        if ([int]::TryParse($txtOneClickCadenceDays.Text.Trim(), [ref]$newCadence) -and $newCadence -ge 1 -and $newCadence -le 365) { $prefsRef.AppFlow.DefaultCadenceDays = $newCadence }
+        if ([int]::TryParse($txtOneClickCadenceDays.Text.Trim(), [ref]$newCadence) -and $newCadence -ge 1 -and $newCadence -le 365) {
+            if ($prefsRef.AppFlow.PSObject.Properties['DefaultCadenceDays']) { $prefsRef.AppFlow.DefaultCadenceDays = $newCadence }
+            else { $prefsRef.AppFlow | Add-Member -NotePropertyName DefaultCadenceDays -NotePropertyValue $newCadence }
+        }
         $prefsRef.Intune.DeploymentTarget     = ConvertTo-DeploymentTargetName -Destinations $newDefault
         $prefsRef.Intune.PublishToIntune      = [bool]$newDefault.Intune
     }.GetNewClosure()
