@@ -126,7 +126,7 @@ $VendorFolder = "TeamViewer"
 $AppFolder    = "TeamViewer Host"
 
 $BaseDownloadRoot = Join-Path $DownloadRoot "TeamViewerHost"
-$ConfigFile       = Join-Path $PSScriptRoot "teamviewer-host-config.json"
+$ConfigFile       = Resolve-PackagerRunFile -Name "teamviewer-host-config.json" -Default (Join-Path $PSScriptRoot "teamviewer-host-config.json")
 
 # --- Functions ---
 

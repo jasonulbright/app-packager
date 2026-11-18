@@ -113,7 +113,7 @@ $VendorFolder = "Citrix"
 $AppFolder    = "Citrix Workspace CR"
 
 $BaseDownloadRoot = Join-Path $DownloadRoot "CitrixWorkspaceCR"
-$SwitchesFile     = Join-Path $PSScriptRoot "citrix-workspace-switches.json"
+$SwitchesFile     = Resolve-PackagerRunFile -Name "citrix-workspace-switches.json" -Default (Join-Path $PSScriptRoot "citrix-workspace-switches.json")
 $CwaStream        = 'Current'
 
 # The installer writes its ARP entry to the 32-bit registry view; ConfigMgr adds

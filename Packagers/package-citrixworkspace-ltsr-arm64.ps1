@@ -127,7 +127,7 @@ $VendorFolder = "Citrix"
 $AppFolder    = "Citrix Workspace LTSR ARM64"
 
 $BaseDownloadRoot = Join-Path $DownloadRoot "CitrixWorkspaceLTSRARM64"
-$SwitchesFile     = Join-Path $PSScriptRoot "citrix-workspace-switches.json"
+$SwitchesFile     = Resolve-PackagerRunFile -Name "citrix-workspace-switches.json" -Default (Join-Path $PSScriptRoot "citrix-workspace-switches.json")
 $CwaStream        = 'LTSR'
 
 # The x86 build writes its ARP entry to the 32-bit registry view and the x64
