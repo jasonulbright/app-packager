@@ -444,7 +444,7 @@ Or drive one application through a workbench profile without the GUI:
 .\Invoke-AppPackagerBuild.ps1 -Application catalog:package-7zip -Profile Managed -Stage
 
 # Stage and package with runtime run overrides for this build only
-.\Invoke-AppPackagerBuild.ps1 -Application package-git.ps1 -Profile default -Target MECM -Stage -Package -EstimatedMinutes 10 -MaximumMinutes 25
+.\Invoke-AppPackagerBuild.ps1 -Application package-git.ps1 -Profile default -Target ConfigMgr -Stage -Package -EstimatedMinutes 10 -MaximumMinutes 25
 
 # Stage 7-Zip and publish it to WSUS, approved for the Pilot group
 .\Invoke-AppPackagerBuild.ps1 -Application package-7zip.ps1 -Target WSUSOnly -Package -WsusServer wsus01.contoso.com -WsusPort 8531 -WsusUseSsl -WsusApprovalGroup Pilot
@@ -455,7 +455,7 @@ Or drive one application through a workbench profile without the GUI:
 | `-Application` | `catalog:package-7zip`, `custom:<script>`, `byo:<id>`, or a packager file name |
 | `-Profile` | Profile name or id; `default` (the packager's own behavior) when omitted |
 | `-Version` | Package this version instead of the latest |
-| `-Target` | `ContentOnly`, `MECM` (default), `MECMAndIntune`, `IntuneOnly`, `MECMAndWSUS`, `WSUSOnly` |
+| `-Target` | `ContentOnly`, `ConfigMgr` (default), `ConfigMgrAndIntune`, `IntuneOnly`, `ConfigMgrAndWSUS`, `WSUSOnly`. The old names `MECM`, `MECMAndIntune` and `MECMAndWSUS` still load. |
 | `-WsusServer` / `-WsusPort` / `-WsusUseSsl` | WSUS server for the WSUS targets. Each value not given comes from the Wsus section of the preferences file. |
 | `-WsusClassification` | The WSUS classification of the published update |
 | `-WsusApprovalGroup` / `-WsusDeclineSuperseded` | Approve each new update for a computer group; decline the AppPackager updates of the same application that have a lower version |
@@ -466,7 +466,7 @@ Or drive one application through a workbench profile without the GUI:
 | `-SiteCode` / `-ProviderMachineName` / `-FileServerPath` | ConfigMgr connection and share, as the packagers take them |
 | `-Comment` | Administrative comment stored on the application |
 
-It creates the run snapshot, sets the child environment and launches the packager exactly as the GUI does, so a scheduled build and a selection of the button produces the same content. A WSUS target publishes the manifest staged in the same run, so `MECMAndWSUS` needs `-Stage` and `-Package` together. The result object carries a `Wsus` block. A failed publish sets exit code 1. A failed approval or decline after a successful publish also sets exit code 1, and `Wsus.Warnings` names it. A `custom:` script lives under `<workbench data root>\scripts`, outside the install folder, and must import `AppPackagerCommon.psd1` by its full path; it builds from the command line only, since the main grid lists the `Packagers` folder.
+It creates the run snapshot, sets the child environment and launches the packager exactly as the GUI does, so a scheduled build and a selection of the button produces the same content. A WSUS target publishes the manifest staged in the same run, so `ConfigMgrAndWSUS` needs `-Stage` and `-Package` together. The result object carries a `Wsus` block. A failed publish sets exit code 1. A failed approval or decline after a successful publish also sets exit code 1, and `Wsus.Warnings` names it. A `custom:` script lives under `<workbench data root>\scripts`, outside the install folder, and must import `AppPackagerCommon.psd1` by its full path; it builds from the command line only, since the main grid lists the `Packagers` folder.
 
 ### Rewrite old versions
 

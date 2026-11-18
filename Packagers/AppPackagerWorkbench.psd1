@@ -35,6 +35,7 @@
 
         # Runs and finalization
         'New-BuildId'
+        'ConvertTo-CurrentDeploymentTarget'
         'New-RunSnapshot'
         'Get-RunSnapshot'
         'Resolve-WorkbenchTokens'

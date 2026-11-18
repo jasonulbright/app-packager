@@ -51,7 +51,7 @@ function Save-Preferences {
     $script:SavedJson = $Prefs | ConvertTo-Json -Depth 5
     $script:SaveCount++
 }
-function ConvertTo-DeploymentTargetName { param($Destinations) if ($Destinations.ConfigMgr) { 'MECM' } elseif ($Destinations.Intune) { 'IntuneOnly' } elseif ($Destinations.WSUS) { 'WSUSOnly' } else { 'MECM' } }
+function ConvertTo-DeploymentTargetName { param($Destinations) if ($Destinations.ConfigMgr) { 'ConfigMgr' } elseif ($Destinations.Intune) { 'IntuneOnly' } elseif ($Destinations.WSUS) { 'WSUSOnly' } else { 'ConfigMgr' } }
 function Invoke-RefreshGrid { $script:RefreshCount++ }
 function Update-SidebarForSystems { $script:SidebarCount++ }
 function Show-ThemedMessage {
@@ -72,7 +72,7 @@ function Test-WizardCallback {
         AppFlow = [pscustomobject]@{ DefaultDestinations = [pscustomobject]@{ ConfigMgr = $true; WSUS = $false; Intune = $false } }
         Intune = [pscustomobject]@{
             TenantId = ''; ClientId = ''; ClientSecretProtected = ''
-            DeploymentTarget = 'MECM'; PublishToIntune = $false
+            DeploymentTarget = 'ConfigMgr'; PublishToIntune = $false
         }
         Wsus = [pscustomobject]@{ ServerName = ''; PortNumber = 8530; UseSsl = $false }
     }
@@ -90,7 +90,7 @@ function Test-WizardCallback {
     $mecmBox = [pscustomobject]@{ IsChecked = ($Systems -contains 'ConfigMgr') }
     $intuneBox = [pscustomobject]@{ IsChecked = ($Systems -contains 'Intune') }
     $wsusBox = [pscustomobject]@{ IsChecked = ($Systems -contains 'WSUS') }
-    $Target = if ($Systems -contains 'ConfigMgr') { 'MECM' } elseif ($Systems -contains 'Intune') { 'IntuneOnly' } elseif ($Systems -contains 'WSUS') { 'WSUSOnly' } else { 'MECM' }
+    $Target = if ($Systems -contains 'ConfigMgr') { 'ConfigMgr' } elseif ($Systems -contains 'Intune') { 'IntuneOnly' } elseif ($Systems -contains 'WSUS') { 'WSUSOnly' } else { 'ConfigMgr' }
     $systemBlock = @{ Block = [pscustomobject]@{ Visibility = 'Visible' }; Group = @{ Validate = { $null }; Commit = {
                 $script:Prefs.Systems.ConfigMgr = [bool]$mecmBox.IsChecked; $script:Prefs.Systems.Intune = [bool]$intuneBox.IsChecked; $script:Prefs.Systems.Wsus = [bool]$wsusBox.IsChecked } } }
     $mecm = @{ Block = [pscustomobject]@{ Visibility = $(if ($mecmBox.IsChecked) { 'Visible' } else { 'Collapsed' }) }; Group = @{ Validate = { $null }; Commit = {
@@ -171,7 +171,7 @@ try {
         @{ Defaults = [pscustomobject]@{ ConfigMgr = $true; WSUS = $true; Intune = $false }; Expected = 'ConfigMgr and WSUS' },
         @{ Defaults = [pscustomobject]@{ ConfigMgr = $false; WSUS = $false; Intune = $true }; Expected = 'Intune' }
     )) {
-        $script:Prefs = [pscustomobject]@{ AppFlow = [pscustomobject]@{ DefaultDestinations = $case.Defaults }; Intune = [pscustomobject]@{ DeploymentTarget = 'MECMAndWSUS' } }
+        $script:Prefs = [pscustomobject]@{ AppFlow = [pscustomobject]@{ DefaultDestinations = $case.Defaults }; Intune = [pscustomobject]@{ DeploymentTarget = 'ConfigMgrAndWSUS' } }
         $script:FirstRunDlgSaved = $true
         $script:SetupLog = ''
         . $completion

@@ -118,7 +118,17 @@ function Get-PreferencesPath {
 }
 
 function Get-DeploymentTargetNames {
-    return @('MECM', 'MECMAndIntune', 'IntuneOnly', 'MECMAndWSUS', 'WSUSOnly')
+    # The current names. The old names MECM, MECMAndIntune and MECMAndWSUS still
+    # load: ConvertTo-CurrentDeploymentTarget maps them at every read.
+    return @('ConfigMgr', 'ConfigMgrAndIntune', 'IntuneOnly', 'ConfigMgrAndWSUS', 'WSUSOnly')
+}
+
+function Get-KnownDeploymentTarget {
+    # The current name of a stored or passed target, or Default when the value is no run target.
+    param([AllowNull()][AllowEmptyString()]$Value, [string]$Default = 'ConfigMgr')
+    $name = ConvertTo-CurrentDeploymentTarget -Value $Value -Default ''
+    if ($name -in (Get-DeploymentTargetNames)) { return $name }
+    return $Default
 }
 
 function ConvertTo-DeploymentTargetName {
@@ -127,24 +137,24 @@ function ConvertTo-DeploymentTargetName {
     # or WSUS part.
     param([Parameter(Mandatory)]$Destinations)
     $cm = [bool]$Destinations.ConfigMgr; $wsus = [bool]$Destinations.WSUS; $intune = [bool]$Destinations.Intune
-    if ($cm -and $wsus) { return 'MECMAndWSUS' }
-    if ($cm -and $intune) { return 'MECMAndIntune' }
-    if ($cm) { return 'MECM' }
+    if ($cm -and $wsus) { return 'ConfigMgrAndWSUS' }
+    if ($cm -and $intune) { return 'ConfigMgrAndIntune' }
+    if ($cm) { return 'ConfigMgr' }
     if ($wsus) { return 'WSUSOnly' }
     if ($intune) { return 'IntuneOnly' }
-    return 'MECM'
+    return 'ConfigMgr'
 }
 
 function Test-DeploymentTargetSkipsSite {
     # Intune-only and WSUS-only runs stop at Stage: no site connection, no
     # share copy, no ConfigMgr application.
     param([AllowEmptyString()][string]$DeploymentTarget)
-    return ([string]$DeploymentTarget -in @('IntuneOnly', 'WSUSOnly'))
+    return ((ConvertTo-CurrentDeploymentTarget -Value $DeploymentTarget) -in @('IntuneOnly', 'WSUSOnly'))
 }
 
 function Test-DeploymentTargetPublishesToWsus {
     param([AllowEmptyString()][string]$DeploymentTarget)
-    return ([string]$DeploymentTarget -in @('MECMAndWSUS', 'WSUSOnly'))
+    return ((ConvertTo-CurrentDeploymentTarget -Value $DeploymentTarget) -in @('ConfigMgrAndWSUS', 'WSUSOnly'))
 }
 
 function Get-PublishRowOutcome {
@@ -154,6 +164,7 @@ function Get-PublishRowOutcome {
     # carries the WSUS result as a status suffix.
     param([Parameter(Mandatory)]$Result, [AllowEmptyString()][string]$DeploymentTarget)
 
+    $DeploymentTarget = ConvertTo-CurrentDeploymentTarget -Value $DeploymentTarget -Default $DeploymentTarget
     $wsus = if ($Result.PSObject.Properties['WsusPublish']) { $Result.WsusPublish } else { $null }
     $intune = if ($Result.PSObject.Properties['IntunePublish']) { $Result.IntunePublish } else { $null }
     $wsusRefused = [bool]($wsus -and $wsus.PSObject.Properties['Refused'] -and $wsus.Refused)
@@ -375,12 +386,13 @@ function Read-Preferences {
             TokenProtected = ''
         }
         Intune               = [pscustomobject]@{
-            # One Click destination. MECM = ConfigMgr app; MECMAndIntune =
+            # One Click destination. ConfigMgr = ConfigMgr app; ConfigMgrAndIntune =
             # ConfigMgr app + Graph publish; IntuneOnly = stage + .intunewin +
-            # Graph publish, no site touch; MECMAndWSUS = ConfigMgr app + WSUS
+            # Graph publish, no site touch; ConfigMgrAndWSUS = ConfigMgr app + WSUS
             # publish; WSUSOnly = stage + WSUS publish, no site touch. The
-            # sidebar publish buttons set their own destination per run.
-            DeploymentTarget      = 'MECM'
+            # sidebar publish buttons set their own destination per run. The old
+            # names MECM, MECMAndIntune and MECMAndWSUS still load.
+            DeploymentTarget      = 'ConfigMgr'
             PublishToIntune       = $false
             TenantId              = ''
             ClientId              = ''
@@ -683,10 +695,10 @@ function Read-Preferences {
             elseif ($null -ne $data.Intune -and $null -ne $data.Intune.DeploymentTarget) {
                 # A preferences file from before the per-row destinations
                 # carries one saved target.
-                $target = [string]$data.Intune.DeploymentTarget
+                $target = ConvertTo-CurrentDeploymentTarget -Value $data.Intune.DeploymentTarget -Default ([string]$data.Intune.DeploymentTarget)
                 $defaults.AppFlow.DefaultDestinations.ConfigMgr = ($target -notin @('IntuneOnly', 'WSUSOnly'))
-                $defaults.AppFlow.DefaultDestinations.WSUS      = ($target -in @('MECMAndWSUS', 'WSUSOnly'))
-                $defaults.AppFlow.DefaultDestinations.Intune    = ($target -in @('MECMAndIntune', 'IntuneOnly'))
+                $defaults.AppFlow.DefaultDestinations.WSUS      = ($target -in @('ConfigMgrAndWSUS', 'WSUSOnly'))
+                $defaults.AppFlow.DefaultDestinations.Intune    = ($target -in @('ConfigMgrAndIntune', 'IntuneOnly'))
             }
             $cadence = 0
             if ([int]::TryParse([string]$af.DefaultCadenceDays, [ref]$cadence) -and $cadence -ge 1 -and $cadence -le 365) { $defaults.AppFlow.DefaultCadenceDays = $cadence }
@@ -721,12 +733,13 @@ function Read-Preferences {
         # Intune: .intunewin production and Graph publishing during Package.
         if ($null -ne $data.Intune) {
             if ($null -ne $data.Intune.PublishToIntune) { try { $defaults.Intune.PublishToIntune = [bool]$data.Intune.PublishToIntune } catch { <# Reading a boolean or numeric setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
-            if ([string]$data.Intune.DeploymentTarget -in @('MECM', 'MECMAndIntune', 'IntuneOnly', 'MECMAndWSUS', 'WSUSOnly')) {
-                $defaults.Intune.DeploymentTarget = [string]$data.Intune.DeploymentTarget
+            $savedTarget = ConvertTo-CurrentDeploymentTarget -Value $data.Intune.DeploymentTarget
+            if ($savedTarget -and $savedTarget -ne 'ContentOnly') {
+                $defaults.Intune.DeploymentTarget = $savedTarget
             }
             elseif ($defaults.Intune.PublishToIntune) {
                 # Pre-1.4.0.14 prefs expressed publishing as a bare toggle.
-                $defaults.Intune.DeploymentTarget = 'MECMAndIntune'
+                $defaults.Intune.DeploymentTarget = 'ConfigMgrAndIntune'
             }
             if ($null -ne $data.Intune.TenantId)              { $defaults.Intune.TenantId              = [string]$data.Intune.TenantId }
             if ($null -ne $data.Intune.ClientId)              { $defaults.Intune.ClientId              = [string]$data.Intune.ClientId }
@@ -736,7 +749,7 @@ function Read-Preferences {
                 $defaults.Intune.AcceptedRequirementDrops = @(@($data.Intune.AcceptedRequirementDrops) | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ } | Select-Object -Unique)
             }
             # A stale Intune toggle must not publish to Intune from a WSUS target.
-            if ([string]$defaults.Intune.DeploymentTarget -in @('MECMAndWSUS', 'WSUSOnly')) {
+            if ([string]$defaults.Intune.DeploymentTarget -in @('ConfigMgrAndWSUS', 'WSUSOnly')) {
                 $defaults.Intune.PublishToIntune = $false
             }
         }
@@ -2673,7 +2686,7 @@ function Invoke-PackagerPackage {
         [string]$IntuneWinToolPath = '',
         [hashtable]$IntunePublishConfig = $null,
         [hashtable]$WsusPublishConfig = $null,
-        [ValidateSet('MECM', 'MECMAndIntune', 'IntuneOnly', 'MECMAndWSUS', 'WSUSOnly')][string]$DeploymentTarget = 'MECM',
+        [ValidateSet('ConfigMgr', 'ConfigMgrAndIntune', 'IntuneOnly', 'ConfigMgrAndWSUS', 'WSUSOnly', 'MECM', 'MECMAndIntune', 'MECMAndWSUS')][string]$DeploymentTarget = 'ConfigMgr',
         [ValidateSet('Nested','Flat')][string]$ContentLayout = 'Nested',
         [string]$RequirementsJson = '',
         [string]$VariantsJson = '',
@@ -2716,6 +2729,7 @@ function Invoke-PackagerPackage {
     # share copy, no ConfigMgr application. The .intunewin build, the Graph
     # publish and the WSUS publish below work entirely from the local staged
     # content.
+    $DeploymentTarget = ConvertTo-CurrentDeploymentTarget -Value $DeploymentTarget -Default 'ConfigMgr'
     $skipsSite = Test-DeploymentTargetSkipsSite -DeploymentTarget $DeploymentTarget
     $phaseSwitch = if ($skipsSite) { '-StageOnly' } else { '-PackageOnly' }
     $argsBase = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PackagerPath, $phaseSwitch, '-SiteCode', $SiteCode, '-Comment', $Comment, '-LogPath', $structuredLog)
@@ -3282,7 +3296,7 @@ function Get-IntunePublishConfigForContext {
         if (-not $i) { return $null }
         $target = if ($Target) { $Target } else { [string]$i.DeploymentTarget }
         if (Test-DeploymentTargetPublishesToWsus -DeploymentTarget $target) { return $null }
-        if ($target -notin @('MECMAndIntune', 'IntuneOnly') -and -not [bool]$i.PublishToIntune) { return $null }
+        if ((ConvertTo-CurrentDeploymentTarget -Value $target) -notin @('ConfigMgrAndIntune', 'IntuneOnly') -and -not [bool]$i.PublishToIntune) { return $null }
         if ([string]::IsNullOrWhiteSpace([string]$i.TenantId) -or
             [string]::IsNullOrWhiteSpace([string]$i.ClientId) -or
             [string]::IsNullOrWhiteSpace([string]$i.ClientSecretProtected)) { return $null }
@@ -4528,7 +4542,7 @@ function Invoke-BatchUpdate {
                 try {
                     if (-not $batchAppId) { $batchAppId = [string](New-ApplicationId -Kind Catalog -ScriptPath $scriptPath) }
                     $batchSnapshot = New-RunSnapshot -ApplicationId $batchAppId -ProfileId $batchProfileId `
-                        -Target 'MECM' -SigningPolicy $batchSigningPolicy -PackagerScriptPath $scriptPath -DownloadRoot $batchDownloadRoot
+                        -Target 'ConfigMgr' -SigningPolicy $batchSigningPolicy -PackagerScriptPath $scriptPath -DownloadRoot $batchDownloadRoot
                     $batchRunSnapshot = [string]$batchSnapshot.Path
                 }
                 catch {
@@ -10125,7 +10139,7 @@ function Invoke-MultiAppPipeline {
                                 IntuneWinToolPath    = [string]$Ctx.IntuneWinToolPath
                                 IntunePublishConfig  = $Ctx.IntunePublishConfig
                                 WsusPublishConfig    = $Ctx.WsusPublishConfig
-                                DeploymentTarget     = $(if ([string]$Ctx.DeploymentTarget -in (Get-DeploymentTargetNames)) { [string]$Ctx.DeploymentTarget } else { 'MECM' })
+                                DeploymentTarget     = (Get-KnownDeploymentTarget -Value $Ctx.DeploymentTarget)
                                 ContentLayout        = [string]$Ctx.ContentLayout
                                 RequirementsJson     = $reqJson
                                 VariantsJson         = $varJson
@@ -10491,7 +10505,7 @@ function Invoke-MultiAppPipeline {
                                             SevenZipPath         = $Ctx.SevenZipPath
                                             CreateIntuneWin      = [bool]$Ctx.IntuneWinCreate
                                             IntuneWinToolPath    = [string]$Ctx.IntuneWinToolPath
-                                            DeploymentTarget     = 'MECM'
+                                            DeploymentTarget     = 'ConfigMgr'
                                             ContentLayout        = [string]$Ctx.ContentLayout
                                             RequirementsJson     = $reqJson
                                             VariantsJson         = $varJson
@@ -10876,7 +10890,7 @@ function Invoke-MultiAppPipeline {
                                 IntuneWinToolPath    = [string]$Ctx.IntuneWinToolPath
                                 IntunePublishConfig  = $Ctx.IntunePublishConfig
                                 WsusPublishConfig    = $Ctx.WsusPublishConfig
-                                DeploymentTarget     = $(if ([string]$Ctx.DeploymentTarget -in (Get-DeploymentTargetNames)) { [string]$Ctx.DeploymentTarget } else { 'MECM' })
+                                DeploymentTarget     = (Get-KnownDeploymentTarget -Value $Ctx.DeploymentTarget)
                                 ContentLayout        = [string]$Ctx.ContentLayout
                                 RequirementsJson     = $reqJson
                                 VariantsJson         = $varJson
@@ -13128,7 +13142,9 @@ function Confirm-IntuneRequirementReview {
 }
 
 function Start-PublishRun {
-    param([Parameter(Mandatory)][ValidateSet('MECM', 'IntuneOnly', 'WSUSOnly')][string]$Target)
+    param([Parameter(Mandatory)][ValidateSet('ConfigMgr', 'IntuneOnly', 'WSUSOnly', 'MECM')][string]$Target)
+
+    $Target = ConvertTo-CurrentDeploymentTarget -Value $Target
 
     # Intune and WSUS runs never touch the site or the share, so the console,
     # SiteCode, and content share gates apply only to ConfigMgr runs.
@@ -13222,7 +13238,7 @@ function Start-PublishRun {
     }
 }
 
-$btnPackage.Add_Click({ Start-PublishRun -Target 'MECM' })
+$btnPackage.Add_Click({ Start-PublishRun -Target 'ConfigMgr' })
 $btnPublishIntune.Add_Click({ Start-PublishRun -Target 'IntuneOnly' })
 $btnPublishWsus.Add_Click({ Start-PublishRun -Target 'WSUSOnly' })
 
@@ -14063,8 +14079,8 @@ function Show-OneClickPlanDialog {
             DefaultTitleMode     = Get-DefaultTitleModeForContext
             IntunePublishConfig  = Get-IntunePublishConfigForContext -Target 'IntuneOnly'
             WsusPublishConfig    = Get-WsusPublishConfigForContext -Target 'WSUSOnly'
-            DeploymentTarget     = 'MECM'
-            RunPlanByApp         = Get-WorkbenchRunPlanForContext -Rows $rowsToRun -Target 'MECM'
+            DeploymentTarget     = 'ConfigMgr'
+            RunPlanByApp         = Get-WorkbenchRunPlanForContext -Rows $rowsToRun -Target 'ConfigMgr'
             SigningJson          = Get-WorkbenchSigningPolicyJson
             SigningDigest        = Get-WorkbenchSigningPolicyDigest
             OneClickPlan         = $planByApp
@@ -14593,11 +14609,12 @@ function Get-WorkbenchChipState {
 function Get-WorkbenchRunPlanForContext {
     # Prebuilt on the UI thread: the background runspace has its own session
     # state and cannot read the preferences object or the data root.
-    param([array]$Rows, [string]$Target = 'MECM')
+    param([array]$Rows, [string]$Target = 'ConfigMgr')
 
     $plan = @{}
     if (-not (Test-WorkbenchModuleAvailable)) { return $plan }
-    if ([string]$Target -notin (@('ContentOnly') + (Get-DeploymentTargetNames))) { $Target = 'MECM' }
+    $Target = ConvertTo-CurrentDeploymentTarget -Value $Target -Default $Target
+    if ([string]$Target -notin (@('ContentOnly') + (Get-DeploymentTargetNames))) { $Target = 'ConfigMgr' }
     $signing = Get-WorkbenchSigningPolicy
     $downloadRoot = [string]$script:Prefs.DownloadRoot
     $dataRoot = Get-WorkbenchDataRoot
@@ -16087,7 +16104,7 @@ function Show-ApplicationWorkbench {
         $win.Close()
         $row = @($script:PackagerData | Where-Object { [string]$_.FullPath -eq [string]$wb.Application.ScriptPath })
         if ($row.Count -eq 0) {
-            $cliHint = ('.\Invoke-AppPackagerBuild.ps1 -Application {0} -Profile {1} -{2}{3}' -f [string]$wb.Application.ApplicationId, [string]$wb.ProfileId, $operation, $(if ($target -and $target -ne 'MECM') { ' -Stage -Target ' + $target } else { '' }))
+            $cliHint = ('.\Invoke-AppPackagerBuild.ps1 -Application {0} -Profile {1} -{2}{3}' -f [string]$wb.Application.ApplicationId, [string]$wb.ProfileId, $operation, $(if ($target -and (ConvertTo-CurrentDeploymentTarget -Value $target -Default $target) -ne 'ConfigMgr') { ' -Stage -Target ' + $target } else { '' }))
             Add-LogLine -Message ('Workbench run skipped: {0} is not in the current grid. Build it from the command line: {1}' -f [string]$wb.Application.DisplayName, $cliHint)
             [void](Show-ThemedMessage -Owner $win -Title $operation `
                 -Message ('This application is not in the main grid, so it cannot run through the grid pipeline. Build it from the command line:' + "`r`n`r`n" + $cliHint) -Buttons OK -Icon Info)
@@ -16097,7 +16114,7 @@ function Show-ApplicationWorkbench {
         Invoke-WorkbenchRun -Operation $operation -Rows $row -BuildId $(if ($operation -eq 'Package') { $selectedBuild } else { '' }) -Target $target
     }
     $btnStage.Add_Click({ & $runFromWorkbench 'Stage' })
-    $btnPublishMecm.Add_Click({ & $runFromWorkbench 'Package' 'MECM' })
+    $btnPublishMecm.Add_Click({ & $runFromWorkbench 'Package' 'ConfigMgr' })
     $btnPublishIntune.Add_Click({ & $runFromWorkbench 'Package' 'IntuneOnly' })
     $btnPublishWsus.Add_Click({ & $runFromWorkbench 'Package' 'WSUSOnly' })
 
@@ -16173,7 +16190,7 @@ function New-WorkbenchPipelineContext {
         [AllowEmptyString()][string]$BuildId = '',
         [AllowEmptyString()][string]$Target = ''
     )
-    $target = if ($Target) { $Target } else { [string]$script:Prefs.Intune.DeploymentTarget }
+    $target = ConvertTo-CurrentDeploymentTarget -Value $(if ($Target) { $Target } else { [string]$script:Prefs.Intune.DeploymentTarget }) -Default 'ConfigMgr'
     $toolPath = Get-IntuneWinToolPathForContext
     $context = @{
         DownloadRoot      = $script:Prefs.DownloadRoot

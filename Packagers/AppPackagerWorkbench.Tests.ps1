@@ -489,7 +489,7 @@ Describe 'Run snapshots' {
     It 'writes an immutable snapshot carrying the profile and run overrides' {
         $id = 'catalog:package-snapshot'
         $profile = New-TestProfile -ApplicationId $id
-        $snapshot = New-RunSnapshot -ApplicationId $id -ProfileId $profile.ProfileId -Target 'MECM' -RunOverrides @{ EstimatedMinutes = 12 }
+        $snapshot = New-RunSnapshot -ApplicationId $id -ProfileId $profile.ProfileId -Target 'ConfigMgr' -RunOverrides @{ EstimatedMinutes = 12 }
         Test-Path -LiteralPath $snapshot.Path | Should -BeTrue
         $snapshot.ProfileRevision | Should -Be $profile.Revision
         $snapshot.RunOverrides['EstimatedMinutes'] | Should -Be 12
@@ -522,6 +522,74 @@ Describe 'Run snapshots' {
 
     It 'returns null when no snapshot is configured' {
         Get-RunSnapshot | Should -BeNullOrEmpty
+    }
+
+    It 'writes the current target name for <Given>' -TestCases @(
+        @{ Given = 'ConfigMgr'; Expected = 'ConfigMgr' }
+        @{ Given = 'ConfigMgrAndIntune'; Expected = 'ConfigMgrAndIntune' }
+        @{ Given = 'ConfigMgrAndWSUS'; Expected = 'ConfigMgrAndWSUS' }
+        @{ Given = 'MECM'; Expected = 'ConfigMgr' }
+        @{ Given = 'MECMAndIntune'; Expected = 'ConfigMgrAndIntune' }
+        @{ Given = 'MECMAndWSUS'; Expected = 'ConfigMgrAndWSUS' }
+        @{ Given = 'IntuneOnly'; Expected = 'IntuneOnly' }
+        @{ Given = 'WSUSOnly'; Expected = 'WSUSOnly' }
+        @{ Given = 'ContentOnly'; Expected = 'ContentOnly' }
+    ) {
+        param($Given, $Expected)
+        $id = 'catalog:package-targetname-' + $Given.ToLowerInvariant()
+        $profile = New-TestProfile -ApplicationId $id
+        $snapshot = New-RunSnapshot -ApplicationId $id -ProfileId $profile.ProfileId -Target $Given
+        $snapshot.Target | Should -BeExactly $Expected
+        ((Get-Content -LiteralPath $snapshot.Path -Raw | ConvertFrom-Json).Target) | Should -BeExactly $Expected
+    }
+
+    It 'reads the target of a snapshot that the desktop app wrote with <Written>' -TestCases @(
+        @{ Written = 'ConfigMgr'; Expected = 'ConfigMgr' }
+        @{ Written = 'ConfigMgrAndIntune'; Expected = 'ConfigMgrAndIntune' }
+        @{ Written = 'ConfigMgrAndWSUS'; Expected = 'ConfigMgrAndWSUS' }
+        @{ Written = 'IntuneOnly'; Expected = 'IntuneOnly' }
+        @{ Written = 'WSUSOnly'; Expected = 'WSUSOnly' }
+        @{ Written = 'ContentOnly'; Expected = 'ContentOnly' }
+        @{ Written = 'MECM'; Expected = 'ConfigMgr' }
+        @{ Written = 'MECMAndIntune'; Expected = 'ConfigMgrAndIntune' }
+        @{ Written = 'MECMAndWSUS'; Expected = 'ConfigMgrAndWSUS' }
+        @{ Written = 'mecmandwsus'; Expected = 'ConfigMgrAndWSUS' }
+    ) {
+        param($Written, $Expected)
+        $path = Join-Path (New-TestFolder) 'apd-snapshot.json'
+        $json = '{"SchemaVersion":1,"BuildId":"20260101-000000-abcd1234","CreatedAt":"2026-01-01T00:00:00.0000000+00:00","ApplicationId":"catalog:package-apd","ProfileId":"default","ProfileRevision":1,"Profile":{},"AssetPaths":{},"RunOverrides":{},"SigningPolicy":null,"Target":"' + $Written + '","DataRoot":null,"DownloadRoot":null,"PackagerScriptPath":null}'
+        [System.IO.File]::WriteAllText($path, $json)
+        $loaded = Get-RunSnapshot -Path $path
+        $loaded.Target | Should -BeExactly $Expected
+        $loaded.ApplicationId | Should -Be 'catalog:package-apd'
+    }
+}
+
+Describe 'Deployment target names' {
+    It 'maps <Given> to <Expected>' -TestCases @(
+        @{ Given = 'ContentOnly'; Expected = 'ContentOnly' }
+        @{ Given = 'ConfigMgr'; Expected = 'ConfigMgr' }
+        @{ Given = 'ConfigMgrAndIntune'; Expected = 'ConfigMgrAndIntune' }
+        @{ Given = 'IntuneOnly'; Expected = 'IntuneOnly' }
+        @{ Given = 'ConfigMgrAndWSUS'; Expected = 'ConfigMgrAndWSUS' }
+        @{ Given = 'WSUSOnly'; Expected = 'WSUSOnly' }
+        @{ Given = 'MECM'; Expected = 'ConfigMgr' }
+        @{ Given = 'MECMAndIntune'; Expected = 'ConfigMgrAndIntune' }
+        @{ Given = 'MECMAndWSUS'; Expected = 'ConfigMgrAndWSUS' }
+        @{ Given = 'mecm'; Expected = 'ConfigMgr' }
+        @{ Given = 'CONFIGMGRANDWSUS'; Expected = 'ConfigMgrAndWSUS' }
+        @{ Given = ' MECMAndIntune '; Expected = 'ConfigMgrAndIntune' }
+        @{ Given = 'wsusonly'; Expected = 'WSUSOnly' }
+    ) {
+        param($Given, $Expected)
+        ConvertTo-CurrentDeploymentTarget -Value $Given | Should -BeExactly $Expected
+    }
+
+    It 'returns the default for a value that is no target name' {
+        ConvertTo-CurrentDeploymentTarget -Value 'Intune' | Should -BeExactly ''
+        ConvertTo-CurrentDeploymentTarget -Value $null -Default 'ConfigMgr' | Should -BeExactly 'ConfigMgr'
+        ConvertTo-CurrentDeploymentTarget -Value '' -Default 'ConfigMgr' | Should -BeExactly 'ConfigMgr'
+        ConvertTo-CurrentDeploymentTarget -Value 'nonsense' -Default 'ConfigMgr' | Should -BeExactly 'ConfigMgr'
     }
 }
 
@@ -611,7 +679,7 @@ Describe 'Invoke-StageFinalization with a profile' {
             Execution     = @{ Context = 'InstallForSystem'; ScriptHost = 'x64' }
         }
         $saved = Save-Profile -Profile ([pscustomobject]$update)
-        $snapshot = New-RunSnapshot -ApplicationId $id -ProfileId $saved.ProfileId -Target 'MECM'
+        $snapshot = New-RunSnapshot -ApplicationId $id -ProfileId $saved.ProfileId -Target 'ConfigMgr'
 
         $stage = New-TestStage
         $manifest = New-TestManifest
@@ -1153,9 +1221,17 @@ Describe 'Invoke-AppPackagerBuild CLI' {
 
     It 'runs Package without Stage' {
         $result = Invoke-Cli -Arguments @('-Application', 'package-clifixture.ps1', '-Profile', 'default', '-Package',
+            '-Target', 'ConfigMgr', '-PackagersRoot', $script:CliRoot, '-DownloadRoot', $script:CliDownloadRoot)
+        $result.Output | Should -Not -Match "property 'Count' cannot be found"
+        $result.ExitCode | Should -Be 0
+    }
+
+    It 'still accepts the old target name MECM and records the new one' {
+        $result = Invoke-Cli -Arguments @('-Application', 'package-clifixture.ps1', '-Profile', 'default', '-Package',
             '-Target', 'MECM', '-PackagersRoot', $script:CliRoot, '-DownloadRoot', $script:CliDownloadRoot)
         $result.Output | Should -Not -Match "property 'Count' cannot be found"
         $result.ExitCode | Should -Be 0
+        $result.Output | Should -Match 'Target\s*:\s*ConfigMgr\s'
     }
 
     It 'takes the ad-hoc path for a BYO application instead of looking for a packager script' {
@@ -1268,9 +1344,15 @@ Describe 'Signing hand-off' {
 Describe 'Publication records' {
     It 'appends one JSON line per publication' {
         $id = 'catalog:package-publish'
-        Write-PublicationRecord -ApplicationId $id -BuildId 'b1' -Target 'MECM' -Result 'Succeeded' | Out-Null
+        Write-PublicationRecord -ApplicationId $id -BuildId 'b1' -Target 'ConfigMgr' -Result 'Succeeded' | Out-Null
         $written = Write-PublicationRecord -ApplicationId $id -BuildId 'b2' -Target 'Intune' -Result 'Failed' -Message 'no tenant'
         @(Get-Content -LiteralPath $written.Path).Count | Should -Be 2
+    }
+
+    It 'writes the target ConfigMgr for the old name MECM' {
+        $written = Write-PublicationRecord -ApplicationId 'catalog:package-publish-old' -BuildId 'b1' -Target 'MECM' -Result 'Succeeded'
+        $written.Record.Target | Should -BeExactly 'ConfigMgr'
+        (Get-Content -LiteralPath $written.Path -Raw) | Should -Match '"Target":"ConfigMgr"'
     }
 }
 

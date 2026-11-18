@@ -111,7 +111,7 @@ function Get-OneClickDestinations {
         $set = ConvertTo-OneClickDestinationSet -Value $appFlow.DefaultDestinations
     }
     else {
-        $target = 'MECM'
+        $target = 'ConfigMgr'
         if ($Prefs.PSObject.Properties['Intune'] -and $Prefs.Intune -and $Prefs.Intune.PSObject.Properties['DeploymentTarget']) {
             $target = [string]$Prefs.Intune.DeploymentTarget
         }

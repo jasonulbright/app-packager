@@ -4,7 +4,7 @@ BeforeAll {
 
     function New-TestPrefs {
         param(
-            [string]$Target = 'MECM',
+            [string]$Target = 'ConfigMgr',
             [string[]]$Tracked = @('package-a', 'package-b'),
             [hashtable]$Destinations = $null,
             [string[]]$InUse = @('ConfigMgr', 'Intune', 'Wsus'),
@@ -68,19 +68,42 @@ Describe 'ConvertTo-OneClickDestinationSet' {
 
 Describe 'Get-OneClickDestinations' {
     It 'uses the saved One Click destination when the row has no selection' {
-        $set = Get-OneClickDestinations -Prefs (New-TestPrefs -Target 'MECMAndWSUS') -PackagerName 'package-a'
+        $set = Get-OneClickDestinations -Prefs (New-TestPrefs -Target 'ConfigMgrAndWSUS') -PackagerName 'package-a'
         $set.ConfigMgr | Should -BeTrue
         $set.WSUS | Should -BeTrue
         $set.Source | Should -Be 'Default'
     }
     It 'prefers the saved default destinations over the old target' {
-        $prefs = New-TestPrefs -Target 'MECM'
+        $prefs = New-TestPrefs -Target 'ConfigMgr'
         $prefs.AppFlow | Add-Member -NotePropertyName DefaultDestinations -NotePropertyValue ([pscustomobject]@{ ConfigMgr = $true; WSUS = $true; Intune = $true })
         $set = Get-OneClickDestinations -Prefs $prefs -PackagerName 'package-a'
         ($set.ConfigMgr -and $set.WSUS -and $set.Intune) | Should -BeTrue
     }
+    It 'reads the saved target <Saved> of a preferences file with no default destinations' -TestCases @(
+        @{ Saved = 'ConfigMgr'; Cm = $true; Wsus = $false; Intune = $false }
+        @{ Saved = 'ConfigMgrAndIntune'; Cm = $true; Wsus = $false; Intune = $true }
+        @{ Saved = 'ConfigMgrAndWSUS'; Cm = $true; Wsus = $true; Intune = $false }
+        @{ Saved = 'IntuneOnly'; Cm = $false; Wsus = $false; Intune = $true }
+        @{ Saved = 'WSUSOnly'; Cm = $false; Wsus = $true; Intune = $false }
+        @{ Saved = 'MECM'; Cm = $true; Wsus = $false; Intune = $false }
+        @{ Saved = 'MECMAndIntune'; Cm = $true; Wsus = $false; Intune = $true }
+        @{ Saved = 'MECMAndWSUS'; Cm = $true; Wsus = $true; Intune = $false }
+    ) {
+        param($Saved, $Cm, $Wsus, $Intune)
+        $prefs = ('{ "Intune": { "DeploymentTarget": "' + $Saved + '" }, "AppFlow": { "Tracked": [] } }') | ConvertFrom-Json
+        $set = Get-OneClickDestinations -Prefs $prefs -PackagerName 'package-a'
+        $set.ConfigMgr | Should -Be $Cm
+        $set.WSUS | Should -Be $Wsus
+        $set.Intune | Should -Be $Intune
+    }
+    It 'uses ConfigMgr when the preferences name no target' {
+        $set = Get-OneClickDestinations -Prefs ([pscustomobject]@{ AppFlow = [pscustomobject]@{ Tracked = @() } }) -PackagerName 'package-a'
+        $set.ConfigMgr | Should -BeTrue
+        $set.WSUS | Should -BeFalse
+        $set.Intune | Should -BeFalse
+    }
     It 'lets the row selection win over the default' {
-        $prefs = New-TestPrefs -Target 'MECM' -Destinations @{ 'package-a' = [pscustomobject]@{ ConfigMgr = $false; WSUS = $true; Intune = $false } }
+        $prefs = New-TestPrefs -Target 'ConfigMgr' -Destinations @{ 'package-a' = [pscustomobject]@{ ConfigMgr = $false; WSUS = $true; Intune = $false } }
         $set = Get-OneClickDestinations -Prefs $prefs -PackagerName 'package-a'
         $set.ConfigMgr | Should -BeFalse
         $set.WSUS | Should -BeTrue
@@ -192,7 +215,7 @@ Describe 'Get-OneClickPlan' {
         $row.Reason | Should -Be 'no destination selected'
     }
     It 'plans check, stage and the publish destinations' {
-        $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECMAndWSUS') -Action 'StageAndPackage')[0]
+        $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'ConfigMgrAndWSUS') -Action 'StageAndPackage')[0]
         $row.Planned | Should -Be 'Check, Stage, Publish to ConfigMgr+WSUS'
         $row.PublishTo | Should -Be @('ConfigMgr', 'WSUS')
         $row.Include | Should -BeTrue
@@ -200,11 +223,11 @@ Describe 'Get-OneClickPlan' {
     It 'drops a destination whose version is already published unless forced' {
         $history = @{}
         Set-OneClickPublishedVersion -History $history -PackagerName 'package-a' -Destination 'WSUS' -Version '2.0' | Out-Null
-        $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECMAndWSUS') -History $history -Action 'StageAndPackage')[0]
+        $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'ConfigMgrAndWSUS') -History $history -Action 'StageAndPackage')[0]
         $row.PublishTo | Should -Be @('ConfigMgr')
         $row.Reason | Should -Be 'WSUS: 2.0 already published'
         $row.LastWSUS | Should -Be '2.0'
-        $forced = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECMAndWSUS') -History $history -Action 'StageAndPackage' -Force)[0]
+        $forced = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'ConfigMgrAndWSUS') -History $history -Action 'StageAndPackage' -Force)[0]
         $forced.PublishTo | Should -Be @('ConfigMgr', 'WSUS')
     }
     It 'keeps a destination whose receipt belongs to another instance' {
@@ -212,10 +235,10 @@ Describe 'Get-OneClickPlan' {
         $wsus02 = Get-OneClickInstanceKey -Prefs (New-TestPrefs -WsusServer 'wsus02') -Destination 'WSUS'
         Set-OneClickPublishedVersion -History $history -PackagerName 'package-a' -Destination 'WSUS' -Version '2.0' -Instance $wsus02 | Out-Null
         Set-OneClickNotSupported -History $history -PackagerName 'package-a' -Destination 'ConfigMgr' -Version '2.0' -Reason 'not supported' -Instance 'xyz@other' | Out-Null
-        $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECMAndWSUS') -History $history -Action 'StageAndPackage')[0]
+        $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'ConfigMgrAndWSUS') -History $history -Action 'StageAndPackage')[0]
         $row.PublishTo | Should -Be @('ConfigMgr', 'WSUS')
         $row.LastWSUS | Should -Be ''
-        $same = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECMAndWSUS' -WsusServer 'wsus02') -History $history -Action 'StageAndPackage')[0]
+        $same = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'ConfigMgrAndWSUS' -WsusServer 'wsus02') -History $history -Action 'StageAndPackage')[0]
         $same.PublishTo | Should -Be @('ConfigMgr')
         $same.LastWSUS | Should -Be '2.0'
     }
@@ -228,7 +251,7 @@ Describe 'Get-OneClickPlan' {
         $row.Planned | Should -Be 'Check, Stage, Publish to WSUS'
     }
     It 'drops a destination that is not in use and names it' {
-        $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '1.0') -Prefs (New-TestPrefs -Target 'MECMAndWSUS' -InUse @('ConfigMgr')) -Action 'StageAndPackage')[0]
+        $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '1.0') -Prefs (New-TestPrefs -Target 'ConfigMgrAndWSUS' -InUse @('ConfigMgr')) -Action 'StageAndPackage')[0]
         $row.PublishTo | Should -Be @('ConfigMgr')
         $row.Reason | Should -Be 'WSUS: WSUS is not in use'
     }
@@ -246,12 +269,12 @@ Describe 'Get-OneClickPlan' {
         Get-OneClickNotSupportedVersion -HistoryEntry $entries['package-a'] -Destination 'WSUS' | Should -Be '2.0'
         Get-OneClickNotSupportedReason -HistoryEntry $entries['package-a'] -Destination 'WSUS' | Should -Be 'not supported: DetectionNotMappable'
         Get-OneClickNotSupportedReason -HistoryEntry $entries['package-a'] -Destination 'ConfigMgr' | Should -Be ''
-        $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECMAndWSUS') -History $entries -Action 'StageAndPackage')[0]
+        $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'ConfigMgrAndWSUS') -History $entries -Action 'StageAndPackage')[0]
         $row.PublishTo | Should -Be @('ConfigMgr')
         $row.Reason | Should -Be 'WSUS: not supported'
-        $forced = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECMAndWSUS') -History $entries -Action 'StageAndPackage' -Force)[0]
+        $forced = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'ConfigMgrAndWSUS') -History $entries -Action 'StageAndPackage' -Force)[0]
         $forced.PublishTo | Should -Be @('ConfigMgr', 'WSUS')
-        $newer = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.1') -Prefs (New-TestPrefs -Target 'MECMAndWSUS') -History $entries -Action 'StageAndPackage')[0]
+        $newer = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.1') -Prefs (New-TestPrefs -Target 'ConfigMgrAndWSUS') -History $entries -Action 'StageAndPackage')[0]
         $newer.PublishTo | Should -Be @('ConfigMgr', 'WSUS')
     }
     It 'clears a refusal when the destination later publishes' {
@@ -263,7 +286,7 @@ Describe 'Get-OneClickPlan' {
     It 'waits for the check when the version is unknown and a destination is already published' {
         $history = @{}
         Set-OneClickPublishedVersion -History $history -PackagerName 'package-a' -Destination 'ConfigMgr' -Version '1.0' | Out-Null
-        $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a') -Prefs (New-TestPrefs -Target 'MECM') -History @{} -Action 'StageAndPackage')[0]
+        $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a') -Prefs (New-TestPrefs -Target 'ConfigMgr') -History @{} -Action 'StageAndPackage')[0]
         $row.Planned | Should -Be 'Check, Stage, Publish to ConfigMgr'
         $row.Version | Should -Be ''
     }
@@ -295,7 +318,7 @@ Describe 'Get-OneClickPlan' {
 
 Describe 'Get-OneClickPlanSummary' {
     It 'counts the publishes per destination and the skipped rows' {
-        $prefs = New-TestPrefs -Target 'MECMAndWSUS' -Tracked @('package-a', 'package-b', 'package-c') -Destinations @{ 'package-c' = [pscustomobject]@{ ConfigMgr = $false; WSUS = $false; Intune = $false } }
+        $prefs = New-TestPrefs -Target 'ConfigMgrAndWSUS' -Tracked @('package-a', 'package-b', 'package-c') -Destinations @{ 'package-c' = [pscustomobject]@{ ConfigMgr = $false; WSUS = $false; Intune = $false } }
         $plan = Get-OneClickPlan -Apps @((New-TestApp 'package-a' -Latest '1'), (New-TestApp 'package-b' -Latest '1'), (New-TestApp 'package-c' -Latest '1')) -Prefs $prefs -Action 'StageAndPackage'
         $summary = Get-OneClickPlanSummary -Plan $plan -Prefs $prefs -Action 'StageAndPackage'
         $summary.Line | Should -Be '2 application(s), 1 skipped: 2 to ConfigMgr, 2 to WSUS, 0 to Intune'
@@ -303,7 +326,7 @@ Describe 'Get-OneClickPlanSummary' {
         $summary.Blocking | Should -BeNullOrEmpty
     }
     It 'names a destination that rows select but that is not ready' {
-        $prefs = New-TestPrefs -Target 'MECMAndWSUS' -WsusServer ''
+        $prefs = New-TestPrefs -Target 'ConfigMgrAndWSUS' -WsusServer ''
         $plan = Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '1') -Prefs $prefs -Action 'StageAndPackage'
         $summary = Get-OneClickPlanSummary -Plan $plan -Prefs $prefs -Action 'StageAndPackage'
         $summary.Blocking | Should -Be @('WSUS: WSUS server not set (1 application(s) select it)')
@@ -426,13 +449,13 @@ Describe 'Write-OneClickReport with hostile text and a repeated start time' {
 
 Describe 'Destinations a run publishes to' {
     It 'reports a destination that is not ready and one that the packager marks as not supported' {
-        $prefs = New-TestPrefs -Target 'MECMAndWSUS' -WsusServer ''
+        $prefs = New-TestPrefs -Target 'ConfigMgrAndWSUS' -WsusServer ''
         $plan = Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '1') -Prefs $prefs -Action 'StageAndPackage'
         $plan[0].NotPublishable | Should -Contain 'WSUS'
 
         $app = New-TestApp 'package-b' -Latest '1'
         $app | Add-Member -NotePropertyName WsusUnsupported -NotePropertyValue $true -Force
-        $ready = New-TestPrefs -Target 'MECMAndWSUS'
+        $ready = New-TestPrefs -Target 'ConfigMgrAndWSUS'
         $row = (Get-OneClickPlan -Apps @($app) -Prefs $ready -Action 'StageAndPackage')[0]
         if ($row.WSUS) {
             $row.NotPublishable | Should -Contain 'WSUS'
@@ -578,7 +601,7 @@ Describe 'Supersedence-only pass of One Click' {
 
     Context 'the plan' {
         It 'plans the pass and no publish for a version that is on the site with its step pending' {
-            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECM') -History (New-PendingHistory) -Action 'StageAndPackage')[0]
+            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'ConfigMgr') -History (New-PendingHistory) -Action 'StageAndPackage')[0]
             $row.SupersedenceOnly | Should -BeTrue
             $row.PublishTo | Should -BeNullOrEmpty
             $row.Planned | Should -Be 'Check, Supersedence'
@@ -587,53 +610,53 @@ Describe 'Supersedence-only pass of One Click' {
         }
         It 'publishes the other destinations and runs the pass in the same row' {
             $history = New-PendingHistory
-            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECMAndWSUS') -History $history -Action 'StageAndPackage')[0]
+            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'ConfigMgrAndWSUS') -History $history -Action 'StageAndPackage')[0]
             $row.SupersedenceOnly | Should -BeTrue
             $row.PublishTo | Should -Be @('WSUS')
             $row.Planned | Should -Be 'Check, Stage, Publish to WSUS, Supersedence'
         }
         It 'publishes a newer version in full and runs no pass' {
-            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.1') -Prefs (New-TestPrefs -Target 'MECM') -History (New-PendingHistory) -Action 'StageAndPackage')[0]
+            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.1') -Prefs (New-TestPrefs -Target 'ConfigMgr') -History (New-PendingHistory) -Action 'StageAndPackage')[0]
             $row.SupersedenceOnly | Should -BeFalse
             $row.PublishTo | Should -Be @('ConfigMgr')
         }
         It 'publishes again instead when Force is set' {
-            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECM') -History (New-PendingHistory) -Action 'StageAndPackage' -Force)[0]
+            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'ConfigMgr') -History (New-PendingHistory) -Action 'StageAndPackage' -Force)[0]
             $row.SupersedenceOnly | Should -BeFalse
             $row.PublishTo | Should -Be @('ConfigMgr')
         }
         It 'runs no pass for a version without a pending step' {
             $history = @{}
             Set-OneClickPublishedVersion -History $history -PackagerName 'package-a' -Destination 'ConfigMgr' -Version '2.0' | Out-Null
-            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECM') -History $history -Action 'StageAndPackage')[0]
+            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'ConfigMgr') -History $history -Action 'StageAndPackage')[0]
             $row.SupersedenceOnly | Should -BeFalse
             $row.Reason | Should -Be 'ConfigMgr: 2.0 already published'
         }
         It 'runs the pass only in a run that publishes' {
-            $stage = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECM') -History (New-PendingHistory) -Action 'Stage')[0]
+            $stage = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'ConfigMgr') -History (New-PendingHistory) -Action 'Stage')[0]
             $stage.SupersedenceOnly | Should -BeFalse
             $stage.Planned | Should -Be 'Check, Stage'
-            $report = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECM') -History (New-PendingHistory) -Action 'Report' -Force)[0]
+            $report = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'ConfigMgr') -History (New-PendingHistory) -Action 'Report' -Force)[0]
             $report.SupersedenceOnly | Should -BeFalse
         }
         It 'ignores a pending record that belongs to another site' {
             $history = New-PendingHistory -Instance 'xyz@other'
-            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECM') -History $history -Action 'StageAndPackage')[0]
+            $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'ConfigMgr') -History $history -Action 'StageAndPackage')[0]
             $row.SupersedenceOnly | Should -BeFalse
             $row.PublishTo | Should -Be @('ConfigMgr')
         }
         It 'does not plan the pass for a destination that is not ready' {
-            $prefs = New-TestPrefs -Target 'MECM'
+            $prefs = New-TestPrefs -Target 'ConfigMgr'
             $prefs.SiteCode = ''
             $row = (Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs $prefs -History (New-PendingHistory) -Action 'StageAndPackage')[0]
             $row.SupersedenceOnly | Should -BeFalse
             $row.NotPublishable | Should -Contain 'ConfigMgr'
         }
         It 'names the passes in the count line' {
-            $plan = @(Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECM') -History (New-PendingHistory) -Action 'StageAndPackage')
-            (Get-OneClickPlanSummary -Plan $plan -Prefs (New-TestPrefs -Target 'MECM') -Action 'StageAndPackage').Line | Should -Match ', 1 supersedence only$'
-            $none = @(Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'MECM') -Action 'StageAndPackage')
-            (Get-OneClickPlanSummary -Plan $none -Prefs (New-TestPrefs -Target 'MECM') -Action 'StageAndPackage').Line | Should -Not -Match 'supersedence'
+            $plan = @(Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'ConfigMgr') -History (New-PendingHistory) -Action 'StageAndPackage')
+            (Get-OneClickPlanSummary -Plan $plan -Prefs (New-TestPrefs -Target 'ConfigMgr') -Action 'StageAndPackage').Line | Should -Match ', 1 supersedence only$'
+            $none = @(Get-OneClickPlan -Apps @(New-TestApp 'package-a' -Latest '2.0') -Prefs (New-TestPrefs -Target 'ConfigMgr') -Action 'StageAndPackage')
+            (Get-OneClickPlanSummary -Plan $none -Prefs (New-TestPrefs -Target 'ConfigMgr') -Action 'StageAndPackage').Line | Should -Not -Match 'supersedence'
         }
     }
 

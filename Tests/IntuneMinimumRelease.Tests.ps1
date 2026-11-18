@@ -39,17 +39,17 @@ Describe 'Intune.MinimumWindowsRelease' {
     It 'reads <Value> from the file' -ForEach @(
         @{ Value = 'Windows11_23H2' }, @{ Value = 'Windows10_22H2' }, @{ Value = 'Windows11_25H2' }
     ) {
-        (Read-PrefsWithIntune @{ DeploymentTarget = 'MECM'; MinimumWindowsRelease = $Value }).Intune.MinimumWindowsRelease | Should -Be $Value
+        (Read-PrefsWithIntune @{ DeploymentTarget = 'ConfigMgr'; MinimumWindowsRelease = $Value }).Intune.MinimumWindowsRelease | Should -Be $Value
     }
 
     It 'keeps the default for <Value>' -ForEach @(
         @{ Value = '' }, @{ Value = 'Windows9_1' }, @{ Value = 'Windows11_' }, @{ Value = 'latest' }, @{ Value = 'Windows10_21H2; drop' }
     ) {
-        (Read-PrefsWithIntune @{ DeploymentTarget = 'MECM'; MinimumWindowsRelease = $Value }).Intune.MinimumWindowsRelease | Should -Be 'Windows10_21H2'
+        (Read-PrefsWithIntune @{ DeploymentTarget = 'ConfigMgr'; MinimumWindowsRelease = $Value }).Intune.MinimumWindowsRelease | Should -Be 'Windows10_21H2'
     }
 
     It 'keeps the default in a file from before the key' {
-        (Read-PrefsWithIntune @{ DeploymentTarget = 'MECM'; TenantId = 'contoso.onmicrosoft.com' }).Intune.MinimumWindowsRelease | Should -Be 'Windows10_21H2'
+        (Read-PrefsWithIntune @{ DeploymentTarget = 'ConfigMgr'; TenantId = 'contoso.onmicrosoft.com' }).Intune.MinimumWindowsRelease | Should -Be 'Windows10_21H2'
     }
 
     It 'reaches the publish configuration' {

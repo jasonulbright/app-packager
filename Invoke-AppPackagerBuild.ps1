@@ -167,21 +167,6 @@ if ($supersedenceRecord) {
     if (-not $PSBoundParameters.ContainsKey('Version')) { throw '-RecordInstalledValue and -AcceptExactBlock need -Version: the value belongs to one version.' }
     if ($PSBoundParameters.ContainsKey('Profile')) { throw '-Profile does not apply to -RecordInstalledValue and -AcceptExactBlock: the value belongs to the title and the version.' }
 }
-# The old value names start with MECM. The code below keeps them as the internal names.
-$Target = $Target -replace '^ConfigMgr', 'MECM'
-$publishesToWsus = ($Target -in @('MECMAndWSUS', 'WSUSOnly'))
-$cliBoundParameters = @{} + $PSBoundParameters
-if ($Target -eq 'MECMAndWSUS' -and $Package -and -not $Stage) {
-    throw 'A ConfigMgrAndWSUS package publishes the build staged in the same run; pass -Stage together with -Package.'
-}
-if ($Package -and $Target -in @('MECMAndIntune', 'IntuneOnly')) {
-    throw "Target $Target cannot be packaged from the command line: Intune publishing runs only from the application window. Use -Target ConfigMgr, WSUSOnly or ContentOnly, or publish to Intune from the window."
-}
-if ($Target -eq 'ContentOnly' -and $Package) {
-    if (-not $Stage) { throw 'Target ContentOnly stages content and publishes nothing, so there is nothing to package. Pass -Stage.' }
-    Write-Warning 'Target ContentOnly publishes nothing; the package phase is skipped.'
-    $Package = $false
-}
 if ([string]::IsNullOrWhiteSpace($PackagersRoot)) { $PackagersRoot = Join-Path $PSScriptRoot 'Packagers' }
 if ([string]::IsNullOrWhiteSpace($PreferencesPath)) { $PreferencesPath = Join-Path $PSScriptRoot 'AppPackager.preferences.json' }
 
@@ -189,6 +174,22 @@ if ([string]::IsNullOrWhiteSpace($PreferencesPath)) { $PreferencesPath = Join-Pa
 # loaded in this host before New-RunSnapshot runs or every signed build fails as "not loaded".
 Import-Module (Join-Path $PackagersRoot 'AppPackagerSigning.psd1') -Force -ErrorAction Stop
 Import-Module (Join-Path $PackagersRoot 'AppPackagerWorkbench.psd1') -Force -ErrorAction Stop
+
+# The old value names MECM, MECMAndIntune and MECMAndWSUS still work: the workbench module maps them to the current names.
+$Target = ConvertTo-CurrentDeploymentTarget -Value $Target -Default $Target
+$publishesToWsus = ($Target -in @('ConfigMgrAndWSUS', 'WSUSOnly'))
+$cliBoundParameters = @{} + $PSBoundParameters
+if ($Target -eq 'ConfigMgrAndWSUS' -and $Package -and -not $Stage) {
+    throw 'A ConfigMgrAndWSUS package publishes the build staged in the same run; pass -Stage together with -Package.'
+}
+if ($Package -and $Target -in @('ConfigMgrAndIntune', 'IntuneOnly')) {
+    throw "Target $Target cannot be packaged from the command line: Intune publishing runs only from the application window. Use -Target ConfigMgr, WSUSOnly or ContentOnly, or publish to Intune from the window."
+}
+if ($Target -eq 'ContentOnly' -and $Package) {
+    if (-not $Stage) { throw 'Target ContentOnly stages content and publishes nothing, so there is nothing to package. Pass -Stage.' }
+    Write-Warning 'Target ContentOnly publishes nothing; the package phase is skipped.'
+    $Package = $false
+}
 
 function Read-CliPreferences {
     # The preferences file sits beside the launcher, so a run from a suite or

@@ -75,7 +75,7 @@ throw 'Continued past preflight'
 Describe 'Package conflict preflight' {
     BeforeEach {
         $script:state = @{ ConflictDecisionForAll = 'Skip'; CancelRequested = $false; LogQueue = (New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]') }
-        $script:packageTestArgs = @{ SiteCode = 'MCM'; ProviderMachineName = 'cm.example'; DeploymentTarget = 'MECM'; TitleMode = 'NoVersion' }
+        $script:packageTestArgs = @{ SiteCode = 'MCM'; ProviderMachineName = 'cm.example'; DeploymentTarget = 'ConfigMgr'; TitleMode = 'NoVersion' }
         Mock Invoke-PackagerPackage {
             if ($Preflight) { return [pscustomobject]@{ ExitCode = 0; StdOut = '[APP_PACKAGER_PREFLIGHT] {"AppName":"Browser","Version":"2.0"}' } }
             return [pscustomobject]@{ ExitCode = 0; StdOut = 'Packaged' }
@@ -145,7 +145,7 @@ Describe 'Package conflict preflight' {
 
     It 'still publishes to WSUS when a ConfigMgr + WSUS collision is skipped' {
         Mock Invoke-PackagerWsusPostStep { [pscustomobject]@{ Ok = $true; Message = 'published'; PackageId = 'x'; Outcome = 'Published' } }
-        $script:packageTestArgs.DeploymentTarget = 'MECMAndWSUS'
+        $script:packageTestArgs.DeploymentTarget = 'ConfigMgrAndWSUS'
         $script:packageTestArgs.WsusPublishConfig = @{ ServerName = 'wsus01' }
         $r = Invoke-PackagerPackageWithConflictPrompt -State $script:state -AppLabel Browser -PackageArgs $script:packageTestArgs
         $r.PackageOutcome | Should -Be 'Skipped'
@@ -186,11 +186,13 @@ Describe 'Publish row outcome' {
         @{ Name = 'an Intune publish';                Target = 'IntuneOnly';  Result = @{ Intune = @{ Ok = $true } };                                                   Kind = 'Success';      Status = 'Published' }
         @{ Name = 'a failed Intune publish';          Target = 'IntuneOnly';  Result = @{ Intune = @{ Ok = $false } };                                                  Kind = 'Failed';       Status = 'Publish error' }
         @{ Name = 'an Intune run without a package';  Target = 'IntuneOnly';  Result = @{};                                                                             Kind = 'Failed';       Status = 'Publish error' }
-        @{ Name = 'a ConfigMgr application';          Target = 'MECM';        Result = @{};                                                                             Kind = 'Success';      Status = 'Packaged' }
-        @{ Name = 'a failed ConfigMgr package';       Target = 'MECM';        Result = @{ ExitCode = 1 };                                                               Kind = 'Failed';       Status = 'Package error' }
-        @{ Name = 'ConfigMgr + WSUS with a refusal';  Target = 'MECMAndWSUS'; Result = @{ Wsus = @{ Ok = $false; Refused = $true; Warnings = @() } };                 Kind = 'Success';      Status = 'Packaged, WSUS not supported' }
-        @{ Name = 'ConfigMgr + WSUS with a failure';  Target = 'MECMAndWSUS'; Result = @{ Wsus = @{ Ok = $false; Refused = $false; Warnings = @() } };                Kind = 'Success';      Status = 'Packaged, WSUS failed' }
-        @{ Name = 'a skipped ConfigMgr + WSUS app';   Target = 'MECMAndWSUS'; Result = @{ Outcome = 'Skipped'; Wsus = @{ Ok = $true; Refused = $false; Warnings = @() } }; Kind = 'Skipped'; Status = 'Skipped' }
+        @{ Name = 'a ConfigMgr application';          Target = 'ConfigMgr';    Result = @{};                                                                             Kind = 'Success';      Status = 'Packaged' }
+        @{ Name = 'a failed ConfigMgr package';       Target = 'ConfigMgr';    Result = @{ ExitCode = 1 };                                                               Kind = 'Failed';       Status = 'Package error' }
+        @{ Name = 'ConfigMgr + WSUS with a refusal';  Target = 'ConfigMgrAndWSUS'; Result = @{ Wsus = @{ Ok = $false; Refused = $true; Warnings = @() } };                 Kind = 'Success';      Status = 'Packaged, WSUS not supported' }
+        @{ Name = 'ConfigMgr + WSUS with a failure';  Target = 'ConfigMgrAndWSUS'; Result = @{ Wsus = @{ Ok = $false; Refused = $false; Warnings = @() } };                Kind = 'Success';      Status = 'Packaged, WSUS failed' }
+        @{ Name = 'a ConfigMgr application, old target name MECM'; Target = 'MECM'; Result = @{}; Kind = 'Success'; Status = 'Packaged' }
+        @{ Name = 'ConfigMgr + WSUS with a failure, old target name MECMAndWSUS'; Target = 'MECMAndWSUS'; Result = @{ Wsus = @{ Ok = $false; Refused = $false; Warnings = @() } }; Kind = 'Success'; Status = 'Packaged, WSUS failed' }
+        @{ Name = 'a skipped ConfigMgr + WSUS app';   Target = 'ConfigMgrAndWSUS'; Result = @{ Outcome = 'Skipped'; Wsus = @{ Ok = $true; Refused = $false; Warnings = @() } }; Kind = 'Skipped'; Status = 'Skipped' }
     ) {
         param($Name, $Target, $Result, $Kind, $Status)
         $outcome = Get-PublishRowOutcome -Result (New-RunResult @Result) -DeploymentTarget $Target
@@ -895,7 +897,7 @@ catch {
     }
 
     It 'rejects an Intune target before any work' {
-        foreach ($target in 'IntuneOnly', 'MECMAndIntune') {
+        foreach ($target in 'IntuneOnly', 'ConfigMgrAndIntune', 'MECMAndIntune') {
             $root = Join-Path $script:CliRoot ('dl-' + $target)
             $r = & $script:RunCli @('-Application', 'catalog:package-gfixture', '-Profile', $script:Profile.ProfileId, '-Stage', '-Package', '-Target', $target,
                 '-PackagersRoot', $script:FixturePackagers, '-DownloadRoot', $root) ('intune-' + $target)
