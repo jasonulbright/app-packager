@@ -168,6 +168,7 @@ The sidebar has the workflow actions at the top, an **Add Installer...** button 
 - **Publish to WSUS** - stages each checked app and publishes its installer to WSUS as an update for computers that have an older version
 - **WSUS Updates** - lists the updates AppPackager published to WSUS; approve, decline, expire or remove them, or import from the Microsoft Update Catalog
 - **Convert ConfigMgr App to Intune** - converts an existing ConfigMgr application to Intune Win32 apps, one app for each deployment type. See [Convert a ConfigMgr application to Intune](#convert-a-configmgr-application-to-intune)
+- **Rewrite Old Versions** and **Restore Old Versions** - change the version clause of the older applications of the checked app's product line from `GreaterEquals` to `IsEquals`, and write the old operator back. See [Rewrite old versions](#rewrite-old-versions)
 
 Each publish button sends the checked apps to its own destination, so the destination is chosen per run. A button whose system is not in use (Systems in Use, set in Setup or Options) or not configured is disabled, and its tooltip says what to set: the ConfigMgr console and a site code for ConfigMgr, Tenant ID, Client ID and Client Secret for Intune, and a WSUS server for WSUS.
 
@@ -466,6 +467,12 @@ Or drive one application through a workbench profile without the GUI:
 | `-Comment` | Administrative comment stored on the application |
 
 It creates the run snapshot, sets the child environment and launches the packager exactly as the GUI does, so a scheduled build and a button click produce the same content. A WSUS target publishes the manifest staged in the same run, so `MECMAndWSUS` needs `-Stage` and `-Package` together. The result object carries a `Wsus` block. A failed publish sets exit code 1. A failed approval or decline after a successful publish also sets exit code 1, and `Wsus.Warnings` names it. A `custom:` script lives under `<workbench data root>\scripts`, outside the install folder, and must import `AppPackagerCommon.psd1` by its full path; it builds from the command line only, since the main grid lists the `Packagers` folder.
+
+### Rewrite old versions
+
+Check one application and click **Rewrite Old Versions**. The tool reads the older applications of the product line of that application from the site and shows the plan in a dialog: one row for each clause that the rewrite changes, and notes that name the applications that are blocked (an application with a required deployment), the clauses that are left and why, and the effect on the devices. A device that has a newer version than the one in the clause then reads "not installed". Nothing is written until you check the confirmation box and select **Rewrite N Clauses**. The tool reads the site again first and writes nothing when the clauses are not the ones that the dialog showed. The result lists each clause. **Undo** writes the old operator back.
+
+**Restore Old Versions** lists the rewrites of this line that the log holds and no restore cancels, and writes the old operator back after the confirmation. It leaves the rewrites of other lines. The log is `supersedence-rewrite.jsonl` in the Workbench data folder. The tool writes each entry before it changes the site, so a stop at any point leaves an entry for everything that may have changed. Both buttons need the ConfigMgr console and the site code, like **Publish to ConfigMgr**, and they run `Invoke-AppPackagerBuild.ps1 -RewriteOldVersions` as a child process. Only a clause that the Exact guard allows is rewritten: a `GreaterEquals` clause whose expected value is the version of the old application, with a recorded installed value of that version.
 
 ### Convert a ConfigMgr application to Intune
 

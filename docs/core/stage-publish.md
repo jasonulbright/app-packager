@@ -51,6 +51,18 @@ When the share cannot be reached, the run stops before it copies anything and be
 
 This guide did not run a publish to a real share. A successful publish was not checked.
 
+### Rewrite old versions
+
+A new version can supersede an older application. For the old application to uninstall cleanly, its detection must stop finding the application once it is removed. A `GreaterEquals` clause still finds the new version, so the uninstall registers as failed. **Rewrite Old Versions** changes that clause to `IsEquals` for the older applications of one product line.
+
+1. Check one application.
+2. Select **Rewrite Old Versions**. The tool reads the product line from the site. The dialog lists each clause that it changes, the applications that it blocks (an application with a required deployment) and the clauses that it leaves, with the reason.
+3. Read the notes. A device that has a newer version than the one in the clause then reads "not installed".
+4. Check the confirmation box and select **Rewrite N Clauses**. The tool reads the site again and writes only when the clauses are the ones that the dialog showed. Each clause is written to the log first.
+5. Read the result. Select **Undo** to write the old operator back.
+
+**Restore Old Versions** does the second part alone, for a rewrite of an earlier session: it lists the rewrites of this line that the log holds and no restore cancels. The log is `supersedence-rewrite.jsonl` in the Workbench data folder. The buttons are disabled for the reasons of **Publish to ConfigMgr**: ConfigMgr is not in use, the console is missing or the site code is empty. See [Command line](../reference/command-line.md) for the same steps without the window.
+
 ## Options and settings of this page
 
 | Setting | Effect |

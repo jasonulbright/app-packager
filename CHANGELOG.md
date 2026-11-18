@@ -16,6 +16,9 @@
 - Add Accepted requirement drops to Options, Connections, Intune. A review dialog stores it.
 - Add Apply Supersedence. It links published apps to their older version without a publish.
 - Add Use as old application to the grid menu. It links an older version.
+- Add Rewrite Old Versions to the sidebar. A dialog confirms the plan first.
+- Add Restore Old Versions to the sidebar. It writes the old operator back.
+- Add -Json, -IdentityMarker and -ShownPlan to -RewriteOldVersions of Invoke-AppPackagerBuild.
 
 ## [2026.11.18.0142] - 2026-11-18
 

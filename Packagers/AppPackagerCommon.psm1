@@ -4531,6 +4531,232 @@ function Invoke-SupersedenceRestore {
     return [pscustomobject]@{ Written = $written; Failures = $failures }
 }
 
+# ---- the window of the rewrite: the change plan, its run and its result ----
+# The window shows what the rewrite changes before anything is written (a port of RewriteOldVersionsPlans of App Packager
+# Desktop). The plan, the notes, the confirmation text, the result rows and the summary come from these functions, so the
+# window and the tests read the same text. The write itself is Invoke-SupersedenceRewrite and Invoke-SupersedenceRestore.
+
+$script:RestoreConfirmationText = 'The old operator is written back on the site. A device that now reads "installed" through the clause may read it differently.'
+
+function Get-SupersedenceRestoreConfirmationText { return $script:RestoreConfirmationText }
+
+function ConvertTo-SupersedenceRewriteChangeItem {
+    # One row of the plan of a rewrite.
+    param([Parameter(Mandatory)]$Item)
+    return [pscustomobject]@{
+        Action = 'Rewrite clause'; Target = ('{0} / {1}' -f $Item.Application, $Item.DeploymentType); Detail = 'GreaterEquals -> IsEquals'
+        Application = [string]$Item.Application; DeploymentType = [string]$Item.DeploymentType
+    }
+}
+
+function ConvertTo-SupersedenceRestoreChangeItem {
+    # One row of the plan of a restore: the operator that comes back.
+    param([Parameter(Mandatory)]$Entry)
+    return [pscustomobject]@{
+        Action = 'Restore clause'; Target = ('{0} / {1}' -f $Entry.Application, $Entry.DeploymentType); Detail = ('{0} -> {1}' -f $Entry.NewOperator, $Entry.OldOperator)
+        Application = [string]$Entry.Application; DeploymentType = [string]$Entry.DeploymentType
+    }
+}
+
+function Get-SupersedenceRewriteNote {
+    # The lines above the list: the effect on the devices, what is blocked, what is left and why, and the pending restores.
+    param([Parameter(Mandatory)]$Plan, [int]$Restorable = 0)
+    $notes = @($script:RewriteConfirmationText)
+    foreach ($blocked in @($Plan.Blocked)) { $notes += ('Blocked: ' + $blocked) }
+    foreach ($item in @($Plan.Items | Where-Object { -not $_.Rewrites })) { $notes += ('Left: {0} / {1}: {2}' -f $item.Application, $item.DeploymentType, $item.Skip) }
+    if ($Restorable -gt 0) { $notes += ('{0} earlier rewrite(s) of this line can still be restored with the button Restore Old Versions.' -f $Restorable) }
+    return $notes
+}
+
+function New-SupersedenceRewriteChangePlan {
+    # The plan that the window shows for a rewrite, or $null when the plan has no clause to rewrite.
+    param([Parameter(Mandatory)]$Plan, [int]$Restorable = 0)
+    $rewrites = @($Plan.Items | Where-Object { $_.Rewrites })
+    if ($rewrites.Count -eq 0) { return $null }
+    return [pscustomobject]@{
+        Kind = 'Rewrite'; Title = 'Rewrite Old Versions'
+        ActionName = ('Rewrite {0} {1}' -f $rewrites.Count, $(if ($rewrites.Count -eq 1) { 'Clause' } else { 'Clauses' }))
+        Items = @($rewrites | ForEach-Object { ConvertTo-SupersedenceRewriteChangeItem -Item $_ })
+        IsDestructive = $true; HasUndo = $true; DestructiveConfirmation = $script:RewriteConfirmationText
+        Notes = @(Get-SupersedenceRewriteNote -Plan $Plan -Restorable $Restorable); LogName = 'Rewrite old version clauses'
+    }
+}
+
+function Get-SupersedenceRewritePending {
+    # The rewrites of the line that the log lists and no restore entry cancels. The log holds every line, and a restore for one line
+    # leaves the others.
+    param([Parameter(Mandatory)][string]$LogPath, [Parameter(Mandatory)][string]$Marker)
+    $log = $(if (Test-Path -LiteralPath $LogPath) { @(Read-SupersedenceRewriteLog -Text (Get-Content -LiteralPath $LogPath -Raw -Encoding UTF8)) } else { @() })
+    if ($log.Count -eq 0) { return @() }
+    return @(Get-SupersedenceRestoreEntry -Log $log -Applications @($log | ForEach-Object { $_.Application } | Select-Object -Unique) -Line $Marker)
+}
+
+function New-SupersedenceRestoreChangePlan {
+    # The plan that the window shows for a restore, or $null when no earlier rewrite of the line is pending.
+    param([AllowEmptyCollection()][object[]]$Pending = @())
+    $pending = @($Pending | Where-Object { $null -ne $_ })
+    if ($pending.Count -eq 0) { return $null }
+    return [pscustomobject]@{
+        Kind = 'Restore'; Title = 'Restore Old Versions'
+        ActionName = ('Restore {0} {1}' -f $pending.Count, $(if ($pending.Count -eq 1) { 'Clause' } else { 'Clauses' }))
+        Items = @($pending | ForEach-Object { ConvertTo-SupersedenceRestoreChangeItem -Entry $_ })
+        IsDestructive = $true; HasUndo = $false; DestructiveConfirmation = $script:RestoreConfirmationText
+        Notes = @(); LogName = 'Restore old version clauses'
+    }
+}
+
+function Test-SupersedenceSameRewrite {
+    # True when both plans rewrite the same clauses (application, deployment type, setting, operator and expected value).
+    param([Parameter(Mandatory)]$Shown, [Parameter(Mandatory)]$Fresh)
+    $keys = {
+        param($plan)
+        $set = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($i in @($plan.Items | Where-Object { $_.Rewrites })) { [void]$set.Add(('{0}|{1}|{2}|{3}|{4}' -f $i.Application, $i.DeploymentType, $i.Clause.LogicalName, $i.Clause.Operator, $i.Clause.ExpectedValue)) }
+        , $set
+    }
+    $a = & $keys $Shown
+    $b = & $keys $Fresh
+    return $a.SetEquals($b)
+}
+
+function New-SupersedenceChangeRow {
+    param($Item, [bool]$Succeeded, [string]$Message, [bool]$Skipped = $false, [bool]$Partial = $false)
+    return [pscustomobject]@{
+        Outcome = $(if ($Skipped) { 'Skipped' } elseif ($Succeeded) { 'Changed' } else { 'Failed' }); Action = $Item.Action; Target = $Item.Target
+        Message = $Message; Succeeded = $Succeeded; Skipped = $Skipped; PartialChange = $Partial
+    }
+}
+
+function Get-SupersedenceChangeSummary {
+    # The summary line of a result: the counts, and the note about a failed change that was made in part.
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Rows)
+    $rows = @($Rows)
+    $changed = @($rows | Where-Object { $_.Succeeded -and -not $_.Skipped }).Count
+    $failed = @($rows | Where-Object { -not $_.Succeeded -and -not $_.Skipped }).Count
+    $skipped = @($rows | Where-Object { $_.Skipped }).Count
+    $partial = @($rows | Where-Object { $_.PartialChange -and -not $_.Succeeded -and -not $_.Skipped }).Count
+    $text = $(if ($skipped -eq 0) { '{0} changed, {1} failed.' -f $changed, $failed } else { '{0} changed, {1} failed, {2} skipped.' -f $changed, $failed, $skipped })
+    if ($partial -eq 1) { $text += ' 1 failed change was made in part; Undo can reverse it.' }
+    elseif ($partial -gt 1) { $text += (' {0} failed changes were made in part; Undo can reverse them.' -f $partial) }
+    return $text
+}
+
+function New-SupersedenceChangeResult {
+    param([AllowEmptyCollection()][object[]]$Rows = @(), [ValidateSet('Completed', 'Cancelled', 'Failed')][string]$Stop = 'Completed', [AllowNull()][object]$UndoAvailable = $null, [string]$Summary = '')
+    $rows = @($Rows)
+    if (-not $Summary) { $Summary = Get-SupersedenceChangeSummary -Rows $rows }
+    return [pscustomobject]@{
+        Items = $rows; Stop = $Stop; Summary = $Summary
+        UndoAvailable = $(if ($null -ne $UndoAvailable) { [bool]$UndoAvailable } else { [bool]@($rows | Where-Object { $_.Succeeded -and -not $_.Skipped }).Count })
+    }
+}
+
+function ConvertTo-SupersedenceChangeResult {
+    # Maps the outcome of a rewrite or a restore (Written, Failures) to one result row per listed clause. A failure text that names the
+    # clause ("<application> / <deployment type>: <reason>") is its message.
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Items, [Parameter(Mandatory)]$Outcome)
+    $rows = @()
+    foreach ($item in @($Items)) {
+        $done = @(@($Outcome.Written) | Where-Object { $null -ne $_ -and $_.Application -ieq $item.Application -and $_.DeploymentType -ieq $item.DeploymentType }).Count -gt 0
+        $prefix = '{0} / {1}:' -f $item.Application, $item.DeploymentType
+        $failure = @(@($Outcome.Failures) | Where-Object { $null -ne $_ -and ([string]$_).StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase) }) | Select-Object -First 1
+        if ($done) { $rows += (New-SupersedenceChangeRow -Item $item -Succeeded $true -Message 'Written to the site and the log.') }
+        elseif ($failure) { $rows += (New-SupersedenceChangeRow -Item $item -Succeeded $false -Message ([string]$failure).Substring($prefix.Length).Trim()) }
+        else { $rows += (New-SupersedenceChangeRow -Item $item -Succeeded $false -Skipped $true -Message 'Not reached: the run stopped before this clause, or the entry belongs to another line (it is from before the log carried the line) and was left.') }
+    }
+    return (New-SupersedenceChangeResult -Rows $rows)
+}
+
+function Get-SupersedenceStoppedResult {
+    # The result of a run that stopped without its own result (cancelled, or failed): a clause that the log holds an intent for, and
+    # that no restore entry cancels, may be changed (the run stopped while it wrote); every other clause did not report.
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Items, [AllowEmptyCollection()][object[]]$Entries = @(),
+        [ValidateSet('Cancelled', 'Failed')][string]$Stop = 'Cancelled', [string]$Detail = '', [ValidateSet('Rewrite', 'Restore')][string]$Kind = 'Rewrite'
+    )
+    $word = $(if ($Stop -eq 'Cancelled') { 'cancelled' } else { 'failed' })
+    $rows = @()
+    foreach ($item in @($Items)) {
+        $mine = @(@($Entries) | Where-Object { $null -ne $_ -and $_.Application -ieq $item.Application -and $_.DeploymentType -ieq $item.DeploymentType } | Sort-Object -Property At)
+        $open = ($mine.Count -gt 0 -and -not $mine[-1].Restored)
+        # A restore writes its entry after the site took the operator, so a restore entry is a clause that is back.
+        if ($Kind -eq 'Restore') {
+            if ($mine.Count -gt 0 -and $mine[-1].Restored) { $rows += (New-SupersedenceChangeRow -Item $item -Succeeded $true -Message 'Written to the site and the log.') }
+            else { $rows += (New-SupersedenceChangeRow -Item $item -Succeeded $false -Message ('No result: the run was {0} before this change reported.' -f $word)) }
+        }
+        elseif ($open) { $rows += (New-SupersedenceChangeRow -Item $item -Succeeded $false -Partial $true -Message ('The run was {0} while this clause was written. It may be changed; Undo restores it.' -f $word)) }
+        else { $rows += (New-SupersedenceChangeRow -Item $item -Succeeded $false -Message ('No result: the run was {0} before this change reported.' -f $word)) }
+    }
+    $maybeChanged = @($rows | Where-Object { $_.PartialChange }).Count
+    $backCount = @($rows | Where-Object { $_.Succeeded }).Count
+    $text = $(if ($Stop -eq 'Cancelled') { 'The run was cancelled. Changes made before the cancel stay in place.' } else { 'The run failed. The log has the details.' })
+    if ($Detail) { $text += (' ' + $Detail) }
+    if ($rows.Count -gt 0) { $text += (' Before the {0}: {1} changed, {2} failed.' -f $(if ($Stop -eq 'Cancelled') { 'cancel' } else { 'failure' }), $backCount, ($rows.Count - $backCount)) }
+    return (New-SupersedenceChangeResult -Rows $rows -Stop $Stop -UndoAvailable ($maybeChanged -gt 0) -Summary $text)
+}
+
+function Get-SupersedenceLogEntrySince {
+    # The entries of the log that were written at or after a point in time: what one run wrote.
+    param([Parameter(Mandatory)][string]$LogPath, [Parameter(Mandatory)][datetimeoffset]$Since)
+    if (-not (Test-Path -LiteralPath $LogPath)) { return @() }
+    return @(Read-SupersedenceRewriteLog -Text (Get-Content -LiteralPath $LogPath -Raw -Encoding UTF8) | Where-Object { $_.At -ge $Since })
+}
+
+function ConvertFrom-SupersedenceChildRun {
+    <#
+    .SYNOPSIS
+        The result of the child process that ran a rewrite or a restore for the window.
+    .DESCRIPTION
+        Run holds Cancelled, Result (the APRESULT line of the child, read as JSON, or $null), ExitCode and StdErr. A cancelled run, or a
+        run that gave no result, is reported from the log entries that it wrote (Entries).
+    #>
+    param([Parameter(Mandatory)]$Run, [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Items, [AllowEmptyCollection()][object[]]$Entries = @(), [ValidateSet('Rewrite', 'Restore')][string]$Kind = 'Rewrite')
+    if ($Run.Cancelled) { return (Get-SupersedenceStoppedResult -Items $Items -Entries $Entries -Stop 'Cancelled' -Kind $Kind) }
+    $result = $(if ($Run.Result -and [string]$Run.Result.Kind -eq 'Result') { $Run.Result.Result } else { $null })
+    if ($null -eq $result) {
+        $detail = ([string]$Run.StdErr).Trim()
+        if ($detail.Length -gt 300) { $detail = $detail.Substring(0, 300) }
+        return (Get-SupersedenceStoppedResult -Items $Items -Entries $Entries -Stop 'Failed' -Detail $detail -Kind $Kind)
+    }
+    return (New-SupersedenceChangeResult -Rows @($result.Items) -Stop ([string]$result.Stop) -UndoAvailable ([bool]$result.UndoAvailable) -Summary ([string]$result.Summary))
+}
+
+function Invoke-SupersedenceRewriteRun {
+    <#
+    .SYNOPSIS
+        The run of the rewrite after the confirmation: reads the site again, writes only when the plan is the one that was shown.
+    .DESCRIPTION
+        The plan was read before the confirmation, and the site can change while the window is open, so it is read again here,
+        before anything is written; when the clauses to rewrite are not the ones that were shown, nothing is written. Replan
+        and Write are test hooks: the first returns the fresh plan, the second takes it and returns Written and Failures.
+        Returns the result: Items (one row per shown clause), Stop, Summary and UndoAvailable.
+    #>
+    param(
+        [Parameter(Mandatory)]$Plan, [Parameter(Mandatory)][string]$SiteCode, [Parameter(Mandatory)][string]$Marker, [Parameter(Mandatory)][string]$TitleKey,
+        [Parameter(Mandatory)]$Settings, [Parameter(Mandatory)][string]$LogPath, [AllowNull()][scriptblock]$Replan = $null, [AllowNull()][scriptblock]$Write = $null
+    )
+    $items = @($Plan.Items | Where-Object { $_.Rewrites } | ForEach-Object { ConvertTo-SupersedenceRewriteChangeItem -Item $_ })
+    $skipAll = {
+        param($text)
+        New-SupersedenceChangeResult -Rows @($items | ForEach-Object { New-SupersedenceChangeRow -Item $_ -Succeeded $false -Skipped $true -Message $text }) -Stop 'Failed' -UndoAvailable $false
+    }
+    try { $fresh = $(if ($Replan) { & $Replan } else { Get-SupersedenceRewriteScopePlan -Marker $Marker -TitleKey $TitleKey -Settings $Settings }) }
+    catch { return (& $skipAll ('The site could not be read again, so nothing was written: ' + $_.Exception.Message)) }
+    if (-not (Test-SupersedenceSameRewrite -Shown $Plan -Fresh $fresh)) {
+        return (& $skipAll 'The site changed while the window was open: the clauses to rewrite are not the ones that were shown. Nothing was written. Open the window again.')
+    }
+    $outcome = $(if ($Write) { & $Write $Plan } else { Invoke-SupersedenceRewrite -Plan $Plan -SiteCode $SiteCode -Marker $Marker -LogPath $LogPath })
+    return (ConvertTo-SupersedenceChangeResult -Items $items -Outcome $outcome)
+}
+
+function Invoke-SupersedenceRestoreRun {
+    # The run of a restore after the confirmation: the pending entries of the line are listed first, so each one has a result row.
+    param([Parameter(Mandatory)][string]$SiteCode, [Parameter(Mandatory)][string]$Marker, [Parameter(Mandatory)][string]$LogPath, [AllowNull()][scriptblock]$Write = $null)
+    $items = @(Get-SupersedenceRewritePending -LogPath $LogPath -Marker $Marker | ForEach-Object { ConvertTo-SupersedenceRestoreChangeItem -Entry $_ })
+    $outcome = $(if ($Write) { & $Write } else { Invoke-SupersedenceRestore -SiteCode $SiteCode -Marker $Marker -LogPath $LogPath })
+    return (ConvertTo-SupersedenceChangeResult -Items $items -Outcome $outcome)
+}
+
 # ---------------------------------------------------------------------------
 # ConfigMgr application creation from manifest
 # ---------------------------------------------------------------------------

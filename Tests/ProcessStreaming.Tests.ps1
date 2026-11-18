@@ -37,4 +37,20 @@ Describe 'Invoke-ProcessWithStreaming' {
         @($result).Count | Should -Be 1
         $result.StdOut | Should -Match 'idle for 1 seconds; killed'
     }
+
+    It 'stops the child and says Cancelled when the cancel check answers true' {
+        $watch = [System.Diagnostics.Stopwatch]::StartNew()
+        $result = Invoke-ProcessWithStreaming -StartInfo (New-ChildStartInfo 'Start-Sleep -Seconds 60') -OutLog (Join-Path $TestDrive 'cancel-out.log') -ErrLog (Join-Path $TestDrive 'cancel-err.log') -ShouldCancel { $watch.Elapsed.TotalSeconds -gt 1 }.GetNewClosure()
+
+        @($result).Count | Should -Be 1
+        $result.Cancelled | Should -BeTrue
+        $watch.Elapsed.TotalSeconds | Should -BeLessThan 30
+    }
+
+    It 'says Cancelled is false for a child that ended by itself' {
+        $result = Invoke-ProcessWithStreaming -StartInfo (New-ChildStartInfo 'Write-Output done') -OutLog (Join-Path $TestDrive 'plain-out.log') -ErrLog (Join-Path $TestDrive 'plain-err.log') -ShouldCancel { $false }
+
+        $result.Cancelled | Should -BeFalse
+        $result.StdOut | Should -Be 'done'
+    }
 }

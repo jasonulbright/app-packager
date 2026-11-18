@@ -352,6 +352,16 @@
                             <TextBlock Text="Convert ConfigMgr App to Intune" TextWrapping="Wrap"/>
                         </Button>
 
+                        <!-- The label wraps: one line is wider than the sidebar once its scroll bar shows. -->
+                        <Button x:Name="btnRewriteOld" Style="{StaticResource WorkflowButtonStyle}"
+                                ToolTip="Rewrite the version clause of the checked app's older versions to IsEquals, after a plan.">
+                            <TextBlock Text="Rewrite Old Versions" TextWrapping="Wrap"/>
+                        </Button>
+                        <Button x:Name="btnRestoreOld" Style="{StaticResource WorkflowButtonStyle}"
+                                ToolTip="Write the old operator back for the checked app's older versions, from the log.">
+                            <TextBlock Text="Restore Old Versions" TextWrapping="Wrap"/>
+                        </Button>
+
                         <!-- Unified Options button (replaces the Options section header + 4 individual buttons) -->
                         <Button x:Name="btnOptions"       Content="Options"                Style="{StaticResource OptionsButtonStyle}"
                                 Margin="8,16,8,3"

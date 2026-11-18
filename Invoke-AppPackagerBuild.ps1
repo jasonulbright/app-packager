@@ -124,7 +124,18 @@ param(
 
     # The architecture part of the identity marker of -RewriteOldVersions: the architecture that the packager publishes.
     [ValidateSet('x64', 'x86', 'arm64')]
-    [string]$Architecture = 'x64'
+    [string]$Architecture = 'x64',
+
+    # The identity marker of the line, from the stage manifest that the window read. It replaces the marker that -Profile and
+    # -Architecture make. Only with -RewriteOldVersions.
+    [string]$IdentityMarker,
+
+    # With -RewriteOldVersions: writes one line that starts with APRESULT: and holds the plan or the result as JSON, for the window.
+    [switch]$Json,
+
+    # With -RewriteOldVersions apply: the file with the plan that the window showed. The run reads the site again and writes only
+    # when the clauses to rewrite are the ones in the file.
+    [string]$ShownPlan
 )
 
 Set-StrictMode -Version Latest
@@ -147,6 +158,8 @@ if ($PSBoundParameters.ContainsKey('VersionRule') -and $supersedenceModeToken -e
 }
 if ($supersedenceRewrite -and ($Stage -or $Package -or $supersedenceRecord)) { throw '-RewriteOldVersions runs alone: it does not stage or package.' }
 if ($Yes -and -not $supersedenceRewrite) { throw '-Yes applies to -RewriteOldVersions only.' }
+if (($Json -or $IdentityMarker -or $ShownPlan) -and -not $supersedenceRewrite) { throw '-Json, -IdentityMarker and -ShownPlan apply to -RewriteOldVersions only.' }
+if ($ShownPlan -and $RewriteOldVersions -ne 'apply') { throw '-ShownPlan applies to -RewriteOldVersions apply only.' }
 if ($supersedenceRecord) {
     if ($PSBoundParameters.ContainsKey('RecordInstalledValue') -and $AcceptExactBlock) { throw '-RecordInstalledValue and -AcceptExactBlock are separate runs; give one.' }
     if ($Stage -or $Package) { throw '-RecordInstalledValue and -AcceptExactBlock run alone: they do not stage, package or rewrite.' }
@@ -303,11 +316,18 @@ if ($supersedenceRewrite) {
     if ($ProviderMachineName) { $env:APP_PACKAGER_CM_PROVIDER = $ProviderMachineName }
     elseif ((Get-CliPreference 'ProviderMachineName')) { $env:APP_PACKAGER_CM_PROVIDER = [string](Get-CliPreference 'ProviderMachineName') }
     $rewriteProfile = $(if ($PSBoundParameters.ContainsKey('Profile')) { Resolve-CliProfile -ApplicationId $applicationId -Value $Profile } else { 'default' })
-    $rewriteMarker = Get-SupersedenceIdentityMarker -Manifest ([pscustomobject]@{ ApplicationId = $applicationId; ProfileId = $rewriteProfile; Architecture = $Architecture })
+    $rewriteMarker = $(if ($IdentityMarker) { $IdentityMarker.Trim() } else { Get-SupersedenceIdentityMarker -Manifest ([pscustomobject]@{ ApplicationId = $applicationId; ProfileId = $rewriteProfile; Architecture = $Architecture }) })
     $rewriteSettings = Get-SupersedenceSettings -PreferencesPath $PreferencesPath
     $rewriteLog = Join-Path (Get-WorkbenchDataRoot) 'supersedence-rewrite.jsonl'
     if (-not (Connect-CMSite -SiteCode $siteCodeValue)) { throw 'The ConfigMgr site connection failed.' }
     if ($RewriteOldVersions -eq 'restore') {
+        if ($Json) {
+            if (-not $Yes) { throw 'restore writes the old operator back on the site. Run it again with -Yes.' }
+            $ran = Invoke-SupersedenceRestoreRun -SiteCode $siteCodeValue -Marker $rewriteMarker -LogPath $rewriteLog
+            Write-Output ('APRESULT:' + (ConvertTo-Json -InputObject ([ordered]@{ Kind = 'Result'; Result = $ran }) -Depth 8 -Compress))
+            if (@($ran.Items | Where-Object { -not $_.Succeeded -and -not $_.Skipped }).Count -gt 0) { exit 1 }
+            return
+        }
         $logEntries = $(if (Test-Path -LiteralPath $rewriteLog) { @(Read-SupersedenceRewriteLog -Text (Get-Content -LiteralPath $rewriteLog -Raw -Encoding UTF8)) } else { @() })
         $pending = @(Get-SupersedenceRestoreEntry -Log $logEntries -Applications @($logEntries | ForEach-Object { $_.Application } | Select-Object -Unique) -Line $rewriteMarker)
         Write-Host ("Log: {0}. {1} deployment type(s) to restore." -f $rewriteLog, $pending.Count)
@@ -319,7 +339,19 @@ if ($supersedenceRewrite) {
         if (@($restored.Failures).Count -gt 0) { exit 1 }
         return
     }
+    if ($Json -and $RewriteOldVersions -eq 'apply' -and $ShownPlan) {
+        # The window's run: the shown plan is checked against the site before anything is written.
+        $shown = Get-Content -LiteralPath $ShownPlan -Raw -Encoding UTF8 | ConvertFrom-Json
+        $ran = Invoke-SupersedenceRewriteRun -Plan $shown -SiteCode $siteCodeValue -Marker $rewriteMarker -TitleKey $applicationId -Settings $rewriteSettings -LogPath $rewriteLog
+        Write-Output ('APRESULT:' + (ConvertTo-Json -InputObject ([ordered]@{ Kind = 'Result'; Result = $ran }) -Depth 8 -Compress))
+        if (@($ran.Items | Where-Object { -not $_.Succeeded -and -not $_.Skipped }).Count -gt 0) { exit 1 }
+        return
+    }
     $rewritePlan = Get-SupersedenceRewriteScopePlan -Marker $rewriteMarker -TitleKey $applicationId -Settings $rewriteSettings
+    if ($Json -and $RewriteOldVersions -eq 'plan') {
+        Write-Output ('APRESULT:' + (ConvertTo-Json -InputObject ([ordered]@{ Kind = 'Plan'; Plan = $rewritePlan }) -Depth 8 -Compress))
+        return
+    }
     Write-Host ("Old applications of the line: {0} with a clause to rewrite; {1} clause(s) in all." -f $rewritePlan.ApplicationCount, $rewritePlan.ClauseCount)
     foreach ($blocked in $rewritePlan.Blocked) { Write-Host "  blocked: $blocked" }
     foreach ($item in $rewritePlan.Items) {
