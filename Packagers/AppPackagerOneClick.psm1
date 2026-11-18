@@ -446,6 +446,7 @@ function Set-OneClickNotSupported {
 function Get-OneClickCadenceDays {
     param($Prefs, [string]$PackagerName, [int]$HeaderDays = 0)
     $days = 7
+    if ($Prefs.PSObject.Properties['AppFlow'] -and $Prefs.AppFlow -and $Prefs.AppFlow.PSObject.Properties['DefaultCadenceDays'] -and [int]$Prefs.AppFlow.DefaultCadenceDays -ge 1) { $days = [int]$Prefs.AppFlow.DefaultCadenceDays }
     if ($HeaderDays -ge 1) { $days = $HeaderDays }
     $overrides = $null
     if ($Prefs.PSObject.Properties['AppFlow'] -and $Prefs.AppFlow -and $Prefs.AppFlow.PSObject.Properties['CadenceOverrides']) { $overrides = $Prefs.AppFlow.CadenceOverrides }
