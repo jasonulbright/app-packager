@@ -12192,7 +12192,7 @@ function Show-IntuneReviewDialog {
             <Button x:Name="btnReviewContinue" Content="Continue" Margin="0,0,8,0"
                     Style="{DynamicResource DialogAccentButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnReviewAccept" Content="Accept dropped requirements and continue" Margin="0,0,8,0"
+            <Button x:Name="btnReviewAccept" Content="Accept Dropped Requirements and Continue" Margin="0,0,8,0"
                     Style="{DynamicResource DialogButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <Button x:Name="btnReviewCancel" Content="Cancel" IsCancel="True"

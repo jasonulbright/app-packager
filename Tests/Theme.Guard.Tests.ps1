@@ -40,9 +40,9 @@ Describe 'The scans find the documents' {
         $script:ShellText | Should -Match 'function Get-SharedStyleXaml'
     }
 
-    It 'has the shared style marker in the raw text of every window of the start script (16) and of the Workbench' {
+    It 'has the shared style marker in the raw text of every window of the start script (17) and of the Workbench' {
         $windows = @($script:XamlDocs | Where-Object { $_.Kind -eq 'window' })
-        $windows.Count | Should -Be 16
+        $windows.Count | Should -Be 17
         foreach ($w in $windows) { $w.RawText | Should -Match '<!--SHARED_STYLES-->' -Because $w.Source }
         $wb = @($script:XamlDocs | Where-Object { $_.Source -eq 'WorkbenchWindow.xaml' })[0]
         $wb.RawText | Should -Match '<!--SHARED_STYLES-->'
