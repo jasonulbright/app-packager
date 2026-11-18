@@ -143,6 +143,7 @@
         'Invoke-SupersedenceStep'
         'Get-SupersedenceFallbackApplicationId'
         'Invoke-SupersedenceStepAndLog'
+        'Invoke-SupersedenceApply'
         'Set-CMApplicationIdentityMarker'
         'Test-SupersedenceMinimumOperator'
         'Test-SupersedenceExactOperator'

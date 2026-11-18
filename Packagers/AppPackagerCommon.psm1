@@ -3771,6 +3771,93 @@ function Invoke-SupersedenceStepAndLog {
     return $step
 }
 
+function Invoke-SupersedenceApply {
+    <#
+    .SYNOPSIS
+        Applies the supersedence of one staged application to the ConfigMgr site, without a publish. This is the
+        engine entry point of the Apply Supersedence action.
+    .DESCRIPTION
+        Reads the stage manifest, resolves the title as the publish resolves it, plans the supersedence with the
+        same planner as a publish, and runs the supersedence step for the application that is already on the site.
+        The step reads the relations first, so a repeat adds only the missing ones. Every refusal comes before the
+        first call to the site. Returns Ok, Message, Status (NotRun, NoOlderVersion, Applied or NotApplied),
+        RowStatus (the text for the grid), Title and Log (the lines for the log). Never throws. Settings and
+        CommandLine default to the preferences file and the command line variables of the process.
+    #>
+    param(
+        [AllowEmptyString()][string]$ManifestPath = '',
+        [AllowEmptyString()][string]$SiteCode = '',
+        [AllowEmptyString()][string]$ProviderMachineName = '',
+        [AllowNull()][string]$FallbackApplicationId = $null,
+        [AllowEmptyString()][string]$TitleMode = '',
+        $Settings = $null,
+        $CommandLine = $null
+    )
+    $lines = New-Object System.Collections.Generic.List[string]
+    $outcome = {
+        param([bool]$ok, [string]$message, [string]$status, [string]$title = '')
+        $rowStatus = if (-not $ok) { 'Supersedence not applied' } elseif ($status -eq 'Applied') { 'Supersedence applied' } else { 'No older version' }
+        [pscustomobject]@{ Ok = $ok; Message = $message; Status = $status; RowStatus = $rowStatus; Title = $title; Log = @($lines) }
+    }
+    try {
+        if ([string]::IsNullOrWhiteSpace($ManifestPath) -or -not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
+            return (& $outcome $false 'No stage manifest was found for this application. Stage and publish it first.' 'NotApplied')
+        }
+        # The title mode reaches Read-StageManifest and Get-PackagedApplicationName through the environment, as it does in a publish.
+        $savedTitleMode = $env:APP_PACKAGER_TITLE_MODE
+        try {
+            $env:APP_PACKAGER_TITLE_MODE = $TitleMode
+            try { $manifest = Read-StageManifest -Path $ManifestPath }
+            catch { return (& $outcome $false ('The stage manifest {0} could not be read: {1}' -f $ManifestPath, $_.Exception.Message) 'NotApplied') }
+            if ([string]::IsNullOrWhiteSpace([string]$manifest.AppName)) {
+                return (& $outcome $false 'The stage manifest has no application name. Stage the application again.' 'NotApplied')
+            }
+            try { $title = Get-PackagedApplicationName -AppName ([string]$manifest.AppName) -Version ([string]$manifest.SoftwareVersion) }
+            catch { return (& $outcome $false ('The application title could not be resolved: {0}' -f $_.Exception.Message) 'NotApplied') }
+        }
+        finally {
+            if ($null -eq $savedTitleMode) { Remove-Item -LiteralPath 'Env:\APP_PACKAGER_TITLE_MODE' -ErrorAction SilentlyContinue }
+            else { $env:APP_PACKAGER_TITLE_MODE = $savedTitleMode }
+        }
+        if ([string]::IsNullOrWhiteSpace($SiteCode)) {
+            return (& $outcome $false 'Supersedence needs a ConfigMgr site. Set the site code in Options.' 'NotApplied' $title)
+        }
+
+        if ($null -eq $Settings) { $Settings = Get-SupersedenceSettings }
+        if ($null -eq $CommandLine) { $CommandLine = Get-SupersedenceCommandLine }
+        $contentPath = Split-Path -Parent $ManifestPath
+        $plan = Get-SupersedencePlan -Manifest $manifest -Settings $Settings -CommandLine $CommandLine `
+            -PublishesToConfigMgr $true -PublishesToIntune $false `
+            -MsiProductVersion { param($m) Get-SupersedenceMsiProductVersion -Manifest $m -ContentPath $contentPath }.GetNewClosure() `
+            -FallbackApplicationId $FallbackApplicationId
+        foreach ($planLine in $plan.Log) { $lines.Add([string]$planLine) }
+        if ($plan.Refusal) { return (& $outcome $false ([string]$plan.Refusal) 'NotApplied' $title) }
+        if ($plan.Mode -eq 'Off') {
+            return (& $outcome $false 'Supersedence is off for this title. Turn it on in Options or in the override of the title.' 'NotApplied' $title)
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$plan.Marker)) {
+            return (& $outcome $false 'This application has no identity marker, so its line cannot be found.' 'NotApplied' $title)
+        }
+
+        $savedLocation = Get-Location
+        try {
+            if (-not (Connect-CMSite -SiteCode $SiteCode -ProviderMachineName $ProviderMachineName)) {
+                return (& $outcome $false ('The connection to the site {0} failed. Check the site code and the site server in Options, Connections, ConfigMgr.' -f $SiteCode) 'NotApplied' $title)
+            }
+            $step = Invoke-SupersedenceStep -NewApplicationName $title -NewVersion ([string]$manifest.SoftwareVersion) -Marker ([string]$plan.Marker) -Mode ([string]$plan.Mode) -RequirePublished
+        }
+        finally {
+            # The site drive is left behind, so a later local path would resolve through the CM provider.
+            try { Set-Location -LiteralPath $savedLocation.Path -ErrorAction Stop } catch { $null = $_ }
+        }
+        foreach ($warning in $step.Warnings) { $lines.Add(('Supersedence warning         : {0}' -f $warning)) }
+        return (& $outcome ($step.Status -ne 'NotApplied') ([string]$step.Message) ([string]$step.Status) $title)
+    }
+    catch {
+        return (& $outcome $false $_.Exception.Message 'NotApplied')
+    }
+}
+
 # ---- the identity marker on the site ----
 
 function Set-CMApplicationIdentityMarker {

@@ -328,6 +328,8 @@
                                 ToolTip="Download and extract each checked app into the staging root."/>
                         <Button x:Name="btnPackage"     Content="Publish to ConfigMgr" Style="{StaticResource WorkflowButtonStyle}"
                                 ToolTip="Build a ConfigMgr application and deployment type for each checked app."/>
+                        <Button x:Name="btnApplySupersedence" Content="Apply Supersedence" Style="{StaticResource WorkflowButtonStyle}"
+                                ToolTip="Link each checked, published app to its older version in ConfigMgr, with no new publish."/>
                         <Button x:Name="btnPublishIntune" Content="Publish to Intune" Style="{StaticResource WorkflowButtonStyle}"
                                 ToolTip="Stage each checked app, build its .intunewin file and publish it to Intune."/>
                         <Button x:Name="btnPublishWsus" Content="Publish to WSUS"  Style="{StaticResource WorkflowButtonStyle}"
