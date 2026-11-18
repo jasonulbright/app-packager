@@ -186,6 +186,7 @@
 "Dell Peripheral Manager","Skip-Component","OEM device utilities; deploy via OEM tooling where hardware-matched"
 "Dell SupportAssist","Skip-Component","OEM device utilities; deploy via OEM tooling where hardware-matched"
 "Devolutions Launcher","Skip-Component","companion to RDM"
+"Devolutions PowerShell","Supported","existing packager: devolutionspowershell (Microsoft-payload MSI)"
 "Devolutions Remote Desktop Manager","Added-1.4.0.18","free edition direct download [ported, stage-verified 2026-08-31]"
 "Devolutions Remote Desktop Manager Agent","Skip-Component","RDM companion agent"
 "Devolutions Workspace","Skip-Component","companion app"
