@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Log one line with the count of products that need an update after Check Latest and Check ConfigMgr.
+
 ## [2026.11.18.0143] - 2026-11-18
 
 ## 17 changes: supersedence, review before staging, requirement translation

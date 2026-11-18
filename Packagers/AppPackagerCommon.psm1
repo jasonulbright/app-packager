@@ -8728,6 +8728,33 @@ function Get-DeploymentTypeContentOptions {
     return [pscustomobject]@{ ContentFallback = $fallback; SlowNetworkDeploymentMode = $mode }
 }
 
+function Get-CheckResultSummaryLine {
+    <#
+    .SYNOPSIS
+        The one log line that closes Check Latest or Check ConfigMgr: how many of the checked products need an update.
+    .DESCRIPTION
+        A product needs an update when its status starts with 'Update available'. This is the rule of Select-OnlyUpdateAvailable,
+        which selects those products after Check ConfigMgr. A product whose check failed has the status 'Error'; it is not
+        counted as needing an update and is named in the line. Pass -SelectedCount when the check selects the products; leave
+        it out when the check selects nothing.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Check,
+        [AllowEmptyCollection()][AllowNull()][object[]]$Rows = @(),
+        [AllowNull()][Nullable[int]]$SelectedCount = $null
+    )
+    $checked = @($Rows | Where-Object { $_ })
+    $eligible = @($checked | Where-Object { [string]$_.Status -like 'Update available*' }).Count
+    $failed = @($checked | Where-Object { [string]$_.Status -eq 'Error' }).Count
+    $products = $(if ($checked.Count -eq 1) { 'product' } else { 'products' })
+    $verb = $(if ($eligible -eq 1 -or $checked.Count -eq 1) { 'needs' } else { 'need' })
+    $line = '{0} finished: {1} of {2} {3} {4} an update' -f $Check, $eligible, $checked.Count, $products, $verb
+    if ($null -ne $SelectedCount) { $line += '; {0} selected' -f $SelectedCount }
+    if ($failed -gt 0) { $line += '; {0} {1} failed' -f $failed, $(if ($failed -eq 1) { 'check' } else { 'checks' }) }
+    return ($line + '.')
+}
+Export-ModuleMember -Function Get-CheckResultSummaryLine
+
 Export-ModuleMember -Function Get-DeploymentTypeContentOptions
 
 # ---------------------------------------------------------------------------

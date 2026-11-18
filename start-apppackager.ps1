@@ -9846,6 +9846,7 @@ function Invoke-MultiAppPipeline {
     # of scope there.
     $script:BgContext   = $Context
     $script:BgOperation = $Operation
+    $script:BgRows      = $Rows
 
     Set-ActionButtonsEnabled -Enabled $false
     $window.Cursor = [System.Windows.Input.Cursors]::Wait
@@ -11021,6 +11022,8 @@ function Invoke-MultiAppPipeline {
                         }
                     }
                 }
+                # One line with the count of the products that need an update. Check Latest selects nothing, so the line has no selection count.
+                if ($script:BgOperation -eq 'CheckLatest' -and -not [bool]$doneState.Canceled) { Add-LogLine -Message (Get-CheckResultSummaryLine -Check 'Check Latest' -Rows @($script:BgRows)) }
                 if ([bool]$doneState.Canceled) {
                     $txtStatus.Text = 'Canceled.'
                 }
@@ -11517,6 +11520,8 @@ function Invoke-AdHocPipeline {
                         }
                     }
                 }
+                # One line with the count of the products that need an update. Check Latest selects nothing, so the line has no selection count.
+                if ($script:BgOperation -eq 'CheckLatest' -and -not [bool]$doneState.Canceled) { Add-LogLine -Message (Get-CheckResultSummaryLine -Check 'Check Latest' -Rows @($script:BgRows)) }
                 $txtStatus.Text = if ([bool]$doneState.Canceled) { 'Canceled.' } else { 'Complete.' }
             }
 
@@ -11804,6 +11809,7 @@ $btnCheckMECM.Add_Click({
         Hide-BusyIndicator
         Select-OnlyUpdateAvailable
         $dataGrid.Items.Refresh()
+        Add-LogLine -Message (Get-CheckResultSummaryLine -Check 'Check ConfigMgr' -Rows @($selectedRows) -SelectedCount (@($script:PackagerData | Where-Object { $_.Selected -eq $true }).Count))
 
         $notFound = @(Get-AutoHideOffer -Prefs $script:Prefs -Rows @($script:PackagerData))
         if ($notFound.Count -gt 0) {
