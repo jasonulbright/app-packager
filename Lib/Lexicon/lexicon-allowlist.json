@@ -1,0 +1,256 @@
+{
+  "schema": 1,
+  "allow": [
+    {
+      "file": "Module/InstallerAnalysisCommon*",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "Module/InstallerAnalysisCommon*",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "Tests/Module.Detection.Tests.ps1",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "Tests/Module.Detection.Tests.ps1",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "Tests/Module.Formats.Tests.ps1",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "Tests/Module.Formats.Tests.ps1",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "Tests/Module.Summary.Tests.ps1",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "Tests/Module.Summary.Tests.ps1",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "Tests/Smoke.Tests.ps1",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "Tests/Smoke.Tests.ps1",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "Tests/TESTPLAN.md",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "Tests/TESTPLAN.md",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "docs/getting-started.md",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "docs/getting-started.md",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "docs/reference/installer-types.md",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "docs/reference/installer-types.md",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "docs/core/*",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "docs/core/*",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "start-installeranalysis.ps1",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "start-installeranalysis.ps1",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "MainWindow.xaml",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "MainWindow.xaml",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "Lib/InstallerAnalysisCommon/*",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "Lib/InstallerAnalysisCommon/*",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "Tests/Encoding.Guard.Tests.ps1",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "Tests/Encoding.Guard.Tests.ps1",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "src/ApplicationPackagerEngine/Services/InstallerAnalysis/*",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "src/ApplicationPackagerEngine/Services/InstallerAnalysis/*",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "src/ApplicationPackagerEngine/Services/InstallerSignatureScanner.cs",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "src/ApplicationPackagerEngine/Services/InstallerSignatureScanner.cs",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "src/ApplicationPackagerUI/Services/InstallerAnalysisPrompts.cs",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "src/ApplicationPackagerUI/Services/InstallerAnalysisPrompts.cs",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "tests/ApplicationPackagerEngine.Tests/InstallerAnalysis/*",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "tests/ApplicationPackagerEngine.Tests/InstallerAnalysis/*",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "tests/ApplicationPackagerEngine.Tests/InstallerSignatureScannerTests.cs",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "tests/ApplicationPackagerEngine.Tests/InstallerSignatureScannerTests.cs",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "tests/ApplicationPackagerEngine.Tests/AddFromInstaller/AddFromInstallerAnalyzeTests.cs",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "tests/ApplicationPackagerEngine.Tests/AddFromInstaller/AddFromInstallerAnalyzeTests.cs",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "docs/tools/installer-analysis.md",
+      "rule": "LX-040",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "docs/tools/installer-analysis.md",
+      "rule": "LX-041",
+      "reason": "Installer Analysis detects the .nupkg package format as an installer format. This is format detection, not a use of the banned product (decision D-33 of app-packager-suite). Precedent: InstallShield stays a supported installer type."
+    },
+    {
+      "file": "Packagers/Templates/*",
+      "rule": "LX-040",
+      "reason": "Supported installer format (package format of the package manager and NuGet), owner decision D-33. The support stays; this is not a use of the product as a source or a tool."
+    },
+    {
+      "file": "Packagers/Templates/*",
+      "rule": "LX-041",
+      "reason": "Supported installer format (package format of the package manager and NuGet), owner decision D-33. The support stays; this is not a use of the product as a source or a tool."
+    },
+    {
+      "file": "README.md",
+      "rule": "LX-040",
+      "phrase": "(?i)^[c]hoco(?:[l]atey)?$|^[c]hocolatey\\w*$",
+      "reason": "Supported installer format (package format of the package manager and NuGet), owner decision D-33. The support stays; this is not a use of the product as a source or a tool."
+    },
+    {
+      "file": "README.md",
+      "rule": "LX-041",
+      "reason": "Supported installer format (package format of the package manager and NuGet), owner decision D-33. The support stays; this is not a use of the product as a source or a tool."
+    },
+    {
+      "file": "SOURCES.md",
+      "rule": "LX-040",
+      "reason": "Supported installer format (package format of the package manager and NuGet), owner decision D-33. The support stays; this is not a use of the product as a source or a tool."
+    },
+    {
+      "file": "SOURCES.md",
+      "rule": "LX-041",
+      "reason": "Supported installer format (package format of the package manager and NuGet), owner decision D-33. The support stays; this is not a use of the product as a source or a tool."
+    },
+    {
+      "file": "src/ApplicationPackagerEngine/Services/SilentSwitchDatabase.cs",
+      "rule": "LX-040",
+      "reason": "Supported installer format (package format of the package manager and NuGet), owner decision D-33. The support stays; this is not a use of the product as a source or a tool."
+    },
+    {
+      "file": "src/ApplicationPackagerEngine/Services/SilentSwitchDatabase.cs",
+      "rule": "LX-041",
+      "reason": "Supported installer format (package format of the package manager and NuGet), owner decision D-33. The support stays; this is not a use of the product as a source or a tool."
+    },
+    {
+      "file": "tests/ApplicationPackagerEngine.Tests/SilentSwitchDatabaseTests.cs",
+      "rule": "LX-040",
+      "reason": "Supported installer format (package format of the package manager and NuGet), owner decision D-33. The support stays; this is not a use of the product as a source or a tool."
+    },
+    {
+      "file": "tests/ApplicationPackagerEngine.Tests/SilentSwitchDatabaseTests.cs",
+      "rule": "LX-041",
+      "reason": "Supported installer format (package format of the package manager and NuGet), owner decision D-33. The support stays; this is not a use of the product as a source or a tool."
+    }
+  ]
+}

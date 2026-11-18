@@ -6,12 +6,12 @@
     Vendored into each consumer tool at Lib\SuiteCommon\ by
     sync-suitecommon.ps1. Provides:
       - Structured logging (Initialize-Logging, Write-Log, Write-LogErrorRecord)
-      - CM site connection management (Connect-CMSite, Disconnect-CMSite,
+      - ConfigMgr site connection management (Connect-CMSite, Disconnect-CMSite,
         Test-CMConnection, Get-CMConnectionInfo)
       - Flat JSON settings persistence (Read-SuiteSettings, Save-SuiteSettings)
 
     Consumers never edit the vendored copy; changes flow through the
-    app-packager-suite repository and re-sync.
+    app-packager-suite repository and synchronize again.
 
 .EXAMPLE
     # Top of a consumer tool module (Module\<Tool>Common.psm1):
@@ -309,7 +309,7 @@ function Connect-CMSite {
         Disconnect-CMSite. Returns $true on success, $false on failure.
 
     .PARAMETER SMSProvider
-        SMS Provider machine. Optional: falls back to the SUITE_CM_PROVIDER
+        SMS Provider computer. Optional: falls back to the SUITE_CM_PROVIDER
         environment variable, then to an existing drive's root.
     #>
     param(
@@ -330,7 +330,7 @@ function Connect-CMSite {
         $resolved = if (-not [string]::IsNullOrWhiteSpace($CMModulePath)) { $CMModulePath } else { Resolve-ConfigurationManagerModulePath }
 
         if (-not $resolved -or -not (Test-Path -LiteralPath $resolved)) {
-            Write-Log "ConfigurationManager module not found. Ensure the CM console is installed." -Level ERROR
+            Write-Log "ConfigurationManager module not found. Make sure that the Configuration Manager console is installed." -Level ERROR
             return $false
         }
 
@@ -389,7 +389,7 @@ function Connect-CMSite {
 
     if (-not $siteDrive) {
         if ([string]::IsNullOrWhiteSpace($provider)) {
-            Write-Log "No CMSite drive '$SiteCode' exists and no SMS provider machine was given (parameter or SUITE_CM_PROVIDER)." -Level ERROR
+            Write-Log "No CMSite drive '$SiteCode' exists and no SMS Provider computer was given (parameter or SUITE_CM_PROVIDER)." -Level ERROR
             return $false
         }
 
@@ -422,7 +422,7 @@ function Connect-CMSite {
         }
     }
     else {
-        Write-Log "Connected to CM site: $SiteCode"
+        Write-Log "Connected to ConfigMgr site: $SiteCode"
     }
 
     if ([string]::IsNullOrWhiteSpace($provider)) {
@@ -464,13 +464,13 @@ function Disconnect-CMSite {
     $script:ConnectedSiteCode    = $null
     $script:ConnectedSMSProvider = $null
     $script:ConnectedAt          = $null
-    Write-Log "Disconnected from CM site"
+    Write-Log "Disconnected from ConfigMgr site"
 }
 
 function Test-CMConnection {
     <#
     .SYNOPSIS
-        Returns $true if currently connected to a CM site.
+        Returns $true if currently connected to a ConfigMgr site.
     #>
     if (-not $script:ConnectedSiteCode) { return $false }
 
@@ -506,10 +506,10 @@ function Get-CMConnectionInfo {
 function Test-CMSiteCodeMatchesProvider {
     <#
     .SYNOPSIS
-        Asks the SMS Provider which site code(s) it actually serves.
+        Asks the SMS Provider which site code(s) it serves.
 
     .DESCRIPTION
-        Queries root\sms:SMS_ProviderLocation on the provider machine. A
+        Queries root\sms:SMS_ProviderLocation on the SMS Provider computer. A
         CMSite PSDrive whose NAME does not match a real site code on its
         Root server connects fine, but every subsequent CM cmdlet fails
         with "Key cannot be null. Parameter name: key". Returns $null when
@@ -596,19 +596,38 @@ function Save-SuiteSettings {
         [int]$Depth = 5
     )
 
+    $tempPath = $null
     try {
         $parentDir = Split-Path -Path $Path -Parent
         if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
             New-Item -ItemType Directory -Path $parentDir -Force -ErrorAction Stop | Out-Null
         }
+        # Write the new text to a temp file in the same folder, then swap it in.
+        # A crash or a full disk during the write leaves the old file whole,
+        # where a direct Set-Content onto the target leaves a truncated one.
+        # The temp file shares the volume, so the swap is one file system call.
+        $fullPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+        $json = $Settings | ConvertTo-Json -Depth $Depth
+        $tempPath = '{0}.{1}.tmp' -f $fullPath, [guid]::NewGuid().ToString('N')
         # -ErrorAction Stop: Set-Content fails non-terminating by default,
         # which would skip the catch and report success on a failed write.
-        $Settings | ConvertTo-Json -Depth $Depth | Set-Content -LiteralPath $Path -Encoding UTF8 -ErrorAction Stop
+        Set-Content -LiteralPath $tempPath -Value $json -Encoding UTF8 -ErrorAction Stop
+        if (Test-Path -LiteralPath $fullPath -PathType Leaf) {
+            # [NullString]::Value: a PowerShell $null becomes an empty string here, and File.Replace rejects it as a path.
+            [System.IO.File]::Replace($tempPath, $fullPath, [NullString]::Value)
+        }
+        else {
+            [System.IO.File]::Move($tempPath, $fullPath)
+        }
+        $tempPath = $null
         return $true
     }
     catch {
         Write-Log ("Failed to save settings to {0}: {1}" -f $Path, $_.Exception.Message) -Level WARN -Quiet
         return $false
+    }
+    finally {
+        if ($tempPath -and (Test-Path -LiteralPath $tempPath)) { Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue }
     }
 }
 
@@ -945,7 +964,8 @@ function Initialize-SuiteTheme {
     $bc = [System.Windows.Media.BrushConverter]::new()
     $b = @{
         TitleBarActive    = $bc.ConvertFrom('#0078D4')
-        TitleBarInactive  = $bc.ConvertFrom('#5F6B7A')
+        TitleBarInactive  = $bc.ConvertFrom('#4BA3E0')
+        TitleBarInactiveText = $bc.ConvertFrom('#333333')
         DarkTitleBarInactive = $bc.ConvertFrom('#6B6B6B')
         DarkButtonBg      = $bc.ConvertFrom('#1E1E1E')
         DarkButtonBorder  = $bc.ConvertFrom('#8C8C8C')
@@ -960,6 +980,14 @@ function Initialize-SuiteTheme {
         LogLabelDark      = $bc.ConvertFrom('#B0B0B0')
         LogLabelLight     = $bc.ConvertFrom('#595959')
         OnBlue            = $bc.ConvertFrom('#FFFFFF')
+        AccentHoverLight  = $bc.ConvertFrom('#006CBE')
+        AccentPressedLight = $bc.ConvertFrom('#005A9E')
+        AccentHoverDark   = $bc.ConvertFrom('#5E6F80')
+        AccentPressedDark = $bc.ConvertFrom('#53626F')
+        NeutralHoverLight = $bc.ConvertFrom('#E6E6E6')
+        NeutralPressedLight = $bc.ConvertFrom('#CFCFCF')
+        NeutralHoverDark  = $bc.ConvertFrom('#3A3A3A')
+        NeutralPressedDark = $bc.ConvertFrom('#4A4A4A')
     }
     if ($Brushes) { foreach ($k in $Brushes.Keys) { $b[$k] = $Brushes[$k] } }
     $script:SuiteTheme = @{
@@ -1002,6 +1030,99 @@ function Update-TitleBarBrushes {
         $Window.WindowTitleBrush          = $ctx.Brushes.TitleBarActive
         $Window.NonActiveWindowTitleBrush = $ctx.Brushes.TitleBarInactive
     }
+    Register-SuiteTitleForeground -Window $Window -IsDark $IsDark
+    Set-SuiteAccentButtonResource -Window $Window -IsDark $IsDark
+}
+
+function Set-SuiteAccentButtonResource {
+    <#
+    .SYNOPSIS
+        Gives a window the explicit hover and pressed brushes of the accent button, and the template that uses them.
+    .DESCRIPTION
+        The MahApps accent button turns black (light theme) or white (dark theme) when pressed. A style that sets
+        Template to {DynamicResource SuiteAccentButtonTemplate} keeps the fill blue in every state: hover is one
+        darker step, pressed one more, white bold text stays at 4.5:1 or more. The brushes follow the theme and
+        change when the theme changes, because the template reads them with DynamicResource.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Adds resources to one window only.')]
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Window, [Nullable[bool]]$IsDark)
+    if ($Window -isnot [System.Windows.FrameworkElement]) { return }
+    $ctx = Get-SuiteThemeContext
+    $dark = if ($null -ne $IsDark) { [bool]$IsDark } else { [bool](& $ctx.IsDarkGetter) }
+    if (-not $Window.Resources.Contains('SuiteAccentButtonTemplate')) {
+        $xaml = @'
+<ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="Button">
+    <Border x:Name="Bd"
+            Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+            BorderThickness="{TemplateBinding BorderThickness}" SnapsToDevicePixels="True">
+        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                          Margin="{TemplateBinding Padding}" RecognizesAccessKey="True" SnapsToDevicePixels="True"/>
+    </Border>
+    <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True">
+            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SuiteAccentHover}"/>
+        </Trigger>
+        <Trigger Property="IsKeyboardFocused" Value="True">
+            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+        </Trigger>
+        <Trigger Property="IsPressed" Value="True">
+            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SuiteAccentPressed}"/>
+        </Trigger>
+        <Trigger Property="IsEnabled" Value="False">
+            <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
+        </Trigger>
+    </ControlTemplate.Triggers>
+</ControlTemplate>
+'@
+        $Window.Resources['SuiteAccentButtonTemplate'] = [System.Windows.Markup.XamlReader]::Parse($xaml)
+    }
+    if (-not $Window.Resources.Contains('SuiteNeutralButtonTemplate')) {
+        # The same template for the normal button: its own fill and border stay, hover and pressed move one step in the neutral family.
+        $neutral = $xaml.Replace('SuiteAccentHover', 'SuiteNeutralHover').Replace('SuiteAccentPressed', 'SuiteNeutralPressed')
+        $Window.Resources['SuiteNeutralButtonTemplate'] = [System.Windows.Markup.XamlReader]::Parse($neutral)
+    }
+    $Window.Resources['SuiteNeutralHover'] = $(if ($dark) { $ctx.Brushes.NeutralHoverDark } else { $ctx.Brushes.NeutralHoverLight })
+    $Window.Resources['SuiteNeutralPressed'] = $(if ($dark) { $ctx.Brushes.NeutralPressedDark } else { $ctx.Brushes.NeutralPressedLight })
+    $hover = if ($dark) { $ctx.Brushes.AccentHoverDark } else { $ctx.Brushes.AccentHoverLight }
+    $pressed = if ($dark) { $ctx.Brushes.AccentPressedDark } else { $ctx.Brushes.AccentPressedLight }
+    $Window.Resources['SuiteAccentHover'] = $hover
+    $Window.Resources['SuiteAccentPressed'] = $pressed
+}
+
+function Set-SuiteTitleForeground {
+    <#
+    .SYNOPSIS
+        Sets the caption text of a MetroWindow for its state: light theme, inactive: dark gray on the light blue bar;
+        every other state keeps the library text (white on the active blue bar and on the dark bars).
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Mutates in-window brush properties only; no external state.')]
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Window, [Nullable[bool]]$IsDark)
+    $ctx = Get-SuiteThemeContext
+    $dark = if ($null -ne $IsDark) { [bool]$IsDark } else { [bool](& $ctx.IsDarkGetter) }
+    if (-not $dark -and -not $Window.IsActive) {
+        $Window.TitleForeground = $ctx.Brushes.TitleBarInactiveText
+    } else {
+        $Window.ClearValue([MahApps.Metro.Controls.MetroWindow]::TitleForegroundProperty)
+    }
+}
+
+function Register-SuiteTitleForeground {
+    <#
+    .SYNOPSIS
+        Gives a MetroWindow the caption text of its state now and whenever it is activated or deactivated.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Mutates in-window brush properties only; no external state.')]
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Window, [Nullable[bool]]$IsDark)
+    if (-not $Window.Resources.Contains('SuiteTitleForegroundHooked')) {
+        $Window.Resources['SuiteTitleForegroundHooked'] = $true
+        $Window.Add_Activated({ param($sender, $e) try { Set-SuiteTitleForeground -Window $sender } catch { $null = $_ } })
+        $Window.Add_Deactivated({ param($sender, $e) try { Set-SuiteTitleForeground -Window $sender } catch { $null = $_ } })
+    }
+    Set-SuiteTitleForeground -Window $Window -IsDark $IsDark
 }
 
 # Light theme paints buttons blue. A plain MahApps Square button keeps the dark
@@ -1320,6 +1441,8 @@ function Set-DialogTheme {
         $Dialog.WindowTitleBrush          = $ctx.Brushes.TitleBarActive
         $Dialog.NonActiveWindowTitleBrush = $ctx.Brushes.TitleBarInactive
     }
+    Register-SuiteTitleForeground -Window $Dialog -IsDark $IsDark
+    Set-SuiteAccentButtonResource -Window $Dialog -IsDark $IsDark
 }
 
 # =============================================================================
@@ -1358,6 +1481,29 @@ function Show-ThemedMessage {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
+            <!-- The one button style of the dialog, the same as ThemedButtonStyle of the apps: the neutral template, the theme
+                 text color, no color literal. Every dialog button takes it or a style that is based on it. -->
+            <Style x:Key="ThemedButtonStyle" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray2}"/>
+                <Setter Property="Template" Value="{DynamicResource SuiteNeutralButtonTemplate}"/>
+                <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
+            </Style>
+            <Style x:Key="DialogButton" TargetType="Button" BasedOn="{StaticResource ThemedButtonStyle}">
+                <Setter Property="MinWidth" Value="90"/><Setter Property="Height" Value="32"/>
+                <Setter Property="Margin" Value="0,0,8,0"/>
+            </Style>
+            <Style x:Key="DialogAccentButton" TargetType="Button" BasedOn="{StaticResource ThemedButtonStyle}">
+                <Setter Property="Template" Value="{DynamicResource SuiteAccentButtonTemplate}"/>
+                <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.AccentBase}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.AccentBase}"/>
+                <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.IdealForeground}"/>
+                <Setter Property="MinWidth" Value="90"/><Setter Property="Height" Value="32"/>
+                <Setter Property="Margin" Value="0,0,8,0"/>
+            </Style>
         </ResourceDictionary>
     </Window.Resources>
     <Grid Margin="20,18,20,14">
@@ -1372,12 +1518,8 @@ function Show-ThemedMessage {
         <TextBlock x:Name="txtIcon" Grid.Row="0" Grid.Column="0" FontSize="20" VerticalAlignment="Top" Margin="0,0,14,0"/>
         <TextBlock x:Name="txtMsg"  Grid.Row="0" Grid.Column="1" FontSize="13" TextWrapping="Wrap" VerticalAlignment="Center"/>
         <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
-            <Button x:Name="btnPrimary"   MinWidth="90" Height="32" Margin="0,0,8,0" IsDefault="True"
-                    Style="{DynamicResource MahApps.Styles.Button.Square.Accent}"
-                    Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnSecondary" MinWidth="90" Height="32" IsCancel="True" Visibility="Collapsed"
-                    Style="{DynamicResource MahApps.Styles.Button.Square}"
-                    Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnPrimary"   IsDefault="True" Style="{StaticResource DialogAccentButton}"/>
+            <Button x:Name="btnSecondary" IsCancel="True" Visibility="Collapsed" Margin="0" Style="{StaticResource DialogButton}"/>
         </StackPanel>
     </Grid>
 </Controls:MetroWindow>
@@ -1400,6 +1542,8 @@ function Show-ThemedMessage {
         $dlg.GlowBrush                 = $Owner.GlowBrush
         $dlg.NonActiveGlowBrush        = $Owner.NonActiveGlowBrush
     } catch { $null = $_ }
+    # The caption text of the window state and the button templates of the dialog styles (safe before the theme is initialized).
+    try { Register-SuiteTitleForeground -Window $dlg; Set-SuiteAccentButtonResource -Window $dlg } catch { $null = $_ }
 
     $dlg.Title   = $Title
     $txtIcon     = $dlg.FindName('txtIcon')
@@ -1489,15 +1633,28 @@ function Show-ConfirmDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <Style x:Key="DialogButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="MinWidth" Value="90"/><Setter Property="Height" Value="32"/>
-                <Setter Property="Margin" Value="0,0,8,0"/>
+            <!-- The one button style of the dialog, the same as ThemedButtonStyle of the apps: the neutral template, the theme
+                 text color, no color literal. Every dialog button takes it or a style that is based on it. -->
+            <Style x:Key="ThemedButtonStyle" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray2}"/>
+                <Setter Property="Template" Value="{DynamicResource SuiteNeutralButtonTemplate}"/>
+                <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
                 <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
             </Style>
-            <Style x:Key="DialogAccentButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+            <Style x:Key="DialogButton" TargetType="Button" BasedOn="{StaticResource ThemedButtonStyle}">
                 <Setter Property="MinWidth" Value="90"/><Setter Property="Height" Value="32"/>
                 <Setter Property="Margin" Value="0,0,8,0"/>
-                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
+            </Style>
+            <Style x:Key="DialogAccentButton" TargetType="Button" BasedOn="{StaticResource ThemedButtonStyle}">
+                <Setter Property="Template" Value="{DynamicResource SuiteAccentButtonTemplate}"/>
+                <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.AccentBase}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.AccentBase}"/>
+                <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.IdealForeground}"/>
+                <Setter Property="MinWidth" Value="90"/><Setter Property="Height" Value="32"/>
+                <Setter Property="Margin" Value="0,0,8,0"/>
             </Style>
         </ResourceDictionary>
     </Window.Resources>
@@ -1530,6 +1687,8 @@ function Show-ConfirmDialog {
         $dlg.GlowBrush                 = $Owner.GlowBrush
         $dlg.NonActiveGlowBrush        = $Owner.NonActiveGlowBrush
     } catch { $null = $_ }
+    # The caption text of the window state and the button templates of the dialog styles (safe before the theme is initialized).
+    try { Register-SuiteTitleForeground -Window $dlg; Set-SuiteAccentButtonResource -Window $dlg } catch { $null = $_ }
     $dlg.FindName('txtMsg').Text = $Message
     $dlg.FindName('btnYes').Add_Click({ $dlg.DialogResult = $true;  $dlg.Close() })
     $dlg.FindName('btnNo').Add_Click({  $dlg.DialogResult = $false; $dlg.Close() })
@@ -1594,7 +1753,7 @@ function Stop-SuiteBgWork {
         BeginStop, not Stop: a synchronous Stop() blocks the UI thread for
         as long as the pipeline is stuck inside a CM/CIM call against an
         unresponsive provider. The stopping pipeline is parked in the
-        graveyard and reaped on a later pass once it has actually stopped.
+        graveyard and reaped on a later pass once it has stopped.
         Returns the surviving graveyard; wrap the result in @() at the
         call site (an emptied graveyard returns nothing).
     #>
@@ -1602,8 +1761,19 @@ function Stop-SuiteBgWork {
     param(
         $PowerShell,
         $Timer,
-        [array]$Graveyard = @()
+        [array]$Graveyard = @(),
+        $Handle,
+        [switch]$Discard
     )
+    # -Handle is the object of Start-SuiteBgWork. With -Discard the cancel flag is set (the worker stops before its next
+    # read), no more item or completion callback runs, and the pipeline is stopped without blocking the UI thread.
+    if ($Handle) {
+        $Handle.Discarded = [bool]$Discard
+        try { $Handle.State['Cancel'] = $true } catch { $null = $_ }
+        try { $Handle.State['Queue'].Clear() } catch { $null = $_ }
+        if (-not $PowerShell) { $PowerShell = $Handle.PowerShell }
+        if (-not $Timer) { $Timer = $Handle.Timer }
+    }
     if ($Timer) { try { $Timer.Stop() } catch { $null = $_ } }
     $yard = @($Graveyard)
     if ($PowerShell) {
@@ -1632,6 +1802,270 @@ function Close-SuiteBgRunspace {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Tears down ephemeral runspace plumbing.')]
     param($Runspace)
     if ($Runspace) { try { $Runspace.CloseAsync() } catch { $null = $_ } }
+}
+
+# =============================================================================
+# Loading robustness (Q-47): retry, member chunks, background work with cancel
+# =============================================================================
+
+function Test-SuiteTransientFault {
+    <#
+    .SYNOPSIS
+        True when an error looks like a network or provider hiccup that a retry can cure.
+    .DESCRIPTION
+        Timeouts, a lost connection, an unreachable RPC server or WinRM endpoint count.
+        A bad query, a missing object, denied access and a cancel do not.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$ErrorRecord)
+    $ex = if ($ErrorRecord -is [System.Management.Automation.ErrorRecord]) { $ErrorRecord.Exception } else { $ErrorRecord }
+    $text = ''
+    for ($e = $ex; $e; $e = $e.InnerException) { $text += ' ' + $e.GetType().Name + ' ' + $e.Message }
+    if ($text -match 'OperationCanceled|PipelineStopped') { return $false }
+    return [bool]($text -match '(?i)timed? ?out|timeout|RPC server|0x800706B[AE]|0x80041032|0x800704C[0-9A-F]|temporarily|unavailable|connection (was )?(closed|reset|lost|forcibly|refused)|network (path|name|error)|WinRM cannot|cannot connect|transport|socket|name could not be resolved|server too busy|too many requests|The specified network|provider load failure|shutting down|quota violation|0x80041013|0x80041033|0x8004106C')
+}
+
+function Invoke-SuiteCMRead {
+    <#
+    .SYNOPSIS
+        Runs a Configuration Manager read and retries it for transient faults only.
+    .DESCRIPTION
+        Up to MaxAttempts attempts, with DelaySeconds between them (2 s, then 6 s). Each failed attempt is logged.
+        A fault that is not transient is not retried. When the attempts are used up, the error is thrown, or, when
+        -Notes is given, one note is added to it and Default is returned, so that the rest of a load still shows.
+        -Cancel is a hashtable with a Cancel key: when the key is true, the call stops with an OperationCanceledException.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Runs a read only; changes nothing.')]
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][scriptblock]$ScriptBlock,
+        [string]$Description = 'Configuration Manager read',
+        [int]$MaxAttempts = 3,
+        [int[]]$DelaySeconds = @(2, 6),
+        [scriptblock]$IsTransient = { param($er) Test-SuiteTransientFault -ErrorRecord $er },
+        [System.Collections.IDictionary]$Cancel,
+        [System.Collections.IList]$Notes,
+        $Default = $null
+    )
+    for ($attempt = 1; ; $attempt++) {
+        if ($Cancel -and $Cancel['Cancel']) { throw (New-Object System.OperationCanceledException("$Description was cancelled.")) }
+        try {
+            $result = & $ScriptBlock
+            return $result
+        }
+        catch {
+            $err = $_
+            if ($err.Exception -is [System.OperationCanceledException]) { throw }
+            $transient = [bool](& $IsTransient $err)
+            if ($transient -and $attempt -lt $MaxAttempts) {
+                $delay = if ($DelaySeconds.Count -gt 0) { $DelaySeconds[[Math]::Min($attempt - 1, $DelaySeconds.Count - 1)] } else { 0 }
+                Write-Log ("{0}: attempt {1} of {2} failed ({3}); trying again in {4} s." -f $Description, $attempt, $MaxAttempts, $err.Exception.Message, $delay) -Level WARN
+                $until = (Get-Date).AddSeconds($delay)
+                while ((Get-Date) -lt $until) {
+                    if ($Cancel -and $Cancel['Cancel']) { throw (New-Object System.OperationCanceledException("$Description was cancelled.")) }
+                    Start-Sleep -Milliseconds 200
+                }
+                continue
+            }
+            $message = '{0} failed after {1} attempt(s): {2}' -f $Description, $attempt, $err.Exception.Message
+            Write-Log $message -Level WARN
+            if ($null -ne $Notes) { [void]$Notes.Add($message); return $Default }
+            throw
+        }
+    }
+}
+
+function Get-SuiteCMWqlReader {
+    # The default reader of the member helpers: one WQL query against the SMS Provider of the connected site.
+    [CmdletBinding()]
+    param([string]$ComputerName, [string]$Namespace, [int]$TimeoutSeconds = 120)
+    if (-not $ComputerName -or -not $Namespace) {
+        $info = Get-CMConnectionInfo
+        if (-not $info) { throw 'Not connected to a site: give -ComputerName and -Namespace, or connect first.' }
+        if (-not $ComputerName) { $ComputerName = $info.SMSProvider }
+        if (-not $Namespace) { $Namespace = 'root\sms\site_' + $info.SiteCode }
+    }
+    # On the provider computer itself (localhost or .) the read goes without -ComputerName, so no remote logon is needed.
+    if ($ComputerName -in 'localhost', '.') {
+        return { param($Query) Get-CimInstance -Namespace $Namespace -Query $Query -OperationTimeoutSec $TimeoutSeconds -ErrorAction Stop }.GetNewClosure()
+    }
+    return { param($Query) Get-CimInstance -ComputerName $ComputerName -Namespace $Namespace -Query $Query -OperationTimeoutSec $TimeoutSeconds -ErrorAction Stop }.GetNewClosure()
+}
+
+function Test-SuiteCollectionId {
+    param([string]$CollectionId)
+    return [bool]($CollectionId -match '^[A-Za-z0-9]{8}$')
+}
+
+function Get-SuiteCollectionMemberPlan {
+    <#
+    .SYNOPSIS
+        Reads only the ResourceIDs of a collection and cuts them into ResourceID ranges of ChunkSize members each.
+    .DESCRIPTION
+        One light read (one column) gives the exact boundaries, so each range returns ChunkSize rows whatever the
+        spread of the IDs is. Returns Total and Ranges (From, To, Count).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$CollectionId,
+        [int]$ChunkSize = 2000,
+        [scriptblock]$Reader
+    )
+    if (-not (Test-SuiteCollectionId $CollectionId)) { throw "Not a collection ID: '$CollectionId'." }
+    if ($ChunkSize -lt 1) { throw 'ChunkSize must be at least 1.' }
+    if (-not $Reader) { $Reader = Get-SuiteCMWqlReader }
+    $rows = @(& $Reader ('SELECT ResourceID FROM SMS_CM_RES_COLL_{0}' -f $CollectionId))
+    $ids = New-Object 'long[]' $rows.Count
+    for ($i = 0; $i -lt $rows.Count; $i++) { $ids[$i] = [long]$rows[$i].ResourceID }
+    [Array]::Sort($ids)
+    $ranges = New-Object System.Collections.Generic.List[object]
+    for ($start = 0; $start -lt $ids.Length; $start += $ChunkSize) {
+        $end = [Math]::Min($start + $ChunkSize, $ids.Length) - 1
+        $ranges.Add([pscustomobject]@{ From = $ids[$start]; To = $ids[$end]; Count = ($end - $start + 1) })
+    }
+    return [pscustomobject]@{ CollectionId = $CollectionId; Total = $ids.Length; Ranges = $ranges.ToArray() }
+}
+
+function Get-SuiteCollectionMemberChunk {
+    <#
+    .SYNOPSIS
+        Reads the members of one ResourceID range of a collection, with only the columns that the grids show.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$CollectionId,
+        [Parameter(Mandatory)][long]$FromResourceId,
+        [Parameter(Mandatory)][long]$ToResourceId,
+        [scriptblock]$Reader
+    )
+    if (-not (Test-SuiteCollectionId $CollectionId)) { throw "Not a collection ID: '$CollectionId'." }
+    if (-not $Reader) { $Reader = Get-SuiteCMWqlReader }
+    $query = 'SELECT ResourceID, Name, Domain, IsClient, IsActive FROM SMS_CM_RES_COLL_{0} WHERE ResourceID >= {1} AND ResourceID <= {2}' -f $CollectionId, $FromResourceId, $ToResourceId
+    foreach ($m in @(& $Reader $query)) {
+        [pscustomobject]@{ Name = $m.Name; ResourceID = $m.ResourceID; Domain = $m.Domain; IsClient = $m.IsClient; IsActive = $m.IsActive }
+    }
+}
+
+function Read-SuiteCollectionMember {
+    <#
+    .SYNOPSIS
+        Worker for a member load. Runs in the background runspace and fills State.Queue with one array per chunk.
+    .DESCRIPTION
+        State is the hashtable of Start-SuiteBgWork (Queue, Cancel, Notes, Progress). Every read goes through
+        Invoke-SuiteCMRead: a transient fault is retried; a chunk that still fails adds one note and the load goes on
+        with the next chunk, so the grid keeps the partial data. The cancel flag is read before every chunk.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$State,
+        [Parameter(Mandatory)][string]$CollectionId,
+        [int]$ChunkSize = 2000,
+        [scriptblock]$Reader,
+        [int[]]$DelaySeconds = @(2, 6),
+        [string]$ComputerName,
+        [string]$Namespace
+    )
+    # A fresh background runspace has no connection record: the shell passes the provider and the namespace.
+    if (-not $Reader) { $Reader = Get-SuiteCMWqlReader -ComputerName $ComputerName -Namespace $Namespace }
+    $plan = Invoke-SuiteCMRead -Description "Member IDs of $CollectionId" -Cancel $State -DelaySeconds $DelaySeconds -ScriptBlock {
+        Get-SuiteCollectionMemberPlan -CollectionId $CollectionId -ChunkSize $ChunkSize -Reader $Reader
+    }
+    $State['Total'] = $plan.Total
+    $loaded = 0
+    foreach ($range in $plan.Ranges) {
+        if ($State['Cancel']) { throw (New-Object System.OperationCanceledException("The member load of $CollectionId was cancelled.")) }
+        $rows = @(Invoke-SuiteCMRead -Description ("Members {0}-{1} of {2}" -f $range.From, $range.To, $CollectionId) -Cancel $State -DelaySeconds $DelaySeconds -Notes $State['Notes'] -Default @() -ScriptBlock {
+                Get-SuiteCollectionMemberChunk -CollectionId $CollectionId -FromResourceId $range.From -ToResourceId $range.To -Reader $Reader
+            })
+        $loaded += $rows.Count
+        $State['Loaded'] = $loaded
+        $State['Progress'] = 'Loaded {0} of {1} members' -f $loaded, $plan.Total
+        if ($rows.Count -gt 0) { $State['Queue'].Enqueue($rows) }
+    }
+}
+
+function Start-SuiteBgWork {
+    <#
+    .SYNOPSIS
+        Runs a script in the background runspace and hands its output to the UI thread in pieces.
+    .DESCRIPTION
+        ScriptBlock gets the shared State hashtable first, then ArgumentList. It runs in the runspace, so it cannot use
+        variables of the caller (it is passed as text). State has Queue (items for OnItem), Notes, Progress, Cancel,
+        Done and Error. A timer on the UI thread calls Receive-SuiteBgWork: OnItem runs for each queued item (at most
+        MaxItemsPerTick per tick), OnDone runs once when the work has ended and the queue is empty. No Configuration
+        Manager call runs on the UI thread. Stop it with Stop-SuiteBgWork -Handle $h -Discard.
+        Pass -NoTimer to drive Receive-SuiteBgWork yourself (tests).
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Starts ephemeral background plumbing only.')]
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Runspace,
+        [Parameter(Mandatory)][scriptblock]$ScriptBlock,
+        [object[]]$ArgumentList = @(),
+        [scriptblock]$OnItem,
+        [scriptblock]$OnDone,
+        [int]$IntervalMs = 100,
+        [int]$MaxItemsPerTick = 4,
+        [switch]$NoTimer
+    )
+    $state = [hashtable]::Synchronized(@{
+            Queue    = [System.Collections.Queue]::Synchronized((New-Object System.Collections.Queue))
+            Notes    = [System.Collections.ArrayList]::Synchronized((New-Object System.Collections.ArrayList))
+            Progress = ''
+            Cancel   = $false
+            Done     = $false
+            Error    = $null
+            Total    = 0
+            Loaded   = 0
+        })
+    $ps = [powershell]::Create()
+    $ps.Runspace = $Runspace
+    [void]$ps.AddScript({
+            param($State, $ScriptText, $Arguments)
+            try { & ([scriptblock]::Create($ScriptText)) $State @Arguments }
+            catch { if ($_.Exception -isnot [System.OperationCanceledException]) { $State['Error'] = $_.Exception.Message } else { $State['Cancelled'] = $true } }
+            finally { $State['Done'] = $true }
+        }).AddArgument($state).AddArgument($ScriptBlock.ToString()).AddArgument($ArgumentList)
+    $handle = [pscustomobject]@{
+        State = $state; PowerShell = $ps; Async = $null; Timer = $null; OnItem = $OnItem; OnDone = $OnDone
+        MaxItemsPerTick = $MaxItemsPerTick; Finished = $false; Discarded = $false
+    }
+    $handle.Async = $ps.BeginInvoke()
+    if (-not $NoTimer) {
+        $timer = New-Object System.Windows.Threading.DispatcherTimer
+        $timer.Interval = [TimeSpan]::FromMilliseconds($IntervalMs)
+        $timer.Tag = $handle
+        $timer.Add_Tick({ Receive-SuiteBgWork -Handle $this.Tag })
+        $handle.Timer = $timer
+        $timer.Start()
+    }
+    return $handle
+}
+
+function Receive-SuiteBgWork {
+    <#
+    .SYNOPSIS
+        One tick of a Start-SuiteBgWork handle: passes queued items to OnItem, and calls OnDone at the end.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Handle)
+    if ($Handle.Finished -or $Handle.Discarded) { return $true }
+    $state = $Handle.State
+    $count = 0
+    while ($count -lt $Handle.MaxItemsPerTick -and $state['Queue'].Count -gt 0) {
+        $item = $state['Queue'].Dequeue()
+        $count++
+        if ($Handle.OnItem) { try { & $Handle.OnItem $item $state } catch { Write-Log ("Background work item failed: {0}" -f $_.Exception.Message) -Level WARN } }
+    }
+    if ($state['Done'] -and $state['Queue'].Count -eq 0) {
+        $Handle.Finished = $true
+        if ($Handle.Timer) { try { $Handle.Timer.Stop() } catch { $null = $_ } }
+        try { [void]$Handle.PowerShell.EndInvoke($Handle.Async) } catch { $null = $_ }
+        try { $Handle.PowerShell.Dispose() } catch { $null = $_ }
+        if ($Handle.OnDone) { try { & $Handle.OnDone $state } catch { Write-Log ("Background work completion failed: {0}" -f $_.Exception.Message) -Level WARN } }
+        return $true
+    }
+    return $false
 }
 
 # =============================================================================
@@ -1754,15 +2188,28 @@ function Show-CollectionPickerDialog {
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <Style x:Key="DialogButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
-                <Setter Property="MinWidth" Value="90"/><Setter Property="Height" Value="32"/>
-                <Setter Property="Margin" Value="0,0,8,0"/>
+            <!-- The one button style of the dialog, the same as ThemedButtonStyle of the apps: the neutral template, the theme
+                 text color, no color literal. Every dialog button takes it or a style that is based on it. -->
+            <Style x:Key="ThemedButtonStyle" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square}">
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray2}"/>
+                <Setter Property="Template" Value="{DynamicResource SuiteNeutralButtonTemplate}"/>
+                <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.ThemeForeground}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
                 <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
             </Style>
-            <Style x:Key="DialogAccentButton" TargetType="Button" BasedOn="{StaticResource MahApps.Styles.Button.Square.Accent}">
+            <Style x:Key="DialogButton" TargetType="Button" BasedOn="{StaticResource ThemedButtonStyle}">
                 <Setter Property="MinWidth" Value="90"/><Setter Property="Height" Value="32"/>
                 <Setter Property="Margin" Value="0,0,8,0"/>
-                <Setter Property="Controls:ControlsHelper.ContentCharacterCasing" Value="Normal"/>
+            </Style>
+            <Style x:Key="DialogAccentButton" TargetType="Button" BasedOn="{StaticResource ThemedButtonStyle}">
+                <Setter Property="Template" Value="{DynamicResource SuiteAccentButtonTemplate}"/>
+                <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.AccentBase}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.AccentBase}"/>
+                <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.IdealForeground}"/>
+                <Setter Property="MinWidth" Value="90"/><Setter Property="Height" Value="32"/>
+                <Setter Property="Margin" Value="0,0,8,0"/>
             </Style>
         </ResourceDictionary>
     </Window.Resources>
@@ -2217,3 +2664,339 @@ function Start-SuiteUpdateNotice {
     }
     catch { return $null }
 }
+
+#region Window test helpers (measurement only; no assertions)
+# These functions are for window tests that run in an STA runspace with a shown window.
+# The state report needs the real mouse, so it belongs to a visible run (SUITE_VISIBLE_WINDOWS=1).
+
+function Get-SuiteContrastRatio {
+    <#
+    .SYNOPSIS
+        WCAG contrast ratio of two colors (1 to 21).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Windows.Media.Color]$Foreground,
+        [Parameter(Mandatory)][System.Windows.Media.Color]$Background
+    )
+    $lum = {
+        param($c)
+        $f = { param($v) $v = $v / 255.0; if ($v -le 0.04045) { $v / 12.92 } else { [math]::Pow(($v + 0.055) / 1.055, 2.4) } }
+        0.2126 * (& $f $c.R) + 0.7152 * (& $f $c.G) + 0.0722 * (& $f $c.B)
+    }
+    $l1 = & $lum $Foreground
+    $l2 = & $lum $Background
+    if ($l1 -lt $l2) { $t = $l1; $l1 = $l2; $l2 = $t }
+    return (($l1 + 0.05) / ($l2 + 0.05))
+}
+
+function Get-SuiteVisualDescendant {
+    <#
+    .SYNOPSIS
+        All visual descendants of an element, depth first.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Element)
+    $list = New-Object System.Collections.Generic.List[object]
+    $walk = {
+        param($e)
+        $n = [System.Windows.Media.VisualTreeHelper]::GetChildrenCount($e)
+        for ($i = 0; $i -lt $n; $i++) {
+            $c = [System.Windows.Media.VisualTreeHelper]::GetChild($e, $i)
+            $list.Add($c)
+            & $walk $c
+        }
+    }
+    & $walk $Element
+    return $list.ToArray()
+}
+
+function Test-SuiteVisibleInTree {
+    <#
+    .SYNOPSIS
+        True when an element and all of its ancestors are visible.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Element)
+    $e = $Element
+    while ($e) {
+        if ($e -is [System.Windows.UIElement] -and $e.Visibility -ne [System.Windows.Visibility]::Visible) { return $false }
+        $e = [System.Windows.Media.VisualTreeHelper]::GetParent($e)
+    }
+    return $true
+}
+
+function Get-SuiteButtonRow {
+    <#
+    .SYNOPSIS
+        One row per visible text button of a window: name, text, font weight, border thickness and border/foreground colors.
+    .DESCRIPTION
+        Window command buttons (minimize, maximize, close), toggle buttons and the template buttons of other controls are skipped.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Window, [string]$Label = '')
+    $hex = { param($b) if ($b -is [System.Windows.Media.SolidColorBrush]) { $b.Color.ToString() } else { '' } }
+    $rows = New-Object System.Collections.Generic.List[object]
+    foreach ($d in (Get-SuiteVisualDescendant -Element $Window)) {
+        if ($d -isnot [System.Windows.Controls.Primitives.ButtonBase] -or $d -is [System.Windows.Controls.Primitives.ToggleButton]) { continue }
+        if ($d.GetType().Name -ne 'Button') { continue }
+        if ($d.TemplatedParent -and $d.TemplatedParent.GetType().Name -ne 'Button') { continue }
+        if (-not (Test-SuiteVisibleInTree -Element $d)) { continue }
+        $content = if ($d.Content -is [string]) { $d.Content } else { $d.Name }
+        if (-not $content) { continue }
+        $rows.Add([pscustomobject]@{
+                Window          = $Label
+                Name            = $d.Name
+                Text            = [string]$content
+                Weight          = $d.FontWeight.ToOpenTypeWeight()
+                BorderThickness = [math]::Max([math]::Max($d.BorderThickness.Left, $d.BorderThickness.Right), [math]::Max($d.BorderThickness.Top, $d.BorderThickness.Bottom))
+                BorderColor     = (& $hex $d.BorderBrush)
+                ForegroundColor = (& $hex $d.Foreground)
+            })
+    }
+    return $rows.ToArray()
+}
+
+function Get-SuiteWindowChrome {
+    <#
+    .SYNOPSIS
+        Title bar brushes, title text contrast and button rows of a shown MetroWindow.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Window, [string]$Label = '')
+    $hex = { param($b) if ($b -is [System.Windows.Media.SolidColorBrush]) { $b.Color.ToString() } else { '' } }
+    $act = $Window.WindowTitleBrush
+    # The bar in effect: the active brush while the window is active, the inactive brush otherwise. The caption text is measured on it.
+    $now = if ($Window.IsActive) { $act } else { $Window.NonActiveWindowTitleBrush }
+    $text = if ($Window.TitleForeground -is [System.Windows.Media.SolidColorBrush]) { $Window.TitleForeground.Color } else { [System.Windows.Media.Colors]::White }
+    $ratio = 0.0
+    if ($now -is [System.Windows.Media.SolidColorBrush]) { $ratio = [math]::Round((Get-SuiteContrastRatio -Foreground $text -Background $now.Color), 2) }
+    $themeText = ''
+    try { $themeText = & $hex $Window.FindResource('MahApps.Brushes.ThemeForeground') } catch { $null = $_ }
+    return [pscustomobject]@{
+        Title      = [string]$Window.Title
+        Label      = $Label
+        Active     = (& $hex $act)
+        Inactive   = (& $hex $Window.NonActiveWindowTitleBrush)
+        IsActive   = [bool]$Window.IsActive
+        TitleBrushNow = (& $hex $now)
+        TitleText  = $text.ToString()
+        TitleRatio = $ratio
+        ThemeText  = $themeText
+        Buttons    = @(Get-SuiteButtonRow -Window $Window -Label $Label)
+    }
+}
+
+function Get-SuiteRelativeLuminance {
+    <#
+    .SYNOPSIS
+        WCAG relative luminance of a color (0 black to 1 white).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][System.Windows.Media.Color]$Color)
+    $f = { param($v) $v = $v / 255.0; if ($v -le 0.04045) { $v / 12.92 } else { [math]::Pow(($v + 0.055) / 1.055, 2.4) } }
+    return (0.2126 * (& $f $Color.R) + 0.7152 * (& $f $Color.G) + 0.0722 * (& $f $Color.B))
+}
+
+function Get-SuiteWindowBody {
+    <#
+    .SYNOPSIS
+        Body colors of a shown window: surface, text, and the input controls (text boxes, combo boxes, lists, grids).
+    .DESCRIPTION
+        BackLuminance tells a light surface from a dark one. TextRatio is the contrast of the window text on the surface.
+        Each input row has the luminance of its background, the contrast of its text on that background and the contrast of
+        its border on the surface. A dark dialog body in the light theme (or the other way round) shows in BackLuminance.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Window, [string]$Label = '')
+    $solid = { param($b) if ($b -is [System.Windows.Media.SolidColorBrush]) { $b.Color } else { $null } }
+    $over = {
+        param($c, $bg)
+        $a = $c.A / 255.0
+        [System.Windows.Media.Color]::FromRgb([byte]($c.R * $a + $bg.R * (1 - $a)), [byte]($c.G * $a + $bg.G * (1 - $a)), [byte]($c.B * $a + $bg.B * (1 - $a)))
+    }
+    $back = & $solid $Window.Background
+    if (-not $back) { $back = [System.Windows.Media.Colors]::Transparent }
+    $text = & $solid $Window.Foreground
+    $rows = New-Object System.Collections.Generic.List[object]
+    $kinds = 'TextBox', 'PasswordBox', 'ComboBox', 'ListBox', 'ListView', 'DataGrid', 'TreeView', 'DatePicker'
+    foreach ($d in (Get-SuiteVisualDescendant -Element $Window)) {
+        $kind = $d.GetType().Name
+        if ($kind -notin $kinds -or -not (Test-SuiteVisibleInTree -Element $d) -or $d.ActualWidth -lt 10) { continue }
+        $bg = & $solid $d.Background
+        $fg = & $solid $d.Foreground
+        $bd = & $solid $d.BorderBrush
+        $bgOpaque = if ($bg -and $back) { & $over $bg $back } else { $back }
+        $row = [ordered]@{ Kind = $kind; Name = [string]$d.Name; BackLuminance = $null; TextRatio = $null; BorderRatio = $null }
+        if ($bgOpaque) { $row.BackLuminance = [math]::Round((Get-SuiteRelativeLuminance -Color $bgOpaque), 3) }
+        if ($bgOpaque -and $fg) { $row.TextRatio = [math]::Round((Get-SuiteContrastRatio -Foreground (& $over $fg $bgOpaque) -Background $bgOpaque), 2) }
+        if ($bd -and $back -and $d.BorderThickness.Left -gt 0) { $row.BorderRatio = [math]::Round((Get-SuiteContrastRatio -Foreground (& $over $bd $back) -Background $back), 2) }
+        $rows.Add([pscustomobject]$row)
+    }
+    return [pscustomobject]@{
+        Title         = [string]$Window.Title
+        Label         = $Label
+        BackLuminance = $(if ($back.A -gt 0) { [math]::Round((Get-SuiteRelativeLuminance -Color $back), 3) } else { $null })
+        TextRatio     = $(if ($back.A -gt 0 -and $text) { [math]::Round((Get-SuiteContrastRatio -Foreground $text -Background $back), 2) } else { $null })
+        Inputs        = $rows.ToArray()
+    }
+}
+function Close-SuiteOpenWindow {
+    <#
+    .SYNOPSIS
+        Closes every WPF window that is still open in this runspace; returns the titles of the windows it closed.
+    .DESCRIPTION
+        For window tests: call it in a finally block of the test (or after each STA call), so that no window stays on the
+        desktop of the lab computer. It finds the windows through the presentation sources, so it needs no Application object.
+        Run it on the thread that owns the windows (the STA thread).
+    #>
+    [CmdletBinding()]
+    param()
+    $closed = New-Object System.Collections.Generic.List[string]
+    foreach ($source in @([System.Windows.PresentationSource]::CurrentSources)) {
+        $w = $source.RootVisual
+        if ($w -is [System.Windows.Window]) {
+            $closed.Add([string]$w.Title)
+            try { $w.Close() } catch { $null = $_ }
+        }
+    }
+    return $closed.ToArray()
+}
+function Get-SuiteTitleBarContrast {
+    <#
+    .SYNOPSIS
+        Contrast of the caption text on the active and on the inactive title bar, each with the text of its own state.
+    .DESCRIPTION
+        Active: white (library text) on the active bar. Inactive: in the light theme the dark caption text
+        (TitleBarInactiveText) on the light blue bar, in the dark theme white on the gray bar. A window that is
+        active or inactive at the time of the call gives the same answer, because the text of each state is taken
+        from the palette, not from the window.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Window, [Nullable[bool]]$IsDark)
+    $ctx = Get-SuiteThemeContext
+    $dark = if ($null -ne $IsDark) { [bool]$IsDark } else { [bool](& $ctx.IsDarkGetter) }
+    $white = [System.Windows.Media.Colors]::White
+    $inactiveText = if ($dark) { $white } else { $ctx.Brushes.TitleBarInactiveText.Color }
+    $result = [ordered]@{ Active = $null; Inactive = $null }
+    $states = @(@{ Name = 'Active'; Brush = $Window.WindowTitleBrush; Text = $white }, @{ Name = 'Inactive'; Brush = $Window.NonActiveWindowTitleBrush; Text = $inactiveText })
+    foreach ($s in $states) {
+        if ($s.Brush -isnot [System.Windows.Media.SolidColorBrush]) { continue }
+        $result[$s.Name] = [math]::Round((Get-SuiteContrastRatio -Foreground $s.Text -Background $s.Brush.Color), 2)
+    }
+    return [pscustomobject]$result
+}
+function Get-SuiteButtonStateReport {
+    <#
+    .SYNOPSIS
+        Measures the normal, focus, hover and pressed states of the buttons of a shown window with the real mouse.
+    .DESCRIPTION
+        Samples the visible, enabled buttons (one per distinct style, at most -Max). For each state it reads the colors
+        that the template shows: Text is the contrast of the button text on the button fill (the backdrop where the fill is
+        transparent) and Edge is the larger contrast of the border or fill on the backdrop. The mouse is parked at the
+        bottom right corner of the screen, and the mouse button goes up while the pointer is off the button, so the pointer does not trigger
+        the button. Hover, Pressed and Focused tell whether the state was reached. Needs the visible labadmin session.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Window,
+        [bool]$Dark = $false,
+        [int]$Max = 6
+    )
+    if (-not ('SuiteStateUi' -as [type])) {
+        Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class SuiteStateUi { [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y); [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint dx, uint dy, uint d, UIntPtr e); }'
+    }
+    $w = $Window
+    $pump = {
+        param($win, $n)
+        for ($i = 0; $i -lt $n; $i++) {
+            $win.Dispatcher.Invoke([action] {}, [System.Windows.Threading.DispatcherPriority]::Background)
+            Start-Sleep -Milliseconds 40
+        }
+    }
+    $solid = { param($b) if ($b -is [System.Windows.Media.SolidColorBrush]) { $b.Color } else { $null } }
+    $over = {
+        param($c, $bg)
+        $a = $c.A / 255.0
+        [System.Windows.Media.Color]::FromRgb([byte]($c.R * $a + $bg.R * (1 - $a)), [byte]($c.G * $a + $bg.G * (1 - $a)), [byte]($c.B * $a + $bg.B * (1 - $a)))
+    }
+    $winBg = & $solid $w.Background
+    if (-not $winBg) { $winBg = $(if ($Dark) { [System.Windows.Media.Colors]::Black } else { [System.Windows.Media.Colors]::White }) }
+    $backdropOf = {
+        param($el)
+        $parent = [System.Windows.Media.VisualTreeHelper]::GetParent($el)
+        while ($parent) {
+            $b = $null
+            if ($parent -is [System.Windows.Controls.Border]) { $b = $parent.Background }
+            elseif ($parent -is [System.Windows.Controls.Panel]) { $b = $parent.Background }
+            elseif ($parent -is [System.Windows.Controls.Control]) { $b = $parent.Background }
+            $c = & $solid $b
+            if ($c -and $c.A -eq 255) { return $c }
+            $parent = [System.Windows.Media.VisualTreeHelper]::GetParent($parent)
+        }
+        return $winBg
+    }
+    $readState = {
+        param($btn, $backdrop)
+        $cp = $null; $fill = $null; $border = $null
+        foreach ($d in (Get-SuiteVisualDescendant -Element $btn)) {
+            if (-not $cp -and $d -is [System.Windows.Controls.ContentPresenter]) { $cp = $d }
+            $bgBrush = $null
+            if ($d -is [System.Windows.Controls.Border]) { $bgBrush = $d.Background } elseif ($d -is [System.Windows.Controls.Panel]) { $bgBrush = $d.Background }
+            if (-not $fill -and $bgBrush) { $c = & $solid $bgBrush; if ($c -and $c.A -gt 0) { $fill = $c } }
+            if (-not $border -and $d -is [System.Windows.Controls.Border] -and $d.BorderThickness.Left -gt 0) { $c = & $solid $d.BorderBrush; if ($c -and $c.A -gt 0) { $border = $c } }
+        }
+        if (-not $fill) { $c = & $solid $btn.Background; if ($c -and $c.A -gt 0) { $fill = $c } }
+        if (-not $border -and $btn.BorderThickness.Left -gt 0) { $c = & $solid $btn.BorderBrush; if ($c -and $c.A -gt 0) { $border = $c } }
+        $fillOpaque = if ($fill) { & $over $fill $backdrop } else { $backdrop }
+        $text = & $solid ([System.Windows.Documents.TextElement]::GetForeground($(if ($cp) { $cp } else { $btn })))
+        if (-not $text) { $text = & $solid $btn.Foreground }
+        $textOpaque = & $over $text $fillOpaque
+        $edge = 0.0
+        if ($border) { $edge = [math]::Max($edge, (Get-SuiteContrastRatio -Foreground (& $over $border $backdrop) -Background $backdrop)) }
+        if ($fill) { $edge = [math]::Max($edge, (Get-SuiteContrastRatio -Foreground $fillOpaque -Background $backdrop)) }
+        [pscustomobject]@{ Text = [math]::Round((Get-SuiteContrastRatio -Foreground $textOpaque -Background $fillOpaque), 2); Edge = [math]::Round($edge, 2); Fill = $fillOpaque.ToString(); FillLuminance = [math]::Round((Get-SuiteRelativeLuminance -Color $fillOpaque), 4); Blue = (($fillOpaque.B - $fillOpaque.R) -ge 20) }
+    }
+    $seen = @{}
+    $sample = New-Object System.Collections.Generic.List[object]
+    foreach ($d in (Get-SuiteVisualDescendant -Element $w)) {
+        if ($d.GetType().Name -ne 'Button' -or -not $d.IsEnabled -or -not (Test-SuiteVisibleInTree -Element $d) -or $d.ActualWidth -lt 20) { continue }
+        if ($d.TemplatedParent) { continue }
+        $k = if ($d.Style) { [string]$d.Style.GetHashCode() } else { 'default' }
+        if ($seen.ContainsKey($k)) { continue }
+        $seen[$k] = $true
+        $sample.Add($d)
+        if ($sample.Count -ge $Max) { break }
+    }
+    $px = [int]([System.Windows.SystemParameters]::VirtualScreenWidth - 5)
+    $py = [int]([System.Windows.SystemParameters]::VirtualScreenHeight - 5)
+    $rows = New-Object System.Collections.Generic.List[object]
+    foreach ($btn in $sample) {
+        $name = if ($btn.Name) { $btn.Name } else { [string]$btn.Content }
+        $backdrop = & $backdropOf $btn
+        $pt = $btn.PointToScreen((New-Object System.Windows.Point ($btn.ActualWidth / 2), ($btn.ActualHeight / 2)))
+        $states = [ordered]@{}
+        [void][SuiteStateUi]::SetCursorPos($px, $py); Start-Sleep -Milliseconds 400; & $pump $w 2
+        $states['normal'] = & $readState $btn $backdrop
+        [void]$w.Activate(); [void]$btn.Focus(); Start-Sleep -Milliseconds 500; & $pump $w 2
+        $focused = $btn.IsKeyboardFocused
+        $states['focus'] = & $readState $btn $backdrop
+        [void][SuiteStateUi]::SetCursorPos([int]$pt.X, [int]$pt.Y); Start-Sleep -Milliseconds 600; & $pump $w 2
+        $hover = $btn.IsMouseOver
+        $states['hover'] = & $readState $btn $backdrop
+        $pressed = $false
+        try {
+            [SuiteStateUi]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 500; & $pump $w 2
+            $pressed = $btn.IsPressed
+            $states['pressed'] = & $readState $btn $backdrop
+        }
+        finally {
+            # Leave the button before the mouse button goes up, so that no click happens. The mouse button always goes up.
+            [void][SuiteStateUi]::SetCursorPos($px, $py); Start-Sleep -Milliseconds 300
+            [SuiteStateUi]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 300
+        }
+        $rows.Add([pscustomobject]@{ Name = $name; Hover = $hover; Pressed = $pressed; Focused = $focused; States = $states })
+    }
+    return $rows.ToArray()
+}
+#endregion
