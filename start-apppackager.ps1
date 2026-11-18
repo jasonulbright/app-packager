@@ -5438,6 +5438,10 @@ $menuCopyLatestVersion.Header = "Copy Latest Version"
 $menuEditApplication = New-Object System.Windows.Controls.MenuItem
 $menuEditApplication.Header = "Edit application..."
 
+$menuOldApplication = New-Object System.Windows.Controls.MenuItem
+$menuOldApplication.Header = "Use as old application..."
+$menuOldApplication.ToolTip = "Link an application of the site as the older version of this one for supersedence."
+
 # The CVE source submenu is rebuilt for the selected row each time the menu opens.
 $menuOpenCveSources = New-Object System.Windows.Controls.MenuItem
 $menuOpenCveSources.Header = "Open CVE Sources"
@@ -5447,6 +5451,7 @@ $menuCopyCveIds.Header = "Copy CVE IDs"
 $menuSep0 = New-Object System.Windows.Controls.Separator
 
 $contextMenu.Items.Add($menuEditApplication) | Out-Null
+$contextMenu.Items.Add($menuOldApplication) | Out-Null
 $contextMenu.Items.Add($menuSep0) | Out-Null
 $contextMenu.Items.Add($menuOpenLogFolder) | Out-Null
 $contextMenu.Items.Add($menuOpenStagedFolder) | Out-Null
@@ -5465,6 +5470,12 @@ $menuEditApplication.Add_Click({
     $base = ''
     if ($row) { $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script) }
     Show-ApplicationWorkbench -Owner $window -PreselectPackagerBase $base
+})
+
+$menuOldApplication.Add_Click({
+    $row = $dataGrid.SelectedItem
+    if (-not $row) { return }
+    Open-OldApplicationDialog -Owner $window -Row $row
 })
 
 $dataGrid.Add_MouseDoubleClick({
@@ -6535,6 +6546,195 @@ function Show-ExistingConflictDialog {
     $dlg.FindName('btnCancel').Add_Click({ $script:ConflictDialogChoice = 'Cancel'; $dlg.Close() })
     [void]$dlg.ShowDialog()
     return @{ Choice = [string]$script:ConflictDialogChoice; ApplyToAll = [bool]$chkAll.IsChecked }
+}
+
+function Show-OldApplicationDialog {
+    # "Use this as the old application": lists the applications of the site whose name contains a text, with the reason for each
+    # one that cannot be linked, and writes the identity marker of the line into the keywords of the one that is chosen, after a
+    # confirmation. Remove Link takes the marker off again. The three script blocks are the site reads and writes; the probe
+    # replaces them. Probe receives the window internals instead of showing the window.
+    param(
+        [AllowNull()]$Owner,
+        [Parameter(Mandatory)][string]$NewTitle,
+        [Parameter(Mandatory)][string]$NewVersion,
+        [Parameter(Mandatory)][string]$Marker,
+        [AllowEmptyString()][string]$SearchText = '',
+        [scriptblock]$Search = $null,
+        [scriptblock]$Link = $null,
+        [scriptblock]$Unlink = $null,
+        [scriptblock]$Probe = $null
+    )
+    if (-not $Search) { $Search = { param($Text) @(Get-SupersedenceOldApplicationCandidateFromSite -Marker $Marker -NewTitle $NewTitle -NewVersion $NewVersion -NameContains $Text) }.GetNewClosure() }
+    if (-not $Link) { $Link = { param($Name) Set-SupersedenceOldApplication -ApplicationName $Name -Marker $Marker -Confirmed }.GetNewClosure() }
+    if (-not $Unlink) { $Unlink = { param($Name) Clear-SupersedenceOldApplication -ApplicationName $Name -Marker $Marker -Confirmed }.GetNewClosure() }
+
+    $dlgXaml = @'
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="Old Application" Width="860" Height="560" MinWidth="720" MinHeight="420"
+    WindowStartupLocation="CenterOwner" TitleCharacterCasing="Normal"
+    ShowIconOnTitleBar="False" GlowBrush="{DynamicResource MahApps.Brushes.Accent}" BorderThickness="1">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <!--SHARED_STYLES-->        </ResourceDictionary>
+    </Window.Resources>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock x:Name="txtIntro" Grid.Row="0" FontSize="12" TextWrapping="Wrap" Margin="16,12,16,8"/>
+        <DockPanel Grid.Row="1" Margin="16,0,16,8">
+            <Button x:Name="btnSearch" DockPanel.Dock="Right" Content="Search" Margin="8,0,0,0"
+                    Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                    ToolTip="List the applications of the site whose name contains the text."/>
+            <TextBox x:Name="txtSearch" Height="30" FontSize="12" VerticalContentAlignment="Center"
+                     ToolTip="Part of the name of the older application."/>
+        </DockPanel>
+        <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="2" x:Name="gridCandidates" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single"
+                  CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Application" Binding="{Binding Title}" Width="*" MinWidth="240"/>
+                <DataGridTextColumn MinWidth="100" Header="Version" Binding="{Binding SoftwareVersion}" Width="110"/>
+                <DataGridTextColumn MinWidth="120" Header="Status" Binding="{Binding State}" Width="150"/>
+                <DataGridTextColumn MinWidth="200" Header="Note" Binding="{Binding Reason}" Width="300"/>
+            </DataGrid.Columns>
+        </DataGrid>
+        <TextBlock x:Name="txtStatus" Grid.Row="3" FontSize="12" TextWrapping="Wrap" Margin="16,0,16,8"/>
+        <Border Grid.Row="4" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
+            <DockPanel Margin="16,10,16,10">
+                <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" IsCancel="True"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="btnUse" Content="Use as Old Application" Margin="0,0,8,0"
+                            Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            ToolTip="Write the marker of this product line into the selected application, after you confirm."/>
+                    <Button x:Name="btnRemove" Content="Remove Link"
+                            Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                            ToolTip="Take the marker off the selected application."/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Controls:MetroWindow>
+'@
+    [xml]$xml = Expand-SharedStyle $dlgXaml
+    $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
+    Install-TitleBarDragFallback -Window $dlg
+    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
+
+    $txtIntro = $dlg.FindName('txtIntro'); $txtSearch = $dlg.FindName('txtSearch'); $grid = $dlg.FindName('gridCandidates'); $txtStatus = $dlg.FindName('txtStatus')
+    $btnUse = $dlg.FindName('btnUse'); $btnRemove = $dlg.FindName('btnRemove')
+    $txtIntro.Text = ("Choose the old application of '{0}' (version {1}). The lookup of the supersedence step finds an application only when it carries the identity marker of this product line. Search for an application that has none, for example one that you made by hand, and link it once." -f $NewTitle, $NewVersion)
+    $txtSearch.Text = $SearchText
+
+    $refresh = {
+        $text = ([string]$txtSearch.Text).Trim()
+        if (-not $text) { $grid.ItemsSource = @(); $txtStatus.Text = 'Type part of the application name, then choose Search.'; return }
+        Set-DialogBusyStatus -Dialog $dlg -Control $txtStatus -Text ("Reading the applications that contain '{0}'..." -f $text)
+        try {
+            $rows = @(& $Search $text)
+            $grid.ItemsSource = $rows
+            $linkable = @($rows | Where-Object { $_.CanLink }).Count
+            $txtStatus.Text = ('{0} application(s) found; {1} can be linked.' -f $rows.Count, $linkable)
+        }
+        catch {
+            $grid.ItemsSource = @()
+            $txtStatus.Text = 'The search failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')
+        }
+        finally { $dlg.Cursor = $null }
+    }.GetNewClosure()
+
+    $act = {
+        param([string]$Action)
+        $row = $grid.SelectedItem
+        if (-not $row) { $txtStatus.Text = 'Select an application first.'; return }
+        if ($Action -eq 'Link' -and -not $row.CanLink) { $txtStatus.Text = ("'{0}' cannot be linked: {1}" -f $row.Title, $row.Reason); return }
+        if ($Action -eq 'Unlink' -and -not $row.CanClear) { $txtStatus.Text = ("'{0}' does not hold the marker of this line alone, so there is nothing to remove." -f $row.Title); return }
+        if ($Action -eq 'Link') {
+            $question = Get-SupersedenceLinkConfirmationText -Title ([string]$row.Title) -Version ([string]$row.SoftwareVersion) -NewTitle $NewTitle
+            $answer = Show-ThemedMessage -Owner $dlg -Title 'Use as Old Application' -Buttons YesNo -Icon Question -Message $question
+        }
+        else {
+            $question = Get-SupersedenceClearConfirmationText -Title ([string]$row.Title) -Version ([string]$row.SoftwareVersion)
+            $answer = Show-ThemedMessage -Owner $dlg -Title 'Remove Link' -Buttons YesNo -Icon Warning -Message $question
+        }
+        if ($answer -ne 'Yes') { return }
+        Set-DialogBusyStatus -Dialog $dlg -Control $txtStatus -Text ("Writing the keywords of '{0}'..." -f [string]$row.Title)
+        $outcome = $null
+        try { $outcome = $(if ($Action -eq 'Link') { & $Link ([string]$row.Title) } else { & $Unlink ([string]$row.Title) }) }
+        catch { $outcome = [pscustomobject]@{ Ok = $false; Message = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') } }
+        finally { $dlg.Cursor = $null }
+        & $refresh
+        $txtStatus.Text = [string]$outcome.Message + ' ' + [string]$txtStatus.Text
+        Add-LogLine -Message ('Old application: {0}' -f [string]$outcome.Message)
+    }.GetNewClosure()
+
+    $btnUse.Add_Click({ & $act 'Link' }.GetNewClosure())
+    $btnRemove.Add_Click({ & $act 'Unlink' }.GetNewClosure())
+    $dlg.FindName('btnSearch').Add_Click({ & $refresh }.GetNewClosure())
+    $txtSearch.Add_KeyDown({ param($s, $e) if ($e.Key -eq [System.Windows.Input.Key]::Return) { & $refresh } }.GetNewClosure())
+    $dlg.FindName('btnClose').Add_Click({ $dlg.Close() }.GetNewClosure())
+
+    if ($Probe) {
+        & $Probe @{ Window = $dlg; Grid = $grid; Search = $txtSearch; Status = $txtStatus; Intro = $txtIntro; Use = $btnUse; Remove = $btnRemove; Find = $dlg.FindName('btnSearch'); Refresh = $refresh; Act = $act }
+    }
+    else {
+        if ($Owner) { $dlg.Owner = $Owner }
+        $dlg.Add_ContentRendered({ if (([string]$txtSearch.Text).Trim()) { & $refresh } }.GetNewClosure())
+        [void]$dlg.ShowDialog()
+    }
+}
+
+function Open-OldApplicationDialog {
+    # The entry of the grid menu: the title, the version and the identity marker come from the newest staged build of the
+    # selected packager, the same values that its publish uses. Nothing staged, nothing to link to.
+    param([Parameter(Mandatory)]$Owner, [Parameter(Mandatory)]$Row)
+    $title = 'Old Application'
+    $siteCode = ([string]$script:Prefs.SiteCode).Trim()
+    if (-not $siteCode) {
+        [void](Show-ThemedMessage -Owner $Owner -Title $title -Buttons OK -Icon Information -Message 'Set the ConfigMgr site code in Options, Connections, ConfigMgr first.')
+        return
+    }
+    $manifestPath = Find-NewestStageManifestForPackager -PackagerPath ([string]$Row.FullPath) -DownloadRoot ([string]$script:Prefs.DownloadRoot)
+    if (-not $manifestPath) {
+        [void](Show-ThemedMessage -Owner $Owner -Title $title -Buttons OK -Icon Information -Message ("'{0}' has no staged build. Stage it first: the title, the version and the architecture of the new application come from the staged build." -f [string]$Row.Application))
+        return
+    }
+    try {
+        $manifest = Read-StageManifest -Path $manifestPath
+        $baseName = [System.IO.Path]::GetFileNameWithoutExtension([string]$Row.Script)
+        $marker = Get-SupersedenceIdentityMarker -Manifest $manifest -FallbackApplicationId ('catalog:' + $baseName)
+        $newTitle = Get-PackagedApplicationName -AppName ([string]$manifest.AppName) -Version ([string]$manifest.SoftwareVersion)
+        $newVersion = [string]$manifest.SoftwareVersion
+    }
+    catch {
+        [void](Show-ThemedMessage -Owner $Owner -Title $title -Buttons OK -Icon Warning -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The staged build could not be read.'))
+        return
+    }
+    $reader = {
+        param($Text)
+        # The site drive becomes the current location while the cmdlets run; the window goes back to where it was.
+        Push-Location
+        try {
+            if (-not (Connect-CMSite -SiteCode $siteCode -ProviderMachineName ([string]$script:Prefs.ProviderMachineName))) { throw 'The ConfigMgr site connection failed. See the log file.' }
+            @(Get-SupersedenceOldApplicationCandidateFromSite -Marker $marker -NewTitle $newTitle -NewVersion $newVersion -NameContains $Text)
+        }
+        finally { Pop-Location }
+    }.GetNewClosure()
+    $linker = { param($Name) Push-Location; try { Set-SupersedenceOldApplication -ApplicationName $Name -Marker $marker -Confirmed } finally { Pop-Location } }.GetNewClosure()
+    $unlinker = { param($Name) Push-Location; try { Clear-SupersedenceOldApplication -ApplicationName $Name -Marker $marker -Confirmed } finally { Pop-Location } }.GetNewClosure()
+    Show-OldApplicationDialog -Owner $Owner -NewTitle $newTitle -NewVersion $newVersion -Marker $marker -SearchText ([string]$Row.Application) -Search $reader -Link $linker -Unlink $unlinker
 }
 
 function New-AboutPanel {

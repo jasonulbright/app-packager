@@ -3888,6 +3888,153 @@ function Set-CMApplicationIdentityMarker {
     }
 }
 
+# ---- the older-application override ("Use this as the old application") ----
+# The lookup of the old application takes only applications that carry the identity marker of the line. An application that an
+# earlier release published, or one that an administrator made by hand, has no marker, so the lookup never chooses it. The
+# administrator links it once: the program shows the title and the version, asks, and then writes the marker of the line
+# into the keywords of that application. The link is the marker on the site; nothing is kept in the preferences file, so the next
+# publish of the line, from this PC or another, finds the application through the same lookup.
+
+function Get-SupersedenceApplicationKeyword {
+    # The keywords that the application holds, read from its stored XML. Needs the ConfigMgr console assemblies.
+    param([Parameter(Mandatory)]$Application)
+    $tags = @()
+    $digest = [Microsoft.ConfigurationManagement.ApplicationManagement.Serialization.SccmSerializer]::DeserializeFromString([string]$Application.SDMPackageXML, $true)
+    foreach ($info in $digest.DisplayInfo) { foreach ($tag in $info.Tags) { $tags += [string]$tag } }
+    return @($tags | Where-Object { $_ })
+}
+
+function Get-SupersedenceOldApplicationCandidate {
+    <#
+    .SYNOPSIS
+        The applications of the site that can be linked as the old application of a line, with the reason for each one that cannot.
+    .DESCRIPTION
+        Applications is a list of objects with Title, SoftwareVersion, IsExpired and Keywords ($null when the keywords could
+        not be read). An application with the title of the new one is never listed: the lookup never returns it. State is
+        Linkable, Linked (it already holds the marker of this line), OtherLine (it holds the marker of another line),
+        OwnKeywords (a write would replace the keywords of an administrator), KeywordsUnreadable, Retired, VersionUnreadable
+        or NotOlder (the lookup would not choose it). Only Linkable can be linked. CanClear is true for an application whose
+        keywords are the marker of this line and nothing else. The linkable ones come first, the newest version first.
+    #>
+    param(
+        [AllowEmptyCollection()][object[]]$Applications = @(),
+        [Parameter(Mandatory)][string]$Marker,
+        [Parameter(Mandatory)][string]$NewTitle,
+        [Parameter(Mandatory)][string]$NewVersion
+    )
+    $row = { param($app, $state, $reason, $canLink, $canClear)
+        [pscustomobject]@{ Title = [string]$app.Title; SoftwareVersion = [string]$app.SoftwareVersion; State = $state; Reason = $reason; CanLink = $canLink; CanClear = $canClear }
+    }
+    $rows = @()
+    foreach ($app in @($Applications)) {
+        if ([string]::Equals([string]$app.Title, $NewTitle, [StringComparison]::OrdinalIgnoreCase)) { continue }
+        if ($null -eq $app.Keywords) { $rows += (& $row $app 'KeywordsUnreadable' 'The keywords could not be read, so nothing is written.' $false $false); continue }
+        $keywords = @($app.Keywords | ForEach-Object { [string]$_ } | Where-Object { $_ })
+        $mine = @($keywords | Where-Object { $_ -ceq $Marker })
+        $markers = @($keywords | Where-Object { $_.StartsWith($script:SupersedenceMarkerPrefix) })
+        $own = @($keywords | Where-Object { -not $_.StartsWith($script:SupersedenceMarkerPrefix) })
+        if ($mine.Count -gt 0) {
+            $clear = ($own.Count -eq 0 -and $markers.Count -eq 1)
+            $rows += (& $row $app 'Linked' 'It already holds the marker of this line.' $false $clear); continue
+        }
+        if ($markers.Count -gt 0) { $rows += (& $row $app 'OtherLine' 'It holds the marker of another line.' $false $false); continue }
+        if ($own.Count -gt 0) { $rows += (& $row $app 'OwnKeywords' 'It has keywords of its own, which a write would replace.' $false $false); continue }
+        if ($app.IsExpired) { $rows += (& $row $app 'Retired' 'It is retired.' $false $false); continue }
+        if ($null -eq (ConvertTo-SupersedenceVersion -Value $app.SoftwareVersion)) {
+            $rows += (& $row $app 'VersionUnreadable' ("The version '{0}' cannot be read." -f $app.SoftwareVersion) $false $false); continue
+        }
+        if ($null -eq (ConvertTo-SupersedenceVersion -Value $NewVersion) -or (Compare-SupersedenceVersion -A $app.SoftwareVersion -B $NewVersion) -ge 0) {
+            $rows += (& $row $app 'NotOlder' ("It is not older than {0}, so the lookup would not choose it." -f $NewVersion) $false $false); continue
+        }
+        $rows += (& $row $app 'Linkable' '' $true $false)
+    }
+    $linkable = @($rows | Where-Object { $_.CanLink } | Sort-Object -Descending -Property @{ Expression = { ConvertTo-SupersedenceVersion -Value $_.SoftwareVersion } })
+    $others = @($rows | Where-Object { -not $_.CanLink } | Sort-Object -Property Title)
+    return @($linkable) + @($others)
+}
+
+function Get-SupersedenceOldApplicationCandidateFromSite {
+    <#
+    .SYNOPSIS
+        Reads the applications of the site whose name contains the text, and classifies them for the line.
+    .DESCRIPTION
+        The text limits the read: a site holds many applications, and a list of all of them is not a choice. The
+        wildcard characters of the text are literal. Needs the ConfigMgr site drive.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Marker, [Parameter(Mandatory)][string]$NewTitle, [Parameter(Mandatory)][string]$NewVersion,
+        [Parameter(Mandatory)][string]$NameContains
+    )
+    if ([string]::IsNullOrWhiteSpace($NameContains)) { throw 'Type part of the application name to search for.' }
+    $records = @()
+    foreach ($app in @(Get-CMApplication -Name ('*' + [System.Management.Automation.WildcardPattern]::Escape($NameContains.Trim()) + '*') -ErrorAction Stop)) {
+        $keywords = $null
+        try { $keywords = @(Get-SupersedenceApplicationKeyword -Application $app) } catch { $keywords = $null }
+        $records += [pscustomobject]@{ Title = [string]$app.LocalizedDisplayName; SoftwareVersion = [string]$app.SoftwareVersion; IsExpired = [bool]$app.IsExpired; Keywords = $keywords }
+    }
+    return @(Get-SupersedenceOldApplicationCandidate -Applications $records -Marker $Marker -NewTitle $NewTitle -NewVersion $NewVersion)
+}
+
+function Get-SupersedenceLinkConfirmationText {
+    # What the administrator reads before the marker is written: the title and the version of the application first.
+    param([Parameter(Mandatory)][string]$Title, [Parameter(Mandatory)][string]$Version, [Parameter(Mandatory)][string]$NewTitle)
+    return ("Use '{0}' version {1} as the old application of '{2}'?`n`nThe program writes the identity marker of this product line into the keywords of '{0}'. The next publish of '{2}' with a supersedence mode other than Off then finds it and supersedes it. Its deployment types, detection and deployments are not changed." -f $Title, $Version, $NewTitle)
+}
+
+function Get-SupersedenceClearConfirmationText {
+    param([Parameter(Mandatory)][string]$Title, [Parameter(Mandatory)][string]$Version)
+    return ("Remove the identity marker from '{0}' version {1}?`n`nThe next publish of this line no longer finds it as an older application, so nothing supersedes it. If a publish of this program marked it, link it again with Use as Old Application when you want it back." -f $Title, $Version)
+}
+
+function Set-SupersedenceOldApplication {
+    <#
+    .SYNOPSIS
+        Links an application as the old application of a line: writes the marker of the line into its keywords.
+    .DESCRIPTION
+        Nothing is written without -Confirmed. The keywords are read again first: an application that holds keywords of
+        its own, or the marker of another line, is refused, and one that already holds the marker needs no write.
+        Returns Ok and Message. Needs the ConfigMgr site drive.
+    #>
+    param([Parameter(Mandatory)][string]$ApplicationName, [Parameter(Mandatory)][string]$Marker, [switch]$Confirmed)
+    $outcome = { param($ok, $message) [pscustomobject]@{ Ok = $ok; Message = $message } }
+    if (-not $Confirmed) { return (& $outcome $false 'The link is written only after the administrator confirms it.') }
+    try {
+        $app = Get-CMApplication -Name $ApplicationName -DisableWildcardHandling -ErrorAction Stop
+        if (-not $app) { return (& $outcome $false "The application '$ApplicationName' is not on the site.") }
+        $keywords = @(Get-SupersedenceApplicationKeyword -Application $app)
+    }
+    catch { return (& $outcome $false ("The keywords of '{0}' could not be read: {1}" -f $ApplicationName, $_.Exception.Message)) }
+    if (@($keywords | Where-Object { $_ -ceq $Marker }).Count -gt 0) { return (& $outcome $true "'$ApplicationName' already holds the marker of this line.") }
+    if (@($keywords | Where-Object { $_.StartsWith($script:SupersedenceMarkerPrefix) }).Count -gt 0) { return (& $outcome $false "'$ApplicationName' holds the marker of another line, so it is not changed.") }
+    if ($keywords.Count -gt 0) { return (& $outcome $false "'$ApplicationName' has keywords of its own, which a write would replace, so it is not changed.") }
+    $reason = Set-CMApplicationIdentityMarker -ApplicationName $ApplicationName -Marker $Marker
+    if ($reason) { return (& $outcome $false ("The marker was not written: {0}" -f $reason)) }
+    return (& $outcome $true "'$ApplicationName' is the old application of this line.")
+}
+
+function Clear-SupersedenceOldApplication {
+    <#
+    .SYNOPSIS
+        Takes the marker of a line off an application, so the lookup no longer finds it.
+    .DESCRIPTION
+        Nothing is written without -Confirmed. Only an application whose keywords are the marker of this line and nothing else
+        is changed. Returns Ok and Message. Needs the ConfigMgr site drive.
+    #>
+    param([Parameter(Mandatory)][string]$ApplicationName, [Parameter(Mandatory)][string]$Marker, [switch]$Confirmed)
+    $outcome = { param($ok, $message) [pscustomobject]@{ Ok = $ok; Message = $message } }
+    if (-not $Confirmed) { return (& $outcome $false 'The marker is removed only after the administrator confirms it.') }
+    try {
+        $app = Get-CMApplication -Name $ApplicationName -DisableWildcardHandling -ErrorAction Stop
+        if (-not $app) { return (& $outcome $false "The application '$ApplicationName' is not on the site.") }
+        $keywords = @(Get-SupersedenceApplicationKeyword -Application $app)
+        if ($keywords.Count -ne 1 -or $keywords[0] -cne $Marker) { return (& $outcome $false "The keywords of '$ApplicationName' are not the marker of this line alone, so they are not changed.") }
+        Set-CMApplication -InputObject $app -Keyword '' -ErrorAction Stop
+        Write-Log "Identity marker removed      : $ApplicationName"
+        return (& $outcome $true "The marker is removed from '$ApplicationName'.")
+    }
+    catch { return (& $outcome $false ("The marker was not removed: {0}" -f $_.Exception.Message)) }
+}
+
 # ---- the chain check ----
 
 function Test-SupersedenceMinimumOperator {
