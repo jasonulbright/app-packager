@@ -363,6 +363,8 @@ function Read-Preferences {
             ClientId              = ''
             # DPAPI-protected (ConvertFrom-SecureString); never plaintext.
             ClientSecretProtected = ''
+            # The minimum Windows release of every Intune app that is published.
+            MinimumWindowsRelease = 'Windows10_21H2'
         }
         Wsus                 = [pscustomobject]@{
             ServerName        = ''
@@ -658,6 +660,7 @@ function Read-Preferences {
             if ($null -ne $data.Intune.TenantId)              { $defaults.Intune.TenantId              = [string]$data.Intune.TenantId }
             if ($null -ne $data.Intune.ClientId)              { $defaults.Intune.ClientId              = [string]$data.Intune.ClientId }
             if ($null -ne $data.Intune.ClientSecretProtected) { $defaults.Intune.ClientSecretProtected = [string]$data.Intune.ClientSecretProtected }
+            if ([string]$data.Intune.MinimumWindowsRelease -match '^Windows(10|11)_[0-9A-Za-z]{2,8}$') { $defaults.Intune.MinimumWindowsRelease = [string]$data.Intune.MinimumWindowsRelease }
             # A stale Intune toggle must not publish to Intune from a WSUS target.
             if ([string]$defaults.Intune.DeploymentTarget -in @('MECMAndWSUS', 'WSUSOnly')) {
                 $defaults.Intune.PublishToIntune = $false
@@ -2590,12 +2593,13 @@ function Invoke-PackagerIntunePublish {
         else {
             # The staged icon lives in the content version folder next
             # to the manifest, not beside the .intunewin.
-            $iconArg = @{}
+            $publishArgs = @{}
             if ($manifest.PSObject.Properties['Icon'] -and $manifest.Icon) {
                 $iconFile = Join-Path (Split-Path -Parent $IntuneNote.ManifestPath) ([string]$manifest.Icon)
-                if (Test-Path -LiteralPath $iconFile) { $iconArg.IconPath = $iconFile }
+                if (Test-Path -LiteralPath $iconFile) { $publishArgs.IconPath = $iconFile }
             }
-            $pubId = Publish-IntuneWin32App -TenantId $Config.TenantId -ClientId $Config.ClientId -ClientSecret $Config.ClientSecret -IntuneWinPath $IntuneNote.LocalPath -Manifest $manifest -Description $Comment @iconArg
+            if ($Config.ContainsKey('MinimumWindowsRelease') -and -not [string]::IsNullOrWhiteSpace([string]$Config.MinimumWindowsRelease)) { $publishArgs.MinimumSupportedWindowsRelease = [string]$Config.MinimumWindowsRelease }
+            $pubId = Publish-IntuneWin32App -TenantId $Config.TenantId -ClientId $Config.ClientId -ClientSecret $Config.ClientSecret -IntuneWinPath $IntuneNote.LocalPath -Manifest $manifest -Description $Comment @publishArgs
             $pubNote.Ok = $true
             $pubNote.AppId = [string]$pubId
             $pubNote.Message = ('published (app id {0})' -f $pubId)
@@ -2985,7 +2989,7 @@ function Get-IntunePublishConfigForContext {
         $ptr = [Runtime.InteropServices.Marshal]::SecureStringToGlobalAllocUnicode($sec)
         try { $plain = [Runtime.InteropServices.Marshal]::PtrToStringUni($ptr) }
         finally { [Runtime.InteropServices.Marshal]::ZeroFreeGlobalAllocUnicode($ptr) }
-        return @{ TenantId = [string]$i.TenantId; ClientId = [string]$i.ClientId; ClientSecret = $plain }
+        return @{ TenantId = [string]$i.TenantId; ClientId = [string]$i.ClientId; ClientSecret = $plain; MinimumWindowsRelease = [string]$i.MinimumWindowsRelease }
     } catch { return $null }
 }
 
@@ -7155,6 +7159,7 @@ function Get-OptionsSectionDefinition {
     $channelItems = @(@{ Label = 'Monthly Enterprise Channel'; Value = 'MonthlyEnterprise' }, @{ Label = 'Current Channel'; Value = 'Current' })
     $deployItems = @(@{ Label = 'Managed (offline source)'; Value = 'Managed' }, @{ Label = 'Online (CDN)'; Value = 'Online' })
     $notSet = @{ Label = '(not set)'; Value = '' }
+    $windowsReleaseItems = @('Windows10_1607', 'Windows10_1703', 'Windows10_1709', 'Windows10_1803', 'Windows10_1809', 'Windows10_1903', 'Windows10_1909', 'Windows10_2004', 'Windows10_20H2', 'Windows10_21H1', 'Windows10_21H2', 'Windows10_22H2', 'Windows11_21H2', 'Windows11_22H2', 'Windows11_23H2', 'Windows11_24H2', 'Windows11_25H2') | ForEach-Object { @{ Label = $_; Value = $_ } }
     $cwaPolicyItems = @($notSet, @{ Label = 'S - HTTPS stores only'; Value = 'S' }, @{ Label = 'A - HTTPS and HTTP stores'; Value = 'A' }, @{ Label = 'N - none'; Value = 'N' })
 
     $sections = New-Object System.Collections.Generic.List[hashtable]
@@ -7220,6 +7225,7 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'int.tenant'; Title = 'Tenant ID'; Kind = 'Text'; Pref = 'Intune.TenantId'; Tip = 'The Entra tenant ID, as a GUID or a domain name.'; Keywords = 'entra azure' }
                 @{ Id = 'int.client'; Title = 'Client ID'; Kind = 'Text'; Pref = 'Intune.ClientId'; Tip = 'The client ID of an app registration with DeviceManagementApps.ReadWrite.All.'; Keywords = 'app registration graph' }
                 @{ Id = 'int.secret'; Title = 'Client secret'; Kind = 'Secret'; Pref = 'Intune.ClientSecretProtected'; Tip = 'Stored with DPAPI for the current Windows user; empty keeps the saved secret.'; Keywords = 'dpapi' }
+                @{ Id = 'int.minWin'; Title = 'Minimum Windows release'; Kind = 'Combo'; Pref = 'Intune.MinimumWindowsRelease'; Default = 'Windows10_21H2'; Width = 260; Items = $windowsReleaseItems; Tip = 'The oldest Windows release that an Intune app is offered to.'; Keywords = 'minimum supported windows release' }
             )
         })
 
@@ -8716,7 +8722,7 @@ function Show-FirstRunWizard {
     }
     $systemBlock = & $newBlock 'Systems' @('sys.configmgr', 'sys.intune', 'sys.wsus')
     $mecm = & $newBlock 'ConfigMgr' @('cm.siteCode', 'cm.provider', 'cm.fileShare', 'pkg.downloadRoot')
-    $intune = & $newBlock 'Intune' @('int.tenant', 'int.client', 'int.secret')
+    $intune = & $newBlock 'Intune' @('int.tenant', 'int.client', 'int.secret', 'int.minWin')
     $wsus = & $newBlock 'WSUS' @('wsus.server', 'wsus.port', 'wsus.ssl')
 
     $mecmBox = $systemBlock.Group.Editors['sys.configmgr'].Focus
