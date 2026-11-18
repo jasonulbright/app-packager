@@ -7,6 +7,7 @@
 ### Added
 
 - Add the App Installer (WinGet) packager. It provisions the package for all users without the Store.
+- Log one line with the count of products that need an update after Check Latest and Check ConfigMgr.
 
 ### Fixed
 
