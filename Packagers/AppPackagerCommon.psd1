@@ -191,6 +191,8 @@
 
         # Preferences
         'Get-PackagerPreferences'
+        'Get-PackagerRunOptions'
+        'Resolve-PackagerRunFile'
         'Get-LocalSourceFolder'
         'Resolve-LocalSourceInstaller'
 

@@ -6453,18 +6453,76 @@ function New-IntuneWinPackage {
 # Packager preferences
 # ---------------------------------------------------------------------------
 
+function Get-PackagerRunOptions {
+    <#
+    .SYNOPSIS
+        Reads the values of this run from APP_PACKAGER_RUN_OPTIONS, or returns $null.
+
+    .DESCRIPTION
+        The review before staging sets them for one Stage run: Preferences holds the
+        top-level keys of packager-preferences.json that the run changes, and Files maps
+        the name of a packager settings file to the path of the copy that this run reads.
+        Nothing in the saved files changes.
+    #>
+    $text = [string]$env:APP_PACKAGER_RUN_OPTIONS
+    if ([string]::IsNullOrWhiteSpace($text)) { return $null }
+    try { return ($text | ConvertFrom-Json -ErrorAction Stop) }
+    catch {
+        Write-Log "APP_PACKAGER_RUN_OPTIONS is not valid JSON and is ignored: $($_.Exception.Message)" -Level WARN
+        return $null
+    }
+}
+
+function Resolve-PackagerRunFile {
+    <#
+    .SYNOPSIS
+        Returns the path of a packager settings file for this run.
+
+    .DESCRIPTION
+        Returns the copy that the review before staging made for this run, when there is
+        one, otherwise the saved file given as Default.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Default
+    )
+    $run = Get-PackagerRunOptions
+    if ($run -and $run.PSObject.Properties['Files'] -and $run.Files -and $run.Files.PSObject.Properties[$Name]) {
+        $path = [string]$run.Files.$Name
+        if ($path -and (Test-Path -LiteralPath $path -PathType Leaf)) {
+            Write-Log "Using the values of this run for $Name"
+            return $path
+        }
+    }
+    return $Default
+}
+
 function Get-PackagerPreferences {
     <#
     .SYNOPSIS
         Reads packager-preferences.json from the Packagers folder.
+
+    .DESCRIPTION
+        The keys that the review before staging changed for this run
+        (APP_PACKAGER_RUN_OPTIONS) replace the saved ones in the returned object.
     #>
     $prefsPath = Join-Path $PSScriptRoot "packager-preferences.json"
+    $prefs = $null
     if (-not (Test-Path -LiteralPath $prefsPath)) {
         Write-Log "Preferences file not found: $prefsPath" -Level WARN
-        return $null
     }
-    $json = Get-Content -LiteralPath $prefsPath -Raw -Encoding UTF8 -ErrorAction Stop
-    return ($json | ConvertFrom-Json)
+    else {
+        $json = Get-Content -LiteralPath $prefsPath -Raw -Encoding UTF8 -ErrorAction Stop
+        $prefs = ($json | ConvertFrom-Json)
+    }
+    $run = Get-PackagerRunOptions
+    if ($run -and $run.PSObject.Properties['Preferences'] -and $run.Preferences) {
+        if ($null -eq $prefs) { $prefs = [pscustomobject]@{} }
+        foreach ($property in $run.Preferences.PSObject.Properties) {
+            $prefs | Add-Member -NotePropertyName $property.Name -NotePropertyValue $property.Value -Force
+        }
+    }
+    return $prefs
 }
 
 function Get-LocalSourceFolder {

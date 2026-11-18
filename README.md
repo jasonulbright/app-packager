@@ -200,6 +200,8 @@ The Setup window and Options use the same fields for the site, the SMS Provider,
 
 **Packaging, Folders** - Download root, the Packagers folder and Content layout. Content layout selects the share folder shape for packaged content: **Nested** (`Applications\Vendor\App\Version`, the default - an app's versions sit adjacent, so retention pruning is deleting old version folders in place) or **Flat** (`Applications\Vendor-App-Version`, one folder per package, for org conventions that mandate it). It applies to future Package runs; existing content stays where it is, so pick one and stay with it - mixing layouts splits content across two trees.
 
+**Review before staging** - the Stage button opens a **Configure** dialog for each selected application that has install options: SQL Server Management Studio, DBeaver Community, Adobe Acrobat Reader, Beyond Compare 5, the Microsoft 365 packagers, the Citrix Workspace App packagers and TeamViewer Host. The dialog shows the fields of that application's Options section, starting from the saved values. **Continue** applies the values to that Stage run only: the packager reads them through `APP_PACKAGER_RUN_OPTIONS`, and the preferences file, `Packagers\packager-preferences.json` and the Citrix and TeamViewer settings files stay as they are. **Cancel** skips the application and writes a line to the log. Turn on **Install options review** in Options, Packaging, Folders to skip the dialog and use the saved values. A packager with `ReviewBeforeStage: Yes` in its header shows the dialog anyway. Batch runs, One Click, Package and Full Run never show it. The Microsoft 365 dialog leaves out the imported configuration.xml rows, because importing or removing that file stores it.
+
 **Packaging, Deployment Type Defaults** - the estimated and maximum runtime, Fallback distribution points and Neighbor/default DP. **Fallback distribution points** maps to `-ContentFallback`: **Allow** (the default) lets a client use distribution points in the site default boundary group when no distribution point in its current or neighbor boundary groups has the content; **Deny** keeps the client on its current and neighbor boundary groups. **Neighbor/default DP** maps to `-SlowNetworkDeploymentMode` and sets the deployment option when the client uses a distribution point in a neighbor boundary group or the site default boundary group: **Download content and install** (`Download`, the default) or **Do not download content** (`DoNothing`). Both settings apply to future Package runs; existing deployment types keep their settings. Intune publishing does not use them.
 
 **Packaging, Application Title** - Include version and Remove version. See Application title below.
@@ -523,6 +525,7 @@ All packager scripts accept the same core parameters:
 | `APP_PACKAGER_REQUIREMENTS` | Optional environment JSON (`{"SchemaVersion":1,"Rules":[...]}`) of requirement rule specs applied to the deployment type; the GUI sets it per app from the Deployment Conditions panel |
 | `APP_PACKAGER_VARIANTS` | Optional environment JSON selecting a multi-deployment-type variant split for packagers that declare `SupportsVariants:`; the GUI sets it from the Variant split column |
 | `APP_PACKAGER_INSTALL_MODE` | Optional `CurrentUser` or `AllUsers` for packagers that declare `SupportsInstallModes:`; the Stage phase rewrites arguments, uninstaller, detection and install behavior from that branch of the installer. The GUI sets it from the Install for column |
+| `APP_PACKAGER_RUN_OPTIONS` | Optional environment JSON (`{"Preferences":{...},"Files":{"name.json":"path"}}`) of the install options that the Configure dialog changed for one Stage run. `Get-PackagerPreferences` replaces the saved keys with `Preferences`; `Resolve-PackagerRunFile` returns the path in `Files`. The GUI sets it; nothing is saved. |
 | `APP_PACKAGER_COMMANDS` | Optional environment JSON of per-app install/uninstall command overrides; the GUI sets it from the Commands editor. Ignored with a warning when a DeploymentTypes manifest carries per-deployment-type commands |
 | `APP_PACKAGER_RUN_SNAPSHOT` | Path of this run's snapshot: the application, profile, profile revision, resolved assets and run overrides the Stage phase applies. Set by the GUI and the CLI; absent means the packager's own defaults |
 | `APP_PACKAGER_SIGNING` | Optional environment JSON of the script signing policy; the GUI sets it from Options > Security > Script Signing |
@@ -1014,6 +1017,7 @@ ArpName: 7-Zip [0-9]*
 | `ArpVersion` | Optional wildcard pattern for the Add/Remove Programs display version, for example `17.*`. Discovery matches only inventory rows with this version. |
 | `ArpArch` | Optional `x64` or `x86`: the registry view of the Add/Remove Programs entry. Discovery matches only inventory rows from this view. |
 | `LocalSource` | `Optional` or `Required`: the packager can, or must, stage an installer from a folder set under Local Installer Sources in the [Options window](#options-window). |
+| `ReviewBeforeStage` | `Yes` shows the Configure dialog before Stage even when Options skips the review. It matters for a packager that has install options in the Options window. |
 
 ## Application Icons
 
@@ -1315,6 +1319,7 @@ All packager scripts import the shared module which provides:
 | `Invoke-DownloadWithRetry` | curl.exe download wrapper with 1 retry and 5s delay |
 | `Invoke-CachedDownload` | Downloads a fixed-name vendor file once and refreshes it only when the server reports a newer copy (If-Modified-Since) |
 | `Get-GitHubApiCurlArgs` | The curl.exe arguments that carry a GitHub token (`GITHUB_TOKEN`, `GH_TOKEN`, `gh auth token`); empty without one |
+| `Get-PackagerRunOptions` / `Resolve-PackagerRunFile` | The values of one Stage run from `APP_PACKAGER_RUN_OPTIONS`, and the run copy of a packager settings file (else the saved path) |
 | `Get-LocalSourceFolder` / `Resolve-LocalSourceInstaller` | The Local Installer Sources folder of a packager and the highest-versioned installer inside it |
 | `Get-NetworkContentPath` | Creates and returns the network content folder for one app version in the configured layout (Nested `Applications\Vendor\App\Version` or Flat `Applications\Vendor-App-Version`) |
 | `Test-PsadtLayout` | Detects PSADT v3 vs v4 in a toolkit folder and returns the deployment type install/uninstall command lines (exe launcher preferred, powershell.exe -File fallback) |

@@ -1020,6 +1020,58 @@ Describe 'Get-PackagerPreferences' {
 }
 
 # ============================================================================
+# Run options: the values of one Stage run (review before staging)
+# ============================================================================
+
+Describe 'Run options of one Stage run' {
+    BeforeEach { $script:__savedRunOptions = $env:APP_PACKAGER_RUN_OPTIONS }
+    AfterEach {
+        if ($null -ne $script:__savedRunOptions) { $env:APP_PACKAGER_RUN_OPTIONS = $script:__savedRunOptions }
+        else { Remove-Item Env:APP_PACKAGER_RUN_OPTIONS -ErrorAction SilentlyContinue }
+    }
+
+    It 'returns nothing without the variable' {
+        Remove-Item Env:APP_PACKAGER_RUN_OPTIONS -ErrorAction SilentlyContinue
+        Get-PackagerRunOptions | Should -BeNullOrEmpty
+    }
+
+    It 'ignores a value that is not JSON' {
+        $env:APP_PACKAGER_RUN_OPTIONS = 'not json'
+        Get-PackagerRunOptions | Should -BeNullOrEmpty
+    }
+
+    It 'replaces the saved keys in the preferences and keeps the others' {
+        $env:APP_PACKAGER_RUN_OPTIONS = '{"Preferences":{"SSMSInstallOptions":{"UIMode":"Passive"}},"Files":{}}'
+        $prefs = Get-PackagerPreferences
+        $prefs.SSMSInstallOptions.UIMode | Should -Be 'Passive'
+        $prefs.SSMSInstallOptions.PSObject.Properties.Name | Should -Not -Contain 'NoCache'
+        $path = Join-Path $PSScriptRoot 'packager-preferences.json'
+        if (Test-Path -LiteralPath $path) { $prefs.PSObject.Properties.Name | Should -Contain 'CompanyName' }
+    }
+
+    It 'leaves the preferences file as it is' {
+        $path = Join-Path $PSScriptRoot 'packager-preferences.json'
+        $before = $(if (Test-Path -LiteralPath $path) { [IO.File]::ReadAllText($path) } else { $null })
+        $env:APP_PACKAGER_RUN_OPTIONS = '{"Preferences":{"CompanyName":"Run only"},"Files":{}}'
+        (Get-PackagerPreferences).CompanyName | Should -Be 'Run only'
+        $after = $(if (Test-Path -LiteralPath $path) { [IO.File]::ReadAllText($path) } else { $null })
+        $after | Should -BeExactly $before
+    }
+
+    It 'returns the run copy of a settings file when there is one, else the saved path' {
+        $copy = Join-Path $TestDrive 'copy.json'
+        Set-Content -LiteralPath $copy -Value '{}' -Encoding ASCII
+        $saved = Join-Path $TestDrive 'saved.json'
+        $env:APP_PACKAGER_RUN_OPTIONS = (@{ Preferences = @{}; Files = @{ 'a.json' = $copy; 'gone.json' = (Join-Path $TestDrive 'gone.json') } } | ConvertTo-Json -Compress)
+        Resolve-PackagerRunFile -Name 'a.json' -Default $saved | Should -Be $copy
+        Resolve-PackagerRunFile -Name 'b.json' -Default $saved | Should -Be $saved
+        Resolve-PackagerRunFile -Name 'gone.json' -Default $saved | Should -Be $saved
+        Remove-Item Env:APP_PACKAGER_RUN_OPTIONS
+        Resolve-PackagerRunFile -Name 'a.json' -Default $saved | Should -Be $saved
+    }
+}
+
+# ============================================================================
 # Write-StageManifest / Read-StageManifest - per-user manifest overrides
 # ============================================================================
 
