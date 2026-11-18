@@ -163,6 +163,7 @@ The sidebar has the workflow actions at the top, an **Add Installer...** button 
 - **Discover unmanaged software** - finds hidden apps that hardware inventory shows installed on clients and that have no ConfigMgr application, and offers to show them in the grid. See [Discover unmanaged software](#discover-unmanaged-software)
 - **Stage Packages** - downloads installers, extracts metadata, generates wrappers and manifests locally, and builds a `.intunewin` when IntuneWinAppUtil is detected
 - **Publish to ConfigMgr** - reads manifests, copies content to network share, creates ConfigMgr applications
+- **Apply Supersedence** - sets the supersedence relation from each checked, published app to the older version of its product line, without a new publish. It needs the supersedence mode Replace or Replace and uninstall
 - **Publish to Intune** - stages each checked app, builds its `.intunewin`, and publishes a Win32 app through Microsoft Graph
 - **Publish to WSUS** - stages each checked app and publishes its installer to WSUS as an update for computers that have an older version
 - **WSUS Updates** - lists the updates AppPackager published to WSUS; approve, decline, expire or remove them, or import from the Microsoft Update Catalog

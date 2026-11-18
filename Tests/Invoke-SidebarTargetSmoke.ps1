@@ -41,7 +41,7 @@ foreach ($name in @('Get-SidebarSystemState')) {
 }
 
 function New-TestPrefs {
-    param([bool]$Console = $true, [string]$SiteCode = 'MCM', [bool]$Intune = $false, [string]$WsusServer = '', [string[]]$InUse = @('ConfigMgr', 'Intune', 'Wsus'))
+    param([bool]$Console = $true, [string]$SiteCode = 'MCM', [bool]$Intune = $false, [string]$WsusServer = '', [string[]]$InUse = @('ConfigMgr', 'Intune', 'Wsus'), [string]$SupersedenceMode = 'Replace')
     [pscustomobject]@{
         Systems       = [pscustomobject]@{ ConfigMgr = ('ConfigMgr' -in $InUse); Intune = ('Intune' -in $InUse); Wsus = ('Wsus' -in $InUse) }
         SiteCode      = $SiteCode
@@ -53,6 +53,7 @@ function New-TestPrefs {
             DeploymentTarget      = 'MECM'
         }
         Wsus          = [pscustomobject]@{ ServerName = $WsusServer }
+        Supersedence  = [pscustomobject]@{ Mode = $SupersedenceMode; TitleOverrides = [pscustomobject]@{} }
     }
 }
 
@@ -70,6 +71,7 @@ $halfIntune.Intune.TenantId = 'tenant'
 $half      = Get-SidebarSystemState -Prefs $halfIntune
 $mecmOff   = Get-SidebarSystemState -Prefs (New-TestPrefs -WsusServer 'wsus01' -InUse @('Wsus'))
 $wsusOff   = Get-SidebarSystemState -Prefs (New-TestPrefs -Intune $true -WsusServer 'wsus01' -InUse @('ConfigMgr', 'Intune'))
+$supersedenceOff = Get-SidebarSystemState -Prefs (New-TestPrefs -SupersedenceMode 'Off')
 
 $cases = @(
     @{ Name = 'ConfigMgr only enables Check ConfigMgr and Publish to ConfigMgr'; Actual = { $mecmOnly.CheckMecmEnabled -and $mecmOnly.MecmEnabled }; Expected = $true }
@@ -90,6 +92,10 @@ $cases = @(
     @{ Name = 'ConfigMgr not in use keeps WSUS enabled';               Actual = { $mecmOff.WsusEnabled -and $mecmOff.WsusUpdatesEnabled }; Expected = $true }
     @{ Name = 'WSUS not in use disables its buttons despite a server';  Actual = { $wsusOff.WsusEnabled -or $wsusOff.WsusUpdatesEnabled }; Expected = $false }
     @{ Name = 'WSUS not in use keeps ConfigMgr and Intune enabled';    Actual = { $wsusOff.MecmEnabled -and $wsusOff.IntuneEnabled }; Expected = $true }
+    @{ Name = 'Apply Supersedence is available with ConfigMgr ready and a mode';  Actual = { $mecmOnly.ApplySupersedenceEnabled }; Expected = $true }
+    @{ Name = 'Apply Supersedence is disabled with the mode Off and says where to set it'; Actual = { -not $supersedenceOff.ApplySupersedenceEnabled -and $supersedenceOff.ApplySupersedenceToolTip -match 'Supersedence is Off' -and $supersedenceOff.ApplySupersedenceToolTip -match 'Options, Packaging, Supersedence' }; Expected = $true }
+    @{ Name = 'Apply Supersedence is disabled when ConfigMgr is not in use and says so'; Actual = { -not $mecmOff.ApplySupersedenceEnabled -and $mecmOff.ApplySupersedenceToolTip -match 'not in use' }; Expected = $true }
+    @{ Name = 'Apply Supersedence is disabled without a site code';  Actual = { $noSite.ApplySupersedenceEnabled }; Expected = $false }
     @{ Name = 'Setup and Options both save the systems in use';        Actual = { ([regex]::Matches($source, "Pref = 'Systems\.ConfigMgr'")).Count -eq 1 -and $source -match '& \$systemBlock\.Group\.Commit' }; Expected = $true }
     @{ Name = 'the publish and One Click paths fall back to the packager default site code'; Actual = { ([regex]::Matches($source, 'if \(\[string\]::IsNullOrWhiteSpace\(\$siteCodeValue\)\) \{ \$siteCodeValue = ''MCM'' \}')).Count -ge 2 }; Expected = $true }
     @{ Name = 'Setup without ConfigMgr saves an empty site code'; Actual = { $source -match 'else \{ \$prefsRef\.SiteCode = '''' \}' }; Expected = $true }

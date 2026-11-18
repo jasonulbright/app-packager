@@ -5256,6 +5256,7 @@ $btnCheckCve     = $window.FindName('btnCheckCve')
 $btnCveReport    = $window.FindName('btnCveReport')
 $btnStage        = $window.FindName('btnStage')
 $btnPackage      = $window.FindName('btnPackage')
+$btnApplySupersedence = $window.FindName('btnApplySupersedence')
 $btnPublishIntune = $window.FindName('btnPublishIntune')
 $btnPublishWsus  = $window.FindName('btnPublishWsus')
 $btnWsusUpdates  = $window.FindName('btnWsusUpdates')
@@ -5295,7 +5296,7 @@ $btnCancelPipeline = $window.FindName('btnCancelPipeline')
 [ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($window, "Dark.Steel")
 
 # Palette and button/label theming come from SuiteCommon.
-$script:WorkflowButtons = @($btnFullRun, $btnCheckLatest, $btnCheckMECM, $btnDiscover, $btnConvertCm, $btnCheckCve, $btnStage, $btnPackage, $btnPublishIntune, $btnPublishWsus, $btnWsusUpdates, $btnCveReport, $btnWorkbench, $btnAddInstaller)
+$script:WorkflowButtons = @($btnFullRun, $btnCheckLatest, $btnCheckMECM, $btnDiscover, $btnConvertCm, $btnCheckCve, $btnStage, $btnPackage, $btnApplySupersedence, $btnPublishIntune, $btnPublishWsus, $btnWsusUpdates, $btnCveReport, $btnWorkbench, $btnAddInstaller)
 $script:OptionsButtons  = @($btnOptions)
 
 Initialize-SuiteTheme -Window $window `
@@ -5610,6 +5611,7 @@ function Set-ActionButtonsEnabled {
     $btnCveReport.IsEnabled     = $Enabled
     $btnStage.IsEnabled         = $Enabled
     $btnPackage.IsEnabled       = $Enabled
+    $btnApplySupersedence.IsEnabled = $Enabled
     $btnPublishIntune.IsEnabled = $Enabled
     $btnPublishWsus.IsEnabled   = $Enabled
     $btnWsusUpdates.IsEnabled   = $Enabled
@@ -5661,7 +5663,28 @@ function Get-SidebarSystemState {
     if (-not $mecmInUse) { $convertReason = 'ConfigMgr is ' + $notInUse }
     elseif (-not $consoleFound) { $convertReason = 'Needs the ConfigMgr console on this computer.' }
 
+    # Apply Supersedence needs the same site as the ConfigMgr publish, and a supersedence mode other than Off: the site
+    # default, or the override of one title. A title override cannot be read from here for one row, so one override that
+    # turns the mode on keeps the button available and the run refuses a title whose own mode is Off.
+    $supersedenceReason = $mecmReason
+    if (-not $supersedenceReason) {
+        $supersedence = $Prefs.Supersedence
+        $siteMode = $(if ($supersedence) { ([string]$supersedence.Mode).Trim() } else { '' })
+        $titleModeOn = $false
+        if ($supersedence -and $supersedence.TitleOverrides) {
+            foreach ($entry in $supersedence.TitleOverrides.PSObject.Properties) {
+                $overrideMode = $(if ($entry.Value) { ([string]$entry.Value.Mode).Trim() } else { '' })
+                if ($overrideMode -and $overrideMode -ne 'Off') { $titleModeOn = $true; break }
+            }
+        }
+        if ((-not $siteMode -or $siteMode -eq 'Off') -and -not $titleModeOn) {
+            $supersedenceReason = 'Supersedence is Off. Set the supersedence mode in Options, Packaging, Supersedence.'
+        }
+    }
+
     return @{
+        ApplySupersedenceEnabled = (-not $supersedenceReason)
+        ApplySupersedenceToolTip = $(if ($supersedenceReason) { 'Apply Supersedence: ' + $supersedenceReason } else { 'Set the supersedence relation from each checked application to the older version of its product line on the ConfigMgr site, without a new publish. The application must be published already.' })
         ConvertCmEnabled     = (-not $convertReason)
         ConvertCmToolTip     = $(if ($convertReason) { 'Convert ConfigMgr App to Intune: ' + $convertReason } else { 'Convert an existing ConfigMgr application to Intune Win32 apps, one app for each deployment type. It reads ConfigMgr and changes nothing there.' })
         DiscoverEnabled      = (-not $discoverReason)
@@ -5703,7 +5726,7 @@ function Update-SidebarForSystems {
     # setting unless this assignment also enables it; a running pipeline
     # keeps every button disabled through $script:ActionButtonsEnabled.
     $pairs = @(
-        @($btnCheckMECM, 'CheckMecm'), @($btnDiscover, 'Discover'), @($btnConvertCm, 'ConvertCm'), @($btnPackage, 'Mecm'), @($btnPublishIntune, 'Intune'),
+        @($btnCheckMECM, 'CheckMecm'), @($btnDiscover, 'Discover'), @($btnConvertCm, 'ConvertCm'), @($btnPackage, 'Mecm'), @($btnApplySupersedence, 'ApplySupersedence'), @($btnPublishIntune, 'Intune'),
         @($btnPublishWsus, 'Wsus'), @($btnWsusUpdates, 'WsusUpdates')
     )
     foreach ($pair in $pairs) {
@@ -12381,6 +12404,72 @@ function Start-PublishRun {
 $btnPackage.Add_Click({ Start-PublishRun -Target 'MECM' })
 $btnPublishIntune.Add_Click({ Start-PublishRun -Target 'IntuneOnly' })
 $btnPublishWsus.Add_Click({ Start-PublishRun -Target 'WSUSOnly' })
+
+function Start-ApplySupersedence {
+    # Apply Supersedence: the lookup of the older application and the supersedence step for each checked
+    # application, with its newest stage and without a new publish. The engine entry point is
+    # Invoke-SupersedenceApply. It runs on the UI thread behind the busy display, one application at a time.
+    if (Test-PipelineBusy) {
+        Add-LogLine -Message 'Apply Supersedence: another run is in progress. Wait for it to finish.'
+        return
+    }
+    $sidebar = Get-SidebarSystemState -Prefs $script:Prefs
+    if (-not $sidebar.ApplySupersedenceEnabled) {
+        Add-LogLine -Message $sidebar.ApplySupersedenceToolTip
+        $txtStatus.Text = $sidebar.ApplySupersedenceToolTip
+        return
+    }
+    $selectedRows = @(Get-SelectedRows)
+    if ($selectedRows.Count -eq 0) {
+        Add-LogLine -Message 'No rows selected.'
+        return
+    }
+
+    $titleModes = Get-TitleModesMapForContext
+    $defaultTitleMode = Get-DefaultTitleModeForContext
+    Set-ActionButtonsEnabled -Enabled $false
+    Show-BusyIndicator -Title 'Applying supersedence'
+    try {
+        $txtStatus.Text = 'Applying supersedence to the selected applications...'
+        $total = $selectedRows.Count
+        $index = 0
+        $counts = @{ Applied = 0; None = 0; Failed = 0 }
+        foreach ($row in $selectedRows) {
+            $index++
+            $baseName = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script)
+            Set-BusyStep -Text (Format-BusyStep -Verb 'Supersedence' -Index $index -Total $total -Name ([string]$row.Application))
+            Add-LogLine -Message ('Apply Supersedence: {0}' -f $row.Application)
+            try {
+                $manifestPath = Find-NewestStageManifestForPackager -PackagerPath ([string]$row.FullPath) -DownloadRoot ([string]$script:Prefs.DownloadRoot)
+                $titleMode = $(if ($titleModes.ContainsKey($baseName) -and [string]$titleModes[$baseName]) { [string]$titleModes[$baseName] } else { [string]$defaultTitleMode })
+                $result = Invoke-SupersedenceApply -ManifestPath ([string]$manifestPath) -SiteCode ([string]$script:Prefs.SiteCode) `
+                    -ProviderMachineName ([string]$script:Prefs.ProviderMachineName) -FallbackApplicationId ('catalog:' + $baseName) `
+                    -TitleMode $titleMode -Settings $script:Prefs.Supersedence
+            }
+            catch {
+                $result = [pscustomobject]@{ Ok = $false; Message = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'); Status = 'NotApplied'; RowStatus = 'Supersedence not applied'; Log = @() }
+            }
+            foreach ($line in @($result.Log)) { Add-LogLine -Message ('  ' + $line) }
+            Add-LogLine -Message ('  {0}: {1}' -f $(if ($result.Ok) { 'Supersedence' } else { 'Supersedence not applied' }), $result.Message)
+            $row.Status = [string]$result.RowStatus
+            if (-not $result.Ok) { $counts.Failed++ } elseif ($result.Status -eq 'Applied') { $counts.Applied++ } else { $counts.None++ }
+            try { $dataGrid.Items.Refresh() } catch { <# A refresh of the grid is display only. #> $null = $_ }
+        }
+        $txtStatus.Text = 'Apply Supersedence finished: {0} applied, {1} with no older version, {2} not applied.' -f $counts.Applied, $counts.None, $counts.Failed
+        Add-LogLine -Message $txtStatus.Text
+    }
+    catch {
+        $message = 'Apply Supersedence failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')
+        Add-LogLine -Message $message
+        $txtStatus.Text = $message
+    }
+    finally {
+        Hide-BusyIndicator
+        Set-ActionButtonsEnabled -Enabled $true
+    }
+}
+
+$btnApplySupersedence.Add_Click({ Start-ApplySupersedence })
 
 $btnWsusUpdates.Add_Click({
     $settings = Get-WsusPublishConfigForContext -Target 'WSUSOnly'

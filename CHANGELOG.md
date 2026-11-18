@@ -14,6 +14,7 @@
 - Translate ConfigMgr requirements into Intune requirement rules on publish.
 - Block the Intune publish of a requirement that has no Intune rule.
 - Add Accepted requirement drops to Options, Connections, Intune. A review dialog stores it.
+- Add Apply Supersedence. It links published apps to their older version without a publish.
 
 ## [2026.11.18.0142] - 2026-11-18
 
