@@ -24,16 +24,21 @@ ArpName: none
     The install script provisions the bundle for all users with
     Add-AppxProvisionedPackage, the dependencies for the processor
     architecture and the license file included. It needs no Microsoft Store
-    and no network access. A user gets the package at the next sign-in; the
-    script does not register it for a user who is signed in.
+    and no network access. Provisioning reaches an existing user profile at
+    the next sign-in; the script does not register the package for a user who
+    is signed in.
 
     Detection reads the provisioned package version from the all-user store
     and accepts the packaged version or a newer one, so a device that the
-    Store updated stays compliant.
+    Store updated stays compliant. The bundle version (2026.917.151.0) differs
+    from the release tag (1.29.380): the application version is the tag, and a
+    detection on the tag would never be true.
 
-    The uninstall script removes the package for all users and the
-    provisioning. A profile that is not loaded cannot be changed, so its copy
-    can remain; detection reads the provisioning only.
+    The uninstall script removes the provisioning and the per-user copies of
+    signed-in users. It does not remove the copy of a logged-off profile,
+    because that profile is not loaded; detection reads the provisioning only.
+    The effect of a Windows feature upgrade on the provisioned package is not
+    verified.
 
     Supports two-phase operation:
       -StageOnly    Download, verify, extract the dependencies, write manifest
