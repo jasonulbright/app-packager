@@ -37,6 +37,10 @@
 - Add the Bruno packager. It installs the x64 MSI for all users and checks the file against the SHA-256 digest of the GitHub release when GitHub lists one.
 - Add the PowerShell 7 (Devolutions) packager. It installs the signed Microsoft-payload MSI.
 
+### Fixed
+
+- The guide capture tool stops only the processes that it started, by process id. It no longer stops PowerShell processes by command-line pattern, which could end the window of another session. A new guard test fails when a tool script stops a process by a pattern.
+
 ## [2026.11.18.0143] - 2026-11-18
 
 ## 17 changes: supersedence, review before staging, requirement translation
