@@ -4,7 +4,7 @@
 
 ### Added
 
-- Add the Bruno packager. It installs the x64 MSI for all users and checks the file against the SHA-256 digest of the GitHub release.
+- Add the Bruno packager. It installs the x64 MSI for all users and checks the file against the SHA-256 digest of the GitHub release when GitHub lists one.
 
 ## [2026.11.18.0143] - 2026-11-18
 

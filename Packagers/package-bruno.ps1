@@ -105,7 +105,7 @@ function Get-LatestBrunoRelease {
     Write-Log "GitHub releases API          : $GitHubApiUrl" -Quiet:$Quiet
 
     try {
-        $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
+        $json = (curl.exe -L --fail --silent --show-error --max-time 60 @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
         $release = ConvertFrom-Json $json
@@ -160,16 +160,25 @@ function Invoke-StageBruno {
     $localMsi = Join-Path $BaseDownloadRoot $MsiFileName
     Write-Log "Local MSI path               : $localMsi"
 
+    # A cached file counts only when it matches the release digest. A mismatch
+    # removes it and downloads again once.
+    $digestKnown = -not [string]::IsNullOrWhiteSpace($releaseInfo.Sha256)
+    if (Test-Path -LiteralPath $localMsi) {
+        if ($digestKnown -and (Get-FileHash -LiteralPath $localMsi -Algorithm SHA256 -ErrorAction Stop).Hash -ne $releaseInfo.Sha256) {
+            Write-Log "Local MSI does not match the release digest. Downloading it again." -Level WARN
+            Remove-Item -LiteralPath $localMsi -Force -ErrorAction Stop
+        }
+        else {
+            Write-Log "Local MSI exists. Skipping download."
+        }
+    }
     if (-not (Test-Path -LiteralPath $localMsi)) {
         Write-Log "Downloading Bruno MSI..."
         Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localMsi
     }
-    else {
-        Write-Log "Local MSI exists. Skipping download."
-    }
 
     # --- Verify against the digest GitHub publishes for the asset ---
-    if ([string]::IsNullOrWhiteSpace($releaseInfo.Sha256)) {
+    if (-not $digestKnown) {
         Write-Log "GitHub published no SHA-256 digest for $MsiFileName. The file is not verified." -Level WARN
     }
     else {
@@ -201,13 +210,8 @@ function Invoke-StageBruno {
     Initialize-Folder -Path $localContentPath
 
     $stagedMsi = Join-Path $localContentPath $MsiFileName
-    if (-not (Test-Path -LiteralPath $stagedMsi)) {
-        Copy-Item -LiteralPath $localMsi -Destination $stagedMsi -Force -ErrorAction Stop
-        Write-Log "Copied MSI to staged folder  : $stagedMsi"
-    }
-    else {
-        Write-Log "Staged MSI exists. Skipping copy."
-    }
+    Copy-Item -LiteralPath $localMsi -Destination $stagedMsi -Force -ErrorAction Stop
+    Write-Log "Copied MSI to staged folder  : $stagedMsi"
 
     # --- Derive ARP detection from MSI properties ---
     $arpRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\" + $productCode
@@ -260,6 +264,8 @@ function Invoke-StageBruno {
 # ---------------------------------------------------------------------------
 
 function Invoke-PackageBruno {
+    param([string]$StagedContentPath)
+
     Write-Log ""
     Write-Log ("=" * 60)
     Write-Log "Bruno - PACKAGE phase"
@@ -268,13 +274,17 @@ function Invoke-PackageBruno {
 
     Initialize-Folder -Path $BaseDownloadRoot
 
-    $versionFile = Join-Path $BaseDownloadRoot "staged-version.txt"
-    if (-not (Test-Path -LiteralPath $versionFile)) {
-        throw "Version marker not found - run Stage phase first: $versionFile"
+    if ([string]::IsNullOrWhiteSpace($StagedContentPath)) {
+        $versionFile = Join-Path $BaseDownloadRoot "staged-version.txt"
+        if (-not (Test-Path -LiteralPath $versionFile)) {
+            throw "Version marker not found - run Stage phase first: $versionFile"
+        }
+        $version = (Get-Content -LiteralPath $versionFile -Raw -ErrorAction Stop).Trim()
+        $localContentPath = Join-Path $BaseDownloadRoot $version
     }
-    $version = (Get-Content -LiteralPath $versionFile -Raw -ErrorAction Stop).Trim()
-
-    $localContentPath = Join-Path $BaseDownloadRoot $version
+    else {
+        $localContentPath = $StagedContentPath
+    }
     $manifestPath     = Join-Path $localContentPath "stage-manifest.json"
 
     $manifest = Read-StageManifest -Path $manifestPath
@@ -345,8 +355,8 @@ try {
         Invoke-PackageBruno
     }
     else {
-        Invoke-StageBruno
-        Invoke-PackageBruno
+        $stagedPath = Invoke-StageBruno | Select-Object -Last 1
+        Invoke-PackageBruno -StagedContentPath ([string]$stagedPath)
     }
 
     Write-Log ""

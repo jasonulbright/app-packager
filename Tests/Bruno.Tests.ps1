@@ -9,6 +9,7 @@ BeforeAll {
     if (-not $fn) { throw 'function Get-LatestBrunoRelease not found' }
     . ([scriptblock]::Create($fn.Extent.Text))
     function Write-Log { param($Message, $Level, [switch]$Quiet) }
+    function Get-GitHubApiCurlArgs { @() }
     $script:GitHubApiUrl = 'https://example.invalid/releases/latest'
     $script:releaseJson = @'
 { "tag_name": "v4.3.0", "assets": [
@@ -35,12 +36,15 @@ Describe 'Bruno release lookup' {
     }
 
     It 'returns null for a tag that is not a version' {
-        function curl.exe { $global:LASTEXITCODE = 0; '{ "tag_name": "nightly", "assets": [] }' }
+        function curl.exe { $global:LASTEXITCODE = 0; '{ "tag_name": "nightly", "assets": [ { "name": "bruno_4.3.0_x64_win.msi", "browser_download_url": "u" } ] }' }
         Get-LatestBrunoRelease -Quiet | Should -BeNullOrEmpty
     }
 
     It 'returns no digest when GitHub publishes none' {
         function curl.exe { $global:LASTEXITCODE = 0; '{ "tag_name": "v4.3.0", "assets": [ { "name": "bruno_4.3.0_x64_win.msi", "browser_download_url": "u" } ] }' }
-        (Get-LatestBrunoRelease -Quiet).Sha256 | Should -BeNullOrEmpty
+        $r = Get-LatestBrunoRelease -Quiet
+        $r.Version | Should -Be '4.3.0'
+        $r.FileName | Should -Be 'bruno_4.3.0_x64_win.msi'
+        $r.Sha256 | Should -BeNullOrEmpty
     }
 }
