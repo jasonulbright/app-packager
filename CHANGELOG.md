@@ -6,6 +6,10 @@
 
 - Cancel works in every run: Check Latest, Check ConfigMgr, Check CVEs, Stage, Package, One Click and the conversion. The Cancel button is visible next to the progress bar. It ends the download or packager process of the product in flight within seconds (only processes that the run started), keeps the results of the finished products and your selection, and shows "Cancelled: N of M products done." in the status and the log. A second click does nothing, and closing the window during a run also ends its processes.
 
+### Fixed
+
+- The PowerShell 7 packager checks the Authenticode signature of the downloaded MSI (signer Microsoft Corporation, status Valid) before it stages, because the release lists no digest. A bad file is deleted and the message says nothing was staged. Two shared checks, Assert-InstallerSignature and Assert-InstallerDigest, are ready for other packagers.
+
 ## [2026.11.18.0145] - 2026-11-18
 
 ## 315 packagers: App Installer added, PowerShell 7 and NVD fixes
