@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## 315 packagers: App Installer (WinGet) added
+
+### Added
+
+- Add the App Installer (WinGet) packager. It provisions the package for all users without the Store.
+
 ## [2026.11.18.0144] - 2026-11-18
 
 ## 314 packagers: Bruno and PowerShell 7 added

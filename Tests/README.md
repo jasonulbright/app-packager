@@ -110,6 +110,7 @@ No test writes to a certificate trust store in any scope. `AppPackagerWsus.Tests
 - `PackagerSmoke.Tests.ps1` - Pester wrapper around the smoke harness.
 - `AnypointStudio.Tests.ps1` - the Anypoint Studio packager: the downloads manifest entry, its SHA-256, and the build read from the ZIP.
 - `Bruno.Tests.ps1` - the Bruno packager: the x64 MSI choice, the tag to version step and the release digest.
+- `AppInstaller.Tests.ps1` - the App Installer (WinGet) packager: the release and asset choice, the dependency check, the install, uninstall and detection scripts.
 - `DevolutionsPowerShell.Tests.ps1` - the PowerShell 7 (Devolutions) packager: the release and asset choice, the digest requirement, the install commands and the file version detection.
 - `AdobeReader.Tests.ps1` - the Adobe Reader packager: English and MUI installer and patch names, the LANG_LIST normalization, the stored install options, the MUI command line, the stage folder cleanup between editions, the setup.ini command line, and the preferences round trip.
 - `XamlParse.Tests.ps1` - every inline XAML block and XAML file parses as XML, so a panel shown later cannot fail on an undeclared prefix.
