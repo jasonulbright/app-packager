@@ -157,7 +157,7 @@ Describe 'The old Options window and the new one write the same keys' {
             'SSMSInstallOptions.Workloads', 'SSMSInstallOptions.Languages', 'SSMSInstallOptions.NoCache',
             'AdobeReaderInstallOptions.AcceptEula', 'AdobeReaderInstallOptions.DisableDesktopShortcut', 'AdobeReaderInstallOptions.DisableChromeExtension', 'AdobeReaderInstallOptions.DisableBrowserIntegration', 'AdobeReaderInstallOptions.UpdateMode',
             'BeyondCompareOptions.DisableRemoteProfiles', 'BeyondCompareOptions.DisableSavedPasswords',
-            'ScriptSigning.HashAlgorithm', 'Intune.MinimumWindowsRelease', 'AppFlow.DefaultCadenceDays', 'CheckForUpdatesAtStartup', 'ContentDistribution.TestCollectionIsUser'
+            'ScriptSigning.HashAlgorithm', 'Intune.MinimumWindowsRelease', 'AppFlow.DefaultCadenceDays', 'CheckForUpdatesAtStartup', 'ContentDistribution.TestCollectionIsUser', 'AppendArchitectureToTitle'
         )
         $unexpected = @($new | Where-Object { $expected -notcontains $_ })
         $unexpected | Should -BeNullOrEmpty -Because ('new keys that the test does not list: ' + ($unexpected -join ', '))

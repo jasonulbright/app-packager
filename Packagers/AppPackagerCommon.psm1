@@ -2283,6 +2283,21 @@ function Write-StageManifest {
     }
 }
 
+function Format-ApplicationTitleArchitecture {
+    <#
+    .SYNOPSIS
+        Applies the architecture rule to a final application title.
+    .DESCRIPTION
+        A repeated tag such as (x64) (x64) becomes one. A trailing tag (x64), (x86), (arm64),
+        (arm), (32-bit) or (64-bit) goes when -Append is false. Same rule as App Packager Desktop.
+    #>
+    param([Parameter(Mandatory)][string]$Title, [bool]$Append = $true)
+    $tag = '\(\s*(?:x64|x86|arm64|arm|32-bit|64-bit)\s*\)'
+    $result = [regex]::Replace($Title, '(' + $tag + ')(\s+\1)+', '$1', 'IgnoreCase')
+    if (-not $Append) { $result = [regex]::Replace($result, '\s*' + $tag + '\s*$', '', 'IgnoreCase') }
+    return $result.Trim()
+}
+
 function Get-PackagedApplicationName {
     param(
         [Parameter(Mandatory)][string]$AppName,
@@ -2373,6 +2388,9 @@ function Read-StageManifest {
     if ($manifest.PSObject.Properties['TitleMode'] -and [string]$manifest.TitleMode) { $titleMode = [string]$manifest.TitleMode }
     if ($titleMode -and $titleMode -ne 'Default') {
         $manifest.AppName = Get-PackagedApplicationName -AppName $manifest.AppName -Version $manifest.SoftwareVersion -Mode $titleMode
+    }
+    if ($env:APP_PACKAGER_TITLE_APPEND_ARCH -eq '0') {
+        $manifest.AppName = Format-ApplicationTitleArchitecture -Title ([string]$manifest.AppName) -Append $false
     }
     if ($env:APP_PACKAGER_PACKAGE_PREFLIGHT -eq '1') {
         Write-PackagePreflight -AppName $manifest.AppName -Version $manifest.SoftwareVersion

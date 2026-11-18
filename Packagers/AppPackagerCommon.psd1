@@ -58,6 +58,7 @@
         'Write-StageManifest'
         'Read-StageManifest'
         'Get-FileHeaderBytes'
+        'Format-ApplicationTitleArchitecture'
         'Get-PackagedApplicationName'
         'Write-PackagePreflight'
 
