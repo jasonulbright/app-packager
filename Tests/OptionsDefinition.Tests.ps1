@@ -46,7 +46,7 @@ Describe 'The tree' {
 
     It 'has the approved sections under <Parent>' -ForEach @(
         @{ Parent = 'connections'; Expected = 'Systems in Use|ConfigMgr|WSUS|Intune|Test Connection' }
-        @{ Parent = 'packaging'; Expected = 'Folders|Deployment Type Defaults|Application Title|Post Packaging' }
+        @{ Parent = 'packaging'; Expected = 'Folders|Deployment Type Defaults|Application Title|Post Packaging|Supersedence' }
         @{ Parent = 'applications'; Expected = 'Adobe Acrobat Reader|Beyond Compare 5|Citrix Workspace App|DBeaver Community|Microsoft 365 Apps|SQL Server Management Studio|TeamViewer Host|Local Installer Sources' }
         @{ Parent = 'cwa'; Expected = '' }
         @{ Parent = 'updates'; Expected = 'One Click|Product Filter|CVE Lookup' }

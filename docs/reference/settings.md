@@ -43,6 +43,9 @@ Every key of `AppPackager.preferences.json`, `Packagers\citrix-workspace-switche
 | `DeploymentConditions.Apps` | The conditions dialog of the main window edits it for each application. |
 | `CommandOverrides.Apps` | The command override dialog of the main window edits it for each application. |
 | `WorkbenchDataRoot` | File only. It sets the data folder of the Workbench. The variable `APP_PACKAGER_WORKBENCH_ROOT` overrides it. |
+| `Supersedence.TitleOverrides` | File only. It holds the version rule (`VersionRule`: `Minimum` or `Exact`) and the supersedence mode (`Mode`: `Off`, `Replace` or `Replace and uninstall`) of one application. The key is the application identifier, for example `catalog:package-7zip`. Either value can be left out. |
+| `Supersedence.InstalledValues` | The command line writes it with `-RecordInstalledValue`. The key is `<application identifier>|<version>`. The Exact guard compares the value with the expected value of a version clause. |
+| `Supersedence.AcceptedExactBlocks` | The command line writes it with `-AcceptExactBlock`. Each entry is `<application identifier>|<version>`. The clause is then written as `Minimum`, and `Replace and uninstall` is blocked for that title. |
 | `Installation.EnableSSON` (Citrix Workspace App) | It follows **Single sign-on** in Options, Applications, Citrix Workspace App, Installation. |
 | `DetectedTools` | The tool detects the console, 7-Zip and the Content Prep Tool at start. The Tools section shows them read-only. |
 

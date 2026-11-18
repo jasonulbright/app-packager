@@ -181,7 +181,7 @@ All workflow actions share the same persistent history file at `%LOCALAPPDATA%\A
 | Section | What it sets |
 |---|---|
 | Connections | Systems in Use, ConfigMgr, WSUS, Intune, and a Test Connection button for each. |
-| Packaging | Folders, deployment type defaults, the application title rule, and the Post Packaging steps. |
+| Packaging | Folders, deployment type defaults, the application title rule, the Post Packaging steps, and Supersedence. |
 | Applications | The install options of Adobe Acrobat Reader, Beyond Compare 5, Citrix Workspace App, DBeaver Community, Microsoft 365 Apps, SQL Server Management Studio and TeamViewer Host, and the local installer sources. |
 | Updates and CVEs | One Click, the product filter and the CVE lookup. |
 | Security | Script Signing. |

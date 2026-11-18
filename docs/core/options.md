@@ -84,6 +84,10 @@ The estimated and maximum runtime, **Fallback distribution points** and **Neighb
 
 ![The Post Packaging section](../images/options-post-packaging.png)
 
+#### Supersedence
+
+**Version rule, ConfigMgr**, **Version rule, Intune** and **Supersedence mode, ConfigMgr**. The version rule sets the operator of the version clause in the detection that Package publishes. Minimum writes `GreaterEquals` (this version or newer). Exact writes `IsEquals` (this version only), and only when a value read from the installed product equals the expected value: the ProductVersion of an MSI, or a value that you record with `-RecordInstalledValue`. The supersedence mode Replace makes the new ConfigMgr application supersede the older application of the same product line. Replace and uninstall also uninstalls it, and it needs the ConfigMgr version rule Exact. The shipped values are Minimum and Off, so nothing changes until you choose. Intune supersedence is not available. See [Command line](../reference/command-line.md) for `-VersionRule`, `-Supersedence`, `-RecordInstalledValue`, `-AcceptExactBlock` and `-RewriteOldVersions`.
+
 ### Applications
 
 #### Adobe Acrobat Reader
@@ -224,7 +228,7 @@ Without the console, the ConfigMgr section shows `Not detected` for it. The butt
 | Section | What it sets |
 |---|---|
 | Connections | Systems, ConfigMgr, WSUS, Intune and the connection tests. |
-| Packaging | Folders, deployment type defaults, the title rule and the Post Packaging steps. |
+| Packaging | Folders, deployment type defaults, the title rule, the Post Packaging steps and Supersedence. |
 | Applications | The install options of seven applications and the local installer sources. |
 | Updates and CVEs | The tracked set and its destinations, the product filter and the CVE lookup. |
 | Security | Authenticode signing of staged scripts. |
