@@ -1,5 +1,5 @@
 {
-  "PackVersion": "2026.11.18.0014",
+  "PackVersion": "2026.11.18.0015",
   "MinAppVersion": "1.5.0.0",
   "Icons": [
     {
@@ -60,6 +60,12 @@
       "File": "anydesk.png",
       "Packager": "anydesk",
       "SourceKind": "PeResource",
+      "PixelSize": 256
+    },
+    {
+      "File": "appinstaller.png",
+      "Packager": "appinstaller",
+      "SourceKind": "VendorAsset",
       "PixelSize": 256
     },
     {
