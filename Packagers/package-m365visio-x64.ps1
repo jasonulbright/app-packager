@@ -29,10 +29,10 @@ ArpName: Microsoft Visio - * | Microsoft Visio Plan 2 - *
       -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -60,7 +60,7 @@ ArpName: Microsoft Visio - * | Microsoft Visio Plan 2 - *
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed (Package phase)
+    - Configuration Manager console installed (Package phase)
     - Write access to FileServerPath (Package phase)
     - Internet access (Stage phase)
 #>

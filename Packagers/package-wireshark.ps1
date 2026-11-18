@@ -26,11 +26,11 @@ ArpName: Wireshark*
       -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
     The PSDrive is assumed to already exist in the session.
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -38,7 +38,7 @@ ArpName: Wireshark*
 
 .PARAMETER DownloadRoot
     Local root folder for staging downloaded installers.
-    Each packager creates a subfolder under this path (e.g., <DownloadRoot>\Wireshark).
+    Each packager creates a subfolder under this path (for example, <DownloadRoot>\Wireshark).
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
@@ -62,7 +62,7 @@ ArpName: Wireshark*
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
+    - Configuration Manager console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>
@@ -138,7 +138,7 @@ function Get-WiresharkInstallerMetadata {
     .DESCRIPTION
         The header decode names the uninstall key, DisplayName, DisplayVersion
         and Publisher without running the installer, so staging needs neither
-        elevation nor a temporary install on the packaging machine.
+        elevation nor a temporary install on the packaging computer.
     #>
     param([Parameter(Mandatory)][string]$InstallerPath)
 

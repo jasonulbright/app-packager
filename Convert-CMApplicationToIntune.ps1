@@ -51,7 +51,7 @@
     -UseSavedSettings.
 
 .PARAMETER UseSavedSettings
-    Read the tenant ID, the client ID and the client secret from the Intune
+    Uses the tenant ID, the client ID and the client secret from the Intune
     settings that App Packager saved in AppPackager.preferences.json.
 
 .EXAMPLE

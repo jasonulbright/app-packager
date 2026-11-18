@@ -33,6 +33,15 @@ BeforeAll {
 }
 
 Describe 'ConvertTo-OneClickDestinationSet' {
+    It 'accepts the ConfigMgr target names and keeps the old MECM names working' {
+        (ConvertTo-OneClickDestinationSet 'ConfigMgr').ConfigMgr | Should -BeTrue
+        (ConvertTo-OneClickDestinationSet 'ConfigMgrAndWSUS').WSUS | Should -BeTrue
+        (ConvertTo-OneClickDestinationSet 'ConfigMgrAndIntune').Intune | Should -BeTrue
+        (ConvertTo-OneClickDestinationSet 'MECM').ConfigMgr | Should -BeTrue
+        (ConvertTo-OneClickDestinationSet 'MECMAndWSUS').WSUS | Should -BeTrue
+        (ConvertTo-OneClickDestinationSet 'MECMAndIntune').Intune | Should -BeTrue
+    }
+
     It 'maps every deployment target to its destinations' {
         (ConvertTo-OneClickDestinationSet 'MECM').ConfigMgr | Should -BeTrue
         (ConvertTo-OneClickDestinationSet 'MECM').WSUS | Should -BeFalse

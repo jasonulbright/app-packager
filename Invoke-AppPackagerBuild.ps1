@@ -39,16 +39,17 @@
     WSUS targets:
       WSUSOnly     Package stages the application and publishes its
                    installer to WSUS; no site, share, or console.
-      MECMAndWSUS  Package creates the ConfigMgr application, then
-                   publishes the installer to WSUS.
-    The WSUS publish reads the manifest staged in this run, so a MECMAndWSUS
+      ConfigMgrAndWSUS  Package creates the ConfigMgr application, then
+                        publishes the installer to WSUS.
+    The old value names MECM, MECMAndIntune and MECMAndWSUS still work.
+    The WSUS publish reads the manifest staged in this run, so a ConfigMgrAndWSUS
     publish needs -Stage and -Package together. -Wsus* parameters outrank
     the Wsus section of the preferences file. When the approval or a decline
     fails after a successful publish, the update stays published, Wsus.Warnings
     names the failure, and the exit code is 1.
 
 .EXAMPLE
-    .\Invoke-AppPackagerBuild.ps1 -Application package-git.ps1 -Profile default -Target MECM -Package -EstimatedMinutes 10 -MaximumMinutes 25
+    .\Invoke-AppPackagerBuild.ps1 -Application package-git.ps1 -Profile default -Target ConfigMgr -Package -EstimatedMinutes 10 -MaximumMinutes 25
 
 .EXAMPLE
     .\Invoke-AppPackagerBuild.ps1 -Application package-7zip.ps1 -Target WSUSOnly -Package -WsusServer wsus01.contoso.com -WsusPort 8531 -WsusUseSsl -WsusApprovalGroup Pilot
@@ -62,8 +63,8 @@ param(
 
     [string]$Version,
 
-    [ValidateSet('ContentOnly', 'MECM', 'MECMAndIntune', 'IntuneOnly', 'MECMAndWSUS', 'WSUSOnly')]
-    [string]$Target = 'MECM',
+    [ValidateSet('ContentOnly', 'ConfigMgr', 'ConfigMgrAndIntune', 'IntuneOnly', 'ConfigMgrAndWSUS', 'WSUSOnly', 'MECM', 'MECMAndIntune', 'MECMAndWSUS')]
+    [string]$Target = 'ConfigMgr',
 
     [switch]$Stage,
 
@@ -166,13 +167,15 @@ if ($supersedenceRecord) {
     if (-not $PSBoundParameters.ContainsKey('Version')) { throw '-RecordInstalledValue and -AcceptExactBlock need -Version: the value belongs to one version.' }
     if ($PSBoundParameters.ContainsKey('Profile')) { throw '-Profile does not apply to -RecordInstalledValue and -AcceptExactBlock: the value belongs to the title and the version.' }
 }
+# The old value names start with MECM. The code below keeps them as the internal names.
+$Target = $Target -replace '^ConfigMgr', 'MECM'
 $publishesToWsus = ($Target -in @('MECMAndWSUS', 'WSUSOnly'))
 $cliBoundParameters = @{} + $PSBoundParameters
 if ($Target -eq 'MECMAndWSUS' -and $Package -and -not $Stage) {
-    throw 'A MECMAndWSUS package publishes the build staged in the same run; pass -Stage together with -Package.'
+    throw 'A ConfigMgrAndWSUS package publishes the build staged in the same run; pass -Stage together with -Package.'
 }
 if ($Package -and $Target -in @('MECMAndIntune', 'IntuneOnly')) {
-    throw "Target $Target cannot be packaged from the command line: Intune publishing runs only from the application window. Use -Target MECM, WSUSOnly or ContentOnly, or publish to Intune from the window."
+    throw "Target $Target cannot be packaged from the command line: Intune publishing runs only from the application window. Use -Target ConfigMgr, WSUSOnly or ContentOnly, or publish to Intune from the window."
 }
 if ($Target -eq 'ContentOnly' -and $Package) {
     if (-not $Stage) { throw 'Target ContentOnly stages content and publishes nothing, so there is nothing to package. Pass -Stage.' }

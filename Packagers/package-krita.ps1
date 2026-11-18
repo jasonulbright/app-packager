@@ -25,11 +25,11 @@ ArpName: Krita*
       -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
     The PSDrive is assumed to already exist in the session.
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -37,7 +37,7 @@ ArpName: Krita*
 
 .PARAMETER DownloadRoot
     Local root folder for staging downloaded installers.
-    Each packager creates a subfolder under this path (e.g., <DownloadRoot>\Krita).
+    Each packager creates a subfolder under this path (for example, <DownloadRoot>\Krita).
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
@@ -61,7 +61,7 @@ ArpName: Krita*
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
+    - Configuration Manager console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>
@@ -135,7 +135,7 @@ function Get-LatestKritaRelease {
         and versions carry three or four fields (6.0.2, 6.0.2.1), so the listing
         is sorted as versions rather than trusted in document order. A release
         directory can appear before its Windows installer is published, so the
-        highest version that actually carries one wins.
+        highest version that carries one wins.
     #>
     param([switch]$Quiet)
 

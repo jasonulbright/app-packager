@@ -387,7 +387,7 @@ function ConvertFrom-CMApplicationDigest {
     .DESCRIPTION
         The document (SDMPackageXML of the application) is self-contained: it
         holds the application and every deployment type. Priority is the order
-        of the deployment types, which matches PriorityInLatestApp. Read the
+        of the deployment types, which matches PriorityInLatestApp. View the
         application, not a deployment type: Get-CMDeploymentType returns the
         first deployment type's document for every type of an application.
     #>

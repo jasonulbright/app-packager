@@ -14,13 +14,13 @@
     No network operations are performed on launch.
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
 
 .PARAMETER ProviderMachineName
-    ConfigMgr SMS Provider machine name from the AdminUI connect script.
+    ConfigMgr SMS Provider computer name from the AdminUI connect script.
 
 .PARAMETER PackagersRoot
-    Local folder containing packager scripts (e.g., .\Packagers).
+    Local folder containing packager scripts (for example, .\Packagers).
 
 .EXAMPLE
     .\start-apppackager.ps1
@@ -1703,7 +1703,7 @@ function Resolve-DiscoveryButton {
 
     $picked = @($Rows | Where-Object { $_ -and $_.Selected -eq $true } | ForEach-Object { [string]$_.Script })
     if ($picked.Count -eq 0) {
-        $note = $(if ($Button -eq 'Dismiss') { 'Check the apps to leave out of later discoveries. Nothing changed.' } else { 'Check at least one app, or click Enable all.' })
+        $note = $(if ($Button -eq 'Dismiss') { 'Check the apps to leave out of later discoveries. Nothing changed.' } else { 'Check at least one app, or select Enable all.' })
         return [pscustomobject]@{ Action = ''; Scripts = @(); Note = $note }
     }
     return [pscustomobject]@{ Action = $Button; Scripts = $picked; Note = '' }
@@ -2388,7 +2388,7 @@ function Get-MecmCurrentVersionByCMName {
 
         if ([string]::IsNullOrWhiteSpace($providerRoot)) {
             Set-Location $savedLocation -ErrorAction SilentlyContinue
-            throw ("Failed to connect to CM site PSDrive '{0}:'. Open the ConfigMgr console once on this machine, or set Site server / SMS Provider in Options, Connections, ConfigMgr (the ProviderMachineName value from the AdminUI connect script)." -f $SiteCode)
+            throw ("Failed to connect to ConfigMgr site PSDrive '{0}:'. Open the ConfigMgr console once on this computer, or set Site server / SMS Provider in Options, Connections, ConfigMgr (the ProviderMachineName value from the AdminUI connect script)." -f $SiteCode)
         }
 
         try {
@@ -2397,7 +2397,7 @@ function Get-MecmCurrentVersionByCMName {
         }
         catch {
             Set-Location $savedLocation -ErrorAction SilentlyContinue
-            throw ("Failed to connect to CM site PSDrive '{0}:' via provider '{1}': {2}" -f $SiteCode, $providerRoot, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
+            throw ("Failed to connect to ConfigMgr site PSDrive '{0}:' through provider '{1}': {2}" -f $SiteCode, $providerRoot, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
         }
     }
 
@@ -3646,7 +3646,7 @@ function Invoke-SelfUpdate {
     if ($script:UpdateIsSuite) {
         $launcher = Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) 'app-packager-suite') 'start-suite.ps1'
         if (Test-Path -LiteralPath $launcher) {
-            Add-LogLine -Message ("Suite update v{0}: opening the AppPackager Suite Launcher. Close this and every other suite tool, then click Update there." -f $latest)
+            Add-LogLine -Message ("Suite update v{0}: opening the AppPackager Suite Launcher. Close this and every other suite tool, then select Update there." -f $latest)
             try { Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $launcher) -WorkingDirectory (Split-Path -Parent $launcher) } catch { Add-LogLine -Message ('Could not start the launcher: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) }
         }
         else {
@@ -7874,7 +7874,7 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'adobe.shortcut'; Title = 'Desktop shortcut'; Kind = 'Check'; Pref = 'AdobeReaderInstallOptions.DisableDesktopShortcut'; Label = 'Do not create the desktop shortcut (DISABLEDESKTOPSHORTCUT=1)'; Tip = 'Skips the desktop shortcut at install and after every update.' }
                 @{ Id = 'adobe.chrome'; Title = 'Chrome extension'; Kind = 'Check'; Pref = 'AdobeReaderInstallOptions.DisableChromeExtension'; Label = 'Do not install the Chrome extension (ENABLE_CHROMEEXT=0)'; Tip = 'Blocks the Adobe Chrome extension at install, for sites that set extensions by policy.' }
                 @{ Id = 'adobe.browser'; Title = 'Browser viewer control'; Kind = 'Check'; Pref = 'AdobeReaderInstallOptions.DisableBrowserIntegration'; Label = 'Do not install the browser viewer control (DISABLE_BROWSER_INTEGRATION=YES)'; Tip = 'Skips the PDF viewer ActiveX control for Internet Explorer.' }
-                @{ Id = 'adobe.update'; Title = 'Update mode'; Kind = 'Combo'; Pref = 'AdobeReaderInstallOptions.UpdateMode'; Default = ''; Width = 460; Items = @($notSet, @{ Label = '0 - check and install manually'; Value = '0' }, @{ Label = '2 - download automatically, user chooses when to install'; Value = '2' }, @{ Label = '3 - install updates automatically'; Value = '3' }, @{ Label = '4 - notify, user chooses to download and install'; Value = '4' }); Tip = 'Sets how Reader updates itself (UPDATE_MODE); use 0 when ConfigMgr patches Reader.' }
+                @{ Id = 'adobe.update'; Title = 'Update mode'; Kind = 'Combo'; Pref = 'AdobeReaderInstallOptions.UpdateMode'; Default = ''; Width = 460; Items = @($notSet, @{ Label = '0 - check and install manually'; Value = '0' }, @{ Label = '2 - download automatically, user chooses when to install'; Value = '2' }, @{ Label = '3 - install updates automatically'; Value = '3' }, @{ Label = '4 - notify, user chooses to download and install'; Value = '4' }); Tip = 'Sets how Reader updates itself (UPDATE_MODE); use 0 when ConfigMgr updates Reader.' }
             )
         })
 
@@ -7977,7 +7977,7 @@ function Get-OptionsSectionDefinition {
                     Items = @(
                         @{ Id = 'Access'; Label = 'Access'; Tip = 'Excludes Microsoft Access.' }
                         @{ Id = 'Excel'; Label = 'Excel'; Tip = 'Excludes Excel.' }
-                        @{ Id = 'Groove'; Label = 'OneDrive for Business (Groove)'; Tip = 'Excludes the OneDrive sync client of Office; the ExcludeApp ID is Groove.' }
+                        @{ Id = 'Groove'; Label = 'OneDrive for Business (Groove)'; Tip = 'Excludes the OneDrive file synchronization client of Office; the ExcludeApp ID is Groove.' }
                         @{ Id = 'Lync'; Label = 'Skype for Business (Lync)'; Tip = 'Excludes Skype for Business; the ExcludeApp ID is Lync.' }
                         @{ Id = 'OneDrive'; Label = 'OneDrive'; Tip = 'Excludes the OneDrive client that Office installs.' }
                         @{ Id = 'OneNote'; Label = 'OneNote'; Tip = 'Excludes OneNote.' }
@@ -7988,7 +7988,7 @@ function Get-OptionsSectionDefinition {
                         @{ Id = 'Teams'; Label = 'Teams'; Tip = 'Excludes the Teams installer that Office bundles.' }
                         @{ Id = 'Word'; Label = 'Word'; Tip = 'Excludes Word.' }) }
                 @{ Id = 'm365.behaviorGroup'; Kind = 'Group'; Title = 'Install behavior' }
-                @{ Id = 'm365.officeMgmt'; Title = 'Update source'; Kind = 'Check'; Pref = 'M365Options.OfficeMgmtCom'; Label = 'Let ConfigMgr software updates patch Office (OfficeMgmtCOM)'; Tip = 'Selected lets ConfigMgr deliver the updates; cleared lets Office update from the CDN.' }
+                @{ Id = 'm365.officeMgmt'; Title = 'Update source'; Kind = 'Check'; Pref = 'M365Options.OfficeMgmtCom'; Label = 'Let ConfigMgr software updates update Office (OfficeMgmtCOM)'; Tip = 'Selected lets ConfigMgr deliver the updates; cleared lets Office update from the CDN.' }
                 @{ Id = 'm365.updates'; Title = 'Office updates'; Kind = 'Check'; Pref = 'M365Options.UpdatesEnabled'; Label = 'Let Office check for updates (Updates Enabled)'; Tip = 'Selected lets Office check for updates; ConfigMgr stays the source with OfficeMgmtCOM.' }
                 @{ Id = 'm365.forceShutdown'; Title = 'Force app shutdown'; Kind = 'Check'; Pref = 'M365Options.ForceAppShutdown'; Label = 'Close Office apps that block setup (FORCEAPPSHUTDOWN)'; Tip = 'Closes Office apps that block setup; users can lose unsaved data.' }
                 @{ Id = 'm365.removeMsi'; Title = 'Remove MSI Office'; Kind = 'Check'; Pref = 'M365Options.RemoveMsi'; Label = 'Remove MSI versions of Office before the install (RemoveMSI)'; Tip = 'Removes Office 2007 to 2016 MSI installations; it does not remove Click-to-Run Office.' }
@@ -11849,13 +11849,13 @@ $btnCheckMECM.Add_Click({
         $notFound = @(Get-AutoHideOffer -Prefs $script:Prefs -Rows @($script:PackagerData))
         if ($notFound.Count -gt 0) {
             $answer = Show-ThemedMessage -Owner $window -Title "Hide Unused Applications" `
-                -Message ("{0} application(s) were not found in ConfigMgr.`n`nHide them from the grid? You can change this later via Product Filter." -f $notFound.Count) `
+                -Message ("{0} application(s) were not found in ConfigMgr.`n`nHide them from the grid? You can change this later through Product Filter." -f $notFound.Count) `
                 -Buttons YesNo -Icon Question
             if ($answer -eq 'Yes') {
                 $script:Prefs.HiddenApplications = $notFound
                 Save-Preferences -Prefs $script:Prefs
                 Invoke-RefreshGrid
-                Add-LogLine -Message ("{0} application(s) hidden. Manage via Product Filter." -f $notFound.Count)
+                Add-LogLine -Message ("{0} application(s) hidden. Manage through Product Filter." -f $notFound.Count)
             }
         }
 
@@ -16782,7 +16782,7 @@ function Show-WsusCatalogImportDialog {
         $line = $null
         while ($queue.TryDequeue([ref]$line)) {
             if ($line -eq '__done__') {
-                $txtStatus.Text = 'Import finished. Server-side details: %ProgramFiles%\Update Services\LogFiles\SoftwareDistribution.log on the WSUS server.'
+                $txtStatus.Text = 'Import finished. Server-side details: %ProgramFiles%\Update Services\LogFiles\SoftwareDistribution.log, on the WSUS server.'
                 $btnImport.IsEnabled = $true
                 continue
             }

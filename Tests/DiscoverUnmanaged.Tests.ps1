@@ -237,7 +237,7 @@ Describe 'Discovery prompt buttons' {
 
     It '<Button> with nothing checked returns no action and a plain note' -ForEach @(
         @{ Button = 'Dismiss'; Expected = 'Check the apps to leave out of later discoveries. Nothing changed.' }
-        @{ Button = 'EnableSelected'; Expected = 'Check at least one app, or click Enable all.' }
+        @{ Button = 'EnableSelected'; Expected = 'Check at least one app, or select Enable all.' }
     ) {
         $rows = New-PromptRows
         foreach ($r in $rows) { $r.Selected = $false }

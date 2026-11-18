@@ -21,7 +21,7 @@ ArpArch: x64
     ConfigMgr Application with registry-based detection on the Inno Setup ARP entry.
 
     The installer requires the .NET 8 desktop runtime and downloads it when the
-    target machine does not already have it, so deployed clients need outbound
+    target computer does not already have it, so deployed clients need outbound
     access to the Microsoft runtime CDN.
 
     Supports two-phase operation:
@@ -29,11 +29,11 @@ ArpArch: x64
       -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
     The PSDrive is assumed to already exist in the session.
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -41,7 +41,7 @@ ArpArch: x64
 
 .PARAMETER DownloadRoot
     Local root folder for staging downloaded installers.
-    Each packager creates a subfolder under this path (e.g., <DownloadRoot>\BCUninstaller).
+    Each packager creates a subfolder under this path (for example, <DownloadRoot>\BCUninstaller).
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
@@ -65,7 +65,7 @@ ArpArch: x64
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
+    - Configuration Manager console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>

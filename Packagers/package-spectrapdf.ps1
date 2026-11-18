@@ -23,7 +23,7 @@ ArpName: Spectra PDF
     kept for redeployment; pass /removeuserdata manually for full removal).
 
     Supports the standard two-phase contract:
-      -StageOnly    Download release asset via gh, write wrappers + manifest
+      -StageOnly    Download release asset through gh, write wrappers + manifest
       -PackageOnly  Copy to network, create ConfigMgr application
 
 .REQUIREMENTS

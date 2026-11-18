@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Use ConfigMgr terms in the packager help, the README and the guide.
+- Accept ConfigMgr, ConfigMgrAndIntune and ConfigMgrAndWSUS as deployment targets on the command line. The old target names still work.
+
 ## 315 packagers: App Installer (WinGet) added
 
 ### Added

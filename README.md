@@ -5,9 +5,9 @@
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](#prerequisites)
 [![License](https://img.shields.io/github/license/jasonulbright/app-packager)](LICENSE)
 
-Automated application packaging for Microsoft Configuration Manager (ConfigMgr) and Intune: 315 enterprise applications, each one click from vendor download to deployed app. AppPackager checks the vendor for the latest version, downloads and verifies the installer, generates silent install/uninstall wrappers and detection rules, and creates the ConfigMgr Application - or builds the `.intunewin` and publishes it to Intune via Graph, or publishes the installer to WSUS as a locally published update, no ConfigMgr site required. Drag any unknown `.msi`/`.exe` onto the window and it analyzes and packages that too. A companion version monitor flags stale deployments and looks up their CVEs. Built entirely in PowerShell 5.1 - the version that ships in the box on every supported Windows release, oldest to newest. Nothing to install, no add-ons, no agents, no subscription.
+Automated application packaging for Microsoft Configuration Manager (ConfigMgr) and Intune: 315 enterprise applications, each one click from vendor download to deployed app. AppPackager checks the vendor for the latest version, downloads and verifies the installer, generates silent install/uninstall wrappers and detection rules, and creates the ConfigMgr Application - or builds the `.intunewin` and publishes it to Intune through Graph, or publishes the installer to WSUS as a locally published update, no ConfigMgr site required. Drag any unknown `.msi`/`.exe` onto the window and it analyzes and packages that too. A companion version monitor flags stale deployments and looks up their CVEs. Built entirely in PowerShell 5.1 - the version that ships in the box on every supported Windows release, oldest to newest. Nothing to install, no add-ons, no agents, no subscription.
 
-Read the [user guide](docs/index.md) for every window, dialog and setting.
+View the [user guide](docs/index.md) for every window, dialog and setting.
 
 This is the class of work commercial third-party patching catalogs sell as a subscription. AppPackager covers a comparable application set - the coverage decision for each of 933 reviewed catalog entries is documented in [CATALOG-PARITY.csv](CATALOG-PARITY.csv) - runs entirely inside your environment, and is MIT-licensed.
 
@@ -49,13 +49,13 @@ Each packager script operates in two phases:
 
 **Stage** - Downloads the latest installer from the vendor's official source, extracts metadata (version, publisher, detection info), generates install/uninstall wrapper scripts, and writes a `stage-manifest.json`. Everything is built locally under a configurable download root. No network share or ConfigMgr site required. When IntuneWinAppUtil is detected, Stage also builds a `.intunewin` beside the content.
 
-**Package** - Reads the stage manifest, copies the content folder to a versioned UNC network share, and creates a ConfigMgr Application with the appropriate deployment type and detection method. In the GUI, **Publish to ConfigMgr** runs this phase. **Publish to Intune** builds a `.intunewin` from the staged content and publishes it to Intune as a Win32 app via Microsoft Graph. **Publish to WSUS** publishes the staged vendor installer to WSUS as a locally published update. Neither of those two needs a site connection, a file share, or the ConfigMgr console. See [WSUS Publishing](#wsus-publishing).
+**Package** - Reads the stage manifest, copies the content folder to a versioned UNC network share, and creates a ConfigMgr Application with the appropriate deployment type and detection method. In the GUI, **Publish to ConfigMgr** runs this phase. **Publish to Intune** builds a `.intunewin` from the staged content and publishes it to Intune as a Win32 app through Microsoft Graph. **Publish to WSUS** publishes the staged vendor installer to WSUS as a locally published update. Neither of those two needs a site connection, a file share, or the ConfigMgr console. See [WSUS Publishing](#wsus-publishing).
 
 The GUI (`start-apppackager.ps1`) provides a visual front-end that discovers packager scripts automatically, lets you check latest versions, query ConfigMgr for current versions, and stage or publish selected applications.
 
 **Drop to package** - Drag an `.msi` or `.exe` installer onto the window (or use the sidebar **Add Installer...** button - a drag from Explorer is silently blocked when the two processes run at different elevation levels) and the app analyzes it (engine detection, MSI property tables, silent-switch prediction), opens an editable manifest preview, and stages or packages it through the same manifest pipeline the packager scripts use. MSI identity is authoritative; for other installers the predicted values must be explicitly confirmed before Stage and Package enables. A dropped installer that turns out to be a recurring need can be saved as a starter packager script generated from the matching template, with identity, folders, and filename pre-filled and the download source left as the one remaining TODO.
 
-For an NSIS installer the analysis reads the compiled script inside the file rather than guessing: the install directory, the uninstaller the script writes, the Add/Remove Programs key with its hive and 32/64-bit registry view, and the manifest's requested execution level. The uninstall command comes out as a real path (`"%LOCALAPPDATA%\App\Uninstall.exe" /S`), the detection rule targets the key the script actually writes (under `WOW6432Node` when a 32-bit installer never calls `SetRegView 64`), and a per-user installer - HKCU registration, a profile-relative install folder - is staged as an **Install for user** deployment type with HKCU detection, because a system-context run would install into the SYSTEM profile and never satisfy the detection. For an Inno Setup installer the compiled `[Setup]` header is read the same way: the ARP key is the real `<AppId>_is1` (GUID or name), `DisplayVersion` is the compiled `AppVersion` even when the stub has no file version, the install folder follows `DefaultDirName` and the 64-bit install mode, the uninstall command names `unins000.exe`, and `PrivilegesRequired=lowest` is what makes a setup per-user; an Inno Setup 6 stub is `asInvoker` and elevates itself, so its manifest alone says nothing about the context. An installer that accepts a mode switch (NSIS `/allusers` in electron-builder and MultiUser scripts, Inno Setup `/ALLUSERS` when `PrivilegesRequiredOverridesAllowed` includes the command line) gets an **Install For** toggle in the preview: the default is what the installer does without the switch, and choosing the other mode replaces the install arguments, uninstall command, install folder, detection key and hive, and deployment context together from that branch, so a per-machine deployment is never paired with a per-user uninstall or detection.
+For an NSIS installer the analysis reads the compiled script inside the file rather than guessing: the install directory, the uninstaller the script writes, the Add/Remove Programs key with its hive and 32/64-bit registry view, and the manifest's requested execution level. The uninstall command comes out as a real path (`"%LOCALAPPDATA%\App\Uninstall.exe" /S`), the detection rule targets the key the script writes (under `WOW6432Node` when a 32-bit installer never calls `SetRegView 64`), and a per-user installer - HKCU registration, a profile-relative install folder - is staged as an **Install for user** deployment type with HKCU detection, because a system-context run would install into the SYSTEM profile and never satisfy the detection. For an Inno Setup installer the compiled `[Setup]` header is read the same way: the ARP key is the real `<AppId>_is1` (GUID or name), `DisplayVersion` is the compiled `AppVersion` even when the stub has no file version, the install folder follows `DefaultDirName` and the 64-bit install mode, the uninstall command names `unins000.exe`, and `PrivilegesRequired=lowest` is what makes a setup per-user; an Inno Setup 6 stub is `asInvoker` and elevates itself, so its manifest alone says nothing about the context. An installer that accepts a mode switch (NSIS `/allusers` in electron-builder and MultiUser scripts, Inno Setup `/ALLUSERS` when `PrivilegesRequiredOverridesAllowed` includes the command line) gets an **Install For** toggle in the preview: the default is what the installer does without the switch, and choosing the other mode replaces the install arguments, uninstall command, install folder, detection key and hive, and deployment context together from that branch, so a per-machine deployment is never paired with a per-user uninstall or detection.
 
 **Application Workbench** - fine-tune any packager from a window instead of its script: commands, hook scripts, detection, requirements, runtime, icon and extra files, saved as named profiles that survive updates. See [Application Workbench](#application-workbench).
 
@@ -78,7 +78,7 @@ For an NSIS installer the analysis reads the compiled script inside the file rat
 | **ConfigMgr Permissions** | RBAC rights to create Applications and Deployment Types (Package phase only) |
 | **Local Admin** | Required for packager script execution |
 | **7-Zip CLI** | Required by Adobe Reader for installer extraction. Detected at launch and shown in Options, Tools; the detected `7z.exe` path is forwarded automatically to packagers, including non-default install locations. |
-| **Network Share** | Write access to the SCCM content share, e.g., `\\fileserver\sccm$` (Package phase only) |
+| **Network Share** | Write access to the ConfigMgr content share, for example, `\\fileserver\sccm$` (Package phase only) |
 | **WSUS console** | WSUS targets only: the WSUS console or RSAT WSUS tools at the server's version (`Add-WindowsCapability -Online -Name Rsat.WSUS.Tools~~~~0.0.1.0` on Windows 10/11) |
 | **WSUS permissions** | WSUS targets only: membership in the WSUS Administrators group on the WSUS server |
 
@@ -153,7 +153,7 @@ Or with custom parameters:
 
 The footer at the bottom of the window shows the saved site code and site server at the right end, for example `Site MCM`, a middle dot, then the site server, for example `cm01.contoso.com`. It shows `Site not set` when both are empty. The text is read-only: select it to open Options. Change the values only in Options, Connections, ConfigMgr. The Setup window sets them at the first start. The footer is hidden while ConfigMgr is not in **Systems in Use**.
 
-**First-run setup** - on a machine with no `AppPackager.preferences.json` yet, a themed Setup window opens over the main window once the grid has loaded. It asks which systems you publish to (ConfigMgr, Intune, WSUS, in any combination) and then shows only the settings those systems need: Site code, Site server / SMS Provider, Content share UNC and Download root for ConfigMgr, Tenant ID, Client ID and Client secret for Intune, and the WSUS server, port and SSL choice for WSUS. The selection is saved as **Systems in Use** (Options, Connections): the sidebar buttons of a system that is not in use stay disabled, whatever else is set, and a version check runs without a site code when ConfigMgr is not in use. Every selected system becomes a default One Click destination; change that in Options, Updates and CVEs, One Click. Saving writes the same preference keys the Options window writes - the client secret DPAPI-protected for the current Windows user, an empty secret box keeping any saved one - and the main window picks the settings up without a restart. A "Don't show this again" checkbox lets you dismiss the wizard permanently without configuring anything; skipping or closing it without that box ticked brings it back on the next launch. Existing installs are unaffected: a preferences file from an earlier version counts as already set up.
+**First-run setup** - on a computer with no `AppPackager.preferences.json` yet, a themed Setup window opens over the main window once the grid has loaded. It asks which systems you publish to (ConfigMgr, Intune, WSUS, in any combination) and then shows only the settings those systems need: Site code, Site server / SMS Provider, Content share UNC and Download root for ConfigMgr, Tenant ID, Client ID and Client secret for Intune, and the WSUS server, port and SSL choice for WSUS. The selection is saved as **Systems in Use** (Options, Connections): the sidebar buttons of a system that is not in use stay disabled, whatever else is set, and a version check runs without a site code when ConfigMgr is not in use. Every selected system becomes a default One Click destination; change that in Options, Updates and CVEs, One Click. Saving writes the same preference keys the Options window writes - the client secret DPAPI-protected for the current Windows user, an empty secret box keeping any saved one - and the main window picks the settings up without a restart. A "Don't show this again" checkbox lets you dismiss the wizard permanently without configuring anything; skipping or closing it without that box ticked brings it back on the next launch. Existing installs are unaffected: a preferences file from an earlier version counts as already set up.
 
 The sidebar has the workflow actions at the top, an **Add Installer...** button that feeds the drop-to-package intake, a single **Options** button below them, a sidebar comment field, and Debug Columns / theme toggles plus the installed version at the bottom:
 
@@ -216,7 +216,7 @@ ConfigMgr Console detection runs once per launch. It scans the registry ARP entr
 
 **Applications** - the settings that packagers read at Stage time. Each application has its own section. Every option has a tooltip, and the vendor source of each switch is in the [installer options audit](docs/reference/installer-options-audit.md).
 
-- **Adobe Acrobat Reader** - Edition (English downloads the `en_US` installer; Multilingual downloads Adobe's MUI installer) and, for Multilingual, the languages to install: a list of Adobe locale codes or **All languages**. English is always installed, and the Reader UI follows the language of the operating system (`LANG_LIST`, `SUPPRESSLANGSELECTION=1` through `setup.ini`). Four options write Adobe properties to the same `setup.ini` key: `EULA_ACCEPT=YES`, `DISABLEDESKTOPSHORTCUT=1`, `ENABLE_CHROMEEXT=0` and `DISABLE_BROWSER_INTEGRATION=YES`. Update mode writes `UPDATE_MODE` (0, 2, 3 or 4). A MUI base takes the MUI update patch. Detection and the application name do not change with the edition. To see the installed languages on a client, read `UserLangList` under `HKLM\SOFTWARE\WOW6432Node\Adobe\Acrobat Reader\DC\Installer` (for example `de_DE,en_US,fr_FR`), or list `Reader\Locale` in the install folder.
+- **Adobe Acrobat Reader** - Edition (English downloads the `en_US` installer; Multilingual downloads Adobe's MUI installer) and, for Multilingual, the languages to install: a list of Adobe locale codes or **All languages**. English is always installed, and the Reader UI follows the language of the operating system (`LANG_LIST`, `SUPPRESSLANGSELECTION=1` through `setup.ini`). Four options write Adobe properties to the same `setup.ini` key: `EULA_ACCEPT=YES`, `DISABLEDESKTOPSHORTCUT=1`, `ENABLE_CHROMEEXT=0` and `DISABLE_BROWSER_INTEGRATION=YES`. Update mode writes `UPDATE_MODE` (0, 2, 3 or 4). A MUI base takes the MUI update. Detection and the application name do not change with the edition. To see the installed languages on a client, read `UserLangList` under `HKLM\SOFTWARE\WOW6432Node\Adobe\Acrobat Reader\DC\Installer` (for example `de_DE,en_US,fr_FR`), or list `Reader\Locale` in the install folder.
 - **Beyond Compare 5** - License key file, chosen with a file browser. Stage places it beside the installer as `BC5Key.txt`, where setup reads it to register the product. Stage and Package stop when no key file is available. The packager also takes `-KeyFile` directly, overriding the stored path. Remote profiles and Saved passwords add `/DisableRemoteProfiles` and `/DisableSavedPasswords` (Beyond Compare 5.2 and later).
 - **Citrix Workspace App** - install-switch coverage in six sub-sections: Store, Installation, Plugins and add-ons, Update and telemetry, Store policy and Components ADDLOCAL. The sections apply to both the Current Release and the LTSR packagers. The Citrix Workspace App section has a command-line preview.
 - **DBeaver Community** - Install scope (System installs machine-wide to `C:\Program Files\DBeaver` with `/allusers`; User installs to `%LOCALAPPDATA%\DBeaver` with `/currentuser`, needs no elevation, and drives a per-user uninstall command and detection path) and AI features, which sets the environment variable `DBEAVER_AI_DISABLED=true` after install. The DBeaver packager also takes `-InstallScope` and `-DisableAI` directly, overriding these stored values.
@@ -227,7 +227,7 @@ ConfigMgr Console detection runs once per launch. It scans the registry ARP entr
 
 M365 Deploy mode controls how Office 365 products are staged and detected:
 - **Managed (offline source)** - downloads the full Office source (~2.3 GB per product), pins a specific version, uses file version detection. Requires monthly repackaging to stay current.
-- **Online (CDN)** - stages only the ODT setup.exe and config XML (~7 MB). Endpoints pull the latest version directly from the Office CDN at install time. Detection is existence-only. Deploy once, never repackage.
+- **Online (CDN)** - stages only the ODT setup.exe and config XML (~7 MB). Endpoints download the latest version directly from the Office CDN at install time. Detection is existence-only. Deploy once, never repackage.
 
 CWA switches persist to `Packagers/citrix-workspace-switches.json`; TeamViewer Host config persists to `Packagers/teamviewer-host-config.json`; packager-facing M365, company name, SSMS, DBeaver, Adobe, Beyond Compare 5 and local source values are mirrored to `Packagers/packager-preferences.json`. GUI preferences persist to `AppPackager.preferences.json`. [Settings](docs/reference/settings.md) lists every key and where Options edits it.
 
@@ -240,8 +240,8 @@ CWA switches persist to `Packagers/citrix-workspace-switches.json`; TeamViewer H
 **Deployment Conditions** - requirement rules are optional and off for every application until you add one in the [Application Workbench](#application-workbench) under Requirements & variants. The client evaluates them at deployment evaluation time, so no collections are involved. Three site conditions ship, matched by name so a condition your site already has is reused; their names and the VPN adapter patterns are edited in that same section and persist to `Packagers/condition-templates.json`:
 
 - **Architecture** - `Any` / `x64 only` / `ARM64 only`, backed by a WQL global condition on `Win32_Processor.Architecture` (9 = x64, 12 = ARM64). The numeric property compares identically on every OS language, and unlike the OS-platform requirement list it needs no update when a new Windows version releases.
-- **OS languages** - comma-separated culture codes (e.g. `de-DE, en-US`) mapped onto the site's built-in Operating System Language condition with a OneOf rule. Useful when a packaged build is single-language and MUI or English builds are deployed separately.
-- **Network** - `Any` / `VPN only` / `On-site only`, backed by a Boolean script global condition that reports whether an IP-enabled adapter description matches a configurable VPN client pattern list (or an interface alias contains `vpn`). `VPN only` suits a small CDN-sourced deployment that should avoid pulling large content over the tunnel; `On-site only` suits its full-content counterpart.
+- **OS languages** - comma-separated culture codes (for example `de-DE, en-US`) mapped onto the site's built-in Operating System Language condition with a OneOf rule. Useful when a packaged build is single-language and MUI or English builds are deployed separately.
+- **Network** - `Any` / `VPN only` / `On-site only`, backed by a Boolean script global condition that reports whether an IP-enabled adapter description matches a configurable VPN client pattern list (or an interface alias contains `vpn`). `VPN only` suits a small CDN-sourced deployment that should avoid downloading large content over the tunnel; `On-site only` suits its full-content counterpart.
 
 Before copying content or changing ConfigMgr, Publish to ConfigMgr checks the exact application title and asks **Overwrite**, **Skip**, or **Cancel Run** if it already exists, even at a different version. One Click applies the policy saved in Options, Updates and CVEs, One Click instead of asking. Overwrite replaces deployment types while keeping the application and its deployments. Skip leaves it unchanged; Cancel stops the remaining run. **Do this for all remaining conflicts** applies only to the current run.
 
@@ -259,7 +259,7 @@ Before copying content or changing ConfigMgr, Publish to ConfigMgr checks the ex
 
 **Tools** - shows the detected console, Content Prep Tool, 7-Zip and the icon pack. The icon pack has Download and Install from file buttons.
 
-**About** - application name, installed version (parsed from the script header, the single source of truth), MIT license, a clickable link to the GitHub repository, the timestamp of the last update check, and the latest known release. The same **Update Now** action offered in the sidebar is repeated here, enabled only once a check has actually found a newer release; a **Release Notes** button opens the releases page.
+**About** - application name, installed version (parsed from the script header, the single source of truth), MIT license, a clickable link to the GitHub repository, the timestamp of the last update check, and the latest known release. The same **Update Now** action offered in the sidebar is repeated here, enabled only once a check has found a newer release; a **Release Notes** button opens the releases page.
 
 ### WSUS Publishing
 
@@ -386,9 +386,9 @@ The optional **Administrative Comment** field sits in the sidebar below the Opti
 
 - **Filter box** - narrows the grid by application, vendor, status, or CM name as you type
 - **Right-click context menu** on any row - Edit application, Use as old application, Open Log Folder, Open Staged Folder, Open Network Share, Copy Latest Version
-- **Ctrl+Click** any row to open the vendor's product page in the default browser
+- **Ctrl+Select** any row to open the vendor's product page in the default browser
 - **Row hover tooltips** - hover over any row to see the application's description from the packager script
-- **Selection cycle header** - clicking the checkbox column header cycles none -> all -> updates only -> none; selection acts on the rows the filter shows and the glyph reflects the current bulk state
+- **Selection cycle header** - selecting the checkbox column header cycles none -> all -> updates only -> none; selection acts on the rows the filter shows and the glyph reflects the current bulk state
 - **Pause / Resume / Cancel** - long multi-app runs can pause after the current app, resume, or cancel without hiding the log drawer
 - **Real-time log streaming** - Stage, Package, and One Click stream packager output line-by-line into the log pane as it runs; the UI keeps the newest 4,000 lines while disk logs remain complete
 - **CVE columns** - CVEs (the CVEs that affect the ConfigMgr version), Max CVSS, KEV, Fixed by Update (how many of them the latest release removes) and Newest CVE per row after Check CVEs; the CVE count opens a window with every CVE and its links. See [CVE lookup](#cve-lookup).
@@ -466,11 +466,11 @@ Or drive one application through a workbench profile without the GUI:
 | `-SiteCode` / `-ProviderMachineName` / `-FileServerPath` | ConfigMgr connection and share, as the packagers take them |
 | `-Comment` | Administrative comment stored on the application |
 
-It creates the run snapshot, sets the child environment and launches the packager exactly as the GUI does, so a scheduled build and a button click produce the same content. A WSUS target publishes the manifest staged in the same run, so `MECMAndWSUS` needs `-Stage` and `-Package` together. The result object carries a `Wsus` block. A failed publish sets exit code 1. A failed approval or decline after a successful publish also sets exit code 1, and `Wsus.Warnings` names it. A `custom:` script lives under `<workbench data root>\scripts`, outside the install folder, and must import `AppPackagerCommon.psd1` by its full path; it builds from the command line only, since the main grid lists the `Packagers` folder.
+It creates the run snapshot, sets the child environment and launches the packager exactly as the GUI does, so a scheduled build and a selection of the button produces the same content. A WSUS target publishes the manifest staged in the same run, so `MECMAndWSUS` needs `-Stage` and `-Package` together. The result object carries a `Wsus` block. A failed publish sets exit code 1. A failed approval or decline after a successful publish also sets exit code 1, and `Wsus.Warnings` names it. A `custom:` script lives under `<workbench data root>\scripts`, outside the install folder, and must import `AppPackagerCommon.psd1` by its full path; it builds from the command line only, since the main grid lists the `Packagers` folder.
 
 ### Rewrite old versions
 
-Check one application and click **Rewrite Old Versions**. The tool reads the older applications of the product line of that application from the site and shows the plan in a dialog: one row for each clause that the rewrite changes, and notes that name the applications that are blocked (an application with a required deployment), the clauses that are left and why, and the effect on the devices. A device that has a newer version than the one in the clause then reads "not installed". Nothing is written until you check the confirmation box and select **Rewrite N Clauses**. The tool reads the site again first and writes nothing when the clauses are not the ones that the dialog showed. The result lists each clause. **Undo** writes the old operator back.
+Check one application and select **Rewrite Old Versions**. The tool reads the older applications of the product line of that application from the site and shows the plan in a dialog: one row for each clause that the rewrite changes, and notes that name the applications that are blocked (an application with a required deployment), the clauses that are left and why, and the effect on the devices. A device that has a newer version than the one in the clause then reads "not installed". Nothing is written until you check the confirmation box and select **Rewrite N Clauses**. The tool reads the site again first and writes nothing when the clauses are not the ones that the dialog showed. The result lists each clause. **Undo** writes the old operator back.
 
 **Restore Old Versions** lists the rewrites of this line that the log holds and no restore cancels, and writes the old operator back after the confirmation. It leaves the rewrites of other lines. The log is `supersedence-rewrite.jsonl` in the Workbench data folder. The tool writes each entry before it changes the site, so a stop at any point leaves an entry for everything that may have changed. Both buttons need the ConfigMgr console and the site code, like **Publish to ConfigMgr**, and they run `Invoke-AppPackagerBuild.ps1 -RewriteOldVersions` as a child process. Only a clause that the Exact guard allows is rewritten: a `GreaterEquals` clause whose expected value is the version of the old application, with a recorded installed value of that version.
 
@@ -478,7 +478,7 @@ Check one application and click **Rewrite Old Versions**. The tool reads the old
 
 `Convert-CMApplicationToIntune.ps1` reads an application that already exists in ConfigMgr and turns it into Intune Win32 apps. The application does not need to come from App Packager. The conversion only reads the site: it never changes the application.
 
-In the GUI, click **Convert ConfigMgr App to Intune** in the sidebar. Enter the exact application name and choose the output folder. The site code box is read-only and shows the site code from Options. **Preview** writes the plan and the report and copies no content. **Convert** also copies the content, and can build the `.intunewin` files and publish the apps with the Intune values saved in Options. The report prints in the log pane, and the output folder holds the files in the table below. The button needs the ConfigMgr console on the computer and ConfigMgr in Systems in Use. The GUI runs the script below as a child process.
+In the GUI, select **Convert ConfigMgr App to Intune** in the sidebar. Enter the exact application name and choose the output folder. The site code box is read-only and shows the site code from Options. **Preview** writes the plan and the report and copies no content. **Convert** also copies the content, and can build the `.intunewin` files and publish the apps with the Intune values saved in Options. The report prints in the log pane, and the output folder holds the files in the table below. The button needs the ConfigMgr console on the computer and ConfigMgr in Systems in Use. The GUI runs the script below as a child process.
 
 ```powershell
 # Plan the conversion and copy the content. Nothing is published.
@@ -529,7 +529,7 @@ All packager scripts accept the same core parameters:
 | Parameter | Description |
 |---|---|
 | `-SiteCode` | ConfigMgr site code PSDrive name (default: `MCM`) |
-| `APP_PACKAGER_CM_PROVIDER` | Optional environment override for the SMS Provider machine used to create a missing `CMSite` PSDrive |
+| `APP_PACKAGER_CM_PROVIDER` | Optional environment override for the SMS Provider computer used to create a missing `CMSite` PSDrive |
 | `APP_PACKAGER_REQUIREMENTS` | Optional environment JSON (`{"SchemaVersion":1,"Rules":[...]}`) of requirement rule specs applied to the deployment type; the GUI sets it per app from the Deployment Conditions panel |
 | `APP_PACKAGER_VARIANTS` | Optional environment JSON selecting a multi-deployment-type variant split for packagers that declare `SupportsVariants:`; the GUI sets it from the Variant split column |
 | `APP_PACKAGER_INSTALL_MODE` | Optional `CurrentUser` or `AllUsers` for packagers that declare `SupportsInstallModes:`; the Stage phase rewrites arguments, uninstaller, detection and install behavior from that branch of the installer. The GUI sets it from the Install for column |
@@ -540,7 +540,7 @@ All packager scripts accept the same core parameters:
 | `APP_PACKAGER_WORKBENCH_ROOT` | Optional override of the workbench data root (default `%LOCALAPPDATA%\AppPackagerData\Workbench`), so a child resolves the same store as its caller |
 | `APP_PACKAGER_DOWNLOAD_ROOT` | Optional root whose `_cache` folder holds downloaded installers, shared by every profile of every application |
 | `APP_PACKAGER_ON_EXISTING` | Optional `Skip` (default), `Overwrite`, or `Fail`, deciding what a Package run does when the site already holds this application at this version. `Overwrite` replaces the deployment types in place, keeping the application object and its deployments. An unrecognized value fails the run |
-| `-Comment` | Optional administrative comment stored on the CM Application Description |
+| `-Comment` | Optional administrative comment stored on the ConfigMgr application Description |
 | `-FileServerPath` | UNC root containing the `Applications` folder (default: `\\fileserver\sccm$`) |
 | `-DownloadRoot` | Local root folder for staging (default: `C:\temp\ap`) |
 | `-EstimatedRuntimeMins` | ConfigMgr deployment type estimated runtime (default: `15`) |
@@ -893,7 +893,7 @@ When it finds candidates, a window shows "Discovered N apps. Enable console view
 - **Not Now** closes the window. The next discovery offers the apps again.
 - **Don't ask again for selected** keeps the checked apps hidden and leaves them out of later discoveries. The next discovery offers the apps that are not checked again. With no app checked, the button makes no change and the window tells you to check the apps.
 
-Enabling an app has the same effect as checking it in the Product Filter. The app joins the grid for Check, Stage and Package. With no candidates, no window opens and the status line shows the inventory result. A failed query shows a plain message in the log and on the status line. The rest of AppPackager keeps working. Use **Cancel** to stop an active discovery scan. Cancellation stops the query and restores the action buttons without opening the results window.
+Enabling an app has the same effect as checking it in the Product Filter. The app joins the grid for Check, Stage and Package. With no candidates, no window opens and the status line shows the inventory result. A failed query shows a plain message in the log and on the status line. The rest of AppPackager keeps working. Use **Cancel** to stop an active discovery query. Cancellation stops the query and restores the action buttons without opening the results window.
 
 ### Matching
 
@@ -923,14 +923,14 @@ Discovery reads the SQL server and the database name from the site. The lookup c
 
 ### Security notes
 
-- **The SQL views bypass ConfigMgr role-based administration.** A user with `db_datareader` on the site database reads inventory for every client in the hierarchy. Security roles and security scopes in the console do not limit this. Grant `db_datareader` only to accounts that may see the inventory of all clients.
-- Discovery reads distinct software titles only. It reads no client key, no client count and no machine name.
+- **The SQL views bypass ConfigMgr role-based administration.** A user with `db_datareader` on the site database reads inventory for every device in the hierarchy. Security roles and security scopes in the console do not limit this. Grant `db_datareader` only to accounts that may see the inventory of all devices.
+- Discovery reads distinct software titles only. It reads no client key, no device count and no computer name.
 - Every statement is a parameterized `SELECT` on a `v_` view, with a command timeout and read-only intent. Discovery writes nothing to the database. The views are `v_GS_ADD_REMOVE_PROGRAMS`, `v_GS_ADD_REMOVE_PROGRAMS_64`, `v_Applications` and `v_ConfigurationItems`.
 - A discovery run stops after 600 seconds. The buttons become available again.
 
 ### The list of apps not offered
 
-**Don't ask again for selected** adds the checked apps to the preference `DiscoveryDismissed` in `AppPackager.preferences.json`. Options, Updates and CVEs, Product Filter shows the count in **Not offered by Discover**. **Clear List** empties the list when you click OK. An app that you show in the grid is never a candidate, whether or not it is on the list.
+**Don't ask again for selected** adds the checked apps to the preference `DiscoveryDismissed` in `AppPackager.preferences.json`. Options, Updates and CVEs, Product Filter shows the count in **Not offered by Discover**. **Clear List** empties the list when you select OK. An app that you show in the grid is never a candidate, whether or not it is on the list.
 
 **Enable Selected** and **Enable All** add the apps to the preference `DiscoveryEnabled`. An app is never on both lists. The first Check ConfigMgr does not offer to hide the apps on this list. It offers to hide the other apps that ConfigMgr does not have.
 
@@ -947,7 +947,7 @@ How a lookup works:
 5. Each CVE gets its EPSS score from FIRST and its Known Exploited Vulnerabilities (KEV) flag from the CISA catalog, which is downloaded once per day.
 6. The result is saved per CPE header and version pair under `%LOCALAPPDATA%\AppPackager\vuln-results` for six hours (Preferences, `Vulnerability.CacheTtlMinutes`), and a summary is written to `app-history.json` so the grid shows the counts on the next launch.
 
-The grid shows **CVEs** (the CVEs that affect the examined version), **Max CVSS** (`7.5 HIGH`), **KEV** (`Yes` when one of them is in the catalog), **Fixed by Update** (`5 of 15`: the update removes 5 of the 15; empty for a row with no update) and **Newest CVE** (the most recent publication date among them); **Max EPSS** and **NVD updated** (the most recent NVD modification date) sit with the debug columns. The Status cell reads `Update available (fixes 5 of 15 CVEs, 1 in KEV)`. Clicking the count opens the CVE window: one line with the result, the product links (NVD search, CVE.org, EUVD, OpenCVE, cvedetails, OSV, and the vendor advisory page when the packager names one), one row per CVE with status, CVSS, EPSS, KEV, fixed-in version, published and modified dates and summary, and per CVE the links to NVD, CVE.org, EUVD, OpenCVE, Shodan CVEDB, cvedetails, the KEV catalog entry and the first vendor reference. The fixed-in version is the end of the affected range NVD records for the product (`0.81`, or `after 0.80` when NVD gives only an inclusive end); it is usually the vendor's fix version but is not vendor-confirmed. For an Open CVE it is the fix the latest version lacks. Only `https` links open. **Refresh** ignores the saved result and reads NVD again when the saved records are older than five minutes; **Copy CVE IDs** fills the clipboard; **Export report** writes the files for that one app. The row's context menu has the same product links under **Open CVE Sources** and a **Copy CVE IDs** entry.
+The grid shows **CVEs** (the CVEs that affect the examined version), **Max CVSS** (`7.5 HIGH`), **KEV** (`Yes` when one of them is in the catalog), **Fixed by Update** (`5 of 15`: the update removes 5 of the 15; empty for a row with no update) and **Newest CVE** (the most recent publication date among them); **Max EPSS** and **NVD updated** (the most recent NVD modification date) sit with the debug columns. The Status cell reads `Update available (fixes 5 of 15 CVEs, 1 in KEV)`. Selecting the count opens the CVE window: one line with the result, the product links (NVD search, CVE.org, EUVD, OpenCVE, cvedetails, OSV, and the vendor advisory page when the packager names one), one row per CVE with status, CVSS, EPSS, KEV, fixed-in version, published and modified dates and summary, and per CVE the links to NVD, CVE.org, EUVD, OpenCVE, Shodan CVEDB, cvedetails, the KEV catalog entry and the first vendor reference. The fixed-in version is the end of the affected range NVD records for the product (`0.81`, or `after 0.80` when NVD gives only an inclusive end); it is usually the vendor's fix version but is not vendor-confirmed. For an Open CVE it is the fix the latest version lacks. Only `https` links open. **Refresh** ignores the saved result and reads NVD again when the saved records are older than five minutes; **Copy CVE IDs** fills the clipboard; **Export report** writes the files for that one app. The row's context menu has the same product links under **Open CVE Sources** and a **Copy CVE IDs** entry.
 
 **CVE Report** writes the report for the checked rows (all rows when none is checked) under `Logs\Reports\cve-report-<timestamp>`: a self-contained HTML page with every link, two CSV files (one row per application, one row per application and CVE with the link columns), a workbook with the same two tables as sheets with hyperlink cells, a Markdown file, and a JSON file with the full data. The HTML opens when the files are written. The application table carries the examined version, the `CVEs`, `FixedByUpdate`, `Open` and `Unversioned` counts, the `FixedInLatest`, `FixedEarlier` and `NoFixVersion` split of the fixed CVEs, and the `NewestCVE` and `NVDUpdated` dates. The CVE table carries `Status`, `FixedIn`, `FixedInLatest`, `Published` and `LastModified` per CVE.
 
@@ -990,7 +990,7 @@ The direct form, without the wrapper and the config file:
 .\start-apppackager.ps1 -BatchMode -CveReport -SiteCode MCM -ProviderMachineName cm01.contoso.com -ReportFolder C:\Reports -WebhookUrl https://hooks.example.com/x
 ```
 
-92 packagers read their latest version from the GitHub REST API. Without a token GitHub allows 60 requests per hour per source address, so a monitor run or a catalog-wide version check fails partway through with `403 rate limit exceeded`. The packagers look for a token in this order: the `GITHUB_TOKEN` environment variable, then `GH_TOKEN`, then the GitHub CLI login (`gh auth login`) when `gh.exe` is installed. Any of those raises the limit to 5000 requests per hour; a personal access token with no scopes is enough. With none of them the calls stay anonymous. The Options window shows which source is in effect and the remaining quota next to the other detected tools.
+92 packagers read their latest version from the GitHub REST API. Without a token GitHub allows 60 requests per hour per source address, so a monitor run or a catalog-wide version check fails partway through with `403 rate limit exceeded`. The packagers look for a token in this order: the `GITHUB_TOKEN` environment variable, then `GH_TOKEN`, then the GitHub CLI sign-in (`gh auth login`) when `gh.exe` is installed. Any of those raises the limit to 5000 requests per hour; a personal access token with no scopes is enough. With none of them the calls stay anonymous. The Options window shows which source is in effect and the remaining quota next to the other detected tools.
 
 ### Packager header tags for Version Monitor
 
@@ -1022,7 +1022,7 @@ ArpName: 7-Zip [0-9]*
 | `IconSource` | Where the application icon comes from: `Installer`, `External`, or `None`. See [Application Icons](#application-icons). |
 | `SupportsVariants` | Comma-separated variant splits the packager can stage (`Architecture`, `Language`, `Network`). Enables the Variant split column. |
 | `SupportsInstallModes` | `CurrentUser, AllUsers` when the installer takes a mode switch and the packager uses the standard wrappers. Enables the Install for column. |
-| `RequiresTools` | Comma-separated list of detected tools the packager depends on. Read-only metadata; surfaced via `Get-PackagerMetadata` and reserved for future preflight warnings. Adobe Reader declares `7-Zip`. |
+| `RequiresTools` | Comma-separated list of detected tools the packager depends on. Read-only metadata; surfaced through `Get-PackagerMetadata` and reserved for future preflight warnings. Adobe Reader declares `7-Zip`. |
 | `WsusSupport` | `Yes`, or `No (<code>)` with the WSUS compatibility codes the publish would report: `DetectionNotMappable`, `PerUserInstall`, `InstallerTypeUnsupported`, `CustomInstall`, `InstallerMissing`, `PayloadInSubfolder`, several joined with `\|`. Every packager carries it; the One Click plan shows **WSUS: not supported** from it before a run. |
 | `ArpName` | Wildcard patterns for the Add/Remove Programs display name, separated by ` \| `. [Discover unmanaged software](#discover-unmanaged-software) matches them with `-like` against hardware inventory. `none` marks an app with no machine-wide Add/Remove Programs entry: a portable app, a store app, or a per-user install. Every packager carries it. |
 | `ArpVersion` | Optional wildcard pattern for the Add/Remove Programs display version, for example `17.*`. Discovery matches only inventory rows with this version. |
@@ -1045,7 +1045,7 @@ An application icon makes a packaged app recognizable in Software Center and the
 | `External` | Logs a warning; the stage continues without an icon. |
 | `None` or absent | No icon is staged. |
 
-Whichever path produced it, the icon is recorded as `Icon` in `stage-manifest.json`, covered by the manifest file hashes, applied to the ConfigMgr application via `Set-CMApplication -IconLocationFile`, and sent as the Intune `win32LobApp` `largeIcon`. An icon is decoration: a failed extraction or a missing external file never fails a stage.
+Whichever path produced it, the icon is recorded as `Icon` in `stage-manifest.json`, covered by the manifest file hashes, applied to the ConfigMgr application through `Set-CMApplication -IconLocationFile`, and sent as the Intune `win32LobApp` `largeIcon`. An icon is decoration: a failed extraction or a missing external file never fails a stage.
 
 ### The external icon pack
 
@@ -1115,7 +1115,7 @@ exit /b %ERRORLEVEL%
 
 With **Sign install/uninstall PowerShell scripts** enabled the launcher drops the execution-policy argument (`PowerShell.exe -NoProfile -NonInteractive -File "%~dp0install.ps1"`) and the `.ps1` files carry an Authenticode signature, so the client's effective execution policy governs.
 
-The `.ps1` files contain the actual install/uninstall logic using `Start-Process -Wait -PassThru -NoNewWindow` and `exit $proc.ExitCode` to propagate native installer return codes (0, 1603, 3010, etc.) through to ConfigMgr.
+The `.ps1` files contain the actual install/uninstall logic using `Start-Process -Wait -PassThru -NoNewWindow` and `exit $proc.ExitCode` to propagate native installer return codes (0, 1603, 3010 and others) through to ConfigMgr.
 
 **Why `.bat` wrappers?** One consistent launch path for every installer type: `@echo off` keeps the console quiet, the wrapper hands off to the `.ps1` that holds the real logic, and `exit /b %ERRORLEVEL%` propagates the native return code (0, 1603, 3010) unchanged to ConfigMgr.
 
@@ -1278,8 +1278,8 @@ app-packager/
    - Write `staged-version.txt`
 
 6. Implement `Invoke-Package<App>`:
-   - Read `staged-version.txt` and `stage-manifest.json` via `Read-StageManifest`
-   - Copy content to network share via `Get-NetworkAppRoot`
+   - Read `staged-version.txt` and `stage-manifest.json` through `Read-StageManifest`
+   - Copy content to network share through `Get-NetworkAppRoot`
    - Call `New-MECMApplicationFromManifest`
 
 7. Wire up the main block:
@@ -1303,7 +1303,7 @@ Two folders ship starter scaffolding for contributors:
 |---|---|
 | `Samples/AUTHORING.md` | Walkthrough for writing a new packager: header tags, stage/package phases, detection types, version formatting, vendor scraping patterns, and common mistakes |
 | `Samples/package-template-msi.ps1` | Copy-ready skeleton for MSI-based packagers. Uses `Get-MsiPropertyMap` for ARP detection without a temp install |
-| `Samples/package-template-exe.ps1` | Copy-ready skeleton for EXE-based packagers. Resolves latest version via the GitHub Releases API pattern; file-version detection on a known binary path |
+| `Samples/package-template-exe.ps1` | Copy-ready skeleton for EXE-based packagers. Resolves latest version through the GitHub Releases API pattern; file-version detection on a known binary path |
 | `Samples/OPTIONS_AUTHORING.md` | Walkthrough for adding a new panel to the Options window: factory shape, preferences schema, closure / scope traps |
 | `Samples/options-panel-template.ps1` | Copy-ready skeleton for a `New-<Thing>Panel` factory function |
 
@@ -1313,7 +1313,7 @@ Two folders ship starter scaffolding for contributors:
 |---|---|---|
 | `package-msix.ps1.template` | MSIX / APPX / MSIXBUNDLE | Script (Add-AppxProvisionedPackage) |
 | `package-intunewin.ps1.template` | Intunewin (Win32) | Script (delegates to inner MSI/EXE) |
-| `package-squirrel.ps1.template` | Squirrel self-update installers | Script (per-user via Active Setup) |
+| `package-squirrel.ps1.template` | Squirrel self-update installers | Script (per-user through Active Setup) |
 | `package-psadt.ps1.template` | PSADT v3 + v4 toolkits (functional - identity + detection TODOs only) | Script (Deploy-Application.exe / Invoke-AppDeployToolkit.exe) |
 | `package-chocolatey.ps1.template` | Chocolatey / NuGet .nupkg | Script (choco install or inlined chocolateyInstall.ps1) |
 
@@ -1334,7 +1334,7 @@ All packager scripts import the shared module which provides:
 | `Get-LocalSourceFolder` / `Resolve-LocalSourceInstaller` | The Local Installer Sources folder of a packager and the highest-versioned installer inside it |
 | `Get-NetworkContentPath` | Creates and returns the network content folder for one app version in the configured layout (Nested `Applications\Vendor\App\Version` or Flat `Applications\Vendor-App-Version`) |
 | `Test-PsadtLayout` | Detects PSADT v3 vs v4 in a toolkit folder and returns the deployment type install/uninstall command lines (exe launcher preferred, powershell.exe -File fallback) |
-| `Test-IsAdmin` | Checks for administrator elevation. No shipped packager calls it: Stage reads installer metadata via COM and writes only user-writable paths, and Package needs share ACLs + CM RBAC, not local admin. Retained for future packagers whose Stage genuinely must elevate |
+| `Test-IsAdmin` | Checks for administrator elevation. No shipped packager calls it: Stage reads installer metadata through COM and writes only user-writable paths, and Package needs share ACLs + CM RBAC, not local admin. Retained for future packagers whose Stage genuinely must elevate |
 | `Connect-CMSite` | Imports ConfigMgr module, creates the missing CMSite PSDrive when a provider is configured, and sets PSDrive location |
 | `Initialize-Folder` | Creates directory if missing |
 | `Test-NetworkShareAccess` | Verifies UNC path is writable |
@@ -1354,7 +1354,7 @@ All packager scripts import the shared module which provides:
 | `Remove-CMApplicationRevisionHistoryByCIId` | Trims old application revisions |
 | `Install-IntuneWinAppUtil` | Downloads the Win32 Content Prep Tool, keeping it only after Microsoft Authenticode signature verification |
 | `New-IntuneWinPackage` | Runs IntuneWinAppUtil.exe against a content folder; returns the `.intunewin` path, size, and SHA-256 |
-| `Get-PackagerPreferences` | Reads `packager-preferences.json` for universal settings (e.g., CompanyName) |
+| `Get-PackagerPreferences` | Reads `packager-preferences.json` for universal settings (for example, CompanyName) |
 | `New-OdtConfigXml` | Generates full ODT configuration XML for M365 download/install phases |
 | `Get-LatestTemurinRelease` | Queries Adoptium API for latest Eclipse Temurin MSI (JRE/JDK, x64/x86) |
 | `Get-LatestCorrettoRelease` | Queries GitHub releases for latest Amazon Corretto MSI (JDK, x64/x86) |

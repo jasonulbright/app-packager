@@ -15,7 +15,7 @@ ArpName: Microsoft OLE DB Driver 19 for SQL Server
     Packages Microsoft OLE DB Driver 19 for SQL Server (x64) for ConfigMgr.
 
 .DESCRIPTION
-    Downloads the Microsoft OLE DB Driver 19 (x64) MSI via the Microsoft FWLink
+    Downloads the Microsoft OLE DB Driver 19 (x64) MSI through the Microsoft FWLink
     redirect URL, stages content to a versioned local folder with ARP detection
     metadata, and creates a ConfigMgr Application with registry-based detection.
 
@@ -30,11 +30,11 @@ ArpName: Microsoft OLE DB Driver 19 for SQL Server
     the ProductVersion, outputs the version string, and exits.
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
     The PSDrive is assumed to already exist in the session.
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -42,7 +42,7 @@ ArpName: Microsoft OLE DB Driver 19 for SQL Server
 
 .PARAMETER DownloadRoot
     Local root folder for staging downloaded installers.
-    Each packager creates a subfolder under this path (e.g., <DownloadRoot>\OleDb19).
+    Each packager creates a subfolder under this path (for example, <DownloadRoot>\OleDb19).
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
@@ -67,7 +67,7 @@ ArpName: Microsoft OLE DB Driver 19 for SQL Server
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
+    - Configuration Manager console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>

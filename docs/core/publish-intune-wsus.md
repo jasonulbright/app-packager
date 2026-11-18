@@ -68,8 +68,8 @@ Select **WSUS Updates**. The window lists the updates that AppPackager published
 | Message or symptom | Cause | Fix |
 |---|---|---|
 | The publish button is disabled. | The system is not in use, or a setting is missing. | Hover over the button. Set the value in Options. |
-| A row shows `WSUS: not supported`. | The application cannot be carried by WSUS. | Read the reason in the log. Use ConfigMgr or Intune. |
-| A row shows `Published, warning`. | The approval or the decline failed after the publish. | Read the log. Approve in **WSUS Updates**. |
+| A row shows `WSUS: not supported`. | The application cannot be carried by WSUS. | View the reason in the log. Use ConfigMgr or Intune. |
+| A row shows `Published, warning`. | The approval or the decline failed after the publish. | View the log. Approve in **WSUS Updates**. |
 
 ## Links
 

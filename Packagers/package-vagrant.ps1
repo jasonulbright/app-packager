@@ -25,11 +25,11 @@ ArpName: Vagrant
       -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
     The PSDrive is assumed to already exist in the session.
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -37,7 +37,7 @@ ArpName: Vagrant
 
 .PARAMETER DownloadRoot
     Local root folder for staging downloaded installers.
-    Each packager creates a subfolder under this path (e.g., <DownloadRoot>\Vagrant).
+    Each packager creates a subfolder under this path (for example, <DownloadRoot>\Vagrant).
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
@@ -61,7 +61,7 @@ ArpName: Vagrant
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
+    - Configuration Manager console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>
@@ -130,7 +130,7 @@ function Get-LatestVagrantRelease {
         directories (2.4.0.rc1 and similar). Only three-part versions are
         accepted, and the list is sorted as versions rather than trusted in
         document order. A version directory can exist before it publishes a
-        Windows MSI, so the highest one that actually carries an amd64 MSI wins.
+        Windows MSI, so the highest one that carries an amd64 MSI wins.
     #>
     param([switch]$Quiet)
 

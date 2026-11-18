@@ -16,7 +16,7 @@ None. The window loads the packager scripts from disk. It makes no vendor call a
 
 ## Steps
 
-### Read the window
+### View the window
 
 1. The sidebar has these actions: **One Click**, **Check Latest**, **Check ConfigMgr**, **Discover Unmanaged Software**, **Check CVEs**, **Stage Packages**, **Publish to ConfigMgr**, **Apply Supersedence**, **Publish to Intune**, **Publish to WSUS**, **WSUS Updates**, **CVE Report**, **Application Workbench**, **Add Installer...**, **Convert ConfigMgr App to Intune**, **Rewrite Old Versions**, **Restore Old Versions** and **Options**.
 2. A publish button that is not ready is disabled. Hover over it to read what is missing. **Apply Supersedence** is disabled while ConfigMgr is not in use, or while the supersedence mode is Off.
@@ -82,7 +82,7 @@ A right-click on a row opens a menu with **Edit application**, **Use as old appl
 | Message or symptom | Cause | Fix |
 |---|---|---|
 | The grid shows fewer applications than 315. | The product filter hides some. | Open **Options > Updates and CVEs > Product Filter**. |
-| A row says `Package error`. | The Package phase failed. | Read the log. See [Stage and Publish to ConfigMgr](stage-publish.md). |
+| A row says `Package error`. | The Package phase failed. | View the log. See [Stage and Publish to ConfigMgr](stage-publish.md). |
 
 ## Links
 

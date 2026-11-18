@@ -38,7 +38,7 @@ Describe 'Connect-CMSite' {
         if ($script:__savedSuiteProvider) { $env:SUITE_CM_PROVIDER = $script:__savedSuiteProvider }
     }
 
-    It 'creates the CMSite PSDrive when the provider machine is configured' {
+    It 'creates the CMSite PSDrive when the provider computer is configured' {
         Mock Get-Module   -ModuleName SuiteCommon { [pscustomobject]@{ Name = 'ConfigurationManager' } } -ParameterFilter { $Name -eq 'ConfigurationManager' }
         Mock Get-PSDrive  -ModuleName SuiteCommon { $null } -ParameterFilter { $Name -eq 'MCM' -and $PSProvider -eq 'CMSite' }
         Mock New-PSDrive  -ModuleName SuiteCommon { [pscustomobject]@{ Name = $Name; Root = $Root } } -ParameterFilter { $Name -eq 'MCM' -and $PSProvider -eq 'CMSite' -and $Root -eq 'provider.example' }
@@ -52,7 +52,7 @@ Describe 'Connect-CMSite' {
         Should -Invoke Set-Location -ModuleName SuiteCommon -Times 1 -Exactly -ParameterFilter { $Path -eq 'MCM:' }
     }
 
-    It 'fails clearly when no drive exists and no provider machine can be resolved' {
+    It 'fails clearly when no drive exists and no provider computer can be resolved' {
         Mock Resolve-CMProviderMachineName -ModuleName AppPackagerCommon { $null }
         Mock Get-PSDrive  -ModuleName AppPackagerCommon { $null }
         Mock New-PSDrive  -ModuleName SuiteCommon { throw 'should not be called' }
@@ -61,7 +61,7 @@ Describe 'Connect-CMSite' {
         Connect-CMSite -SiteCode 'MCM' | Should -BeFalse
 
         Should -Invoke New-PSDrive -ModuleName SuiteCommon -Times 0 -Exactly
-        Should -Invoke Write-Log -ModuleName AppPackagerCommon -Times 1 -Exactly -ParameterFilter { $Level -eq 'ERROR' -and $Message -match 'no provider machine name is configured' }
+        Should -Invoke Write-Log -ModuleName AppPackagerCommon -Times 1 -Exactly -ParameterFilter { $Level -eq 'ERROR' -and $Message -match 'no provider computer name is configured' }
     }
 
     It 'recreates the drive from its old root when entering an existing drive fails' {

@@ -23,18 +23,18 @@ ArpName: Typora*
 
     Typora is commercial software: the installer is served without
     authentication, but each seat requires a purchased license key entered
-    after installation. Deploy only to machines covered by owned licenses.
+    after installation. Deploy only to computers covered by owned licenses.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
       -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
-    ConfigMgr site code PSDrive name (e.g., "MCM").
+    ConfigMgr site code PSDrive name (for example, "MCM").
     The PSDrive is assumed to already exist in the session.
 
 .PARAMETER Comment
-    Free-form change/WO text stored on the CM Application Description field.
+    Free-form change/WO text stored on the ConfigMgr application Description field.
 
 .PARAMETER FileServerPath
     UNC root that contains your Applications folder (example: \\fileserver\sccm$).
@@ -42,7 +42,7 @@ ArpName: Typora*
 
 .PARAMETER DownloadRoot
     Local root folder for staging downloaded installers.
-    Each packager creates a subfolder under this path (e.g., <DownloadRoot>\Typora).
+    Each packager creates a subfolder under this path (for example, <DownloadRoot>\Typora).
     Default: C:\temp\ap
 
 .PARAMETER EstimatedRuntimeMins
@@ -66,7 +66,7 @@ ArpName: Typora*
 
 .REQUIREMENTS
     - PowerShell 5.1
-    - ConfigMgr Admin Console installed (ConfigurationManager PowerShell module available)
+    - Configuration Manager console installed (ConfigurationManager PowerShell module available)
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
 #>

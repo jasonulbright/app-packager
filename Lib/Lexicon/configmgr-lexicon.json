@@ -1,0 +1,1517 @@
+{
+  "schema": 1,
+  "name": "configmgr-lexicon",
+  "version": "2026.11.18.8",
+  "updated": "2026-11-18",
+  "description": "Vocabulary and flagged phrases for user-facing text about Microsoft Configuration Manager. Terms and rules only, no Microsoft text. Every entry cites a Microsoft Learn URL or a code reference.",
+  "fields": {
+    "scope": "text (default: user-facing text) or tracked-files (every line of every tracked text file; banned names)",
+    "id": "LX-nnn, never reused",
+    "category": "topic",
+    "kind": "flag (has flagged phrases) or term (vocabulary only)",
+    "preferred": "preferred terms",
+    "flagged": "regular expressions (.NET, case-insensitive unless (?-i)) matched against user-facing text",
+    "allowWhen": "regular expressions; when any matches the same text item the hit is dropped",
+    "context": "where the word is allowed",
+    "replacement": "required replacement or the instruction to name the exact class, view or object",
+    "source": "Microsoft Learn URLs or code: references",
+    "status": "verified or unverified",
+    "severity": "error, warning or info (info never fails a check)",
+    "notes": "free text"
+  },
+  "entries": [
+    {
+      "id": "LX-001",
+      "category": "vague-noun",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "inventory",
+        "hardware inventory",
+        "software inventory",
+        "discovery data",
+        "client settings",
+        "client health"
+      ],
+      "flagged": [
+        "\\bfacts?\\b"
+      ],
+      "allowWhen": [
+        "\\bin fact\\b",
+        "\\bfact that\\b",
+        "\\bas a matter of fact\\b"
+      ],
+      "context": "Never as a noun for data. Allowed only in the idiom 'in fact'.",
+      "replacement": "Name the data exactly: hardware inventory (SMS_G_System_* classes, v_GS_* views), software inventory, discovery data (SMS_R_System, v_R_System), client settings, client health (v_CH_ClientSummary), or the cycle. Write what the window shows, for example 'the operating system, the client version and the last hardware inventory time'.",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/develop/core/understand/sqlviews/hardware-inventory-views-configuration-manager",
+        "https://learn.microsoft.com/intune/configmgr/develop/core/understand/sqlviews/discovery-views-configuration-manager",
+        "https://learn.microsoft.com/intune/configmgr/develop/core/understand/sqlviews/client-status-views-configuration-manager",
+        "code:device-inspector/Module/DeviceInspectorCommon.psm1 (reads SMS_R_System, SMS_G_System_WORKSTATION_STATUS)"
+      ],
+      "status": "verified",
+      "severity": "error",
+      "notes": "ConfigMgr has no device facts. Owner rule 2026-11-18 (d)."
+    },
+    {
+      "id": "LX-002",
+      "category": "vague-verb",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "view",
+        "review",
+        "select",
+        "show",
+        "list"
+      ],
+      "flagged": [
+        "(?:^|[.!?:]\\s+)(?-i:Read)\\s+(?:the|a|an|each|every|all)\\b"
+      ],
+      "allowWhen": [],
+      "context": "As an imperative that opens a sentence or a heading ('Read the ...', 'Read a ...', 'Read each ...'). A script that reads a file or a registry value may say reads.",
+      "replacement": "Say what the reader does or sees: 'View the ...', 'Review the ...', 'The list shows ...'. For data that the tool queries, name the source (class, view, cmdlet).",
+      "source": [
+        "https://learn.microsoft.com/contribute/content/style-quick-start",
+        "owner voice rule 2026-11-18 (Microsoft Learn voice)"
+      ],
+      "status": "verified",
+      "severity": "warning",
+      "notes": "Microsoft Learn procedures use select, view, review and go to."
+    },
+    {
+      "id": "LX-003",
+      "category": "vague-verb",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "collect",
+        "retrieve",
+        "query"
+      ],
+      "flagged": [
+        "\\bgather(?:s|ed|ing)?\\b",
+        "\\bharvest\\w*"
+      ],
+      "allowWhen": [],
+      "context": "Never for ConfigMgr data collection.",
+      "replacement": "Inventory is collected by the hardware inventory and software inventory client agents ('collect'). A tool queries the site database or the SMS Provider ('query', 'retrieve').",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/develop/core/clients/inventory/about-configuration-manager-inventory"
+      ],
+      "status": "verified",
+      "severity": "error",
+      "notes": "Learn: 'collect hardware and software inventory'."
+    },
+    {
+      "id": "LX-004",
+      "category": "device-term",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "device",
+        "computer",
+        "endpoint",
+        "virtual machine (VM)"
+      ],
+      "flagged": [
+        "\\bmachines?\\b"
+      ],
+      "allowWhen": [
+        "\\bvirtual machines?\\b",
+        "\\bMachine Policy\\b",
+        "\\bper[- ]machine\\b",
+        "\\bmachine[- ](scope|wide|level|targeted|certificate|store|account)\\b",
+        "\\bstate machine\\b",
+        "\\bHKLM\\b",
+        "\\bMachine\\s*:\\s*X\\b",
+        "\\bv_CITargetedMachines\\b",
+        "\\bPE machine\\b",
+        "\\bmachine type\\b",
+        "\\bSetEnvironmentVariable\\b",
+        "\\bmachine-(?:readable|fetchable)\\b"
+      ],
+      "context": "Allowed in fixed names: Machine Policy, per-machine, machine scope, virtual machine, state machine, v_CITargetedMachines.",
+      "replacement": "Use device (the ConfigMgr object type, console node Devices), computer, or endpoint for the generic word. Write 'VM' or 'virtual machine' for a virtual machine.",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/clients/manage/manage-clients",
+        "https://learn.microsoft.com/intune/configmgr/core/understand/fundamentals-of-managing-devices"
+      ],
+      "status": "verified",
+      "severity": "warning",
+      "notes": "Owner rule (a) and (b). Learn keeps 'machine' only in fixed names (Machine Policy Retrieval & Evaluation Cycle)."
+    },
+    {
+      "id": "LX-005",
+      "category": "client-term",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "device",
+        "endpoint",
+        "Configuration Manager client (only for the agent)"
+      ],
+      "flagged": [
+        "\\b(?:number|count|list) of clients\\b",
+        "\\bclients? (?:in|of) (?:the|a|this) (?:collection|site|list)\\b",
+        "\\b(?:all|each|every|these|those|remote|matching|selected|online|offline|unreachable) clients\\b(?! (?:policy|settings|agent|version|health|check))",
+        "\\bper client\\b",
+        "\\bclient (?:list|count)\\b"
+      ],
+      "allowWhen": [
+        "\\bConfiguration Manager clients?\\b",
+        "\\bConfigMgr clients?\\b",
+        "\\bclient (?:agent|settings|policy|health|check|notification|push|install\\w*|cycle|operations?|version|log|activity|status)\\b",
+        "\\b(?:install|reinstall|repair)(?:s|ed|ing)? (?:the |a )?clients?\\b"
+      ],
+      "context": "Client means the Configuration Manager agent that is installed on a device (console action Install Client). It never means the device and never a person.",
+      "replacement": "Say device (or endpoint, or computer) where the sentence is about the machine, for example 'the devices of the collection'. Say 'the Configuration Manager client on the device' where the agent is meant.",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/clients/deploy/deploy-clients-to-windows-computers",
+        "https://learn.microsoft.com/intune/configmgr/core/clients/manage/manage-clients",
+        "https://learn.microsoft.com/intune/configmgr/core/understand/fundamentals-of-managing-devices"
+      ],
+      "status": "verified",
+      "severity": "warning",
+      "notes": "Owner rule (b). The patterns find only places where client is likely used for the device; each hit needs a read. Client in 'client policy', 'client health', 'client settings' and 'client version' stays."
+    },
+    {
+      "id": "LX-006",
+      "category": "client-term",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "client health"
+      ],
+      "flagged": [
+        "\\bdevice health\\b",
+        "\\bhealth of the device\\b"
+      ],
+      "allowWhen": [
+        "\\bDuo Desktop\\b"
+      ],
+      "context": "When the text means the state of the Configuration Manager client agent.",
+      "replacement": "client health (console: Monitoring, Client Status; views v_CH_ClientSummary, v_CH_EvalResults)",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/clients/manage/monitor-clients",
+        "https://learn.microsoft.com/intune/configmgr/develop/core/understand/sqlviews/client-status-views-configuration-manager",
+        "code:site-hygiene/Module/SiteHygieneLive.psm1 (v_CH_ClientSummary)"
+      ],
+      "status": "verified",
+      "severity": "warning",
+      "notes": "Learn names the feature client health and client status."
+    },
+    {
+      "id": "LX-007",
+      "category": "inventory-term",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "inventory data",
+        "discovery data",
+        "rows of <class or view>"
+      ],
+      "flagged": [
+        "\\b(?:inventory|hardware|software|cycle|discovery) records?\\b",
+        "\\bsite records?\\b"
+      ],
+      "allowWhen": [
+        "\\bdiscovery data records?\\b",
+        "\\bDDRs?\\b",
+        "\\baudit (?:log )?records?\\b",
+        "\\bstatus message records?\\b"
+      ],
+      "context": "Allowed for 'discovery data record (DDR)', for a status message, and for the audit record of the tool's own log.",
+      "replacement": "Name the data: 'the discovery data of the device (SMS_R_System, v_R_System)', 'the hardware inventory of the device (SMS_G_System_* classes)', 'the row of v_GS_WORKSTATION_STATUS'. For the console say 'the device in the Devices node'.",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/develop/reference/core/clients/manage/sms_r_system-server-wmi-class",
+        "https://learn.microsoft.com/intune/configmgr/develop/core/understand/sqlviews/discovery-views-configuration-manager",
+        "https://learn.microsoft.com/intune/configmgr/develop/core/understand/sqlviews/hardware-inventory-views-configuration-manager"
+      ],
+      "status": "verified",
+      "severity": "error",
+      "notes": "Owner rule (d): records is not the word for inventory rows. 'Site record' in device-inspector means the SMS_R_System row plus inventory rows."
+    },
+    {
+      "id": "LX-008",
+      "category": "distribution-point",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "pull-distribution point",
+        "content pull (pull-distribution point only)"
+      ],
+      "flagged": [
+        "\\bpull(?:s|ed|ing)?\\b"
+      ],
+      "allowWhen": [
+        "\\bdistribution points?\\b",
+        "\\bDPs?\\b",
+        "\\bpull[- ]DP\\b",
+        "\\bpull[- ]distribution\\b",
+        "\\bpull requests?\\b",
+        "\\bsource distribution\\b"
+      ],
+      "context": "Allowed only in the distribution point sense: pull-distribution point, pull DP, content pull by a distribution point. The suite does not manage pull DP settings.",
+      "replacement": "Use verbs that name the action: 'get', 'download', 'retrieve', 'query', 'read'. Write 'pull-distribution point' with a hyphen when the DP kind is meant.",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/plan-design/hierarchy/use-a-pull-distribution-point",
+        "https://learn.microsoft.com/intune/configmgr/core/servers/deploy/configure/install-and-configure-distribution-points"
+      ],
+      "status": "verified",
+      "severity": "error",
+      "notes": "Owner rule (c). Learn spells it 'pull-distribution point'."
+    },
+    {
+      "id": "LX-009",
+      "category": "software-updates",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "synchronize",
+        "synchronization"
+      ],
+      "flagged": [
+        "\\bsync(?:s|ed|ing)?\\b"
+      ],
+      "allowWhen": [
+        "\\bSync Settings\\b",
+        "\\bsync-\\w+",
+        "\\bSync-\\w+",
+        "\\.ps1\\b",
+        "\\bSYNCED\\b",
+        "\\bsync script\\b"
+      ],
+      "context": "Learn prose uses synchronize and synchronization. 'Sync' stays only in a literal UI name such as the Sync Settings tab, or in a file or script name.",
+      "replacement": "synchronize (verb), synchronization (noun), 'Synchronize Software Updates' (console action)",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/sum/get-started/synchronize-software-updates",
+        "https://learn.microsoft.com/intune/configmgr/sum/understand/software-updates-introduction"
+      ],
+      "status": "verified",
+      "severity": "warning",
+      "notes": "Learn prose: 'Synchronize software updates'. The Learn page for the software update point still names a 'Sync Settings' tab."
+    },
+    {
+      "id": "LX-010",
+      "category": "product-name",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "ConfigMgr",
+        "Configuration Manager"
+      ],
+      "flagged": [
+        "\\bSCCM\\b",
+        "\\bSystem Center Configuration Manager\\b",
+        "\\bSystem Center 20\\d\\d\\b"
+      ],
+      "allowWhen": [
+        "[\\\\/]sccm\\b",
+        "\\bsccm[\\\\/]",
+        "\\bsccm_",
+        "\\bSCCM Infrastructure\\b"
+      ],
+      "context": "Never in prose. A literal folder name, share name or class name in code keeps its spelling.",
+      "replacement": "ConfigMgr in prose (suite rule, vault D-72), Configuration Manager for the first mention in a document",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/understand/fundamentals-of-managing-devices",
+        "vault POLICY section 4 (ConfigMgr spelling)"
+      ],
+      "status": "verified",
+      "severity": "error",
+      "notes": ""
+    },
+    {
+      "id": "LX-011",
+      "category": "product-name",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "ConfigMgr",
+        "Configuration Manager"
+      ],
+      "flagged": [
+        "\\bMECM\\b",
+        "\\bMEMCM\\b",
+        "\\bMCM\\b"
+      ],
+      "allowWhen": [
+        "\\bsite codes?\\b",
+        "\\bSiteCode\\b",
+        "\\bPSDrive\\b",
+        "\\bSite MCM\\b",
+        "\\bMCM\\d",
+        "\\bMCM:",
+        "\\bMCM\\\\",
+        "\\bName\\s*:?\\s*MCM\\b",
+        "^MCM$",
+        "\\bold (?:value )?names?\\b"
+      ],
+      "context": "Never in prose. MCM is allowed only as the literal site code of the lab. MECM is allowed only as an old value name that still loads (the ConfigMgr names are the current ones) or as byte-pinned generated text.",
+      "replacement": "ConfigMgr. For a site code example use a three-character code such as XYZ, as Learn does.",
+      "source": [
+        "vault POLICY section 4 (D-72)",
+        "https://learn.microsoft.com/intune/configmgr/apps/deploy-use/packages-and-programs"
+      ],
+      "status": "verified",
+      "severity": "error",
+      "notes": "The deployment target values are ConfigMgr, ConfigMgrAndIntune and ConfigMgrAndWSUS (owner default O-5); the old MECM names stay accepted as aliases, with tests."
+    },
+    {
+      "id": "LX-012",
+      "category": "product-name",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "Configuration Manager"
+      ],
+      "flagged": [
+        "\\bMicrosoft Endpoint (?:Configuration )?Manager\\b",
+        "\\bEndpoint Configuration Manager\\b",
+        "\\bMicrosoft Endpoint Manager\\b"
+      ],
+      "allowWhen": [],
+      "context": "Never. The product name on Microsoft Learn is Configuration Manager.",
+      "replacement": "Configuration Manager (ConfigMgr in prose)",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/understand/fundamentals-of-managing-devices",
+        "https://learn.microsoft.com/intune/configmgr/core/clients/deploy/deploy-clients-to-windows-computers"
+      ],
+      "status": "verified",
+      "severity": "error",
+      "notes": "Learn page titles use Configuration Manager."
+    },
+    {
+      "id": "LX-013",
+      "category": "product-name",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "ConfigMgr"
+      ],
+      "flagged": [
+        "(?-i:\\b(?:Configmgr|ConfigMGR|CONFIGMGR|Config Mgr|ConfigManager)\\b)",
+        "\\bCM (?:console|client|site|server|collection|deployment|object|app(?:lication)?s?)\\b"
+      ],
+      "allowWhen": [],
+      "context": "In prose and UI text.",
+      "replacement": "ConfigMgr, or the exact object type: Application, Device Collection, Deployment, Distribution Point",
+      "source": [
+        "vault POLICY section 4 (D-72)",
+        "code:app-packager/Packagers/AppPackagerCommon.psm1 (CM application used as abbreviation)"
+      ],
+      "status": "verified",
+      "severity": "warning",
+      "notes": "'CM' is not a Learn abbreviation."
+    },
+    {
+      "id": "LX-014",
+      "category": "console",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "Configuration Manager console"
+      ],
+      "flagged": [
+        "\\badmin console\\b",
+        "\\bCM admin console\\b",
+        "\\bConfigMgr admin console\\b"
+      ],
+      "allowWhen": [
+        "\\bAdminUI\\b",
+        "\\\\AdminConsole\\\\"
+      ],
+      "context": "Never. The Learn name is Configuration Manager console. The AdminUI folder or the path of the console in code keeps its spelling.",
+      "replacement": "Configuration Manager console",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/clients/manage/manage-clients",
+        "https://learn.microsoft.com/intune/configmgr/core/clients/manage/collections/create-collections"
+      ],
+      "status": "verified",
+      "severity": "warning",
+      "notes": ""
+    },
+    {
+      "id": "LX-015",
+      "category": "console",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "Assets and Compliance",
+        "Software Library",
+        "Monitoring",
+        "Administration"
+      ],
+      "flagged": [
+        "(?-i:\\b(?:assets and compliance|software library|assets & compliance)\\b)",
+        "(?-i:\\b(?:monitoring|administration|software library|assets and compliance) workspace\\b)"
+      ],
+      "allowWhen": [],
+      "context": "Workspace names of the console are proper names: capital letters as in the console.",
+      "replacement": "Assets and Compliance workspace, Software Library workspace, Monitoring workspace, Administration workspace",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/clients/manage/collections/create-collections",
+        "https://learn.microsoft.com/intune/configmgr/apps/deploy-use/monitor-applications-from-the-console",
+        "https://learn.microsoft.com/intune/configmgr/osd/deploy-use/monitor-operating-system-deployments"
+      ],
+      "status": "verified",
+      "severity": "warning",
+      "notes": "Learn: 'go to the Assets and Compliance workspace'."
+    },
+    {
+      "id": "LX-016",
+      "category": "cycle",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "Hardware Inventory Cycle",
+        "hardware inventory"
+      ],
+      "flagged": [
+        "\\bhardware scans?\\b",
+        "\\bhardware scan time\\b",
+        "\\binventory scans?\\b"
+      ],
+      "allowWhen": [
+        "\\binventory scan cycle\\b",
+        "\\bLastHWScan\\b",
+        "\\bLastHardwareScan\\b"
+      ],
+      "context": "Allowed for the literal property LastHardwareScan or the phrase 'hardware inventory scan cycle' of Learn.",
+      "replacement": "hardware inventory cycle; 'last hardware inventory time' for the LastHardwareScan property of SMS_G_System_WORKSTATION_STATUS",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/develop/core/understand/sqlviews/hardware-inventory-views-configuration-manager",
+        "https://learn.microsoft.com/intune/configmgr/core/support/support-center-ui-reference",
+        "https://learn.microsoft.com/intune/configmgr/core/support/send-schedule-tool",
+        "code:device-inspector/Module/DeviceInspectorCommon.psm1 (SMS_G_System_WORKSTATION_STATUS)"
+      ],
+      "status": "verified",
+      "severity": "warning",
+      "notes": "Learn client actions: Hardware Inventory Cycle, Software Inventory Cycle."
+    },
+    {
+      "id": "LX-017",
+      "category": "cycle",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "Discovery Data Collection Cycle",
+        "heartbeat discovery"
+      ],
+      "flagged": [
+        "\\bdiscovery cycles?\\b",
+        "\\bdiscovery scans?\\b"
+      ],
+      "allowWhen": [],
+      "context": "Always.",
+      "replacement": "Discovery Data Collection Cycle (client action; schedule {00000000-0000-0000-0000-000000000003} Discovery Inventory)",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/support/support-center-ui-reference",
+        "https://learn.microsoft.com/intune/configmgr/core/clients/manage/client-notification",
+        "https://learn.microsoft.com/intune/configmgr/core/support/send-schedule-tool"
+      ],
+      "status": "verified",
+      "severity": "warning",
+      "notes": ""
+    },
+    {
+      "id": "LX-018",
+      "category": "cycle",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "Machine Policy Retrieval & Evaluation Cycle",
+        "Download Computer Policy"
+      ],
+      "flagged": [
+        "\\b(?:update|refresh|reload|force) (?:the )?client polic(?:y|ies)\\b",
+        "\\bpolicy update\\b"
+      ],
+      "allowWhen": [],
+      "context": "Always.",
+      "replacement": "Machine Policy Retrieval & Evaluation Cycle (client action), Download Computer Policy (client notification), or the schedules Request Machine Assignments (id ...21) and Evaluate Machine Policies (id ...22)",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/clients/manage/manage-clients",
+        "https://learn.microsoft.com/intune/configmgr/core/clients/manage/client-notification",
+        "https://learn.microsoft.com/intune/configmgr/core/support/send-schedule-tool",
+        "code:device-inspector/Module/DeviceInspectorActions.ps1:19 (schedule ids 21 and 22)"
+      ],
+      "status": "verified",
+      "severity": "warning",
+      "notes": "The code triggers the two schedules; name what it triggers."
+    },
+    {
+      "id": "LX-019",
+      "category": "legacy-term",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "deployment"
+      ],
+      "flagged": [
+        "\\badvertisements?\\b"
+      ],
+      "allowWhen": [
+        "\\bSMS_Advertisement\\b",
+        "\\bv_Advertisement\\b",
+        "\\bAdvertisementID\\b"
+      ],
+      "context": "Allowed only for the legacy class and view names SMS_Advertisement and v_Advertisement.",
+      "replacement": "deployment (console node Deployments)",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/develop/core/understand/sqlviews/sms-provider-wmi-schema-reference-configuration-manager",
+        "code:app-packager-desktop/src/ApplicationPackagerEngine/Services/Deployments/Scripts/Deployments.ps1 (SMS_Advertisement)"
+      ],
+      "status": "unverified",
+      "severity": "warning",
+      "notes": "The Learn page lists the legacy names; the statement that deployment replaced advertisement is not on a page that was fetched."
+    },
+    {
+      "id": "LX-020",
+      "category": "software-updates",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "software update",
+        "software update group"
+      ],
+      "flagged": [
+        "(?<!software )\\bupdate groups?\\b",
+        "\\bpatch(?:es)?\\b"
+      ],
+      "allowWhen": [
+        "\\bMSP\\b",
+        "\\.msp\\b",
+        "\\bPatch Tuesday\\b",
+        "\\bWindows Installer\\b",
+        "\\bpatch (?:file|package|version|level|facts?|code)\\b",
+        "\\bPATCHFILE\\b",
+        "\\b(?:major|minor|first|fifth|semver|semantic)\\b",
+        "\\bsoftware update groups?\\b",
+        "\\b(?:patch|update/patch) (?:component|release|letter|update|updates|field|fields|part|number)\\b",
+        "\\b(?:successor|next|the first|a) patch\\b",
+        "\\bYYYY\\.MM\\.PATCH\\b",
+        "\\bpatch of the vendor line\\b",
+        "\\bbefore the patch would\\b",
+        "\\bCorretto patch\\b",
+        "\\bfinal patch\\b",
+        "\\bpatch committedContentVersion\\b",
+        "\\bsetup\\.ini patch\\b",
+        "\\bsetup\\.ini, an external MSI cab, a patch\\b",
+        "\\bpatch[ -]level\\b",
+        "\\bsemantic\\b",
+        "\\bpatch/build\\b",
+        "\\bpatch letter\\b"
+      ],
+      "context": "'Patch' is allowed for a Windows Installer patch (.msp), Patch Tuesday and a product patch version. 'Update group' is never allowed without 'software'.",
+      "replacement": "software update, Software Update Group",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/sum/understand/software-updates-introduction",
+        "https://learn.microsoft.com/intune/configmgr/sum/get-started/synchronize-software-updates"
+      ],
+      "status": "verified",
+      "severity": "warning",
+      "notes": ""
+    },
+    {
+      "id": "LX-021",
+      "category": "site-role",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "SMS Provider",
+        "site server"
+      ],
+      "flagged": [
+        "\\bsite server\\b"
+      ],
+      "allowWhen": [],
+      "context": "Learn separates the site server (runs the site components) from the SMS Provider (the role a tool connects to, often on another computer). Where a tool connects to the provider, write SMS Provider.",
+      "replacement": "SMS Provider (the computer a tool connects to), site server (the computer that runs the site)",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/develop/core/understand/sqlviews/sms-provider-wmi-schema-reference-configuration-manager",
+        "code:app-packager-suite/SuiteCommon/SuiteCommon.psm1 (SMS_ProviderLocation query)"
+      ],
+      "status": "unverified",
+      "severity": "info",
+      "notes": "Owner decision: the footer D-05 names the primary site server. Counted for the audit only."
+    },
+    {
+      "id": "LX-034",
+      "category": "site-role",
+      "scope": "text",
+      "kind": "flag",
+      "preferred": [
+        "SMS Provider computer name",
+        "FQDN of the SMS Provider computer"
+      ],
+      "flagged": [
+        "\\bsite server (?:FQDN|name|field|box|address|computer name)\\b",
+        "\\b(?:FQDN|name|address) of the site server\\b"
+      ],
+      "allowWhen": [
+        "\\bprimary site server\\b"
+      ],
+      "context": "Where the field holds the name of the SMS Provider computer. The footer text 'primary site server' (decision D-05) stays.",
+      "replacement": "SMS Provider computer name, or FQDN of the SMS Provider computer. Write site server only for the computer that runs the site.",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/develop/core/understand/sqlviews/sms-provider-wmi-schema-reference-configuration-manager",
+        "vault decision D-33 of app-packager-suite (owner default O-6)"
+      ],
+      "status": "unverified",
+      "severity": "warning",
+      "notes": "Added after reviewers found 'site server FQDN' in catalog and window text that the checker missed. The SMS Provider can run on a computer other than the site server."
+    },
+    {
+      "id": "LX-022",
+      "category": "style",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "select"
+      ],
+      "flagged": [
+        "\\bclick(?:s|ed|ing)?\\b"
+      ],
+      "allowWhen": [
+        "\\bright-click\\b",
+        "\\bdouble-click\\b",
+        "\\bClickOnce\\b",
+        "\\bone[- ]click\\b",
+        "\\bclick-through\\b",
+        "\\bOne Click\\b",
+        "\\bClick-to-Run\\b",
+        "\\bclick again to start download\\b"
+      ],
+      "context": "Allowed in right-click, double-click and ClickOnce.",
+      "replacement": "select (mouse or touch), choose",
+      "source": [
+        "https://learn.microsoft.com/contribute/content/style-quick-start"
+      ],
+      "status": "unverified",
+      "severity": "warning",
+      "notes": "Microsoft Learn procedures say select. The quick start page confirms 'sign in', not 'select'; the select rule is unverified."
+    },
+    {
+      "id": "LX-023",
+      "category": "style",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "sign in"
+      ],
+      "flagged": [
+        "\\blog(?:s|ged|ging)? ?in\\b",
+        "\\blogin\\b",
+        "\\blog on\\b",
+        "\\blogon\\b"
+      ],
+      "allowWhen": [
+        "\\blogon (?:user|script|name|time)\\b",
+        "\\blast logon\\b",
+        "\\bLogon\\b",
+        "\\bSQL (?:Server )?logins?\\b",
+        "\\bWindows logins?\\b",
+        "\\bLogin failed\\b",
+        "\\brequested by the login\\b",
+        "\\bgh auth login\\b"
+      ],
+      "context": "Never for authentication. A log file entry is not a login.",
+      "replacement": "sign in",
+      "source": [
+        "https://learn.microsoft.com/contribute/content/style-quick-start"
+      ],
+      "status": "verified",
+      "severity": "warning",
+      "notes": "Learn quick start: use 'sign in' and not 'log in'."
+    },
+    {
+      "id": "LX-024",
+      "category": "style",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "for example",
+        "that is"
+      ],
+      "flagged": [
+        "\\be\\.g\\.",
+        "\\bi\\.e\\.",
+        "\\betc\\.",
+        "\\bvs\\.",
+        "\\bvia\\b"
+      ],
+      "allowWhen": [],
+      "context": "Never in prose.",
+      "replacement": "for example, such as, that is, and so on, versus, by using",
+      "source": [
+        "https://learn.microsoft.com/azure/logic-apps/create-publish-workflow-templates",
+        "https://learn.microsoft.com/style-guide/welcome"
+      ],
+      "status": "unverified",
+      "severity": "warning",
+      "notes": "The Learn page of Azure Logic Apps states 'for example', not 'e.g.' or 'i.e.'. The rule for etc., vs. and via follows the Microsoft Writing Style Guide; that page was not fetched."
+    },
+    {
+      "id": "LX-025",
+      "category": "style",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "use"
+      ],
+      "flagged": [
+        "\\butili[sz](?:e|es|ed|ing|ation)\\b",
+        "\\bleverag(?:e|es|ed|ing)\\b",
+        "\\bin order to\\b",
+        "\\bprior to\\b",
+        "\\bstreamlin\\w+",
+        "\\bseamless\\w*",
+        "\\bpowerful\\b",
+        "\\brobust\\w*",
+        "\\bcomprehensive\\w*",
+        "\\beffortless\\w*",
+        "\\bblazing\\w*",
+        "\\bcutting[- ]edge\\b",
+        "\\bstate[- ]of[- ]the[- ]art\\b",
+        "\\bbest[- ]in[- ]class\\b",
+        "\\bturnkey\\b",
+        "\\bsupercharg\\w+",
+        "\\bgame[- ]chang\\w+"
+      ],
+      "allowWhen": [
+        "\\belapsed prior to completion\\b"
+      ],
+      "context": "Never. Marketing and filler words.",
+      "replacement": "use, to, before; delete the adjective and state the fact",
+      "source": [
+        "https://learn.microsoft.com/azure/logic-apps/create-publish-workflow-templates",
+        "https://learn.microsoft.com/contribute/content/style-quick-start"
+      ],
+      "status": "verified",
+      "severity": "warning",
+      "notes": "Zero hits on 2026-11-18 for the marketing words; the rule stops new ones."
+    },
+    {
+      "id": "LX-026",
+      "category": "style",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "(delete the word)"
+      ],
+      "flagged": [
+        "\\bsimply\\b",
+        "\\bjust\\b",
+        "\\beasily\\b",
+        "\\bobviously\\b",
+        "\\bplease\\b",
+        "\\bbasically\\b",
+        "\\bof course\\b",
+        "\\bactually\\b"
+      ],
+      "allowWhen": [
+        "\\bjust in time\\b"
+      ],
+      "context": "Never as filler. 'Just' is allowed in 'just in time'.",
+      "replacement": "Delete the word. Say 'please' only in the cases of the Microsoft Writing Style Guide.",
+      "source": [
+        "https://learn.microsoft.com/style-guide/welcome",
+        "https://learn.microsoft.com/style-guide/a-z-word-list-term-collections/p/please"
+      ],
+      "status": "unverified",
+      "severity": "warning",
+      "notes": "The please page is linked from the Windows Admin Center UI text style guide; its content was not fetched."
+    },
+    {
+      "id": "LX-027",
+      "category": "bias-free",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "allowlist",
+        "blocklist",
+        "primary and secondary"
+      ],
+      "flagged": [
+        "\\bwhitelist\\w*",
+        "\\bblacklist\\w*",
+        "\\bslave\\b",
+        "\\bsanity check\\b",
+        "\\bdummy\\b"
+      ],
+      "allowWhen": [],
+      "context": "Never in new text.",
+      "replacement": "allowlist, blocklist, primary, secondary, confidence check, placeholder",
+      "source": [
+        "https://learn.microsoft.com/style-guide/bias-free-communication"
+      ],
+      "status": "verified",
+      "severity": "warning",
+      "notes": "The bias-free guide is linked from Learn driver pages."
+    },
+    {
+      "id": "LX-028",
+      "category": "distribution-point",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "distribution point"
+      ],
+      "flagged": [
+        "\\bDPs?\\b"
+      ],
+      "allowWhen": [],
+      "context": "Spell out distribution point in prose on first use. DP is allowed as a narrow column header or when the console shows DP.",
+      "replacement": "distribution point (plural: distribution points)",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/servers/deploy/configure/install-and-configure-distribution-points",
+        "https://learn.microsoft.com/contribute/content/style-quick-start"
+      ],
+      "status": "unverified",
+      "severity": "info",
+      "notes": "Learn writes distribution point. Counted for the audit only."
+    },
+    {
+      "id": "LX-029",
+      "category": "jargon",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "content",
+        "source files"
+      ],
+      "flagged": [
+        "\\bpayloads?\\b",
+        "\\bwrappers?\\b",
+        "\\bblobs?\\b"
+      ],
+      "allowWhen": [],
+      "context": "'Payload' and 'wrapper' are the tool's own pipeline words. For the ConfigMgr object say content (the source files of a deployment type).",
+      "replacement": "content (a deployment type has content and a content location); for the installer file say installer or source file",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/servers/deploy/configure/install-and-configure-distribution-points",
+        "code:app-packager/Packagers/AppPackagerCommon.psm1 (content wrapper, payload)"
+      ],
+      "status": "unverified",
+      "severity": "info",
+      "notes": "Owner decision: product vocabulary. Counted for the audit only."
+    },
+    {
+      "id": "LX-030",
+      "category": "jargon",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "phased deployment"
+      ],
+      "flagged": [
+        "\\bdeployment rings?\\b",
+        "\\brings?\\b",
+        "\\bwaves?\\b"
+      ],
+      "allowWhen": [],
+      "context": "Ring and wave are the planners' own words (Update Planner, Deployment Helper). Learn names phased deployments, software update groups, automatic deployment rules and collections.",
+      "replacement": "Define the word once as the tool's own planning term, or name the ConfigMgr object (phased deployment, collection, software update group)",
+      "source": [
+        "code:update-planner (wave plan)",
+        "code:deployment-helper (ring)"
+      ],
+      "status": "unverified",
+      "severity": "info",
+      "notes": "Owner decision. Counted for the audit only."
+    },
+    {
+      "id": "LX-031",
+      "category": "jargon",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "version check"
+      ],
+      "flagged": [
+        "\\bscrap(?:e|es|ed|er|ers|ing)\\b"
+      ],
+      "allowWhen": [],
+      "context": "Product vocabulary of App Packager (version scraper). Not a ConfigMgr term.",
+      "replacement": "Say 'version check' or 'the code that reads the latest version from the vendor page'.",
+      "source": [
+        "code:app-packager-desktop docs/reference/shipped-content.md"
+      ],
+      "status": "unverified",
+      "severity": "info",
+      "notes": "Owner decision."
+    },
+    {
+      "id": "LX-032",
+      "category": "jargon",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "device",
+        "computer"
+      ],
+      "flagged": [
+        "\\bwork ?stations?\\b",
+        "\\bPCs?\\b"
+      ],
+      "allowWhen": [
+        "\\bChef Workstation\\b",
+        "\\bWorkstation Pilot\\b",
+        "\\bWORKSTATION_STATUS\\b"
+      ],
+      "context": "Never for the ConfigMgr object. A vendor product name (Chef Workstation) and a collection name keep their spelling.",
+      "replacement": "device, computer",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/understand/fundamentals-of-managing-devices"
+      ],
+      "status": "unverified",
+      "severity": "info",
+      "notes": "Learn also writes 'PCs' in some procedures; counted for the audit only."
+    },
+    {
+      "id": "LX-033",
+      "category": "jargon",
+      "kind": "flag",
+      "scope": "text",
+      "preferred": [
+        "view the hardware inventory, discovery data and client health of one device"
+      ],
+      "flagged": [
+        "\\binspect(?:s|ed|ion|ions)? (?:a|the|one|each) device\\b"
+      ],
+      "allowWhen": [],
+      "context": "Inspect is part of the product name Device Inspector. Describe what the tool does.",
+      "replacement": "Name the action: 'view the hardware inventory, discovery data and client health of one device'.",
+      "source": [
+        "code:device-inspector/Module/DeviceInspectorCommon.psm1"
+      ],
+      "status": "unverified",
+      "severity": "info",
+      "notes": "Owner decision on the product vocabulary."
+    },
+    {
+      "id": "LX-040",
+      "category": "banned",
+      "kind": "flag",
+      "scope": "tracked-files",
+      "preferred": [
+        "(no replacement: do not name it)"
+      ],
+      "flagged": [
+        "\\b[C]hoco(?:latey(?:\\.org)?)?\\b",
+        "\\b[C]hocolatey[A-Za-z]+",
+        "\\b[P]atch\\s?[M]y\\s?[P]C\\b",
+        "\\b[P]MPC\\b",
+        "\\b[p]atchmypc\\w*",
+        "\\b[N]uGet (?:feed|source|repo(?:sitory)?|v2 feed)\\b"
+      ],
+      "allowWhen": [],
+      "context": "Never in a tracked file, a release note, a workflow comment or a commit text. The names are never a source, a tool or a dependency. The owner extends the list.",
+      "replacement": "Delete the mention. Name the real source: for an installer download, the vendor URL or the official archive with a SHA-256 check. A workflow that needs a tool downloads the pinned official archive.",
+      "source": [
+        "vault decision D-32 of app-packager-suite",
+        "vault wiki/concepts/comment-contract.md (banned in tracked files)"
+      ],
+      "status": "verified",
+      "severity": "error",
+      "notes": "Owner rule. The patterns use character classes so that this file does not contain the banned names. The list holds the package manager that the owner named, the second banned product, its abbreviation, and the feed wording. The vault marks only the product as a competitor (app-packager-next CLAUDE.md); the owner has not listed the other names. Add a pattern here when the owner names one."
+    },
+    {
+      "id": "LX-041",
+      "category": "banned-format-detection",
+      "kind": "flag",
+      "scope": "tracked-files",
+      "preferred": [
+        "(owner decides)"
+      ],
+      "flagged": [
+        "\\.nupkg\\b",
+        "\\bnupkg\\b",
+        "\\bNuGet packages?\\b"
+      ],
+      "allowWhen": [],
+      "context": "Report separately from plain mentions. Installer Analysis code, tests and docs that detect the .nupkg package format as an installer format are a candidate for the allow-list. The owner decides. Precedent: another vendor's installer type stays a supported installer type.",
+      "replacement": "Allow-list the format detection with a reason, or remove it.",
+      "source": [
+        "vault decision D-32 of app-packager-suite"
+      ],
+      "status": "unverified",
+      "severity": "info",
+      "notes": "NuGet packages are also a normal .NET build input; a hit in a project file or a build workflow is a mention of the format, not of the banned name."
+    },
+    {
+      "id": "LX-100",
+      "category": "object-type",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "Device"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "Console object type and node (Assets and Compliance > Devices). Use the console capitalisation for the node name; lower case for the generic noun.",
+      "replacement": "",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/clients/manage/manage-clients",
+        "https://learn.microsoft.com/intune/configmgr/core/understand/fundamentals-of-managing-devices"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    },
+    {
+      "id": "LX-101",
+      "category": "object-type",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "User",
+        "User Group",
+        "User Collection",
+        "Device Collection"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "Console object types and nodes (Users, User Groups, User Collections, Device Collections).",
+      "replacement": "",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/clients/manage/collections/create-collections"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    },
+    {
+      "id": "LX-102",
+      "category": "object-type",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "Application",
+        "Deployment Type",
+        "Package",
+        "Program",
+        "Task Sequence",
+        "Software Update Group",
+        "Boundary Group",
+        "Distribution Point",
+        "Distribution Point Group"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "Console object types. Package and Program are the legacy objects; an Application has Deployment Types.",
+      "replacement": "",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/apps/deploy-use/monitor-applications-from-the-console",
+        "https://learn.microsoft.com/intune/configmgr/apps/deploy-use/packages-and-programs",
+        "https://learn.microsoft.com/intune/configmgr/osd/deploy-use/monitor-operating-system-deployments"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    },
+    {
+      "id": "LX-103",
+      "category": "object-type",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "Deployment",
+        "Deployment Status",
+        "Content Status"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "Monitoring workspace nodes: Deployments, Distribution Status > Content Status. Deployment compliance states: Success, In Progress, Error, Requirements Not Met, Unknown.",
+      "replacement": "",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/apps/deploy-use/monitor-applications-from-the-console",
+        "https://learn.microsoft.com/intune/configmgr/osd/deploy-use/monitor-operating-system-deployments"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    },
+    {
+      "id": "LX-104",
+      "category": "client",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "Configuration Manager client",
+        "Install Client",
+        "client settings",
+        "client health",
+        "client status"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "The client is the agent on a device. Console action: Install Client (Install Client Wizard).",
+      "replacement": "",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/clients/deploy/deploy-clients-to-windows-computers",
+        "https://learn.microsoft.com/intune/configmgr/core/clients/manage/manage-clients",
+        "https://learn.microsoft.com/intune/configmgr/core/clients/manage/monitor-clients",
+        "https://learn.microsoft.com/intune/configmgr/core/clients/deploy/about-client-settings"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    },
+    {
+      "id": "LX-105",
+      "category": "inventory",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "hardware inventory",
+        "software inventory",
+        "Resource Explorer"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "Collected by the client agents. Hardware inventory classes: SMS_G_System_<class>. Views: v_GS_<class> (current), v_HS_<class> (history).",
+      "replacement": "",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/develop/core/understand/sqlviews/hardware-inventory-views-configuration-manager",
+        "https://learn.microsoft.com/intune/configmgr/develop/reference/core/clients/manage/hardware-inventory-server-wmi-classes",
+        "https://learn.microsoft.com/intune/configmgr/develop/core/clients/inventory/about-configuration-manager-inventory"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    },
+    {
+      "id": "LX-106",
+      "category": "inventory",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "SMS_G_System_* classes",
+        "v_GS_* views",
+        "v_HS_* views",
+        "SMS_G_System_WORKSTATION_STATUS"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "The workstation status class holds the last hardware scan time. Name the class or view when a text says where a value comes from.",
+      "replacement": "",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/develop/core/understand/sqlviews/hardware-inventory-views-configuration-manager",
+        "https://learn.microsoft.com/intune/configmgr/develop/core/understand/configuration-manager-schema-view-mapping",
+        "code:device-inspector/Module/DeviceInspectorCommon.psm1"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    },
+    {
+      "id": "LX-107",
+      "category": "discovery",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "discovery data",
+        "SMS_R_System",
+        "v_R_System",
+        "SMS_R_User",
+        "v_R_User",
+        "SMS_R_UserGroup",
+        "v_R_UserGroup",
+        "discovery data record (DDR)",
+        "Heartbeat Discovery"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "Discovery data describes discovered resources. The conversion rule: replace SMS_ with v_ for the view name.",
+      "replacement": "",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/develop/core/understand/sqlviews/discovery-views-configuration-manager",
+        "https://learn.microsoft.com/intune/configmgr/develop/reference/core/clients/manage/sms_r_system-server-wmi-class",
+        "https://learn.microsoft.com/intune/configmgr/develop/core/understand/configuration-manager-schema-view-mapping",
+        "https://learn.microsoft.com/intune/configmgr/core/servers/deploy/configure/configure-discovery-methods"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    },
+    {
+      "id": "LX-108",
+      "category": "database",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "site database",
+        "SQL Server view",
+        "schema view (v_GroupMap, v_ResourceMap, v_SchemaViews)"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "Say 'site database view' for v_* names and 'SMS Provider class' for SMS_* names.",
+      "replacement": "",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/develop/core/understand/sqlviews/sql-server-views-configuration-manager",
+        "https://learn.microsoft.com/intune/configmgr/develop/core/understand/configuration-manager-schema-view-mapping"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    },
+    {
+      "id": "LX-109",
+      "category": "cycle",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "Hardware Inventory Cycle",
+        "Software Inventory Cycle",
+        "Discovery Data Collection Cycle",
+        "File Collection Cycle",
+        "Machine Policy Retrieval & Evaluation Cycle",
+        "User Policy Retrieval & Evaluation Cycle",
+        "Application Deployment Evaluation Cycle",
+        "Software Updates Scan Cycle",
+        "Software Update Deployment Evaluation Cycle"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "Names of the client actions (Configuration Manager control panel, Actions tab) and of client notification actions: Collect Hardware Inventory, Collect Software Inventory, Collect Discovery Data, Download Computer Policy, Download User Policy, Evaluate Application Deployments, Evaluate Software Update Deployments.",
+      "replacement": "",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/clients/manage/manage-clients",
+        "https://learn.microsoft.com/intune/configmgr/core/clients/manage/client-notification",
+        "https://learn.microsoft.com/intune/configmgr/core/support/support-center-ui-reference",
+        "https://learn.microsoft.com/intune/configmgr/core/support/send-schedule-tool"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    },
+    {
+      "id": "LX-110",
+      "category": "schedule",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "Send Schedule message ids: 1 Hardware Inventory",
+        "2 Software Inventory",
+        "3 Discovery Inventory",
+        "10 File Collection",
+        "21 Request Machine Assignments",
+        "22 Evaluate Machine Policies"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "Use these display names when a text names the schedule that the tool triggers through SMS_Client.TriggerSchedule.",
+      "replacement": "",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/support/send-schedule-tool",
+        "code:device-inspector/Module/DeviceInspectorActions.ps1:19"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    },
+    {
+      "id": "LX-111",
+      "category": "distribution-point",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "distribution point",
+        "pull-distribution point",
+        "source distribution point",
+        "content library",
+        "boundary group",
+        "distribution point group"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "A pull-distribution point downloads content from a source distribution point. Microsoft Learn limit: up to 250 distribution points per primary or secondary site, plus up to 2000 more that are pull-distribution points.",
+      "replacement": "",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/plan-design/hierarchy/use-a-pull-distribution-point",
+        "https://learn.microsoft.com/intune/configmgr/core/plan-design/configs/size-and-scale-numbers",
+        "https://learn.microsoft.com/intune/configmgr/core/servers/deploy/configure/install-and-configure-distribution-points"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    },
+    {
+      "id": "LX-112",
+      "category": "collection",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "collection",
+        "membership rule",
+        "direct rule",
+        "query rule",
+        "include collection rule",
+        "exclude collection rule",
+        "limiting collection",
+        "incremental update"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "Learn names four rule types. Console wording: Add Rule > Direct Rule, Query Rule, Include Collections, Exclude Collections.",
+      "replacement": "",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/clients/manage/collections/create-collections"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    },
+    {
+      "id": "LX-113",
+      "category": "software-updates",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "Synchronize Software Updates",
+        "software update point",
+        "software update",
+        "Software Update Group",
+        "Automatic Deployment Rule",
+        "deployment package"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "'Synchronize' in prose; the console action is Synchronize Software Updates.",
+      "replacement": "",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/sum/get-started/synchronize-software-updates",
+        "https://learn.microsoft.com/intune/configmgr/sum/understand/software-updates-introduction"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    },
+    {
+      "id": "LX-114",
+      "category": "site-role",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "site server",
+        "SMS Provider",
+        "management point",
+        "site database",
+        "site code",
+        "primary site",
+        "central administration site",
+        "secondary site",
+        "fallback status point",
+        "software update point"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "Site system roles as named by Learn.",
+      "replacement": "",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/plan-design/configs/size-and-scale-numbers",
+        "https://learn.microsoft.com/intune/configmgr/develop/core/understand/sqlviews/sms-provider-wmi-schema-reference-configuration-manager"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    },
+    {
+      "id": "LX-115",
+      "category": "generic",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "endpoint"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "Acceptable as a generic word for the computer (owner 2026-11-18). Not a ConfigMgr object type. In a URL sense (API endpoint) it keeps its meaning.",
+      "replacement": "",
+      "source": [
+        "owner decision 2026-11-18 (b)"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    },
+    {
+      "id": "LX-116",
+      "category": "scripting",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "Run Scripts",
+        "CMPivot",
+        "Client Notification",
+        "Start CMPivot",
+        "Run Script wizard"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "Console actions on a device or collection.",
+      "replacement": "",
+      "source": [
+        "https://learn.microsoft.com/intune/configmgr/core/clients/manage/client-notification",
+        "https://learn.microsoft.com/intune/configmgr/core/clients/manage/manage-clients"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    },
+    {
+      "id": "LX-117",
+      "category": "cmdlets",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "Get-CMDevice",
+        "Get-CMDeviceCollection",
+        "Get-CMCollectionMember",
+        "Get-CMApplication",
+        "Get-CMDeployment",
+        "Invoke-CMWmiQuery",
+        "Start-CMContentDistribution",
+        "Get-CMMaintenanceWindow"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "Cmdlets the suite code calls (uses in the 13 repositories on 2026-11-18: Invoke-CMWmiQuery 195, Get-CMApplication 193, Get-CMDeviceCollection 116, Get-CMDevice 96). Cmdlet names are never flagged.",
+      "replacement": "",
+      "source": [
+        "code:grep of all 13 repositories 2026-11-18",
+        "https://learn.microsoft.com/powershell/module/configurationmanager/"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    },
+    {
+      "id": "LX-118",
+      "category": "style",
+      "kind": "term",
+      "scope": "text",
+      "preferred": [
+        "sentence-case headings",
+        "sign in",
+        "contractions allowed",
+        "for example (not e.g.)"
+      ],
+      "flagged": [],
+      "allowWhen": [],
+      "context": "Microsoft Learn voice for body text and headings. The suite title-cases Options tree names by owner order D-12; that rule stays.",
+      "replacement": "",
+      "source": [
+        "https://learn.microsoft.com/contribute/content/style-quick-start",
+        "vault decision D-12 of app-packager-suite"
+      ],
+      "status": "verified",
+      "severity": "info",
+      "notes": ""
+    }
+  ]
+}

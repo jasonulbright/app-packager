@@ -445,7 +445,7 @@
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"
                                        Margin="5,0,0,0"
-                                       ToolTip="Click to cycle the selection: none, all, or updates only."/>
+                                       ToolTip="Select to cycle the selection: none, all, or updates only."/>
                         </DataGridTemplateColumn.Header>
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>

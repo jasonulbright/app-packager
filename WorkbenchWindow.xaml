@@ -310,7 +310,7 @@
                                    ToolTip="The entry command that the build writes for this target."/>
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="Return codes" Style="{StaticResource WbLabel}"/>
                         <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtReturnCodes" Style="{StaticResource WbField}"
-                                   Controls:TextBoxHelper.Watermark="inherit (e.g. 0,3010=SoftReboot,1641=HardReboot)"/>
+                                   Controls:TextBoxHelper.Watermark="inherit (for example 0,3010=SoftReboot,1641=HardReboot)"/>
                         <TextBlock Grid.Row="1" Grid.Column="2" Text="Reboot" Style="{StaticResource WbLabel}" Margin="14,0,10,6"/>
                         <ComboBox  Grid.Row="1" Grid.Column="3" x:Name="cboRebootPolicy" Style="{StaticResource WbCombo}"/>
                         <TextBlock Grid.Row="1" Grid.Column="4" Text="Working dir" Style="{StaticResource WbLabel}" Margin="14,0,10,6"/>

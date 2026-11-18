@@ -19,7 +19,7 @@ ArpArch: x64
     replace every TODO comment with app-specific logic.
 
     MSI packagers have two small wins over EXE packagers:
-      - Get-MsiPropertyMap pulls ProductCode, ProductVersion, Manufacturer,
+      - Get-MsiPropertyMap reads ProductCode, ProductVersion, Manufacturer,
         ProductName straight out of the MSI. No temp install required.
       - ARP detection uses SOFTWARE\...\Uninstall\<ProductCode> which is
         deterministic for standard MSIs.
