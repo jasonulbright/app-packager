@@ -47,6 +47,7 @@
 "AnyLogic University","Skip-Licensed","licensed simulation"
 "Anywhere365 Integrator","Skip-Agent","UC/telephony clients provisioned per tenant"
 "App Dynamic AirServer Universal","Skip-Niche","AV-room/casting vertical tools"
+"App Installer (WinGet)","Supported","existing packager: appinstaller (provisioned for all users from the winget-cli release)"
 "Appgate SDP Client","Skip-Agent","ZTNA client tied to org controller"
 "Apple iTunes","Skip-Niche","consumer media software"
 "Aptakube","Skip-Licensed","licensed Kubernetes GUI"
