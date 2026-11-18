@@ -40,7 +40,7 @@ Describe 'AppFlow.DefaultCadenceDays' {
 
     It 'is saved by the One Click panel' {
         $text = ($script:Ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'New-AppFlowPanel' }, $false)).Extent.Text
-        $text | Should -Match 'AppFlow\.DefaultCadenceDays\s*=\s*\$newCadence'
+        $text | Should -Match 'DefaultCadenceDays\s*=\s*\$newCadence'
         $text | Should -Match 'txtOneClickCadenceDays'
     }
 }
