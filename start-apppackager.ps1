@@ -299,6 +299,8 @@ function Read-Preferences {
         # Strips the release version from a vendor product name; applies only
         # while IncludeVersionInTitle is off.
         RemoveVersionFromTitle = $false
+        # Keeps the (x64), (x86) or (ARM64) tag of an application name; off removes a trailing tag.
+        AppendArchitectureToTitle = $true
         # The systems the sidebar publishes to. Setup and Options set them;
         # a button of a system not in use stays disabled whatever else is set.
         Systems              = [pscustomobject]@{
@@ -446,6 +448,7 @@ function Read-Preferences {
         if ([string]$data.ContentFallback -in @('Allow','Deny')) { $defaults.ContentFallback = [string]$data.ContentFallback }
         if ([string]$data.SlowNetworkDeploymentMode -in @('Download','DoNothing')) { $defaults.SlowNetworkDeploymentMode = [string]$data.SlowNetworkDeploymentMode }
         if ($null -ne $data.CompanyName)            { $defaults.CompanyName          = [string]$data.CompanyName }
+        if ($null -ne $data.AppendArchitectureToTitle) { try { $defaults.AppendArchitectureToTitle = [bool]$data.AppendArchitectureToTitle } catch { <# Reading a boolean setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
         if ($null -ne $data.CheckForUpdatesAtStartup) { try { $defaults.CheckForUpdatesAtStartup = [bool]$data.CheckForUpdatesAtStartup } catch { <# Reading a boolean setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
 
         # M365Channel: validate against current set; migrate legacy SemiAnnual
@@ -844,6 +847,8 @@ function Set-DeploymentTypeContentEnvironment {
     param([Parameter(Mandatory)]$Prefs)
     $env:APP_PACKAGER_DT_CONTENT_FALLBACK  = $(if ([string]$Prefs.ContentFallback -eq 'Deny') { 'Deny' } else { 'Allow' })
     $env:APP_PACKAGER_DT_SLOW_NETWORK_MODE = $(if ([string]$Prefs.SlowNetworkDeploymentMode -eq 'DoNothing') { 'DoNothing' } else { 'Download' })
+    # The module reads this when it names the application: 0 removes a trailing (x64), (x86) or (ARM64) tag.
+    $env:APP_PACKAGER_TITLE_APPEND_ARCH = $(if ($Prefs.PSObject.Properties['AppendArchitectureToTitle'] -and -not [bool]$Prefs.AppendArchitectureToTitle) { '0' } else { '1' })
 }
 
 function Save-Preferences {
@@ -7293,6 +7298,7 @@ function Get-OptionsSectionDefinition {
             Description = 'The naming rule of every Package run. Without a selection, a packager uses its own name.'
             Fields = @(
                 @{ Id = 'title.include'; Title = 'Include version'; Kind = 'Check'; Pref = 'IncludeVersionInTitle'; Label = 'Add the version to each application name'; Tip = 'Creates a separate application for each release.' }
+                @{ Id = 'title.arch'; Title = 'Add architecture'; Kind = 'Check'; Pref = 'AppendArchitectureToTitle'; Label = 'Add the architecture to application names'; Tip = 'Clear it to keep names without (x64), (x86) or (ARM64).' }
                 @{ Id = 'title.remove'; Title = 'Remove version'; Kind = 'Check'; Pref = 'RemoveVersionFromTitle'; Label = 'Remove the release version from the vendor product name'; Tip = 'Keeps one application for all releases; it applies while Include version is off.' }
             )
         })
