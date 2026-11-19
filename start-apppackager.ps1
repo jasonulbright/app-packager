@@ -3795,6 +3795,85 @@ function Get-IconPackManifestPath {
     Join-Path (Get-IconPackRoot -AppRoot $AppRoot) 'manifest.json'
 }
 
+# Grid icons: the pack files are read into memory once per pack state, so a
+# pack update can replace the files while the grid is open (no handle stays
+# on a file). Each icon is decoded small (48 px) and frozen, and cached.
+$script:GridIconIndex = $null
+$script:GridIconCache = @{}
+$script:GridIconPlaceholder = $null
+
+function Reset-GridIconCache {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Clears an in-memory cache only.')]
+    param()
+    $script:GridIconIndex = $null
+    $script:GridIconCache = @{}
+}
+
+function Get-GridIconIndex {
+    if ($null -eq $script:GridIconIndex) {
+        $index = @{}
+        foreach ($f in @(Get-ChildItem -LiteralPath (Get-IconPackRoot) -File -ErrorAction SilentlyContinue)) {
+            if ($f.Extension -notmatch '^\.(png|ico)$') { continue }
+            $key = $f.BaseName.ToLowerInvariant()
+            if (-not $index.ContainsKey($key) -or $f.Extension -eq '.png') { $index[$key] = $f.FullName }
+        }
+        $script:GridIconIndex = $index
+    }
+    return $script:GridIconIndex
+}
+
+function Get-GridIconPlaceholder {
+    # A neutral outlined square that reads on the light and the dark theme.
+    if ($null -eq $script:GridIconPlaceholder) {
+        $brush = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.Color]::FromRgb(0x8A, 0x8F, 0x98))
+        $brush.Freeze()
+        $pen = New-Object System.Windows.Media.Pen ($brush, 3)
+        $pen.Freeze()
+        $outer = New-Object System.Windows.Media.RectangleGeometry ((New-Object System.Windows.Rect (5, 5, 38, 38)), 8, 8)
+        $inner = New-Object System.Windows.Media.RectangleGeometry ((New-Object System.Windows.Rect (17, 17, 14, 14)), 3, 3)
+        $group = New-Object System.Windows.Media.DrawingGroup
+        $frame = New-Object System.Windows.Media.GeometryDrawing ([System.Windows.Media.Brushes]::Transparent, $null, (New-Object System.Windows.Media.RectangleGeometry (New-Object System.Windows.Rect (0, 0, 48, 48))))
+        [void]$group.Children.Add($frame)
+        [void]$group.Children.Add((New-Object System.Windows.Media.GeometryDrawing ([System.Windows.Media.Brushes]::Transparent, $pen, $outer)))
+        [void]$group.Children.Add((New-Object System.Windows.Media.GeometryDrawing ([System.Windows.Media.Brushes]::Transparent, $pen, $inner)))
+        $image = New-Object System.Windows.Media.DrawingImage ($group)
+        $image.Freeze()
+        $script:GridIconPlaceholder = $image
+    }
+    return $script:GridIconPlaceholder
+}
+
+function Get-GridIconSource {
+    param([string]$ScriptName)
+
+    $base = ([System.IO.Path]::GetFileNameWithoutExtension($ScriptName) -replace '^package-', '').ToLowerInvariant()
+    if ($script:GridIconCache.ContainsKey($base)) { return $script:GridIconCache[$base] }
+
+    $source = $null
+    $path = (Get-GridIconIndex)[$base]
+    if ($path) {
+        try {
+            $bytes = [System.IO.File]::ReadAllBytes($path)
+            $stream = New-Object System.IO.MemoryStream (, $bytes)
+            try {
+                $bitmap = New-Object System.Windows.Media.Imaging.BitmapImage
+                $bitmap.BeginInit()
+                $bitmap.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+                $bitmap.DecodePixelWidth = 48
+                $bitmap.StreamSource = $stream
+                $bitmap.EndInit()
+                $bitmap.Freeze()
+                $source = $bitmap
+            }
+            finally { $stream.Dispose() }
+        }
+        catch { $source = $null }
+    }
+    if ($null -eq $source) { $source = Get-GridIconPlaceholder }
+    $script:GridIconCache[$base] = $source
+    return $source
+}
+
 function Get-WorkbenchInheritedIconPath {
     # Mirrors what Stage publishes: the icon pack entry named for the
     # packager first, then the newest build's staged app-icon.
@@ -5402,6 +5481,7 @@ $txtGridFilter = $window.FindName('txtGridFilter')
 $txtComment      = $window.FindName('txtComment')
 $dataGrid        = $window.FindName('dataGrid')
 $colSelected     = $window.FindName('colSelected')
+$colIcon         = $window.FindName('colIcon')
 $txtLog          = $window.FindName('txtLog')
 $lblLogOutput    = $window.FindName('lblLogOutput')
 $txtStatus       = $window.FindName('txtStatus')
@@ -5533,6 +5613,39 @@ function Update-GridFilter {
     })
 }
 $txtGridFilter.Add_TextChanged({ Update-GridFilter })
+
+# Row icons are set on the Image of the cell when a row is created (the grid
+# virtualizes, so 300+ packagers decode only what scrolls into view; the
+# decoded icons are cached). The cell does not bind the icon: a binding
+# through the PowerShell row object does not deliver an ImageSource.
+$dataGrid.Add_LoadingRow({
+        param($sender, $e)
+        $item = $e.Row.Item
+        if (-not $item -or -not $item.PSObject.Properties['Script']) { return }
+        $source = Get-GridIconSource -ScriptName ([string]$item.Script)
+        $show = {
+            $cell = $colIcon.GetCellContent($item)
+            $image = $null
+            $queue = New-Object System.Collections.Generic.Queue[System.Windows.DependencyObject]
+            if ($cell) { $queue.Enqueue($cell) }
+            while ($queue.Count -gt 0 -and -not $image) {
+                $node = $queue.Dequeue()
+                if ($node -is [System.Windows.Controls.Image]) { $image = $node; break }
+                $count = [System.Windows.Media.VisualTreeHelper]::GetChildrenCount($node)
+                for ($i = 0; $i -lt $count; $i++) { $queue.Enqueue([System.Windows.Media.VisualTreeHelper]::GetChild($node, $i)) }
+            }
+            if ($image) { $image.Source = $source }
+        }.GetNewClosure()
+        [void]$dataGrid.Dispatcher.BeginInvoke([System.Windows.Threading.DispatcherPriority]::Background, [Action]$show)
+    })
+
+function Update-GridIcons {
+    # After an icon pack update: drop the cached icons; the rows are created again and read the new files.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Refreshes the grid icons only.')]
+    param()
+    Reset-GridIconCache
+    $dataGrid.Items.Refresh()
+}
 
 # Ctrl+Click on a row opens the vendor URL
 $dataGrid.Add_PreviewMouseLeftButtonUp({
@@ -8374,6 +8487,7 @@ function Initialize-OptionsToolsSection {
             $iconDownload.IsEnabled = $true
             $iconFile.IsEnabled = $true
             & $showIcon
+            if ($outcome -and $outcome.Installed) { Update-GridIcons }
             # A failed fetch leaves no manifest change, so the refreshed line would repeat itself; the reason replaces it.
             if ($outcome -and -not $outcome.Installed) { & $iconEditor.Set ([string][char]0x2717 + ' ' + $outcome.Message) }
         }

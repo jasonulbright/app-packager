@@ -69,7 +69,9 @@ param(
     [int]$Minutes = 15,
     [int]$LockWaitMinutes = 90,
     [switch]$AddNew,
-    [switch]$OnlyCveChrome
+    [switch]$OnlyCveChrome,
+    [switch]$OnlyGridIcons,
+    [string]$ProofFolder
 )
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
@@ -143,7 +145,7 @@ try {
         }
     } -ArgumentList $lockPath, $lockToken, 60, $LockWaitMinutes
     if (-not $haveLock) { throw "Another capture holds $lockPath. The wait of $LockWaitMinutes minutes is over." }
-    $runs = if ($OnlyCveChrome) { @('steps-cve-chrome.ps1') } else { @('steps-guide.ps1', 'steps-console-missing.ps1') }
+    $runs = if ($OnlyGridIcons) { @('steps-grid-icons.ps1') } elseif ($OnlyCveChrome) { @('steps-cve-chrome.ps1') } else { @('steps-guide.ps1', 'steps-console-missing.ps1') }
     foreach ($steps in $runs) {
         # A fresh copy for each run. Stop only the leftovers of an earlier capture of this app.
         Invoke-Command $session {
@@ -204,7 +206,15 @@ try {
     if ($duplicate.Count) { throw ("Two runs produced the same image. No image was replaced.`n" + ($duplicate -join "`n")) }
     # The Chrome CVE images come from the switch -OnlyCveChrome only. A full run neither makes them nor misses them.
     $missing = @(Get-ChildItem $images -Filter *.png | Where-Object { -not $capturedNames.Contains($_.Name) -and ($_.Name -notmatch '^(light-)?cve-chrome-') } | ForEach-Object { $_.Name })
-    if ($missing.Count -and -not $OnlyCveChrome) { throw ("The capture did not produce these guide images. No image was replaced.`n" + ($missing -join "`n")) }
+    if ($missing.Count -and -not $OnlyCveChrome -and -not $OnlyGridIcons) { throw ("The capture did not produce these guide images. No image was replaced.`n" + ($missing -join "`n")) }
+    # The grid icon proof keeps its images and logs in the proof folder and changes no guide image.
+    if ($OnlyGridIcons) {
+        if ($ProofFolder) {
+            New-Item -ItemType Directory -Path $ProofFolder -Force | Out-Null
+            foreach ($file in @(Get-ChildItem $tmp -Recurse -File | Where-Object { $_.Extension -in '.png', '.log', '.flag', '.txt' })) { Copy-Item $file.FullName (Join-Path $ProofFolder ($file.Directory.Name + '-' + $file.Name)) -Force }
+        }
+        $captured = @()
+    }
     foreach ($png in $captured) {
         if ($AddNew -or (Test-Path (Join-Path $images $png.Name))) { Copy-Item $png.FullName (Join-Path $images $png.Name) -Force }
     }

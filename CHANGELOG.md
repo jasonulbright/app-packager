@@ -4,6 +4,7 @@
 
 ### Added
 
+- The main grid shows the icon of each packager from the icon pack, in an icon column after the check box. A packager without an icon shows a gray placeholder. The icons are read into memory when a row comes into view and cached, so no icon file stays open and an icon pack update works while the grid is open; the grid takes the new icons after the update. No new network path.
 - Add the PowerShell 7 (MSIX) packager. It provisions the Microsoft msixbundle for all users after it checks the SHA-256 digest and the Microsoft signature. The help lists the limits of the MSIX package: single user, no remoting, no all-users scope.
 
 ### Changed
