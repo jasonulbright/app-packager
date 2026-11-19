@@ -342,6 +342,24 @@ function Get-CSharpTextItem {
 
 # --- repository walk ----------------------------------------------------------------------------
 
+function Get-ManifestTextItem {
+    <#
+    .SYNOPSIS
+        Reads the user-facing text of a module manifest (.psd1): Description, Synopsis and ReleaseNotes.
+    .DESCRIPTION
+        The manifest Description shows in Get-Module and in the PowerShell Gallery, so it is user-facing text.
+        A value in single or double quotes on one line is read; a doubled quote inside the value is one quote.
+    #>
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Rel)
+    $lines = [IO.File]::ReadAllLines($Path)
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $m = [regex]::Match($lines[$i], "^\s*(?:Description|Synopsis|ReleaseNotes)\s*=\s*(?:'(?<s>(?:[^']|'')*)'|""(?<d>(?:[^""]|"""")*)"")")
+        if (-not $m.Success) { continue }
+        $text = if ($m.Groups['s'].Success) { $m.Groups['s'].Value.Replace("''", "'") } else { $m.Groups['d'].Value.Replace('""', '"') }
+        if ($text.Trim()) { [pscustomobject]@{ File = $Rel; Line = $i + 1; Kind = 'manifest'; Text = $text.Trim() } }
+    }
+}
+
 function Get-LexiconTextItem {
     [CmdletBinding()]
     param(
@@ -370,6 +388,10 @@ function Get-LexiconTextItem {
             if ($RepoType -eq 'Apd' -and $rel -notlike 'src/*') { continue }
             $content = [IO.File]::ReadAllText($f.FullName)
             Get-XamlTextItemFromString -Content $content -Rel $rel -LineOffset 1 -Kind 'xaml'
+            continue
+        }
+        if ($RepoType -eq 'PowerShell' -and $ext -eq '.psd1') {
+            Get-ManifestTextItem -Path $f.FullName -Rel $rel
             continue
         }
         if ($RepoType -eq 'PowerShell' -and ($ext -eq '.ps1' -or $ext -eq '.psm1')) {
