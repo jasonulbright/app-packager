@@ -408,6 +408,68 @@ function Assert-DownloadAvailable {
     Write-Log ("Download check               : {0} answers HTTP {1}" -f $Url, $code)
 }
 Export-ModuleMember -Function Assert-DownloadAvailable
+
+function Assert-InstallerSignature {
+    <#
+    .SYNOPSIS
+        Checks the Authenticode signature of a downloaded installer before it is staged: the status must be Valid and the
+        signer must be the expected publisher.
+    .DESCRIPTION
+        For a vendor that publishes no digest but signs the installer. The signer is matched against the CN of the signing
+        certificate (a whole name, case-insensitive). With -RemoveOnFailure a file that fails is deleted, so that the next
+        run downloads it again instead of reusing a bad file. The message names the file, the status or the signer, and says
+        that nothing was staged.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$ExpectedSigner,
+        [string]$What = '',
+        [switch]$RemoveOnFailure
+    )
+    $name = if ($What) { $What } else { [System.IO.Path]::GetFileName($Path) }
+    $fail = {
+        param([string]$Message)
+        if ($RemoveOnFailure) { Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue }
+        throw $Message
+    }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { & $fail "The installer $name is missing, so its signature cannot be checked. Nothing was staged." }
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($signature.Status -ne 'Valid') {
+        & $fail ("The installer {0} has no valid Authenticode signature (status: {1}). It may be damaged or not from the vendor. Nothing was staged." -f $name, $signature.Status)
+    }
+    $subject = [string]$signature.SignerCertificate.Subject
+    $cn = ''
+    if ($subject -match '(?:^|,\s*)CN=(?:"(?<q>[^"]+)"|(?<n>[^,]+))') { $cn = if ($Matches['q']) { $Matches['q'] } else { $Matches['n'] } }
+    if ($cn.Trim() -ne $ExpectedSigner) {
+        & $fail ("The installer {0} is signed by '{1}', not by '{2}'. Nothing was staged." -f $name, $cn.Trim(), $ExpectedSigner)
+    }
+    return $cn.Trim()
+}
+
+function Assert-InstallerDigest {
+    <#
+    .SYNOPSIS
+        Compares the SHA-256 hash of a downloaded installer with the digest that the vendor publishes.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Sha256,
+        [string]$What = '',
+        [switch]$RemoveOnFailure
+    )
+    $name = if ($What) { $What } else { [System.IO.Path]::GetFileName($Path) }
+    $expected = ($Sha256 -replace '^sha256:', '').Trim().ToUpperInvariant()
+    $actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToUpperInvariant()
+    if ($actual -ne $expected) {
+        if ($RemoveOnFailure) { Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue }
+        throw ("The installer {0} does not match the SHA-256 digest of the vendor (expected {1}, got {2}). Nothing was staged." -f $name, $expected, $actual)
+    }
+    return $actual
+}
+Export-ModuleMember -Function Assert-InstallerSignature, Assert-InstallerDigest
+
 function Select-GitHubReleaseByAsset {
     <#
     .SYNOPSIS

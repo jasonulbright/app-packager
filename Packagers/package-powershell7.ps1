@@ -177,6 +177,10 @@ function Invoke-StagePowerShell7 {
         Write-Log "Local MSI exists. Skipping download."
     }
 
+    # The release lists no digest, so the signature is the proof that the file is the one Microsoft built.
+    $signer = Assert-InstallerSignature -Path $localMsi -ExpectedSigner 'Microsoft Corporation' -RemoveOnFailure
+    Write-Log "Authenticode signer          : $signer (valid)"
+
     # --- Extract MSI properties ---
     $props = Get-MsiPropertyMap -MsiPath $localMsi
 

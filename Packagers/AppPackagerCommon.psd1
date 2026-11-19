@@ -147,6 +147,8 @@
         'Select-GitHubReleaseJson'
         'Get-CurrentNewerNote'
         'Assert-DownloadAvailable'
+        'Assert-InstallerSignature'
+        'Assert-InstallerDigest'
         'Invoke-SupersedenceStepAndLog'
         'Invoke-SupersedenceApply'
         'Get-CheckResultSummaryLine'
