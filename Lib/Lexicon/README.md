@@ -44,7 +44,7 @@ The lexicon holds terms, rules and citations. It holds no text copied from Micro
 
 ## What the checker reads
 
-README.md, docs\**\*.md, the `[Unreleased]` part of CHANGELOG.md, XAML text attributes (`Content`, `Header`, `Text`, `ToolTip`, `Title`, `Watermark` and similar), strings that go to message boxes, dialogs, status lines, logs, warnings and errors in `.ps1` and `.psm1` files, `throw` messages, and comment-based help (`.SYNOPSIS`, `.DESCRIPTION`, `.PARAMETER`, `.EXAMPLE` text). For APD (`-RepoType Apd`) it also reads the XAML under `src` and sentence-like string literals in `src\**\*.cs`.
+README.md, docs\**\*.md, the `[Unreleased]` part of CHANGELOG.md, XAML text attributes (`Content`, `Header`, `Text`, `ToolTip`, `Title`, `Watermark` and similar), strings that go to message boxes, dialogs, status lines, logs, warnings and errors in `.ps1` and `.psm1` files, `throw` messages, and comment-based help (`.SYNOPSIS`, `.DESCRIPTION`, `.PARAMETER`, `.EXAMPLE` text). It also reads the `Description`, `Synopsis` and `ReleaseNotes` of module manifests (`.psd1`) outside `Lib` and `Tests`: the manifest Description shows in `Get-Module` and in the PowerShell Gallery. For APD (`-RepoType Apd`) it also reads the XAML under `src` and sentence-like string literals in `src\**\*.cs`.
 
 It skips code identifiers, cmdlet and class names, URLs, fenced code blocks, inline code, and the folders `Lib`, `Tests`, `installer`, `lexicon`, `.git`.
 

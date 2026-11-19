@@ -106,6 +106,42 @@ Describe 'Text extraction' {
     }
 }
 
+Describe 'Module manifests' {
+    It 'reads the Description of a .psd1 and flags a seeded bad phrase in it (Q-82)' {
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) ('lexpsd-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $tmp 'Module') | Out-Null
+        try {
+            $manifest = @(
+                '@{',
+                "    RootModule        = 'Seed.psm1'",
+                "    Description       = 'Reads the site facts and the O''Brien rules of one device.'",
+                '    Author            = "Facts Author"',
+                '}'
+            )
+            Set-Content -LiteralPath (Join-Path $tmp 'Module\Seed.psd1') -Value $manifest -Encoding ascii
+            $items = @(Get-LexiconTextItem -Root $tmp)
+            $m = @($items | Where-Object { $_.Kind -eq 'manifest' })
+            $m.Count | Should -Be 1
+            $m[0].File | Should -Be 'Module/Seed.psd1'
+            $m[0].Line | Should -Be 3
+            $m[0].Text | Should -Be "Reads the site facts and the O'Brien rules of one device."
+            $lex = Import-LexiconData -Path (Join-Path $script:LexDir 'configmgr-lexicon.json')
+            @(Find-LexiconHit -Item $m[0] -Lexicon $lex).Count | Should -BeGreaterThan 0
+        }
+        finally { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'does not read the manifests under Lib, Tests or Catalog-less vendored folders' {
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) ('lexpsd-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $tmp 'Lib\Vendored') | Out-Null
+        try {
+            Set-Content -LiteralPath (Join-Path $tmp 'Lib\Vendored\V.psd1') -Value @('@{', "    Description = 'Site facts.'", '}') -Encoding ascii
+            @(Get-LexiconTextItem -Root $tmp | Where-Object { $_.Kind -eq 'manifest' }).Count | Should -Be 0
+        }
+        finally { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
 Describe 'Banned names' {
     It 'finds a seeded banned name in a tracked-file line and keeps format detection apart' {
         $lex = Import-LexiconData -Path (Join-Path $script:LexDir 'configmgr-lexicon.json')

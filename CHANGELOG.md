@@ -2,11 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add the Power BI Desktop (optimized for Power BI Report Server) packager. It is the application that report authors use to create reports for a Power BI Report Server, and it installs next to Power BI Desktop. The version comes from the change log of Power BI Report Server on Microsoft Learn and the installer from the Download Center page of Power BI Report Server. The stage checks the Microsoft signature and stops when the installer reports another version than the change log. NVD has no CPE for this edition, so the CVE columns show `CPE missing`.
+
 ### Changed
 
 - Supersedence is a setting of the application, off by default. Options, Packaging, Supersedence has the default, a choice for each application and the buttons All applications, Selected applications and No applications. An application with supersedence on keeps the version in its name. At Package the tool looks for the older application with the same title and vendor (the highest version below the new one) and asks Yes, Skip or No before it applies the supersedence; Remember this answer covers the rest of the run. The older application is not changed. One Click and the command line apply none unless `-SupersedenceAnswer Yes` is given. With ConfigMgr and Intune the answer also sets the Intune supersedence of the app. The old settings keep their names and values, so no setting is changed for you; an application with supersedence on is now asked at Package and its name carries the version.
-
-- Tableau Desktop, Reader and Prep Builder download from the esdalt path first and from the tssoftware path when the host answers 404 for the first one; a 403 is no answer and never switches the path. Prep uses `esdalt/tableau_prep/<release>/TableauPrep-<release with hyphens>.exe`.
+- Tableau Desktop, Reader and Prep Builder download from the esdalt path first and try the tssoftware path when the first one fails for any reason: a refused or missing file (403, 404, another HTTP error), a connection failure, a redirect to a sign-in page, or a body that is no installer. The log says which address was used and why the first was skipped; the run fails only when both fail, and the message lists both reasons. Prep uses `esdalt/tableau_prep/<release>/TableauPrep-<release with hyphens>.exe`.
 
 ### Removed
 

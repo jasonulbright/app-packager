@@ -1,96 +1,133 @@
 #Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 <#
 .SYNOPSIS
-    A vendor that serves one file under two addresses (Tableau: esdalt and tssoftware): the second address is used only when
-    the host reports the first one as missing (404). A 403 is no answer and never switches the address.
+    A vendor that serves one file under two addresses (Tableau: esdalt, then tssoftware): the second address is tried when
+    the first fails for any reason, and the run fails only when both fail.
 
 .DESCRIPTION
-    Select-AvailableDownloadUrl takes a probe script block, so no request goes to a host. Get-DownloadUrlState reads the
-    answer of a real request; it runs against a local server.
+    A local HTTP server plays the host: a good installer (starts with MZ), 403, 404, 500, a web page with status 200 (a sign-in
+    page) and a body that is no installer. A closed port plays a connection failure. curl.exe does the transfers, as in the packagers.
 #>
 
 BeforeAll {
     Import-Module (Join-Path $PSScriptRoot '..\Packagers\AppPackagerCommon.psd1') -Force -DisableNameChecking
-    $script:First = 'https://downloads.tableau.com/esdalt/tableau_prep/2026.3.0/TableauPrep-2026-3-0.exe'
-    $script:Second = 'https://downloads.tableau.com/tssoftware/TableauPrep-2026-3-0.exe'
-    function New-Probe { param([hashtable]$Table) $t = $Table; return { param($u) $global:ProbeAsked += $u; $t[$u] }.GetNewClosure() }
-}
-
-Describe 'Select-AvailableDownloadUrl' {
-    BeforeEach { $global:ProbeAsked = @() }
-
-    It 'takes the first address when it exists, and asks no further' {
-        Select-AvailableDownloadUrl -Urls @($script:First, $script:Second) -Probe (New-Probe @{ $script:First = 'Exists'; $script:Second = 'Exists' }) | Should -Be $script:First
-        $global:ProbeAsked | Should -Be @($script:First)
-    }
-
-    It 'takes the second address when the first one is reported as missing (404)' {
-        Select-AvailableDownloadUrl -Urls @($script:First, $script:Second) -Probe (New-Probe @{ $script:First = 'Missing'; $script:Second = 'Exists' }) | Should -Be $script:Second
-        $global:ProbeAsked | Should -Be @($script:First, $script:Second)
-    }
-
-    It 'stays with the first address when the host cannot tell (403) and never tries the second' {
-        Select-AvailableDownloadUrl -Urls @($script:First, $script:Second) -Probe (New-Probe @{ $script:First = 'Unknown'; $script:Second = 'Exists' }) | Should -Be $script:First
-        $global:ProbeAsked | Should -Be @($script:First)
-    }
-
-    It 'uses the second address even when it cannot tell about it, after a 404 on the first' {
-        Select-AvailableDownloadUrl -Urls @($script:First, $script:Second) -Probe (New-Probe @{ $script:First = 'Missing'; $script:Second = 'Unknown' }) | Should -Be $script:Second
-    }
-
-    It 'stops with a clear message when every address is missing' {
-        { Select-AvailableDownloadUrl -Urls @($script:First, $script:Second) -Probe (New-Probe @{ $script:First = 'Missing'; $script:Second = 'Missing' }) } |
-            Should -Throw '*not on the host at any of its addresses (404)*esdalt*tssoftware*'
-    }
-
-    It 'ignores an empty entry in the list' {
-        Select-AvailableDownloadUrl -Urls @('', $script:Second) -Probe (New-Probe @{ $script:Second = 'Exists' }) | Should -Be $script:Second
-    }
-}
-
-Describe 'Get-DownloadUrlState' {
-    BeforeAll {
-        $script:Port = Get-Random -Minimum 20000 -Maximum 40000
-        $script:Listener = New-Object System.Net.HttpListener
-        $script:Listener.Prefixes.Add("http://localhost:$($script:Port)/")
-        $script:Listener.Start()
-        $script:Ps = [powershell]::Create()
-        [void]$script:Ps.AddScript({
-                param($listener)
-                while ($listener.IsListening) {
-                    try { $ctx = $listener.GetContext() } catch { break }
-                    $path = $ctx.Request.Url.AbsolutePath
-                    $ctx.Response.StatusCode = switch ($path) { '/ok' { 206 } '/missing' { 404 } '/gone' { 410 } '/forbidden' { 403 } default { 500 } }
-                    $ctx.Response.Close()
+    $script:Work = Join-Path ([System.IO.Path]::GetTempPath()) ('dlfallback-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $script:Work | Out-Null
+    $script:Port = Get-Random -Minimum 20000 -Maximum 40000
+    $script:State = [hashtable]::Synchronized(@{ Requests = [System.Collections.ArrayList]::new() })
+    $script:Listener = New-Object System.Net.HttpListener
+    $script:Listener.Prefixes.Add("http://localhost:$($script:Port)/")
+    $script:Listener.Start()
+    $script:Ps = [powershell]::Create()
+    [void]$script:Ps.AddScript({
+            param($listener, $state)
+            $good = New-Object byte[] 4096
+            $good[0] = 0x4D; $good[1] = 0x5A
+            for ($i = 2; $i -lt $good.Length; $i++) { $good[$i] = [byte](($i * 7) % 251) }
+            while ($listener.IsListening) {
+                try { $ctx = $listener.GetContext() } catch { break }
+                $res = $ctx.Response
+                $path = $ctx.Request.Url.AbsolutePath
+                [void]$state.Requests.Add(('{0} {1}' -f $ctx.Request.HttpMethod, $path))
+                try {
+                    switch ($path) {
+                        '/good.bin' { $res.StatusCode = 200; $res.OutputStream.Write($good, 0, $good.Length) }
+                        '/good2.bin' { $res.StatusCode = 200; $res.OutputStream.Write($good, 0, $good.Length) }
+                        '/forbidden' { $res.StatusCode = 403 }
+                        '/missing' { $res.StatusCode = 404 }
+                        '/error' { $res.StatusCode = 500 }
+                        '/signin' { $res.StatusCode = 200; $res.ContentType = 'text/html'; $b = [Text.Encoding]::ASCII.GetBytes('<html><body>Sign in</body></html>'); $res.OutputStream.Write($b, 0, $b.Length) }
+                        '/text' { $res.StatusCode = 200; $b = [Text.Encoding]::ASCII.GetBytes('not an installer'); $res.OutputStream.Write($b, 0, $b.Length) }
+                        default { $res.StatusCode = 500 }
+                    }
+                    $res.Close()
                 }
-            }).AddArgument($script:Listener)
-        $script:Handle = $script:Ps.BeginInvoke()
-        $script:Base = "http://localhost:$($script:Port)"
-        Mock -ModuleName AppPackagerCommon Write-Log { }
-    }
-    AfterAll {
-        try { $script:Listener.Stop(); $script:Listener.Close() } catch { $null = $_ }
-        try { $script:Ps.Dispose() } catch { $null = $_ }
+                catch { try { $res.Abort() } catch { $null = $_ } }
+            }
+        }).AddArgument($script:Listener).AddArgument($script:State)
+    $script:Handle = $script:Ps.BeginInvoke()
+    $script:Base = "http://localhost:$($script:Port)"
+    $script:Dead = "http://localhost:$(Get-Random -Minimum 41000 -Maximum 45000)"
+}
+
+AfterAll {
+    try { $script:Listener.Stop(); $script:Listener.Close() } catch { $null = $_ }
+    try { $script:Ps.Dispose() } catch { $null = $_ }
+    if ($script:Work -and (Test-Path -LiteralPath $script:Work)) { Remove-Item -LiteralPath $script:Work -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
+Describe 'Invoke-DownloadFromAddresses' {
+    BeforeEach {
+        $script:State.Requests.Clear()
+        $global:FallbackLog = [System.Collections.ArrayList]::new()
+        Mock -ModuleName AppPackagerCommon Write-Log { [void]$global:FallbackLog.Add(('{0}|{1}' -f $Level, $Message)) }
+        $script:Out = Join-Path $script:Work ('out-' + [guid]::NewGuid().ToString('N') + '.bin')
     }
 
-    It 'reads 200 and 206 as Exists, 404 and 410 as Missing, and every other answer as Unknown' {
-        Get-DownloadUrlState -Url "$($script:Base)/ok" | Should -Be 'Exists'
-        Get-DownloadUrlState -Url "$($script:Base)/missing" | Should -Be 'Missing'
-        Get-DownloadUrlState -Url "$($script:Base)/gone" | Should -Be 'Missing'
-        Get-DownloadUrlState -Url "$($script:Base)/forbidden" | Should -Be 'Unknown'
-        Get-DownloadUrlState -Url "$($script:Base)/other" | Should -Be 'Unknown'
+    It 'takes the first address when it gives an installer, and never asks the second' {
+        $used = Invoke-DownloadFromAddresses -Urls @("$($script:Base)/good.bin", "$($script:Base)/good2.bin") -OutFile $script:Out
+        $used | Should -Be "$($script:Base)/good.bin"
+        (Get-Item -LiteralPath $script:Out).Length | Should -Be 4096
+        @($script:State.Requests | Where-Object { $_ -match 'good2' }).Count | Should -Be 0
+        ($global:FallbackLog -join "`n") | Should -Match 'Download address used\s+: .*/good\.bin'
     }
 
-    It 'reads a host that does not answer as Unknown, never as Missing' {
-        Get-DownloadUrlState -Url "http://localhost:$(Get-Random -Minimum 41000 -Maximum 45000)/x" | Should -Be 'Unknown'
+    It 'tries the second address after a 403 and says why the first was skipped' {
+        $used = Invoke-DownloadFromAddresses -Urls @("$($script:Base)/forbidden", "$($script:Base)/good.bin") -OutFile $script:Out
+        $used | Should -Be "$($script:Base)/good.bin"
+        (Get-Item -LiteralPath $script:Out).Length | Should -Be 4096
+        ($global:FallbackLog -join "`n") | Should -Match 'Address skipped.*/forbidden.*HTTP 403'
+    }
+
+    It 'tries the second address after a 404' {
+        Invoke-DownloadFromAddresses -Urls @("$($script:Base)/missing", "$($script:Base)/good.bin") -OutFile $script:Out | Should -Be "$($script:Base)/good.bin"
+        ($global:FallbackLog -join "`n") | Should -Match 'HTTP 404'
+    }
+
+    It 'tries the second address after another HTTP error (500)' {
+        Invoke-DownloadFromAddresses -Urls @("$($script:Base)/error", "$($script:Base)/good.bin") -OutFile $script:Out | Should -Be "$($script:Base)/good.bin"
+    }
+
+    It 'tries the second address after a connection failure' {
+        Invoke-DownloadFromAddresses -Urls @("$($script:Dead)/x.bin", "$($script:Base)/good.bin") -OutFile $script:Out | Should -Be "$($script:Base)/good.bin"
+        ($global:FallbackLog -join "`n") | Should -Match 'no HTTP answer'
+    }
+
+    It 'tries the second address when the first gives a web page (a sign-in page) with status 200, and keeps no page' {
+        Invoke-DownloadFromAddresses -Urls @("$($script:Base)/signin", "$($script:Base)/good.bin") -OutFile $script:Out | Should -Be "$($script:Base)/good.bin"
+        $bytes = [System.IO.File]::ReadAllBytes($script:Out); ($bytes[0], $bytes[1]) -join ',' | Should -Be '77,90'
+        ($global:FallbackLog -join "`n") | Should -Match 'not an installer'
+    }
+
+    It 'tries the second address when the first gives a body that is no installer' {
+        Invoke-DownloadFromAddresses -Urls @("$($script:Base)/text", "$($script:Base)/good.bin") -OutFile $script:Out | Should -Be "$($script:Base)/good.bin"
+    }
+
+    It 'fails only when both addresses fail, and the message holds both addresses and both reasons' {
+        $thrown = $null
+        try { Invoke-DownloadFromAddresses -Urls @("$($script:Base)/forbidden", "$($script:Base)/missing") -OutFile $script:Out } catch { $thrown = $_.Exception.Message }
+        $thrown | Should -Match 'could not be downloaded from any of its addresses'
+        $thrown | Should -Match '/forbidden.*HTTP 403'
+        $thrown | Should -Match '/missing.*HTTP 404'
+        Test-Path -LiteralPath $script:Out | Should -BeFalse
+    }
+
+    It 'leaves no partial file when the first address fails and the second one fails too' {
+        { Invoke-DownloadFromAddresses -Urls @("$($script:Base)/signin", "$($script:Base)/text") -OutFile $script:Out } | Should -Throw
+        Test-Path -LiteralPath $script:Out | Should -BeFalse
+    }
+
+    It 'with one address behaves as a plain download and names that address in the failure' {
+        { Invoke-DownloadFromAddresses -Urls @("$($script:Base)/forbidden") -OutFile $script:Out } | Should -Throw '*/forbidden*HTTP 403*'
+        Invoke-DownloadFromAddresses -Urls @("$($script:Base)/good.bin") -OutFile $script:Out | Should -Be "$($script:Base)/good.bin"
     }
 }
 
 Describe 'The Tableau packagers use the fallback' {
-    It 'select the address before the download in every Tableau packager' -ForEach @('package-tableaudesktop.ps1', 'package-tableaureader.ps1', 'package-tableauprep.ps1') {
+    It 'download through both addresses in <_>' -ForEach @('package-tableaudesktop.ps1', 'package-tableaureader.ps1', 'package-tableauprep.ps1') {
         $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot "..\Packagers\$_") -Raw
-        $text | Should -Match 'Select-AvailableDownloadUrl -Urls @\(\$release\.DownloadUrl, \$release\.FallbackUrl\)'
-        $text | Should -Match 'Invoke-DownloadWithRetry -Url \$downloadUrl'
+        $text | Should -Match 'Invoke-DownloadFromAddresses -Urls @\(\$release\.DownloadUrl, \$release\.FallbackUrl\) -OutFile \$localExe'
+        $text | Should -Not -Match 'Select-AvailableDownloadUrl'
         $text | Should -Match '\$DownloadUrlTemplate = "https://downloads\.tableau\.com/esdalt/'
         $text | Should -Match '\$FallbackUrlTemplate = "https://downloads\.tableau\.com/tssoftware/'
     }

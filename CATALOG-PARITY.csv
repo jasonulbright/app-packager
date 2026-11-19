@@ -488,6 +488,7 @@
 "Microsoft On-premises data gateway","Skip-EOL","legacy/retired Microsoft components or superseded era versions"
 "Microsoft OneNote","Skip-Splinter","ships with M365 Apps (supported packagers)"
 "Microsoft Power BI Desktop","Supported","existing packager: powerbi-desktop"
+"Microsoft Power BI Desktop (optimized for Power BI Report Server)","Supported","existing packager: powerbi-desktop-report-server (the report author edition; installs next to powerbi-desktop)"
 "Microsoft PowerShell Core","Supported","existing packager: powershell7 (LTS line 7.6, Microsoft MSI)"
 "Microsoft PowerToys","Supported","existing packager: powertoys"
 "Microsoft Purview Information Protection client","Skip-EOL","legacy/retired Microsoft components or superseded era versions"
