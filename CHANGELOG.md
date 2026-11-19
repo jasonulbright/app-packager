@@ -4,7 +4,7 @@
 
 ### Changed
 
-- Tableau Desktop, Reader and Prep Builder download from the esdalt path first and from the tssoftware path when the host answers 404 for the first one; a 403 is no answer and never switches the path. Prep uses `esdalt/tableau_prep/<release>/TableauPrep-<release with hyphens>.exe`.
+- Tableau Desktop, Reader and Prep Builder download from the esdalt path first and try the tssoftware path when the first one fails for any reason: a refused or missing file (403, 404, another HTTP error), a connection failure, a redirect to a sign-in page, or a body that is no installer. The log says which address was used and why the first was skipped; the run fails only when both fail, and the message lists both reasons. Prep uses `esdalt/tableau_prep/<release>/TableauPrep-<release with hyphens>.exe`.
 
 ### Fixed
 

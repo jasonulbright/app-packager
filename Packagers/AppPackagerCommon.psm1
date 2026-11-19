@@ -410,56 +410,63 @@ function Assert-DownloadAvailable {
 }
 Export-ModuleMember -Function Assert-DownloadAvailable
 
-function Get-DownloadUrlState {
+function Invoke-DownloadFromAddresses {
     <#
     .SYNOPSIS
-        Asks a download host whether a file address exists: Exists, Missing or Unknown.
+        Downloads one file that a vendor serves under more than one address: the first address that gives an installer wins.
     .DESCRIPTION
-        A range request of the first byte. Exists: status 200 or 206. Missing: 404 or 410. Every other answer, above all 403,
-        is Unknown: a host that refuses a request says nothing about the file, so a 403 is never read as "does not exist".
-    #>
-    param(
-        [Parameter(Mandatory)][string]$Url,
-        [string[]]$ExtraCurlArgs = @()
-    )
-    $code = ''
-    try { $code = ([string]((curl.exe -L --silent --range 0-0 --output NUL --write-out '%{http_code}' --max-time 60 --max-redirs 10 @ExtraCurlArgs (ConvertTo-SafeCurlUrl $Url) 2>$null) -join '')).Trim() } catch { $code = '' }
-    if ($code -in @('200', '206')) { return 'Exists' }
-    if ($code -in @('404', '410')) { return 'Missing' }
-    return 'Unknown'
-}
-Export-ModuleMember -Function Get-DownloadUrlState
-
-function Select-AvailableDownloadUrl {
-    <#
-    .SYNOPSIS
-        The first address of a list that the host does not report as missing.
-    .DESCRIPTION
-        For a vendor that serves one file under two paths. The addresses are tried in order. An address that the host reports as
-        missing (404) is passed over and the next one is tried; an address that exists, or whose answer cannot be told (403, a
-        time-out), is the one to download from: the download then decides, and a 403 never sends the run to the next address.
-        Throws when every address is missing. -Probe replaces the host request (for tests); it takes the address and returns
-        Exists, Missing or Unknown.
+        For Tableau (esdalt and tssoftware serve the same file). The addresses are tried in order. An address is skipped for
+        any reason: a refused or missing file (403, 404, another HTTP error), a connection failure, a redirect to a web page
+        (a sign-in page), a body that is not an executable (it must start with MZ), or a failed signature or digest check
+        that Invoke-DownloadWithRetry applies. The log says which address was used and why each earlier one was skipped. The
+        run fails only when every address failed, and the message lists each address with its reason. Returns the address
+        that was used.
     #>
     param(
         [Parameter(Mandatory)][AllowEmptyString()][string[]]$Urls,
-        [string[]]$ExtraCurlArgs = @(),
-        [scriptblock]$Probe
+        [Parameter(Mandatory)][string]$OutFile,
+        [string[]]$ExtraCurlArgs = @()
     )
-    $tried = @()
-    foreach ($url in @($Urls | Where-Object { $_ })) {
-        $state = if ($Probe) { & $Probe $url } else { Get-DownloadUrlState -Url $url -ExtraCurlArgs $ExtraCurlArgs }
-        if ($state -eq 'Missing') {
-            Write-Log ("Not on the host (404)        : {0}" -f $url) -Level WARN
-            $tried += $url
-            continue
+    $list = @($Urls | Where-Object { $_ })
+    $failures = New-Object System.Collections.Generic.List[string]
+    for ($i = 0; $i -lt $list.Count; $i++) {
+        $url = $list[$i]
+        $reason = $null
+        try {
+            # An earlier address that failed is the retry of the last one: only the last address gets the second attempt.
+            Invoke-DownloadWithRetry -Url $url -OutFile $OutFile -ExtraCurlArgs $ExtraCurlArgs -RetryCount $(if ($i -lt $list.Count - 1) { 0 } else { 1 })
+            if (-not (Test-Path -LiteralPath $OutFile)) { $reason = 'the download produced no file' }
+            else {
+                $head = New-Object byte[] 2
+                $stream = [System.IO.File]::OpenRead($OutFile)
+                try { $read = $stream.Read($head, 0, 2) } finally { $stream.Dispose() }
+                if ($read -lt 2 -or $head[0] -ne 0x4D -or $head[1] -ne 0x5A) {
+                    $reason = 'the file is not an installer (it does not start with MZ; a sign-in page or an error page)'
+                    Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+                }
+            }
         }
-        if ($state -eq 'Unknown') { Write-Log ("The host cannot tell (no 404): {0}; downloading from it" -f $url) -Level WARN }
-        return $url
+        catch {
+            # The error of the download does not say what the host answered; one more small request does.
+            $code = ''
+            try { $code = ([string]((curl.exe -L --silent --range 0-0 --output NUL --write-out '%{http_code}' --max-time 30 --max-redirs 10 @ExtraCurlArgs (ConvertTo-SafeCurlUrl $url) 2>$null) -join '')).Trim() } catch { $code = '' }
+            $answer = if ($code -match '^[1-5]\d\d$') { "the host answers HTTP $code" } else { 'the host gives no HTTP answer' }
+            $reason = '{0} ({1})' -f $_.Exception.Message, $answer
+        }
+
+        if (-not $reason) {
+            Write-Log ("Download address used        : {0}" -f $url)
+            return $url
+        }
+        $failures.Add(('{0}: {1}' -f $url, $reason))
+        if (Test-Path -LiteralPath $OutFile) { Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue }
+        if ($i -lt $list.Count - 1) { Write-Log ("Address skipped             : {0}; trying the next one" -f $failures[$failures.Count - 1]) -Level WARN }
     }
-    throw ("The installer is not on the host at any of its addresses (404): {0}" -f ($tried -join ', '))
+    $message = 'The installer could not be downloaded from any of its addresses. ' + ($failures -join ' | ')
+    Write-Log $message -Level ERROR
+    throw $message
 }
-Export-ModuleMember -Function Select-AvailableDownloadUrl
+Export-ModuleMember -Function Invoke-DownloadFromAddresses
 
 function Assert-InstallerSignature {
     <#
