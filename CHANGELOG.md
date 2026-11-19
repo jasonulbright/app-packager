@@ -12,6 +12,7 @@
 
 ### Fixed
 
+- A cancelled Check CVEs no longer logs an NVD error line for the product that Cancel stopped.
 - A cancelled run no longer reports that it finished. Check ConfigMgr, Check Latest, Check CVEs and One Click log one line, for example "Check ConfigMgr cancelled: 11 of 315 products checked.", and no line that says the run finished or summarises partial counts. A cancelled Check ConfigMgr does not ask whether to hide unused applications and does not start the CVE lookup. Cancel pressed while the last product ran also counts as a cancelled run.
 
 ## [2026.11.18.0146] - 2026-11-18

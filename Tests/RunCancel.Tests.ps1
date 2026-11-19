@@ -198,6 +198,21 @@ Describe 'A cancelled run says it was cancelled and nothing else (Q-73)' {
         $script:Script | Should -Match "if \(\`$script:BgOperation -eq 'CheckLatest' -and -not \[bool\]\`$doneState\.Canceled\) \{ Add-LogLine -Message \(Get-CheckResultSummaryLine"
         $script:Script | Should -Match "if \(\`$Op -eq 'CheckCve' -and -not \[bool\]\`$State\.Canceled\) \{"
     }
+    It 'a Check CVEs lookup that Cancel stopped in flight records nothing and logs no Error line (Q-73)' {
+        $m = [regex]::Match($script:Script, '(?s)\$res = Get-ProductVulnerabilities -Cpe \$cpe -CurrentVersion \$current(?<body>.*?)
+                    \}
+
+                    ''Stage'' \{')
+        $m.Success | Should -BeTrue
+        $body = $m.Groups['body'].Value
+        # The guard comes before the result is stored, shown or counted.
+        $guard = $body.IndexOf('if ([bool]$State.Aborted) { continue }')
+        $guard | Should -BeGreaterThan -1
+        $guard | Should -BeLessThan $body.IndexOf('$State.CveResults[$scrName] = $res')
+        $guard | Should -BeLessThan $body.IndexOf("'Error: ' + `$res.Error")
+        # An exception that arrives with Cancel is not logged as an error either.
+        $body | Should -Match '(?s)\} catch \{\s+if \(-not \[bool\]\$State\.Aborted\) \{\s+\$row\.CveCount = ''Error'''
+    }
 }
 
 Describe 'The window thread: a fake runner that is cancelled mid-run leaves a cancelled state, not a finished one' {
