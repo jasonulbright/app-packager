@@ -95,7 +95,7 @@ Describe 'Invoke-DownloadFromAddresses' {
 
     It 'tries the second address when the first gives a web page (a sign-in page) with status 200, and keeps no page' {
         Invoke-DownloadFromAddresses -Urls @("$($script:Base)/signin", "$($script:Base)/good.bin") -OutFile $script:Out | Should -Be "$($script:Base)/good.bin"
-        (Get-Content -LiteralPath $script:Out -Encoding Byte -TotalCount 2) -join ',' | Should -Be '77,90'
+        $bytes = [System.IO.File]::ReadAllBytes($script:Out); ($bytes[0], $bytes[1]) -join ',' | Should -Be '77,90'
         ($global:FallbackLog -join "`n") | Should -Match 'not an installer'
     }
 
