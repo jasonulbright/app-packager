@@ -650,6 +650,55 @@ function Test-ReleaseAssetDigest {
 
 Export-ModuleMember -Function Register-ReleaseAssetDigest, Test-ReleaseAssetDigest
 
+# The Authenticode result of each installer that Invoke-DownloadWithRetry checked in this session, by file name (lower case).
+$script:DownloadSignatures = @{}
+
+function Test-DownloadedInstallerSignature {
+    <#
+    .SYNOPSIS
+        Checks the Authenticode signature of a downloaded installer and records the signer and the thumbprint.
+    .DESCRIPTION
+        Applies to MSI, EXE, MSIX and APPX files. A valid signature is logged with its signer and thumbprint. An unsigned
+        file logs a warning and goes on. A signature that fails (HashMismatch, NotTrusted, Revoked) removes the file and
+        stops with a clear message. No signer name is pinned here: a packager that pins one calls Assert-InstallerSignature.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path, [switch]$Quiet)
+    $ext = [System.IO.Path]::GetExtension($Path).ToLowerInvariant()
+    if ($ext -notin '.msi', '.exe', '.msix', '.msixbundle', '.appx', '.appxbundle') { return }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
+    $name = [System.IO.Path]::GetFileName($Path)
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    $status = [string]$signature.Status
+    if ($status -eq 'Valid') {
+        $subject = [string]$signature.SignerCertificate.Subject
+        $signer = $subject
+        if ($subject -match '(?:^|,\s*)CN=(?:"(?<q>[^"]+)"|(?<n>[^,]+))') { $signer = $(if ($Matches['q']) { $Matches['q'] } else { $Matches['n'] }).Trim() }
+        $thumbprint = [string]$signature.SignerCertificate.Thumbprint
+        $script:DownloadSignatures[$name.ToLowerInvariant()] = @{ Status = 'Valid'; Signer = $signer; Thumbprint = $thumbprint }
+        Write-Log ("Authenticode signature of {0}: Valid, signer {1}, thumbprint {2}." -f $name, $signer, $thumbprint) -Quiet:$Quiet
+        return
+    }
+    if ($status -in 'HashMismatch', 'NotTrusted', 'Revoked') {
+        Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+        throw ("The download {0} has an Authenticode signature that does not pass (status: {1}). The file may be damaged or changed after signing. The file was removed and nothing was staged." -f $name, $status)
+    }
+    $script:DownloadSignatures[$name.ToLowerInvariant()] = @{ Status = $status; Signer = ''; Thumbprint = '' }
+    if ($status -eq 'NotSigned') { Write-Log ("{0} is not signed; the file is not checked by signature." -f $name) -Level WARN -Quiet:$Quiet }
+    else { Write-Log ("The signature of {0} could not be checked (status: {1}); the file is not checked by signature." -f $name, $status) -Level WARN -Quiet:$Quiet }
+}
+
+function Get-RecordedInstallerSignature {
+    # The signature record of an installer that Invoke-DownloadWithRetry checked, or $null.
+    [CmdletBinding()]
+    param([AllowEmptyString()][AllowNull()][string]$FileName)
+    if ([string]::IsNullOrWhiteSpace($FileName)) { return $null }
+    $key = ([System.IO.Path]::GetFileName($FileName)).ToLowerInvariant()
+    if ($script:DownloadSignatures.ContainsKey($key)) { return $script:DownloadSignatures[$key] }
+    return $null
+}
+Export-ModuleMember -Function Test-DownloadedInstallerSignature, Get-RecordedInstallerSignature
+
 function Invoke-DownloadWithRetry {
     <#
     .SYNOPSIS
@@ -703,6 +752,7 @@ function Invoke-DownloadWithRetry {
 
         if ($exitCode -eq 0) {
             Test-ReleaseAssetDigest -Url $Url -OutFile $OutFile -Quiet:$Quiet
+            Test-DownloadedInstallerSignature -Path $OutFile -Quiet:$Quiet
             return
         }
 
@@ -728,6 +778,7 @@ function Invoke-DownloadWithRetry {
 
             Write-Log "Download succeeded through Invoke-WebRequest fallback." -Quiet:$Quiet
             Test-ReleaseAssetDigest -Url $Url -OutFile $OutFile -Quiet:$Quiet
+            Test-DownloadedInstallerSignature -Path $OutFile -Quiet:$Quiet
             return
         }
         catch {
@@ -2474,6 +2525,10 @@ function Write-StageManifest {
     if ($requestedMode) {
         [void](Set-StageManifestInstallMode -StageRoot $stageRoot -ManifestData $ManifestData -Mode $requestedMode)
     }
+
+    # The signer and the thumbprint of the installer, when the download was checked (Test-DownloadedInstallerSignature).
+    $recordedSignature = Get-RecordedInstallerSignature -FileName ([string]$ManifestData['InstallerFile'])
+    if ($recordedSignature) { $ManifestData['InstallerSignature'] = $recordedSignature }
 
     Add-StageIcon -StageRoot $stageRoot -ManifestData $ManifestData -PackagerScriptPath $PackagerScriptPath
 

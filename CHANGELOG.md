@@ -11,6 +11,7 @@
 
 ### Fixed
 
+- Check the Authenticode signature of every MSI, EXE, MSIX and APPX file that a packager downloads. A signature that does not pass (changed after signing, not trusted, revoked) removes the file and stops the packager with a clear message. An unsigned installer logs a warning and goes on. The signer and the thumbprint go to the log and to the stage manifest (InstallerSignature). No signer name is pinned; the pins that some packagers already have stay.
 - Check the SHA-256 digest that GitHub lists for a release asset when a packager downloads it (the 75 packagers that read GitHub releases). A file that does not match is removed and the message says nothing was staged. A release that lists no digest logs a warning and goes on.
 - The PowerShell 7 packager checks the Authenticode signature of the downloaded MSI (signer Microsoft Corporation, status Valid) before it stages, because the release lists no digest. A bad file is deleted and the message says nothing was staged. Two shared checks, Assert-InstallerSignature and Assert-InstallerDigest, are ready for other packagers.
 - Cancel answers while Check ConfigMgr or the conversion works on the window thread: the window handles its queued input between products and while it waits for the conversion.
