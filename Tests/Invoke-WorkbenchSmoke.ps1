@@ -41,7 +41,7 @@ try {
         DownloadRoot         = Join-Path $dataRoot 'dl'
         DeploymentConditions = [pscustomobject]@{ Apps = [pscustomobject]@{} }
         CommandOverrides     = [pscustomobject]@{ Apps = [pscustomobject]@{} }
-        Intune               = [pscustomobject]@{ DeploymentTarget = 'MECM' }
+        Intune               = [pscustomobject]@{ DeploymentTarget = 'ConfigMgr' }
         ScriptSigning        = [pscustomobject]@{
             SignDetection = $false; SignRequirements = $false; SignDeployment = $false
             RequireDetection = $false; RequireRequirements = $false; RequireDeployment = $false
@@ -276,7 +276,7 @@ try {
     }
     & $assert ($null -ne $script:RunCall -and $script:RunCall.Operation -eq 'Stage') 'Stage starts the run'
     & $assert ([string](Get-ApplicationDefinition -ApplicationId $script:SavedApplicationId).ActiveProfileId -eq $script:SavedProfileId) 'Stage makes the shown profile the active profile'
-    $runPlan = Get-WorkbenchRunPlanForContext -Rows @($script:RunCall.Rows) -Target 'MECM'
+    $runPlan = Get-WorkbenchRunPlanForContext -Rows @($script:RunCall.Rows) -Target 'ConfigMgr'
     $planJson = $runPlan | ConvertTo-Json -Depth 6
     & $assert ($planJson -match [regex]::Escape($script:SavedProfileId) -or (@($runPlan.Values | ForEach-Object { if ($_.SnapshotPath) { Get-Content -LiteralPath $_.SnapshotPath -Raw } }) -join '') -match [regex]::Escape($script:SavedProfileId)) 'the run plan carries the shown profile'
     & $ok 'Stage builds the shown profile'

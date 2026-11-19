@@ -31,7 +31,7 @@ try {
         SiteCode = 'MCM'; FileShareRoot = '\\server\share'; DownloadRoot = (Join-Path $dataRoot 'dl'); ProviderMachineName = ''
         Systems = [pscustomobject]@{ ConfigMgr = $true; Intune = $false; Wsus = $true }
         DetectedTools = [pscustomobject]@{ ConfigMgrConsole = [pscustomobject]@{ Found = $true } }
-        Intune = [pscustomobject]@{ DeploymentTarget = 'MECMAndWSUS'; PublishToIntune = $false; TenantId = ''; ClientId = ''; ClientSecretProtected = '' }
+        Intune = [pscustomobject]@{ DeploymentTarget = 'ConfigMgrAndWSUS'; PublishToIntune = $false; TenantId = ''; ClientId = ''; ClientSecretProtected = '' }
         Wsus = [pscustomobject]@{ ServerName = 'wsus01'; ApprovalGroup = 'Pilot' }
         ContentDistribution = [pscustomobject]@{ AutoDistribute = $false; DPGroupName = ''; DeployToTestCollection = $false; TestCollectionName = '' }
         AppFlow = [pscustomobject]@{
@@ -286,7 +286,7 @@ try {
     & $assert ($saved.Destinations.PSObject.Properties['package-alpha'] -and -not $saved.Destinations.'package-alpha'.WSUS) 'a row that differs from the default is saved'
     & $assert ($saved.Destinations.PSObject.Properties['package-beta'] -and -not $saved.Destinations.'package-beta'.Intune) 'a row that kept the old boxes differs from the new default and is saved'
     & $assert ($saved.OnExisting -eq 'Overwrite') 'the existing-application policy is saved'
-    & $assert ($script:Prefs.Intune.DeploymentTarget -eq 'MECMAndWSUS') 'the nearest single target is kept for the older code paths'
+    & $assert ($script:Prefs.Intune.DeploymentTarget -eq 'ConfigMgrAndIntuneAndWSUS') 'the name of the saved destinations lists all three, for the older code paths'
     & $ok 'panel commit'
     Write-Host ''
     Write-Host ('PASS: One Click plan probe, {0} checks' -f $script:PassedChecks)

@@ -20,7 +20,7 @@ BeforeAll {
         if (-not $node) { throw "start-apppackager.ps1 no longer defines $Name." }
         $node
     }
-    foreach ($name in 'Read-Preferences', 'Resolve-FirstRunCompleted', 'Get-IntunePublishConfigForContext', 'Test-DeploymentTargetPublishesToWsus', 'Get-OptionsSectionDefinition',
+    foreach ($name in 'Read-Preferences', 'Resolve-FirstRunCompleted', 'Get-IntunePublishConfigForContext', 'Test-DeploymentTargetPublishesToWsus', 'Test-DeploymentTargetPublishesToIntune', 'Get-OptionsSectionDefinition',
         'Invoke-PackagerIntunePublish', 'Show-IntuneReviewDialog', 'Get-IntuneReviewFinding', 'Confirm-IntuneRequirementReview') {
         . ([scriptblock]::Create((Get-LauncherFunction $name).Extent.Text))
     }
@@ -45,22 +45,22 @@ Describe 'Intune.AcceptedRequirementDrops preference' {
     }
 
     It 'reads the entries from the file' {
-        $prefs = Read-PrefsWithIntune @{ DeploymentTarget = 'MECM'; AcceptedRequirementDrops = @('AppPackager:a/default|x', 'AppPackager:b/default|y') }
+        $prefs = Read-PrefsWithIntune @{ DeploymentTarget = 'ConfigMgr'; AcceptedRequirementDrops = @('AppPackager:a/default|x', 'AppPackager:b/default|y') }
         @($prefs.Intune.AcceptedRequirementDrops) | Should -Be @('AppPackager:a/default|x', 'AppPackager:b/default|y')
     }
 
     It 'reads one entry that is stored as text' {
-        $prefs = Read-PrefsWithIntune @{ DeploymentTarget = 'MECM'; AcceptedRequirementDrops = 'AppPackager:a/default|x' }
+        $prefs = Read-PrefsWithIntune @{ DeploymentTarget = 'ConfigMgr'; AcceptedRequirementDrops = 'AppPackager:a/default|x' }
         @($prefs.Intune.AcceptedRequirementDrops) | Should -Be @('AppPackager:a/default|x')
     }
 
     It 'drops blank and repeated entries' {
-        $prefs = Read-PrefsWithIntune @{ DeploymentTarget = 'MECM'; AcceptedRequirementDrops = @('  ', 'k|x', 'k|x', '') }
+        $prefs = Read-PrefsWithIntune @{ DeploymentTarget = 'ConfigMgr'; AcceptedRequirementDrops = @('  ', 'k|x', 'k|x', '') }
         @($prefs.Intune.AcceptedRequirementDrops) | Should -Be @('k|x')
     }
 
     It 'keeps the empty list in a file from before the key' {
-        $prefs = Read-PrefsWithIntune @{ DeploymentTarget = 'MECM'; TenantId = 'contoso.onmicrosoft.com' }
+        $prefs = Read-PrefsWithIntune @{ DeploymentTarget = 'ConfigMgr'; TenantId = 'contoso.onmicrosoft.com' }
         @($prefs.Intune.AcceptedRequirementDrops).Count | Should -Be 0
     }
 

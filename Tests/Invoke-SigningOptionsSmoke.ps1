@@ -9,6 +9,8 @@ $script:SharedStyleRootOverride = $root
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 Add-Type -Path (Join-Path $root 'Lib\ControlzEx.dll')
 Add-Type -Path (Join-Path $root 'Lib\MahApps.Metro.dll')
+# Read-Preferences maps the deployment target names with a function of the workbench module.
+Import-Module (Join-Path $root 'Packagers\AppPackagerWorkbench.psd1') -Force -Global -DisableNameChecking
 
 $tokens = $null
 $errors = $null

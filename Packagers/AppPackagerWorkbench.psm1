@@ -1262,6 +1262,98 @@ function Invoke-LegacyPreferenceMigration {
 # Run snapshots
 # ---------------------------------------------------------------------------
 
+function ConvertTo-CurrentDeploymentTarget {
+    <#
+    .SYNOPSIS
+        Maps any spelling of a deployment target to the current name.
+
+    .DESCRIPTION
+        A deployment target names the destinations of a publish. The three
+        destinations are independent and optional: ConfigMgr, Intune and WSUS.
+        The current names are ContentOnly (no destination), ConfigMgr,
+        IntuneOnly, WSUSOnly, ConfigMgrAndIntune, ConfigMgrAndWSUS,
+        IntuneAndWSUS and ConfigMgrAndIntuneAndWSUS. The old names MECM,
+        MECMAndIntune and MECMAndWSUS still load, so a preferences file, a run
+        snapshot or a plan file from an earlier build keeps working. The match
+        ignores case and surrounding spaces. A value that is no target name
+        returns Default, so every read boundary names its own fallback. The
+        function never returns ConfigMgr for a value that is not a target name
+        unless the caller passes ConfigMgr as the Default.
+    #>
+    param(
+        [AllowNull()][AllowEmptyString()]$Value,
+        [AllowNull()][AllowEmptyString()][string]$Default = ''
+    )
+
+    switch (([string]$Value).Trim().ToUpperInvariant()) {
+        'CONTENTONLY' { return 'ContentOnly' }
+        { $_ -in 'CONFIGMGR', 'MECM' } { return 'ConfigMgr' }
+        { $_ -in 'CONFIGMGRANDINTUNE', 'MECMANDINTUNE' } { return 'ConfigMgrAndIntune' }
+        'INTUNEONLY' { return 'IntuneOnly' }
+        { $_ -in 'CONFIGMGRANDWSUS', 'MECMANDWSUS' } { return 'ConfigMgrAndWSUS' }
+        'WSUSONLY' { return 'WSUSOnly' }
+        'INTUNEANDWSUS' { return 'IntuneAndWSUS' }
+        'CONFIGMGRANDINTUNEANDWSUS' { return 'ConfigMgrAndIntuneAndWSUS' }
+    }
+    return $Default
+}
+
+function Get-DeploymentPublishTargetNames {
+    <#
+    .SYNOPSIS
+        The seven publish target names. ContentOnly has no destination and is not one of them.
+    #>
+    return @('ConfigMgr', 'ConfigMgrAndIntune', 'IntuneOnly', 'ConfigMgrAndWSUS', 'WSUSOnly', 'IntuneAndWSUS', 'ConfigMgrAndIntuneAndWSUS')
+}
+
+function Get-DeploymentTargetDestinations {
+    <#
+    .SYNOPSIS
+        The destinations that a deployment target name stands for.
+
+    .DESCRIPTION
+        Returns an object with ConfigMgr, Intune and WSUS flags. ContentOnly has
+        no destination. A value that is no target name returns $null: it never
+        selects a destination, and ConfigMgr in particular.
+    #>
+    param([AllowNull()][AllowEmptyString()]$Target)
+
+    switch (ConvertTo-CurrentDeploymentTarget -Value $Target) {
+        'ContentOnly'               { return [pscustomobject]@{ ConfigMgr = $false; Intune = $false; WSUS = $false } }
+        'ConfigMgr'                 { return [pscustomobject]@{ ConfigMgr = $true;  Intune = $false; WSUS = $false } }
+        'ConfigMgrAndIntune'        { return [pscustomobject]@{ ConfigMgr = $true;  Intune = $true;  WSUS = $false } }
+        'IntuneOnly'                { return [pscustomobject]@{ ConfigMgr = $false; Intune = $true;  WSUS = $false } }
+        'ConfigMgrAndWSUS'          { return [pscustomobject]@{ ConfigMgr = $true;  Intune = $false; WSUS = $true } }
+        'WSUSOnly'                  { return [pscustomobject]@{ ConfigMgr = $false; Intune = $false; WSUS = $true } }
+        'IntuneAndWSUS'             { return [pscustomobject]@{ ConfigMgr = $false; Intune = $true;  WSUS = $true } }
+        'ConfigMgrAndIntuneAndWSUS' { return [pscustomobject]@{ ConfigMgr = $true;  Intune = $true;  WSUS = $true } }
+    }
+    return $null
+}
+
+function ConvertTo-DeploymentTargetFromDestinations {
+    <#
+    .SYNOPSIS
+        The target name of a set of destinations, or an empty string for no destination.
+
+    .DESCRIPTION
+        The five older names and the two names IntuneAndWSUS and
+        ConfigMgrAndIntuneAndWSUS cover every combination. A set with no
+        destination has no name: the result is an empty string, never ConfigMgr.
+    #>
+    param([Parameter(Mandatory)]$Destinations)
+
+    $cm = [bool]$Destinations.ConfigMgr; $wsus = [bool]$Destinations.WSUS; $intune = [bool]$Destinations.Intune
+    if ($cm -and $intune -and $wsus) { return 'ConfigMgrAndIntuneAndWSUS' }
+    if ($intune -and $wsus) { return 'IntuneAndWSUS' }
+    if ($cm -and $wsus) { return 'ConfigMgrAndWSUS' }
+    if ($cm -and $intune) { return 'ConfigMgrAndIntune' }
+    if ($cm) { return 'ConfigMgr' }
+    if ($wsus) { return 'WSUSOnly' }
+    if ($intune) { return 'IntuneOnly' }
+    return ''
+}
+
 function New-BuildId {
     return ('{0}-{1}' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), ([guid]::NewGuid().ToString('N').Substring(0, 8)))
 }
@@ -1280,7 +1372,7 @@ function New-RunSnapshot {
     param(
         [Parameter(Mandatory)][string]$ApplicationId,
         [string]$ProfileId = 'default',
-        [ValidateSet('ContentOnly', 'MECM', 'MECMAndIntune', 'IntuneOnly', 'MECMAndWSUS', 'WSUSOnly')][string]$Target = 'MECM',
+        [ValidateSet('ContentOnly', 'ConfigMgr', 'ConfigMgrAndIntune', 'IntuneOnly', 'ConfigMgrAndWSUS', 'WSUSOnly', 'IntuneAndWSUS', 'ConfigMgrAndIntuneAndWSUS', 'MECM', 'MECMAndIntune', 'MECMAndWSUS')][string]$Target = 'ConfigMgr',
         [AllowNull()]$RunOverrides,
         [AllowNull()]$SigningPolicy,
         [string]$PackagerScriptPath,
@@ -1324,7 +1416,7 @@ function New-RunSnapshot {
         AssetPaths         = $assets
         RunOverrides       = $overrides
         SigningPolicy      = (ConvertTo-WorkbenchHashtable -InputObject $SigningPolicy)
-        Target             = $Target
+        Target             = (ConvertTo-CurrentDeploymentTarget -Value $Target -Default $Target)
         DataRoot           = $DataRoot
         DownloadRoot       = $DownloadRoot
         PackagerScriptPath = $PackagerScriptPath
@@ -1411,6 +1503,10 @@ function Get-RunSnapshot {
         throw "Run snapshot schema $($snapshot.SchemaVersion) is newer than this build supports ($script:WorkbenchProfileSchemaVersion): $Path"
     }
     $data = ConvertTo-WorkbenchHashtable -InputObject $snapshot
+    # A snapshot of an earlier build, or one that the desktop app wrote, can carry an old target name.
+    if ($data.ContainsKey('Target') -and -not [string]::IsNullOrWhiteSpace([string]$data['Target'])) {
+        $data['Target'] = ConvertTo-CurrentDeploymentTarget -Value $data['Target'] -Default ([string]$data['Target'])
+    }
     $data['Path'] = $Path
     return [pscustomobject]$data
 }
@@ -2780,7 +2876,7 @@ function Write-PublicationRecord {
     param(
         [Parameter(Mandatory)][string]$ApplicationId,
         [Parameter(Mandatory)][string]$BuildId,
-        [Parameter(Mandatory)][ValidateSet('ContentOnly', 'MECM', 'Intune')][string]$Target,
+        [Parameter(Mandatory)][ValidateSet('ContentOnly', 'ConfigMgr', 'Intune', 'MECM')][string]$Target,
         [string]$ProfileId = 'default',
         [string]$RemoteAppId,
         [string]$SiteOrTenant,
@@ -2798,7 +2894,7 @@ function Write-PublicationRecord {
         ApplicationId = $ApplicationId
         ProfileId     = $ProfileId
         BuildId       = $BuildId
-        Target        = $Target
+        Target        = $(if ($Target -eq 'MECM') { 'ConfigMgr' } else { $Target })
         RemoteAppId   = $RemoteAppId
         SiteOrTenant  = $SiteOrTenant
         Result        = $Result
@@ -2832,6 +2928,10 @@ Export-ModuleMember -Function @(
     'Resolve-EffectiveSettings'
     'Invoke-LegacyPreferenceMigration'
     'New-BuildId'
+    'ConvertTo-CurrentDeploymentTarget'
+    'Get-DeploymentPublishTargetNames'
+    'Get-DeploymentTargetDestinations'
+    'ConvertTo-DeploymentTargetFromDestinations'
     'New-RunSnapshot'
     'Get-RunSnapshot'
     'Resolve-WorkbenchTokens'

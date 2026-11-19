@@ -72,7 +72,7 @@ This guide did not run these commands. It ran the same actions through the windo
 |---|---|
 | `-Application` | `catalog:package-7zip`, `custom:<script>`, `byo:<id>` or a packager file name. |
 | `-Profile` | A profile name or id. `default` when omitted. |
-| `-Target` | `ContentOnly`, `ConfigMgr`, `ConfigMgrAndIntune`, `IntuneOnly`, `ConfigMgrAndWSUS` or `WSUSOnly`. The old names `MECM`, `MECMAndIntune` and `MECMAndWSUS` still work. |
+| `-Target` | One of the target names in the Target names section. The default is `ConfigMgr`. |
 | `-Stage`, `-Package` | One or both phases. At least one is required. |
 | `-Version` | Package this version instead of the latest. |
 | `-DownloadRoot` | The local staging root. |
@@ -85,9 +85,26 @@ This guide did not run these commands. It ran the same actions through the windo
 | `-RewriteOldVersions`, `-Yes`, `-Architecture` | `plan`, `apply` or `restore`. It runs alone. It changes the version clause of the old applications of the line from `GreaterEquals` to `IsEquals`. `apply` and `restore` write only with `-Yes`. `-Architecture` names the architecture of the line (`x64` when omitted). |
 | `-IdentityMarker`, `-Json`, `-ShownPlan` | The window uses these with `-RewriteOldVersions`. `-IdentityMarker` is the marker of the line from the stage manifest, instead of `-Profile` and `-Architecture`. `-Json` writes one `APRESULT:` line with the plan or the result as JSON. `-ShownPlan` is the file of the plan that the window showed: `apply` reads the site again and writes only when the clauses are the same. |
 
+## Target names
+
+A target names the destinations of a publish. ConfigMgr, Intune and WSUS are independent, and each one is optional. A target that does not name ConfigMgr needs no site code, no content share and no Configuration Manager console. The default value of `-Target` is `ConfigMgr`. You can choose any other target. A value that is not a target name stops the run and lists the valid names. It never selects a destination. The old names `MECM`, `MECMAndIntune` and `MECMAndWSUS` still load.
+
+| Target | ConfigMgr | Intune | WSUS |
+|---|---|---|---|
+| `ContentOnly` | No | No | No |
+| `ConfigMgr` | Yes | No | No |
+| `IntuneOnly` | No | Yes | No |
+| `WSUSOnly` | No | No | Yes |
+| `ConfigMgrAndIntune` | Yes | Yes | No |
+| `ConfigMgrAndWSUS` | Yes | No | Yes |
+| `IntuneAndWSUS` | No | Yes | Yes |
+| `ConfigMgrAndIntuneAndWSUS` | Yes | Yes | Yes |
+
+`-Package` cannot publish to Intune. Use `-Stage` for a target that names Intune, and publish to Intune in the application window.
+
 ## Limits
 
-- A WSUS target publishes the manifest that the same run staged. `ConfigMgrAndWSUS` needs `-Stage` and `-Package` together.
+- A WSUS target publishes the manifest that the same run staged. A target that names both ConfigMgr and WSUS needs `-Stage` and `-Package` together.
 - A run override outranks the saved profile for this build only.
 
 ## Troubleshooting

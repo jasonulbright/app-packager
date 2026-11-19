@@ -256,7 +256,7 @@ Describe 'The sidebar availability of Apply Supersedence' {
                 Systems       = [pscustomobject]@{ ConfigMgr = $ConfigMgr; Intune = $false; Wsus = $false }
                 SiteCode      = $Site
                 DetectedTools = [pscustomobject]@{ ConfigMgrConsole = [pscustomobject]@{ Found = $Console } }
-                Intune        = [pscustomobject]@{ TenantId = ''; ClientId = ''; ClientSecretProtected = ''; DeploymentTarget = 'MECM' }
+                Intune        = [pscustomobject]@{ TenantId = ''; ClientId = ''; ClientSecretProtected = ''; DeploymentTarget = 'ConfigMgr' }
                 Wsus          = [pscustomobject]@{ ServerName = '' }
                 Supersedence  = [pscustomobject]@{ Mode = $Mode; TitleOverrides = $(if ($Overrides) { $Overrides } else { [pscustomobject]@{} }) }
             }
