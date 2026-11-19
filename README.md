@@ -570,6 +570,16 @@ All packager scripts accept the same core parameters:
 
 All 316 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same ConfigMgr Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed - a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op.
 
+**PowerShell 7 by release channel.** Microsoft Learn ("PowerShell Support Lifecycle", https://learn.microsoft.com/en-us/powershell/scripting/install/powershell-support-lifecycle) names two kinds of PowerShell 7 release: Long Term Servicing (LTS, today 7.6, supported until 14-Nov-2028) and Stable, the release between two LTS releases (the page still lists 7.7 as a preview, although 7.7.0 is published). Three packagers cover them, each with its own name and CMName so that they live side by side in the grid and in ConfigMgr:
+
+| Packager | Name in the grid | Channel | Package |
+|---|---|---|---|
+| `package-powershell7.ps1` | PowerShell 7 LTS (MSI) | LTS line 7.6, never another line | Microsoft MSI for all users, remoting and all-users scope; updates through Microsoft Update (`USE_MU=1`) |
+| `package-powershell7msix.ps1` | PowerShell 7 Stable (MSIX, per user) | Stable (7.7) | Microsoft MSIX, single-user, no PowerShell remoting, no all-users scope (Learn, "Limitations of a MSIX-based installation") |
+| `package-devolutionspowershell.ps1` | PowerShell 7 (Devolutions, third party) | Follows the Devolutions pwsh-distro releases | Third-party MSI with the Microsoft payload; Microsoft does not support it |
+
+The LTS packager keeps its file name, so Discover, One Click and the saved history find it as before; only the name in the grid changed. All three use the CPE `cpe:2.3:a:microsoft:powershell`, and the CVE lookup reads the version of each line.
+
 The catalog grew from 108 to 284 across releases 1.4.0.16-1.4.0.24 by porting every viable entry from a 933-application enterprise catalog review. [CATALOG-PARITY.csv](CATALOG-PARITY.csv) records the disposition and reasoning for all 933 entries - what was added, what was already covered, and why each skipped application was skipped (licensed suites, managed agents, end-of-life products, download walls, component libraries, and niche tools, each with evidence). Every packager is verified at stage level with installer magic-byte checks before content is accepted; a core set is additionally end-to-end validated against a live ConfigMgr site.
 
 | Script | Vendor | Application | Detection Type |
@@ -586,7 +596,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16-1.4.0.24 by porting ev
 | package-anydesk.ps1 | AnyDesk Software GmbH | AnyDesk | File version |
 | package-anypointstudio.ps1 | MuleSoft | Anypoint Studio | File existence |
 | package-appinstaller.ps1 | Microsoft | App Installer (WinGet) | Script (provisioned package version) |
-| package-powershell7msix.ps1 | Microsoft | PowerShell 7 (MSIX) | Script (provisioned package version) |
+| package-powershell7msix.ps1 | Microsoft | PowerShell 7 Stable (MSIX, per user) | Script (provisioned package version) |
 | package-apppackagersuite.ps1 | Jason Ulbright | AppPackager Suite (User) | RegistryKeyValue |
 | package-arduinoide.ps1 | Arduino | Arduino IDE | RegistryKeyValue |
 | package-asperaconnect.ps1 | IBM | IBM Aspera Connect (x64) | RegistryKeyValue |
@@ -649,7 +659,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16-1.4.0.24 by porting ev
 | package-dbvisualizer.ps1 | DbVis Software AB | DbVisualizer | File version |
 | package-defraggler.ps1 | Piriform Software Ltd. | Defraggler | File version |
 | package-dellcommandupdate.ps1 | Dell Inc. | Dell Command Update | File version |
-| package-devolutionspowershell.ps1 | Devolutions | PowerShell 7 (Devolutions) | File version |
+| package-devolutionspowershell.ps1 | Devolutions | PowerShell 7 (Devolutions, third party) | File version |
 | package-displaylink.ps1 | DisplayLink | DisplayLink Graphics | File version |
 | package-dngrep.ps1 | dnGREP | dnGREP | RegistryKeyValue |
 | package-dotnet10both.ps1 | Microsoft | .NET 10 Desktop Runtime (x86+x64) | Compound grouped OR: (x86-N AND x64-N) OR (x86-N+1 AND x64-N+1) file existence |
@@ -771,7 +781,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16-1.4.0.24 by porting ev
 | package-postgresql17.ps1 | PostgreSQL Global Development Group | PostgreSQL 17 (x64) | RegistryKeyValue |
 | package-postman.ps1 | Postman | Postman (User) | RegistryKeyValue (user context) |
 | package-powerbi-desktop.ps1 | Microsoft | Power BI Desktop (x64) | File version |
-| package-powershell7.ps1 | Microsoft | PowerShell 7 | RegistryKeyValue |
+| package-powershell7.ps1 | Microsoft | PowerShell 7 LTS (MSI) | RegistryKeyValue |
 | package-powertoys.ps1 | Microsoft | PowerToys | File version |
 | package-protonvpn.ps1 | Proton AG | Proton VPN | RegistryKeyValue |
 | package-pspad.ps1 | Jan Fiala | PSPad | File existence |

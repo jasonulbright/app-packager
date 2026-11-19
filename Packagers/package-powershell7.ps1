@@ -1,6 +1,6 @@
 <#
 Vendor: Microsoft
-App: PowerShell 7
+App: PowerShell 7 LTS (MSI)
 CMName: PowerShell 7
 VendorUrl: https://github.com/PowerShell/PowerShell
 CPE: cpe:2.3:a:microsoft:powershell:*:*:*:*:*:*:*:*
@@ -12,12 +12,32 @@ WsusSupport: Yes
 ArpName: PowerShell 7-x64
 
 .SYNOPSIS
-    Packages PowerShell 7 (x64) MSI for ConfigMgr.
+    Packages PowerShell 7 LTS (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
-    Downloads the latest PowerShell 7 x64 MSI from GitHub releases, stages
+    This packager follows the Long Term Servicing (LTS) line of PowerShell 7. Microsoft
+    Learn ("PowerShell Support Lifecycle") names PowerShell 7.6 as the current LTS
+    release, supported until 14-Nov-2028. The packager takes the newest 7.6.x release
+    that carries the x64 MSI and never a release of another line: a newer Stable
+    release (PowerShell 7.7.0 publishes no MSI) is not packaged here. The line is
+    the value of $LtsLine below; change it deliberately when the lifecycle page names
+    a new LTS line.
+
+    The three PowerShell 7 packagers of this tool, by release channel:
+      - PowerShell 7 LTS (MSI), this packager: the LTS line, Microsoft MSI for all users,
+        with remoting and the all-users scope. The choice for servers and for managed devices.
+      - PowerShell 7 Stable (MSIX, per user), package-powershell7msix.ps1: the newest Stable release
+        (7.7), the Microsoft MSIX package. It is single-user and has no PowerShell remoting.
+      - PowerShell 7 (Devolutions, third party), package-devolutionspowershell.ps1: the
+        MSI that Devolutions repackages from the Microsoft payload. Devolutions is not
+        Microsoft; Microsoft supports only its own packages.
+
+    Downloads the newest PowerShell 7 LTS x64 MSI from GitHub releases, stages
     content to a versioned local folder with ARP detection metadata, and
-    creates a ConfigMgr Application with registry-based detection.
+    creates a ConfigMgr Application with registry-based detection. The detection
+    accepts the packaged version or a newer one, and the MSI opts the device into
+    updates through Microsoft Update, WSUS and Configuration Manager (USE_MU=1), so
+    a device that Microsoft Update moved to a newer version stays compliant.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
@@ -59,7 +79,7 @@ ArpName: PowerShell 7-x64
     create ConfigMgr application with registry-based detection.
 
 .PARAMETER GetLatestVersionOnly
-    Queries the GitHub releases API for the latest PowerShell 7 version, outputs
+    Queries the GitHub releases API for the newest PowerShell 7 LTS version, outputs
     the version string, and exits. No download or ConfigMgr changes are made.
 
 .REQUIREMENTS
@@ -95,7 +115,10 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$GitHubApiUrl = "https://api.github.com/repos/PowerShell/PowerShell/releases?per_page=30"
+$GitHubApiUrl = "https://api.github.com/repos/PowerShell/PowerShell/releases?per_page=100"
+
+# The LTS line this packager follows. Microsoft Learn, "PowerShell Support Lifecycle", names PowerShell 7.6 as the LTS release.
+$LtsLine = "7.6"
 
 $VendorFolder = "Microsoft"
 $AppFolder    = "PowerShell 7 (x64)"
@@ -105,29 +128,42 @@ $BaseDownloadRoot = Join-Path $DownloadRoot "PowerShell7"
 # --- Functions ---
 
 
+function Select-PowerShell7LtsRelease {
+    # The newest release of the LTS line that carries the x64 MSI. A release of another line is never a candidate, however new
+    # it is or whether it carries an MSI. The asset list decides within the line; the file name is never built from the version.
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][AllowNull()][object[]]$Releases,
+        [Parameter(Mandatory)][string]$Line,
+        [Parameter(Mandatory)][string]$AssetPattern
+    )
+    $flat = @(); foreach ($entry in @($Releases)) { $flat += $entry }
+    $linePattern = '^v' + [regex]::Escape($Line) + '\.\d+$'
+    $inLine = @($flat | Where-Object { $_ -and ([string]$_.tag_name) -match $linePattern })
+    return (Select-GitHubReleaseWithAsset -Releases $inLine -AssetPattern $AssetPattern)
+}
+
 function Get-PowerShell7Release {
-    # The newest release that carries the x64 MSI. The asset list decides: the newest release can ship without an MSI
-    # (7.7.0 does), and the file name is never built from the version.
     param([switch]$Quiet)
 
     Write-Log "GitHub releases API          : $GitHubApiUrl" -Quiet:$Quiet
+    Write-Log "LTS line                     : $LtsLine" -Quiet:$Quiet
 
     try {
         $json = (curl.exe -L --fail --silent --show-error @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to query GitHub releases API." }
 
-        $selected = Select-GitHubReleaseWithAsset -Releases @(ConvertFrom-Json $json) -AssetPattern '^PowerShell-.+-win-x64\.msi$'
-        if (-not $selected) { throw "No PowerShell 7 release carries an x64 MSI." }
+        $selected = Select-PowerShell7LtsRelease -Releases @(ConvertFrom-Json $json) -Line $LtsLine -AssetPattern '^PowerShell-.+-win-x64\.msi$'
+        if (-not $selected) { throw "No PowerShell $LtsLine release carries an x64 MSI." }
         if ([string]::IsNullOrWhiteSpace($selected.Version)) { throw "Could not parse version from GitHub release." }
 
         if ($selected.SkippedNewer.Count -gt 0) {
-            Write-Log ("PowerShell {0} publishes no MSI; packaging {1}." -f ($selected.SkippedNewer -join ', '), $selected.Version) -Level WARN -Quiet:$Quiet
+            Write-Log ("PowerShell {0} of the {1} line publishes no MSI; packaging {2}." -f ($selected.SkippedNewer -join ', '), $LtsLine, $selected.Version) -Level WARN -Quiet:$Quiet
         }
-        Write-Log "Latest PowerShell 7 version  : $($selected.Version)" -Quiet:$Quiet
+        Write-Log "Latest PowerShell 7 LTS      : $($selected.Version)" -Quiet:$Quiet
         return $selected
     }
     catch {
-        Write-Log "Failed to get PowerShell 7 version: $($_.Exception.Message)" -Level ERROR
+        Write-Log "Failed to get PowerShell 7 LTS version: $($_.Exception.Message)" -Level ERROR
         return $null
     }
 }
@@ -146,7 +182,7 @@ function Get-LatestPowerShell7Version {
 function Invoke-StagePowerShell7 {
     Write-Log ""
     Write-Log ("=" * 60)
-    Write-Log "PowerShell 7 (x64) - STAGE phase"
+    Write-Log "PowerShell 7 LTS (x64) - STAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
 
@@ -276,7 +312,7 @@ function Invoke-StagePowerShell7 {
 function Invoke-PackagePowerShell7 {
     Write-Log ""
     Write-Log ("=" * 60)
-    Write-Log "PowerShell 7 (x64) - PACKAGE phase"
+    Write-Log "PowerShell 7 LTS (x64) - PACKAGE phase"
     Write-Log ("=" * 60)
     Write-Log ""
 

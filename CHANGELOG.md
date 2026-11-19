@@ -13,6 +13,7 @@
 
 ### Changed
 
+- The PowerShell 7 packagers are named by release channel (Microsoft Learn, PowerShell Support Lifecycle). `package-powershell7.ps1` is now "PowerShell 7 LTS (MSI)" and takes the newest release of the 7.6 LTS line that has the MSI, never a release of another line. `package-powershell7msix.ps1` is "PowerShell 7 Stable (MSIX, per user)" and `package-devolutionspowershell.ps1` is "PowerShell 7 (Devolutions, third party)". File names and CMName values are unchanged, so Discover, One Click and the history find them as before. The help of each names the channel and points to the other two. PowerShell 7.4, the previous LTS line, is out of support since 10 Nov 2026 (Microsoft Learn, PowerShell Support Lifecycle) and is not packaged.
 - The title text of a window that is not the active window is dark on the light blue title bar, so that it stays readable. The buttons of the message and confirmation dialogs keep their blue or gray fill when you point at or press them.
 
 ### Fixed
