@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:tortoisesvn:tortoisesvn:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://tortoisesvn.net/Changelog.txt
 DownloadPageUrl: https://tortoisesvn.net/downloads.html
 IconSource: Installer
+LocalSource: Required
 WsusSupport: Yes
 ArpName: TortoiseSVN*
 
@@ -14,18 +15,22 @@ ArpName: TortoiseSVN*
     Packages TortoiseSVN (x64) MSI for ConfigMgr.
 
 .DESCRIPTION
-    Downloads the latest TortoiseSVN x64 MSI from SourceForge, stages content
-    to a versioned local folder with ARP detection metadata, and creates an
+    Stages the TortoiseSVN x64 MSI from the installer source folder of this
+    packager (Options > Applications > Local Installer Sources), stages content
+    to a versioned local folder with ARP detection metadata, and creates a
     ConfigMgr Application with registry-based detection.
 
-    Supports two-phase operation:
-      -StageOnly    Download, derive ARP detection from MSI properties, write manifest
-      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
+    The TortoiseSVN site protects its download page against scripts, so the
+    packager has no download and does not try to get around the protection.
+    Download the x64 MSI by hand and put it in the folder. The file name rule is
+    the vendor name: TortoiseSVN-<version>-x64-svn-<svn version>.msi (for example
+    TortoiseSVN-1.14.9.29743-x64-svn-1.14.5.msi). When the folder holds more
+    than one match, the file with the highest ProductVersion is staged. The
+    version comes from the ProductVersion of that file, not from a web page.
 
-    The version and download URL are scraped from tortoisesvn.net/downloads.html.
-    The MSI filename includes both the app version and a build number, plus the
-    bundled SVN library version (for example TortoiseSVN-1.14.9.29743-x64-svn-1.14.5.msi).
-    The download is hosted on SourceForge.
+    Supports two-phase operation:
+      -StageOnly    Read the MSI from the folder, derive ARP detection from MSI properties, write manifest
+      -PackageOnly  Read manifest, copy to network, create ConfigMgr application
 
 .PARAMETER SiteCode
     ConfigMgr site code PSDrive name (for example, "MCM").
@@ -45,6 +50,10 @@ ArpName: TortoiseSVN*
 .PARAMETER MaximumRuntimeMins
     Maximum allowed runtime in minutes. Default: 30
 
+.PARAMETER SourceFolder
+    The folder that holds the TortoiseSVN x64 MSI. It replaces the folder saved in
+    Options for this run.
+
 .PARAMETER StageOnly
     Runs only the Stage phase.
 
@@ -52,14 +61,17 @@ ArpName: TortoiseSVN*
     Runs only the Package phase.
 
 .PARAMETER GetLatestVersionOnly
-    Scrapes tortoisesvn.net for the latest version, outputs the version string,
-    and exits. No download or ConfigMgr changes are made.
+    There is no web source to read. Outputs the ProductVersion of the newest
+    matching MSI in the installer source folder and exits, or fails with a
+    message that names the folder when it holds no matching file. No ConfigMgr
+    changes are made.
 
 .REQUIREMENTS
     - PowerShell 5.1
     - Configuration Manager console installed
     - RBAC permissions to create Applications and Deployment Types
     - Write access to FileServerPath
+    - The TortoiseSVN x64 MSI in the installer source folder
 #>
 
 param(
@@ -71,6 +83,7 @@ param(
     [string]$DownloadRoot = "C:\temp\ap",
     [int]$EstimatedRuntimeMins = 15,
     [int]$MaximumRuntimeMins = 30,
+    [string]$SourceFolder = "",
     [string]$LogPath,
     [switch]$GetLatestVersionOnly,
     [switch]$StageOnly,
@@ -88,7 +101,11 @@ if ($StageOnly -and $PackageOnly) {
 }
 
 # --- Configuration ---
-$DownloadPageUrl = "https://tortoisesvn.net/downloads.html"
+# The installer comes from the installer source folder (no download). The
+# name rule is the vendor name of the x64 MSI.
+$PackagerName    = "package-tortoisesvn"
+$InstallerFilter = "TortoiseSVN-*-x64-*.msi"
+$FolderHint = "Download the 64-bit MSI from tortoisesvn.net by hand (TortoiseSVN-<version>-x64-svn-<svn version>.msi) and put it in that folder. The packager does not download it."
 
 $VendorFolder = "TortoiseSVN"
 $AppFolder    = "TortoiseSVN"
@@ -98,33 +115,30 @@ $BaseDownloadRoot = Join-Path $DownloadRoot "TortoiseSVN"
 # --- Functions ---
 
 
+function Resolve-TortoiseSVNMsi {
+    <#
+    .SYNOPSIS
+        The MSI in the installer source folder with the highest ProductVersion.
+        Throws a message that names the folder and the file to put there.
+    #>
+    return (Resolve-LocalSourceInstaller -PackagerName $PackagerName -Filter $InstallerFilter -Override $SourceFolder -Hint $FolderHint)
+}
+
+
 function Get-LatestTortoiseSVNRelease {
     param([switch]$Quiet)
 
-    Write-Log "Download page                : $DownloadPageUrl" -Quiet:$Quiet
-
     try {
-        $html = (curl.exe -L --fail --silent --show-error $DownloadPageUrl) -join ''
-        if ($LASTEXITCODE -ne 0) { throw "Failed to fetch TortoiseSVN download page." }
-
-        # Parse SourceForge link for x64 MSI: TortoiseSVN-{VER}.{BUILD}-x64-svn-{SVNVER}.msi
-        if ($html -match '(https?://sourceforge\.net/projects/tortoisesvn/files/[\d.]+/Application/(TortoiseSVN-([\d.]+)-x64-svn-[\d.]+\.msi))') {
-            $sfUrl    = $Matches[1]
-            $fileName = $Matches[2]
-            $version  = $Matches[3]
-        }
-        else {
-            throw "Could not find 64-bit MSI download link on TortoiseSVN page."
-        }
-
-        # SourceForge download: append /download for direct link
-        $downloadUrl = $sfUrl.TrimEnd('/') + '/download'
-
+        $localMsi = Resolve-TortoiseSVNMsi
+        Write-Log "Installer source             : $localMsi" -Quiet:$Quiet
+        $version = (Get-MsiPropertyMap -MsiPath $localMsi)['ProductVersion']
+        if ([string]::IsNullOrWhiteSpace($version)) { throw "MSI ProductVersion missing: $localMsi" }
         Write-Log "Latest TortoiseSVN version   : $version" -Quiet:$Quiet
-        return @{ Version = $version; FileName = $fileName; DownloadUrl = $downloadUrl }
+        return @{ Version = $version; Path = $localMsi }
     }
     catch {
-        Write-Log "Failed to get TortoiseSVN version: $($_.Exception.Message)" -Level ERROR
+        # The vendor site blocks scripts, so there is no web version to read; say where the version comes from.
+        Write-Log "TortoiseSVN has no web version source: the version is read from the MSI in the installer source folder. $($_.Exception.Message)" -Level ERROR
         return $null
     }
 }
@@ -143,28 +157,18 @@ function Invoke-StageTortoiseSVN {
 
     Initialize-Folder -Path $BaseDownloadRoot
 
-    $releaseInfo = Get-LatestTortoiseSVNRelease
-    if (-not $releaseInfo) { throw "Could not resolve TortoiseSVN version." }
+    # --- Installer from the installer source folder ---
+    $localMsi    = Resolve-TortoiseSVNMsi
+    $MsiFileName = Split-Path -Leaf $localMsi
+    Write-Log "Installer source             : $localMsi"
 
-    $version      = $releaseInfo.Version
-    $MsiFileName  = $releaseInfo.FileName
-    $downloadUrl  = $releaseInfo.DownloadUrl
-
-    Write-Log "Version                      : $version"
-    Write-Log "Download URL                 : $downloadUrl"
-    Write-Log "MSI filename                 : $MsiFileName"
-    Write-Log ""
-
-    # --- Download ---
-    $localMsi = Join-Path $BaseDownloadRoot $MsiFileName
-    Write-Log "Local MSI path               : $localMsi"
-
-    if (-not (Test-Path -LiteralPath $localMsi)) {
-        Write-Log "Downloading TortoiseSVN MSI..."
-        Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localMsi
+    # The file comes from the operator's folder. A valid signature is logged; an unsigned file is logged too, not refused.
+    $signature = Get-AuthenticodeSignature -LiteralPath $localMsi
+    if ($signature.Status -eq 'Valid') {
+        Write-Log "Installer signer             : $($signature.SignerCertificate.Subject)"
     }
     else {
-        Write-Log "Local MSI exists. Skipping download."
+        Write-Log "Installer signature is $($signature.Status): $localMsi" -Level WARN
     }
 
     # --- Extract MSI properties ---
@@ -212,18 +216,16 @@ function Invoke-StageTortoiseSVN {
     $publisher = "TortoiseSVN"
     $appName = $productName
 
-    # TortoiseSVN's MSI ProductVersion is truncated to 3 parts ("1.14.29743")
-    # because MSI's version format can't hold 4 segments with a large build
-    # number. The website/download URL carries the full 4-part version
-    # ("1.14.9.29743") which is what GetLatestVersionOnly returns. Store the
-    # full URL-style version in SoftwareVersion so Check ConfigMgr matches Check
-    # Latest; ARP detection stays on the MSI's raw version because that's
-    # what's actually written to the DisplayVersion registry value post-install.
+    # TortoiseSVN's MSI ProductVersion has 3 parts ("1.14.29743"), because the
+    # MSI version format cannot hold 4 parts with a large build number. The file
+    # name carries 4 parts ("1.14.9.29743"), but the version comes from the file
+    # content, so SoftwareVersion, Check Latest and the ARP detection all use the
+    # ProductVersion, which is the value that the install writes to DisplayVersion.
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
     Write-StageManifest -Path $manifestPath -ManifestData @{
         AppName         = $appName
         Publisher       = $publisher
-        SoftwareVersion = $version
+        SoftwareVersion = $productVersionRaw
         InstallerFile   = $MsiFileName
         InstallerType   = "MSI"
         InstallArgs     = "/qn /norestart"
@@ -328,7 +330,6 @@ try {
     Write-Log "SiteCode                     : $SiteCode"
     Write-Log "FileServerPath               : $FileServerPath"
     Write-Log "BaseDownloadRoot             : $BaseDownloadRoot"
-    Write-Log "DownloadPageUrl              : $DownloadPageUrl"
     Write-Log ""
 
     if ($StageOnly) {

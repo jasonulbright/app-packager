@@ -220,8 +220,8 @@ ConfigMgr Console detection runs once per launch. It scans the registry ARP entr
 - **DBeaver Community** - Install scope (System installs machine-wide to `C:\Program Files\DBeaver` with `/allusers`; User installs to `%LOCALAPPDATA%\DBeaver` with `/currentuser`, needs no elevation, and drives a per-user uninstall command and detection path) and AI features, which sets the environment variable `DBEAVER_AI_DISABLED=true` after install. The DBeaver packager also takes `-InstallScope` and `-DisableAI` directly, overriding these stored values.
 - **Microsoft 365 Apps** - Company name, Channel, Deploy mode, Languages, a checkbox grid of `ExcludeApp` entries and the install behavior values of the Office Deployment Tool (OfficeMgmtCOM, Updates, FORCEAPPSHUTDOWN, RemoveMSI, MigrateArch, SharedComputerLicensing, DeviceBasedLicensing). The section links to the Office Deployment Tool download and to the configuration.xml reference. **Import** checks a configuration.xml of your own (well-formed XML, a `Configuration` root, an `Add` element with a `Product` that has an `ID`), stores a copy in `Packagers\m365-configuration.user.xml`, and shows its name and size. The file stays on this computer. With **Use my own configuration.xml** selected, the generated settings are disabled and the packagers use the file. They still set `OfficeClientEdition`, `Version`, `SourcePath` and a silent `Display`, keep the channel of the file, and keep their own detection. A file with a `SourcePath` stages in the Managed mode, and a file without one stages in the Online mode. **Preview** shows the install XML of the four Microsoft 365 products.
 - **SQL Server Management Studio** - UI mode, install path, download first, installer update, Workloads (`--add`), recommended and optional components, Languages (`--addProductLang`), Package cache (`--nocache`), out-of-support components and Running SSMS (`--force`). Recommended and optional components need at least one workload.
-- **TeamViewer Host** - API token, Custom config ID, Assignment options and Desktop shortcut. The packager installs the EXE with `/S`, and the EXE ignores these four settings. They apply to a TeamViewer Host MSI only. The packager logs a warning when they are set.
-- **Local Installer Sources** - one folder per packager that can use an installer you download yourself. Stage uses the highest file version in the folder. Packagers that have no public download ask for the folder at Stage when it is not set. The packager also takes `-SourceFolder` directly, overriding the stored folder.
+- **TeamViewer Host** - API token, Custom config ID, Assignment options and Desktop shortcut. The packager installs the TeamViewer Host MSI from its installer source folder, and the four settings become the MSI properties APITOKEN, CUSTOMCONFIGID, ASSIGNMENTOPTIONS and DESKTOPSHORTCUTS=0 on the install command line. An empty value is not passed. The values are written to the install script of the package in clear text.
+- **Local Installer Sources** - one folder per packager whose installer a script cannot download: a vendor sign-in (Citrix Workspace, TeamViewer Host) or a bot protection (TortoiseSVN). You put the file in the folder by hand. Stage takes the file with the highest version from the folder (the ProductVersion of an MSI file) and stages under that version; the packager reads no web page for the version. Stage asks for the folder when it is not set. The packager also takes `-SourceFolder` directly, overriding the stored folder. See [Installer source folders](#installer-source-folders).
 
 M365 Deploy mode controls how Office 365 products are staged and detected:
 - **Managed (offline source)** - downloads the full Office source (~2.3 GB per product), pins a specific version, uses file version detection. Requires monthly repackaging to stay current.
@@ -834,7 +834,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16-1.4.0.24 by porting ev
 | package-teams-new.ps1 | Microsoft | Microsoft Teams (new client) | File existence |
 | package-teamspeak3client.ps1 | TeamSpeak Systems GmbH | TeamSpeak 3 Client | File version |
 | package-teamviewer.ps1 | TeamViewer | TeamViewer (x64) | RegistryKeyValue |
-| package-teamviewerhost.ps1 | TeamViewer | TeamViewer Host (x64) | File version |
+| package-teamviewerhost.ps1 | TeamViewer | TeamViewer Host (x64) | Add/Remove Programs entry |
 | package-temurin-jdk11-x64.ps1 | Eclipse Adoptium | Eclipse Temurin JDK 11 (x64) | RegistryKeyValue |
 | package-temurin-jdk11-x86.ps1 | Eclipse Adoptium | Eclipse Temurin JDK 11 (x86) | RegistryKeyValue |
 | package-temurin-jdk17.ps1 | Eclipse Adoptium | Eclipse Temurin JDK 17 (x64) | RegistryKeyValue |
@@ -1052,6 +1052,22 @@ ArpName: 7-Zip [0-9]*
 | `ArpArch` | Optional `x64` or `x86`: the registry view of the Add/Remove Programs entry. Discovery matches only inventory rows from this view. |
 | `LocalSource` | `Optional` or `Required`: the packager can, or must, stage an installer from a folder set under Local Installer Sources in the [Options window](#options-window). |
 | `ReviewBeforeStage` | `Yes` shows the Configure dialog before Stage even when Options skips the review. It matters for a packager that has install options in the Options window. |
+
+### Installer source folders
+
+The TeamViewer Host and TortoiseSVN packagers have no download. TeamViewer gives the Host MSI only to signed-in Management Console users. The TortoiseSVN site protects its download page against scripts, and the packager does not try to get around that protection. For both, you fill a folder and the packager stages from it.
+
+| Packager | Put in the folder | File name rule |
+|---|---|---|
+| `package-teamviewerhost.ps1` | The MSI from the Management Console, under Design and Deploy. Unzip the download first when it is a .zip; a .zip is not read. | `TeamViewer_Host*.msi` |
+| `package-tortoisesvn.ps1` | The x64 MSI from tortoisesvn.net, downloaded by hand. | `TortoiseSVN-*-x64-*.msi` |
+
+- **Where the folder is set.** Options, Applications, Local Installer Sources: one folder for each packager (the same folder is allowed). Stage asks for it when it is empty. This is the same setting that the Citrix Workspace packagers use.
+- **Which file.** When the folder holds more than one match, the file with the highest ProductVersion is staged, then the newest write time.
+- **Which version.** The ProductVersion of the MSI file. It names the staged folder, the ConfigMgr application and the detection. The TortoiseSVN MSI has three parts (for example `1.14.29743`); its file name has four.
+- **No matching file.** The run stops with a message that names the folder and the file to put there.
+- **Check Latest.** There is no web source. The packager reports the version of the newest matching MSI in the folder. With no folder or no matching file, the check fails and the message says where the version comes from and what to put in the folder. Check ConfigMgr does not depend on it.
+- **Signature.** The TeamViewer Host packager stages only an MSI with a valid signature. The TortoiseSVN packager logs the signature status and stages the file either way.
 
 ## Application Icons
 
@@ -1354,7 +1370,7 @@ All packager scripts import the shared module which provides:
 | `Invoke-CachedDownload` | Downloads a fixed-name vendor file once and refreshes it only when the server reports a newer copy (If-Modified-Since) |
 | `Get-GitHubApiCurlArgs` | The curl.exe arguments that carry a GitHub token (`GITHUB_TOKEN`, `GH_TOKEN`, `gh auth token`); empty without one |
 | `Get-PackagerRunOptions` / `Resolve-PackagerRunFile` | The values of one Stage run from `APP_PACKAGER_RUN_OPTIONS`, and the run copy of a packager settings file (else the saved path) |
-| `Get-LocalSourceFolder` / `Resolve-LocalSourceInstaller` | The Local Installer Sources folder of a packager and the highest-versioned installer inside it |
+| `Get-LocalSourceFolder` / `Resolve-LocalSourceInstaller` / `Get-InstallerFileVersion` | The Local Installer Sources folder of a packager, the highest-versioned installer inside it, and the version a file carries (the ProductVersion of an MSI file) |
 | `Get-NetworkContentPath` | Creates and returns the network content folder for one app version in the configured layout (Nested `Applications\Vendor\App\Version` or Flat `Applications\Vendor-App-Version`) |
 | `Test-PsadtLayout` | Detects PSADT v3 vs v4 in a toolkit folder and returns the deployment type install/uninstall command lines (exe launcher preferred, powershell.exe -File fallback) |
 | `Test-IsAdmin` | Checks for administrator elevation. No shipped packager calls it: Stage reads installer metadata through COM and writes only user-writable paths, and Package needs share ACLs + CM RBAC, not local admin. Retained for future packagers whose Stage genuinely must elevate |
@@ -1403,7 +1419,7 @@ Common loads two further modules at import, so packagers get them without any ch
 
 The tests use Pester 5.7.1 and PSScriptAnalyzer 1.25.0. They need no ConfigMgr site and no vendor download. The `Checks` workflow runs `Invoke-Checks.ps1` in GitHub Actions on each pull request and each push to `main`. It runs the lint, the Pester tests in three groups (Modules, Smoke, Tests) on Windows PowerShell 5.1 and on PowerShell 7, and the window probes on Windows PowerShell 5.1.
 
-To run a group by hand, use a test computer. The window probes open windows. The Adobe and TeamViewer probes are always skipped, because they need a local installer:
+To run a group by hand, use a test computer. The window probes open windows. The Adobe probe is always skipped, because it needs a local installer:
 
 ```powershell
 .\Invoke-Checks.ps1 -Group Modules   # or Lint, Smoke, Tests, Probes, All

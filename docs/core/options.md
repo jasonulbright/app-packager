@@ -142,13 +142,13 @@ The UI mode, the install path, the workloads, the languages and the other switch
 
 #### TeamViewer Host
 
-The four settings that apply to a TeamViewer Host MSI only. The packager installs the EXE, which ignores them.
+The four settings of the TeamViewer Host MSI: API token (APITOKEN), Custom config ID (CUSTOMCONFIGID), Assignment options (ASSIGNMENTOPTIONS) and Desktop shortcut (DESKTOPSHORTCUTS=0). The packager installs the MSI that you put in the installer source folder of TeamViewer Host, and an empty value is not passed. The values are written to the install script of the package in clear text.
 
 ![The TeamViewer Host section](../images/options-teamviewer-host.png)
 
 #### Local Installer Sources
 
-One folder for each packager whose download needs a sign-in. The caption names the packager file.
+One installer source folder for each packager whose installer a script cannot download: a vendor sign-in (Citrix Workspace, TeamViewer Host) or a bot protection (TortoiseSVN). You put the file in the folder by hand, and the packager reads the version from it. TeamViewer Host takes `TeamViewer_Host*.msi` (the Management Console download, unzipped), and TortoiseSVN takes `TortoiseSVN-*-x64-*.msi`. The caption names the packager file. See Installer source folders in the README.
 
 ![The Local installer sources section](../images/options-local-installer-sources.png)
 

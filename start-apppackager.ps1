@@ -3233,7 +3233,7 @@ function Confirm-LocalSourceFolders {
 
         Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
         $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
-        $dlg.Description = ('Choose the folder that holds the {0} installer. Its download requires a sign-in, so it stages from a local copy.' -f [string]$row.Application)
+        $dlg.Description = ('Choose the folder that holds the {0} installer. A script cannot download it, so it stages from the copy that you put in this folder.' -f [string]$row.Application)
         if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             $props = [ordered]@{}
             if ($script:Prefs.LocalSourceFolders) {
@@ -8200,18 +8200,18 @@ function Get-OptionsSectionDefinition {
 
     $sections.Add(@{
             Id = 'teamviewer'; Title = 'TeamViewer Host'; Parent = 'applications'; Kind = 'Fields'
-            Description = 'The packager installs the TeamViewer Host EXE with /S, and the EXE ignores the four settings below. They apply to a TeamViewer Host MSI only; the packager logs a warning when they are set.'
+            Description = 'The packager installs the TeamViewer Host MSI that you put in its folder (Local Installer Sources). The four settings below become MSI properties on the install command line; an empty value is not passed. The values are written to the install script of the package in clear text.'
             Fields = @(
-                @{ Id = 'tv.token'; Title = 'API token'; Kind = 'Text'; Pref = 'tv:ApiToken'; Tip = 'MSI only: the script token for APITOKEN; it is stored as text in teamviewer-host-config.json.'; Keywords = 'apitoken' }
-                @{ Id = 'tv.config'; Title = 'Custom config ID'; Kind = 'Text'; Pref = 'tv:CustomConfigId'; Tip = 'MSI only: CUSTOMCONFIGID of a custom Host module from the Management Console.' }
-                @{ Id = 'tv.assign'; Title = 'Assignment options'; Kind = 'Text'; Pref = 'tv:AssignmentOptions'; Tip = 'MSI only: the flags of ASSIGNMENTOPTIONS, for example --grant-easy-access or --reassign.' }
-                @{ Id = 'tv.shortcut'; Title = 'Desktop shortcut'; Kind = 'Check'; Pref = 'tv:RemoveDesktopShortcut'; Label = 'Remove the desktop shortcut (MSI only)'; Tip = 'MSI only: ADDLOCAL=ALL REMOVE=f.DesktopShortcut removes the desktop shortcut.' }
+                @{ Id = 'tv.token'; Title = 'API token'; Kind = 'Text'; Pref = 'tv:ApiToken'; Tip = 'The script token for APITOKEN; it is stored as text in teamviewer-host-config.json.'; Keywords = 'apitoken' }
+                @{ Id = 'tv.config'; Title = 'Custom config ID'; Kind = 'Text'; Pref = 'tv:CustomConfigId'; Tip = 'CUSTOMCONFIGID of a custom Host module from the Management Console.' }
+                @{ Id = 'tv.assign'; Title = 'Assignment options'; Kind = 'Text'; Pref = 'tv:AssignmentOptions'; Tip = 'The flags of ASSIGNMENTOPTIONS, for example --grant-easy-access or --reassign.' }
+                @{ Id = 'tv.shortcut'; Title = 'Desktop shortcut'; Kind = 'Check'; Pref = 'tv:RemoveDesktopShortcut'; Label = 'Remove the desktop shortcut'; Tip = 'Adds DESKTOPSHORTCUTS=0 and ADDLOCAL=ALL REMOVE=f.DesktopShortcut to the msiexec command line.' }
             )
         })
 
     $sections.Add(@{
             Id = 'localsources'; Title = 'Local Installer Sources'; Parent = 'applications'; Kind = 'Fields'; Prefs = @('LocalSourceFolders')
-            Description = 'A packager whose download needs a sign-in stages the newest matching installer from its folder. Stage asks for the folder when it is empty.'
+            Description = 'A packager whose installer a script cannot download (a vendor sign-in or a bot protection) stages the newest matching installer from its folder. Put the file in the folder by hand; the packager version comes from that file. Stage asks for the folder when it is empty. TeamViewer Host takes TeamViewer_Host.msi from the Management Console; TortoiseSVN takes TortoiseSVN-<version>-x64-svn-<svn version>.msi.'
             Fields = @(@{ Id = 'local.rows'; Title = 'Folders'; Kind = 'Custom'; Tip = 'The installer folder of each packager that can stage a local installer.'; Keywords = 'local source installer folder packager file'
                     Build = { param($Field, $Context) New-OptionsLocalSourceEditor -Context $Context } })
         })
