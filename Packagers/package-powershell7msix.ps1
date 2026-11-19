@@ -1,6 +1,6 @@
 <#
 Vendor: Microsoft
-App: PowerShell 7 (MSIX)
+App: PowerShell 7 Stable (MSIX, per user)
 CMName: PowerShell 7 (MSIX)
 VendorUrl: https://github.com/PowerShell/PowerShell
 CPE: cpe:2.3:a:microsoft:powershell:*:*:*:*:*:*:*:*
@@ -12,9 +12,18 @@ WsusSupport: No (InstallerTypeUnsupported|CustomInstall)
 ArpName: none
 
 .SYNOPSIS
-    Packages PowerShell 7 as the MSIX package for ConfigMgr.
+    Packages PowerShell 7 Stable as the MSIX package for ConfigMgr.
 
 .DESCRIPTION
+    Release channel: Stable. Microsoft Learn ("PowerShell Support Lifecycle") names two
+    kinds of PowerShell 7 release, Long Term Servicing (LTS, today 7.6) and Stable, the
+    release between two LTS releases. This packager takes the newest Stable release that
+    carries the msixbundle (today 7.7.0, which the lifecycle page, written before the
+    release, still lists as a preview). It never takes an LTS or a preview bundle. The
+    other PowerShell 7 packagers: PowerShell 7 LTS (MSI), package-powershell7.ps1, the
+    LTS line with remoting and the all-users scope; and PowerShell 7 (Devolutions, third
+    party), package-devolutionspowershell.ps1.
+
     Downloads the newest stable PowerShell release that carries the msixbundle
     from the PowerShell GitHub releases, checks the file against the SHA-256
     digest that GitHub publishes for the asset, and requires a valid Microsoft

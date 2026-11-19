@@ -112,6 +112,7 @@ No test writes to a certificate trust store in any scope. `AppPackagerWsus.Tests
 - `Bruno.Tests.ps1` - the Bruno packager: the x64 MSI choice, the tag to version step and the release digest.
 - `AppInstaller.Tests.ps1` - the App Installer (WinGet) packager: the release and asset choice, the dependency check, the install, uninstall and detection scripts.
 - `PowerShell7Msix.Tests.ps1` - the PowerShell 7 (MSIX) packager: the release and asset choice (no LTS or preview bundle), the install, uninstall and detection scripts, and the documented limits.
+- `PowerShell7Lts.Tests.ps1` - the PowerShell 7 packagers by release channel: the LTS packager takes the newest 7.6 release that has the MSI and never another line, and the names, CMName values and help of the LTS, Stable (MSIX) and Devolutions (third party) packagers.
 - `DevolutionsPowerShell.Tests.ps1` - the PowerShell 7 (Devolutions) packager: the release and asset choice, the digest requirement, the install commands and the file version detection.
 - `AdobeReader.Tests.ps1` - the Adobe Reader packager: English and MUI installer and patch names, the LANG_LIST normalization, the stored install options, the MUI command line, the stage folder cleanup between editions, the setup.ini command line, and the preferences round trip.
 - `XamlParse.Tests.ps1` - every inline XAML block and XAML file parses as XML, so a panel shown later cannot fail on an undeclared prefix.

@@ -1,6 +1,6 @@
 <#
 Vendor: Devolutions
-App: PowerShell 7 (Devolutions)
+App: PowerShell 7 (Devolutions, third party)
 CMName: PowerShell 7 (Devolutions)
 VendorUrl: https://github.com/Devolutions/pwsh-distro
 CPE: cpe:2.3:a:microsoft:powershell:*:*:*:*:*:*:*:*
@@ -15,6 +15,14 @@ ArpName: PowerShell 7-x64 (repackaged by Devolutions)
     Packages PowerShell 7 (x64) from the Devolutions pwsh-distro releases for ConfigMgr.
 
 .DESCRIPTION
+    Third party. Devolutions is not Microsoft: Microsoft supports PowerShell only in
+    its own packages, and this MSI is a repackaging by Devolutions of the Microsoft
+    payload (a third-party package). From PowerShell 7.7.0 Microsoft publishes no
+    MSI, and this package is the way to keep an MSI-based, all-users
+    installation of the 7.7 line. The other PowerShell 7 packagers: PowerShell 7 LTS
+    (MSI), package-powershell7.ps1, the Microsoft MSI of the LTS line; and PowerShell 7
+    Stable (MSIX), package-powershell7msix.ps1, the Microsoft MSIX package (single-user).
+
     Downloads the Microsoft-payload MSI of the newest pwsh-distro release that
     publishes one. The MSI holds the unmodified Microsoft binaries in an
     installer that Devolutions signs. It installs to
