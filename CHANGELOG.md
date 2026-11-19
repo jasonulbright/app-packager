@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add the Power BI Desktop (optimized for Power BI Report Server) packager. It is the application that report authors use to create reports for a Power BI Report Server, and it installs next to Power BI Desktop. The version comes from the change log of Power BI Report Server on Microsoft Learn and the installer from the Download Center page of Power BI Report Server. The stage checks the Microsoft signature and stops when the installer reports another version than the change log. NVD has no CPE for this edition, so the CVE columns show `CPE missing`.
+
 ### Changed
 
 - Tableau Desktop, Reader and Prep Builder download from the esdalt path first and try the tssoftware path when the first one fails for any reason: a refused or missing file (403, 404, another HTTP error), a connection failure, a redirect to a sign-in page, or a body that is no installer. The log says which address was used and why the first was skipped; the run fails only when both fail, and the message lists both reasons. Prep uses `esdalt/tableau_prep/<release>/TableauPrep-<release with hyphens>.exe`.

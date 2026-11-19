@@ -1,5 +1,5 @@
 {
-  "PackVersion": "2026.11.19.0016",
+  "PackVersion": "2026.11.19.0017",
   "MinAppVersion": "1.5.0.0",
   "Icons": [
     {
@@ -1165,6 +1165,12 @@
       "Packager": "postman",
       "SourceKind": "InstalledApp",
       "PixelSize": 256
+    },
+    {
+      "File": "powerbi-desktop-report-server.png",
+      "Packager": "powerbi-desktop-report-server",
+      "SourceKind": "PeResource",
+      "PixelSize": 512
     },
     {
       "File": "powerbi-desktop.png",
