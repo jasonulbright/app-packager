@@ -110,7 +110,8 @@ $InstallSwitches    = @('/install', '/quiet', '/norestart', 'ACCEPTEULA=1', 'SEN
 $RunningProcesses   = @('tabprep')
 $ReleasePageUrl     = "https://www.tableau.com/support/releases/prep"
 # {0} is the hyphenated release (2026-2-2), {1} the dotted one (2026.2.2). Tableau serves the same file under two paths:
-# esdalt first, tssoftware when the host answers 404 for the first one (a 403 is no answer and never switches the path).
+# esdalt first; when it fails for any reason (404, 403, another error, a sign-in page, a body that is no installer) the
+# download tries tssoftware, and fails only when both fail.
 $DownloadUrlTemplate = "https://downloads.tableau.com/esdalt/tableau_prep/{1}/TableauPrep-{0}.exe"
 $FallbackUrlTemplate = "https://downloads.tableau.com/tssoftware/TableauPrep-{0}.exe"
 
@@ -297,11 +298,10 @@ function Invoke-StageTableau {
     else {
         $release = Get-LatestTableauRelease
         $localExe = Join-Path $BaseDownloadRoot $release.FileName
+        Write-Log "Download URL                 : $($release.DownloadUrl)"
         if (-not (Test-Path -LiteralPath $localExe)) {
-            $downloadUrl = Select-AvailableDownloadUrl -Urls @($release.DownloadUrl, $release.FallbackUrl) -ExtraCurlArgs (Get-TableauBrowserCurlArgs)
-            Write-Log "Download URL                 : $downloadUrl"
             Write-Log "Downloading $ProductLabel..."
-            Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localExe -ExtraCurlArgs (Get-TableauBrowserCurlArgs)
+            $downloadUrl = Invoke-DownloadFromAddresses -Urls @($release.DownloadUrl, $release.FallbackUrl) -OutFile $localExe -ExtraCurlArgs (Get-TableauBrowserCurlArgs)
             if (-not (Test-Path -LiteralPath $localExe)) { throw "Download produced no file: $downloadUrl" }
         }
         else {
