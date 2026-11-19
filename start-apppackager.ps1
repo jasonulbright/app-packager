@@ -13961,6 +13961,9 @@ function Show-OneClickPlanDialog {
             <DockPanel Margin="16,10,16,10">
                 <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close"
                         Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <Button x:Name="btnCancelRun" DockPanel.Dock="Right" Content="Cancel" Margin="0,0,8,0" Visibility="Collapsed"
+                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
+                        ToolTip="Stops the run after the application in flight."/>
                 <Button x:Name="btnOpenReport" DockPanel.Dock="Right" Content="Open Report" Margin="0,0,8,0" IsEnabled="False"
                         Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 <Button x:Name="btnHistory" DockPanel.Dock="Right" Content="Run History" Margin="0,0,8,0"
@@ -13996,6 +13999,9 @@ function Show-OneClickPlanDialog {
     $btnOpenReport = $dlg.FindName('btnOpenReport')
     $btnHistory = $dlg.FindName('btnHistory')
     $btnClose = $dlg.FindName('btnClose')
+    $btnCancelRun = $dlg.FindName('btnCancelRun')
+    # The dialog covers the window's own Cancel button while a run is active, so the dialog has one that does the same.
+    $mainCancel = $btnCancelPipeline
     $chkForce.IsChecked = $Force
 
     # A package ID or a not-supported message is wider than its column; a
@@ -14150,6 +14156,7 @@ function Show-OneClickPlanDialog {
         $state.Running = $true
         $state.Started = Get-Date
         $btnRun.IsEnabled = $false; $btnPlanOnly.IsEnabled = $false; $chkForce.IsEnabled = $false; $btnClose.IsEnabled = $false
+        $btnCancelRun.IsEnabled = $true; $btnCancelRun.Visibility = 'Visible'
         foreach ($name in 'colInclude', 'colMecm', 'colWsus', 'colIntune') { $dlg.FindName($name).IsReadOnly = $true }
         # The result columns take the place of the destination boxes; with
         # both shown, a result column is narrower than one package ID.
@@ -14167,7 +14174,7 @@ function Show-OneClickPlanDialog {
         # handler's own closure holds are copied into locals so that the tick
         # and done hooks below see them.
         $state = $state; $planRows = $planRows; $gridPlan = $gridPlan
-        $writeReport = $writeReport; $txtSummary = $txtSummary; $btnClose = $btnClose
+        $writeReport = $writeReport; $txtSummary = $txtSummary; $btnClose = $btnClose; $btnCancelRun = $btnCancelRun
 
         # Progress records the background loop writes and the tick copies
         # back into the grid rows.
@@ -14207,6 +14214,7 @@ function Show-OneClickPlanDialog {
             $failed = @($planRows | Where-Object { $_.Outcome -eq 'Failed' }).Count
             $superseded = @($planRows | Where-Object { $_.Outcome -eq 'Superseded' }).Count
             $txtSummary.Text = ('{0}: {1} published, {2} failed{3}. Report: {4}' -f $(if ($canceled) { 'Canceled' } else { 'Complete' }), $published, $failed, $(if ($superseded -gt 0) { ', {0} superseded' -f $superseded } else { '' }), (Split-Path -Leaf $paths.MarkdownPath))
+            $btnCancelRun.Visibility = 'Collapsed'
             $btnClose.IsEnabled = $true
         }.GetNewClosure()
 
@@ -14260,6 +14268,10 @@ function Show-OneClickPlanDialog {
         try { Start-Process explorer.exe -ArgumentList ('"' + $reportFolder + '"') } catch { <# Opening a link or file in the shell is a best-effort convenience. #> $null = $_ }
     }.GetNewClosure())
     $btnClose.Add_Click({ if (-not $state.Running) { $dlg.Close() } }.GetNewClosure())
+    $btnCancelRun.Add_Click({
+        $btnCancelRun.IsEnabled = $false
+        $mainCancel.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+    }.GetNewClosure())
     $dlg.Add_Closing({ param($sender, $e) if ($state.Running) { $e.Cancel = $true } }.GetNewClosure())
 
     & $refresh
