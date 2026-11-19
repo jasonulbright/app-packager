@@ -10017,7 +10017,7 @@ function Invoke-MultiAppPipeline {
                 if ([bool]$State.CancelRequested) {
                     $State.Canceled = $true
                     $State.DoneCount = $i
-                    [void]$State.LogQueue.Enqueue((Get-CancelledSummaryLine -Done $i -Total $n))
+                    [void]$State.LogQueue.Enqueue((Get-RunCancelledLine -Operation $Op -Done $i -Total $n))
                     break
                 }
 
@@ -11072,11 +11072,17 @@ function Invoke-MultiAppPipeline {
                     $State.Canceled = $true
                     $State.DoneCount = $i - 1
                     [void]$State.LogQueue.Enqueue(('Stopped {0} while it was running.' -f $app))
-                    [void]$State.LogQueue.Enqueue((Get-CancelledSummaryLine -Done ($i - 1) -Total $n))
+                    [void]$State.LogQueue.Enqueue((Get-RunCancelledLine -Operation $Op -Done ($i - 1) -Total $n))
                     break
                 }
             }
-            if ($Op -eq 'CheckCve') {
+            # Cancel was pressed while the last product ran, and that product finished. The run is still a cancelled run: it must not log that it finished.
+            if ([bool]$State.CancelRequested -and -not [bool]$State.Canceled) {
+                $State.Canceled = $true
+                $State.DoneCount = $i
+                [void]$State.LogQueue.Enqueue((Get-RunCancelledLine -Operation $Op -Done $i -Total $n))
+            }
+            if ($Op -eq 'CheckCve' -and -not [bool]$State.Canceled) {
                 # Some rows may be left unchecked (NVD limit or timeout); one line says so.
                 $notice = Get-NvdBatchNotice -Total ($counts['Checked'] + $counts['CheckFailed']) -Failed $counts['CheckFailed']
                 if ($notice) {
@@ -11172,7 +11178,8 @@ function Invoke-MultiAppPipeline {
                 Add-LogLine -Message ('Pipeline failed: ' + $doneState.ErrorMsg)
                 $txtStatus.Text = 'Failed.'
             } else {
-                if ($doneState.Counts) {
+                # A cancelled check shows no summary of its partial counts; the cancelled line already said how far it got.
+                if ($doneState.Counts -and -not ([bool]$doneState.Canceled -and $script:BgOperation -in @('CheckLatest', 'CheckCve'))) {
                     $summaryEntries = @($doneState.Counts.GetEnumerator() | Where-Object { $_.Value -gt 0 })
                     if ($summaryEntries.Count -gt 0) {
                         $summaryLabel = switch ($script:BgOperation) {
@@ -11194,7 +11201,7 @@ function Invoke-MultiAppPipeline {
                 # One line with the count of the products that need an update. Check Latest selects nothing, so the line has no selection count.
                 if ($script:BgOperation -eq 'CheckLatest' -and -not [bool]$doneState.Canceled) { Add-LogLine -Message (Get-CheckResultSummaryLine -Check 'Check Latest' -Rows @($script:BgRows)) }
                 if ([bool]$doneState.Canceled) {
-                    $txtStatus.Text = Get-CancelledSummaryLine -Done ([int]$doneState.DoneCount) -Total ([int]$doneState.TotalCount)
+                    $txtStatus.Text = Get-RunCancelledLine -Operation $script:BgOperation -Done ([int]$doneState.DoneCount) -Total ([int]$doneState.TotalCount)
                 }
                 elseif ($doneState.Notice) {
                     $txtStatus.Text = [string]$doneState.Notice
@@ -11998,7 +12005,7 @@ $btnCheckMECM.Add_Click({
             # The selection stays as the user left it.
             Hide-BusyIndicator
             $dataGrid.Items.Refresh()
-            $cmLine = Get-CancelledSummaryLine -Done $cmIndex -Total $cmTotal
+            $cmLine = Get-RunCancelledLine -Operation 'CheckConfigMgr' -Done $cmIndex -Total $cmTotal
             Add-LogLine -Message $cmLine
             $txtStatus.Text = $cmLine
             return
