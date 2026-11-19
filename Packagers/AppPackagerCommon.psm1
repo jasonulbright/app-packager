@@ -410,6 +410,57 @@ function Assert-DownloadAvailable {
 }
 Export-ModuleMember -Function Assert-DownloadAvailable
 
+function Get-DownloadUrlState {
+    <#
+    .SYNOPSIS
+        Asks a download host whether a file address exists: Exists, Missing or Unknown.
+    .DESCRIPTION
+        A range request of the first byte. Exists: status 200 or 206. Missing: 404 or 410. Every other answer, above all 403,
+        is Unknown: a host that refuses a request says nothing about the file, so a 403 is never read as "does not exist".
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Url,
+        [string[]]$ExtraCurlArgs = @()
+    )
+    $code = ''
+    try { $code = ([string]((curl.exe -L --silent --range 0-0 --output NUL --write-out '%{http_code}' --max-time 60 --max-redirs 10 @ExtraCurlArgs (ConvertTo-SafeCurlUrl $Url) 2>$null) -join '')).Trim() } catch { $code = '' }
+    if ($code -in @('200', '206')) { return 'Exists' }
+    if ($code -in @('404', '410')) { return 'Missing' }
+    return 'Unknown'
+}
+Export-ModuleMember -Function Get-DownloadUrlState
+
+function Select-AvailableDownloadUrl {
+    <#
+    .SYNOPSIS
+        The first address of a list that the host does not report as missing.
+    .DESCRIPTION
+        For a vendor that serves one file under two paths. The addresses are tried in order. An address that the host reports as
+        missing (404) is passed over and the next one is tried; an address that exists, or whose answer cannot be told (403, a
+        time-out), is the one to download from: the download then decides, and a 403 never sends the run to the next address.
+        Throws when every address is missing. -Probe replaces the host request (for tests); it takes the address and returns
+        Exists, Missing or Unknown.
+    #>
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string[]]$Urls,
+        [string[]]$ExtraCurlArgs = @(),
+        [scriptblock]$Probe
+    )
+    $tried = @()
+    foreach ($url in @($Urls | Where-Object { $_ })) {
+        $state = if ($Probe) { & $Probe $url } else { Get-DownloadUrlState -Url $url -ExtraCurlArgs $ExtraCurlArgs }
+        if ($state -eq 'Missing') {
+            Write-Log ("Not on the host (404)        : {0}" -f $url) -Level WARN
+            $tried += $url
+            continue
+        }
+        if ($state -eq 'Unknown') { Write-Log ("The host cannot tell (no 404): {0}; downloading from it" -f $url) -Level WARN }
+        return $url
+    }
+    throw ("The installer is not on the host at any of its addresses (404): {0}" -f ($tried -join ', '))
+}
+Export-ModuleMember -Function Select-AvailableDownloadUrl
+
 function Assert-InstallerSignature {
     <#
     .SYNOPSIS
@@ -812,104 +863,6 @@ function Invoke-DownloadWithRetry {
     $msg = "Download failed after $maxAttempts attempt(s) via both curl.exe and Invoke-WebRequest: $Url"
     Write-Log $msg -Level ERROR -Quiet:$Quiet
     throw $msg
-}
-
-function Invoke-ResumableDownload {
-    <#
-    .SYNOPSIS
-        Downloads a large file through curl.exe that resumes after an interruption and logs its progress.
-
-    .DESCRIPTION
-        For an installer of several hundred megabytes over a slow link (Tableau Prep is 1.1 GB). The transfer goes to
-        <OutFile>.part and the file gets its name only when the transfer ended and the size matches the size that
-        the server announced. curl continues an interrupted transfer where it stopped (-C -): an attempt after a lost
-        connection does not start again from zero, and a later run continues the .part file that an earlier run left.
-        The log gets one line every few seconds with the size, the share of the announced size and the speed.
-
-        An answer of the server that no attempt can change (a status of 400 or higher: 403, 404) stops the run at
-        once with that status. Anything else (a lost connection, a time-out) is tried again, up to MaxAttempts.
-        The signature and digest checks of Invoke-DownloadWithRetry run on the finished file. Throws on final failure
-        and keeps the .part file.
-    #>
-    param(
-        [Parameter(Mandatory)][string]$Url,
-        [Parameter(Mandatory)][string]$OutFile,
-        [string[]]$ExtraCurlArgs = @(),
-        [int]$MaxAttempts = 6,
-        [int]$RetryDelaySec = 10,
-        [int]$ProgressSeconds = 15,
-        [switch]$Quiet
-    )
-
-    $Url = ConvertTo-SafeCurlUrl $Url
-    $part = $OutFile + '.part'
-
-    # The announced size, when the server tells it. A server that refuses the HEAD request leaves it unknown.
-    $total = 0L
-    try {
-        $head = & curl.exe -L -I --silent --max-time 60 @ExtraCurlArgs $Url 2>$null
-        foreach ($line in @($head)) { if ([string]$line -match '^(?i)content-length:\s*(\d+)') { $total = [long]$Matches[1] } }
-    }
-    catch { $total = 0L }
-    if ($total -gt 0) { Write-Log ("Announced size              : {0:N0} MB" -f ($total / 1MB)) -Quiet:$Quiet }
-    else { Write-Log "Announced size              : unknown (the server did not answer the size request)" -Quiet:$Quiet }
-
-    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
-        $have = if (Test-Path -LiteralPath $part) { (Get-Item -LiteralPath $part).Length } else { 0L }
-        if ($attempt -gt 1 -or $have -gt 0) {
-            Write-Log ("Download attempt {0} of {1}, continuing at {2:N0} MB" -f $attempt, $MaxAttempts, ($have / 1MB)) -Level $(if ($attempt -gt 1) { 'WARN' } else { 'INFO' }) -Quiet:$Quiet
-        }
-        if ($attempt -gt 1) { Start-Sleep -Seconds $RetryDelaySec }
-
-        $allArgs = @('-L', '--fail', '--silent', '--show-error', '-C', '-') + $ExtraCurlArgs + @('-o', $part, $Url)
-        $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = 'curl.exe'
-        $psi.Arguments = (($allArgs | ForEach-Object { if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ } }) -join ' ')
-        $psi.UseShellExecute = $false
-        $psi.CreateNoWindow = $true
-        $psi.RedirectStandardError = $true
-        $proc = [System.Diagnostics.Process]::Start($psi)
-        $errTask = $proc.StandardError.ReadToEndAsync()
-        $watch = [System.Diagnostics.Stopwatch]::StartNew()
-        $startBytes = $have
-        while (-not $proc.WaitForExit($ProgressSeconds * 1000)) {
-            $now = if (Test-Path -LiteralPath $part) { (Get-Item -LiteralPath $part).Length } else { 0L }
-            $rate = if ($watch.Elapsed.TotalSeconds -gt 0) { ($now - $startBytes) / $watch.Elapsed.TotalSeconds / 1MB } else { 0 }
-            $share = if ($total -gt 0) { ' ({0:N0}%)' -f (100 * $now / $total) } else { '' }
-            Write-Log ("Downloaded                  : {0:N0} MB{1}, {2:N1} MB/s" -f ($now / 1MB), $share, $rate) -Quiet:$Quiet
-        }
-        $proc.WaitForExit()
-        $exitCode = $proc.ExitCode
-        $errText = $errTask.Result
-        $proc.Dispose()
-        $size = if (Test-Path -LiteralPath $part) { (Get-Item -LiteralPath $part).Length } else { 0L }
-
-        # curl answers 33 (range not satisfiable) when the .part file is already the whole file.
-        $complete = ($exitCode -eq 0) -or ($exitCode -eq 33 -and $total -gt 0 -and $size -eq $total)
-        if ($complete) {
-            if ($total -gt 0 -and $size -ne $total) {
-                Write-Log ("The file is {0:N0} bytes but the server announced {1:N0}; the transfer is not complete." -f $size, $total) -Level WARN -Quiet:$Quiet
-                continue
-            }
-            Move-Item -LiteralPath $part -Destination $OutFile -Force
-            Write-Log ("Downloaded                  : {0:N0} MB in this run, finished" -f ($size / 1MB)) -Quiet:$Quiet
-            Test-ReleaseAssetDigest -Url $Url -OutFile $OutFile -Quiet:$Quiet
-            Test-DownloadedInstallerSignature -Path $OutFile -Quiet:$Quiet
-            return
-        }
-
-        if ($exitCode -eq 22) {
-            $status = if ([string]$errText -match 'error:\s*(\d{3})') { $Matches[1] } else { 'an error status' }
-            $msg = "The server answered HTTP $status for $Url. No retry can change that."
-            Write-Log $msg -Level ERROR -Quiet:$Quiet
-            throw $msg
-        }
-        Write-Log ("curl.exe stopped with exit code {0} at {1:N0} MB. {2}" -f $exitCode, ($size / 1MB), ([string]$errText).Trim()) -Level WARN -Quiet:$Quiet
-    }
-
-    $final = "Download failed after $MaxAttempts attempt(s): $Url. The partial file stays at $part and the next run continues it."
-    Write-Log $final -Level ERROR -Quiet:$Quiet
-    throw $final
 }
 
 function Invoke-CachedDownload {

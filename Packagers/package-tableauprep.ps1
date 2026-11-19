@@ -15,23 +15,9 @@ ArpName: Tableau Prep*
     Packages Tableau Prep Builder (x64) for ConfigMgr.
 
 .DESCRIPTION
-    Reads the latest release from the Tableau release pages and downloads the
+    Reads the latest release from the Tableau release page and downloads the
     installer from the Tableau CDN. Both refuse requests that do not carry
-    browser request headers, so every request sends them.
-
-    The Prep page names the release train only (2026.3). The point release comes
-    from the page of Desktop and Reader for the same train (2026.3.1) and from a
-    HEAD probe of the download address: a point release that does not exist is
-    stepped down, one that no page lists yet is found by stepping up. The host
-    answers a request without a sign-in with 403, which says nothing about the
-    file: a 403 never counts as "does not exist", the version stays at what the
-    pages say, and the log says that it was not confirmed. The download then
-    decides and stops with the status if the file is not there.
-
-    The installer is 1.1 GB. The download goes to a .part file, continues where
-    it stopped after a lost connection (also in a later run), logs its size and
-    speed every few seconds, and takes its name only when the size matches the
-    size that the server announced. -SourceFolder stages
+    browser request headers, so every request sends them. -SourceFolder stages
     the newest TableauPrep-<yyyy>-<m>-<p>.exe from a local folder
     instead.
 
@@ -123,13 +109,10 @@ $DisplayNamePattern = "Tableau Prep*"
 $InstallSwitches    = @('/install', '/quiet', '/norestart', 'ACCEPTEULA=1', 'SENDTELEMETRY=0')
 $RunningProcesses   = @('tabprep')
 $ReleasePageUrl     = "https://www.tableau.com/support/releases/prep"
-# The Prep page names the release train (2026.3) and no point release. The page of Tableau Desktop and Reader lists the
-# point release of the same train (2026.3.1), and a probe of the download address settles what the pages do not say.
-$TrainPageUrl       = "https://www.tableau.com/support/releases"
-# {0} is the hyphenated release (2026-3-1), {1} the dotted one (2026.3.1). The path is the one that the Tableau download
-# page itself uses for a signed-in user (the Desktop packager uses the same esdalt host). An earlier template, tssoftware/,
-# was never shown to work: no stage of it ever ran against the vendor host.
+# {0} is the hyphenated release (2026-2-2), {1} the dotted one (2026.2.2). Tableau serves the same file under two paths:
+# esdalt first, tssoftware when the host answers 404 for the first one (a 403 is no answer and never switches the path).
 $DownloadUrlTemplate = "https://downloads.tableau.com/esdalt/tableau_prep/{1}/TableauPrep-{0}.exe"
+$FallbackUrlTemplate = "https://downloads.tableau.com/tssoftware/TableauPrep-{0}.exe"
 
 $VendorFolder = "Tableau"
 $AppFolder    = "Tableau Prep Builder (x64)"
@@ -191,118 +174,6 @@ function Get-TableauVersionFromPage {
 }
 
 
-function Get-TableauTrainPatches {
-    <#
-    .SYNOPSIS
-        The point releases that release page HTML lists for one release train (year.month).
-    .DESCRIPTION
-        Returns the patch numbers (0 for the bare train name, as in 2026.3) found for the train. A page that names only the
-        train gives 0; a page that names 2026.3.1 gives 1 as well.
-    #>
-    param(
-        [Parameter(Mandatory)][AllowEmptyString()][string]$Html,
-        [Parameter(Mandatory)][string]$Train
-    )
-    $parts = $Train -split '\.'
-    $patches = New-Object System.Collections.Generic.List[int]
-    foreach ($m in [regex]::Matches($Html, '\b(20\d{2})\.(\d+)(?:\.(\d+))?\b')) {
-        if ($m.Groups[1].Value -ne $parts[0] -or $m.Groups[2].Value -ne $parts[1]) { continue }
-        $patches.Add($(if ($m.Groups[3].Success) { [int]$m.Groups[3].Value } else { 0 }))
-    }
-    return @($patches | Sort-Object -Unique)
-}
-
-
-function ConvertTo-TableauProbeResult {
-    <#
-    .SYNOPSIS
-        Reads the answer of a HEAD request (status|content type|final address) as Exists, Missing or Unknown.
-    #>
-    param([AllowEmptyString()][string]$Answer)
-    $f = @($Answer -split '\|', 3)
-    if ($f.Count -lt 3) { return 'Unknown' }
-    $code = $f[0]; $type = $f[1]; $effective = $f[2]
-    if ($code -in @('404', '410')) { return 'Missing' }
-    if ($code -in @('200', '206') -and $type -notmatch 'text/html' -and $effective -match '^https://downloads\.tableau\.com/') { return 'Exists' }
-    return 'Unknown'
-}
-
-
-function Test-TableauInstallerUrl {
-    <#
-    .SYNOPSIS
-        Asks the download host whether an installer address exists: Exists, Missing or Unknown.
-    .DESCRIPTION
-        A HEAD request with the browser headers. Exists: status 200 or 206 for a file (not a web page, and not a
-        redirect to a sign-in page). Missing: status 404 or 410. Every other answer, above all 403, is Unknown: the host
-        refuses a request that carries no sign-in, so a 403 says nothing about the file and is never read as "missing".
-    #>
-    param([Parameter(Mandatory)][string]$Url)
-    $out = ''
-    try {
-        $out = ([string]((& curl.exe -I -L --silent --max-time 30 --max-redirs 5 -o NUL -w '%{http_code}|%{content_type}|%{url_effective}' @(Get-TableauBrowserCurlArgs) $Url 2>$null) -join '')).Trim()
-    }
-    catch { return 'Unknown' }
-    return (ConvertTo-TableauProbeResult -Answer $out)
-}
-
-
-function Resolve-TableauPrepVersion {
-    <#
-    .SYNOPSIS
-        The Prep release to package: the newest train of the Prep page with its newest point release.
-    .DESCRIPTION
-        The Prep page names the train only (2026.3). The point release comes from the highest patch that the Prep page or
-        the Desktop and Reader page lists for the same train. The probe (Exists, Missing or Unknown for a version) then
-        settles it: a listed patch that the probe says is Missing is stepped down until one exists; a patch that Exists
-        is stepped up while the next one exists too, so that a point release that no page lists yet is found. A probe that
-        cannot tell (Unknown, the usual answer of the Tableau host to a request without a sign-in) never changes the
-        version: it stays at what the pages say, and the result says that it was not confirmed. Returns Version, State
-        (Exists, Unknown or Missing) and Notes (lines for the log).
-    #>
-    param(
-        [Parameter(Mandatory)][AllowEmptyString()][string]$PrepHtml,
-        [AllowEmptyString()][string]$TrainHtml = '',
-        [Parameter(Mandatory)][scriptblock]$Probe
-    )
-    $notes = New-Object System.Collections.Generic.List[string]
-    $seen = foreach ($m in [regex]::Matches($PrepHtml, '\b(20\d{2})\.(\d+)(?:\.(\d+))?\b')) { [version]('{0}.{1}' -f $m.Groups[1].Value, $m.Groups[2].Value) }
-    $newest = @($seen | Sort-Object -Descending | Select-Object -First 1)
-    if ($newest.Count -eq 0) { return $null }
-    $train = '{0}.{1}' -f $newest[0].Major, $newest[0].Minor
-
-    $patches = @(Get-TableauTrainPatches -Html $PrepHtml -Train $train) + @(Get-TableauTrainPatches -Html $TrainHtml -Train $train)
-    $patch = [int](@($patches | Measure-Object -Maximum).Maximum)
-    $from = if ($patch -gt 0) { 'a page lists it' } else { 'no page lists a point release' }
-    $notes.Add("Release train                : $train; start at $train.$patch ($from)")
-
-    $state = & $Probe "$train.$patch"
-    while ($state -eq 'Missing' -and $patch -gt 0) {
-        $notes.Add("Prep $train.$patch does not exist on the download host; trying $train.$($patch - 1)")
-        $patch--
-        $state = & $Probe "$train.$patch"
-    }
-    if ($state -eq 'Exists') {
-        for ($i = 0; $i -lt 20; $i++) {
-            $next = & $Probe ('{0}.{1}' -f $train, ($patch + 1))
-            if ($next -ne 'Exists') {
-                if ($next -eq 'Unknown') { $notes.Add("The download host cannot tell whether $train.$($patch + 1) exists; staying at $train.$patch") }
-                break
-            }
-            $patch++
-            $notes.Add("A point release that no page lists exists: $train.$patch")
-        }
-    }
-    elseif ($state -eq 'Unknown') {
-        $notes.Add("The download host cannot tell whether Prep $train.$patch exists (it answers a request without a sign-in with 403). The version stays at what the pages say. The download decides: it stops with the status if the file is not there.")
-    }
-    else {
-        $notes.Add("No Prep installer of the train $train exists on the download host.")
-    }
-    return [pscustomobject]@{ Version = ('{0}.{1}' -f $train, $patch); State = $state; Notes = @($notes) }
-}
-
-
 function Get-LatestTableauRelease {
     param([switch]$Quiet)
 
@@ -311,22 +182,13 @@ function Get-LatestTableauRelease {
     $html = (curl.exe -L --fail --silent --show-error @(Get-TableauBrowserCurlArgs) $ReleasePageUrl) -join "`n"
     if ($LASTEXITCODE -ne 0) { throw "Failed to read the Tableau release page: $ReleasePageUrl" }
 
-    # The page of Desktop and Reader lists the point release of the train. When it cannot be read, the probe and the Prep page decide.
-    $trainHtml = ''
-    $trainText = (curl.exe -L --fail --silent --show-error @(Get-TableauBrowserCurlArgs) $TrainPageUrl 2>$null) -join "`n"
-    if ($LASTEXITCODE -eq 0) { $trainHtml = $trainText }
-    else { Write-Log "The release page of Desktop and Reader could not be read ($TrainPageUrl); the Prep page and the probe decide." -Level WARN -Quiet:$Quiet }
-
-    $probe = { param($v) Test-TableauInstallerUrl -Url ($DownloadUrlTemplate -f ($v -replace '\.', '-'), $v) }
-    $resolved = Resolve-TableauPrepVersion -PrepHtml $html -TrainHtml $trainHtml -Probe $probe
-    if (-not $resolved) { throw "No yyyy.m release found on $ReleasePageUrl" }
-    foreach ($line in $resolved.Notes) { Write-Log $line -Level $(if ($resolved.State -eq 'Exists') { 'INFO' } else { 'WARN' }) -Quiet:$Quiet }
-    if ($resolved.State -eq 'Missing') { throw "No Tableau Prep installer exists for the release train of $ReleasePageUrl." }
-    $version = $resolved.Version
+    $version = Get-TableauVersionFromPage -Html $html
+    if (-not $version) { throw "No yyyy.m.p release found on $ReleasePageUrl" }
 
     $url = $DownloadUrlTemplate -f ($version -replace '\.', '-'), $version
-    Write-Log ("Latest release               : {0} ({1})" -f $version, $(if ($resolved.State -eq 'Exists') { 'the download host confirms the file' } else { 'not confirmed by the download host' })) -Quiet:$Quiet
-    return [pscustomobject]@{ Version = $version; DownloadUrl = $url; FileName = [System.IO.Path]::GetFileName($url) }
+    $fallback = $FallbackUrlTemplate -f ($version -replace '\.', '-'), $version
+    Write-Log "Latest release               : $version" -Quiet:$Quiet
+    return [pscustomobject]@{ Version = $version; DownloadUrl = $url; FallbackUrl = $fallback; FileName = [System.IO.Path]::GetFileName($url) }
 }
 
 
@@ -435,11 +297,12 @@ function Invoke-StageTableau {
     else {
         $release = Get-LatestTableauRelease
         $localExe = Join-Path $BaseDownloadRoot $release.FileName
-        Write-Log "Download URL                 : $($release.DownloadUrl)"
         if (-not (Test-Path -LiteralPath $localExe)) {
+            $downloadUrl = Select-AvailableDownloadUrl -Urls @($release.DownloadUrl, $release.FallbackUrl) -ExtraCurlArgs (Get-TableauBrowserCurlArgs)
+            Write-Log "Download URL                 : $downloadUrl"
             Write-Log "Downloading $ProductLabel..."
-            Invoke-ResumableDownload -Url $release.DownloadUrl -OutFile $localExe -ExtraCurlArgs (Get-TableauBrowserCurlArgs)
-            if (-not (Test-Path -LiteralPath $localExe)) { throw "Download produced no file: $($release.DownloadUrl)" }
+            Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localExe -ExtraCurlArgs (Get-TableauBrowserCurlArgs)
+            if (-not (Test-Path -LiteralPath $localExe)) { throw "Download produced no file: $downloadUrl" }
         }
         else {
             Write-Log "Local installer exists. Skipping download."

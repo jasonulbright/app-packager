@@ -11,7 +11,8 @@
 
         # Download
         'Invoke-DownloadWithRetry'
-        'Invoke-ResumableDownload'
+        'Get-DownloadUrlState'
+        'Select-AvailableDownloadUrl'
         'ConvertTo-SafeCurlUrl'
         'Invoke-CachedDownload'
         'Test-IsAppPackagerTestHost'

@@ -109,8 +109,10 @@ $DisplayNamePattern = "Tableau Reader*"
 $InstallSwitches    = @('/install', '/quiet', '/norestart', 'ACCEPTEULA=1', 'SENDTELEMETRY=0')
 $RunningProcesses   = @('tabreader')
 $ReleasePageUrl     = "https://www.tableau.com/support/releases"
-# {0} is the hyphenated release (2026-2-2), {1} the dotted one (2026.2.2).
-$DownloadUrlTemplate = "https://downloads.tableau.com/tssoftware/TableauReader-64bit-{0}.exe"
+# {0} is the hyphenated release (2026-2-2), {1} the dotted one (2026.2.2). Tableau serves the same file under two paths:
+# esdalt first, tssoftware when the host answers 404 for the first one (a 403 is no answer and never switches the path).
+$DownloadUrlTemplate = "https://downloads.tableau.com/esdalt/{1}/TableauReader-64bit-{0}.exe"
+$FallbackUrlTemplate = "https://downloads.tableau.com/tssoftware/TableauReader-64bit-{0}.exe"
 
 $VendorFolder = "Tableau"
 $AppFolder    = "Tableau Reader (x64)"
@@ -184,8 +186,9 @@ function Get-LatestTableauRelease {
     if (-not $version) { throw "No yyyy.m.p release found on $ReleasePageUrl" }
 
     $url = $DownloadUrlTemplate -f ($version -replace '\.', '-'), $version
+    $fallback = $FallbackUrlTemplate -f ($version -replace '\.', '-'), $version
     Write-Log "Latest release               : $version" -Quiet:$Quiet
-    return [pscustomobject]@{ Version = $version; DownloadUrl = $url; FileName = [System.IO.Path]::GetFileName($url) }
+    return [pscustomobject]@{ Version = $version; DownloadUrl = $url; FallbackUrl = $fallback; FileName = [System.IO.Path]::GetFileName($url) }
 }
 
 
@@ -294,11 +297,12 @@ function Invoke-StageTableau {
     else {
         $release = Get-LatestTableauRelease
         $localExe = Join-Path $BaseDownloadRoot $release.FileName
-        Write-Log "Download URL                 : $($release.DownloadUrl)"
         if (-not (Test-Path -LiteralPath $localExe)) {
+            $downloadUrl = Select-AvailableDownloadUrl -Urls @($release.DownloadUrl, $release.FallbackUrl) -ExtraCurlArgs (Get-TableauBrowserCurlArgs)
+            Write-Log "Download URL                 : $downloadUrl"
             Write-Log "Downloading $ProductLabel..."
-            Invoke-DownloadWithRetry -Url $release.DownloadUrl -OutFile $localExe -ExtraCurlArgs (Get-TableauBrowserCurlArgs)
-            if (-not (Test-Path -LiteralPath $localExe)) { throw "Download produced no file: $($release.DownloadUrl)" }
+            Invoke-DownloadWithRetry -Url $downloadUrl -OutFile $localExe -ExtraCurlArgs (Get-TableauBrowserCurlArgs)
+            if (-not (Test-Path -LiteralPath $localExe)) { throw "Download produced no file: $downloadUrl" }
         }
         else {
             Write-Log "Local installer exists. Skipping download."
