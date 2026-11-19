@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](#prerequisites)
 [![License](https://img.shields.io/github/license/jasonulbright/app-packager)](LICENSE)
 
-Automated application packaging for Microsoft Configuration Manager (ConfigMgr) and Intune: 315 enterprise applications, each one click from vendor download to deployed app. AppPackager checks the vendor for the latest version, downloads and verifies the installer, generates silent install/uninstall wrappers and detection rules, and creates the ConfigMgr Application - or builds the `.intunewin` and publishes it to Intune through Graph, or publishes the installer to WSUS as a locally published update, no ConfigMgr site required. Drag any unknown `.msi`/`.exe` onto the window and it analyzes and packages that too. A companion version monitor flags stale deployments and looks up their CVEs. Built entirely in PowerShell 5.1 - the version that ships in the box on every supported Windows release, oldest to newest. Nothing to install, no add-ons, no agents, no subscription.
+Automated application packaging for Microsoft Configuration Manager (ConfigMgr) and Intune: 316 enterprise applications, each one click from vendor download to deployed app. AppPackager checks the vendor for the latest version, downloads and verifies the installer, generates silent install/uninstall wrappers and detection rules, and creates the ConfigMgr Application - or builds the `.intunewin` and publishes it to Intune through Graph, or publishes the installer to WSUS as a locally published update, no ConfigMgr site required. Drag any unknown `.msi`/`.exe` onto the window and it analyzes and packages that too. A companion version monitor flags stale deployments and looks up their CVEs. Built entirely in PowerShell 5.1 - the version that ships in the box on every supported Windows release, oldest to newest. Nothing to install, no add-ons, no agents, no subscription.
 
 View the [user guide](docs/index.md) for every window, dialog and setting.
 
@@ -566,9 +566,9 @@ All packager scripts accept the same core parameters:
 | `-OnExisting` | Passed through to `New-MECMApplicationFromManifest`: `Skip` / `Overwrite` / `Fail`. Outranks `APP_PACKAGER_ON_EXISTING`; unset falls through to that variable and then to `Skip` |
 | `-LogPath` | Path to a structured log file (timestamps + severity levels) |
 
-## Supported Applications (315)
+## Supported Applications (316)
 
-All 315 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same ConfigMgr Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed - a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op.
+All 316 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same ConfigMgr Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed - a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op.
 
 The catalog grew from 108 to 284 across releases 1.4.0.16-1.4.0.24 by porting every viable entry from a 933-application enterprise catalog review. [CATALOG-PARITY.csv](CATALOG-PARITY.csv) records the disposition and reasoning for all 933 entries - what was added, what was already covered, and why each skipped application was skipped (licensed suites, managed agents, end-of-life products, download walls, component libraries, and niche tools, each with evidence). Every packager is verified at stage level with installer magic-byte checks before content is accepted; a core set is additionally end-to-end validated against a live ConfigMgr site.
 
@@ -586,6 +586,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16-1.4.0.24 by porting ev
 | package-anydesk.ps1 | AnyDesk Software GmbH | AnyDesk | File version |
 | package-anypointstudio.ps1 | MuleSoft | Anypoint Studio | File existence |
 | package-appinstaller.ps1 | Microsoft | App Installer (WinGet) | Script (provisioned package version) |
+| package-powershell7msix.ps1 | Microsoft | PowerShell 7 (MSIX) | Script (provisioned package version) |
 | package-apppackagersuite.ps1 | Jason Ulbright | AppPackager Suite (User) | RegistryKeyValue |
 | package-arduinoide.ps1 | Arduino | Arduino IDE | RegistryKeyValue |
 | package-asperaconnect.ps1 | IBM | IBM Aspera Connect (x64) | RegistryKeyValue |
@@ -1222,7 +1223,7 @@ app-packager/
     AppPackagerDiscovery.psd1        # Module manifest
     AppPackagerCmImport.psm1         # ConfigMgr application to Intune Win32 apps: reader, rule translation, variants
     AppPackagerCmImport.psd1         # Module manifest
-    package-7zip.ps1                 # One script per application (315 total)
+    package-7zip.ps1                 # One script per application (316 total)
     package-chrome.ps1
     ...
     retired-packagers.txt            # Packagers removed from the catalog; the updater does not carry them forward

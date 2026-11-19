@@ -240,7 +240,7 @@ Describe 'Packagers that read GitHub releases (guard)' {
             'package-positron.ps1'   = 'The installer is on the vendor CDN; the file is checked before the download.'
         }
         # They read the list of releases and choose in their own code.
-        $script:ListAllowed = @('bitwarden', 'iapdesktop', 'joplin', 'obsidian', 'pwsafe', 'semeru-jdk8', 'semeru-jdk11', 'semeru-jdk17', 'semeru-jre8', 'semeru-jre11', 'semeru-jre17', 'appinstaller', 'devolutionspowershell') | ForEach-Object { "package-$_.ps1" }
+        $script:ListAllowed = @('bitwarden', 'iapdesktop', 'joplin', 'obsidian', 'pwsafe', 'semeru-jdk8', 'semeru-jdk11', 'semeru-jdk17', 'semeru-jre8', 'semeru-jre11', 'semeru-jre17', 'appinstaller', 'devolutionspowershell', 'powershell7msix') | ForEach-Object { "package-$_.ps1" }
     }
 
     It 'reads no releases/latest, except the named packagers' {
