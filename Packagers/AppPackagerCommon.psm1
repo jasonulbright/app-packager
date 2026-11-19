@@ -6692,8 +6692,9 @@ function Resolve-LocalSourceInstaller {
         throw "Installer source folder for $PackagerName not found: $folder.$what"
     }
 
+    # -Filter also matches 8.3 short names, so the name is checked again with -like.
     $candidates = @(Get-ChildItem -LiteralPath $folder -Filter $Filter -File -ErrorAction SilentlyContinue |
-        Where-Object { $name = $_.Name; -not @($Exclude | Where-Object { $name -like $_ }) })
+        Where-Object { $name = $_.Name; $name -like $Filter -and -not @($Exclude | Where-Object { $name -like $_ }) })
     if ($candidates.Count -eq 0) {
         $zipNote = ''
         if (@(Get-ChildItem -LiteralPath $folder -Filter '*.zip' -File -ErrorAction SilentlyContinue).Count -gt 0) {

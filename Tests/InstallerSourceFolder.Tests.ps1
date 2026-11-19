@@ -179,6 +179,16 @@ Describe 'Get-TeamViewerHostMsiArguments' {
         $arguments | Should -Contain 'REMOVE=f.DesktopShortcut'
     }
 
+    It 'refuses a space in the token or the config id, and a trailing backslash in the options' {
+        { Get-TeamViewerHostMsiArguments -Config ([pscustomobject]@{ ApiToken = 'a b' }) } | Should -Throw '*ApiToken*'
+        { Get-TeamViewerHostMsiArguments -Config ([pscustomobject]@{ CustomConfigId = 'a b' }) } | Should -Throw '*CustomConfigId*'
+        { Get-TeamViewerHostMsiArguments -Config ([pscustomobject]@{ AssignmentOptions = '--x\' }) } | Should -Throw '*backslash*'
+    }
+
+    It 'reads the desktop shortcut flag from a text value too' {
+        @(Get-TeamViewerHostMsiArguments -Config ([pscustomobject]@{ RemoveDesktopShortcut = 'true' })) | Should -Contain 'DESKTOPSHORTCUTS=0'
+    }
+
     It 'refuses a value with a double quote' {
         { Get-TeamViewerHostMsiArguments -Config ([pscustomobject]@{ ApiToken = 'a"b' }) } | Should -Throw '*double quote*'
     }

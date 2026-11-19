@@ -199,12 +199,21 @@ function Get-TeamViewerHostMsiArguments {
     }
 
     $token = & $text 'ApiToken'
-    if ($token) { $arguments.Add("APITOKEN=$token") }
+    if ($token) {
+        if ($token -notmatch '^\S+$') { throw 'teamviewer-host-config.json: the value of ApiToken holds a space.' }
+        $arguments.Add("APITOKEN=$token")
+    }
     $configId = & $text 'CustomConfigId'
-    if ($configId) { $arguments.Add("CUSTOMCONFIGID=$configId") }
+    if ($configId) {
+        if ($configId -notmatch '^\S+$') { throw 'teamviewer-host-config.json: the value of CustomConfigId holds a space.' }
+        $arguments.Add("CUSTOMCONFIGID=$configId")
+    }
     $options = & $text 'AssignmentOptions'
-    if ($options) { $arguments.Add("ASSIGNMENTOPTIONS=`"$options`"") }
-    if ($Config.PSObject.Properties['RemoveDesktopShortcut'] -and $Config.RemoveDesktopShortcut -eq $true) {
+    if ($options) {
+        if ($options.EndsWith('\')) { throw 'teamviewer-host-config.json: the value of AssignmentOptions ends with a backslash.' }
+        $arguments.Add("ASSIGNMENTOPTIONS=`"$options`"")
+    }
+    if ($Config.PSObject.Properties['RemoveDesktopShortcut'] -and ([string]$Config.RemoveDesktopShortcut) -match '^(true|1)$') {
         $arguments.Add('DESKTOPSHORTCUTS=0')
         $arguments.Add('ADDLOCAL=ALL')
         $arguments.Add('REMOVE=f.DesktopShortcut')
@@ -305,11 +314,11 @@ function Invoke-StageTeamViewerHost {
     Write-Log "Detection                    : Add/Remove Programs entry 'TeamViewer Host*' (Windows Installer, both views), DisplayVersion >= $version"
     Write-Log ""
 
+    # The WSUS publish builds its command line from this field, so it holds real values only. The token stays out of
+    # it (it is in install.ps1 only); a WSUS package installs without the token.
     $installArgsText = "/qn /norestart"
-    if ($extraArguments.Count -gt 0) {
-        # The manifest is shown in the app: the property names, never their values.
-        $installArgsText += ' ' + (($extraArguments | ForEach-Object { ($_ -split '=', 2)[0] + '=...' }) -join ' ')
-    }
+    $manifestArguments = @($extraArguments | Where-Object { $_ -notlike 'APITOKEN=*' })
+    if ($manifestArguments.Count -gt 0) { $installArgsText += ' ' + ($manifestArguments -join ' ') }
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
     Write-StageManifest -Path $manifestPath -ManifestData @{
