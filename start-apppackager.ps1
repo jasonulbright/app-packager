@@ -2007,6 +2007,106 @@ function Get-ExistingConflictFromOutput {
     }
 }
 
+function Get-SupersedenceLockedTitleMode {
+    # The title lock: an application with supersedence on carries the version in its title, because this release and the
+    # older one must be separate applications. Any other application keeps its own title mode.
+    param([Parameter(Mandatory)][string]$PackagerPath, [AllowEmptyString()][string]$TitleMode = '')
+    if ($null -eq $global:SupersedenceTitleBefore) { $global:SupersedenceTitleBefore = @{} }
+    $global:SupersedenceTitleBefore[$PackagerPath] = $TitleMode
+    try {
+        $applicationId = [string](New-ApplicationId -Kind Catalog -ScriptPath $PackagerPath)
+        $resolved = Resolve-Supersedence -Settings (Get-SupersedenceSettings) -ApplicationId $applicationId -CommandLine (Get-SupersedenceCommandLine)
+        if ([string]$resolved.Mode.Value -ne 'Off') { return 'IncludeVersion' }
+    }
+    catch { $null = $_ }
+    return $TitleMode
+}
+
+function Get-SupersedenceRunAnswer {
+    <#
+    .SYNOPSIS
+        The confirmation of the supersedence for one application of a Package run. Returns Answer ('Yes', 'Skip' or '' when
+        nobody needed to be asked) and Cancel (the operator stopped the run).
+    .DESCRIPTION
+        Supersedence is a setting of the application (Off by default). When it is on and the title holds the version, the older
+        version (same title without the version, same vendor, the highest version below this one) is looked up first. When one is
+        found, the operator is asked: Yes applies it, Skip packages the application without it, No stops the run. Remember
+        keeps the answer for the other applications of the run. The question belongs to the UI thread, so the request is
+        parked on the run state, as the overwrite question of an existing application is.
+    #>
+    param(
+        [Parameter(Mandatory)][hashtable]$State,
+        [Parameter(Mandatory)][string]$AppLabel,
+        [Parameter(Mandatory)][hashtable]$PackageArgs,
+        [Parameter(Mandatory)]$Identity
+    )
+    $outcome = { param($answer, $cancel = $false) [pscustomobject]@{ Answer = $answer; Cancel = $cancel } }
+    try {
+        $applicationId = [string](New-ApplicationId -Kind Catalog -ScriptPath ([string]$PackageArgs.PackagerPath))
+        $resolved = Resolve-Supersedence -Settings (Get-SupersedenceSettings) -ApplicationId $applicationId -CommandLine (Get-SupersedenceCommandLine)
+        $mode = [string]$resolved.Mode.Value
+        if ($mode -eq 'Off') { return (& $outcome '') }
+        if (-not (Test-SupersedenceVersionInTitle -Title ([string]$Identity.AppName) -Version ([string]$Identity.Version))) {
+            [void]$State.LogQueue.Enqueue(('Supersedence: {0}: not offered, the title holds no version, so the older version is the same application.' -f $AppLabel))
+            return (& $outcome '')
+        }
+        # The older application, found with the query of Check ConfigMgr (title and vendor). The stage manifest gives the vendor and the title before the lock.
+        $vendor = ''
+        $notice = ''
+        $manifestPath = Find-NewestStageManifestForPackager -PackagerPath ([string]$PackageArgs.PackagerPath) -DownloadRoot ([string]$PackageArgs.DownloadRoot)
+        if ($manifestPath) {
+            try {
+                $plain = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                $vendor = [string]$plain.Publisher
+                $before = [string]$global:SupersedenceTitleBefore[[string]$PackageArgs.PackagerPath]
+                $titleBefore = $(if ($before -in @('NoVersion', 'IncludeVersion')) { Get-PackagedApplicationName -AppName ([string]$plain.AppName) -Version ([string]$Identity.Version) -Mode $before } else { [string]$plain.AppName })
+                if ($before -ne 'IncludeVersion' -and -not (Test-SupersedenceVersionInTitle -Title $titleBefore -Version ([string]$Identity.Version))) { $notice = Get-SupersedenceTitleNotice -Title $titleBefore }
+            } catch { $notice = '' }
+        }
+        if ($notice) { [void]$State.LogQueue.Enqueue($notice) }
+        $remembered = [string]$State.SupersedenceDecisionForAll
+        if ($remembered -in @('Yes', 'Skip')) { return (& $outcome $remembered) }
+        $baseTitle = Get-SupersedenceBaseTitle -AppName ([string]$Identity.AppName) -Version ([string]$Identity.Version)
+        $found = $null
+        $saved = Get-Location
+        try {
+            if (-not [bool](Connect-CMSite -SiteCode ([string]$PackageArgs.SiteCode) -ProviderMachineName ([string]$PackageArgs.ProviderMachineName))) { throw ('the connection to site {0} failed.' -f $PackageArgs.SiteCode) }
+            Set-Location ('{0}:' -f $PackageArgs.SiteCode) -ErrorAction Stop
+            $found = Find-SupersedenceOldApplication -BaseTitle $baseTitle -Vendor $vendor -NewApplicationName ([string]$Identity.AppName) -NewVersion ([string]$Identity.Version)
+        }
+        finally { Set-Location -LiteralPath $saved.Path -ErrorAction SilentlyContinue }
+        if ($null -eq $found.Old) {
+            [void]$State.LogQueue.Enqueue(('Supersedence: {0}: {1}' -f $AppLabel, $found.Summary))
+            return (& $outcome '')
+        }
+
+        $State.SupersedenceResponse = $null
+        $State.SupersedenceRequest = [pscustomobject]@{
+            AppLabel = $AppLabel; NewTitle = [string]$Identity.AppName; NewVersion = [string]$Identity.Version
+            OldTitle = [string]$found.Old.Title; OldVersion = [string]$found.Old.SoftwareVersion; Mode = $mode; Notice = $notice
+        }
+        while ($null -eq $State.SupersedenceResponse -and -not [bool]$State.CancelRequested) {
+            $State.Step = ('Waiting for the supersedence answer: {0}' -f $AppLabel)
+            Start-Sleep -Milliseconds 150
+        }
+        $answer = $State.SupersedenceResponse
+        $State.SupersedenceRequest = $null
+        $State.SupersedenceResponse = $null
+        if ($null -eq $answer -or [string]$answer.Choice -eq 'No') {
+            [void]$State.LogQueue.Enqueue(('Supersedence: {0}: run stopped at the operator''s request.' -f $AppLabel))
+            return (& $outcome '' $true)
+        }
+        if ([bool]$answer.Remember) { $State.SupersedenceDecisionForAll = [string]$answer.Choice }
+        [void]$State.LogQueue.Enqueue(('Supersedence: {0}: {1} (older version: {2} {3}).' -f $AppLabel, $(if ([string]$answer.Choice -eq 'Yes') { 'confirmed' } else { 'skipped' }), $found.Old.Title, $found.Old.SoftwareVersion))
+        return (& $outcome ([string]$answer.Choice))
+    }
+    catch {
+        # A failed lookup never stops the package: the application is packaged without the supersedence.
+        [void]$State.LogQueue.Enqueue(('Supersedence: {0}: not offered, the lookup failed: {1}' -f $AppLabel, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
+        return (& $outcome '')
+    }
+}
+
 function Invoke-PackagerPackageWithConflictPrompt {
     # Probe the exact manifest selected by the packager before share/site
     # writes, then ask about any exact-name collision, regardless of version.
@@ -2030,7 +2130,16 @@ function Invoke-PackagerPackageWithConflictPrompt {
     $identityMatch = [regex]::Match([string]$res.StdOut, '(?m)^\[APP_PACKAGER_PREFLIGHT\] (.+)$')
     if (-not $identityMatch.Success) { throw 'Package preflight did not return an application identity; refusing to package without a conflict check.' }
     $identity = $identityMatch.Groups[1].Value | ConvertFrom-Json -ErrorAction Stop
-    $existing = Get-MecmCurrentVersionByCMName -SiteCode $PackageArgs.SiteCode -ProviderMachineName $PackageArgs.ProviderMachineName -CMName $identity.AppName -ExactMatch
+    # Supersedence: asked once for this application, before anything is written. No cancels the whole run.
+    $supersede = Get-SupersedenceRunAnswer -State $State -AppLabel $AppLabel -PackageArgs $PackageArgs -Identity $identity
+    if ($supersede.Cancel) {
+        $State.CancelRequested = $true
+        $State.Canceled = $true
+        $res | Add-Member -NotePropertyName PackageOutcome -NotePropertyValue 'Canceled' -Force
+        return $res
+    }
+    $PackageArgs['SupersedenceAnswer'] = [string]$supersede.Answer
+    $existing =Get-MecmCurrentVersionByCMName -SiteCode $PackageArgs.SiteCode -ProviderMachineName $PackageArgs.ProviderMachineName -CMName $identity.AppName -ExactMatch
     if ([bool]$State.CancelRequested) {
         $State.Canceled = $true
         $res | Add-Member -NotePropertyName PackageOutcome -NotePropertyValue 'Canceled' -Force
@@ -2338,49 +2447,6 @@ function Get-OneClickObservedSkipReason {
     if ($Force -or [string]::IsNullOrWhiteSpace($Observed) -or [string]::IsNullOrWhiteSpace($Latest)) { return '' }
     if ((Compare-SemVer -A $Observed -B $Latest) -gt 0) { return ('{0}: site holds {1}, newer than {2}' -f $Destination, $Observed, $Latest) }
     return ''
-}
-
-function Invoke-OneClickSupersedencePass {
-    # The supersedence-only pass of One Click for one application whose version is on the site and whose supersedence
-    # step failed at the publish. It runs the lookup of the older application and the supersedence step, and nothing
-    # else: it stages nothing and publishes nothing. The identity marker comes from the manifest of the last stage; the
-    # mode and the version rule resolve as at a publish. Status is NotRun, NoOlderVersion, Applied or NotApplied. It never throws.
-    param(
-        [Parameter(Mandatory)][string]$ApplicationName,
-        [Parameter(Mandatory)][string]$Version,
-        [Parameter(Mandatory)][string]$PackagerPath,
-        [AllowEmptyString()][string]$DownloadRoot = '',
-        [Parameter(Mandatory)][string]$SiteCode,
-        [AllowEmptyString()][string]$ProviderMachineName = ''
-    )
-    $lines = New-Object System.Collections.Generic.List[string]
-    $result = { param($status, $message, $warnings = @()) [pscustomobject]@{ Status = $status; Message = $message; Warnings = @($warnings); Lines = @($lines) } }
-    $savedLocation = Get-Location
-    try {
-        $manifestPath = Find-NewestStageManifestForPackager -PackagerPath $PackagerPath -DownloadRoot $DownloadRoot
-        if ([string]::IsNullOrWhiteSpace($manifestPath) -or -not (Test-Path -LiteralPath $manifestPath)) {
-            return (& $result 'NotApplied' 'stage-manifest.json not found, so the identity of the application line cannot be read. Stage the application once.')
-        }
-        $manifest = Read-StageManifest -Path $manifestPath
-        $contentPath = Split-Path -Parent $manifestPath
-        $fallbackId = 'catalog:' + [System.IO.Path]::GetFileNameWithoutExtension($PackagerPath)
-        $plan = Get-SupersedencePlan -Manifest $manifest -Settings (Get-SupersedenceSettings) -CommandLine (Get-SupersedenceCommandLine) `
-            -MsiProductVersion { param($m) Get-SupersedenceMsiProductVersion -Manifest $m -ContentPath $contentPath }.GetNewClosure() `
-            -FallbackApplicationId $fallbackId
-        foreach ($line in $plan.Log) { $lines.Add([string]$line) }
-        if ($plan.Refusal) { return (& $result 'NotApplied' ([string]$plan.Refusal)) }
-        if ($plan.Mode -eq 'Off') { return (& $result 'NotRun' 'the supersedence mode is Off.') }
-        if ([string]::IsNullOrWhiteSpace([string]$plan.Marker)) { return (& $result 'NotRun' 'the application has no identity marker.') }
-        if (-not [bool](Connect-CMSite -SiteCode $SiteCode -ProviderMachineName $ProviderMachineName)) {
-            return (& $result 'NotApplied' ('the connection to site {0} failed.' -f $SiteCode))
-        }
-        Set-Location ('{0}:' -f $SiteCode) -ErrorAction Stop
-        # The application of this title and version must be on the site, or nothing is applied.
-        $step = Invoke-SupersedenceStep -NewApplicationName $ApplicationName -NewVersion $Version -Marker ([string]$plan.Marker) -Mode ([string]$plan.Mode) -RequirePublished
-        return (& $result ([string]$step.Status) ([string]$step.Message) @($step.Warnings))
-    }
-    catch { return (& $result 'NotApplied' (Get-UserErrorText -ErrorRecord $_ -Fallback 'the supersedence step failed. See the log file.')) }
-    finally { Set-Location $savedLocation -ErrorAction SilentlyContinue }
 }
 
 function Get-MecmCurrentVersionByCMName {
@@ -2740,6 +2806,7 @@ function Invoke-PackagerPackage {
         [string]$CommandsJson = '',
         [ValidateSet('', 'Skip', 'Overwrite', 'Fail')][string]$OnExisting = '',
         [ValidateSet('', 'Default', 'IncludeVersion', 'NoVersion')][string]$TitleMode = '',
+        [ValidateSet('', 'Yes', 'Skip')][string]$SupersedenceAnswer = '',
         [switch]$Preflight,
         [string]$InstallMode = '',
         [string]$RunSnapshotPath = '',
@@ -2800,6 +2867,8 @@ function Invoke-PackagerPackage {
     $psi.CreateNoWindow  = $true
     Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName -RequirementsJson $RequirementsJson -VariantsJson $VariantsJson -CommandsJson $CommandsJson -OnExisting $OnExisting -InstallMode $InstallMode -RunSnapshotPath $RunSnapshotPath -SigningJson $SigningJson -WorkbenchDataRoot $WorkbenchDataRoot -DownloadRoot $DownloadRoot -BuildId $BuildId -StageManifestPath $selectedManifestPath
     $psi.EnvironmentVariables['APP_PACKAGER_TITLE_MODE'] = $TitleMode
+    # Only a confirmed Yes applies a supersedence; a run that nobody was asked in (One Click, the command line) never does.
+    $psi.EnvironmentVariables['APP_PACKAGER_SUPERSEDENCE_ANSWER'] = $(if ($SupersedenceAnswer -eq 'Yes') { 'Yes' } else { 'Skip' })
     $psi.EnvironmentVariables['APP_PACKAGER_PACKAGE_PREFLIGHT'] = $(if ($Preflight) { '1' } else { '0' })
 
     $result = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog $outLog -ErrLog $errLog -StructuredLog $structuredLog -LogTextBox $LogTextBox
@@ -2822,7 +2891,7 @@ function Invoke-PackagerPackage {
             $result | Add-Member -NotePropertyName IntunePublish -NotePropertyValue ([pscustomobject]@{ Ok = $false; Message = 'Intune credentials not configured; set Tenant ID, Client ID and Client secret in Options, Connections, Intune.' }) -Force
         }
         if ($publishesToIntune -and $IntunePublishConfig -and $intuneNote.Ok) {
-            $pubNote = Invoke-PackagerIntunePublish -IntuneNote $intuneNote -Config $IntunePublishConfig -Comment $Comment -RequirementsJson $RequirementsJson
+            $pubNote = Invoke-PackagerIntunePublish -IntuneNote $intuneNote -Config $IntunePublishConfig -Comment $Comment -RequirementsJson $RequirementsJson -SupersedenceAnswer $SupersedenceAnswer
             $result | Add-Member -NotePropertyName IntunePublish -NotePropertyValue $pubNote -Force
         }
         if ($intuneNote) {
@@ -2848,7 +2917,9 @@ function Invoke-PackagerIntunePublish {
         [Parameter(Mandatory)][hashtable]$Config,
         [AllowEmptyString()][string]$Comment = '',
         # The APP_PACKAGER_REQUIREMENTS JSON of the run: the saved deployment conditions of the app.
-        [AllowEmptyString()][string]$RequirementsJson = ''
+        [AllowEmptyString()][string]$RequirementsJson = '',
+        # Yes when the operator confirmed the supersedence for this run; anything else applies none.
+        [AllowEmptyString()][string]$SupersedenceAnswer = ''
     )
     $pubNote = [pscustomobject]@{ Ok = $false; Message = ''; AppId = ''; SupersedenceLog = @() }
     try {
@@ -2857,8 +2928,7 @@ function Invoke-PackagerIntunePublish {
             $pubNote.Message = 'variant-split app; Intune publish skipped (single-payload apps only for now).'
         }
         else {
-            # The Intune version rule (Exact writes the operator equal). A refused plan publishes nothing. Intune
-            # supersedence is not available, so only the version rule applies here.
+            # The Intune version rule (Exact writes the operator equal). A refused plan publishes nothing.
             $contentPath = Split-Path -Parent $IntuneNote.ManifestPath
             $supersedencePlan = Get-SupersedencePlan -Manifest $manifest -Settings (Get-SupersedenceSettings) -CommandLine (Get-SupersedenceCommandLine) `
                 -PublishesToConfigMgr $false -PublishesToIntune $true `
@@ -2883,6 +2953,14 @@ function Invoke-PackagerIntunePublish {
             $pubNote.Ok = $true
             $pubNote.AppId = [string]$pubId
             $pubNote.Message = ('published (app id {0})' -f $pubId)
+            # Supersedence: the older app of the same publisher and title, only when it is on for this application, the title holds
+            # the version and the operator confirmed it. A failure here never undoes the published app.
+            if ([string]$supersedencePlan.Mode -ne 'Off' -and $SupersedenceAnswer -eq 'Yes' -and (Test-SupersedenceVersionInTitle -Title ([string]$manifest.AppName) -Version ([string]$manifest.SoftwareVersion))) {
+                $graphToken = Get-MsGraphToken -TenantId $Config.TenantId -ClientId $Config.ClientId -ClientSecret $Config.ClientSecret
+                $supStep = Invoke-IntuneSupersedenceStep -Token $graphToken -AppId ([string]$pubId) -NewTitle ([string]$manifest.AppName) -NewVersion ([string]$manifest.SoftwareVersion) -Publisher ([string]$manifest.Publisher) -Mode ([string]$supersedencePlan.Mode)
+                $pubNote.SupersedenceLog += ('Intune supersedence: {0}: {1}' -f $supStep.Status, $supStep.Message)
+                if ($supStep.Status -in @('Applied', 'NoOlderVersion', 'NotApplied')) { $pubNote.Message += ('; supersedence {0}: {1}' -f $supStep.Status, $supStep.Message) }
+            }
         }
     }
     catch {
@@ -5465,14 +5543,11 @@ $btnCheckCve     = $window.FindName('btnCheckCve')
 $btnCveReport    = $window.FindName('btnCveReport')
 $btnStage        = $window.FindName('btnStage')
 $btnPackage      = $window.FindName('btnPackage')
-$btnApplySupersedence = $window.FindName('btnApplySupersedence')
 $btnPublishIntune = $window.FindName('btnPublishIntune')
 $btnPublishWsus  = $window.FindName('btnPublishWsus')
 $btnWsusUpdates  = $window.FindName('btnWsusUpdates')
 $btnAddInstaller = $window.FindName('btnAddInstaller')
 $btnConvertCm    = $window.FindName('btnConvertCm')
-$btnRewriteOld   = $window.FindName('btnRewriteOld')
-$btnRestoreOld   = $window.FindName('btnRestoreOld')
 $btnWorkbench    = $window.FindName('btnWorkbench')
 $btnFullRun      = $window.FindName('btnFullRun')
 $btnOptions      = $window.FindName('btnOptions')
@@ -5508,7 +5583,7 @@ $btnCancelPipeline = $window.FindName('btnCancelPipeline')
 [ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($window, "Dark.Steel")
 
 # Palette and button/label theming come from SuiteCommon.
-$script:WorkflowButtons = @($btnFullRun, $btnCheckLatest, $btnCheckMECM, $btnDiscover, $btnConvertCm, $btnRewriteOld, $btnRestoreOld, $btnCheckCve, $btnStage, $btnPackage, $btnApplySupersedence, $btnPublishIntune, $btnPublishWsus, $btnWsusUpdates, $btnCveReport, $btnWorkbench, $btnAddInstaller)
+$script:WorkflowButtons = @($btnFullRun, $btnCheckLatest, $btnCheckMECM, $btnDiscover, $btnConvertCm, $btnCheckCve, $btnStage, $btnPackage, $btnPublishIntune, $btnPublishWsus, $btnWsusUpdates, $btnCveReport, $btnWorkbench, $btnAddInstaller)
 $script:OptionsButtons  = @($btnOptions)
 
 Initialize-SuiteTheme -Window $window `
@@ -5683,10 +5758,6 @@ $menuCopyLatestVersion.Header = "Copy Latest Version"
 $menuEditApplication = New-Object System.Windows.Controls.MenuItem
 $menuEditApplication.Header = "Edit application..."
 
-$menuOldApplication = New-Object System.Windows.Controls.MenuItem
-$menuOldApplication.Header = "Use as old application..."
-$menuOldApplication.ToolTip = "Link an application of the site as the older version of this one for supersedence."
-
 # The CVE source submenu is rebuilt for the selected row each time the menu opens.
 $menuOpenCveSources = New-Object System.Windows.Controls.MenuItem
 $menuOpenCveSources.Header = "Open CVE Sources"
@@ -5696,7 +5767,6 @@ $menuCopyCveIds.Header = "Copy CVE IDs"
 $menuSep0 = New-Object System.Windows.Controls.Separator
 
 $contextMenu.Items.Add($menuEditApplication) | Out-Null
-$contextMenu.Items.Add($menuOldApplication) | Out-Null
 $contextMenu.Items.Add($menuSep0) | Out-Null
 $contextMenu.Items.Add($menuOpenLogFolder) | Out-Null
 $contextMenu.Items.Add($menuOpenStagedFolder) | Out-Null
@@ -5715,12 +5785,6 @@ $menuEditApplication.Add_Click({
     $base = ''
     if ($row) { $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script) }
     Show-ApplicationWorkbench -Owner $window -PreselectPackagerBase $base
-})
-
-$menuOldApplication.Add_Click({
-    $row = $dataGrid.SelectedItem
-    if (-not $row) { return }
-    Open-OldApplicationDialog -Owner $window -Row $row
 })
 
 $dataGrid.Add_MouseDoubleClick({
@@ -5863,13 +5927,10 @@ function Set-ActionButtonsEnabled {
     $btnCheckMECM.IsEnabled     = $Enabled
     $btnDiscover.IsEnabled      = $Enabled
     $btnConvertCm.IsEnabled     = $Enabled
-    $btnRewriteOld.IsEnabled    = $Enabled
-    $btnRestoreOld.IsEnabled    = $Enabled
     $btnCheckCve.IsEnabled      = $Enabled
     $btnCveReport.IsEnabled     = $Enabled
     $btnStage.IsEnabled         = $Enabled
     $btnPackage.IsEnabled       = $Enabled
-    $btnApplySupersedence.IsEnabled = $Enabled
     $btnPublishIntune.IsEnabled = $Enabled
     $btnPublishWsus.IsEnabled   = $Enabled
     $btnWsusUpdates.IsEnabled   = $Enabled
@@ -5921,28 +5982,7 @@ function Get-SidebarSystemState {
     if (-not $mecmInUse) { $convertReason = 'ConfigMgr is ' + $notInUse }
     elseif (-not $consoleFound) { $convertReason = 'Needs the ConfigMgr console on this computer.' }
 
-    # Apply Supersedence needs the same site as the ConfigMgr publish, and a supersedence mode other than Off: the site
-    # default, or the override of one title. A title override cannot be read from here for one row, so one override that
-    # turns the mode on keeps the button available and the run refuses a title whose own mode is Off.
-    $supersedenceReason = $mecmReason
-    if (-not $supersedenceReason) {
-        $supersedence = $Prefs.Supersedence
-        $siteMode = $(if ($supersedence) { ([string]$supersedence.Mode).Trim() } else { '' })
-        $titleModeOn = $false
-        if ($supersedence -and $supersedence.TitleOverrides) {
-            foreach ($entry in $supersedence.TitleOverrides.PSObject.Properties) {
-                $overrideMode = $(if ($entry.Value) { ([string]$entry.Value.Mode).Trim() } else { '' })
-                if ($overrideMode -and $overrideMode -ne 'Off') { $titleModeOn = $true; break }
-            }
-        }
-        if ((-not $siteMode -or $siteMode -eq 'Off') -and -not $titleModeOn) {
-            $supersedenceReason = 'Supersedence is Off. Set the supersedence mode in Options, Packaging, Supersedence.'
-        }
-    }
-
     return @{
-        ApplySupersedenceEnabled = (-not $supersedenceReason)
-        ApplySupersedenceToolTip = $(if ($supersedenceReason) { 'Apply Supersedence: ' + $supersedenceReason } else { 'Set the supersedence relation from each checked application to the older version of its product line on the ConfigMgr site, without a new publish. The application must be published already.' })
         ConvertCmEnabled     = (-not $convertReason)
         ConvertCmToolTip     = $(if ($convertReason) { 'Convert ConfigMgr App to Intune: ' + $convertReason } else { 'Convert an existing ConfigMgr application to Intune Win32 apps, one app for each deployment type. It reads ConfigMgr and changes nothing there.' })
         DiscoverEnabled      = (-not $discoverReason)
@@ -5951,10 +5991,6 @@ function Get-SidebarSystemState {
         CheckMecmToolTip     = $(if ($mecmReason) { 'Check ConfigMgr: ' + $mecmReason } else { 'Query ConfigMgr for the currently deployed version of each checked app' })
         MecmEnabled          = (-not $mecmReason)
         MecmToolTip          = $(if ($mecmReason) { 'Publish to ConfigMgr: ' + $mecmReason } else { 'Build a ConfigMgr Application and Deployment Type for every checked app' })
-        RewriteEnabled       = (-not $mecmReason)
-        RewriteToolTip       = $(if ($mecmReason) { 'Rewrite Old Versions: ' + $mecmReason } else { 'Change the version clause of the older applications of the checked application''s product line from GreaterEquals to IsEquals, so that the uninstall through supersedence is reported as successful. Shows the plan first and keeps a log; Undo restores the old operator. Check one application.' })
-        RestoreEnabled       = (-not $mecmReason)
-        RestoreToolTip       = $(if ($mecmReason) { 'Restore Old Versions: ' + $mecmReason } else { 'Write the old operator back on the older applications of the checked application''s product line, from the log of an earlier Rewrite Old Versions. Only the rewrites of this line. Shows the plan first. Check one application.' })
         IntuneEnabled        = $intuneReady
         IntuneToolTip        = $(if ($intuneReady) { 'Stage every checked app, build its .intunewin, and publish it to Intune' } else { 'Publish to Intune: ' + $intuneReason })
         WsusEnabled          = $wsusReady
@@ -5988,8 +6024,8 @@ function Update-SidebarForSystems {
     # setting unless this assignment also enables it; a running pipeline
     # keeps every button disabled through $script:ActionButtonsEnabled.
     $pairs = @(
-        @($btnCheckMECM, 'CheckMecm'), @($btnDiscover, 'Discover'), @($btnConvertCm, 'ConvertCm'), @($btnPackage, 'Mecm'), @($btnApplySupersedence, 'ApplySupersedence'), @($btnPublishIntune, 'Intune'),
-        @($btnPublishWsus, 'Wsus'), @($btnWsusUpdates, 'WsusUpdates'), @($btnRewriteOld, 'Rewrite'), @($btnRestoreOld, 'Restore')
+        @($btnCheckMECM, 'CheckMecm'), @($btnDiscover, 'Discover'), @($btnConvertCm, 'ConvertCm'), @($btnPackage, 'Mecm'), @($btnPublishIntune, 'Intune'),
+        @($btnPublishWsus, 'Wsus'), @($btnWsusUpdates, 'WsusUpdates')
     )
     foreach ($pair in $pairs) {
         $button = $pair[0]
@@ -6779,6 +6815,71 @@ function Show-CommandOverrideDialog {
     return $result
 }
 
+function Show-SupersedenceConfirmDialog {
+    # Modal confirmation before the supersedence is applied. Returns @{ Choice = 'Yes'|'Skip'|'No'; Remember = [bool] }.
+    # Yes applies the supersedence, Skip packages the application without it, No stops the run.
+    param(
+        [Parameter(Mandatory)][string]$NewTitle, [Parameter(Mandatory)][string]$NewVersion,
+        [Parameter(Mandatory)][string]$OldTitle, [Parameter(Mandatory)][string]$OldVersion,
+        [string]$Mode = 'Replace',
+        [AllowEmptyString()][string]$Notice = '',
+        [Parameter(Mandatory)]$Owner
+    )
+    $dlgXaml = @'
+<Controls:MetroWindow
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+    Title="" Width="560" SizeToContent="Height" MinWidth="460"
+    WindowStartupLocation="CenterOwner" TitleCharacterCasing="Normal"
+    GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+    NonActiveGlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+    BorderThickness="1" ResizeMode="NoResize" ShowIconOnTitleBar="False">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <!--SHARED_STYLES-->
+        </ResourceDictionary>
+    </Window.Resources>
+    <Grid Margin="16,12,16,12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock x:Name="txtIntro" Grid.Row="0" TextWrapping="Wrap" FontSize="12" Margin="0,4,0,12"/>
+        <CheckBox  x:Name="chkRemember" Grid.Row="1" FontSize="12" Margin="0,0,0,16"
+                   Content="Remember this answer for the other applications of this run"/>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="btnSkip" Content="Skip" Style="{DynamicResource DialogButton}"/>
+            <Button x:Name="btnYes"  Content="Yes"  Style="{DynamicResource DialogAccentButton}" IsDefault="True"/>
+            <Button x:Name="btnNo"   Content="No"   Style="{DynamicResource DialogButton}" IsCancel="True"/>
+        </StackPanel>
+    </Grid>
+</Controls:MetroWindow>
+'@
+    [xml]$dx = Expand-SharedStyle $dlgXaml
+    $reader = New-Object System.Xml.XmlNodeReader $dx
+    $dlg = [System.Windows.Markup.XamlReader]::Load($reader)
+    $dlg.Title = 'Supersedence'
+    Install-TitleBarDragFallback -Window $dlg
+    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
+    $uninstallText = $(if ($Mode -eq 'ReplaceAndUninstall') { ' and uninstall it' } else { '' })
+    $dlg.FindName('txtIntro').Text = "$NewTitle can supersede $OldTitle$uninstallText. The older application is not changed; the new application gets the supersedence relation. Yes applies it. Skip packages the application without it. No stops the run.$(if ($Notice) { "`n`n$Notice." })"
+    $chkRemember = $dlg.FindName('chkRemember')
+    # The handlers keep the scope of this function while ShowDialog runs; the choice goes through a script variable.
+    $script:SupersedenceDialogChoice = 'No'
+    $dlg.FindName('btnSkip').Add_Click({ $script:SupersedenceDialogChoice = 'Skip'; $dlg.Close() })
+    $dlg.FindName('btnYes').Add_Click({ $script:SupersedenceDialogChoice = 'Yes'; $dlg.Close() })
+    $dlg.FindName('btnNo').Add_Click({ $script:SupersedenceDialogChoice = 'No'; $dlg.Close() })
+    [void]$dlg.ShowDialog()
+    return @{ Choice = [string]$script:SupersedenceDialogChoice; Remember = [bool]$chkRemember.IsChecked }
+}
+
 function Show-ExistingConflictDialog {
     # Modal choice for one existing application, at any version. Returns
     # @{ Choice = 'Skip'|'Overwrite'|'Cancel'; ApplyToAll = [bool] }.
@@ -6842,196 +6943,6 @@ function Show-ExistingConflictDialog {
     $dlg.FindName('btnCancel').Add_Click({ $script:ConflictDialogChoice = 'Cancel'; $dlg.Close() })
     [void]$dlg.ShowDialog()
     return @{ Choice = [string]$script:ConflictDialogChoice; ApplyToAll = [bool]$chkAll.IsChecked }
-}
-
-function Show-OldApplicationDialog {
-    # "Use this as the old application": lists the applications of the site whose name contains a text, with the reason for each
-    # one that cannot be linked, and writes the identity marker of the line into the keywords of the one that is chosen, after a
-    # confirmation. Remove Link takes the marker off again. The three script blocks are the site reads and writes; the probe
-    # replaces them. Probe receives the window internals instead of showing the window.
-    param(
-        [AllowNull()]$Owner,
-        [Parameter(Mandatory)][string]$NewTitle,
-        [Parameter(Mandatory)][string]$NewVersion,
-        [Parameter(Mandatory)][string]$Marker,
-        [AllowEmptyString()][string]$SearchText = '',
-        [scriptblock]$Search = $null,
-        [scriptblock]$Link = $null,
-        [scriptblock]$Unlink = $null,
-        [scriptblock]$Probe = $null
-    )
-    if (-not $Search) { $Search = { param($Text) @(Get-SupersedenceOldApplicationCandidateFromSite -Marker $Marker -NewTitle $NewTitle -NewVersion $NewVersion -NameContains $Text) }.GetNewClosure() }
-    if (-not $Link) { $Link = { param($Name) Set-SupersedenceOldApplication -ApplicationName $Name -Marker $Marker -Confirmed }.GetNewClosure() }
-    if (-not $Unlink) { $Unlink = { param($Name) Clear-SupersedenceOldApplication -ApplicationName $Name -Marker $Marker -Confirmed }.GetNewClosure() }
-
-    $dlgXaml = @'
-<Controls:MetroWindow
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
-    Title="Old Application" Width="860" Height="560" MinWidth="720" MinHeight="420"
-    WindowStartupLocation="CenterOwner" TitleCharacterCasing="Normal"
-    ShowIconOnTitleBar="False" GlowBrush="{DynamicResource MahApps.Brushes.Accent}" BorderThickness="1">
-    <Window.Resources>
-        <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
-                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
-                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
-            </ResourceDictionary.MergedDictionaries>
-            <!--SHARED_STYLES-->        </ResourceDictionary>
-    </Window.Resources>
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-        <TextBlock x:Name="txtIntro" Grid.Row="0" FontSize="12" TextWrapping="Wrap" Margin="16,12,16,8"/>
-        <DockPanel Grid.Row="1" Margin="16,0,16,8">
-            <Button x:Name="btnSearch" DockPanel.Dock="Right" Content="Search" Margin="8,0,0,0"
-                    Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                    ToolTip="List the applications of the site whose name contains the text."/>
-            <TextBox x:Name="txtSearch" Height="30" FontSize="12" VerticalContentAlignment="Center"
-                     ToolTip="Part of the name of the older application."/>
-        </DockPanel>
-        <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="2" x:Name="gridCandidates" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single"
-                  CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8">
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="Application" Binding="{Binding Title}" Width="*" MinWidth="240"/>
-                <DataGridTextColumn MinWidth="100" Header="Version" Binding="{Binding SoftwareVersion}" Width="110"/>
-                <DataGridTextColumn MinWidth="120" Header="Status" Binding="{Binding State}" Width="150"/>
-                <DataGridTextColumn MinWidth="200" Header="Note" Binding="{Binding Reason}" Width="300"/>
-            </DataGrid.Columns>
-        </DataGrid>
-        <TextBlock x:Name="txtStatus" Grid.Row="3" FontSize="12" TextWrapping="Wrap" Margin="16,0,16,8"/>
-        <Border Grid.Row="4" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
-            <DockPanel Margin="16,10,16,10">
-                <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" IsCancel="True"
-                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-                <StackPanel Orientation="Horizontal">
-                    <Button x:Name="btnUse" Content="Use as Old Application" Margin="0,0,8,0"
-                            Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                            ToolTip="Write the marker of this product line into the selected application, after you confirm."/>
-                    <Button x:Name="btnRemove" Content="Remove Link"
-                            Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                            ToolTip="Take the marker off the selected application."/>
-                </StackPanel>
-            </DockPanel>
-        </Border>
-    </Grid>
-</Controls:MetroWindow>
-'@
-    [xml]$xml = Expand-SharedStyle $dlgXaml
-    $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
-    Install-TitleBarDragFallback -Window $dlg
-    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
-
-    $txtIntro = $dlg.FindName('txtIntro'); $txtSearch = $dlg.FindName('txtSearch'); $grid = $dlg.FindName('gridCandidates'); $txtStatus = $dlg.FindName('txtStatus')
-    $btnUse = $dlg.FindName('btnUse'); $btnRemove = $dlg.FindName('btnRemove')
-    $txtIntro.Text = ("Choose the old application of '{0}' (version {1}). The lookup of the supersedence step finds an application only when it carries the identity marker of this product line. Search for an application that has none, for example one that you made by hand, and link it once." -f $NewTitle, $NewVersion)
-    $txtSearch.Text = $SearchText
-
-    $refresh = {
-        $text = ([string]$txtSearch.Text).Trim()
-        if (-not $text) { $grid.ItemsSource = @(); $txtStatus.Text = 'Type part of the application name, then choose Search.'; return }
-        Set-DialogBusyStatus -Dialog $dlg -Control $txtStatus -Text ("Reading the applications that contain '{0}'..." -f $text)
-        try {
-            $rows = @(& $Search $text)
-            $grid.ItemsSource = $rows
-            $linkable = @($rows | Where-Object { $_.CanLink }).Count
-            $txtStatus.Text = ('{0} application(s) found; {1} can be linked.' -f $rows.Count, $linkable)
-        }
-        catch {
-            $grid.ItemsSource = @()
-            $txtStatus.Text = 'The search failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')
-        }
-        finally { $dlg.Cursor = $null }
-    }.GetNewClosure()
-
-    $act = {
-        param([string]$Action)
-        $row = $grid.SelectedItem
-        if (-not $row) { $txtStatus.Text = 'Select an application first.'; return }
-        if ($Action -eq 'Link' -and -not $row.CanLink) { $txtStatus.Text = ("'{0}' cannot be linked: {1}" -f $row.Title, $row.Reason); return }
-        if ($Action -eq 'Unlink' -and -not $row.CanClear) { $txtStatus.Text = ("'{0}' does not hold the marker of this line alone, so there is nothing to remove." -f $row.Title); return }
-        if ($Action -eq 'Link') {
-            $question = Get-SupersedenceLinkConfirmationText -Title ([string]$row.Title) -Version ([string]$row.SoftwareVersion) -NewTitle $NewTitle
-            $answer = Show-ThemedMessage -Owner $dlg -Title 'Use as Old Application' -Buttons YesNo -Icon Question -Message $question
-        }
-        else {
-            $question = Get-SupersedenceClearConfirmationText -Title ([string]$row.Title) -Version ([string]$row.SoftwareVersion)
-            $answer = Show-ThemedMessage -Owner $dlg -Title 'Remove Link' -Buttons YesNo -Icon Warning -Message $question
-        }
-        if ($answer -ne 'Yes') { return }
-        Set-DialogBusyStatus -Dialog $dlg -Control $txtStatus -Text ("Writing the keywords of '{0}'..." -f [string]$row.Title)
-        $outcome = $null
-        try { $outcome = $(if ($Action -eq 'Link') { & $Link ([string]$row.Title) } else { & $Unlink ([string]$row.Title) }) }
-        catch { $outcome = [pscustomobject]@{ Ok = $false; Message = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') } }
-        finally { $dlg.Cursor = $null }
-        & $refresh
-        $txtStatus.Text = [string]$outcome.Message + ' ' + [string]$txtStatus.Text
-        Add-LogLine -Message ('Old application: {0}' -f [string]$outcome.Message)
-    }.GetNewClosure()
-
-    $btnUse.Add_Click({ & $act 'Link' }.GetNewClosure())
-    $btnRemove.Add_Click({ & $act 'Unlink' }.GetNewClosure())
-    $dlg.FindName('btnSearch').Add_Click({ & $refresh }.GetNewClosure())
-    $txtSearch.Add_KeyDown({ param($s, $e) if ($e.Key -eq [System.Windows.Input.Key]::Return) { & $refresh } }.GetNewClosure())
-    $dlg.FindName('btnClose').Add_Click({ $dlg.Close() }.GetNewClosure())
-
-    if ($Probe) {
-        & $Probe @{ Window = $dlg; Grid = $grid; Search = $txtSearch; Status = $txtStatus; Intro = $txtIntro; Use = $btnUse; Remove = $btnRemove; Find = $dlg.FindName('btnSearch'); Refresh = $refresh; Act = $act }
-    }
-    else {
-        if ($Owner) { $dlg.Owner = $Owner }
-        $dlg.Add_ContentRendered({ if (([string]$txtSearch.Text).Trim()) { & $refresh } }.GetNewClosure())
-        [void]$dlg.ShowDialog()
-    }
-}
-
-function Open-OldApplicationDialog {
-    # The entry of the grid menu: the title, the version and the identity marker come from the newest staged build of the
-    # selected packager, the same values that its publish uses. Nothing staged, nothing to link to.
-    param([Parameter(Mandatory)]$Owner, [Parameter(Mandatory)]$Row)
-    $title = 'Old Application'
-    $siteCode = ([string]$script:Prefs.SiteCode).Trim()
-    if (-not $siteCode) {
-        [void](Show-ThemedMessage -Owner $Owner -Title $title -Buttons OK -Icon Information -Message 'Set the ConfigMgr site code in Options, Connections, ConfigMgr first.')
-        return
-    }
-    $manifestPath = Find-NewestStageManifestForPackager -PackagerPath ([string]$Row.FullPath) -DownloadRoot ([string]$script:Prefs.DownloadRoot)
-    if (-not $manifestPath) {
-        [void](Show-ThemedMessage -Owner $Owner -Title $title -Buttons OK -Icon Information -Message ("'{0}' has no staged build. Stage it first: the title, the version and the architecture of the new application come from the staged build." -f [string]$Row.Application))
-        return
-    }
-    try {
-        $manifest = Read-StageManifest -Path $manifestPath
-        $baseName = [System.IO.Path]::GetFileNameWithoutExtension([string]$Row.Script)
-        $marker = Get-SupersedenceIdentityMarker -Manifest $manifest -FallbackApplicationId ('catalog:' + $baseName)
-        $newTitle = Get-PackagedApplicationName -AppName ([string]$manifest.AppName) -Version ([string]$manifest.SoftwareVersion)
-        $newVersion = [string]$manifest.SoftwareVersion
-    }
-    catch {
-        [void](Show-ThemedMessage -Owner $Owner -Title $title -Buttons OK -Icon Warning -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The staged build could not be read.'))
-        return
-    }
-    $reader = {
-        param($Text)
-        # The site drive becomes the current location while the cmdlets run; the window goes back to where it was.
-        Push-Location
-        try {
-            if (-not (Connect-CMSite -SiteCode $siteCode -ProviderMachineName ([string]$script:Prefs.ProviderMachineName))) { throw 'The ConfigMgr site connection failed. See the log file.' }
-            @(Get-SupersedenceOldApplicationCandidateFromSite -Marker $marker -NewTitle $newTitle -NewVersion $newVersion -NameContains $Text)
-        }
-        finally { Pop-Location }
-    }.GetNewClosure()
-    # Each block connects to the site first: the site drive is not the current location when the dialog calls it, and the cmdlets need it.
-    $linker = { param($Name) Push-Location; try { if (-not (Connect-CMSite -SiteCode $siteCode -ProviderMachineName ([string]$script:Prefs.ProviderMachineName))) { throw 'The ConfigMgr site connection failed. See the log file.' }; Set-SupersedenceOldApplication -ApplicationName $Name -Marker $marker -Confirmed } finally { Pop-Location } }.GetNewClosure()
-    $unlinker = { param($Name) Push-Location; try { if (-not (Connect-CMSite -SiteCode $siteCode -ProviderMachineName ([string]$script:Prefs.ProviderMachineName))) { throw 'The ConfigMgr site connection failed. See the log file.' }; Clear-SupersedenceOldApplication -ApplicationName $Name -Marker $marker -Confirmed } finally { Pop-Location } }.GetNewClosure()
-    Show-OldApplicationDialog -Owner $Owner -NewTitle $newTitle -NewVersion $newVersion -Marker $marker -SearchText ([string]$Row.Application) -Search $reader -Link $linker -Unlink $unlinker
 }
 
 function New-AboutPanel {
@@ -7686,6 +7597,41 @@ function Connect-OptionsFieldLink {
             }.GetNewClosure()) | Out-Null
     }
 
+    # Supersedence on (the default) switches the version in the title on and locks it: this release and the older one must be
+    # separate applications. The bulk action of the per-application setting writes the default through the same combo.
+    if ($e.Contains('sup.mode') -and $e.Contains('title.include') -and $e.Contains('title.lock')) {
+        $modeEditor = $e['sup.mode']
+        $includeBox2 = $e['title.include'].Focus
+        $removeBox2 = $e['title.remove'].Focus
+        $lockNote = $e['title.lock'].Text
+        $anyOn = { param($mode) ([string]$mode) -and ([string]$mode) -ne 'Off' }
+        $lockState = @{ Saved = $null }
+        $applyLock = {
+            $on = (& $anyOn (& $modeEditor.Get))
+            if ($on) {
+                if ($null -eq $lockState.Saved) { $lockState.Saved = ($includeBox2.IsChecked -eq $true) }
+                $includeBox2.IsChecked = $true
+                $includeBox2.IsEnabled = $false
+                $removeBox2.IsEnabled = $false
+                $lockNote.Text = 'Supersedence is on by default, so the version stays in each application name: this release and the older one must be separate applications.'
+                $lockNote.Visibility = [System.Windows.Visibility]::Visible
+            }
+            else {
+                $includeBox2.IsEnabled = $true
+                $removeBox2.IsEnabled = ($includeBox2.IsChecked -ne $true)
+                if ($null -ne $lockState.Saved) { $includeBox2.IsChecked = [bool]$lockState.Saved; $lockState.Saved = $null }
+                $lockNote.Text = ''
+                $lockNote.Visibility = [System.Windows.Visibility]::Collapsed
+            }
+        }.GetNewClosure()
+        if ($modeEditor.Element -is [System.Windows.Controls.Primitives.Selector]) { $modeEditor.Element.Add_SelectionChanged($applyLock) }
+        & $applyLock
+        if ($e.Contains('sup.apps')) {
+            $e['sup.apps'].Bulk.GetDefault = { & $modeEditor.Get }.GetNewClosure()
+            $e['sup.apps'].Bulk.SetDefault = { param($v) & $modeEditor.Set $v }.GetNewClosure()
+        }
+    }
+
     # The test deployment needs automatic distribution and a DP group, because it runs after the content distribution.
     if ($e.Contains('dist.auto') -and $e.Contains('dist.group') -and $e.Contains('dist.test')) {
         $autoBox = $e['dist.auto'].Focus
@@ -8052,6 +7998,7 @@ function Get-OptionsSectionDefinition {
             Fields = @(
                 @{ Id = 'title.include'; Title = 'Include version'; Kind = 'Check'; Pref = 'IncludeVersionInTitle'; Label = 'Add the version to each application name'; Tip = 'Creates a separate application for each release.' }
                 @{ Id = 'title.arch'; Title = 'Add architecture'; Kind = 'Check'; Pref = 'AppendArchitectureToTitle'; Label = 'Add the architecture to application names'; Tip = 'Clear it to keep names without (x64), (x86) or (ARM64).' }
+                @{ Id = 'title.lock'; Kind = 'Note'; Text = '' }
                 @{ Id = 'title.remove'; Title = 'Remove version'; Kind = 'Check'; Pref = 'RemoveVersionFromTitle'; Label = 'Remove the release version from the vendor product name'; Tip = 'Keeps one application for all releases; it applies while Include version is off.' }
             )
         })
@@ -8073,11 +8020,13 @@ function Get-OptionsSectionDefinition {
     $supersedenceModeItems = @(@{ Label = 'Off'; Value = 'Off' }, @{ Label = 'Replace'; Value = 'Replace' }, @{ Label = 'Replace and uninstall'; Value = 'Replace and uninstall' })
     $sections.Add(@{
             Id = 'supersedence'; Title = 'Supersedence'; Parent = 'packaging'; Kind = 'Fields'
-            Description = 'The version rule sets the operator of the version clause in the detection that is published. The shipped values are Minimum and Off, so nothing changes until you choose. The command line options -VersionRule and -Supersedence outrank these values. Intune supersedence is not available.'
+            Description = 'The version rule sets the operator of the version clause in the detection that is published. Supersedence is off for every application until you turn it on, as a default or for one application. An application with supersedence on keeps the version in its title, so each release is its own application. At Package, the older version (same title and vendor, the highest version below this one) is looked up and you confirm the supersedence first. The version rule applies to the detection of the application that is packaged. The command line options -VersionRule and -Supersedence outrank these values.'
             Fields = @(
                 @{ Id = 'sup.cmRule'; Title = 'Version rule, ConfigMgr'; Kind = 'Combo'; Pref = 'Supersedence.ConfigMgrVersionRule'; Default = 'Minimum'; Width = 260; Items = $versionRuleItems; Tip = 'Exact writes IsEquals when the installed value equals the expected value.'; Keywords = 'detection operator equals greater' }
                 @{ Id = 'sup.inRule'; Title = 'Version rule, Intune'; Kind = 'Combo'; Pref = 'Supersedence.IntuneVersionRule'; Default = 'Minimum'; Width = 260; Items = $versionRuleItems; Tip = 'Exact writes the operator equal to the version rule of the Intune detection.'; Keywords = 'detection operator equal greater' }
-                @{ Id = 'sup.mode'; Title = 'Supersedence mode, ConfigMgr'; Kind = 'Combo'; Pref = 'Supersedence.Mode'; Default = 'Off'; Width = 260; Items = $supersedenceModeItems; Tip = 'Replace and uninstall needs the ConfigMgr version rule Exact.'; Keywords = 'replace uninstall older version' }
+                @{ Id = 'sup.mode'; Title = 'Supersedence mode, ConfigMgr'; Kind = 'Combo'; Pref = 'Supersedence.Mode'; Default = 'Off'; Width = 260; Items = $supersedenceModeItems; Tip = 'The default for every application that has no value of its own.'; Keywords = 'replace uninstall older version' }
+                @{ Id = 'sup.apps'; Title = 'By application'; Kind = 'Custom'; Tip = 'The supersedence of one application, and one action for all applications, the checked ones, or none.'; Keywords = 'supersedence application bulk all selected none override'
+                    Build = { param($Field, $Context) New-OptionsSupersedenceEditor -Context $Context } }
             )
         })
 
@@ -9002,6 +8951,118 @@ function New-OptionsLocalSourceEditor {
         $ctx.Prefs.LocalSourceFolders = [pscustomobject]$folders
     }.GetNewClosure()
     return @{ Element = $stack; Focus = $first; Get = $null; Set = $null; Commit = $commit }
+}
+
+function Get-OptionsSupersedenceChoice {
+    # The choices of the setting of one application. 'Default' stores no value: the application follows the default above.
+    return @(
+        @{ Label = 'Default'; Value = '' }, @{ Label = 'Off'; Value = 'Off' }, @{ Label = 'Replace'; Value = 'Replace' }, @{ Label = 'Replace and uninstall'; Value = 'Replace and uninstall' }
+    )
+}
+
+function New-OptionsSupersedenceEditor {
+    # The supersedence setting of each application, and the bulk action: all applications, selected applications, no applications.
+    param([Parameter(Mandatory)][hashtable]$Context)
+    $stack = New-Object System.Windows.Controls.StackPanel
+    $stack.MaxWidth = 640
+    $choices = @(Get-OptionsSupersedenceChoice)
+    $stored = $Context.Prefs.Supersedence.TitleOverrides
+    $rows = [ordered]@{}
+    $first = $null
+
+    $bulkPanel = New-Object System.Windows.Controls.WrapPanel
+    $bulkPanel.Margin = New-Object System.Windows.Thickness(0, 0, 0, 8)
+    $bulkValue = New-Object System.Windows.Controls.ComboBox
+    $bulkValue.FontSize = 13
+    $bulkValue.Width = 200
+    $bulkValue.Height = (Get-OptionsInputHeight)
+    $bulkValue.Margin = New-Object System.Windows.Thickness(0, 0, 8, 4)
+    $bulkValue.ToolTip = 'The value that All applications and Selected applications write.'
+    foreach ($c in $choices | Where-Object { $_.Value }) { [void]$bulkValue.Items.Add([string]$c.Label) }
+    $bulkValue.SelectedIndex = 1
+    [void]$bulkPanel.Children.Add($bulkValue)
+    $summary = New-OptionsTextBlock -Text '' -Size 12
+    $summary.Margin = New-Object System.Windows.Thickness(0, 0, 0, 8)
+    $summary.ToolTip = 'Nothing is saved until you choose OK.'
+
+    $state = @{ GetDefault = { 'Off' }; SetDefault = { param($v) } }
+    $valueOf = { param($label) $hit = @($choices | Where-Object { $_.Label -eq $label })[0]; if ($hit) { [string]$hit.Value } else { '' } }.GetNewClosure()
+    $bulk = {
+        param([string]$scope)
+        $current = [ordered]@{}
+        $picked = @()
+        foreach ($key in $rows.Keys) {
+            $current[$key] = & $valueOf ([string]$rows[$key].Combo.SelectedItem)
+            if ($rows[$key].Check.IsChecked -eq $true) { $picked += $key }
+        }
+        if ($scope -eq 'Selected' -and $picked.Count -eq 0) { $summary.Text = 'Check at least one application first.'; return }
+        $result = Set-SupersedenceBulkValue -Scope $scope -Value (& $valueOf ([string]$bulkValue.SelectedItem)) -Default ([string](& $state.GetDefault)) -Overrides $current -Selected $picked
+        foreach ($key in $rows.Keys) {
+            $label = @($choices | Where-Object { $_.Value -eq [string]$result.Overrides[$key] })[0].Label
+            $rows[$key].Combo.SelectedItem = $label
+        }
+        & $state.SetDefault $result.Default
+        $summary.Text = ('{0} application(s) changed their own value. The default is now {1}. Choose OK to save.' -f $result.Changed, $result.Default)
+    }.GetNewClosure()
+    foreach ($action in @(@('All', 'All applications', 'Sets the default to the chosen value and removes the values of single applications.'),
+            @('Selected', 'Selected applications', 'Writes the chosen value on each checked application below.'),
+            @('None', 'No applications', 'Removes every value of a single application and sets the default to Off.'))) {
+        $button = New-OptionsButton -Label ([string]$action[1]) -Tip ([string]$action[2])
+        $button.Margin = New-Object System.Windows.Thickness(0, 0, 8, 4)
+        $scopeName = [string]$action[0]
+        $button.Add_Click({ try { & $bulk $scopeName } catch { $summary.Text = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') } }.GetNewClosure())
+        [void]$bulkPanel.Children.Add($button)
+        [System.Windows.Automation.AutomationProperties]::SetAutomationId($button, ('sup.apps.bulk.' + $scopeName))
+    }
+    [void]$stack.Children.Add($bulkPanel)
+    [void]$stack.Children.Add($summary)
+
+    foreach ($row in @(Get-OptionsPackagerList -Context $Context)) {
+        $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script)
+        $id = 'catalog:' + $base
+        $line = New-Object System.Windows.Controls.DockPanel
+        $line.LastChildFill = $true
+        $line.Margin = New-Object System.Windows.Thickness(0, 0, 0, 4)
+        $combo = New-Object System.Windows.Controls.ComboBox
+        $combo.FontSize = 13
+        $combo.Width = 200
+        $combo.Height = (Get-OptionsInputHeight)
+        foreach ($c in $choices) { [void]$combo.Items.Add([string]$c.Label) }
+        $own = ''
+        if ($stored -and $stored.PSObject.Properties[$id] -and $stored.$id.PSObject.Properties['Mode']) { $own = [string]$stored.$id.Mode }
+        $combo.SelectedItem = @($choices | Where-Object { $_.Value -eq $own })[0].Label
+        if ($null -eq $combo.SelectedItem) { $combo.SelectedIndex = 0 }
+        $combo.ToolTip = ('The supersedence of {0}. Default follows the setting above.' -f [string]$row.Application)
+        [System.Windows.Controls.DockPanel]::SetDock($combo, [System.Windows.Controls.Dock]::Right)
+        $check = New-Object System.Windows.Controls.CheckBox
+        $check.FontSize = 13
+        $check.Content = New-OptionsTextBlock -Text ([string]$row.Application) -Size 13 -Wrap $false
+        $check.VerticalContentAlignment = [System.Windows.VerticalAlignment]::Center
+        $check.ToolTip = 'Check it to include it in Selected applications.'
+        [void]$line.Children.Add($combo)
+        [void]$line.Children.Add($check)
+        [void]$stack.Children.Add($line)
+        $rows[$id] = @{ Combo = $combo; Check = $check }
+        if (-not $first) { $first = $check }
+    }
+    if ($rows.Count -eq 0) { [void]$stack.Children.Add((New-OptionsTextBlock -Text 'No packager of this catalog is listed.' -Size 12)) }
+
+    $commit = {
+        param($ctx)
+        if ($rows.Count -eq 0) { return }
+        $overrides = [ordered]@{}
+        $existing = $ctx.Prefs.Supersedence.TitleOverrides
+        if ($existing) { foreach ($p in $existing.PSObject.Properties) { $overrides[$p.Name] = $p.Value } }
+        foreach ($key in $rows.Keys) {
+            $mode = & $valueOf ([string]$rows[$key].Combo.SelectedItem)
+            $entry = [ordered]@{}
+            if ($overrides.Contains($key) -and $overrides[$key]) { foreach ($p in $overrides[$key].PSObject.Properties) { $entry[$p.Name] = $p.Value } }
+            if ($mode) { $entry['Mode'] = $mode } else { $entry.Remove('Mode') }
+            if ($entry.Count -gt 0) { $overrides[$key] = [pscustomobject]$entry } elseif ($overrides.Contains($key)) { $overrides.Remove($key) }
+        }
+        $ctx.Prefs.Supersedence.TitleOverrides = [pscustomobject]$overrides
+    }.GetNewClosure()
+    return @{ Element = $stack; Focus = $first; Get = $null; Set = $null; Commit = $commit; Bulk = $state; Rows = $rows }
 }
 
 # =============================================================================
@@ -10070,6 +10131,10 @@ function Invoke-MultiAppPipeline {
         ConflictRequest        = $null
         ConflictResponse       = $null
         ConflictDecisionForAll = ''
+        # Supersedence confirmation handshake, same shape; SupersedenceDecisionForAll lives for this run only.
+        SupersedenceRequest        = $null
+        SupersedenceResponse       = $null
+        SupersedenceDecisionForAll = ''
         # One Click progress per application, read by the plan window.
         PlanRows               = $(if ($Context.ContainsKey('OneClickRows')) { $Context.OneClickRows } else { $null })
         # Check CVEs results by script name, read by the CVE window's
@@ -10379,6 +10444,7 @@ function Invoke-MultiAppPipeline {
                                 InstallMode          = $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' })
                             }
                             $packageArgs['TitleMode'] = $(if ($Ctx.TitleModesByApp -and [string]$Ctx.TitleModesByApp[$baseName]) { [string]$Ctx.TitleModesByApp[$baseName] } else { [string]$Ctx.DefaultTitleMode })
+                            $packageArgs['TitleMode'] = Get-SupersedenceLockedTitleMode -PackagerPath $path -TitleMode ([string]$packageArgs['TitleMode'])
                             $res = Invoke-PackagerPackageWithConflictPrompt -State $State -AppLabel $app -PackageArgs $packageArgs
                             if ($res.PSObject.Properties['WsusPublish'] -and $res.WsusPublish) {
                                 [void]$State.LogQueue.Enqueue(('WSUS publish: ' + $res.WsusPublish.Message))
@@ -10526,8 +10592,6 @@ function Invoke-MultiAppPipeline {
                         # build republishes even when the version matches.
                         $publishTo = @()
                         $skipReasons = @()
-                        # ConfigMgr holds this version and only its supersedence step is open: the pass runs and nothing is published again.
-                        $supersedencePass = $null
                         # What the site holds now, read once: the publish record
                         # below says only what this tool published earlier.
                         $observedCm = ''
@@ -10573,11 +10637,6 @@ function Invoke-MultiAppPipeline {
                                 }
                                 $sameBuild = (-not $buildKey) -or (-not $rec) -or (-not $rec.Build) -or ($rec.Build -eq $buildKey)
                                 if (-not $Ctx.ForceFlag -and -not $buildStale -and $sameBuild -and $rec -and $rec.Version -eq [string]$latest) {
-                                    if ($d -eq 'ConfigMgr' -and $rec.SupersedencePending) {
-                                        $supersedencePass = $rec
-                                        $skipReasons += ('ConfigMgr: {0} already published, supersedence pending' -f $latest)
-                                        continue
-                                    }
                                     $skipReasons += ('{0}: {1} already published' -f $d, $latest)
                                     if ($pr) { $pr.('Result' + $d) = ('already published ' + $latest) }
                                     continue
@@ -10592,67 +10651,18 @@ function Invoke-MultiAppPipeline {
                                 $publishTo += $d
                             }
                         }
-                        # The supersedence-only pass: the lookup and the supersedence step for the application that is on the
-                        # site. It stages nothing and publishes nothing, and it runs before any other work of the row.
-                        $passOutcome = ''
-                        if ($supersedencePass) {
-                            & $setStep ('applying supersedence for ' + $app)
-                            $row.Status = 'Applying supersedence...'
-                            [void]$State.LogQueue.Enqueue(('Supersedence only: {0} {1}' -f $app, $latest))
-                            $pass = $null
-                            if ([string]::IsNullOrWhiteSpace([string]$supersedencePass.Id)) {
-                                $pass = [pscustomobject]@{ Status = 'NotApplied'; Message = 'the publish record has no application name.'; Warnings = @(); Lines = @() }
-                            }
-                            else {
-                                $pass = Invoke-OneClickSupersedencePass -ApplicationName ([string]$supersedencePass.Id) -Version ([string]$latest) -PackagerPath $path `
-                                    -DownloadRoot $planDownloadRoot -SiteCode ([string]$Ctx.SiteCode) -ProviderMachineName ([string]$Ctx.ProviderMachineName)
-                            }
-                            foreach ($line in @($pass.Lines)) { [void]$State.LogQueue.Enqueue(('  ' + $line)) }
-                            foreach ($warning in @($pass.Warnings)) { [void]$State.LogQueue.Enqueue(('  Supersedence warning: ' + $warning)) }
-                            [void]$State.LogQueue.Enqueue(('Supersedence: {0}: {1}' -f $pass.Status, $pass.Message))
-                            $passText = ''
-                            switch ($pass.Status) {
-                                { $_ -in @('Applied', 'NoOlderVersion') } {
-                                    # Nothing is left to do for this version: the pending state ends.
-                                    try {
-                                        $h = Read-PackagerHistory
-                                        [void](Clear-OneClickSupersedencePending -History $h -PackagerName $baseName)
-                                        Save-PackagerHistory -History $h
-                                    } catch { [void]$State.LogQueue.Enqueue(('History write failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))) }
-                                    $passText = $(if ($pass.Status -eq 'Applied') { 'supersedence applied: ' + $pass.Message } else { 'supersedence: ' + $pass.Message })
-                                    $passOutcome = 'Superseded'
-                                    $counts['Superseded']++
-                                }
-                                'NotApplied' {
-                                    # The version stays pending for the next run.
-                                    $passText = 'supersedence not applied: ' + $pass.Message
-                                    if ($pr) { $pr.DetailConfigMgr = 'Published, supersedence not applied: ' + $pass.Message }
-                                    $passOutcome = 'Skipped'
-                                    $counts['Skipped']++
-                                }
-                                default {
-                                    $passText = 'supersedence not run: ' + $pass.Message
-                                    $passOutcome = 'Skipped'
-                                    $counts['Skipped']++
-                                }
-                            }
-                            if ($pr) { $pr.ResultConfigMgr = $passText; $pr.IdConfigMgr = [string]$supersedencePass.Id }
-                            $skipReasons += ('ConfigMgr: ' + $passText)
-                        }
                         $needStage = $Ctx.ForceFlag -or $buildStale -or $stageStale -or ($publishTo.Count -gt 0)
                         if (-not $needStage) {
-                            $row.Status = $(if ($passOutcome) { 'Supersedence' } else { 'Up to date' })
-                            if (-not $passOutcome) {
-                                [void]$State.LogQueue.Enqueue(('No change - skipping: ' + $app))
-                                $counts['NoChange']++
-                            }
-                            & $finish $(if ($passOutcome) { $passOutcome } else { 'Skipped' }) $(if ($passOutcome) { $skipReasons -join '; ' } else { 'up to date' })
+                            $row.Status = 'Up to date'
+                            [void]$State.LogQueue.Enqueue(('No change - skipping: ' + $app))
+                            $counts['NoChange']++
+                            & $finish 'Skipped' 'up to date'
                             continue
                         }
                         if ($Ctx.Action -eq 'StageAndPackage' -and $publishTo.Count -eq 0 -and -not $stageStale -and -not $buildStale -and -not $Ctx.ForceFlag) {
-                            $row.Status = $(if ($passOutcome) { 'Supersedence' } else { 'Up to date' })
-                            if (-not $passOutcome) { $counts['NoChange']++ }
-                            & $finish $(if ($passOutcome) { $passOutcome } else { 'Skipped' }) ($skipReasons -join '; ')
+                            $row.Status = 'Up to date'
+                            $counts['NoChange']++
+                            & $finish 'Skipped' ($skipReasons -join '; ')
                             continue
                         }
 
@@ -10746,6 +10756,7 @@ function Invoke-MultiAppPipeline {
                                             InstallMode          = $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' })
                                             TitleMode            = $(if ($Ctx.TitleModesByApp -and [string]$Ctx.TitleModesByApp[$baseName]) { [string]$Ctx.TitleModesByApp[$baseName] } else { [string]$Ctx.DefaultTitleMode })
                                         }
+                                        $packageArgs['TitleMode'] = Get-SupersedenceLockedTitleMode -PackagerPath $path -TitleMode ([string]$packageArgs['TitleMode'])
                                         $pkg = Invoke-PackagerPackage @packageArgs
                                         $id = Get-PackagerConfigMgrApplicationName -Text $pkg.StdOut
                                         if ($pkg.ExitCode -ne 0) {
@@ -11130,6 +11141,7 @@ function Invoke-MultiAppPipeline {
                                 InstallMode          = $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' })
                             }
                             $packageArgs['TitleMode'] = $(if ($Ctx.TitleModesByApp -and [string]$Ctx.TitleModesByApp[$baseName]) { [string]$Ctx.TitleModesByApp[$baseName] } else { [string]$Ctx.DefaultTitleMode })
+                            $packageArgs['TitleMode'] = Get-SupersedenceLockedTitleMode -PackagerPath $path -TitleMode ([string]$packageArgs['TitleMode'])
                             $pkg = Invoke-PackagerPackageWithConflictPrompt -State $State -AppLabel $app -PackageArgs $packageArgs
                             if ($pkg.PSObject.Properties['WsusPublish'] -and $pkg.WsusPublish) {
                                 [void]$State.LogQueue.Enqueue(('WSUS publish: ' + $pkg.WsusPublish.Message))
@@ -11251,6 +11263,21 @@ function Invoke-MultiAppPipeline {
                 $btnPausePipeline.IsEnabled = $true
                 $btnCancelPipeline.IsEnabled = $true
             }
+        }
+        # Supersedence confirmation: the bg loop is parked waiting for the answer.
+        if ($script:BgState -and $script:BgState.SupersedenceRequest -and -not $script:SupersedencePromptOpen) {
+            $script:SupersedencePromptOpen = $true
+            try {
+                $req = $script:BgState.SupersedenceRequest
+                $answer = Show-SupersedenceConfirmDialog -NewTitle ([string]$req.NewTitle) -NewVersion ([string]$req.NewVersion) -OldTitle ([string]$req.OldTitle) -OldVersion ([string]$req.OldVersion) -Mode ([string]$req.Mode) -Notice ([string]$req.Notice) -Owner $window
+                $script:BgState.SupersedenceResponse = [pscustomobject]@{ Choice = [string]$answer.Choice; Remember = [bool]$answer.Remember }
+            }
+            catch {
+                # A dialog failure must not park the pipeline forever: the application is packaged without the supersedence.
+                $script:BgState.SupersedenceResponse = [pscustomobject]@{ Choice = 'Skip'; Remember = $false }
+                Add-LogLine -Message ('Supersedence prompt failed, packaging without it: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
+            }
+            finally { $script:SupersedencePromptOpen = $false }
         }
         # Existing-application conflict: the bg loop is parked waiting for an
         # answer. ConflictPromptOpen guards against a second modal being
@@ -12788,450 +12815,6 @@ $btnConvertCm.Add_Click({
     Start-CmImportRun -Spec $choice.Spec -OutputRoot $choice.OutputRoot
 })
 
-# =============================================================================
-# Rewrite Old Versions and Restore Old Versions
-# -----------------------------------------------------------------------------
-# The optional rewrite of the version clause of the older applications of one line, from GreaterEquals to IsEquals, and the way
-# back from the log. The window shows the plan first (the clauses, what is left and why, the effect on the devices) and writes
-# only after the confirmation. The read of the site and the writes run in a child process of Invoke-AppPackagerBuild.ps1, as the
-# conversion does, so that the window keeps its own location and session. The log supersedence-rewrite.jsonl is the way back.
-# =============================================================================
-function Get-RewriteTargetForRow {
-    # The line of one grid row: its application identifier and its identity marker. The marker comes from the newest stage manifest of
-    # the row, as the publish wrote it; a row that was never staged has the marker of its application, its active profile and the
-    # architecture x64. It reads no ConfigMgr site.
-    param([Parameter(Mandatory)]$Row, [AllowEmptyString()][string]$DownloadRoot = '')
-
-    $target = [pscustomobject]@{ Ok = $false; Error = ''; ApplicationId = ''; Marker = ''; Application = [string]$Row.Application }
-    try { $applicationId = [string](New-ApplicationId -Kind Catalog -ScriptPath ([string]$Row.FullPath)) }
-    catch { $target.Error = ('The application identifier could not be made: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'See the log file.')); return $target }
-    $profileId = 'default'
-    try {
-        $active = [string](Get-ApplicationDefinition -ApplicationId $applicationId).ActiveProfileId
-        if ($active) { $profileId = $active }
-    }
-    catch { <# The active profile is optional here; the default profile names the line. #> $null = $_ }
-    $manifestPath = $null
-    try { $manifestPath = Find-NewestStageManifestForPackager -PackagerPath ([string]$Row.FullPath) -DownloadRoot (Get-WorkbenchProfileDownloadRoot -DownloadRoot $DownloadRoot -ProfileId $profileId) }
-    catch { <# A folder that cannot be searched has no manifest; the marker of the application and the profile stands. #> $null = $_ }
-    if ($manifestPath) {
-        try { $manifest = Read-StageManifest -Path $manifestPath }
-        catch { $target.Error = ('The stage manifest {0} could not be read: {1}' -f $manifestPath, (Get-UserErrorText -ErrorRecord $_ -Fallback 'See the log file.')); return $target }
-    }
-    else { $manifest = [pscustomobject]@{ ApplicationId = $applicationId; ProfileId = $profileId; Architecture = 'x64' } }
-    $marker = Get-SupersedenceIdentityMarker -Manifest $manifest -FallbackApplicationId $applicationId
-    if (-not $marker) { $target.Error = 'This application has no identity marker, so its line cannot be found.'; return $target }
-    $manifestId = $(if ($manifest.PSObject.Properties['ApplicationId']) { [string]$manifest.ApplicationId } else { '' })
-    $target.ApplicationId = $(if ($manifestId) { $manifestId.Trim() } else { $applicationId })
-    $target.Marker = $marker
-    $target.Ok = $true
-    return $target
-}
-
-function Get-RewriteChildArgument {
-    # The command line of the child that reads the site (plan), rewrites (apply) or restores. Touches no WPF type and starts nothing.
-    param(
-        [Parameter(Mandatory)][ValidateSet('plan', 'apply', 'restore')][string]$Mode,
-        [Parameter(Mandatory)]$Target,
-        [Parameter(Mandatory)][string]$SiteCode,
-        [AllowEmptyString()][string]$ProviderMachineName = '',
-        [AllowEmptyString()][string]$ShownPlan = '',
-        [Parameter(Mandatory)][string]$ScriptPath
-    )
-    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $ScriptPath, '-Application', [string]$Target.ApplicationId,
-        '-RewriteOldVersions', $Mode, '-IdentityMarker', [string]$Target.Marker, '-SiteCode', $SiteCode, '-Json')
-    if ($ProviderMachineName.Trim()) { $arguments += @('-ProviderMachineName', $ProviderMachineName.Trim()) }
-    if ($Mode -ne 'plan') { $arguments += '-Yes' }
-    if ($Mode -eq 'apply' -and $ShownPlan) { $arguments += @('-ShownPlan', $ShownPlan) }
-    return $arguments
-}
-
-function Invoke-RewriteChild {
-    # Runs the child with the console module and the SMS Provider that the window found, shows its lines in the log, and reads its
-    # APRESULT line. ShouldCancel is polled while the child runs; when it answers true the child and its children are stopped.
-    param([Parameter(Mandatory)][string[]]$Arguments, [AllowNull()][scriptblock]$ShouldCancel = $null)
-
-    $logFolder = Join-Path $PSScriptRoot 'Logs'
-    if (-not (Test-Path -LiteralPath $logFolder)) { New-Item -ItemType Directory -Path $logFolder -Force | Out-Null }
-    $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = 'powershell.exe'
-    $psi.WorkingDirectory = $PSScriptRoot
-    Set-ProcessStartInfoArgumentList -StartInfo $psi -Arguments $Arguments
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $psi.UseShellExecute = $false
-    $psi.CreateNoWindow = $true
-    $childEnvironment = Get-CmImportChildEnvironment `
-        -ModulePath $(if ($script:Prefs.DetectedTools -and $script:Prefs.DetectedTools.ConfigMgrConsole) { [string]$script:Prefs.DetectedTools.ConfigMgrConsole.ModulePath } else { '' }) `
-        -ProviderMachineName ([string]$script:Prefs.ProviderMachineName) `
-        -ParentAdminUiPath ([string]$env:SMS_ADMIN_UI_PATH) -ParentProvider ([string]$env:APP_PACKAGER_CM_PROVIDER)
-    foreach ($name in $childEnvironment.Keys) { $psi.EnvironmentVariables[$name] = [string]$childEnvironment[$name] }
-    # The child reads and writes the same log as the window.
-    $psi.EnvironmentVariables['APP_PACKAGER_WORKBENCH_ROOT'] = [string](Get-WorkbenchDataRoot)
-
-    $run = Invoke-ProcessWithStreaming -StartInfo $psi -OutLog (Join-Path $logFolder ("rewrite-old-versions-{0}.out.log" -f $stamp)) `
-        -ErrLog (Join-Path $logFolder ("rewrite-old-versions-{0}.err.log" -f $stamp)) -LogTextBox $txtLog -ShouldCancel $ShouldCancel
-    $parsed = $null
-    foreach ($line in @(([string]$run.StdOut) -split "`r?`n")) {
-        if ($line.StartsWith('APRESULT:')) {
-            try { $parsed = $line.Substring('APRESULT:'.Length) | ConvertFrom-Json -ErrorAction Stop } catch { $parsed = $null }
-        }
-    }
-    return [pscustomobject]@{ ExitCode = [int]$run.ExitCode; Cancelled = [bool]$run.Cancelled; Result = $parsed; StdErr = [string]$run.StdErr; StdOut = [string]$run.StdOut }
-}
-
-function New-RewriteOldVersionsDialog {
-    # The window of the plan: the clauses, the notes and the confirmation before the run; the result and Undo after it. Run and Undo
-    # take a script block that answers true once the operator asked to cancel, and return the result (Items, Stop, Summary,
-    # UndoAvailable). Nothing runs before Confirm, and Confirm stays off until the box of a destructive plan is checked.
-    param(
-        [Parameter(Mandatory)]$Owner,
-        [Parameter(Mandatory)]$ChangePlan,
-        [Parameter(Mandatory)][scriptblock]$Run,
-        [AllowNull()][scriptblock]$Undo = $null
-    )
-
-    $dlgXaml = @'
-<Controls:MetroWindow
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
-    Title="Rewrite Old Versions" Width="820" Height="540" MinWidth="620" MinHeight="400"
-    WindowStartupLocation="CenterOwner" TitleCharacterCasing="Normal"
-    ShowIconOnTitleBar="False" ShowMinButton="False"
-    GlowBrush="{DynamicResource MahApps.Brushes.Accent}" NonActiveGlowBrush="{DynamicResource MahApps.Brushes.Accent}" BorderThickness="1">
-    <Window.Resources>
-        <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml" />
-                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Fonts.xaml" />
-                <ResourceDictionary Source="pack://application:,,,/MahApps.Metro;component/Styles/Themes/Dark.Steel.xaml" />
-            </ResourceDictionary.MergedDictionaries>
-            <!--SHARED_STYLES-->        </ResourceDictionary>
-    </Window.Resources>
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-        <StackPanel Grid.Row="0" Margin="16,12,16,8">
-            <TextBlock x:Name="txtRewriteSummary" FontSize="14" TextWrapping="Wrap"/>
-            <TextBox x:Name="txtRewriteNotes" IsReadOnly="True" TextWrapping="Wrap" FontSize="12" Margin="0,8,0,0" MaxHeight="150"
-                     VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Checks and impact"/>
-        </StackPanel>
-        <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="1" x:Name="gridRewritePlan"
-                  AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" HeadersVisibility="Column" RowHeaderWidth="0" SelectionMode="Single"
-                  Margin="16,0,16,8" AutomationProperties.Name="Changes">
-            <DataGrid.Columns>
-                <DataGridTextColumn x:Name="colPlanAction" Header="Action" Binding="{Binding Action}" Width="150" MinWidth="110"/>
-                <DataGridTextColumn x:Name="colPlanTarget" Header="Object" Binding="{Binding Target}" Width="3*" MinWidth="200"/>
-                <DataGridTextColumn x:Name="colPlanDetail" Header="Detail" Binding="{Binding Detail}" Width="2*" MinWidth="160"/>
-            </DataGrid.Columns>
-        </DataGrid>
-        <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="1" x:Name="gridRewriteResult"
-                  AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" HeadersVisibility="Column" RowHeaderWidth="0" SelectionMode="Single"
-                  Margin="16,0,16,8" Visibility="Collapsed" AutomationProperties.Name="Results">
-            <DataGrid.Columns>
-                <DataGridTextColumn x:Name="colResultOutcome" Header="Result" Binding="{Binding Outcome}" Width="100" MinWidth="100"/>
-                <DataGridTextColumn x:Name="colResultAction" Header="Action" Binding="{Binding Action}" Width="130" MinWidth="110"/>
-                <DataGridTextColumn x:Name="colResultTarget" Header="Object" Binding="{Binding Target}" Width="3*" MinWidth="180"/>
-                <DataGridTextColumn x:Name="colResultMessage" Header="Message" Binding="{Binding Message}" Width="3*" MinWidth="160"/>
-            </DataGrid.Columns>
-        </DataGrid>
-        <CheckBox Grid.Row="2" x:Name="chkRewriteConfirm" Margin="16,0,16,8">
-            <TextBlock x:Name="txtRewriteConfirm" TextWrapping="Wrap"/>
-        </CheckBox>
-        <Border Grid.Row="3" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
-            <WrapPanel Margin="16,10,16,10" HorizontalAlignment="Right">
-                <Button x:Name="btnRewriteConfirm" Content="Confirm" Margin="0,0,8,0"
-                        Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-                <Button x:Name="btnRewriteUndo" Content="Undo" Margin="0,0,8,0" Visibility="Collapsed"
-                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                        ToolTip="Writes the old operator back on the site, from the log."/>
-                <Button x:Name="btnRewriteCancel" Content="Cancel" Margin="0,0,8,0" IsCancel="True"
-                        Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-                <Button x:Name="btnRewriteClose" Content="Close" Visibility="Collapsed"
-                        Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            </WrapPanel>
-        </Border>
-    </Grid>
-</Controls:MetroWindow>
-'@
-    [xml]$xml = Expand-SharedStyle $dlgXaml
-    $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
-    $dlg.Title = [string]$ChangePlan.Title
-    Install-TitleBarDragFallback -Window $dlg
-    Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
-
-    $txtSummary = $dlg.FindName('txtRewriteSummary')
-    $txtNotes = $dlg.FindName('txtRewriteNotes')
-    $gridPlan = $dlg.FindName('gridRewritePlan')
-    $gridResult = $dlg.FindName('gridRewriteResult')
-    $chkConfirm = $dlg.FindName('chkRewriteConfirm')
-    $txtConfirm = $dlg.FindName('txtRewriteConfirm')
-    $btnConfirm = $dlg.FindName('btnRewriteConfirm')
-    $btnUndo = $dlg.FindName('btnRewriteUndo')
-    $btnCancel = $dlg.FindName('btnRewriteCancel')
-    $btnClose = $dlg.FindName('btnRewriteClose')
-
-    # A long object name or message wraps in its cell instead of being cut off.
-    foreach ($name in 'colPlanTarget', 'colPlanDetail', 'colResultTarget', 'colResultMessage') {
-        $col = $dlg.FindName($name)
-        $wrap = [System.Windows.Style]::new([System.Windows.Controls.TextBlock], $col.ElementStyle)
-        $wrap.Setters.Add([System.Windows.Setter]::new([System.Windows.Controls.TextBlock]::TextWrappingProperty, [System.Windows.TextWrapping]::Wrap))
-        $col.ElementStyle = $wrap
-    }
-
-    $planRows = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
-    foreach ($item in @($ChangePlan.Items)) { $planRows.Add([pscustomobject]@{ Action = [string]$item.Action; Target = [string]$item.Target; Detail = [string]$item.Detail }) }
-    $gridPlan.ItemsSource = $planRows
-    $resultRows = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
-    $gridResult.ItemsSource = $resultRows
-
-    $notes = @($ChangePlan.Notes | Where-Object { $_ })
-    $txtNotes.Text = ($notes -join "`r`n")
-    if ($notes.Count -eq 0) { $txtNotes.Visibility = [System.Windows.Visibility]::Collapsed }
-    $txtConfirm.Text = [string]$ChangePlan.DestructiveConfirmation
-    $chkConfirm.IsChecked = $false
-    if (-not $ChangePlan.IsDestructive) { $chkConfirm.Visibility = [System.Windows.Visibility]::Collapsed }
-    $btnConfirm.Content = [string]$ChangePlan.ActionName
-    $hasUndo = [bool]($ChangePlan.HasUndo -and $null -ne $Undo)
-    $needsCheck = [bool]$ChangePlan.IsDestructive
-    $changeCount = @($ChangePlan.Items).Count
-
-    $state = @{ Stage = 'Review'; Cancel = $false; Busy = $false; Confirmed = $false; Result = $null; UndoResult = $null }
-    $visible = { param([bool]$Show) $(if ($Show) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed }) }
-
-    # One place sets what each stage shows: Review, Running, Done, Undoing, Undone.
-    $setStage = {
-        param([string]$Stage)
-        $state.Stage = $Stage
-        $state.Busy = ($Stage -eq 'Running' -or $Stage -eq 'Undoing')
-        $review = ($Stage -eq 'Review')
-        $gridPlan.Visibility = & $visible $review
-        $gridResult.Visibility = & $visible (-not $review)
-        $chkConfirm.IsEnabled = $review
-        $btnConfirm.Visibility = & $visible ($Stage -eq 'Review' -or $Stage -eq 'Running')
-        $btnConfirm.IsEnabled = ($review -and (-not $needsCheck -or $chkConfirm.IsChecked -eq $true))
-        $undoStage = ($Stage -eq 'Done' -or $Stage -eq 'Undoing' -or $Stage -eq 'Undone')
-        $undoOffered = ($hasUndo -and $undoStage -and -not ($state.Result -and $state.Result.UndoAvailable -eq $false))
-        $btnUndo.Visibility = & $visible $undoOffered
-        $btnUndo.IsEnabled = ($Stage -eq 'Done')
-        $btnCancel.Visibility = & $visible ($Stage -eq 'Review' -or $Stage -eq 'Running' -or $Stage -eq 'Undoing')
-        $btnClose.Visibility = & $visible ($Stage -eq 'Done' -or $Stage -eq 'Undone')
-    }.GetNewClosure()
-
-    $summaryForReview = $(if ($changeCount -eq 1) { '1 change. Review the list, then confirm.' } else { ('{0} changes. Review the list, then confirm.' -f $changeCount) })
-    $txtSummary.Text = $summaryForReview
-    & $setStage 'Review'
-
-    $showResult = {
-        param($Result, [string]$Prefix)
-        $resultRows.Clear()
-        foreach ($row in @($Result.Items)) { $resultRows.Add([pscustomobject]@{ Outcome = [string]$row.Outcome; Action = [string]$row.Action; Target = [string]$row.Target; Message = [string]$row.Message }) }
-        $txtSummary.Text = ($Prefix + [string]$Result.Summary)
-    }.GetNewClosure()
-    $failedResult = {
-        param([string]$Text, $Items)
-        $rows = @($Items | ForEach-Object { New-SupersedenceChangeRow -Item $_ -Succeeded $false -Message 'No result: the run failed before this change reported.' })
-        New-SupersedenceChangeResult -Rows $rows -Stop 'Failed' -UndoAvailable $false -Summary $Text
-    }.GetNewClosure()
-    $cancelCheck = { [bool]$state.Cancel }.GetNewClosure()
-
-    $chkConfirm.Add_Checked({ if ($state.Stage -eq 'Review') { $btnConfirm.IsEnabled = $true } }.GetNewClosure())
-    $chkConfirm.Add_Unchecked({ if ($state.Stage -eq 'Review') { $btnConfirm.IsEnabled = (-not $needsCheck) } }.GetNewClosure())
-
-    $confirm = {
-        if ($state.Stage -ne 'Review') { return }
-        if ($needsCheck -and $chkConfirm.IsChecked -ne $true) { return }
-        $state.Confirmed = $true
-        $state.Cancel = $false
-        & $setStage 'Running'
-        $txtSummary.Text = 'Running...'
-        $result = $null
-        try { $result = & $Run $cancelCheck }
-        catch {
-            Add-LogLine -Message ('{0} failed: {1}' -f [string]$ChangePlan.LogName, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The log file has the details.'))
-            $result = & $failedResult 'The run failed. The log has the details.' @($ChangePlan.Items)
-        }
-        $state.Result = $result
-        & $showResult $result ''
-        & $setStage 'Done'
-        $canUndo = [bool]@($result.Items | Where-Object { $_.Succeeded -or $_.PartialChange }).Count
-        $btnUndo.IsEnabled = ($hasUndo -and $canUndo -and $result.UndoAvailable -ne $false)
-    }.GetNewClosure()
-
-    $undo = {
-        if ($state.Stage -ne 'Done' -or -not $hasUndo) { return }
-        $state.Cancel = $false
-        & $setStage 'Undoing'
-        $txtSummary.Text = 'Undoing...'
-        $result = $null
-        try { $result = & $Undo $cancelCheck }
-        catch {
-            Add-LogLine -Message ('Undo of {0} failed: {1}' -f [string]$ChangePlan.LogName, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The log file has the details.'))
-            $result = & $failedResult 'The run failed. The log has the details.' @()
-        }
-        $state.UndoResult = $result
-        & $showResult $result 'Undo: '
-        & $setStage 'Undone'
-    }.GetNewClosure()
-
-    $btnConfirm.Add_Click($confirm)
-    $btnUndo.Add_Click($undo)
-    $btnCancel.Add_Click({
-        if ($state.Busy) {
-            $state.Cancel = $true
-            $txtSummary.Text = 'Cancelling... The run stops at the next step.'
-            return
-        }
-        $dlg.Close()
-    }.GetNewClosure())
-    $btnClose.Add_Click({ if (-not $state.Busy) { $dlg.Close() } }.GetNewClosure())
-    # A run that works keeps the window: the close box asks it to cancel.
-    $dlg.Add_Closing({ param($sender, $e) if ($state.Busy) { $e.Cancel = $true; $state.Cancel = $true } }.GetNewClosure())
-
-    return @{
-        Window = $dlg; State = $state; Summary = $txtSummary; Notes = $txtNotes; PlanGrid = $gridPlan; ResultGrid = $gridResult
-        ConfirmBox = $chkConfirm; ConfirmButton = $btnConfirm; UndoButton = $btnUndo; CancelButton = $btnCancel; CloseButton = $btnClose
-        Outcome = { [pscustomobject]@{ Confirmed = [bool]$state.Confirmed; Result = $state.Result; UndoResult = $state.UndoResult } }.GetNewClosure()
-    }
-}
-
-function Show-RewriteOldVersionsDialog {
-    # Returns Confirmed, Result and UndoResult. Closing the window before the confirmation changes nothing.
-    param(
-        [Parameter(Mandatory)]$Owner,
-        [Parameter(Mandatory)]$ChangePlan,
-        [Parameter(Mandatory)][scriptblock]$Run,
-        [AllowNull()][scriptblock]$Undo = $null
-    )
-    $dialog = New-RewriteOldVersionsDialog -Owner $Owner -ChangePlan $ChangePlan -Run $Run -Undo $Undo
-    [void]$dialog.Window.ShowDialog()
-    return (& $dialog.Outcome)
-}
-
-function Start-RewriteOldVersionsRun {
-    # The buttons Rewrite Old Versions and Restore Old Versions. One checked application at a time. Rewrite reads the line from the
-    # site and shows the plan; when no clause is left to rewrite and an earlier rewrite is pending, it offers that restore. Restore
-    # reads only the log. Nothing is written before the confirmation in the window.
-    param([Parameter(Mandatory)][ValidateSet('Rewrite', 'Restore')][string]$Mode)
-
-    $label = $(if ($Mode -eq 'Rewrite') { 'Rewrite Old Versions' } else { 'Restore Old Versions' })
-    if (Test-PipelineBusy) {
-        Add-LogLine -Message ('{0}: another run is in progress. Wait for it to finish.' -f $label)
-        return
-    }
-    $sidebar = Get-SidebarSystemState -Prefs $script:Prefs
-    if (-not $(if ($Mode -eq 'Rewrite') { $sidebar.RewriteEnabled } else { $sidebar.RestoreEnabled })) {
-        $reason = [string]$(if ($Mode -eq 'Rewrite') { $sidebar.RewriteToolTip } else { $sidebar.RestoreToolTip })
-        Add-LogLine -Message $reason
-        $txtStatus.Text = $reason
-        return
-    }
-    $selected = @(Get-SelectedRows)
-    if ($selected.Count -ne 1) {
-        Add-LogLine -Message ('{0} works on one checked application at a time.' -f $label)
-        $txtStatus.Text = 'Check one application.'
-        return
-    }
-    $target = Get-RewriteTargetForRow -Row $selected[0] -DownloadRoot ([string]$script:Prefs.DownloadRoot)
-    if (-not $target.Ok) {
-        Add-LogLine -Message ('{0}: {1}' -f $label, $target.Error)
-        $txtStatus.Text = ('{0} not possible.' -f $label)
-        return
-    }
-
-    $logPath = Join-Path (Get-WorkbenchDataRoot) 'supersedence-rewrite.jsonl'
-    $cliPath = Join-Path $PSScriptRoot 'Invoke-AppPackagerBuild.ps1'
-    $site = [string]$script:Prefs.SiteCode
-    $provider = [string]$script:Prefs.ProviderMachineName
-    $marker = [string]$target.Marker
-    Set-ActionButtonsEnabled -Enabled $false
-    try {
-        $plan = $null
-        $pending = @(Get-SupersedenceRewritePending -LogPath $logPath -Marker $marker)
-        $change = $null
-        if ($Mode -eq 'Rewrite') {
-            $txtStatus.Text = ('Reading the line of {0} from the site...' -f $target.Application)
-            Add-LogLine -Message ('Rewrite Old Versions: reading the line of {0}' -f $target.Application)
-            Show-BusyIndicator -Title $label -Step ('Reading the line of {0} from the site...' -f $target.Application)
-            try { $read = Invoke-RewriteChild -Arguments (Get-RewriteChildArgument -Mode plan -Target $target -SiteCode $site -ProviderMachineName $provider -ScriptPath $cliPath) }
-            finally { Hide-BusyIndicator }
-            if (-not $read.Result -or [string]$read.Result.Kind -ne 'Plan') {
-                $detail = ([string]$read.StdErr).Trim()
-                Add-LogLine -Message ('Rewrite Old Versions failed: the site could not be read.{0}' -f $(if ($detail) { ' ' + $detail } else { ' The log has the details.' }))
-                $txtStatus.Text = 'Rewrite Old Versions failed.'
-                return
-            }
-            $plan = $read.Result.Plan
-            foreach ($item in @($plan.Items | Where-Object { -not $_.Rewrites })) { Add-LogLine -Message ('  left: {0} / {1}: {2}' -f $item.Application, $item.DeploymentType, $item.Skip) }
-            foreach ($blocked in @($plan.Blocked)) { Add-LogLine -Message ('  blocked: {0}' -f $blocked) }
-            $change = New-SupersedenceRewriteChangePlan -Plan $plan -Restorable $pending.Count
-        }
-        $restoreChange = $(if (-not $change) { New-SupersedenceRestoreChangePlan -Pending $pending } else { $null })
-        if (-not $change -and -not $restoreChange) {
-            $message = $(if ($Mode -eq 'Rewrite') { 'No old version of this line has a clause that the rewrite can change, and no earlier rewrite is pending. The log lists each clause and why it is left.' } else { 'No earlier rewrite of this line is pending in the log.' })
-            Add-LogLine -Message ('{0}: {1}' -f $label, $(if ($Mode -eq 'Rewrite') { 'nothing to rewrite and nothing to restore.' } else { 'no earlier rewrite of this line is pending.' }))
-            $txtStatus.Text = $(if ($Mode -eq 'Rewrite') { 'Nothing to rewrite.' } else { 'Nothing to restore.' })
-            [void](Show-ThemedMessage -Owner $window -Title $label -Message $message -Buttons OK -Icon Info)
-            return
-        }
-
-        $items = $(if ($change) { @($change.Items) } else { @() })
-        $runRestore = {
-            param($shouldCancel)
-            $started = [datetimeoffset]::UtcNow
-            $now = @(Get-SupersedenceRewritePending -LogPath $logPath -Marker $marker | ForEach-Object { ConvertTo-SupersedenceRestoreChangeItem -Entry $_ })
-            $child = Invoke-RewriteChild -Arguments (Get-RewriteChildArgument -Mode restore -Target $target -SiteCode $site -ProviderMachineName $provider -ScriptPath $cliPath) -ShouldCancel $shouldCancel
-            return (ConvertFrom-SupersedenceChildRun -Run $child -Items $now -Entries @(Get-SupersedenceLogEntrySince -LogPath $logPath -Since $started) -Kind Restore)
-        }.GetNewClosure()
-        $runRewrite = {
-            param($shouldCancel)
-            $started = [datetimeoffset]::UtcNow
-            $planFile = Join-Path ([System.IO.Path]::GetTempPath()) ('ap-rewrite-plan-{0}.json' -f [guid]::NewGuid().ToString('N'))
-            try {
-                Set-Content -LiteralPath $planFile -Value (ConvertTo-Json -InputObject $plan -Depth 8) -Encoding UTF8
-                $child = Invoke-RewriteChild -Arguments (Get-RewriteChildArgument -Mode apply -Target $target -SiteCode $site -ProviderMachineName $provider -ShownPlan $planFile -ScriptPath $cliPath) -ShouldCancel $shouldCancel
-            }
-            finally { Remove-Item -LiteralPath $planFile -Force -ErrorAction SilentlyContinue }
-            return (ConvertFrom-SupersedenceChildRun -Run $child -Items $items -Entries @(Get-SupersedenceLogEntrySince -LogPath $logPath -Since $started))
-        }.GetNewClosure()
-
-        $shown = $(if ($change) { $change } else { $restoreChange })
-        Add-LogLine -Message ('{0}: {1} to confirm for {2}' -f $label, $shown.ActionName, $target.Application)
-        $outcome = $(if ($change) { Show-RewriteOldVersionsDialog -Owner $window -ChangePlan $change -Run $runRewrite -Undo $runRestore }
-            else { Show-RewriteOldVersionsDialog -Owner $window -ChangePlan $restoreChange -Run $runRestore })
-        if ($outcome.Result) {
-            Add-LogLine -Message ('{0}: {1}' -f $shown.Title, $outcome.Result.Summary)
-            foreach ($row in @($outcome.Result.Items)) { Add-LogLine -Message ('  {0}: {1}: {2}' -f $row.Outcome, $row.Target, $row.Message) }
-        }
-        if ($outcome.UndoResult) {
-            Add-LogLine -Message ('Restore: {0}' -f $outcome.UndoResult.Summary)
-            foreach ($row in @($outcome.UndoResult.Items)) { Add-LogLine -Message ('  {0}: {1}: {2}' -f $row.Outcome, $row.Target, $row.Message) }
-        }
-        if (-not $outcome.Confirmed) { Add-LogLine -Message ('{0}: not confirmed; nothing was changed.' -f $shown.Title) }
-        $txtStatus.Text = $(if (-not $outcome.Confirmed) { '{0} not confirmed.' -f $shown.Title }
-            elseif ($outcome.Result -and $outcome.Result.Stop -eq 'Completed') { '{0} finished.' -f $shown.Title }
-            else { '{0} stopped; see the log.' -f $shown.Title })
-    }
-    catch {
-        $message = ('{0} failed: {1}' -f $label, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
-        Add-LogLine -Message $message
-        $txtStatus.Text = $message
-    }
-    finally {
-        Hide-BusyIndicator
-        Set-ActionButtonsEnabled -Enabled $true
-    }
-}
-
-$btnRewriteOld.Add_Click({ Start-RewriteOldVersionsRun -Mode Rewrite })
-$btnRestoreOld.Add_Click({ Start-RewriteOldVersionsRun -Mode Restore })
-
 # --- 3. Stage Packages ---
 $btnStage.Add_Click({
     $dlRootValue = $script:Prefs.DownloadRoot
@@ -13522,72 +13105,6 @@ function Start-PublishRun {
 $btnPackage.Add_Click({ Start-PublishRun -Target 'ConfigMgr' })
 $btnPublishIntune.Add_Click({ Start-PublishRun -Target 'IntuneOnly' })
 $btnPublishWsus.Add_Click({ Start-PublishRun -Target 'WSUSOnly' })
-
-function Start-ApplySupersedence {
-    # Apply Supersedence: the lookup of the older application and the supersedence step for each checked
-    # application, with its newest stage and without a new publish. The engine entry point is
-    # Invoke-SupersedenceApply. It runs on the UI thread behind the busy display, one application at a time.
-    if (Test-PipelineBusy) {
-        Add-LogLine -Message 'Apply Supersedence: another run is in progress. Wait for it to finish.'
-        return
-    }
-    $sidebar = Get-SidebarSystemState -Prefs $script:Prefs
-    if (-not $sidebar.ApplySupersedenceEnabled) {
-        Add-LogLine -Message $sidebar.ApplySupersedenceToolTip
-        $txtStatus.Text = $sidebar.ApplySupersedenceToolTip
-        return
-    }
-    $selectedRows = @(Get-SelectedRows)
-    if ($selectedRows.Count -eq 0) {
-        Add-LogLine -Message 'No rows selected.'
-        return
-    }
-
-    $titleModes = Get-TitleModesMapForContext
-    $defaultTitleMode = Get-DefaultTitleModeForContext
-    Set-ActionButtonsEnabled -Enabled $false
-    Show-BusyIndicator -Title 'Applying supersedence'
-    try {
-        $txtStatus.Text = 'Applying supersedence to the selected applications...'
-        $total = $selectedRows.Count
-        $index = 0
-        $counts = @{ Applied = 0; None = 0; Failed = 0 }
-        foreach ($row in $selectedRows) {
-            $index++
-            $baseName = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script)
-            Set-BusyStep -Text (Format-BusyStep -Verb 'Supersedence' -Index $index -Total $total -Name ([string]$row.Application))
-            Add-LogLine -Message ('Apply Supersedence: {0}' -f $row.Application)
-            try {
-                $manifestPath = Find-NewestStageManifestForPackager -PackagerPath ([string]$row.FullPath) -DownloadRoot ([string]$script:Prefs.DownloadRoot)
-                $titleMode = $(if ($titleModes.ContainsKey($baseName) -and [string]$titleModes[$baseName]) { [string]$titleModes[$baseName] } else { [string]$defaultTitleMode })
-                $result = Invoke-SupersedenceApply -ManifestPath ([string]$manifestPath) -SiteCode ([string]$script:Prefs.SiteCode) `
-                    -ProviderMachineName ([string]$script:Prefs.ProviderMachineName) -FallbackApplicationId ('catalog:' + $baseName) `
-                    -TitleMode $titleMode -Settings $script:Prefs.Supersedence
-            }
-            catch {
-                $result = [pscustomobject]@{ Ok = $false; Message = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'); Status = 'NotApplied'; RowStatus = 'Supersedence not applied'; Log = @() }
-            }
-            foreach ($line in @($result.Log)) { Add-LogLine -Message ('  ' + $line) }
-            Add-LogLine -Message ('  {0}: {1}' -f $(if ($result.Ok) { 'Supersedence' } else { 'Supersedence not applied' }), $result.Message)
-            $row.Status = [string]$result.RowStatus
-            if (-not $result.Ok) { $counts.Failed++ } elseif ($result.Status -eq 'Applied') { $counts.Applied++ } else { $counts.None++ }
-            try { $dataGrid.Items.Refresh() } catch { <# A refresh of the grid is display only. #> $null = $_ }
-        }
-        $txtStatus.Text = 'Apply Supersedence finished: {0} applied, {1} with no older version, {2} not applied.' -f $counts.Applied, $counts.None, $counts.Failed
-        Add-LogLine -Message $txtStatus.Text
-    }
-    catch {
-        $message = 'Apply Supersedence failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')
-        Add-LogLine -Message $message
-        $txtStatus.Text = $message
-    }
-    finally {
-        Hide-BusyIndicator
-        Set-ActionButtonsEnabled -Enabled $true
-    }
-}
-
-$btnApplySupersedence.Add_Click({ Start-ApplySupersedence })
 
 $btnWsusUpdates.Add_Click({
     $settings = Get-WsusPublishConfigForContext -Target 'WSUSOnly'

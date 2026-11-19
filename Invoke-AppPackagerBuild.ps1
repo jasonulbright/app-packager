@@ -116,41 +116,23 @@ param(
     # Off, Replace or ReplaceAndUninstall (also replace-uninstall). ReplaceAndUninstall needs -VersionRule Exact.
     [string]$Supersedence,
 
-    # plan, apply or restore: changes the version clause of the OLD applications of the line from GreaterEquals to IsEquals.
-    # It runs alone: it does not stage or package. apply and restore write only with -Yes.
-    [ValidateSet('plan', 'apply', 'restore')]
-    [string]$RewriteOldVersions,
-
-    [switch]$Yes,
+    # Yes applies the supersedence of a title whose supersedence is on (the older version of the same title and vendor is
+    # looked up and superseded). Skip, the default, packages the application without it. A run with nobody to ask never applies it.
+    [ValidateSet('Yes', 'Skip')]
+    [string]$SupersedenceAnswer,
 
     # The value read from the installed product of -Application and -Version (the Exact guard compares it). Runs alone.
     [string]$RecordInstalledValue,
 
     # Accepts the block of the Exact guard for -Application and -Version. The clause is then written as Minimum. Runs alone.
-    [switch]$AcceptExactBlock,
-
-    # The architecture part of the identity marker of -RewriteOldVersions: the architecture that the packager publishes.
-    [ValidateSet('x64', 'x86', 'arm64')]
-    [string]$Architecture = 'x64',
-
-    # The identity marker of the line, from the stage manifest that the window read. It replaces the marker that -Profile and
-    # -Architecture make. Only with -RewriteOldVersions.
-    [string]$IdentityMarker,
-
-    # With -RewriteOldVersions: writes one line that starts with APRESULT: and holds the plan or the result as JSON, for the window.
-    [switch]$Json,
-
-    # With -RewriteOldVersions apply: the file with the plan that the window showed. The run reads the site again and writes only
-    # when the clauses to rewrite are the ones in the file.
-    [string]$ShownPlan
+    [switch]$AcceptExactBlock
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $supersedenceRecord = ($PSBoundParameters.ContainsKey('RecordInstalledValue') -or $AcceptExactBlock)
-$supersedenceRewrite = $PSBoundParameters.ContainsKey('RewriteOldVersions')
-if (-not $Stage -and -not $Package -and -not $supersedenceRecord -and -not $supersedenceRewrite) {
+if (-not $Stage -and -not $Package -and -not $supersedenceRecord) {
     throw 'Specify -Stage, -Package, or both.'
 }
 $supersedenceModeToken = $null
@@ -163,10 +145,6 @@ if ($PSBoundParameters.ContainsKey('Supersedence')) {
 if ($PSBoundParameters.ContainsKey('VersionRule') -and $supersedenceModeToken -eq 'ReplaceAndUninstall' -and $VersionRule -eq 'Minimum') {
     throw 'Replace and uninstall needs the version rule Exact. With Minimum, the detection of the old application still finds the new version after the uninstall, and the uninstall is reported as failed. Set the version rule to Exact, or set the supersedence mode to Replace or Off.'
 }
-if ($supersedenceRewrite -and ($Stage -or $Package -or $supersedenceRecord)) { throw '-RewriteOldVersions runs alone: it does not stage or package.' }
-if ($Yes -and -not $supersedenceRewrite) { throw '-Yes applies to -RewriteOldVersions only.' }
-if (($Json -or $IdentityMarker -or $ShownPlan) -and -not $supersedenceRewrite) { throw '-Json, -IdentityMarker and -ShownPlan apply to -RewriteOldVersions only.' }
-if ($ShownPlan -and $RewriteOldVersions -ne 'apply') { throw '-ShownPlan applies to -RewriteOldVersions apply only.' }
 if ($supersedenceRecord) {
     if ($PSBoundParameters.ContainsKey('RecordInstalledValue') -and $AcceptExactBlock) { throw '-RecordInstalledValue and -AcceptExactBlock are separate runs; give one.' }
     if ($Stage -or $Package) { throw '-RecordInstalledValue and -AcceptExactBlock run alone: they do not stage, package or rewrite.' }
@@ -321,68 +299,6 @@ if ($supersedenceRecord) {
     return
 }
 
-if ($supersedenceRewrite) {
-    # The optional rewrite of the version clause of the old applications of the line. plan reads the site and prints what would
-    # change; apply and restore write only after -Yes, and the log is the way back.
-    Import-Module (Join-Path $PackagersRoot 'AppPackagerCommon.psd1') -Force -ErrorAction Stop
-    $siteCodeValue = $(if ($PSBoundParameters.ContainsKey('SiteCode')) { $SiteCode } else { [string](Get-CliPreference 'SiteCode') })
-    if ([string]::IsNullOrWhiteSpace($siteCodeValue)) { throw '-RewriteOldVersions needs a ConfigMgr site: pass -SiteCode or set it in Options.' }
-    if ($ProviderMachineName) { $env:APP_PACKAGER_CM_PROVIDER = $ProviderMachineName }
-    elseif ((Get-CliPreference 'ProviderMachineName')) { $env:APP_PACKAGER_CM_PROVIDER = [string](Get-CliPreference 'ProviderMachineName') }
-    $rewriteProfile = $(if ($PSBoundParameters.ContainsKey('Profile')) { Resolve-CliProfile -ApplicationId $applicationId -Value $Profile } else { 'default' })
-    $rewriteMarker = $(if ($IdentityMarker) { $IdentityMarker.Trim() } else { Get-SupersedenceIdentityMarker -Manifest ([pscustomobject]@{ ApplicationId = $applicationId; ProfileId = $rewriteProfile; Architecture = $Architecture }) })
-    $rewriteSettings = Get-SupersedenceSettings -PreferencesPath $PreferencesPath
-    $rewriteLog = Join-Path (Get-WorkbenchDataRoot) 'supersedence-rewrite.jsonl'
-    if (-not (Connect-CMSite -SiteCode $siteCodeValue)) { throw 'The ConfigMgr site connection failed.' }
-    if ($RewriteOldVersions -eq 'restore') {
-        if ($Json) {
-            if (-not $Yes) { throw 'restore writes the old operator back on the site. Run it again with -Yes.' }
-            $ran = Invoke-SupersedenceRestoreRun -SiteCode $siteCodeValue -Marker $rewriteMarker -LogPath $rewriteLog
-            Write-Output ('APRESULT:' + (ConvertTo-Json -InputObject ([ordered]@{ Kind = 'Result'; Result = $ran }) -Depth 8 -Compress))
-            if (@($ran.Items | Where-Object { -not $_.Succeeded -and -not $_.Skipped }).Count -gt 0) { exit 1 }
-            return
-        }
-        $logEntries = $(if (Test-Path -LiteralPath $rewriteLog) { @(Read-SupersedenceRewriteLog -Text (Get-Content -LiteralPath $rewriteLog -Raw -Encoding UTF8)) } else { @() })
-        $pending = @(Get-SupersedenceRestoreEntry -Log $logEntries -Applications @($logEntries | ForEach-Object { $_.Application } | Select-Object -Unique) -Line $rewriteMarker)
-        Write-Host ("Log: {0}. {1} deployment type(s) to restore." -f $rewriteLog, $pending.Count)
-        foreach ($entry in $pending) { Write-Host ("  restore: {0} / {1}: back to {2}" -f $entry.Application, $entry.DeploymentType, $entry.OldOperator) }
-        if (-not $Yes) { throw 'restore writes the old operator back on the site. Run it again with -Yes.' }
-        $restored = Invoke-SupersedenceRestore -SiteCode $siteCodeValue -Marker $rewriteMarker -LogPath $rewriteLog
-        foreach ($failure in $restored.Failures) { Write-Error $failure -ErrorAction Continue }
-        Write-Host ("Restored {0} deployment type(s); {1} failed." -f @($restored.Written).Count, @($restored.Failures).Count)
-        if (@($restored.Failures).Count -gt 0) { exit 1 }
-        return
-    }
-    if ($Json -and $RewriteOldVersions -eq 'apply' -and $ShownPlan) {
-        # The window's run: the shown plan is checked against the site before anything is written.
-        $shown = Get-Content -LiteralPath $ShownPlan -Raw -Encoding UTF8 | ConvertFrom-Json
-        $ran = Invoke-SupersedenceRewriteRun -Plan $shown -SiteCode $siteCodeValue -Marker $rewriteMarker -TitleKey $applicationId -Settings $rewriteSettings -LogPath $rewriteLog
-        Write-Output ('APRESULT:' + (ConvertTo-Json -InputObject ([ordered]@{ Kind = 'Result'; Result = $ran }) -Depth 8 -Compress))
-        if (@($ran.Items | Where-Object { -not $_.Succeeded -and -not $_.Skipped }).Count -gt 0) { exit 1 }
-        return
-    }
-    $rewritePlan = Get-SupersedenceRewriteScopePlan -Marker $rewriteMarker -TitleKey $applicationId -Settings $rewriteSettings
-    if ($Json -and $RewriteOldVersions -eq 'plan') {
-        Write-Output ('APRESULT:' + (ConvertTo-Json -InputObject ([ordered]@{ Kind = 'Plan'; Plan = $rewritePlan }) -Depth 8 -Compress))
-        return
-    }
-    Write-Host ("Old applications of the line: {0} with a clause to rewrite; {1} clause(s) in all." -f $rewritePlan.ApplicationCount, $rewritePlan.ClauseCount)
-    foreach ($blocked in $rewritePlan.Blocked) { Write-Host "  blocked: $blocked" }
-    foreach ($item in $rewritePlan.Items) {
-        if ($item.Rewrites) { Write-Host ("  rewrite: {0} / {1}: GreaterEquals -> IsEquals" -f $item.Application, $item.DeploymentType) }
-        else { Write-Host ("  left: {0} / {1}: {2}" -f $item.Application, $item.DeploymentType, $item.Skip) }
-    }
-    if ($RewriteOldVersions -eq 'plan') { Write-Host (Get-SupersedenceRewriteConfirmationText); return }
-    if (-not $Yes) { throw ("apply changes the detection of the old applications. {0} Run it again with -Yes." -f (Get-SupersedenceRewriteConfirmationText)) }
-    if ($rewritePlan.ClauseCount -eq 0) { Write-Host 'Nothing to rewrite.'; return }
-    # The log is written ahead, one entry at a time, before the site changes: it is the only way back.
-    $rewritten = Invoke-SupersedenceRewrite -Plan $rewritePlan -SiteCode $siteCodeValue -Marker $rewriteMarker -LogPath $rewriteLog
-    foreach ($failure in $rewritten.Failures) { Write-Error $failure -ErrorAction Continue }
-    Write-Host ("Rewrote {0} deployment type(s); {1} failed. Log: {2}" -f @($rewritten.Written).Count, @($rewritten.Failures).Count, $rewriteLog)
-    if (@($rewritten.Failures).Count -gt 0) { exit 1 }
-    return
-}
-
 $profileId = Resolve-CliProfile -ApplicationId $applicationId -Value $Profile
 $profileObject = Get-Profile -ApplicationId $applicationId -ProfileId $profileId
 
@@ -491,6 +407,7 @@ if ($signingJson) { $legacy['APP_PACKAGER_SIGNING'] = $signingJson }
 # The command line level of the version rule and the supersedence mode; the module reads them and they outrank the other levels.
 if ($PSBoundParameters.ContainsKey('VersionRule')) { $legacy['APP_PACKAGER_VERSION_RULE'] = $VersionRule }
 if ($supersedenceModeToken) { $legacy['APP_PACKAGER_SUPERSEDENCE'] = $supersedenceModeToken }
+if ($PSBoundParameters.ContainsKey('SupersedenceAnswer')) { $legacy['APP_PACKAGER_SUPERSEDENCE_ANSWER'] = $SupersedenceAnswer }
 
 $requirementsJson = ConvertTo-CliRequirementsJson -Profile $profileObject
 if ($requirementsJson) { $legacy['APP_PACKAGER_REQUIREMENTS'] = $requirementsJson }

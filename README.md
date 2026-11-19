@@ -163,12 +163,10 @@ The sidebar has the workflow actions at the top, an **Add Installer...** button 
 - **Discover unmanaged software** - finds hidden apps that hardware inventory shows installed on clients and that have no ConfigMgr application, and offers to show them in the grid. See [Discover unmanaged software](#discover-unmanaged-software)
 - **Stage Packages** - downloads installers, extracts metadata, generates wrappers and manifests locally, and builds a `.intunewin` when IntuneWinAppUtil is detected
 - **Publish to ConfigMgr** - reads manifests, copies content to network share, creates ConfigMgr applications
-- **Apply Supersedence** - sets the supersedence relation from each checked, published app to the older version of its product line, without a new publish. It needs the supersedence mode Replace or Replace and uninstall
 - **Publish to Intune** - stages each checked app, builds its `.intunewin`, and publishes a Win32 app through Microsoft Graph
 - **Publish to WSUS** - stages each checked app and publishes its installer to WSUS as an update for computers that have an older version
 - **WSUS Updates** - lists the updates AppPackager published to WSUS; approve, decline, expire or remove them, or import from the Microsoft Update Catalog
 - **Convert ConfigMgr App to Intune** - converts an existing ConfigMgr application to Intune Win32 apps, one app for each deployment type. See [Convert a ConfigMgr application to Intune](#convert-a-configmgr-application-to-intune)
-- **Rewrite Old Versions** and **Restore Old Versions** - change the version clause of the older applications of the checked app's product line from `GreaterEquals` to `IsEquals`, and write the old operator back. See [Rewrite old versions](#rewrite-old-versions)
 
 Each publish button sends the checked apps to its own destination, so the destination is chosen per run. A button whose system is not in use (Systems in Use, set in Setup or Options) or not configured is disabled, and its tooltip says what to set: the ConfigMgr console and a site code for ConfigMgr, Tenant ID, Client ID and Client Secret for Intune, and a WSUS server for WSUS.
 
@@ -385,7 +383,7 @@ The optional **Administrative Comment** field sits in the sidebar below the Opti
 ### Grid features
 
 - **Filter box** - narrows the grid by application, vendor, status, or CM name as you type
-- **Right-click context menu** on any row - Edit application, Use as old application, Open Log Folder, Open Staged Folder, Open Network Share, Copy Latest Version
+- **Right-click context menu** on any row - Edit application, Open Log Folder, Open Staged Folder, Open Network Share, Copy Latest Version
 - **Ctrl+Select** any row to open the vendor's product page in the default browser
 - **Row hover tooltips** - hover over any row to see the application's description from the packager script
 - **Selection cycle header** - selecting the checkbox column header cycles none -> all -> updates only -> none; selection acts on the rows the filter shows and the glyph reflects the current bulk state
@@ -483,11 +481,9 @@ A target names the destinations of a publish. ConfigMgr, Intune and WSUS are ind
 
 It creates the run snapshot, sets the child environment and launches the packager exactly as the GUI does, so a scheduled build and a selection of the button produces the same content. A WSUS target publishes the manifest staged in the same run, so a target that names both ConfigMgr and WSUS needs `-Stage` and `-Package` together. The result object carries a `Wsus` block. A failed publish sets exit code 1. A failed approval or decline after a successful publish also sets exit code 1, and `Wsus.Warnings` names it. A `custom:` script lives under `<workbench data root>\scripts`, outside the install folder, and must import `AppPackagerCommon.psd1` by its full path; it builds from the command line only, since the main grid lists the `Packagers` folder.
 
-### Rewrite old versions
+### Supersedence
 
-Check one application and select **Rewrite Old Versions**. The tool reads the older applications of the product line of that application from the site and shows the plan in a dialog: one row for each clause that the rewrite changes, and notes that name the applications that are blocked (an application with a required deployment), the clauses that are left and why, and the effect on the devices. A device that has a newer version than the one in the clause then reads "not installed". Nothing is written until you check the confirmation box and select **Rewrite N Clauses**. The tool reads the site again first and writes nothing when the clauses are not the ones that the dialog showed. The result lists each clause. **Undo** writes the old operator back.
-
-**Restore Old Versions** lists the rewrites of this line that the log holds and no restore cancels, and writes the old operator back after the confirmation. It leaves the rewrites of other lines. The log is `supersedence-rewrite.jsonl` in the Workbench data folder. The tool writes each entry before it changes the site, so a stop at any point leaves an entry for everything that may have changed. Both buttons need the ConfigMgr console and the site code, like **Publish to ConfigMgr**, and they run `Invoke-AppPackagerBuild.ps1 -RewriteOldVersions` as a child process. Only a clause that the Exact guard allows is rewritten: a `GreaterEquals` clause whose expected value is the version of the old application, with a recorded installed value of that version.
+Supersedence is a setting of the application and it is off until you turn it on (Options, Packaging, Supersedence: a default, a choice for each application, and the buttons **All applications**, **Selected applications** and **No applications**). An application with supersedence on keeps the version in its name. At Package the tool looks for the older application with the same title and vendor, takes the highest version below the new one and asks first: **Yes** applies it, **Skip** packages without it, **No** stops the run, and **Remember this answer** keeps the answer for the run. The older application is not changed, and the tool does not rewrite the detection of published applications. One Click and the command line never apply a supersedence unless `-SupersedenceAnswer Yes` is given.
 
 ### Convert a ConfigMgr application to Intune
 

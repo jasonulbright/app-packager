@@ -328,8 +328,6 @@
                                 ToolTip="Download and extract each checked app into the staging root."/>
                         <Button x:Name="btnPackage"     Content="Publish to ConfigMgr" Style="{StaticResource WorkflowButtonStyle}"
                                 ToolTip="Build a ConfigMgr application and deployment type for each checked app."/>
-                        <Button x:Name="btnApplySupersedence" Content="Apply Supersedence" Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="Link each checked, published app to its older version in ConfigMgr, with no new publish."/>
                         <Button x:Name="btnPublishIntune" Content="Publish to Intune" Style="{StaticResource WorkflowButtonStyle}"
                                 ToolTip="Stage each checked app, build its .intunewin file and publish it to Intune."/>
                         <Button x:Name="btnPublishWsus" Content="Publish to WSUS"  Style="{StaticResource WorkflowButtonStyle}"
@@ -350,16 +348,6 @@
                         <Button x:Name="btnConvertCm" Style="{StaticResource WorkflowButtonStyle}"
                                 ToolTip="Convert a ConfigMgr application to Intune Win32 apps without a change in ConfigMgr.">
                             <TextBlock Text="Convert ConfigMgr App to Intune" TextWrapping="Wrap"/>
-                        </Button>
-
-                        <!-- The label wraps: one line is wider than the sidebar once its scroll bar shows. -->
-                        <Button x:Name="btnRewriteOld" Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="Rewrite the version clause of the checked app's older versions to IsEquals, after a plan.">
-                            <TextBlock Text="Rewrite Old Versions" TextWrapping="Wrap"/>
-                        </Button>
-                        <Button x:Name="btnRestoreOld" Style="{StaticResource WorkflowButtonStyle}"
-                                ToolTip="Write the old operator back for the checked app's older versions, from the log.">
-                            <TextBlock Text="Restore Old Versions" TextWrapping="Wrap"/>
                         </Button>
 
                         <!-- Unified Options button (replaces the Options section header + 4 individual buttons) -->

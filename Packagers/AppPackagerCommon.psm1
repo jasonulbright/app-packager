@@ -2758,6 +2758,23 @@ function Read-StageManifest {
     Write-Log "Read stage manifest          : $Path"
     $titleMode = [string]$env:APP_PACKAGER_TITLE_MODE
     if ($manifest.PSObject.Properties['TitleMode'] -and [string]$manifest.TitleMode) { $titleMode = [string]$manifest.TitleMode }
+    # The title lock: an application with supersedence on carries the version in its title, because this release and the older
+    # one must be separate applications. The notice names the application whose title changes, so nobody is surprised.
+    $lockId = [string](Get-SupersedenceProperty $manifest 'ApplicationId')
+    if ([string]::IsNullOrWhiteSpace($lockId)) { $lockId = [string](Get-SupersedenceFallbackApplicationId) }
+    if (-not [string]::IsNullOrWhiteSpace($lockId) -and $titleMode -ne 'IncludeVersion') {
+        try {
+            $lockResolved = Resolve-Supersedence -Settings (Get-SupersedenceSettings) -ApplicationId $lockId -CommandLine (Get-SupersedenceCommandLine)
+            if ([string]$lockResolved.Mode.Value -ne 'Off') {
+                $titleBefore = $(if ($titleMode -and $titleMode -ne 'Default') { Get-PackagedApplicationName -AppName $manifest.AppName -Version $manifest.SoftwareVersion -Mode $titleMode } else { [string]$manifest.AppName })
+                if (-not (Test-SupersedenceVersionInTitle -Title $titleBefore -Version ([string]$manifest.SoftwareVersion))) {
+                    Write-Log (Get-SupersedenceTitleNotice -Title $titleBefore) -Level WARN
+                }
+                $titleMode = 'IncludeVersion'
+            }
+        }
+        catch { $null = $_ }
+    }
     if ($titleMode -and $titleMode -ne 'Default') {
         $manifest.AppName = Get-PackagedApplicationName -AppName $manifest.AppName -Version $manifest.SoftwareVersion -Mode $titleMode
     }
@@ -3341,7 +3358,6 @@ function New-PostgreSqlSuperuserSecretBlock {
 # A mode is a token here ('Off', 'Replace', 'ReplaceAndUninstall'); the text of a mode is 'Replace and uninstall'.
 
 $script:SupersedenceBlockedText = 'Replace and uninstall needs the version rule Exact. With Minimum, the detection of the old application still finds the new version after the uninstall, and the uninstall is reported as failed. Set the version rule to Exact, or set the supersedence mode to Replace or Off.'
-$script:SupersedenceMarkerPrefix = 'APD-Line:'
 
 function Get-SupersedenceProperty {
     # The value of a property, or $null when the object has none (safe under strict mode).
@@ -3684,28 +3700,11 @@ function Get-ExactGuardVerdict {
     return [pscustomobject]@{ Result = $(if ($isAccepted) { 'ExactAcceptedBlock' } else { 'ExactBlocked' }); Detail = $reason }
 }
 
-# ---- the identity marker ----
-
-function Get-SupersedenceIdentityMarker {
-    # The identity record that a ConfigMgr publish writes into the keywords of the application: the title
-    # identity (the application identifier), the profile and the architecture. $null for a title with no identifier.
-    param([Parameter(Mandatory)]$Manifest, [AllowNull()][string]$FallbackApplicationId)
-    $applicationId = [string](Get-SupersedenceProperty $Manifest 'ApplicationId')
-    if ([string]::IsNullOrWhiteSpace($applicationId)) { $applicationId = $FallbackApplicationId }
-    if ([string]::IsNullOrWhiteSpace($applicationId)) { return $null }
-    $profile = [string](Get-SupersedenceProperty $Manifest 'ProfileId')
-    if ([string]::IsNullOrWhiteSpace($profile)) { $profile = 'default' }
-    $architecture = [string](Get-SupersedenceProperty $Manifest 'Architecture')
-    if ([string]::IsNullOrWhiteSpace($architecture)) { $architecture = 'x64' }
-    return ('{0}{1}|{2}|{3}' -f $script:SupersedenceMarkerPrefix, $applicationId.Trim(), $profile.Trim(), $architecture.Trim())
-}
-
-# ---- the planner ----
 
 function Get-SupersedencePlan {
     <#
     .SYNOPSIS
-        What a publish does with the version rule: the manifest that each target publishes, the identity marker,
+        What a publish does with the version rule: the manifest that each target publishes,
         the lines for the log and the refusal when the row cannot be published.
     .DESCRIPTION
         A refused plan creates nothing. MsiProductVersion is a script block that takes the manifest and returns
@@ -3724,7 +3723,7 @@ function Get-SupersedencePlan {
     $applicationId = [string](Get-SupersedenceProperty $Manifest 'ApplicationId')
     if ([string]::IsNullOrWhiteSpace($applicationId)) { $applicationId = $FallbackApplicationId }
     $log = New-Object System.Collections.Generic.List[string]
-    $refused = { param($text) [pscustomobject]@{ ConfigMgrManifest = $Manifest; IntuneManifest = $Manifest; Marker = $null; Refusal = $text; Log = @($log); Mode = 'Off'; ConfigMgrRule = 'Minimum' } }
+    $refused = { param($text) [pscustomobject]@{ ConfigMgrManifest = $Manifest; IntuneManifest = $Manifest; Refusal = $text; Log = @($log); Mode = 'Off'; ConfigMgrRule = 'Minimum' } }
 
     try { $resolved = Resolve-Supersedence -Settings $Settings -ApplicationId $applicationId -CommandLine $CommandLine }
     catch { return (& $refused $_.Exception.Message) }
@@ -3778,12 +3777,9 @@ function Get-SupersedencePlan {
         return (& $refused 'The version rule Exact was not applied to this title (the block is accepted), so Replace and uninstall is blocked for it. Set the supersedence mode of the title to Replace or Off.')
     }
 
-    $marker = $null
-    if ($PublishesToConfigMgr) { $marker = Get-SupersedenceIdentityMarker -Manifest $Manifest -FallbackApplicationId $applicationId }
     return [pscustomobject]@{
         ConfigMgrManifest = $configMgrManifest
         IntuneManifest    = $intuneManifest
-        Marker            = $marker
         Refusal           = $null
         Log               = @($log)
         Mode              = $resolved.Mode.Value
@@ -3951,11 +3947,14 @@ function Select-SupersedenceOldApplication {
     .DESCRIPTION
         A version that cannot be read is skipped and named. Returns Old (or $null), Notes and Summary.
     #>
-    param([AllowEmptyCollection()][object[]]$Applications = @(), [Parameter(Mandatory)][string]$NewTitle, [Parameter(Mandatory)][string]$NewVersion)
+    param([AllowEmptyCollection()][object[]]$Applications = @(), [Parameter(Mandatory)][string]$NewTitle, [Parameter(Mandatory)][string]$NewVersion, [AllowEmptyString()][string]$NewVendor = '')
     $notes = New-Object System.Collections.Generic.List[string]
     $candidates = @()
     foreach ($app in @($Applications)) {
         if ([string]::Equals([string]$app.Title, $NewTitle, [StringComparison]::OrdinalIgnoreCase)) { continue }
+        if ($app.PSObject.Properties['VendorMatch'] -and -not [bool]$app.VendorMatch) {
+            $notes.Add(("'{0}' {1} has the vendor '{2}', and this application has the vendor '{3}', so it is not the older version." -f $app.Title, $app.SoftwareVersion, $app.Manufacturer, $NewVendor)); continue
+        }
         if ($app.IsExpired) { $notes.Add("'$($app.Title)' is retired and was skipped."); continue }
         if ($null -eq (ConvertTo-SupersedenceVersion -Value $app.SoftwareVersion)) {
             $notes.Add("The version '$($app.SoftwareVersion)' of '$($app.Title)' cannot be read, so it was skipped."); continue
@@ -3968,13 +3967,13 @@ function Select-SupersedenceOldApplication {
         $candidates += $app
     }
     $result = { param($old, $summaryNotes)
-        $summary = if ($null -eq $old) { 'No older version found' + $(if ($summaryNotes.Count -gt 0) { ': ' + ($summaryNotes -join ' ') } else { '' }) } else { "Old application: $($old.Title) $($old.SoftwareVersion)" }
+        $summary = if ($null -eq $old) { ('Supersedence: no older version of {0} found; nothing to supersede.' -f $NewTitle) + $(if ($summaryNotes.Count -gt 0) { ' ' + ($summaryNotes -join ' ') } else { '' }) } else { "Old application: $($old.Title) $($old.SoftwareVersion)" }
         [pscustomobject]@{ Old = $old; Notes = @($summaryNotes); Summary = $summary }
     }
     if ($null -eq (ConvertTo-SupersedenceVersion -Value $NewVersion)) { return (& $result $null ([string[]]@("The packaged version '$NewVersion' cannot be read."))) }
     if ($candidates.Count -eq 0) { return (& $result $null $notes) }
     $ordered = @($candidates | Sort-Object -Descending -Property @{ Expression = { ConvertTo-SupersedenceVersion -Value $_.SoftwareVersion } })
-    foreach ($other in ($ordered | Select-Object -Skip 1)) { $notes.Add("'$($other.Title)' $($other.SoftwareVersion) also carries the marker and is not superseded by this publish.") }
+    foreach ($other in ($ordered | Select-Object -Skip 1)) { $notes.Add("'$($other.Title)' $($other.SoftwareVersion) is also older and is not superseded by this publish.") }
     return (& $result $ordered[0] $notes)
 }
 
@@ -4013,30 +4012,126 @@ function Get-SupersedenceDeploymentTypePair {
     return [pscustomobject]@{ Pairs = @($pairs); Warnings = @($warnings) }
 }
 
+# ---- the lookup of the older application (title and vendor, as Check ConfigMgr reads the site) ----
+
+function Get-SupersedenceTitleNotice {
+    # The line for an application whose title has no version while supersedence is on for it.
+    param([Parameter(Mandatory)][string]$Title)
+    return ('{0}: supersedence is on, the version will be added to the title, so a new application is created' -f $Title)
+}
+
+function Get-SupersedenceBaseTitle {
+    # The title of the application without the version of this release: what Check ConfigMgr searches for.
+    param([Parameter(Mandatory)][string]$AppName, [Parameter(Mandatory)][string]$Version)
+    try { return (Get-PackagedApplicationName -AppName $AppName -Version $Version -Mode NoVersion) }
+    catch { return $AppName }
+}
+
+function Test-SupersedenceVersionInTitle {
+    # True when the title of the application holds the version of this release.
+    param([Parameter(Mandatory)][string]$Title, [Parameter(Mandatory)][string]$Version)
+    return [regex]::IsMatch($Title, ('(?<![\w.])v?' + [regex]::Escape($Version) + '(?![\w.])'), 'IgnoreCase')
+}
+
+function Import-SupersedenceTitleRule {
+    # The title rule of Check ConfigMgr lives in the discovery module; a packager child process loads it here.
+    if (Get-Command -Name Test-MecmApplicationTitle -ErrorAction SilentlyContinue) { return }
+    Import-Module -Name (Join-Path $PSScriptRoot 'AppPackagerDiscovery.psm1') -Global -DisableNameChecking -ErrorAction Stop
+}
+
+function Get-SupersedenceVendorKey {
+    # The vendor text for the compare: letter case, punctuation and a trailing legal suffix (Inc, LLC, Ltd, Corp, Corporation, GmbH, Co, AG, SA, BV) do not count.
+    param([AllowNull()][string]$Vendor)
+    $text = ([string]$Vendor).ToLowerInvariant() -replace '[^\p{L}\p{N}]+', ' '
+    $text = ($text -replace '\s+', ' ').Trim()
+    while ($text -match '^(.+?) (inc|incorporated|llc|ltd|limited|corp|corporation|gmbh|co|company|ag|sa|bv|plc)$') { $text = $Matches[1] }
+    return $text
+}
+
+function Test-SupersedenceCandidateMatch {
+    # The rule of the lookup: the title is a packaged title of the base title (the Check ConfigMgr rule) and the vendor is the
+    # same vendor. A vendor that the new application does not name is not compared.
+    param([Parameter(Mandatory)][string]$BaseTitle, [AllowEmptyString()][string]$Vendor, [AllowEmptyString()][string]$Title, [AllowEmptyString()][string]$Manufacturer)
+    if (-not (Test-MecmApplicationTitle -CMName $BaseTitle -Title $Title)) { return $false }
+    if ([string]::IsNullOrWhiteSpace($Vendor)) { return $true }
+    return ((Get-SupersedenceVendorKey -Vendor $Vendor) -eq (Get-SupersedenceVendorKey -Vendor $Manufacturer))
+}
+
 function Get-SupersedenceLineApplication {
     <#
     .SYNOPSIS
-        Reads the applications of the site whose stored XML holds the identity marker, with their deployment types.
-    .DESCRIPTION
-        The new application is always listed, with its deployment types, even when it holds no marker. It is found
-        by its name: every save makes a new revision with a new CI_ID. Needs the ConfigMgr site drive.
+        The applications of the site that are other versions of this application: the same title without the version and the
+        same vendor, with their deployment types. The new application is always listed. Needs the ConfigMgr site drive.
     #>
-    param([Parameter(Mandatory)][string]$Marker, [AllowEmptyString()][string]$NewApplicationName = '')
-    $needle = '>' + $Marker.Replace('&', '&amp;').Replace('<', '&lt;').Replace('>', '&gt;') + '<'
+    param([Parameter(Mandatory)][string]$BaseTitle, [AllowEmptyString()][string]$Vendor = '', [AllowEmptyString()][string]$NewApplicationName = '')
+    Import-SupersedenceTitleRule
     $found = @()
-    foreach ($candidate in @(Get-CMApplication -ErrorAction Stop)) {
-        $xml = [string]$candidate.SDMPackageXML
-        if ([string]$candidate.LocalizedDisplayName -ne $NewApplicationName -and (-not $xml -or -not $xml.Contains($needle))) { continue }
+    foreach ($candidate in @(Get-CMApplication -Name (Get-MecmApplicationNamePattern -CMName $BaseTitle) -ErrorAction Stop)) {
+        $title = [string]$candidate.LocalizedDisplayName
+        $isNew = ($title -eq $NewApplicationName)
+        $titleOk = ($isNew -or (Test-MecmApplicationTitle -CMName $BaseTitle -Title $title))
+        if (-not $titleOk) { continue }
+        $vendorOk = ($isNew -or (Test-SupersedenceCandidateMatch -BaseTitle $BaseTitle -Vendor $Vendor -Title $title -Manufacturer ([string]$candidate.Manufacturer)))
         $types = @()
-        foreach ($dt in @(Get-CMDeploymentType -ApplicationName ([string]$candidate.LocalizedDisplayName) -DisableWildcardHandling -ErrorAction Stop)) {
+        foreach ($dt in @($(if ($vendorOk) { Get-CMDeploymentType -ApplicationName $title -DisableWildcardHandling -ErrorAction Stop }))) {
             $types += [pscustomobject]@{ CiId = [string]$dt.CI_ID; Name = [string]$dt.LocalizedDisplayName }
         }
         $found += [pscustomobject]@{
-            CiId = [string]$candidate.CI_ID; Title = [string]$candidate.LocalizedDisplayName; SoftwareVersion = [string]$candidate.SoftwareVersion
-            IsExpired = [bool]$candidate.IsExpired; DeploymentTypes = $types
+            CiId = [string]$candidate.CI_ID; Title = $title; SoftwareVersion = [string]$candidate.SoftwareVersion
+            IsExpired = [bool]$candidate.IsExpired; Manufacturer = [string]$candidate.Manufacturer; VendorMatch = $vendorOk; DeploymentTypes = $types
         }
     }
     return $found
+}
+
+function Find-SupersedenceOldApplication {
+    <#
+    .SYNOPSIS
+        The older application that a publish would supersede: the highest version below the packaged one among the applications
+        of the same title and vendor. Returns Old (or $null), Summary and Notes. Needs the ConfigMgr site drive.
+    #>
+    param([Parameter(Mandatory)][string]$BaseTitle, [AllowEmptyString()][string]$Vendor = '', [Parameter(Mandatory)][string]$NewApplicationName, [Parameter(Mandatory)][string]$NewVersion)
+    $applications = @(Get-SupersedenceLineApplication -BaseTitle $BaseTitle -Vendor $Vendor -NewApplicationName $NewApplicationName)
+    $chosen = Select-SupersedenceOldApplication -Applications $applications -NewTitle $NewApplicationName -NewVersion $NewVersion -NewVendor $Vendor
+    return [pscustomobject]@{ Old = $chosen.Old; Summary = $chosen.Summary; Notes = @($chosen.Notes); Applications = $applications }
+}
+
+function Set-SupersedenceBulkValue {
+    <#
+    .SYNOPSIS
+        The bulk action on the supersedence setting, on plain data. Scope All sets the default and removes the values of single
+        applications; Selected writes the value on each selected application; None removes every value of a single application
+        and sets the default to the shipped value (Off).
+    .DESCRIPTION
+        Overrides is the map of application id to its chosen mode ('' for none). Returns the new default, the new map and the
+        number of applications whose own value changes.
+    #>
+    param(
+        [Parameter(Mandatory)][ValidateSet('All', 'Selected', 'None')][string]$Scope,
+        [Parameter(Mandatory)][string]$Value,
+        [Parameter(Mandatory)][string]$Default,
+        [Parameter(Mandatory)]$Overrides,
+        [string[]]$Selected = @()
+    )
+    $new = [ordered]@{}
+    foreach ($key in @($Overrides.Keys)) { $new[$key] = [string]$Overrides[$key] }
+    $newDefault = $Default
+    switch ($Scope) {
+        'All' { $newDefault = $Value; foreach ($key in @($new.Keys)) { $new[$key] = '' } }
+        'None' { $newDefault = 'Off'; foreach ($key in @($new.Keys)) { $new[$key] = '' } }
+        'Selected' { foreach ($key in @($Selected)) { if ($new.Contains($key)) { $new[$key] = $Value } } }
+    }
+    $changed = 0
+    foreach ($key in @($new.Keys)) { if ([string]$new[$key] -ne [string]$Overrides[$key]) { $changed++ } }
+    return [pscustomobject]@{ Default = $newDefault; Overrides = $new; Changed = $changed }
+}
+
+function Get-SupersedenceAnswer {
+    # The answer to the confirmation: 'Yes' (apply), 'Skip' (do not apply) or '' when nobody was asked. Unattended runs
+    # (command line, One Click) are never asked, so the answer is Skip unless the caller gave Yes.
+    $answer = [string]$env:APP_PACKAGER_SUPERSEDENCE_ANSWER
+    if ($answer -ieq 'Yes') { return 'Yes' }
+    return 'Skip'
 }
 
 # ---- the supersedence step ----
@@ -4047,7 +4142,7 @@ function Test-SupersedenceRelationExists {
     try {
         $dt = Get-CMDeploymentType -ApplicationName $ApplicationName -DeploymentTypeName $DeploymentTypeName -DisableWildcardHandling -ErrorAction Stop
         foreach ($relation in @(Get-CMDeploymentTypeSupersedence -InputObject $dt -ErrorAction Stop)) {
-            if ((($relation | Out-String)).Contains($OldDeploymentTypeName)) { return $true }
+            if (($relation | Out-String -Width 4096).Contains($OldDeploymentTypeName)) { return $true }
         }
     }
     catch { $null = $_ }
@@ -4057,8 +4152,8 @@ function Test-SupersedenceRelationExists {
 function Invoke-SupersedenceStep {
     <#
     .SYNOPSIS
-        The supersedence step after a publish: the lookup of the older application of the line (by the identity
-        marker) and one relation for each pair of deployment types.
+        The supersedence step after a publish: the lookup of the older application (same title and vendor, the
+        highest version below this one) and one relation for each pair of deployment types.
     .DESCRIPTION
         A failure never undoes the application: the result says NotApplied and why. Status is NotRun, NoOlderVersion,
         Applied or NotApplied. The relations are read first, and one that exists is not written again. Names and not
@@ -4068,24 +4163,16 @@ function Invoke-SupersedenceStep {
     param(
         [Parameter(Mandatory)][string]$NewApplicationName,
         [Parameter(Mandatory)][string]$NewVersion,
-        [AllowNull()][string]$Marker,
-        [Parameter(Mandatory)][string]$Mode,
-        [switch]$RequirePublished
+        [AllowEmptyString()][string]$BaseTitle = '',
+        [AllowEmptyString()][string]$Vendor = '',
+        [Parameter(Mandatory)][string]$Mode
     )
     $result = { param($status, $message, $warnings = @()) [pscustomobject]@{ Status = $status; Message = $message; Warnings = @($warnings); Failure = $(if ($status -eq 'NotApplied') { $message } else { $null }) } }
-    if ($Mode -eq 'Off' -or [string]::IsNullOrWhiteSpace($Marker)) { return (& $result 'NotRun' '') }
+    if ($Mode -eq 'Off' -or [string]::IsNullOrWhiteSpace($BaseTitle)) { return (& $result 'NotRun' '') }
     try {
-        try { $applications = @(Get-SupersedenceLineApplication -Marker $Marker -NewApplicationName $NewApplicationName) }
+        try { $applications = @(Get-SupersedenceLineApplication -BaseTitle $BaseTitle -Vendor $Vendor -NewApplicationName $NewApplicationName) }
         catch { return (& $result 'NotApplied' "the lookup of the older version failed: $($_.Exception.Message)") }
-        if ($RequirePublished) {
-            # The action without a publish: the application of this title and version must be on the site, or nothing is applied.
-            $published = $applications | Where-Object { [string]::Equals($_.Title, $NewApplicationName, [StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1
-            if (-not $published) { return (& $result 'NotApplied' "The application '$NewApplicationName' is not on the site. Publish it first.") }
-            if (-not (Test-SupersedenceSameVersionText -A $published.SoftwareVersion -B $NewVersion)) {
-                return (& $result 'NotApplied' "The site holds '$NewApplicationName' at version $($published.SoftwareVersion), not $NewVersion. Publish this version first.")
-            }
-        }
-        $chosen = Select-SupersedenceOldApplication -Applications $applications -NewTitle $NewApplicationName -NewVersion $NewVersion
+        $chosen = Select-SupersedenceOldApplication -Applications $applications -NewTitle $NewApplicationName -NewVersion $NewVersion -NewVendor $Vendor
         if ($null -eq $chosen.Old) { return (& $result 'NoOlderVersion' $chosen.Summary $chosen.Notes) }
         $current = $applications | Where-Object { [string]::Equals($_.Title, $NewApplicationName, [StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1
         if (-not $current) { return (& $result 'NotApplied' 'the new application was not found on the site after it was created.' $chosen.Notes) }
@@ -4135,276 +4222,13 @@ function Get-SupersedenceFallbackApplicationId {
 
 function Invoke-SupersedenceStepAndLog {
     # Runs the supersedence step and writes its result to the log. A failure is a warning, never an error.
-    param([Parameter(Mandatory)][string]$ApplicationName, [Parameter(Mandatory)][string]$Version, [Parameter(Mandatory)]$Plan)
-    $step = Invoke-SupersedenceStep -NewApplicationName $ApplicationName -NewVersion $Version -Marker $Plan.Marker -Mode $Plan.Mode
+    param([Parameter(Mandatory)][string]$ApplicationName, [Parameter(Mandatory)][string]$Version, [Parameter(Mandatory)]$Plan, [AllowEmptyString()][string]$Vendor = '')
+    $baseTitle = Get-SupersedenceBaseTitle -AppName $ApplicationName -Version $Version
+    $step = Invoke-SupersedenceStep -NewApplicationName $ApplicationName -NewVersion $Version -BaseTitle $baseTitle -Vendor $Vendor -Mode $Plan.Mode
     if ($step.Status -eq 'NotApplied') { Write-Log ('Published, supersedence not applied: {0}' -f $step.Message) -Level WARN }
     elseif ($step.Status -ne 'NotRun') { Write-Log ('Supersedence                 : {0}' -f $step.Message) }
     foreach ($warning in $step.Warnings) { Write-Log ('Supersedence warning         : {0}' -f $warning) -Level WARN }
     return $step
-}
-
-function Invoke-SupersedenceApply {
-    <#
-    .SYNOPSIS
-        Applies the supersedence of one staged application to the ConfigMgr site, without a publish. This is the
-        engine entry point of the Apply Supersedence action.
-    .DESCRIPTION
-        Reads the stage manifest, resolves the title as the publish resolves it, plans the supersedence with the
-        same planner as a publish, and runs the supersedence step for the application that is already on the site.
-        The step reads the relations first, so a repeat adds only the missing ones. Every refusal comes before the
-        first call to the site. Returns Ok, Message, Status (NotRun, NoOlderVersion, Applied or NotApplied),
-        RowStatus (the text for the grid), Title and Log (the lines for the log). Never throws. Settings and
-        CommandLine default to the preferences file and the command line variables of the process.
-    #>
-    param(
-        [AllowEmptyString()][string]$ManifestPath = '',
-        [AllowEmptyString()][string]$SiteCode = '',
-        [AllowEmptyString()][string]$ProviderMachineName = '',
-        [AllowNull()][string]$FallbackApplicationId = $null,
-        [AllowEmptyString()][string]$TitleMode = '',
-        $Settings = $null,
-        $CommandLine = $null
-    )
-    $lines = New-Object System.Collections.Generic.List[string]
-    $outcome = {
-        param([bool]$ok, [string]$message, [string]$status, [string]$title = '')
-        $rowStatus = if (-not $ok) { 'Supersedence not applied' } elseif ($status -eq 'Applied') { 'Supersedence applied' } else { 'No older version' }
-        [pscustomobject]@{ Ok = $ok; Message = $message; Status = $status; RowStatus = $rowStatus; Title = $title; Log = @($lines) }
-    }
-    try {
-        if ([string]::IsNullOrWhiteSpace($ManifestPath) -or -not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
-            return (& $outcome $false 'No stage manifest was found for this application. Stage and publish it first.' 'NotApplied')
-        }
-        # The title mode reaches Read-StageManifest and Get-PackagedApplicationName through the environment, as it does in a publish.
-        $savedTitleMode = $env:APP_PACKAGER_TITLE_MODE
-        try {
-            $env:APP_PACKAGER_TITLE_MODE = $TitleMode
-            try { $manifest = Read-StageManifest -Path $ManifestPath }
-            catch { return (& $outcome $false ('The stage manifest {0} could not be read: {1}' -f $ManifestPath, $_.Exception.Message) 'NotApplied') }
-            if ([string]::IsNullOrWhiteSpace([string]$manifest.AppName)) {
-                return (& $outcome $false 'The stage manifest has no application name. Stage the application again.' 'NotApplied')
-            }
-            try { $title = Get-PackagedApplicationName -AppName ([string]$manifest.AppName) -Version ([string]$manifest.SoftwareVersion) }
-            catch { return (& $outcome $false ('The application title could not be resolved: {0}' -f $_.Exception.Message) 'NotApplied') }
-        }
-        finally {
-            if ($null -eq $savedTitleMode) { Remove-Item -LiteralPath 'Env:\APP_PACKAGER_TITLE_MODE' -ErrorAction SilentlyContinue }
-            else { $env:APP_PACKAGER_TITLE_MODE = $savedTitleMode }
-        }
-        if ([string]::IsNullOrWhiteSpace($SiteCode)) {
-            return (& $outcome $false 'Supersedence needs a ConfigMgr site. Set the site code in Options.' 'NotApplied' $title)
-        }
-
-        if ($null -eq $Settings) { $Settings = Get-SupersedenceSettings }
-        if ($null -eq $CommandLine) { $CommandLine = Get-SupersedenceCommandLine }
-        $contentPath = Split-Path -Parent $ManifestPath
-        $plan = Get-SupersedencePlan -Manifest $manifest -Settings $Settings -CommandLine $CommandLine `
-            -PublishesToConfigMgr $true -PublishesToIntune $false `
-            -MsiProductVersion { param($m) Get-SupersedenceMsiProductVersion -Manifest $m -ContentPath $contentPath }.GetNewClosure() `
-            -FallbackApplicationId $FallbackApplicationId
-        foreach ($planLine in $plan.Log) { $lines.Add([string]$planLine) }
-        if ($plan.Refusal) { return (& $outcome $false ([string]$plan.Refusal) 'NotApplied' $title) }
-        if ($plan.Mode -eq 'Off') {
-            return (& $outcome $false 'Supersedence is off for this title. Turn it on in Options or in the override of the title.' 'NotApplied' $title)
-        }
-        if ([string]::IsNullOrWhiteSpace([string]$plan.Marker)) {
-            return (& $outcome $false 'This application has no identity marker, so its line cannot be found.' 'NotApplied' $title)
-        }
-
-        $savedLocation = Get-Location
-        try {
-            if (-not (Connect-CMSite -SiteCode $SiteCode -ProviderMachineName $ProviderMachineName)) {
-                return (& $outcome $false ('The connection to the site {0} failed. Check the site code and the site server in Options, Connections, ConfigMgr.' -f $SiteCode) 'NotApplied' $title)
-            }
-            $step = Invoke-SupersedenceStep -NewApplicationName $title -NewVersion ([string]$manifest.SoftwareVersion) -Marker ([string]$plan.Marker) -Mode ([string]$plan.Mode) -RequirePublished
-        }
-        finally {
-            # The site drive is left behind, so a later local path would resolve through the CM provider.
-            try { Set-Location -LiteralPath $savedLocation.Path -ErrorAction Stop } catch { $null = $_ }
-        }
-        foreach ($warning in $step.Warnings) { $lines.Add(('Supersedence warning         : {0}' -f $warning)) }
-        return (& $outcome ($step.Status -ne 'NotApplied') ([string]$step.Message) ([string]$step.Status) $title)
-    }
-    catch {
-        return (& $outcome $false $_.Exception.Message 'NotApplied')
-    }
-}
-
-# ---- the identity marker on the site ----
-
-function Set-CMApplicationIdentityMarker {
-    <#
-    .SYNOPSIS
-        Writes the identity marker into the keywords of the application.
-    .DESCRIPTION
-        A keyword of an administrator is never rewritten: when the application has keywords of its own, or when the
-        keywords cannot be read, nothing is written and the function returns the reason. An earlier marker is
-        replaced. Returns $null on success, or the reason text. Needs the ConfigMgr site drive.
-    #>
-    param([Parameter(Mandatory)][string]$ApplicationName, [Parameter(Mandatory)][string]$Marker)
-    try {
-        $app = Get-CMApplication -Name $ApplicationName -DisableWildcardHandling -ErrorAction Stop
-        $tags = @()
-        $digest = [Microsoft.ConfigurationManagement.ApplicationManagement.Serialization.SccmSerializer]::DeserializeFromString($app.SDMPackageXML, $true)
-        foreach ($info in $digest.DisplayInfo) { foreach ($tag in $info.Tags) { $tags += [string]$tag } }
-        # The cmdlet takes the keyword as one value, so the marker is written only when the application has no keywords of its own.
-        $others = @($tags | Where-Object { $_ -and -not $_.StartsWith($script:SupersedenceMarkerPrefix) })
-        if ($others.Count -gt 0) { throw 'the application has keywords of its own, which a write would replace' }
-        Set-CMApplication -InputObject $app -Keyword $Marker -ErrorAction Stop
-        Write-Log "Identity marker              : $Marker"
-        return $null
-    }
-    catch {
-        Write-Log "Identity marker not written  : $($_.Exception.Message)" -Level WARN
-        return $_.Exception.Message
-    }
-}
-
-# ---- the older-application override ("Use this as the old application") ----
-# The lookup of the old application takes only applications that carry the identity marker of the line. An application that an
-# earlier release published, or one that an administrator made by hand, has no marker, so the lookup never chooses it. The
-# administrator links it once: the program shows the title and the version, asks, and then writes the marker of the line
-# into the keywords of that application. The link is the marker on the site; nothing is kept in the preferences file, so the next
-# publish of the line, from this PC or another, finds the application through the same lookup.
-
-function Get-SupersedenceApplicationKeyword {
-    # The keywords that the application holds, read from its stored XML. Needs the ConfigMgr console assemblies.
-    param([Parameter(Mandatory)]$Application)
-    $tags = @()
-    $digest = [Microsoft.ConfigurationManagement.ApplicationManagement.Serialization.SccmSerializer]::DeserializeFromString([string]$Application.SDMPackageXML, $true)
-    foreach ($info in $digest.DisplayInfo) { foreach ($tag in $info.Tags) { $tags += [string]$tag } }
-    return @($tags | Where-Object { $_ })
-}
-
-function Get-SupersedenceOldApplicationCandidate {
-    <#
-    .SYNOPSIS
-        The applications of the site that can be linked as the old application of a line, with the reason for each one that cannot.
-    .DESCRIPTION
-        Applications is a list of objects with Title, SoftwareVersion, IsExpired and Keywords ($null when the keywords could
-        not be read). An application with the title of the new one is never listed: the lookup never returns it. State is
-        Linkable, Linked (it already holds the marker of this line), OtherLine (it holds the marker of another line),
-        OwnKeywords (a write would replace the keywords of an administrator), KeywordsUnreadable, Retired, VersionUnreadable
-        or NotOlder (the lookup would not choose it). Only Linkable can be linked. CanClear is true for an application whose
-        keywords are the marker of this line and nothing else. The linkable ones come first, the newest version first.
-    #>
-    param(
-        [AllowEmptyCollection()][object[]]$Applications = @(),
-        [Parameter(Mandatory)][string]$Marker,
-        [Parameter(Mandatory)][string]$NewTitle,
-        [Parameter(Mandatory)][string]$NewVersion
-    )
-    $row = { param($app, $state, $reason, $canLink, $canClear)
-        [pscustomobject]@{ Title = [string]$app.Title; SoftwareVersion = [string]$app.SoftwareVersion; State = $state; Reason = $reason; CanLink = $canLink; CanClear = $canClear }
-    }
-    $rows = @()
-    foreach ($app in @($Applications)) {
-        if ([string]::Equals([string]$app.Title, $NewTitle, [StringComparison]::OrdinalIgnoreCase)) { continue }
-        if ($null -eq $app.Keywords) { $rows += (& $row $app 'KeywordsUnreadable' 'The keywords could not be read, so nothing is written.' $false $false); continue }
-        $keywords = @($app.Keywords | ForEach-Object { [string]$_ } | Where-Object { $_ })
-        $mine = @($keywords | Where-Object { $_ -ceq $Marker })
-        $markers = @($keywords | Where-Object { $_.StartsWith($script:SupersedenceMarkerPrefix) })
-        $own = @($keywords | Where-Object { -not $_.StartsWith($script:SupersedenceMarkerPrefix) })
-        if ($mine.Count -gt 0) {
-            $clear = ($own.Count -eq 0 -and $markers.Count -eq 1)
-            $rows += (& $row $app 'Linked' 'It already holds the marker of this line.' $false $clear); continue
-        }
-        if ($markers.Count -gt 0) { $rows += (& $row $app 'OtherLine' 'It holds the marker of another line.' $false $false); continue }
-        if ($own.Count -gt 0) { $rows += (& $row $app 'OwnKeywords' 'It has keywords of its own, which a write would replace.' $false $false); continue }
-        if ($app.IsExpired) { $rows += (& $row $app 'Retired' 'It is retired.' $false $false); continue }
-        if ($null -eq (ConvertTo-SupersedenceVersion -Value $app.SoftwareVersion)) {
-            $rows += (& $row $app 'VersionUnreadable' ("The version '{0}' cannot be read." -f $app.SoftwareVersion) $false $false); continue
-        }
-        if ($null -eq (ConvertTo-SupersedenceVersion -Value $NewVersion) -or (Compare-SupersedenceVersion -A $app.SoftwareVersion -B $NewVersion) -ge 0) {
-            $rows += (& $row $app 'NotOlder' ("It is not older than {0}, so the lookup would not choose it." -f $NewVersion) $false $false); continue
-        }
-        $rows += (& $row $app 'Linkable' '' $true $false)
-    }
-    $linkable = @($rows | Where-Object { $_.CanLink } | Sort-Object -Descending -Property @{ Expression = { ConvertTo-SupersedenceVersion -Value $_.SoftwareVersion } })
-    $others = @($rows | Where-Object { -not $_.CanLink } | Sort-Object -Property Title)
-    return @($linkable) + @($others)
-}
-
-function Get-SupersedenceOldApplicationCandidateFromSite {
-    <#
-    .SYNOPSIS
-        Reads the applications of the site whose name contains the text, and classifies them for the line.
-    .DESCRIPTION
-        The text limits the read: a site holds many applications, and a list of all of them is not a choice. The
-        wildcard characters of the text are literal. Needs the ConfigMgr site drive.
-    #>
-    param(
-        [Parameter(Mandatory)][string]$Marker, [Parameter(Mandatory)][string]$NewTitle, [Parameter(Mandatory)][string]$NewVersion,
-        [Parameter(Mandatory)][string]$NameContains
-    )
-    if ([string]::IsNullOrWhiteSpace($NameContains)) { throw 'Type part of the application name to search for.' }
-    $records = @()
-    foreach ($app in @(Get-CMApplication -Name ('*' + [System.Management.Automation.WildcardPattern]::Escape($NameContains.Trim()) + '*') -ErrorAction Stop)) {
-        $keywords = $null
-        try { $keywords = @(Get-SupersedenceApplicationKeyword -Application $app) } catch { $keywords = $null }
-        $records += [pscustomobject]@{ Title = [string]$app.LocalizedDisplayName; SoftwareVersion = [string]$app.SoftwareVersion; IsExpired = [bool]$app.IsExpired; Keywords = $keywords }
-    }
-    return @(Get-SupersedenceOldApplicationCandidate -Applications $records -Marker $Marker -NewTitle $NewTitle -NewVersion $NewVersion)
-}
-
-function Get-SupersedenceLinkConfirmationText {
-    # What the administrator reads before the marker is written: the title and the version of the application first.
-    param([Parameter(Mandatory)][string]$Title, [Parameter(Mandatory)][string]$Version, [Parameter(Mandatory)][string]$NewTitle)
-    return ("Use '{0}' version {1} as the old application of '{2}'?`n`nThe program writes the identity marker of this product line into the keywords of '{0}'. The next publish of '{2}' with a supersedence mode other than Off then finds it and supersedes it. Its deployment types, detection and deployments are not changed." -f $Title, $Version, $NewTitle)
-}
-
-function Get-SupersedenceClearConfirmationText {
-    param([Parameter(Mandatory)][string]$Title, [Parameter(Mandatory)][string]$Version)
-    return ("Remove the identity marker from '{0}' version {1}?`n`nThe next publish of this line no longer finds it as an older application, so nothing supersedes it. If a publish of this program marked it, link it again with Use as Old Application when you want it back." -f $Title, $Version)
-}
-
-function Set-SupersedenceOldApplication {
-    <#
-    .SYNOPSIS
-        Links an application as the old application of a line: writes the marker of the line into its keywords.
-    .DESCRIPTION
-        Nothing is written without -Confirmed. The keywords are read again first: an application that holds keywords of
-        its own, or the marker of another line, is refused, and one that already holds the marker needs no write.
-        Returns Ok and Message. Needs the ConfigMgr site drive.
-    #>
-    param([Parameter(Mandatory)][string]$ApplicationName, [Parameter(Mandatory)][string]$Marker, [switch]$Confirmed)
-    $outcome = { param($ok, $message) [pscustomobject]@{ Ok = $ok; Message = $message } }
-    if (-not $Confirmed) { return (& $outcome $false 'The link is written only after the administrator confirms it.') }
-    try {
-        $app = Get-CMApplication -Name $ApplicationName -DisableWildcardHandling -ErrorAction Stop
-        if (-not $app) { return (& $outcome $false "The application '$ApplicationName' is not on the site.") }
-        $keywords = @(Get-SupersedenceApplicationKeyword -Application $app)
-    }
-    catch { return (& $outcome $false ("The keywords of '{0}' could not be read: {1}" -f $ApplicationName, $_.Exception.Message)) }
-    if (@($keywords | Where-Object { $_ -ceq $Marker }).Count -gt 0) { return (& $outcome $true "'$ApplicationName' already holds the marker of this line.") }
-    if (@($keywords | Where-Object { $_.StartsWith($script:SupersedenceMarkerPrefix) }).Count -gt 0) { return (& $outcome $false "'$ApplicationName' holds the marker of another line, so it is not changed.") }
-    if ($keywords.Count -gt 0) { return (& $outcome $false "'$ApplicationName' has keywords of its own, which a write would replace, so it is not changed.") }
-    $reason = Set-CMApplicationIdentityMarker -ApplicationName $ApplicationName -Marker $Marker
-    if ($reason) { return (& $outcome $false ("The marker was not written: {0}" -f $reason)) }
-    return (& $outcome $true "'$ApplicationName' is the old application of this line.")
-}
-
-function Clear-SupersedenceOldApplication {
-    <#
-    .SYNOPSIS
-        Takes the marker of a line off an application, so the lookup no longer finds it.
-    .DESCRIPTION
-        Nothing is written without -Confirmed. Only an application whose keywords are the marker of this line and nothing else
-        is changed. Returns Ok and Message. Needs the ConfigMgr site drive.
-    #>
-    param([Parameter(Mandatory)][string]$ApplicationName, [Parameter(Mandatory)][string]$Marker, [switch]$Confirmed)
-    $outcome = { param($ok, $message) [pscustomobject]@{ Ok = $ok; Message = $message } }
-    if (-not $Confirmed) { return (& $outcome $false 'The marker is removed only after the administrator confirms it.') }
-    try {
-        $app = Get-CMApplication -Name $ApplicationName -DisableWildcardHandling -ErrorAction Stop
-        if (-not $app) { return (& $outcome $false "The application '$ApplicationName' is not on the site.") }
-        $keywords = @(Get-SupersedenceApplicationKeyword -Application $app)
-        if ($keywords.Count -ne 1 -or $keywords[0] -cne $Marker) { return (& $outcome $false "The keywords of '$ApplicationName' are not the marker of this line alone, so they are not changed.") }
-        Set-CMApplication -InputObject $app -Keyword '' -ErrorAction Stop
-        Write-Log "Identity marker removed      : $ApplicationName"
-        return (& $outcome $true "The marker is removed from '$ApplicationName'.")
-    }
-    catch { return (& $outcome $false ("The marker was not removed: {0}" -f $_.Exception.Message)) }
 }
 
 # ---- the chain check ----
@@ -4538,11 +4362,11 @@ function Invoke-SupersedenceChainCheck {
     # The chain check before a publish: the detection of the old application is read from the site and compared with the
     # new one. It returns warnings and never blocks; a failure to read is itself a warning.
     param(
-        [Parameter(Mandatory)][string]$NewTitle, [Parameter(Mandatory)][string]$NewVersion, [Parameter(Mandatory)][string]$Marker,
+        [Parameter(Mandatory)][string]$NewTitle, [Parameter(Mandatory)][string]$NewVersion, [Parameter(Mandatory)][string]$BaseTitle, [AllowEmptyString()][string]$Vendor = '',
         [Parameter(Mandatory)][string]$NewRule, [Parameter(Mandatory)][string]$Mode, [Parameter(Mandatory)]$NewManifest
     )
     try {
-        $chosen = Select-SupersedenceOldApplication -Applications @(Get-SupersedenceLineApplication -Marker $Marker -NewApplicationName $NewTitle) -NewTitle $NewTitle -NewVersion $NewVersion
+        $chosen = Select-SupersedenceOldApplication -Applications @(Get-SupersedenceLineApplication -BaseTitle $BaseTitle -Vendor $Vendor -NewApplicationName $NewTitle) -NewTitle $NewTitle -NewVersion $NewVersion
         if ($null -eq $chosen.Old) { return @() }
         $clauses = @()
         foreach ($item in @(Get-SupersedenceDeploymentTypeXml -ApplicationName $chosen.Old.Title)) {
@@ -4551,582 +4375,6 @@ function Invoke-SupersedenceChainCheck {
         return @(Get-SupersedenceChainWarning -NewTitle $NewTitle -NewRule $NewRule -Mode $Mode -NewManifest $NewManifest -OldDetection ([pscustomobject]@{ Title = $chosen.Old.Title; Clauses = $clauses }))
     }
     catch { return @("The chain check failed: $($_.Exception.Message)") }
-}
-
-
-# ---- the optional rewrite of the version clause of an old application to Exact ----
-# The reader reads the one-clause detections that the site stores (checked on ConfigMgr 5.00.9146: the detection method is XML
-# text, and its settings and its rule give the clause). The rewrite removes the clause by its logical name and adds the same
-# clause with the other operator. Nothing changes on the site until apply runs with a confirmation.
-
-$script:RewriteConfirmationText = 'ConfigMgr evaluates the detection again on the devices. A device that has a newer version than the one in the clause, because it updated itself or got it in another way, then reads "not installed".'
-
-function Get-SupersedenceRewriteConfirmationText { return $script:RewriteConfirmationText }
-
-function Read-SupersedenceStoredDetection {
-    # The single version clause of a deployment type, from its stored XML. Returns Clause (or $null) and NotRewritableReason.
-    param([AllowNull()][string]$DeploymentTypeXml)
-    $fail = { param($reason) [pscustomobject]@{ Clause = $null; NotRewritableReason = $reason } }
-    if ([string]::IsNullOrWhiteSpace($DeploymentTypeXml)) { return (& $fail 'the detection could not be read') }
-    try { $outer = New-Object System.Xml.XmlDocument; $outer.LoadXml($DeploymentTypeXml) }
-    catch [System.Xml.XmlException] { return (& $fail 'the detection could not be read') }
-    $holder = $outer.SelectNodes('//*[not(*)][contains(., "<EnhancedDetectionMethod")]') | Select-Object -First 1
-    if ($null -eq $holder) { return (& $fail 'the deployment type has no enhanced detection method') }
-    try { $method = New-Object System.Xml.XmlDocument; $method.LoadXml($holder.InnerText) }
-    catch [System.Xml.XmlException] { return (& $fail 'the detection method could not be read') }
-
-    $settings = @($method.SelectNodes('//*[local-name()="File" or local-name()="SimpleSetting"]'))
-    $expressions = @($method.SelectNodes('//*[local-name()="Expression"]'))
-    if ($expressions.Count -ne 1 -or $settings.Count -ne 1) { return (& $fail 'the detection has more than one clause or a connector, which is not rewritten') }
-
-    $expression = $expressions[0]
-    $operatorNode = $expression.SelectSingleNode('*[local-name()="Operator"]')
-    $operator = $(if ($operatorNode) { $operatorNode.InnerText.Trim() } else { '' })
-    $reference = $expression.SelectSingleNode('.//*[local-name()="SettingReference"]')
-    $constant = $expression.SelectSingleNode('.//*[local-name()="ConstantValue"]')
-    if ($null -eq $reference -or $null -eq $constant -or $reference.GetAttribute('DataType') -ine 'Version') { return (& $fail 'the clause is not a version clause') }
-    $setting = $settings[0]
-    $logicalName = $setting.GetAttribute('LogicalName')
-    if ([string]::IsNullOrEmpty($logicalName) -or $logicalName -cne $reference.GetAttribute('SettingLogicalName')) { return (& $fail 'the clause does not match its setting') }
-    $expected = $constant.GetAttribute('Value')
-    $childText = { param($node, $name) $n = $node.SelectSingleNode("*[local-name()='$name']"); if ($n) { $n.InnerText } else { '' } }
-
-    if ($setting.LocalName -eq 'File') {
-        return [pscustomobject]@{ NotRewritableReason = $null; Clause = [pscustomobject]@{
-                Kind = 'File'; LogicalName = $logicalName; Operator = $operator; ExpectedValue = $expected
-                Path = (& $childText $setting 'Path'); FileName = (& $childText $setting 'Filter'); Is64Bit = ($setting.GetAttribute('Is64Bit') -ieq 'true')
-                Hive = ''; Key = ''; ValueName = '' } }
-    }
-    $source = $setting.SelectSingleNode('.//*[local-name()="RegistryDiscoverySource"]')
-    if ($null -eq $source) { return (& $fail 'the clause is not a file or a registry value') }
-    return [pscustomobject]@{ NotRewritableReason = $null; Clause = [pscustomobject]@{
-            Kind = 'Registry'; LogicalName = $logicalName; Operator = $operator; ExpectedValue = $expected
-            Path = ''; FileName = ''; Is64Bit = ($source.GetAttribute('Is64Bit') -ieq 'true')
-            Hive = $source.GetAttribute('Hive'); Key = (& $childText $source 'Key'); ValueName = (& $childText $source 'ValueName') } }
-}
-
-function ConvertTo-SupersedenceCmdletOperator {
-    param([string]$StoredOperator)
-    if ($StoredOperator -ieq 'Equals') { return 'IsEquals' }
-    return $StoredOperator
-}
-
-function Test-SupersedenceHiveSupported {
-    # True for the hives that the rewrite writes (HKLM and HKCU).
-    param([string]$Hive)
-    return ($Hive -ieq 'HKEY_LOCAL_MACHINE' -or $Hive -ieq 'HKEY_CURRENT_USER')
-}
-
-function Get-SupersedenceOldOnes {
-    # The old applications of the line: every readable, not retired application except the newest version (and except the
-    # applications that hold the newest version under another title: 1.0 and 1.0.0 are the same version).
-    param([AllowEmptyCollection()][object[]]$Line = @())
-    $readable = @($Line | Where-Object { $null -ne (ConvertTo-SupersedenceVersion -Value $_.SoftwareVersion) -and -not $_.IsExpired })
-    if ($readable.Count -eq 0) { return @() }
-    $newest = @($readable | Sort-Object -Descending -Property @{ Expression = { ConvertTo-SupersedenceVersion -Value $_.SoftwareVersion } })[0]
-    return @($readable | Where-Object { (Compare-SupersedenceVersion -A $_.SoftwareVersion -B $newest.SoftwareVersion) -lt 0 } |
-            Sort-Object -Descending -Property @{ Expression = { ConvertTo-SupersedenceVersion -Value $_.SoftwareVersion } })
-}
-
-function Get-SupersedenceRewriteKey {
-    # The key of a deployment type in the plan: the application and the deployment type, so that two applications that hold a
-    # type of the same name never share a detection.
-    param([string]$Application, [string]$DeploymentType)
-    return ($Application + [char]1 + $DeploymentType)
-}
-
-function Get-SupersedenceRewritePlan {
-    <#
-    .SYNOPSIS
-        The plan of the rewrite: what would change, and why each other clause is left.
-    .DESCRIPTION
-        Old is the list of old applications with their deployment types. Detections is a hashtable of stored detections by
-        Get-SupersedenceRewriteKey. RequiredCollections is a hashtable of collection names by application title. Guard is a
-        script block that takes an application and a clause and returns a verdict. Returns Items (Application, Version,
-        DeploymentType, Clause, Skip, Rewrites), Blocked, ClauseCount and ApplicationCount.
-    #>
-    param([AllowEmptyCollection()][object[]]$Old = @(), [hashtable]$Detections = @{}, [hashtable]$RequiredCollections = @{}, [Parameter(Mandatory)][scriptblock]$Guard)
-    $items = @()
-    $blocked = @()
-    $item = { param($app, $dt, $clause, $skip) [pscustomobject]@{ Application = $app.Title; Version = $app.SoftwareVersion; DeploymentType = $dt.Name; Clause = $clause; Skip = $skip; Rewrites = ($null -ne $clause -and $null -eq $skip) } }
-    foreach ($app in @($Old)) {
-        $required = @($RequiredCollections[$app.Title])
-        if ($required.Count -gt 0 -and $null -ne $required[0]) {
-            $blocked += "'$($app.Title)' has a required deployment ($($required -join ', ')). Remove the required deployment, or leave this application out."
-            continue
-        }
-        foreach ($dt in @($app.DeploymentTypes)) {
-            $detection = $Detections[(Get-SupersedenceRewriteKey -Application $app.Title -DeploymentType $dt.Name)]
-            if ($null -eq $detection -or $null -eq $detection.Clause) {
-                $reason = $(if ($detection) { $detection.NotRewritableReason } else { $null })
-                $items += (& $item $app $dt $null $(if ($reason) { $reason } else { 'the detection was not read' }))
-                continue
-            }
-            $clause = $detection.Clause
-            if ($clause.Kind -eq 'Registry' -and -not (Test-SupersedenceHiveSupported -Hive $clause.Hive)) {
-                $items += (& $item $app $dt $clause "the registry hive $($clause.Hive) is not one that the rewrite writes")
-            }
-            elseif ($clause.Operator -ine 'GreaterEquals') {
-                $items += (& $item $app $dt $clause "the operator is $($clause.Operator), not GreaterEquals")
-            }
-            elseif ($clause.ExpectedValue.Trim() -ine $app.SoftwareVersion.Trim()) {
-                $items += (& $item $app $dt $clause "the expected value '$($clause.ExpectedValue)' is not the version of the application")
-            }
-            else {
-                $verdict = & $Guard $app $clause
-                if ($verdict.Result -eq 'ExactApplied') { $items += (& $item $app $dt $clause $null) }
-                else { $items += (& $item $app $dt $clause ('not rewritten: ' + $verdict.Detail)) }
-            }
-        }
-    }
-    $rewriting = @($items | Where-Object { $_.Rewrites })
-    return [pscustomobject]@{
-        Items            = @($items)
-        Blocked          = @($blocked)
-        ClauseCount      = $rewriting.Count
-        ApplicationCount = @($rewriting | ForEach-Object { $_.Application.ToUpperInvariant() } | Select-Object -Unique).Count
-    }
-}
-
-function Get-SupersedenceRewriteGuardVerdict {
-    # The Exact guard for an old application: the installed value that a test install recorded for the title and the
-    # version of that old application must equal the expected value of the clause. Without a value, the clause is not rewritten.
-    param([Parameter(Mandatory)]$Settings, [Parameter(Mandatory)][string]$TitleKey, [Parameter(Mandatory)]$Application, [Parameter(Mandatory)]$Clause)
-    $key = Get-SupersedenceRecordKey -TitleKey $TitleKey -Version $Application.SoftwareVersion
-    $installed = $null
-    foreach ($entry in @(Get-SupersedenceMapEntry -Map (Get-SupersedenceProperty $Settings 'InstalledValues'))) { if ($entry.Key -ieq $key) { $installed = [string]$entry.Value } }
-    if (-not [string]::IsNullOrWhiteSpace($installed)) {
-        if (Test-SupersedenceSameVersionText -A $installed -B $Clause.ExpectedValue) { return [pscustomobject]@{ Result = 'ExactApplied'; Detail = $null } }
-        return [pscustomobject]@{ Result = 'ExactBlocked'; Detail = "the installed value '$installed' differs from the expected value '$($Clause.ExpectedValue)'" }
-    }
-    return [pscustomobject]@{ Result = 'ExactBlocked'; Detail = "no installed value is recorded for version $($Application.SoftwareVersion)" }
-}
-
-# ---- the log of the rewrite and the restore ----
-# The log is the only way back, because the publish script purges the revision history. One JSON object per line.
-
-function ConvertTo-SupersedenceRewriteLogLine {
-    param([Parameter(Mandatory)]$Entry)
-    return ([ordered]@{
-            At = ([datetimeoffset]$Entry.At).ToString('o'); Application = $Entry.Application; DeploymentType = $Entry.DeploymentType
-            OldOperator = $Entry.OldOperator; NewOperator = $Entry.NewOperator; LogicalName = $Entry.LogicalName
-            Restored = [bool]$Entry.Restored; Line = $Entry.Line
-        } | ConvertTo-Json -Compress)
-}
-
-function Read-SupersedenceRewriteLog {
-    # The entries of a log text. A line that cannot be read is skipped.
-    param([AllowNull()][string]$Text)
-    $entries = @()
-    foreach ($line in (([string]$Text) -split "`n")) {
-        $trimmed = $line.Trim()
-        if (-not $trimmed) { continue }
-        try {
-            $o = $trimmed | ConvertFrom-Json -ErrorAction Stop
-            if ($null -eq $o -or -not $o.PSObject.Properties['Application']) { continue }
-            $at = $o.At
-            if ($at -isnot [datetime]) { $at = [datetime]::Parse([string]$at, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind) }
-            $entries += [pscustomobject]@{
-                At = ([datetimeoffset]$at); Application = [string]$o.Application; DeploymentType = [string]$o.DeploymentType
-                OldOperator = [string]$o.OldOperator; NewOperator = [string]$o.NewOperator; LogicalName = [string]$o.LogicalName
-                Restored = [bool]$o.Restored; Line = $(if ($o.PSObject.Properties['Line'] -and $null -ne $o.Line) { [string]$o.Line } else { $null })
-            }
-        }
-        catch { $null = $_ }
-    }
-    return $entries
-}
-
-function Get-SupersedenceRestoreEntry {
-    <#
-    .SYNOPSIS
-        What Restore writes back: for each deployment type of the given applications whose last entry is a rewrite (not a
-        restore), the first entry, which holds the operator that the type had before the first rewrite.
-    .DESCRIPTION
-        With a line (its identity marker), only the entries of that line: the log holds the rewrites of every line, and Restore
-        for one line must not touch another. An entry from before the log carried the line has none, and stays open to every line.
-    #>
-    param([AllowEmptyCollection()][object[]]$Log = @(), [string[]]$Applications = @(), [AllowNull()][string]$Line = $null)
-    $selected = @($Log | Where-Object { ($Applications -contains $_.Application) -and ([string]::IsNullOrEmpty($Line) -or [string]::IsNullOrEmpty($_.Line) -or $_.Line -ieq $Line) })
-    $groups = $selected | Group-Object -Property { $_.Application.ToUpperInvariant() + [char]1 + $_.DeploymentType.ToUpperInvariant() }
-    $restore = @()
-    foreach ($group in $groups) {
-        $ordered = @($group.Group | Sort-Object -Property At)
-        if ($ordered[-1].Restored) { continue }
-        $first = $ordered | Where-Object { -not $_.Restored } | Select-Object -First 1
-        if ($first) { $restore += $first }
-    }
-    return $restore
-}
-
-# ---- the rewrite on the site ----
-
-function Read-SupersedenceRequiredCollection {
-    # The collections that hold a required deployment of an application (OfferTypeID 0).
-    param([Parameter(Mandatory)][string]$ApplicationName)
-    $found = @()
-    foreach ($deployment in @(Get-CMApplicationDeployment -Name $ApplicationName -DisableWildcardHandling -ErrorAction Stop)) {
-        if ([string]$deployment.ApplicationName -ne $ApplicationName) { continue }
-        if ([int]$deployment.OfferTypeID -eq 0) { $found += [string]$deployment.CollectionName }
-    }
-    return $found
-}
-
-function Write-SupersedenceClauseOperator {
-    <#
-    .SYNOPSIS
-        Replaces the version clause of one deployment type with the same clause and another operator.
-    .DESCRIPTION
-        The clause is removed by its logical name and the same clause is added with the operator (IsEquals or GreaterEquals).
-        The clause object is built off the ConfigMgr drive, as the publish does. Needs the ConfigMgr site drive.
-    #>
-    param(
-        [Parameter(Mandatory)][string]$SiteCode, [Parameter(Mandatory)][string]$ApplicationName, [Parameter(Mandatory)][string]$DeploymentTypeName,
-        [Parameter(Mandatory)]$Clause, [Parameter(Mandatory)][ValidateSet('IsEquals', 'GreaterEquals')][string]$NewOperator
-    )
-    Set-Location C:
-    if ($Clause.Kind -eq 'File') {
-        $params = @{ Path = $Clause.Path; FileName = $Clause.FileName; PropertyType = 'Version'; Value = $true; ExpressionOperator = $NewOperator; ExpectedValue = $Clause.ExpectedValue }
-        if ($Clause.Is64Bit) { $params['Is64Bit'] = $true }
-        $newClause = New-CMDetectionClauseFile @params
-    }
-    else {
-        $hive = switch ($Clause.Hive.ToUpperInvariant()) {
-            'HKEY_LOCAL_MACHINE' { 'LocalMachine' }
-            'HKEY_CURRENT_USER' { 'CurrentUser' }
-            default { throw "The registry hive '$($Clause.Hive)' is not one that the rewrite writes." }
-        }
-        $params = @{ Hive = $hive; KeyName = $Clause.Key; ValueName = $Clause.ValueName; PropertyType = 'Version'; Value = $true; ExpressionOperator = $NewOperator; ExpectedValue = $Clause.ExpectedValue }
-        if ($Clause.Is64Bit) { $params['Is64Bit'] = $true }
-        $newClause = New-CMDetectionClauseRegistryKeyValue @params
-    }
-    Set-Location ($SiteCode + ':')
-    Set-CMScriptDeploymentType -ApplicationName $ApplicationName -DeploymentTypeName $DeploymentTypeName -RemoveDetectionClause $Clause.LogicalName -AddDetectionClause $newClause -ErrorAction Stop | Out-Null
-}
-
-function Get-SupersedenceStoredDetectionMap {
-    # The stored detection of each deployment type of an application, by deployment type name.
-    param([Parameter(Mandatory)][string]$ApplicationName)
-    $map = @{}
-    foreach ($item in @(Get-SupersedenceDeploymentTypeXml -ApplicationName $ApplicationName)) { $map[$item.Name] = Read-SupersedenceStoredDetection -DeploymentTypeXml $item.Xml }
-    return $map
-}
-
-function Get-SupersedenceRewriteScopePlan {
-    # Reads the line and the old applications from the site and plans the rewrite. Nothing changes on the site.
-    param([Parameter(Mandatory)][string]$Marker, [Parameter(Mandatory)][string]$TitleKey, [Parameter(Mandatory)]$Settings)
-    $old = @(Get-SupersedenceOldOnes -Line @(Get-SupersedenceLineApplication -Marker $Marker))
-    $detections = @{}
-    $required = @{}
-    foreach ($app in $old) {
-        $map = Get-SupersedenceStoredDetectionMap -ApplicationName $app.Title
-        foreach ($name in $map.Keys) { $detections[(Get-SupersedenceRewriteKey -Application $app.Title -DeploymentType $name)] = $map[$name] }
-        $required[$app.Title] = @(Read-SupersedenceRequiredCollection -ApplicationName $app.Title)
-    }
-    $guard = { param($app, $clause) Get-SupersedenceRewriteGuardVerdict -Settings $Settings -TitleKey $TitleKey -Application $app -Clause $clause }.GetNewClosure()
-    return (Get-SupersedenceRewritePlan -Old $old -Detections $detections -RequiredCollections $required -Guard $guard)
-}
-
-function Invoke-SupersedenceRewrite {
-    <#
-    .SYNOPSIS
-        Applies a rewrite plan: GreaterEquals to IsEquals, one deployment type at a time.
-    .DESCRIPTION
-        The log is written ahead: before the site changes, the intent is appended and flushed, so a stop at any point leaves
-        an entry for everything that the site may have changed; when the write fails, a restore entry cancels the intent at
-        once. A failure of one type is named and the other types are still tried. Returns Written and Failures.
-    #>
-    param([Parameter(Mandatory)]$Plan, [Parameter(Mandatory)][string]$SiteCode, [Parameter(Mandatory)][string]$Marker, [Parameter(Mandatory)][string]$LogPath)
-    $written = @()
-    $failures = @()
-    foreach ($item in @($Plan.Items | Where-Object { $_.Rewrites })) {
-        $clause = $item.Clause
-        $intent = [pscustomobject]@{ At = [datetimeoffset]::UtcNow; Application = $item.Application; DeploymentType = $item.DeploymentType
-            OldOperator = (ConvertTo-SupersedenceCmdletOperator -StoredOperator $clause.Operator); NewOperator = 'IsEquals'; LogicalName = $clause.LogicalName; Restored = $false; Line = $Marker }
-        try { Add-SupersedenceLogLine -Path $LogPath -Entry $intent }
-        catch { $failures += ('{0} / {1}: {2}' -f $item.Application, $item.DeploymentType, $_.Exception.Message); break }
-        try {
-            Write-SupersedenceClauseOperator -SiteCode $SiteCode -ApplicationName $item.Application -DeploymentTypeName $item.DeploymentType -Clause $clause -NewOperator 'IsEquals'
-            $written += $intent
-            Write-Log ('Rewritten: {0} / {1}: GreaterEquals -> IsEquals' -f $item.Application, $item.DeploymentType)
-        }
-        catch {
-            $cancel = $intent.PSObject.Copy(); $cancel.At = [datetimeoffset]::UtcNow; $cancel.OldOperator = 'IsEquals'; $cancel.NewOperator = 'GreaterEquals'; $cancel.Restored = $true
-            Add-SupersedenceLogLine -Path $LogPath -Entry $cancel
-            $failures += ('{0} / {1}: {2}' -f $item.Application, $item.DeploymentType, $_.Exception.Message)
-        }
-    }
-    return [pscustomobject]@{ Written = $written; Failures = $failures }
-}
-
-function Add-SupersedenceLogLine {
-    # Appends one entry and closes the file, so the entry is on disk before the caller goes on. A failure stops the rewrite.
-    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)]$Entry)
-    $folder = Split-Path -Parent $Path
-    if ($folder -and -not (Test-Path -LiteralPath $folder)) { New-Item -ItemType Directory -Path $folder -Force | Out-Null }
-    $stream = New-Object System.IO.FileStream($Path, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read, 4096, [System.IO.FileOptions]::WriteThrough)
-    try {
-        $writer = New-Object System.IO.StreamWriter($stream)
-        try { $writer.WriteLine((ConvertTo-SupersedenceRewriteLogLine -Entry $Entry)) } finally { $writer.Dispose() }
-    }
-    finally { $stream.Dispose() }
-}
-
-function Invoke-SupersedenceRestore {
-    # Writes the old operator back for the deployment types that the log says were rewritten and not restored. A restore entry is
-    # appended after each success. A log entry for an application that the line no longer holds is named and left.
-    param([Parameter(Mandatory)][string]$SiteCode, [Parameter(Mandatory)][string]$Marker, [Parameter(Mandatory)][string]$LogPath)
-    $log = $(if (Test-Path -LiteralPath $LogPath) { @(Read-SupersedenceRewriteLog -Text (Get-Content -LiteralPath $LogPath -Raw -Encoding UTF8)) } else { @() })
-    $titles = @(Get-SupersedenceLineApplication -Marker $Marker | ForEach-Object { $_.Title })
-    $written = @()
-    $failures = @()
-    $applications = @($log | ForEach-Object { $_.Application } | Select-Object -Unique)
-    foreach ($entry in @(Get-SupersedenceRestoreEntry -Log $log -Applications $applications -Line $Marker)) {
-        $known = [bool]($titles | Where-Object { $_ -ieq $entry.Application })
-        # An entry from before the log carried the line, whose application is not in this line, belongs to another line: it is left.
-        if (-not $entry.Line -and -not $known) { continue }
-        if (-not $known) { $failures += ('{0} / {1}: the application is not in this line on the site any more (renamed, removed or without the marker), so it was not restored.' -f $entry.Application, $entry.DeploymentType); continue }
-        try {
-            $map = Get-SupersedenceStoredDetectionMap -ApplicationName $entry.Application
-            $current = $map[$entry.DeploymentType]
-            if ($null -eq $current -or $null -eq $current.Clause) { $failures += ('{0} / {1}: the detection is not a single version clause any more, so it was not restored.' -f $entry.Application, $entry.DeploymentType); continue }
-            Write-SupersedenceClauseOperator -SiteCode $SiteCode -ApplicationName $entry.Application -DeploymentTypeName $entry.DeploymentType -Clause $current.Clause -NewOperator (ConvertTo-SupersedenceCmdletOperator -StoredOperator $entry.OldOperator)
-            # The restore entry carries the line of the entry that it cancels.
-            $done = [pscustomobject]@{ At = [datetimeoffset]::UtcNow; Application = $entry.Application; DeploymentType = $entry.DeploymentType; OldOperator = (ConvertTo-SupersedenceCmdletOperator -StoredOperator $current.Clause.Operator)
-                NewOperator = $entry.OldOperator; LogicalName = $current.Clause.LogicalName; Restored = $true; Line = $entry.Line }
-            Add-SupersedenceLogLine -Path $LogPath -Entry $done
-            $written += $done
-            Write-Log ('Restored: {0} / {1}: back to {2}' -f $entry.Application, $entry.DeploymentType, $entry.OldOperator)
-        }
-        catch { $failures += ('{0} / {1}: {2}' -f $entry.Application, $entry.DeploymentType, $_.Exception.Message) }
-    }
-    return [pscustomobject]@{ Written = $written; Failures = $failures }
-}
-
-# ---- the window of the rewrite: the change plan, its run and its result ----
-# The window shows what the rewrite changes before anything is written (a port of RewriteOldVersionsPlans of App Packager
-# Desktop). The plan, the notes, the confirmation text, the result rows and the summary come from these functions, so the
-# window and the tests read the same text. The write itself is Invoke-SupersedenceRewrite and Invoke-SupersedenceRestore.
-
-$script:RestoreConfirmationText = 'The old operator is written back on the site. A device that now reads "installed" through the clause may read it differently.'
-
-function Get-SupersedenceRestoreConfirmationText { return $script:RestoreConfirmationText }
-
-function ConvertTo-SupersedenceRewriteChangeItem {
-    # One row of the plan of a rewrite.
-    param([Parameter(Mandatory)]$Item)
-    return [pscustomobject]@{
-        Action = 'Rewrite clause'; Target = ('{0} / {1}' -f $Item.Application, $Item.DeploymentType); Detail = 'GreaterEquals -> IsEquals'
-        Application = [string]$Item.Application; DeploymentType = [string]$Item.DeploymentType
-    }
-}
-
-function ConvertTo-SupersedenceRestoreChangeItem {
-    # One row of the plan of a restore: the operator that comes back.
-    param([Parameter(Mandatory)]$Entry)
-    return [pscustomobject]@{
-        Action = 'Restore clause'; Target = ('{0} / {1}' -f $Entry.Application, $Entry.DeploymentType); Detail = ('{0} -> {1}' -f $Entry.NewOperator, $Entry.OldOperator)
-        Application = [string]$Entry.Application; DeploymentType = [string]$Entry.DeploymentType
-    }
-}
-
-function Get-SupersedenceRewriteNote {
-    # The lines above the list: the effect on the devices, what is blocked, what is left and why, and the pending restores.
-    param([Parameter(Mandatory)]$Plan, [int]$Restorable = 0)
-    $notes = @($script:RewriteConfirmationText)
-    foreach ($blocked in @($Plan.Blocked)) { $notes += ('Blocked: ' + $blocked) }
-    foreach ($item in @($Plan.Items | Where-Object { -not $_.Rewrites })) { $notes += ('Left: {0} / {1}: {2}' -f $item.Application, $item.DeploymentType, $item.Skip) }
-    if ($Restorable -gt 0) { $notes += ('{0} earlier rewrite(s) of this line can still be restored with the button Restore Old Versions.' -f $Restorable) }
-    return $notes
-}
-
-function New-SupersedenceRewriteChangePlan {
-    # The plan that the window shows for a rewrite, or $null when the plan has no clause to rewrite.
-    param([Parameter(Mandatory)]$Plan, [int]$Restorable = 0)
-    $rewrites = @($Plan.Items | Where-Object { $_.Rewrites })
-    if ($rewrites.Count -eq 0) { return $null }
-    return [pscustomobject]@{
-        Kind = 'Rewrite'; Title = 'Rewrite Old Versions'
-        ActionName = ('Rewrite {0} {1}' -f $rewrites.Count, $(if ($rewrites.Count -eq 1) { 'Clause' } else { 'Clauses' }))
-        Items = @($rewrites | ForEach-Object { ConvertTo-SupersedenceRewriteChangeItem -Item $_ })
-        IsDestructive = $true; HasUndo = $true; DestructiveConfirmation = $script:RewriteConfirmationText
-        Notes = @(Get-SupersedenceRewriteNote -Plan $Plan -Restorable $Restorable); LogName = 'Rewrite old version clauses'
-    }
-}
-
-function Get-SupersedenceRewritePending {
-    # The rewrites of the line that the log lists and no restore entry cancels. The log holds every line, and a restore for one line
-    # leaves the others.
-    param([Parameter(Mandatory)][string]$LogPath, [Parameter(Mandatory)][string]$Marker)
-    $log = $(if (Test-Path -LiteralPath $LogPath) { @(Read-SupersedenceRewriteLog -Text (Get-Content -LiteralPath $LogPath -Raw -Encoding UTF8)) } else { @() })
-    if ($log.Count -eq 0) { return @() }
-    return @(Get-SupersedenceRestoreEntry -Log $log -Applications @($log | ForEach-Object { $_.Application } | Select-Object -Unique) -Line $Marker)
-}
-
-function New-SupersedenceRestoreChangePlan {
-    # The plan that the window shows for a restore, or $null when no earlier rewrite of the line is pending.
-    param([AllowEmptyCollection()][object[]]$Pending = @())
-    $pending = @($Pending | Where-Object { $null -ne $_ })
-    if ($pending.Count -eq 0) { return $null }
-    return [pscustomobject]@{
-        Kind = 'Restore'; Title = 'Restore Old Versions'
-        ActionName = ('Restore {0} {1}' -f $pending.Count, $(if ($pending.Count -eq 1) { 'Clause' } else { 'Clauses' }))
-        Items = @($pending | ForEach-Object { ConvertTo-SupersedenceRestoreChangeItem -Entry $_ })
-        IsDestructive = $true; HasUndo = $false; DestructiveConfirmation = $script:RestoreConfirmationText
-        Notes = @(); LogName = 'Restore old version clauses'
-    }
-}
-
-function Test-SupersedenceSameRewrite {
-    # True when both plans rewrite the same clauses (application, deployment type, setting, operator and expected value).
-    param([Parameter(Mandatory)]$Shown, [Parameter(Mandatory)]$Fresh)
-    $keys = {
-        param($plan)
-        $set = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
-        foreach ($i in @($plan.Items | Where-Object { $_.Rewrites })) { [void]$set.Add(('{0}|{1}|{2}|{3}|{4}' -f $i.Application, $i.DeploymentType, $i.Clause.LogicalName, $i.Clause.Operator, $i.Clause.ExpectedValue)) }
-        , $set
-    }
-    $a = & $keys $Shown
-    $b = & $keys $Fresh
-    return $a.SetEquals($b)
-}
-
-function New-SupersedenceChangeRow {
-    param($Item, [bool]$Succeeded, [string]$Message, [bool]$Skipped = $false, [bool]$Partial = $false)
-    return [pscustomobject]@{
-        Outcome = $(if ($Skipped) { 'Skipped' } elseif ($Succeeded) { 'Changed' } else { 'Failed' }); Action = $Item.Action; Target = $Item.Target
-        Message = $Message; Succeeded = $Succeeded; Skipped = $Skipped; PartialChange = $Partial
-    }
-}
-
-function Get-SupersedenceChangeSummary {
-    # The summary line of a result: the counts, and the note about a failed change that was made in part.
-    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Rows)
-    $rows = @($Rows)
-    $changed = @($rows | Where-Object { $_.Succeeded -and -not $_.Skipped }).Count
-    $failed = @($rows | Where-Object { -not $_.Succeeded -and -not $_.Skipped }).Count
-    $skipped = @($rows | Where-Object { $_.Skipped }).Count
-    $partial = @($rows | Where-Object { $_.PartialChange -and -not $_.Succeeded -and -not $_.Skipped }).Count
-    $text = $(if ($skipped -eq 0) { '{0} changed, {1} failed.' -f $changed, $failed } else { '{0} changed, {1} failed, {2} skipped.' -f $changed, $failed, $skipped })
-    if ($partial -eq 1) { $text += ' 1 failed change was made in part; Undo can reverse it.' }
-    elseif ($partial -gt 1) { $text += (' {0} failed changes were made in part; Undo can reverse them.' -f $partial) }
-    return $text
-}
-
-function New-SupersedenceChangeResult {
-    param([AllowEmptyCollection()][object[]]$Rows = @(), [ValidateSet('Completed', 'Cancelled', 'Failed')][string]$Stop = 'Completed', [AllowNull()][object]$UndoAvailable = $null, [string]$Summary = '')
-    $rows = @($Rows)
-    if (-not $Summary) { $Summary = Get-SupersedenceChangeSummary -Rows $rows }
-    return [pscustomobject]@{
-        Items = $rows; Stop = $Stop; Summary = $Summary
-        UndoAvailable = $(if ($null -ne $UndoAvailable) { [bool]$UndoAvailable } else { [bool]@($rows | Where-Object { $_.Succeeded -and -not $_.Skipped }).Count })
-    }
-}
-
-function ConvertTo-SupersedenceChangeResult {
-    # Maps the outcome of a rewrite or a restore (Written, Failures) to one result row per listed clause. A failure text that names the
-    # clause ("<application> / <deployment type>: <reason>") is its message.
-    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Items, [Parameter(Mandatory)]$Outcome)
-    $rows = @()
-    foreach ($item in @($Items)) {
-        $done = @(@($Outcome.Written) | Where-Object { $null -ne $_ -and $_.Application -ieq $item.Application -and $_.DeploymentType -ieq $item.DeploymentType }).Count -gt 0
-        $prefix = '{0} / {1}:' -f $item.Application, $item.DeploymentType
-        $failure = @(@($Outcome.Failures) | Where-Object { $null -ne $_ -and ([string]$_).StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase) }) | Select-Object -First 1
-        if ($done) { $rows += (New-SupersedenceChangeRow -Item $item -Succeeded $true -Message 'Written to the site and the log.') }
-        elseif ($failure) { $rows += (New-SupersedenceChangeRow -Item $item -Succeeded $false -Message ([string]$failure).Substring($prefix.Length).Trim()) }
-        else { $rows += (New-SupersedenceChangeRow -Item $item -Succeeded $false -Skipped $true -Message 'Not reached: the run stopped before this clause, or the entry belongs to another line (it is from before the log carried the line) and was left.') }
-    }
-    return (New-SupersedenceChangeResult -Rows $rows)
-}
-
-function Get-SupersedenceStoppedResult {
-    # The result of a run that stopped without its own result (cancelled, or failed): a clause that the log holds an intent for, and
-    # that no restore entry cancels, may be changed (the run stopped while it wrote); every other clause did not report.
-    param(
-        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Items, [AllowEmptyCollection()][object[]]$Entries = @(),
-        [ValidateSet('Cancelled', 'Failed')][string]$Stop = 'Cancelled', [string]$Detail = '', [ValidateSet('Rewrite', 'Restore')][string]$Kind = 'Rewrite'
-    )
-    $word = $(if ($Stop -eq 'Cancelled') { 'cancelled' } else { 'failed' })
-    $rows = @()
-    foreach ($item in @($Items)) {
-        $mine = @(@($Entries) | Where-Object { $null -ne $_ -and $_.Application -ieq $item.Application -and $_.DeploymentType -ieq $item.DeploymentType } | Sort-Object -Property At)
-        $open = ($mine.Count -gt 0 -and -not $mine[-1].Restored)
-        # A restore writes its entry after the site took the operator, so a restore entry is a clause that is back.
-        if ($Kind -eq 'Restore') {
-            if ($mine.Count -gt 0 -and $mine[-1].Restored) { $rows += (New-SupersedenceChangeRow -Item $item -Succeeded $true -Message 'Written to the site and the log.') }
-            else { $rows += (New-SupersedenceChangeRow -Item $item -Succeeded $false -Message ('No result: the run was {0} before this change reported.' -f $word)) }
-        }
-        elseif ($open) { $rows += (New-SupersedenceChangeRow -Item $item -Succeeded $false -Partial $true -Message ('The run was {0} while this clause was written. It may be changed; Undo restores it.' -f $word)) }
-        else { $rows += (New-SupersedenceChangeRow -Item $item -Succeeded $false -Message ('No result: the run was {0} before this change reported.' -f $word)) }
-    }
-    $maybeChanged = @($rows | Where-Object { $_.PartialChange }).Count
-    $backCount = @($rows | Where-Object { $_.Succeeded }).Count
-    $text = $(if ($Stop -eq 'Cancelled') { 'The run was cancelled. Changes made before the cancel stay in place.' } else { 'The run failed. The log has the details.' })
-    if ($Detail) { $text += (' ' + $Detail) }
-    if ($rows.Count -gt 0) { $text += (' Before the {0}: {1} changed, {2} failed.' -f $(if ($Stop -eq 'Cancelled') { 'cancel' } else { 'failure' }), $backCount, ($rows.Count - $backCount)) }
-    return (New-SupersedenceChangeResult -Rows $rows -Stop $Stop -UndoAvailable ($maybeChanged -gt 0) -Summary $text)
-}
-
-function Get-SupersedenceLogEntrySince {
-    # The entries of the log that were written at or after a point in time: what one run wrote.
-    param([Parameter(Mandatory)][string]$LogPath, [Parameter(Mandatory)][datetimeoffset]$Since)
-    if (-not (Test-Path -LiteralPath $LogPath)) { return @() }
-    return @(Read-SupersedenceRewriteLog -Text (Get-Content -LiteralPath $LogPath -Raw -Encoding UTF8) | Where-Object { $_.At -ge $Since })
-}
-
-function ConvertFrom-SupersedenceChildRun {
-    <#
-    .SYNOPSIS
-        The result of the child process that ran a rewrite or a restore for the window.
-    .DESCRIPTION
-        Run holds Cancelled, Result (the APRESULT line of the child, read as JSON, or $null), ExitCode and StdErr. A cancelled run, or a
-        run that gave no result, is reported from the log entries that it wrote (Entries).
-    #>
-    param([Parameter(Mandatory)]$Run, [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Items, [AllowEmptyCollection()][object[]]$Entries = @(), [ValidateSet('Rewrite', 'Restore')][string]$Kind = 'Rewrite')
-    if ($Run.Cancelled) { return (Get-SupersedenceStoppedResult -Items $Items -Entries $Entries -Stop 'Cancelled' -Kind $Kind) }
-    $result = $(if ($Run.Result -and [string]$Run.Result.Kind -eq 'Result') { $Run.Result.Result } else { $null })
-    if ($null -eq $result) {
-        $detail = ([string]$Run.StdErr).Trim()
-        if ($detail.Length -gt 300) { $detail = $detail.Substring(0, 300) }
-        return (Get-SupersedenceStoppedResult -Items $Items -Entries $Entries -Stop 'Failed' -Detail $detail -Kind $Kind)
-    }
-    return (New-SupersedenceChangeResult -Rows @($result.Items) -Stop ([string]$result.Stop) -UndoAvailable ([bool]$result.UndoAvailable) -Summary ([string]$result.Summary))
-}
-
-function Invoke-SupersedenceRewriteRun {
-    <#
-    .SYNOPSIS
-        The run of the rewrite after the confirmation: reads the site again, writes only when the plan is the one that was shown.
-    .DESCRIPTION
-        The plan was read before the confirmation, and the site can change while the window is open, so it is read again here,
-        before anything is written; when the clauses to rewrite are not the ones that were shown, nothing is written. Replan
-        and Write are test hooks: the first returns the fresh plan, the second takes it and returns Written and Failures.
-        Returns the result: Items (one row per shown clause), Stop, Summary and UndoAvailable.
-    #>
-    param(
-        [Parameter(Mandatory)]$Plan, [Parameter(Mandatory)][string]$SiteCode, [Parameter(Mandatory)][string]$Marker, [Parameter(Mandatory)][string]$TitleKey,
-        [Parameter(Mandatory)]$Settings, [Parameter(Mandatory)][string]$LogPath, [AllowNull()][scriptblock]$Replan = $null, [AllowNull()][scriptblock]$Write = $null
-    )
-    $items = @($Plan.Items | Where-Object { $_.Rewrites } | ForEach-Object { ConvertTo-SupersedenceRewriteChangeItem -Item $_ })
-    $skipAll = {
-        param($text)
-        New-SupersedenceChangeResult -Rows @($items | ForEach-Object { New-SupersedenceChangeRow -Item $_ -Succeeded $false -Skipped $true -Message $text }) -Stop 'Failed' -UndoAvailable $false
-    }
-    try { $fresh = $(if ($Replan) { & $Replan } else { Get-SupersedenceRewriteScopePlan -Marker $Marker -TitleKey $TitleKey -Settings $Settings }) }
-    catch { return (& $skipAll ('The site could not be read again, so nothing was written: ' + $_.Exception.Message)) }
-    if (-not (Test-SupersedenceSameRewrite -Shown $Plan -Fresh $fresh)) {
-        return (& $skipAll 'The site changed while the window was open: the clauses to rewrite are not the ones that were shown. Nothing was written. Open the window again.')
-    }
-    $outcome = $(if ($Write) { & $Write $Plan } else { Invoke-SupersedenceRewrite -Plan $Plan -SiteCode $SiteCode -Marker $Marker -LogPath $LogPath })
-    return (ConvertTo-SupersedenceChangeResult -Items $items -Outcome $outcome)
-}
-
-function Invoke-SupersedenceRestoreRun {
-    # The run of a restore after the confirmation: the pending entries of the line are listed first, so each one has a result row.
-    param([Parameter(Mandatory)][string]$SiteCode, [Parameter(Mandatory)][string]$Marker, [Parameter(Mandatory)][string]$LogPath, [AllowNull()][scriptblock]$Write = $null)
-    $items = @(Get-SupersedenceRewritePending -LogPath $LogPath -Marker $Marker | ForEach-Object { ConvertTo-SupersedenceRestoreChangeItem -Entry $_ })
-    $outcome = $(if ($Write) { & $Write } else { Invoke-SupersedenceRestore -SiteCode $SiteCode -Marker $Marker -LogPath $LogPath })
-    return (ConvertTo-SupersedenceChangeResult -Items $items -Outcome $outcome)
 }
 
 # ---------------------------------------------------------------------------
@@ -6698,11 +5946,22 @@ function New-MECMApplicationFromManifest {
         # the resolved command lines are re-checked before the first site write.
         [void](Test-ResolvedDeploymentCommand -Specs $dtSpecs -Manifest $Manifest)
 
-        # The chain check warns and never blocks. It runs only when the application carries the marker that finds the old one.
-        $supersedenceActive = ($supersedencePlan.Mode -ne 'Off' -and -not [string]::IsNullOrWhiteSpace([string]$supersedencePlan.Marker))
+        # Supersedence runs only when it is on for this application, the title holds the version and the run confirmed it.
+        # The chain check warns and never blocks.
+        $supersedenceVendor = [string]$Manifest.Publisher
+        $supersedenceBaseTitle = Get-SupersedenceBaseTitle -AppName $appName -Version ([string]$Manifest.SoftwareVersion)
+        $supersedenceActive = ($supersedencePlan.Mode -ne 'Off')
+        if ($supersedenceActive -and -not (Test-SupersedenceVersionInTitle -Title $appName -Version ([string]$Manifest.SoftwareVersion))) {
+            Write-Log 'Supersedence                 : not applied, the title of the application holds no version, so the older version is the same application' -Level WARN
+            $supersedenceActive = $false
+        }
+        elseif ($supersedenceActive -and (Get-SupersedenceAnswer) -ne 'Yes') {
+            Write-Log 'Supersedence                 : skipped (not confirmed for this run)'
+            $supersedenceActive = $false
+        }
         if ($supersedenceActive) {
             $step = 'Supersedence chain check'
-            foreach ($warning in @(Invoke-SupersedenceChainCheck -NewTitle $appName -NewVersion ([string]$Manifest.SoftwareVersion) -Marker $supersedencePlan.Marker `
+            foreach ($warning in @(Invoke-SupersedenceChainCheck -NewTitle $appName -NewVersion ([string]$Manifest.SoftwareVersion) -BaseTitle $supersedenceBaseTitle -Vendor $supersedenceVendor `
                         -NewRule $supersedencePlan.ConfigMgrRule -Mode $supersedencePlan.Mode -NewManifest $Manifest)) {
                 Write-Log ("Chain check                  : {0}" -f $warning) -Level WARN
             }
@@ -6754,7 +6013,7 @@ function New-MECMApplicationFromManifest {
                         # gains one without a version change.
                         Set-CMApplicationIconFromManifest -Manifest $Manifest -AppName $appName -NetworkContentPath $NetworkContentPath
                         # An idempotent rerun runs the supersedence step again: it reads the relations first and adds the missing ones.
-                        if ($supersedenceActive) { [void](Invoke-SupersedenceStepAndLog -ApplicationName $appName -Version ([string]$Manifest.SoftwareVersion) -Plan $supersedencePlan) }
+                        if ($supersedenceActive) { [void](Invoke-SupersedenceStepAndLog -ApplicationName $appName -Version ([string]$Manifest.SoftwareVersion) -Plan $supersedencePlan -Vendor $supersedenceVendor) }
                         return (Get-CMApplicationCurrentCIId -Name $appName -Fallback ([UInt32]$cmApp.CI_ID))
                     }
                     throw ("Existing ConfigMgr application '$appName' is missing deployment type(s): {0}. This looks like a partial prior package run; fix or remove the partial app before packaging again." -f (($missingDts | ForEach-Object { $_.DtName }) -join ', '))
@@ -7039,11 +6298,6 @@ function New-MECMApplicationFromManifest {
             Write-Log "Updated application version  : $($Manifest.SoftwareVersion)"
         }
 
-        if (-not [string]::IsNullOrWhiteSpace([string]$supersedencePlan.Marker)) {
-            $step = "Identity marker ('$appName')"
-            [void](Set-CMApplicationIdentityMarker -ApplicationName $appName -Marker $supersedencePlan.Marker)
-        }
-
         $step = "Set-CMApplication icon ('$appName')"
         Set-CMApplicationIconFromManifest -Manifest $Manifest -AppName $appName -NetworkContentPath $NetworkContentPath
 
@@ -7127,7 +6381,7 @@ function New-MECMApplicationFromManifest {
         # application stays, and the log says "Published, supersedence not applied".
         if ($supersedenceActive) {
             $step = 'Supersedence step'
-            [void](Invoke-SupersedenceStepAndLog -ApplicationName $appName -Version ([string]$Manifest.SoftwareVersion) -Plan $supersedencePlan)
+            [void](Invoke-SupersedenceStepAndLog -ApplicationName $appName -Version ([string]$Manifest.SoftwareVersion) -Plan $supersedencePlan -Vendor $supersedenceVendor)
         }
 
         Write-Log ""
@@ -10200,6 +9454,88 @@ function Get-IntuneNotesIdentityTags {
     return @($Notes -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^AppPackager:.+/.+$' })
 }
 
+# ---- supersedence of an Intune Win32 app (display name and publisher) ----
+
+function Get-IntuneSupersedenceApplication {
+    <#
+    .SYNOPSIS
+        The Win32 apps of the tenant that are other versions of this application: the same publisher and a display name that is a
+        packaged title of the base title (the rule of Check ConfigMgr). Shaped for Select-SupersedenceOldApplication.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Token, [Parameter(Mandatory)][string]$BaseTitle, [AllowEmptyString()][string]$Publisher = '',
+        [string]$GraphBase = 'https://graph.microsoft.com/v1.0'
+    )
+    Import-SupersedenceTitleRule
+    $found = @()
+    $uri = "$GraphBase/deviceAppManagement/mobileApps?`$filter=isof('microsoft.graph.win32LobApp')"
+    while ($uri) {
+        $page = Invoke-GraphJson -Method GET -Uri $uri -Token $Token
+        foreach ($app in @($page.value)) {
+            if ([string]$app.'@odata.type' -ne '#microsoft.graph.win32LobApp') { continue }
+            if (-not [string]::IsNullOrWhiteSpace($Publisher) -and (Get-SupersedenceVendorKey -Vendor $Publisher) -ne (Get-SupersedenceVendorKey -Vendor ([string]$app.publisher))) { continue }
+            if (-not (Test-MecmApplicationTitle -CMName $BaseTitle -Title ([string]$app.displayName))) { continue }
+            $found += [pscustomobject]@{ Id = [string]$app.id; Title = [string]$app.displayName; SoftwareVersion = [string]$app.displayVersion; IsExpired = $false }
+        }
+        $uri = [string]$page.'@odata.nextLink'
+    }
+    return $found
+}
+
+function Get-IntuneSupersedenceBody {
+    <#
+    .SYNOPSIS
+        The body of updateRelationships: the relationships the app already has, and the supersedence of the older app.
+    .DESCRIPTION
+        updateRelationships replaces every relationship of the app, so the dependencies and the supersedences that exist are
+        sent again. Replace and uninstall is the Intune type replace; Replace is the type update.
+    #>
+    param([AllowNull()][object[]]$Existing = @(), [Parameter(Mandatory)][string]$OldAppId, [Parameter(Mandatory)][string]$Mode)
+    $type = $(if ($Mode -eq 'ReplaceAndUninstall') { 'replace' } else { 'update' })
+    $relationships = @()
+    foreach ($rel in @($Existing)) {
+        if ($null -eq $rel -or [string]$rel.targetType -ne 'child') { continue }
+        $kind = [string]$rel.'@odata.type'
+        if ($kind -eq '#microsoft.graph.mobileAppSupersedence') {
+            if ([string]$rel.targetId -eq $OldAppId) { continue }
+            $relationships += [ordered]@{ '@odata.type' = $kind; targetId = [string]$rel.targetId; supersedenceType = [string]$rel.supersedenceType }
+        }
+        elseif ($kind -eq '#microsoft.graph.mobileAppDependency') {
+            $relationships += [ordered]@{ '@odata.type' = $kind; targetId = [string]$rel.targetId; dependencyType = [string]$rel.dependencyType }
+        }
+    }
+    $relationships += [ordered]@{ '@odata.type' = '#microsoft.graph.mobileAppSupersedence'; targetId = $OldAppId; supersedenceType = $type }
+    return @{ relationships = @($relationships) }
+}
+
+function Invoke-IntuneSupersedenceStep {
+    <#
+    .SYNOPSIS
+        The supersedence step of an Intune publish: the older app (same publisher and title, the highest version below this one)
+        and one relationship from the new app to it. Never throws; the result is NotRun, NoOlderVersion, Applied or NotApplied.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Token, [Parameter(Mandatory)][string]$AppId, [Parameter(Mandatory)][string]$NewTitle,
+        [Parameter(Mandatory)][string]$NewVersion, [AllowEmptyString()][string]$Publisher = '', [Parameter(Mandatory)][string]$Mode,
+        [string]$GraphBase = 'https://graph.microsoft.com/v1.0'
+    )
+    $result = { param($status, $message) [pscustomobject]@{ Status = $status; Message = $message; Warnings = @(); Failure = $(if ($status -eq 'NotApplied') { $message } else { $null }) } }
+    if ($Mode -eq 'Off') { return (& $result 'NotRun' '') }
+    try {
+        $baseTitle = Get-SupersedenceBaseTitle -AppName $NewTitle -Version $NewVersion
+        $apps = @(Get-IntuneSupersedenceApplication -Token $Token -BaseTitle $baseTitle -Publisher $Publisher -GraphBase $GraphBase)
+        $chosen = Select-SupersedenceOldApplication -Applications @($apps | Where-Object { $_.Id -ne $AppId }) -NewTitle $NewTitle -NewVersion $NewVersion
+        if ($null -eq $chosen.Old) { return (& $result 'NoOlderVersion' $chosen.Summary) }
+        $existing = @((Invoke-GraphJson -Method GET -Uri "$GraphBase/deviceAppManagement/mobileApps/$AppId/relationships" -Token $Token).value)
+        $already = @($existing | Where-Object { [string]$_.'@odata.type' -eq '#microsoft.graph.mobileAppSupersedence' -and [string]$_.targetId -eq [string]$chosen.Old.Id -and [string]$_.targetType -eq 'child' })
+        if ($already.Count -gt 0) { return (& $result 'Applied' ("{0} already supersedes {1} {2}" -f $NewTitle, $chosen.Old.Title, $chosen.Old.SoftwareVersion)) }
+        $body = Get-IntuneSupersedenceBody -Existing $existing -OldAppId ([string]$chosen.Old.Id) -Mode $Mode
+        [void](Invoke-GraphJson -Method POST -Uri "$GraphBase/deviceAppManagement/mobileApps/$AppId/updateRelationships" -Token $Token -Body $body)
+        return (& $result 'Applied' ("{0} supersedes {1} {2}{3}" -f $NewTitle, $chosen.Old.Title, $chosen.Old.SoftwareVersion, $(if ($Mode -eq 'ReplaceAndUninstall') { ' and uninstalls it' } else { '' })))
+    }
+    catch { return (& $result 'NotApplied' $_.Exception.Message) }
+}
+
 function Publish-IntuneWin32App {
     <#
     .SYNOPSIS
@@ -10515,4 +9851,4 @@ function Publish-IntuneWin32App {
     }
 }
 
-Export-ModuleMember -Function Get-IntuneWinEncryptionInfo, Export-IntuneWinPayload, Get-MsGraphToken, Invoke-GraphJson, Invoke-AzureBlobUpload, ConvertTo-IntuneWin32Rules, Publish-IntuneWin32App, Get-IntuneCompatibilityFindings, ConvertTo-IntuneRequirementRules, ConvertFrom-RequirementsJson, Get-IntuneRequirementSpecs, Get-IntuneRequirementDropKey, Get-IntuneAllowedArchitecture, Get-IntuneIdentityTag, Get-IntuneScriptRuleSettings, New-IntuneDetectionScriptRule
+Export-ModuleMember -Function Get-IntuneWinEncryptionInfo, Export-IntuneWinPayload, Get-MsGraphToken, Invoke-GraphJson, Invoke-AzureBlobUpload, ConvertTo-IntuneWin32Rules, Publish-IntuneWin32App, Get-IntuneSupersedenceApplication, Get-IntuneSupersedenceBody, Invoke-IntuneSupersedenceStep, Get-IntuneCompatibilityFindings, ConvertTo-IntuneRequirementRules, ConvertFrom-RequirementsJson, Get-IntuneRequirementSpecs, Get-IntuneRequirementDropKey, Get-IntuneAllowedArchitecture, Get-IntuneIdentityTag, Get-IntuneScriptRuleSettings, New-IntuneDetectionScriptRule

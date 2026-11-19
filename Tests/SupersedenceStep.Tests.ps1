@@ -39,7 +39,7 @@ Describe 'The lookup of the old application' {
     It 'never returns an application with the title of the new one' {
         $result = Select-SupersedenceOldApplication -Applications @(New-TestApp '1' 'Vendor App' '1.0.0') -NewTitle 'vendor app' -NewVersion '2.0.0'
         $result.Old | Should -BeNullOrEmpty
-        $result.Summary | Should -BeLike 'No older version found*'
+        $result.Summary | Should -BeLike 'Supersedence: no older version of*'
     }
 
     It 'does not take version <Version> as an old application of 2.0.0' -ForEach @(@{ Version = '2.0.0' }, @{ Version = '3.0.0' }) {
@@ -122,9 +122,13 @@ Describe 'The supersedence step' {
             function script:Get-CMDeploymentTypeSupersedence { param($InputObject, $ErrorAction) }
             function script:Set-CMApplicationSupersedence { param($Name, $CurrentDeploymentTypeName, $SupersededApplicationName, $OldDeploymentTypeName, $IsUninstall, [switch]$DisableWildcardHandling, $ErrorAction) }
         }
-        function New-TestCmApp { param($Id, $Title, $Version, [bool]$Expired = $false, $Xml = '<x>APD-Line:m</x>') [pscustomobject]@{ CI_ID = $Id; LocalizedDisplayName = $Title; SoftwareVersion = $Version; IsExpired = $Expired; SDMPackageXML = $Xml } }
-        function New-TestCmDt { param($Id, $Name) [pscustomobject]@{ CI_ID = $Id; LocalizedDisplayName = $Name } }
-        $script:Marker = 'APD-Line:catalog:vendor-app|default|x64'
+        function New-TestSiteApp { param($Id, $Title, $Version, $Vendor = 'Vendor', [bool]$Expired = $false) [pscustomobject]@{ CI_ID = $Id; LocalizedDisplayName = $Title; SoftwareVersion = $Version; IsExpired = $Expired; Manufacturer = $Vendor } }
+        $script:Site = @(
+            (New-TestSiteApp 1 'Vendor App 1.0' '1.0.0'),
+            (New-TestSiteApp 2 'Vendor App 2.0' '2.0.0'),
+            (New-TestSiteApp 3 'Unrelated' '0.1' 'Other'),
+            (New-TestSiteApp 4 'Vendor App 0.5' '0.5.0' 'Another Vendor')
+        )
     }
     AfterAll {
         InModuleScope AppPackagerCommon {
@@ -132,15 +136,8 @@ Describe 'The supersedence step' {
         }
     }
     BeforeEach {
-        $m = '>' + $script:Marker + '<'
         Mock Write-Log -ModuleName AppPackagerCommon {}
-        Mock Get-CMApplication -ModuleName AppPackagerCommon {
-            @(
-                [pscustomobject]@{ CI_ID = 1; LocalizedDisplayName = 'Vendor App 1.0'; SoftwareVersion = '1.0.0'; IsExpired = $false; SDMPackageXML = '<k>APD-Line:catalog:vendor-app|default|x64</k>' }
-                [pscustomobject]@{ CI_ID = 2; LocalizedDisplayName = 'Vendor App 2.0'; SoftwareVersion = '2.0.0'; IsExpired = $false; SDMPackageXML = '<none/>' }
-                [pscustomobject]@{ CI_ID = 3; LocalizedDisplayName = 'Unrelated'; SoftwareVersion = '0.1'; IsExpired = $false; SDMPackageXML = '<k>other</k>' }
-            )
-        }
+        Mock Get-CMApplication -ModuleName AppPackagerCommon { $script:Site }
         Mock Get-CMDeploymentType -ModuleName AppPackagerCommon {
             [pscustomobject]@{ CI_ID = 99; LocalizedDisplayName = ($ApplicationName + ' - x64') }
         }
@@ -148,22 +145,40 @@ Describe 'The supersedence step' {
         Mock Set-CMApplicationSupersedence -ModuleName AppPackagerCommon {}
     }
 
-    It 'reads the line by the marker and always lists the new application' {
-        $apps = InModuleScope AppPackagerCommon { Get-SupersedenceLineApplication -Marker 'APD-Line:catalog:vendor-app|default|x64' -NewApplicationName 'Vendor App 2.0' }
-        (@($apps | ForEach-Object { $_.Title }) -join '|') | Should -Be 'Vendor App 1.0|Vendor App 2.0'
+    It 'reads the applications of the same title and the same vendor and always lists the new application' {
+        $apps = InModuleScope AppPackagerCommon { Get-SupersedenceLineApplication -BaseTitle 'Vendor App' -Vendor 'Vendor' -NewApplicationName 'Vendor App 2.0' }
+        (@($apps | Where-Object { $_.VendorMatch } | ForEach-Object { $_.Title }) -join '|') | Should -Be 'Vendor App 1.0|Vendor App 2.0'
         $apps[0].DeploymentTypes[0].Name | Should -Be 'Vendor App 1.0 - x64'
     }
 
-    It 'matches the marker as XML text with the characters escaped' {
-        Mock Get-CMApplication -ModuleName AppPackagerCommon {
-            [pscustomobject]@{ CI_ID = 1; LocalizedDisplayName = 'Old'; SoftwareVersion = '1.0'; IsExpired = $false; SDMPackageXML = '<Tag>APD-Line:catalog:o''neil&amp;co|default|x64</Tag>' }
-        }
-        $apps = InModuleScope AppPackagerCommon { Get-SupersedenceLineApplication -Marker "APD-Line:catalog:o'neil&co|default|x64" -NewApplicationName 'New' }
-        @($apps).Count | Should -Be 1
+    It 'flags an application of another vendor and leaves out another title' {
+        $apps = InModuleScope AppPackagerCommon { Get-SupersedenceLineApplication -BaseTitle 'Vendor App' -Vendor 'Vendor' -NewApplicationName 'Vendor App 2.0' }
+        @($apps | ForEach-Object { $_.Title }) | Should -Not -Contain 'Unrelated'
+        ($apps | Where-Object { $_.Title -eq 'Vendor App 0.5' }).VendorMatch | Should -BeFalse
+        ($apps | Where-Object { $_.Title -eq 'Vendor App 1.0' }).VendorMatch | Should -BeTrue
+    }
+
+    It 'does not take an application of another vendor, and the log line names both vendor strings' {
+        $found = InModuleScope AppPackagerCommon { Find-SupersedenceOldApplication -BaseTitle 'Vendor App' -Vendor 'Vendor' -NewApplicationName 'Vendor App 0.9' -NewVersion '0.9.0' }
+        $found.Old | Should -BeNullOrEmpty
+        $found.Summary | Should -BeLike 'Supersedence: no older version of Vendor App 0.9 found; nothing to supersede.*'
+        $found.Summary | Should -Match "vendor 'Another Vendor'"
+        $found.Summary | Should -Match "vendor 'Vendor'"
+    }
+
+    It 'compares the vendor without regard to letter case, and not at all when the new application names none' {
+        $same = InModuleScope AppPackagerCommon { Get-SupersedenceLineApplication -BaseTitle 'Vendor App' -Vendor 'VENDOR' -NewApplicationName 'Vendor App 2.0' }
+        ($same | Where-Object { $_.Title -eq 'Vendor App 1.0' }).VendorMatch | Should -BeTrue
+        $any = InModuleScope AppPackagerCommon { Get-SupersedenceLineApplication -BaseTitle 'Vendor App' -Vendor '' -NewApplicationName 'Vendor App 2.0' }
+        ($any | Where-Object { $_.Title -eq 'Vendor App 0.5' }).VendorMatch | Should -BeTrue
+    }
+    It 'finds the highest version below the new one' {
+        $found = InModuleScope AppPackagerCommon { Find-SupersedenceOldApplication -BaseTitle 'Vendor App' -Vendor '' -NewApplicationName 'Vendor App 2.0' -NewVersion '2.0.0' }
+        $found.Old.Title | Should -Be 'Vendor App 1.0'
     }
 
     It 'sets one relation for each pair by name, with the uninstall option of the mode' {
-        $step = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'Vendor App 2.0' -NewVersion '2.0.0' -Marker 'APD-Line:catalog:vendor-app|default|x64' -Mode 'ReplaceAndUninstall' }
+        $step = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'Vendor App 2.0' -NewVersion '2.0.0' -BaseTitle 'Vendor App' -Vendor 'Vendor' -Mode 'ReplaceAndUninstall' }
         $step.Status | Should -Be 'Applied'
         $step.Message | Should -Be 'Vendor App 2.0 supersedes Vendor App 1.0 1.0.0 and uninstalls it'
         Should -Invoke Set-CMApplicationSupersedence -ModuleName AppPackagerCommon -Times 1 -Exactly -ParameterFilter {
@@ -173,78 +188,113 @@ Describe 'The supersedence step' {
     }
 
     It 'passes IsUninstall false for Replace' {
-        $step = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'Vendor App 2.0' -NewVersion '2.0.0' -Marker 'APD-Line:catalog:vendor-app|default|x64' -Mode 'Replace' }
+        $step = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'Vendor App 2.0' -NewVersion '2.0.0' -BaseTitle 'Vendor App' -Vendor 'Vendor' -Mode 'Replace' }
         $step.Message | Should -Be 'Vendor App 2.0 supersedes Vendor App 1.0 1.0.0'
         Should -Invoke Set-CMApplicationSupersedence -ModuleName AppPackagerCommon -Times 1 -Exactly -ParameterFilter { $IsUninstall -eq $false }
     }
 
+    It 'changes nothing on the older application' {
+        [void](InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'Vendor App 2.0' -NewVersion '2.0.0' -BaseTitle 'Vendor App' -Vendor 'Vendor' -Mode 'Replace' })
+        Should -Invoke Set-CMApplicationSupersedence -ModuleName AppPackagerCommon -Times 1 -Exactly -ParameterFilter { $Name -eq 'Vendor App 2.0' }
+    }
+
     It 'reads the relations first and does not write a relation that exists' {
         Mock Get-CMDeploymentTypeSupersedence -ModuleName AppPackagerCommon { @([pscustomobject]@{ LocalizedDisplayName = 'Vendor App 1.0 - x64' }) }
-        $step = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'Vendor App 2.0' -NewVersion '2.0.0' -Marker 'APD-Line:catalog:vendor-app|default|x64' -Mode 'Replace' }
+        $step = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'Vendor App 2.0' -NewVersion '2.0.0' -BaseTitle 'Vendor App' -Vendor 'Vendor' -Mode 'Replace' }
         $step.Status | Should -Be 'Applied'
         Should -Invoke Set-CMApplicationSupersedence -ModuleName AppPackagerCommon -Times 0 -Exactly
     }
 
     It 'counts a relation that is there after a failed write as done' {
-        $script:Reads = 0
-        Mock Get-CMDeploymentTypeSupersedence -ModuleName AppPackagerCommon { $script:Reads++; if ($script:Reads -ge 2) { @([pscustomobject]@{ LocalizedDisplayName = 'Vendor App 1.0 - x64' }) } else { @() } }
-        Mock Set-CMApplicationSupersedence -ModuleName AppPackagerCommon { throw 'a text of the provider' }
-        $step = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'Vendor App 2.0' -NewVersion '2.0.0' -Marker 'APD-Line:catalog:vendor-app|default|x64' -Mode 'Replace' }
-        $step.Status | Should -Be 'Applied'
+        $global:SupWritten = $false
+        Mock Get-CMDeploymentTypeSupersedence -ModuleName AppPackagerCommon { if ($global:SupWritten) { @([pscustomobject]@{ LocalizedDisplayName = 'Vendor App 1.0 - x64' }) } else { @() } }
+        Mock Set-CMApplicationSupersedence -ModuleName AppPackagerCommon { $global:SupWritten = $true; throw 'a text of the provider' }
+        $step = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'Vendor App 2.0' -NewVersion '2.0.0' -BaseTitle 'Vendor App' -Vendor 'Vendor' -Mode 'Replace' }
+        $step.Status | Should -Be 'Applied' -Because $step.Message
     }
 
     It 'reports a failed write as not applied with the reason of the first failed relation' {
         Mock Set-CMApplicationSupersedence -ModuleName AppPackagerCommon { throw 'access denied' }
-        $step = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'Vendor App 2.0' -NewVersion '2.0.0' -Marker 'APD-Line:catalog:vendor-app|default|x64' -Mode 'Replace' }
+        $step = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'Vendor App 2.0' -NewVersion '2.0.0' -BaseTitle 'Vendor App' -Vendor 'Vendor' -Mode 'Replace' }
         $step.Status | Should -Be 'NotApplied'
         $step.Failure | Should -Be 'Vendor App 2.0 - x64 supersedes Vendor App 1.0 - x64: access denied'
     }
 
     It 'reports a failed lookup as not applied' {
         Mock Get-CMApplication -ModuleName AppPackagerCommon { throw 'provider down' }
-        $step = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'Vendor App 2.0' -NewVersion '2.0.0' -Marker 'APD-Line:catalog:vendor-app|default|x64' -Mode 'Replace' }
+        $step = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'Vendor App 2.0' -NewVersion '2.0.0' -BaseTitle 'Vendor App' -Vendor 'Vendor' -Mode 'Replace' }
         $step.Status | Should -Be 'NotApplied'
         $step.Message | Should -Match 'lookup of the older version failed: provider down'
     }
 
-    It 'asks nothing of the site for a mode of Off or a missing marker' {
-        $off = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'App' -NewVersion '1.0' -Marker 'm' -Mode 'Off' }
-        $none = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'App' -NewVersion '1.0' -Marker '' -Mode 'Replace' }
+    It 'asks nothing of the site for a mode of Off or an empty title' {
+        $off = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'App' -NewVersion '1.0' -BaseTitle 'App' -Mode 'Off' }
+        $none = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'App' -NewVersion '1.0' -BaseTitle '' -Mode 'Replace' }
         $off.Status | Should -Be 'NotRun'
         $none.Status | Should -Be 'NotRun'
         Should -Invoke Get-CMApplication -ModuleName AppPackagerCommon -Times 0 -Exactly
     }
 
-    It 'says no older version found when the line holds only the new application' {
-        Mock Get-CMApplication -ModuleName AppPackagerCommon {
-            [pscustomobject]@{ CI_ID = 2; LocalizedDisplayName = 'Vendor App 2.0'; SoftwareVersion = '2.0.0'; IsExpired = $false; SDMPackageXML = '<none/>' }
-        }
-        $step = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'Vendor App 2.0' -NewVersion '2.0.0' -Marker 'APD-Line:catalog:vendor-app|default|x64' -Mode 'Replace' }
+    It 'says no older version found when only the new application is there' {
+        Mock Get-CMApplication -ModuleName AppPackagerCommon { $script:Site | Where-Object { $_.CI_ID -eq 2 } }
+        $step = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'Vendor App 2.0' -NewVersion '2.0.0' -BaseTitle 'Vendor App' -Vendor 'Vendor' -Mode 'Replace' }
         $step.Status | Should -Be 'NoOlderVersion'
-        $step.Message | Should -BeLike 'No older version found*'
+        $step.Message | Should -BeLike 'Supersedence: no older version of*'
         $step.Failure | Should -BeNullOrEmpty
     }
+}
 
-    It 'applies without a publish only when the application of this version is on the site' {
-        $missing = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'Other App' -NewVersion '2.0.0' -Marker 'APD-Line:catalog:vendor-app|default|x64' -Mode 'Replace' -RequirePublished }
-        $missing.Status | Should -Be 'NotApplied'
-        $missing.Message | Should -Match 'is not on the site'
-        $wrong = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'Vendor App 2.0' -NewVersion '3.0.0' -Marker 'APD-Line:catalog:vendor-app|default|x64' -Mode 'Replace' -RequirePublished }
-        $wrong.Message | Should -Match 'not 3\.0\.0'
-    }
-
-    It 'keeps a name with quotes and wildcards as data' {
-        Mock Get-CMApplication -ModuleName AppPackagerCommon {
-            @(
-                [pscustomobject]@{ CI_ID = 1; LocalizedDisplayName = 'O"ld [x64] 1.0'; SoftwareVersion = '1.0'; IsExpired = $false; SDMPackageXML = '<k>APD-Line:catalog:vendor-app|default|x64</k>' }
-                [pscustomobject]@{ CI_ID = 2; LocalizedDisplayName = 'N"ew [x64] 2.0'; SoftwareVersion = '2.0'; IsExpired = $false; SDMPackageXML = '<none/>' }
-            )
+Describe 'The title lock and the answer' {
+    It 'knows whether the title holds the version of this release' {
+        InModuleScope AppPackagerCommon {
+            Test-SupersedenceVersionInTitle -Title 'Vendor App - 2.0.0' -Version '2.0.0' | Should -BeTrue
+            Test-SupersedenceVersionInTitle -Title 'Vendor App' -Version '2.0.0' | Should -BeFalse
+            Test-SupersedenceVersionInTitle -Title 'Vendor App 12.0.0' -Version '2.0.0' | Should -BeFalse
         }
-        Mock Get-CMDeploymentType -ModuleName AppPackagerCommon { [pscustomobject]@{ CI_ID = 9; LocalizedDisplayName = $ApplicationName + ' - x64' } }
-        $step = InModuleScope AppPackagerCommon { Invoke-SupersedenceStep -NewApplicationName 'N"ew [x64] 2.0' -NewVersion '2.0' -Marker 'APD-Line:catalog:vendor-app|default|x64' -Mode 'Replace' }
-        $step.Status | Should -Be 'Applied'
-        Should -Invoke Set-CMApplicationSupersedence -ModuleName AppPackagerCommon -Times 1 -Exactly -ParameterFilter { $Name -eq 'N"ew [x64] 2.0' -and $SupersededApplicationName -eq 'O"ld [x64] 1.0' }
-        Should -Invoke Get-CMDeploymentType -ModuleName AppPackagerCommon -ParameterFilter { $DisableWildcardHandling }
+    }
+    It 'takes the base title from the title without the version' {
+        InModuleScope AppPackagerCommon { Get-SupersedenceBaseTitle -AppName 'Vendor App - 2.0.0' -Version '2.0.0' | Should -Be 'Vendor App' }
+    }
+    It 'reads Yes only when it was given, and Skip for every other value and for none' {
+        InModuleScope AppPackagerCommon {
+            $saved = $env:APP_PACKAGER_SUPERSEDENCE_ANSWER
+            try {
+                $env:APP_PACKAGER_SUPERSEDENCE_ANSWER = 'Yes'; Get-SupersedenceAnswer | Should -Be 'Yes'
+                $env:APP_PACKAGER_SUPERSEDENCE_ANSWER = 'yes'; Get-SupersedenceAnswer | Should -Be 'Yes'
+                $env:APP_PACKAGER_SUPERSEDENCE_ANSWER = 'Skip'; Get-SupersedenceAnswer | Should -Be 'Skip'
+                $env:APP_PACKAGER_SUPERSEDENCE_ANSWER = 'banana'; Get-SupersedenceAnswer | Should -Be 'Skip'
+                Remove-Item Env:\APP_PACKAGER_SUPERSEDENCE_ANSWER; Get-SupersedenceAnswer | Should -Be 'Skip'
+            }
+            finally { if ($null -ne $saved) { $env:APP_PACKAGER_SUPERSEDENCE_ANSWER = $saved } else { Remove-Item Env:\APP_PACKAGER_SUPERSEDENCE_ANSWER -ErrorAction SilentlyContinue } }
+        }
+    }
+}
+
+Describe 'The bulk action' {
+    BeforeAll {
+        $script:Own = [ordered]@{ 'catalog:a' = ''; 'catalog:b' = 'Replace'; 'catalog:c' = 'Off' }
+    }
+    It 'All applications sets the default and removes the values of single applications' {
+        $r = Set-SupersedenceBulkValue -Scope All -Value 'Replace' -Default 'Off' -Overrides $script:Own
+        $r.Default | Should -Be 'Replace'
+        (@($r.Overrides.Values | Where-Object { $_ }) ).Count | Should -Be 0
+        $r.Changed | Should -Be 2
+    }
+    It 'Selected applications writes the value on each selected application only' {
+        $r = Set-SupersedenceBulkValue -Scope Selected -Value 'Replace and uninstall' -Default 'Off' -Overrides $script:Own -Selected @('catalog:a')
+        $r.Default | Should -Be 'Off'
+        $r.Overrides['catalog:a'] | Should -Be 'Replace and uninstall'
+        $r.Overrides['catalog:b'] | Should -Be 'Replace'
+        $r.Changed | Should -Be 1
+    }
+    It 'No applications removes every value and sets the default to Off' {
+        $r = Set-SupersedenceBulkValue -Scope None -Value 'Replace' -Default 'Replace' -Overrides $script:Own
+        $r.Default | Should -Be 'Off'
+        (@($r.Overrides.Values | Where-Object { $_ })).Count | Should -Be 0
+    }
+    It 'does not change the map it was given' {
+        [void](Set-SupersedenceBulkValue -Scope None -Value 'Replace' -Default 'Replace' -Overrides $script:Own)
+        $script:Own['catalog:b'] | Should -Be 'Replace'
     }
 }
 
@@ -266,5 +316,94 @@ Describe 'The step after a publish' {
         $publish = (Get-Command New-MECMApplicationFromManifest).ScriptBlock.ToString()
         $publish.IndexOf('if ($supersedencePlan.Refusal) { throw') | Should -BeLessThan $publish.IndexOf('New-CMApplication @cmAppParams')
         $publish.IndexOf('if ($supersedencePlan.Refusal) { throw') | Should -BeLessThan $publish.IndexOf('Get-ManifestDeploymentTypeSpecs')
+    }
+}
+
+Describe 'The Intune supersedence' {
+    BeforeEach {
+        Mock Write-Log -ModuleName AppPackagerCommon {}
+        Mock Invoke-GraphJson -ModuleName AppPackagerCommon {
+            if ($Method -eq 'GET' -and $Uri -like '*isof*') {
+                return [pscustomobject]@{ value = @(
+                        [pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'old1'; displayName = 'Vendor App - 1.0.0'; displayVersion = '1.0.0'; publisher = 'Vendor' }
+                        [pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'new2'; displayName = 'Vendor App - 2.0.0'; displayVersion = '2.0.0'; publisher = 'Vendor' }
+                        [pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'oth3'; displayName = 'Vendor App - 0.5.0'; displayVersion = '0.5.0'; publisher = 'Another Vendor' }
+                        [pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'unr4'; displayName = 'Unrelated'; displayVersion = '0.1'; publisher = 'Vendor' }
+                    ); '@odata.nextLink' = $null }
+            }
+            if ($Method -eq 'GET') { return [pscustomobject]@{ value = @() } }
+            return $null
+        }
+    }
+
+    It 'finds the older app by display name and publisher' {
+        $apps = InModuleScope AppPackagerCommon { Get-IntuneSupersedenceApplication -Token 't' -BaseTitle 'Vendor App' -Publisher 'Vendor' }
+        (@($apps | ForEach-Object { $_.Id }) -join '|') | Should -Be 'old1|new2'
+    }
+
+    It 'sends one supersedence of type update for Replace, to the highest older version' {
+        $step = InModuleScope AppPackagerCommon { Invoke-IntuneSupersedenceStep -Token 't' -AppId 'new2' -NewTitle 'Vendor App - 2.0.0' -NewVersion '2.0.0' -Publisher 'Vendor' -Mode 'Replace' }
+        $step.Status | Should -Be 'Applied'
+        Should -Invoke Invoke-GraphJson -ModuleName AppPackagerCommon -Times 1 -Exactly -ParameterFilter {
+            $Method -eq 'POST' -and $Uri -like '*/mobileApps/new2/updateRelationships' -and
+            $Body.relationships.Count -eq 1 -and $Body.relationships[0].targetId -eq 'old1' -and $Body.relationships[0].supersedenceType -eq 'update'
+        }
+    }
+
+    It 'sends the type replace for Replace and uninstall' {
+        [void](InModuleScope AppPackagerCommon { Invoke-IntuneSupersedenceStep -Token 't' -AppId 'new2' -NewTitle 'Vendor App - 2.0.0' -NewVersion '2.0.0' -Publisher 'Vendor' -Mode 'ReplaceAndUninstall' })
+        Should -Invoke Invoke-GraphJson -ModuleName AppPackagerCommon -Times 1 -Exactly -ParameterFilter { $Method -eq 'POST' -and $Body.relationships[0].supersedenceType -eq 'replace' }
+    }
+
+    It 'sends the relationships that the app already has again, because updateRelationships replaces them all' {
+        $body = Get-IntuneSupersedenceBody -OldAppId 'old1' -Mode 'Replace' -Existing @(
+            [pscustomobject]@{ '@odata.type' = '#microsoft.graph.mobileAppDependency'; targetId = 'dep9'; targetType = 'child'; dependencyType = 'detect' }
+            [pscustomobject]@{ '@odata.type' = '#microsoft.graph.mobileAppSupersedence'; targetId = 'old0'; targetType = 'child'; supersedenceType = 'update' }
+            [pscustomobject]@{ '@odata.type' = '#microsoft.graph.mobileAppSupersedence'; targetId = 'parent'; targetType = 'parent'; supersedenceType = 'update' }
+        )
+        (@($body.relationships | ForEach-Object { $_.targetId }) -join '|') | Should -Be 'dep9|old0|old1'
+    }
+
+    It 'writes nothing when the relationship exists, and says no older version when there is none' {
+        Mock Invoke-GraphJson -ModuleName AppPackagerCommon {
+            if ($Uri -like '*isof*') { return [pscustomobject]@{ value = @([pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'old1'; displayName = 'Vendor App - 1.0.0'; displayVersion = '1.0.0'; publisher = 'Vendor' }, [pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'new2'; displayName = 'Vendor App - 2.0.0'; displayVersion = '2.0.0'; publisher = 'Vendor' }) } }
+            if ($Uri -like '*relationships') { return [pscustomobject]@{ value = @([pscustomobject]@{ '@odata.type' = '#microsoft.graph.mobileAppSupersedence'; targetId = 'old1'; targetType = 'child'; supersedenceType = 'update' }) } }
+        }
+        (InModuleScope AppPackagerCommon { Invoke-IntuneSupersedenceStep -Token 't' -AppId 'new2' -NewTitle 'Vendor App - 2.0.0' -NewVersion '2.0.0' -Publisher 'Vendor' -Mode 'Replace' }).Status | Should -Be 'Applied'
+        Should -Invoke Invoke-GraphJson -ModuleName AppPackagerCommon -Times 0 -Exactly -ParameterFilter { $Method -eq 'POST' }
+        (InModuleScope AppPackagerCommon { Invoke-IntuneSupersedenceStep -Token 't' -AppId 'new2' -NewTitle 'Vendor App - 0.1.0' -NewVersion '0.1.0' -Publisher 'Vendor' -Mode 'Replace' }).Status | Should -Be 'NoOlderVersion'
+    }
+
+    It 'reports a failed Graph call as not applied and never throws' {
+        Mock Invoke-GraphJson -ModuleName AppPackagerCommon { throw 'Graph is down' }
+        $step = InModuleScope AppPackagerCommon { Invoke-IntuneSupersedenceStep -Token 't' -AppId 'new2' -NewTitle 'Vendor App - 2.0.0' -NewVersion '2.0.0' -Publisher 'Vendor' -Mode 'Replace' }
+        $step.Status | Should -Be 'NotApplied'
+        $step.Message | Should -Match 'Graph is down'
+    }
+
+    It 'does nothing for the mode Off' {
+        (InModuleScope AppPackagerCommon { Invoke-IntuneSupersedenceStep -Token 't' -AppId 'new2' -NewTitle 'x' -NewVersion '1' -Mode 'Off' }).Status | Should -Be 'NotRun'
+        Should -Invoke Invoke-GraphJson -ModuleName AppPackagerCommon -Times 0 -Exactly
+    }
+}
+
+Describe 'The vendor compare' {
+    It 'reads <A> and <B> as the same vendor: <Same>' -ForEach @(
+        @{ A = 'Contoso'; B = 'CONTOSO'; Same = $true }
+        @{ A = 'Contoso Inc.'; B = 'Contoso'; Same = $true }
+        @{ A = 'Contoso, Inc'; B = 'contoso corporation'; Same = $true }
+        @{ A = 'Contoso GmbH'; B = 'Contoso Ltd.'; Same = $true }
+        @{ A = 'Contoso Software'; B = 'Contoso'; Same = $false }
+        @{ A = 'Contoso'; B = 'Fabrikam'; Same = $false }
+        @{ A = 'Inc'; B = 'Inc.'; Same = $true }
+    ) {
+        InModuleScope AppPackagerCommon -Parameters @{ A = $A; B = $B; Same = $Same } {
+            ((Get-SupersedenceVendorKey -Vendor $A) -eq (Get-SupersedenceVendorKey -Vendor $B)) | Should -Be $Same
+        }
+    }
+    It 'names the application whose title gets the version' {
+        InModuleScope AppPackagerCommon {
+            Get-SupersedenceTitleNotice -Title 'Vendor App' | Should -Be 'Vendor App: supersedence is on, the version will be added to the title, so a new application is created'
+        }
     }
 }

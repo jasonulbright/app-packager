@@ -51,17 +51,19 @@ When the share cannot be reached, the run stops before it copies anything and be
 
 This guide did not run a publish to a real share. A successful publish was not checked.
 
-### Rewrite old versions
+### Supersedence
 
-A new version can supersede an older application. For the old application to uninstall cleanly, its detection must stop finding the application once it is removed. A `GreaterEquals` clause still finds the new version, so the uninstall registers as failed. **Rewrite Old Versions** changes that clause to `IsEquals` for the older applications of one product line.
+A new version can supersede the older application. This is a setting of the application, and it is off until you turn it on in Options, Packaging, Supersedence. The application then keeps the version in its name, so each release is its own application. At **Publish to ConfigMgr** the tool looks for the older application with the same title and the same vendor, takes the highest version below the new one, and asks first:
 
-1. Check one application.
-2. Select **Rewrite Old Versions**. The tool reads the product line from the site. The dialog lists each clause that it changes, the applications that it blocks (an application with a required deployment) and the clauses that it leaves, with the reason.
-3. View the notes. A device that has a newer version than the one in the clause then reads "not installed".
-4. Check the confirmation box and select **Rewrite N Clauses**. The tool reads the site again and writes only when the clauses are the ones that the dialog showed. Each clause is written to the log first.
-5. View the result. Select **Undo** to write the old operator back.
+1. **Yes** applies the supersedence: the new application supersedes the older one, one relation for each pair of deployment types. The older application is not changed.
+2. **Skip** packages the application without the supersedence.
+3. **No** stops the run.
 
-**Restore Old Versions** does the second part alone, for a rewrite of an earlier session: it lists the rewrites of this line that the log holds and no restore cancels. The log is `supersedence-rewrite.jsonl` in the Workbench data folder. The buttons are disabled for the reasons of **Publish to ConfigMgr**: ConfigMgr is not in use, the console is missing or the site code is empty. See [Command line](../reference/command-line.md) for the same steps without the window.
+![The confirmation before the supersedence is applied](../images/supersedence-confirm.png)
+
+![The same confirmation in the light theme](../images/light-supersedence-confirm.png)
+
+**Remember this answer** applies the answer to the other applications of the run. The dialog also names an application whose title has no version yet: the version is added, so a new application is created. When the tool finds no older version, the log says so and nothing is asked. The tool does not rewrite the detection of applications that it published earlier, and it does not mark applications. An application that an earlier release marked keeps its keywords. See [Options](options.md) for the setting by application and the command line option `-SupersedenceAnswer`.
 
 ## Options and settings of this page
 
