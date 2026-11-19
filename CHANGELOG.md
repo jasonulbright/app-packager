@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- `Invoke-ResumableDownload` in the shared module: a large installer goes to a `.part` file, continues where it stopped after a lost connection (also in a later run), logs its size, share and speed every 15 seconds, and takes its file name only when the size matches the size that the server announced. A status of 400 or higher (403, 404) stops at once with that status. Tableau Prep Builder (1.1 GB) uses it. Until now the download made one retry from zero and logged no progress.
+
+### Changed
+
+- Tableau Prep Builder downloads from `downloads.tableau.com/esdalt/tableau_prep/<release>/TableauPrep-<release with hyphens>.exe`, the path of the Tableau download page; the earlier `tssoftware/` path was never shown to work. The Prep page names the release train only (2026.3): the point release comes from the page of Desktop and Reader for the same train (2026.3.1) and from a HEAD probe of the download address. A point release that does not exist is stepped down; one that no page lists yet is found by stepping up. A 403 from the host never counts as "does not exist": the version stays at what the pages say and the log says it was not confirmed. The Tableau host answers a request without a sign-in with 403, so the lab could not prove a download.
+
 ## [2026.11.19.0147] - 2026-11-19
 
 ## 316 packagers
