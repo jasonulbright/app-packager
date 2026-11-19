@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [2026.11.18.0146] - 2026-11-18
+
+## Cancel in every run, seven destinations and checked downloads
+
 ### Changed
 
 - Cancel works in every run: Check Latest, Check ConfigMgr, Check CVEs, Stage, Package, One Click and the conversion. The Cancel button is visible next to the progress bar. It ends the download or packager process of the product in flight within seconds (only processes that the run started), keeps the results of the finished products and your selection, and shows "Cancelled: N of M products done." in the status and the log. A second click does nothing, and closing the window during a run also ends its processes.
