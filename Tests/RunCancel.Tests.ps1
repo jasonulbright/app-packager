@@ -178,4 +178,39 @@ Describe 'The NVD wait ends at Cancel' {
         $state.Aborted | Should -BeTrue
     }
 }
-}
+
+Describe 'A loop on the window thread hears Cancel (Check ConfigMgr, the conversion)' {
+    BeforeAll {
+        Add-Type -AssemblyName WindowsBase, PresentationFramework
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput($script:Script, [ref]$null, [ref]$null)
+        foreach ($name in 'Invoke-UiPump', 'Test-UiRunCancelled') {
+            $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $true)
+            . ([scriptblock]::Create($fn.Extent.Text))
+        }
+    }
+    It 'the pump runs the input that is queued (a click on Cancel)' {
+        $script:Handled = $false
+        $d = [System.Windows.Threading.Dispatcher]::CurrentDispatcher
+        [void]$d.BeginInvoke([System.Windows.Threading.DispatcherPriority]::Input, [Action]{ $script:Handled = $true })
+        Invoke-UiPump
+        $script:Handled | Should -BeTrue
+    }
+    It 'the cancel flag is honored between products without any help from the window thread' {
+        $script:UiRun = [hashtable]::Synchronized(@{ CancelRequested = $false })
+        $done = 0
+        $items = 1..10
+        foreach ($item in $items) {
+            if (Test-UiRunCancelled) { break }
+            $done++
+            if ($item -eq 4) { $script:UiRun.CancelRequested = $true }
+        }
+        $done | Should -Be 4
+        $script:UiRun = $null
+        (Test-UiRunCancelled) | Should -BeFalse
+    }
+    It 'the loops on the window thread use one pump' {
+        $script:Script | Should -Match 'function Invoke-UiPump'
+        $script:Script | Should -Match 'PushFrame'
+        $script:Script | Should -Not -Match '\[void\]\[System\.Windows\.Threading\.Dispatcher\]::CurrentDispatcher\.Invoke\(\s*\[System\.Windows\.Threading\.DispatcherPriority\]::Background'
+    }
+}}

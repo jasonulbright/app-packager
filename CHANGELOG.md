@@ -12,6 +12,7 @@
 ### Fixed
 
 - The PowerShell 7 packager checks the Authenticode signature of the downloaded MSI (signer Microsoft Corporation, status Valid) before it stages, because the release lists no digest. A bad file is deleted and the message says nothing was staged. Two shared checks, Assert-InstallerSignature and Assert-InstallerDigest, are ready for other packagers.
+- Cancel answers while Check ConfigMgr or the conversion works on the window thread: the window handles its queued input between products and while it waits for the conversion.
 
 ## [2026.11.18.0145] - 2026-11-18
 
