@@ -54,6 +54,7 @@ function Invoke-PackageApp {
     if (-not (Test-NetworkShareAccess -Path $FileServerPath)) { throw "Network root path not accessible: $FileServerPath" }
     $networkContentPath = Join-Path (Join-Path $FileServerPath '@KEY@') $manifest.SoftwareVersion
     Initialize-Folder -Path $networkContentPath
+    Write-Log "Network content path         : $networkContentPath"
     Sync-StagedContentToNetwork -LocalContentPath $localContentPath -NetworkContentPath $networkContentPath -Manifest $manifest
     New-MECMApplicationFromManifest -Manifest $manifest -SiteCode $SiteCode -Comment $Comment -NetworkContentPath $networkContentPath -EstimatedRuntimeMins $EstimatedRuntimeMins -MaximumRuntimeMins $MaximumRuntimeMins
 }
@@ -94,10 +95,11 @@ function Check-Row([int]$index) {
     Start-Sleep -Milliseconds 400
     if ($toggle.Current.ToggleState -ne 'On') { throw 'The row is not checked.' }
 }
-function Wait-Supersedence([int]$sec = 120) {
-    if (-not (Wait-Until { [bool](Top-Dialog) } $sec)) { throw ('No supersedence dialog. Windows: ' + (WinList) + ' Status: ' + (Status)) }
-    $d = Top-Dialog
-    if ($d.Current.Name -ne 'Supersedence') { throw ('The dialog is not the supersedence dialog: ' + $d.Current.Name) }
+# The dialog of one application: its text starts with the title of that application. A dialog that is still closing never matches.
+function Wait-Supersedence([string]$Like = '*', [int]$sec = 180) {
+    $found = $null
+    if (-not (Wait-Until { $t = Top-Dialog; if ($t -and $t.Current.Name -eq 'Supersedence') { $i = Get-El $t 'txtIntro' -Quiet; if ($i -and (Get-ElText $i) -like $Like) { $script:found = $t; return $true } }; return $false } $sec)) { throw ('No supersedence dialog like ' + $Like + '. Windows: ' + (WinList) + ' Status: ' + (Status)) }
+    $d = $script:found
     Start-Sleep -Milliseconds 800
     $d
 }
@@ -134,27 +136,29 @@ function Package-Run([string]$Version, [scriptblock]$Answers) {
     Invoke-El (Get-El $win 'btnStage'); Start-Sleep -Seconds 4; Idle 600; Log ("stage $Version status: " + (Status))
     Invoke-El (Get-El $win 'btnPackage'); Start-Sleep -Seconds 3
     & $Answers
-    Idle 900; Log ("publish $Version status: " + (Status))
+    try { Idle 420 } catch { Log ("STUCK after publish $Version. Windows: " + (WinList) + " Status: " + (Status)); Shot-Screen ("fail-stuck-" + $Version); throw }
+    Log ("publish $Version status: " + (Status))
 }
 Section 'run 1: Yes with Remember this answer' {
     Package-Run '2.0.0' {
-        $d = Wait-Supersedence; Shot $d 'supersedence-confirm'; Dump-Tree $d 'supersedence-confirm'
+        $d = Wait-Supersedence 'Q92 Proof App*'; Shot $d 'supersedence-confirm'; Dump-Tree $d 'supersedence-confirm'
         Toggle-El (Get-El $d 'chkRemember'); Invoke-El (Get-El $d 'Yes'); Start-Sleep -Seconds 2
         # The second application is not asked: the answer holds for the run. A dialog here is a failure.
         Start-Sleep -Seconds 8
-        $again = Top-Dialog; if ($again -and $again.Current.Name -eq 'Supersedence') { Log 'ERROR: the second application was asked although Remember was checked' }
+        $again = Top-Dialog; $againText = $(if ($again -and $again.Current.Name -eq 'Supersedence') { $ti = Get-El $again 'txtIntro' -Quiet; if ($ti) { Get-ElText $ti } else { '' } } else { '' })
+        if ($againText -like 'Q92 Proof Tool*') { Log ('ERROR: the second application was asked although Remember was checked. Windows: ' + (WinList)); Shot-Screen 'fail-second-dialog' }
     }
 }
 Section 'run 2: Skip for each application' {
     Package-Run '3.0.0' {
-        for ($i = 1; $i -le 2; $i++) { $d = Wait-Supersedence; Log ("dialog $i of run 2"); Invoke-El (Get-El $d 'Skip'); Start-Sleep -Seconds 2 }
+        foreach ($like in 'Q92 Proof App*', 'Q92 Proof Tool*') { $d = Wait-Supersedence $like; Log ("dialog of run 2: $like"); Invoke-El (Get-El $d 'Skip'); Start-Sleep -Seconds 3 }
     }
 }
 Section 'run 3: No in the light theme' {
     Toggle-El (Get-El $win 'toggleTheme'); Start-Sleep -Seconds 2
     Shot $win 'light-supersedence-main'
     Package-Run '4.0.0' {
-        $d = Wait-Supersedence; Shot $d 'light-supersedence-confirm'; Invoke-El (Get-El $d 'No'); Start-Sleep -Seconds 2
+        $d = Wait-Supersedence 'Q92 Proof App*'; Shot $d 'light-supersedence-confirm'; Invoke-El (Get-El $d 'No'); Start-Sleep -Seconds 2
     }
     Shot $win 'light-supersedence-run-stopped'
     Toggle-El (Get-El $win 'toggleTheme'); Start-Sleep -Seconds 1

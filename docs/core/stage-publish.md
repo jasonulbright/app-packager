@@ -59,7 +59,11 @@ A new version can supersede the older application. This is a setting of the appl
 2. **Skip** packages the application without the supersedence.
 3. **No** stops the run.
 
-**Remember this answer** applies the answer to the other applications of the run. When the tool finds no older version, the log says so and nothing is asked. The tool does not rewrite the detection of applications that it published earlier, and it does not mark applications. An application that an earlier release marked keeps its keywords. See [Options](options.md) for the setting by application and the command line option `-SupersedenceAnswer`.
+![The confirmation before the supersedence is applied](../images/supersedence-confirm.png)
+
+![The same confirmation in the light theme](../images/light-supersedence-confirm.png)
+
+**Remember this answer** applies the answer to the other applications of the run. The dialog also names an application whose title has no version yet: the version is added, so a new application is created. When the tool finds no older version, the log says so and nothing is asked. The tool does not rewrite the detection of applications that it published earlier, and it does not mark applications. An application that an earlier release marked keeps its keywords. See [Options](options.md) for the setting by application and the command line option `-SupersedenceAnswer`.
 
 ## Options and settings of this page
 
