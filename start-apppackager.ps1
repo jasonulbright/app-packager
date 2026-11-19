@@ -8205,7 +8205,7 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'tv.token'; Title = 'API token'; Kind = 'Text'; Pref = 'tv:ApiToken'; Tip = 'The script token for APITOKEN; it is stored as text in teamviewer-host-config.json.'; Keywords = 'apitoken' }
                 @{ Id = 'tv.config'; Title = 'Custom config ID'; Kind = 'Text'; Pref = 'tv:CustomConfigId'; Tip = 'CUSTOMCONFIGID of a custom Host module from the Management Console.' }
                 @{ Id = 'tv.assign'; Title = 'Assignment options'; Kind = 'Text'; Pref = 'tv:AssignmentOptions'; Tip = 'The flags of ASSIGNMENTOPTIONS, for example --grant-easy-access or --reassign.' }
-                @{ Id = 'tv.shortcut'; Title = 'Desktop shortcut'; Kind = 'Check'; Pref = 'tv:RemoveDesktopShortcut'; Label = 'Remove the desktop shortcut'; Tip = 'Adds DESKTOPSHORTCUTS=0 and ADDLOCAL=ALL REMOVE=f.DesktopShortcut to the msiexec command line.' }
+                @{ Id = 'tv.shortcut'; Title = 'Desktop shortcut'; Kind = 'Check'; Pref = 'tv:RemoveDesktopShortcut'; Label = 'Remove the desktop shortcut'; Tip = 'Adds DESKTOPSHORTCUTS=0 to the msiexec command line.' }
             )
         })
 

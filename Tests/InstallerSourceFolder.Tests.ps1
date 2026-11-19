@@ -175,8 +175,6 @@ Describe 'Get-TeamViewerHostMsiArguments' {
         $arguments | Should -Contain 'CUSTOMCONFIGID=cfg456'
         $arguments | Should -Contain 'ASSIGNMENTOPTIONS="--grant-easy-access --reassign"'
         $arguments | Should -Contain 'DESKTOPSHORTCUTS=0'
-        $arguments | Should -Contain 'ADDLOCAL=ALL'
-        $arguments | Should -Contain 'REMOVE=f.DesktopShortcut'
     }
 
     It 'refuses a space in the token or the config id, and a trailing backslash in the options' {

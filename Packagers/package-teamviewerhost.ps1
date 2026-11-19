@@ -40,7 +40,7 @@ ArpName: TeamViewer Host
     The values of teamviewer-host-config.json become MSI properties on the
     install command line: ApiToken (APITOKEN), CustomConfigId (CUSTOMCONFIGID),
     AssignmentOptions (ASSIGNMENTOPTIONS) and RemoveDesktopShortcut
-    (DESKTOPSHORTCUTS=0 and ADDLOCAL=ALL REMOVE=f.DesktopShortcut). An empty
+    (DESKTOPSHORTCUTS=0). An empty
     value is not passed. The values are written to the install script of the
     package in clear text.
 
@@ -180,8 +180,7 @@ function Get-TeamViewerHostMsiArguments {
     .DESCRIPTION
         ApiToken -> APITOKEN, CustomConfigId -> CUSTOMCONFIGID,
         AssignmentOptions -> ASSIGNMENTOPTIONS (quoted: the value holds spaces),
-        RemoveDesktopShortcut -> DESKTOPSHORTCUTS=0 and ADDLOCAL=ALL
-        REMOVE=f.DesktopShortcut. A value with a double quote or a line break is
+        RemoveDesktopShortcut -> DESKTOPSHORTCUTS=0. A value with a double quote or a line break is
         refused, because it would end the quoted property early.
     #>
     param([AllowNull()]$Config)
@@ -215,8 +214,6 @@ function Get-TeamViewerHostMsiArguments {
     }
     if ($Config.PSObject.Properties['RemoveDesktopShortcut'] -and ([string]$Config.RemoveDesktopShortcut) -match '^(true|1)$') {
         $arguments.Add('DESKTOPSHORTCUTS=0')
-        $arguments.Add('ADDLOCAL=ALL')
-        $arguments.Add('REMOVE=f.DesktopShortcut')
     }
     return $arguments.ToArray()
 }
