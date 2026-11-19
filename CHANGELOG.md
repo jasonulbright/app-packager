@@ -6,6 +6,10 @@
 
 - Tableau Desktop, Reader and Prep Builder download from the esdalt path first and from the tssoftware path when the host answers 404 for the first one; a 403 is no answer and never switches the path. Prep uses `esdalt/tableau_prep/<release>/TableauPrep-<release with hyphens>.exe`.
 
+### Fixed
+
+- Options: the One Click section no longer needs a horizontal scroll bar at the smallest size of the window. The window is wider at its smallest size, and a handle between the list of sections and the section changes the width of the list.
+
 ## [2026.11.19.0147] - 2026-11-19
 
 ## 316 packagers
