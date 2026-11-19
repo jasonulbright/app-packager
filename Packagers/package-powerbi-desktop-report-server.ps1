@@ -1,6 +1,6 @@
 <#
 Vendor: Microsoft
-App: Power BI Desktop (optimized for Power BI Report Server) (x64)
+App: Microsoft Power BI Desktop (optimized for Power BI Report Server) (x64)
 CMName: Microsoft Power BI Desktop (optimized for Power BI Report Server)
 VendorUrl: https://www.microsoft.com/power-platform/products/power-bi/report-server
 ReleaseNotesUrl: https://learn.microsoft.com/power-bi/report-server/changelog
@@ -120,7 +120,7 @@ function Get-PowerBIReportServerDesktopVersion {
 
         $match = [regex]::Match(
             $html,
-            'Power BI Desktop \(optimized for Power BI Report Server\)[\s\S]*?Version:\s*(?<v>\d+\.\d+\.\d+\.\d+)'
+            'Power BI Desktop \(optimized for Power BI Report Server\)</h3>\s*<ul>\s*<li>\s*<p>\s*<em>Version:\s*(?<v>\d+\.\d+\.\d+\.\d+)'
         )
         if (-not $match.Success) { throw "Could not find a Power BI Desktop version in the change log." }
 

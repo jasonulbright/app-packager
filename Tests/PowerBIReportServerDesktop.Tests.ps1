@@ -46,6 +46,11 @@ Describe 'Power BI Desktop (Report Server) version' {
         Get-PowerBIReportServerDesktopVersion -Quiet | Should -Be '2.158.1602.0'
     }
 
+    It 'never takes the report server version when the Desktop list of a section is empty' {
+        function curl.exe { $global:LASTEXITCODE = 0; '<h3>Power BI Desktop (optimized for Power BI Report Server)</h3><p>No release.</p><h3>Power BI Report Server</h3><ul><li><p><em>Version: 1.27.9818.31285 (build 15.0.1122.106)</em></p></li></ul>' }
+        Get-PowerBIReportServerDesktopVersion -Quiet | Should -BeNullOrEmpty
+    }
+
     It 'returns null when the change log has no Desktop entry' {
         function curl.exe { $global:LASTEXITCODE = 0; '<h3>Power BI Report Server</h3><li>Version: 1.27.9818.31285</li>' }
         Get-PowerBIReportServerDesktopVersion -Quiet | Should -BeNullOrEmpty
