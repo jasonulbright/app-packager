@@ -1,6 +1,6 @@
 # AppPackager documentation
 
-AppPackager packages 315 enterprise applications for Configuration Manager, Intune and WSUS. It checks the vendor for the latest version, downloads and verifies the installer, writes the install and uninstall scripts and the detection rule, and creates the application. This page links every page of the documentation.
+AppPackager packages 316 enterprise applications for Configuration Manager, Intune and WSUS. It checks the vendor for the latest version, downloads and verifies the installer, writes the install and uninstall scripts and the detection rule, and creates the application. This page links every page of the documentation.
 
 ## Start
 

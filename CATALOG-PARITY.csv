@@ -646,6 +646,7 @@
 "Poll Everywhere","Skip-Niche","SaaS wrapper"
 "Poly Lens Desktop App","Skip-Component","peripheral vendor utilities; low packaging value, frequent bundled updaters"
 "Power BI ALM Toolkit","Skip-Wall","No automatable source: microsoft/Power-BI-ALM-Toolkit archived 2019 with no release assets; alm-toolkit.com behind a bot-challenge interstitial; no winget manifest."
+"PowerShell 7 (MSIX)","Supported","existing packager: powershell7msix (provisioned for all users from the PowerShell msixbundle)"
 "Preform","Skip-Niche","Formlabs printer vertical"
 "PrinterLogic Printer Installer Client","Skip-Agent","tenant print management client"
 "Private Internet Access","Skip-Licensed","subscription VPN"

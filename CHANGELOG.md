@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add the PowerShell 7 (MSIX) packager. It provisions the Microsoft msixbundle for all users after it checks the SHA-256 digest and the Microsoft signature. The help lists the limits of the MSIX package: single user, no remoting, no all-users scope.
+
 ### Changed
 
 - The title text of a window that is not the active window is dark on the light blue title bar, so that it stays readable. The buttons of the message and confirmation dialogs keep their blue or gray fill when you point at or press them.

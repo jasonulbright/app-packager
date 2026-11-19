@@ -1,5 +1,5 @@
 {
-  "PackVersion": "2026.11.18.0015",
+  "PackVersion": "2026.11.19.0016",
   "MinAppVersion": "1.5.0.0",
   "Icons": [
     {
@@ -1177,6 +1177,12 @@
       "Packager": "powershell7",
       "SourceKind": "MsiIconTable",
       "PixelSize": 256
+    },
+    {
+      "File": "powershell7msix.png",
+      "Packager": "powershell7msix",
+      "SourceKind": "VendorAsset",
+      "PixelSize": 150
     },
     {
       "File": "powertoys.png",

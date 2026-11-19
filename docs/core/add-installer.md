@@ -8,7 +8,7 @@ The tool analyzes the installer: the engine, the MSI property tables and the sil
 
 ## When to use it
 
-Use it for an application that is not in the list of 315, or for a build that you got from someone else.
+Use it for an application that is not in the list of 316, or for a build that you got from someone else.
 
 ## Requirements
 
