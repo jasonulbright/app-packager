@@ -9230,7 +9230,26 @@ function Get-CancelledSummaryLine {
     param([Parameter(Mandatory)][int]$Done, [Parameter(Mandatory)][int]$Total)
     return ('Cancelled: {0} of {1} {2} done.' -f $Done, $Total, $(if ($Total -eq 1) { 'product' } else { 'products' }))
 }
-Export-ModuleMember -Function Set-RunState, Get-RunState, Test-RunCancelRequested, Test-RunAborted, Set-RunAborted, Register-RunChild, Unregister-RunChild, Stop-ProcessTreeById, Stop-RunChildren, Wait-RunChild, Get-CancelledSummaryLine
+function Get-RunCancelledLine {
+    <#
+    .SYNOPSIS
+        The line that the log and the status show when a run was cancelled, named for the run: "Check ConfigMgr cancelled: 3 of 107 products checked."
+    .DESCRIPTION
+        The four checks (Check ConfigMgr, Check Latest, Check CVEs) count the products checked. One Click and the other runs count the products done.
+        A cancelled run logs this line and no line that says the run finished.
+    #>
+    [CmdletBinding()]
+    param([string]$Operation = '', [Parameter(Mandatory)][int]$Done, [Parameter(Mandatory)][int]$Total)
+    $products = $(if ($Total -eq 1) { 'product' } else { 'products' })
+    switch ($Operation) {
+        'CheckConfigMgr' { return ('Check ConfigMgr cancelled: {0} of {1} {2} checked.' -f $Done, $Total, $products) }
+        'CheckLatest'    { return ('Check Latest cancelled: {0} of {1} {2} checked.' -f $Done, $Total, $products) }
+        'CheckCve'       { return ('Check CVEs cancelled: {0} of {1} {2} checked.' -f $Done, $Total, $products) }
+        { $_ -in @('OneClick', 'FullRun') } { return ('One Click cancelled: {0} of {1} {2} done.' -f $Done, $Total, $products) }
+        default          { return (Get-CancelledSummaryLine -Done $Done -Total $Total) }
+    }
+}
+Export-ModuleMember -Function Set-RunState, Get-RunState, Test-RunCancelRequested, Test-RunAborted, Set-RunAborted, Register-RunChild, Unregister-RunChild, Stop-ProcessTreeById, Stop-RunChildren, Wait-RunChild, Get-CancelledSummaryLine, Get-RunCancelledLine
 Export-ModuleMember -Function Get-DeploymentTypeContentOptions
 
 # ---------------------------------------------------------------------------

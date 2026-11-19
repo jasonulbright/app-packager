@@ -168,6 +168,7 @@
         'Stop-RunChildren'
         'Wait-RunChild'
         'Get-CancelledSummaryLine'
+        'Get-RunCancelledLine'
         'Set-CMApplicationIdentityMarker'
         'Get-SupersedenceApplicationKeyword'
         'Get-SupersedenceOldApplicationCandidate'

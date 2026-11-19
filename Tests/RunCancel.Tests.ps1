@@ -138,9 +138,9 @@ Describe 'Every run has a Cancel (window script)' {
         $script:Script | Should -Match 'Set-RunState -State \$script:BgState'
         $script:Script | Should -Match '\$snapStatus = \$row\.Status'
         $script:Script | Should -Match 'if \(\[bool\]\$State\.Aborted\) \{'
-        $script:Script | Should -Match 'Get-CancelledSummaryLine -Done \$i -Total \$n'
-        $script:Script | Should -Match 'Get-CancelledSummaryLine -Done \(\$i - 1\) -Total \$n'
-        $script:Script | Should -Match 'Get-CancelledSummaryLine -Done \(\[int\]\$doneState\.DoneCount\)'
+        $script:Script | Should -Match 'Get-RunCancelledLine -Operation \$Op -Done \$i -Total \$n'
+        $script:Script | Should -Match 'Get-RunCancelledLine -Operation \$Op -Done \(\$i - 1\) -Total \$n'
+        $script:Script | Should -Match 'Get-RunCancelledLine -Operation \$script:BgOperation -Done \(\[int\]\$doneState\.DoneCount\)'
     }
     It 'the Cancel button stops the children of the run by id and the second click does nothing' {
         $script:Script | Should -Match '(?s)\$btnCancelPipeline\.Add_Click\(\{.*?Stop-RunChildren.*?\}\)'
@@ -162,6 +162,57 @@ Describe 'Every run has a Cancel (window script)' {
     It 'stops no process by a command-line pattern' {
         $script:Script | Should -Not -Match 'Win32_Process[^\r\n]*CommandLine'
         $script:Script | Should -Not -Match '(?i)taskkill(\.exe)?\s+/IM'
+    }
+}
+
+Describe 'A cancelled run says it was cancelled and nothing else (Q-73)' {
+    It 'names the run and counts the checked products' {
+        Get-RunCancelledLine -Operation 'CheckConfigMgr' -Done 11 -Total 315 | Should -Be 'Check ConfigMgr cancelled: 11 of 315 products checked.'
+        Get-RunCancelledLine -Operation 'CheckLatest' -Done 3 -Total 10 | Should -Be 'Check Latest cancelled: 3 of 10 products checked.'
+        Get-RunCancelledLine -Operation 'CheckCve' -Done 0 -Total 1 | Should -Be 'Check CVEs cancelled: 0 of 1 product checked.'
+    }
+    It 'counts the done products for One Click and keeps the generic line for the other runs' {
+        Get-RunCancelledLine -Operation 'OneClick' -Done 2 -Total 5 | Should -Be 'One Click cancelled: 2 of 5 products done.'
+        Get-RunCancelledLine -Operation 'Stage' -Done 2 -Total 5 | Should -Be 'Cancelled: 2 of 5 products done.'
+        Get-RunCancelledLine -Done 2 -Total 5 | Should -Be 'Cancelled: 2 of 5 products done.'
+    }
+    It 'the cancelled line never says finished or complete' {
+        foreach ($op in 'CheckConfigMgr', 'CheckLatest', 'CheckCve', 'OneClick', 'FullRun', 'Stage', 'Package', '') {
+            Get-RunCancelledLine -Operation $op -Done 1 -Total 4 | Should -Not -Match '(?i)finish|complete'
+        }
+    }
+    It 'Check ConfigMgr, on Cancel, logs the cancelled line before the finished line, the Hide Unused offer and the CVE chain' {
+        $m = [regex]::Match($script:Script, '(?s)if \(\$cmCancelled -or \(Test-UiRunCancelled\)\) \{(?<body>.*?)\r?\n        \}\r?\n        Hide-BusyIndicator\r?\n        Select-OnlyUpdateAvailable')
+        $m.Success | Should -BeTrue
+        $m.Groups['body'].Value | Should -Match "Get-RunCancelledLine -Operation 'CheckConfigMgr'"
+        $m.Groups['body'].Value | Should -Match '\breturn\b'
+        $m.Groups['body'].Value | Should -Not -Match 'Get-CheckResultSummaryLine|Hide Unused|CveAfterCmRows'
+        $script:Script.IndexOf('if ($cmCancelled -or (Test-UiRunCancelled))') | Should -BeLessThan $script:Script.IndexOf('Hide Unused Applications')
+        $script:Script.IndexOf('if ($cmCancelled -or (Test-UiRunCancelled))') | Should -BeLessThan $script:Script.IndexOf('$script:CveAfterCmRows = $selectedRows')
+    }
+    It 'a pipeline that Cancel reached after its last product still counts as cancelled' {
+        $script:Script | Should -Match '(?s)if \(\[bool\]\$State\.CancelRequested -and -not \[bool\]\$State\.Canceled\) \{\s+\$State\.Canceled = \$true\s+\$State\.DoneCount = \$i'
+    }
+    It 'a cancelled check logs no summary of partial counts and no result line, and a cancelled Check CVEs logs no NVD notice' {
+        $script:Script | Should -Match "-not \(\[bool\]\`$doneState\.Canceled -and \`$script:BgOperation -in @\('CheckLatest', 'CheckCve'\)\)"
+        $script:Script | Should -Match "if \(\`$script:BgOperation -eq 'CheckLatest' -and -not \[bool\]\`$doneState\.Canceled\) \{ Add-LogLine -Message \(Get-CheckResultSummaryLine"
+        $script:Script | Should -Match "if \(\`$Op -eq 'CheckCve' -and -not \[bool\]\`$State\.Canceled\) \{"
+    }
+}
+
+Describe 'The window thread: a fake runner that is cancelled mid-run leaves a cancelled state, not a finished one' {
+    It 'Cancel on a registered child ends the child, marks the run aborted, and the line reads cancelled' {
+        $state = New-State; Set-RunState -State $state
+        $p = New-Sleeper 60
+        try {
+            Register-RunChild -Process $p
+            $state.CancelRequested = $true
+            $r = Wait-RunChild -Process $p -TimeoutSeconds 30
+            $r | Should -Be 'Cancelled'
+            $line = Get-RunCancelledLine -Operation 'CheckLatest' -Done 0 -Total 1
+            $line | Should -Be 'Check Latest cancelled: 0 of 1 product checked.'
+        }
+        finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
     }
 }
 
