@@ -10138,6 +10138,8 @@ function Invoke-MultiAppPipeline {
                             $res = Get-ProductVulnerabilities -Cpe $cpe -CurrentVersion $current -LatestVersion $latest `
                                 -ApiKey ([string]$Ctx.NvdApiKey) -CacheTtlMinutes ([int]$Ctx.CacheTtlMinutes) -KevCatalog $Ctx.KevCatalog -Force:([bool]$Ctx.ForceRefresh) `
                                 -VendorAdvisoryUrl $(if ($row.PSObject.Properties['AdvisoryUrl']) { [string]$row.AdvisoryUrl } else { '' })
+                            # Cancel stopped this lookup in flight: its error text is the cancel itself, not a failed lookup. Nothing is recorded or logged for it.
+                            if ([bool]$State.Aborted) { continue }
                             $State.CveResults[$scrName] = $res
                             if ($Ctx.CveSession -and -not $res.Error) { $Ctx.CveSession[$scrName] = $res }
                             $summary = Get-VulnerabilitySummary -Result $res
@@ -10160,9 +10162,11 @@ function Invoke-MultiAppPipeline {
                                 }
                             }
                         } catch {
-                            $row.CveCount = 'Error'
-                            [void]$State.LogQueue.Enqueue(('Error: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
-                            $counts['CheckFailed']++
+                            if (-not [bool]$State.Aborted) {
+                                $row.CveCount = 'Error'
+                                [void]$State.LogQueue.Enqueue(('Error: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
+                                $counts['CheckFailed']++
+                            }
                         }
                     }
 
