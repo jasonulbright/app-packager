@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [2026.11.19.0147] - 2026-11-19
+
+## 316 packagers
+
 ### Added
 
 - Add the PowerShell 7 (MSIX) packager. It provisions the Microsoft msixbundle for all users after it checks the SHA-256 digest and the Microsoft signature. The help lists the limits of the MSIX package: single user, no remoting, no all-users scope.
