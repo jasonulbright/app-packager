@@ -363,6 +363,7 @@ function Select-GitHubReleaseWithAsset {
         $asset = @($release.assets | Where-Object { $_ -and ([string]$_.name) -match $AssetPattern }) | Select-Object -First 1
         $version = ([string]$release.tag_name) -replace '^v', ''
         if ($asset) {
+            Register-ReleaseAssetDigest -Release $release
             return [pscustomobject]@{
                 Release = $release; Asset = $asset; Version = $version; Tag = [string]$release.tag_name
                 AssetName = [string]$asset.name; DownloadUrl = [string]$asset.browser_download_url; SkippedNewer = @($skipped)
@@ -495,10 +496,12 @@ function Select-GitHubReleaseByAsset {
         $match = @($release.assets | Where-Object $AssetFilter) | Select-Object -First 1
         if ($match) {
             if ($skipped.Count -gt 0) { Write-Log ("Release {0} has no matching installer; using {1}." -f ($skipped -join ', '), [string]$release.tag_name) -Level WARN }
+            Register-ReleaseAssetDigest -Release $release
             return $release
         }
         $skipped.Add([string]$release.tag_name)
     }
+    Register-ReleaseAssetDigest -Release $ordered[0]
     return $ordered[0]
 }
 Export-ModuleMember -Function Select-GitHubReleaseByAsset
@@ -522,10 +525,12 @@ function Select-GitHubReleaseJson {
         $text = ConvertTo-Json -InputObject $release -Depth 20 -Compress
         if ([regex]::IsMatch($text, $Pattern)) {
             if ($skipped.Count -gt 0) { Write-Log ("Release {0} has no matching installer; using {1}." -f ($skipped -join ', '), [string]$release.tag_name) -Level WARN }
+            Register-ReleaseAssetDigest -Release $release
             return $text
         }
         $skipped.Add([string]$release.tag_name)
     }
+    Register-ReleaseAssetDigest -Release $ordered[0]
     return (ConvertTo-Json -InputObject $ordered[0] -Depth 20 -Compress)
 }
 Export-ModuleMember -Function Select-GitHubReleaseJson
@@ -596,6 +601,55 @@ function ConvertTo-SafeCurlUrl {
     return $text
 }
 
+# The SHA-256 digests that GitHub lists for the assets of the releases that a packager read in this session: the URL of the
+# asset (lower case) points at 'sha256:<hex>', or at '' when the release lists none.
+$script:ReleaseAssetDigests = @{}
+
+function Register-ReleaseAssetDigest {
+    <#
+    .SYNOPSIS
+        Remembers the digests that GitHub lists for the assets of a release, so that Invoke-DownloadWithRetry checks the
+        file that it downloads from one of those assets.
+    #>
+    [CmdletBinding()]
+    param([AllowNull()]$Release)
+    if ($null -eq $Release) { return }
+    foreach ($asset in @($Release.assets)) {
+        if ($null -eq $asset) { continue }
+        $url = [string]$asset.browser_download_url
+        if ($url) { $script:ReleaseAssetDigests[$url.ToLowerInvariant()] = [string]$asset.digest }
+    }
+}
+
+function Test-ReleaseAssetDigest {
+    <#
+    .SYNOPSIS
+        Compares a downloaded file with the SHA-256 digest that GitHub lists for the release asset it came from.
+    .DESCRIPTION
+        A mismatch removes the file and stops with a clear message. A release asset with no digest in the API answer logs a
+        warning and goes on. A download that is not a registered release asset is not checked.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Url, [Parameter(Mandatory)][string]$OutFile, [switch]$Quiet)
+    $key = $Url.Trim().ToLowerInvariant()
+    if (-not $script:ReleaseAssetDigests.ContainsKey($key)) { return }
+    $name = [System.IO.Path]::GetFileName($OutFile)
+    $digest = [string]$script:ReleaseAssetDigests[$key]
+    if ($digest -notmatch '^sha256:(?<h>[0-9A-Fa-f]{64})$') {
+        Write-Log ("GitHub lists no SHA-256 digest for {0}; the file is not checked against one." -f $name) -Level WARN -Quiet:$Quiet
+        return
+    }
+    $expected = $Matches['h'].ToUpperInvariant()
+    $actual = (Get-FileHash -LiteralPath $OutFile -Algorithm SHA256).Hash.ToUpperInvariant()
+    if ($actual -ne $expected) {
+        Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+        throw ("The download {0} does not match the SHA-256 digest that GitHub lists for the release asset (expected {1}, got {2}). The file was removed and nothing was staged." -f $name, $expected, $actual)
+    }
+    Write-Log ("SHA-256 digest matches the one GitHub lists for {0}." -f $name) -Quiet:$Quiet
+}
+
+Export-ModuleMember -Function Register-ReleaseAssetDigest, Test-ReleaseAssetDigest
+
 function Invoke-DownloadWithRetry {
     <#
     .SYNOPSIS
@@ -648,6 +702,7 @@ function Invoke-DownloadWithRetry {
         $exitCode = $LASTEXITCODE
 
         if ($exitCode -eq 0) {
+            Test-ReleaseAssetDigest -Url $Url -OutFile $OutFile -Quiet:$Quiet
             return
         }
 
@@ -672,6 +727,7 @@ function Invoke-DownloadWithRetry {
             Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -ErrorAction Stop
 
             Write-Log "Download succeeded through Invoke-WebRequest fallback." -Quiet:$Quiet
+            Test-ReleaseAssetDigest -Url $Url -OutFile $OutFile -Quiet:$Quiet
             return
         }
         catch {

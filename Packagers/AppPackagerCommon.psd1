@@ -149,6 +149,8 @@
         'Assert-DownloadAvailable'
         'Assert-InstallerSignature'
         'Assert-InstallerDigest'
+        'Register-ReleaseAssetDigest'
+        'Test-ReleaseAssetDigest'
         'Invoke-SupersedenceStepAndLog'
         'Invoke-SupersedenceApply'
         'Get-CheckResultSummaryLine'
