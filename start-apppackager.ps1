@@ -9200,7 +9200,7 @@ function New-OptionsDialog {
     xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
     Title="Options"
     Width="1260" Height="760"
-    MinWidth="1000" MinHeight="600"
+    MinWidth="1100" MinHeight="600"
     WindowStartupLocation="CenterOwner"
     TitleCharacterCasing="Normal"
     ShowIconOnTitleBar="False"
@@ -9217,9 +9217,9 @@ function New-OptionsDialog {
     </Window.Resources>
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="290"/>
-            <ColumnDefinition Width="1"/>
-            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="290" MinWidth="200" MaxWidth="480"/>
+            <ColumnDefinition Width="5"/>
+            <ColumnDefinition Width="*" MinWidth="560"/>
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
@@ -9237,7 +9237,10 @@ function New-OptionsDialog {
             </Grid>
         </DockPanel>
 
-        <Border Grid.Column="1" Grid.Row="0" Background="{DynamicResource MahApps.Brushes.Gray8}"/>
+        <GridSplitter x:Name="splitNav" Grid.Column="1" Grid.Row="0" Width="5" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                      ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Background="{DynamicResource MahApps.Brushes.ThemeBackground}" Focusable="False"
+                      ToolTip="Drag to change the width of the list of sections."/>
+        <Border Grid.Column="1" Grid.Row="0" Width="1" HorizontalAlignment="Center" IsHitTestVisible="False" Background="{DynamicResource MahApps.Brushes.Gray8}"/>
 
         <ContentControl Grid.Column="2" Grid.Row="0" x:Name="contentArea" Margin="24,18,12,12"/>
 
