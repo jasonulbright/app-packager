@@ -45,7 +45,7 @@ Describe 'Invoke-DownloadWithRetry checks the digest of a registered release ass
         Register-ReleaseAssetDigest -Release (New-Release ('sha256:' + ('0' * 64)))
         $out = Join-Path $script:Work 'bad.bin'
         { Invoke-DownloadWithRetry -Url $script:Url -OutFile $out -Quiet } |
-            Should -Throw -ExpectedMessage '*does not match the SHA-256 digest that GitHub lists*removed and nothing was staged*'
+            Should -Throw -ExpectedMessage '*does not match the SHA-256 digest that the vendor publishes*removed and nothing was staged*'
         Test-Path -LiteralPath $out | Should -BeFalse
     }
     It 'goes on with a warning when the release lists no digest' {
@@ -73,5 +73,31 @@ Describe 'The release selectors register the digests of the release they choose'
         $null = Select-GitHubReleaseByAsset -Releases @($rel) -AssetFilter { $_.name -eq 'asset.bin' }
         $out = Join-Path $script:Work 'selected.bin'
         { Invoke-DownloadWithRetry -Url $script:Url -OutFile $out -Quiet } | Should -Throw -ExpectedMessage '*does not match the SHA-256 digest*'
+    }
+}
+
+Describe 'Register-DownloadDigest (Corretto and Temurin publish a digest)' {
+    It 'accepts a bare SHA-256 and checks the download against it' {
+        Register-DownloadDigest -Url $script:Url -Digest $script:Hash.ToLowerInvariant()
+        $out = Join-Path $script:Work 'bare-ok.bin'
+        { Invoke-DownloadWithRetry -Url $script:Url -OutFile $out -Quiet } | Should -Not -Throw
+        Test-Path -LiteralPath $out | Should -BeTrue
+    }
+    It 'refuses a download that differs from the published SHA-256' {
+        Register-DownloadDigest -Url $script:Url -Digest ('f' * 64)
+        $out = Join-Path $script:Work 'bare-bad.bin'
+        { Invoke-DownloadWithRetry -Url $script:Url -OutFile $out -Quiet } | Should -Throw -ExpectedMessage '*vendor publishes*nothing was staged*'
+        Test-Path -LiteralPath $out | Should -BeFalse
+    }
+    It 'warns and goes on when the vendor published none' {
+        Register-DownloadDigest -Url $script:Url -Digest ''
+        $out = Join-Path $script:Work 'bare-none.bin'
+        { Invoke-DownloadWithRetry -Url $script:Url -OutFile $out } | Should -Not -Throw
+    }
+    It 'the Temurin and Corretto lookups register the published digest' {
+        $text = Get-Content -LiteralPath (Join-Path $script:Root 'Packagers\AppPackagerCommon.psm1') -Raw
+        $text | Should -Match 'Register-DownloadDigest -Url \$downloadUrl -Digest \(\[string\]\$asset\.binary\.installer\.checksum\)'
+        $text | Should -Match 'latest_sha256/\$latestName'
+        $text | Should -Match 'Register-DownloadDigest -Url \$downloadUrl -Digest \$published'
     }
 }
