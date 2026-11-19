@@ -151,6 +151,8 @@
         'Assert-InstallerDigest'
         'Register-ReleaseAssetDigest'
         'Test-ReleaseAssetDigest'
+        'Test-DownloadedInstallerSignature'
+        'Get-RecordedInstallerSignature'
         'Invoke-SupersedenceStepAndLog'
         'Invoke-SupersedenceApply'
         'Get-CheckResultSummaryLine'
