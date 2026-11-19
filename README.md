@@ -780,7 +780,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16-1.4.0.24 by porting ev
 | package-postgresql16.ps1 | PostgreSQL Global Development Group | PostgreSQL 16 (x64) | RegistryKeyValue |
 | package-postgresql17.ps1 | PostgreSQL Global Development Group | PostgreSQL 17 (x64) | RegistryKeyValue |
 | package-postman.ps1 | Postman | Postman (User) | RegistryKeyValue (user context) |
-| package-powerbi-desktop-report-server.ps1 | Microsoft | Power BI Desktop (optimized for Power BI Report Server) (x64) | RegistryKeyValue (bundle id key, DisplayVersion) |
+| package-powerbi-desktop-report-server.ps1 | Microsoft | Microsoft Power BI Desktop (optimized for Power BI Report Server) (x64) | RegistryKeyValue (bundle id key, DisplayVersion) |
 | package-powerbi-desktop.ps1 | Microsoft | Power BI Desktop (x64) | File version |
 | package-powershell7.ps1 | Microsoft | PowerShell 7 LTS (MSI) | RegistryKeyValue |
 | package-powertoys.ps1 | Microsoft | PowerToys | File version |

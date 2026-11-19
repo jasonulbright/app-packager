@@ -1,6 +1,6 @@
 <#
 Vendor: Microsoft
-App: Power BI Desktop (optimized for Power BI Report Server) (x64)
+App: Microsoft Power BI Desktop (optimized for Power BI Report Server) (x64)
 CMName: Microsoft Power BI Desktop (optimized for Power BI Report Server)
 VendorUrl: https://www.microsoft.com/power-platform/products/power-bi/report-server
 ReleaseNotesUrl: https://learn.microsoft.com/power-bi/report-server/changelog
