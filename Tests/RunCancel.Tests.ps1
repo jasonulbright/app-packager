@@ -215,6 +215,19 @@ Describe 'A cancelled run says it was cancelled and nothing else (Q-73)' {
     }
 }
 
+Describe 'The One Click dialog has its own Cancel while a run is active (Q-73)' {
+    BeforeAll { $script:Script = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\start-apppackager.ps1') -Raw }
+    It 'the dialog covers the window Cancel button, so the dialog shows a Cancel button that starts while the run is active and hides at the end' {
+        $script:Script | Should -Match 'x:Name="btnCancelRun"[^>]*Content="Cancel"[^>]*Visibility="Collapsed"'
+        $script:Script | Should -Match "\`$btnCancelRun\.IsEnabled = \`$true; \`$btnCancelRun\.Visibility = 'Visible'"
+        $script:Script | Should -Match "(?s)\`$btnCancelRun\.Visibility = 'Collapsed'\s+\`$btnClose\.IsEnabled = \`$true"
+    }
+    It 'the dialog Cancel raises the Click of the window Cancel button, so one handler stops the run' {
+        $script:Script | Should -Match '\$mainCancel = \$btnCancelPipeline'
+        $script:Script | Should -Match '(?s)\$btnCancelRun\.Add_Click\(\{\s+\$btnCancelRun\.IsEnabled = \$false\s+\$mainCancel\.RaiseEvent\('
+    }
+}
+
 Describe 'The window thread: a fake runner that is cancelled mid-run leaves a cancelled state, not a finished one' {
     It 'Cancel on a registered child ends the child, marks the run aborted, and the line reads cancelled' {
         $state = New-State; Set-RunState -State $state
