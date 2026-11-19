@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](#prerequisites)
 [![License](https://img.shields.io/github/license/jasonulbright/app-packager)](LICENSE)
 
-Automated application packaging for Microsoft Configuration Manager (ConfigMgr) and Intune: 316 enterprise applications, each one click from vendor download to deployed app. AppPackager checks the vendor for the latest version, downloads and verifies the installer, generates silent install/uninstall wrappers and detection rules, and creates the ConfigMgr Application - or builds the `.intunewin` and publishes it to Intune through Graph, or publishes the installer to WSUS as a locally published update, no ConfigMgr site required. Drag any unknown `.msi`/`.exe` onto the window and it analyzes and packages that too. A companion version monitor flags stale deployments and looks up their CVEs. Built entirely in PowerShell 5.1 - the version that ships in the box on every supported Windows release, oldest to newest. Nothing to install, no add-ons, no agents, no subscription.
+Automated application packaging for Microsoft Configuration Manager (ConfigMgr) and Intune: 317 enterprise applications, each one click from vendor download to deployed app. AppPackager checks the vendor for the latest version, downloads and verifies the installer, generates silent install/uninstall wrappers and detection rules, and creates the ConfigMgr Application - or builds the `.intunewin` and publishes it to Intune through Graph, or publishes the installer to WSUS as a locally published update, no ConfigMgr site required. Drag any unknown `.msi`/`.exe` onto the window and it analyzes and packages that too. A companion version monitor flags stale deployments and looks up their CVEs. Built entirely in PowerShell 5.1 - the version that ships in the box on every supported Windows release, oldest to newest. Nothing to install, no add-ons, no agents, no subscription.
 
 View the [user guide](docs/index.md) for every window, dialog and setting.
 
@@ -566,9 +566,9 @@ All packager scripts accept the same core parameters:
 | `-OnExisting` | Passed through to `New-MECMApplicationFromManifest`: `Skip` / `Overwrite` / `Fail`. Outranks `APP_PACKAGER_ON_EXISTING`; unset falls through to that variable and then to `Skip` |
 | `-LogPath` | Path to a structured log file (timestamps + severity levels) |
 
-## Supported Applications (316)
+## Supported Applications (317)
 
-All 316 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same ConfigMgr Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed - a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op.
+All 317 packagers parse cleanly, expose the standard `-GetLatestVersionOnly` / `-StageOnly` / `-PackageOnly` contract, and generate ASCII install/uninstall wrappers. Packagers whose CMName omits the version (by design) reuse the same ConfigMgr Application across versions: when the packaged `SoftwareVersion` differs from the existing application's, the Package phase replaces the deployment type (new one is created under a staging name, the old one removed, then renamed - a deployed application refuses to drop its last deployment type) and updates the application's version; an unchanged version remains an idempotent no-op.
 
 **PowerShell 7 by release channel.** Microsoft Learn ("PowerShell Support Lifecycle", https://learn.microsoft.com/en-us/powershell/scripting/install/powershell-support-lifecycle) names two kinds of PowerShell 7 release: Long Term Servicing (LTS, today 7.6, supported until 14-Nov-2028) and Stable, the release between two LTS releases (the page still lists 7.7 as a preview, although 7.7.0 is published). Three packagers cover them, each with its own name and CMName so that they live side by side in the grid and in ConfigMgr:
 
@@ -780,6 +780,7 @@ The catalog grew from 108 to 284 across releases 1.4.0.16-1.4.0.24 by porting ev
 | package-postgresql16.ps1 | PostgreSQL Global Development Group | PostgreSQL 16 (x64) | RegistryKeyValue |
 | package-postgresql17.ps1 | PostgreSQL Global Development Group | PostgreSQL 17 (x64) | RegistryKeyValue |
 | package-postman.ps1 | Postman | Postman (User) | RegistryKeyValue (user context) |
+| package-powerbi-desktop-report-server.ps1 | Microsoft | Power BI Desktop (optimized for Power BI Report Server) (x64) | RegistryKeyValue (bundle id key, DisplayVersion) |
 | package-powerbi-desktop.ps1 | Microsoft | Power BI Desktop (x64) | File version |
 | package-powershell7.ps1 | Microsoft | PowerShell 7 LTS (MSI) | RegistryKeyValue |
 | package-powertoys.ps1 | Microsoft | PowerToys | File version |
@@ -923,14 +924,14 @@ Enabling an app has the same effect as checking it in the Product Filter. The ap
 
 ### Matching
 
-Each packager carries an `ArpName` header tag. It holds one or more wildcard patterns, separated by ` | `, for the Add/Remove Programs display name. Discovery compares each pattern with PowerShell `-like` against the inventory display names. The comparison ignores case and uses invariant culture rules. `none` marks an app with no machine-wide Add/Remove Programs entry: a portable app, a store app, or a per-user install. 287 packagers carry patterns and 25 carry `none`.
+Each packager carries an `ArpName` header tag. It holds one or more wildcard patterns, separated by ` | `, for the Add/Remove Programs display name. Discovery compares each pattern with PowerShell `-like` against the inventory display names. The comparison ignores case and uses invariant culture rules. `none` marks an app with no machine-wide Add/Remove Programs entry: a portable app, a store app, or a per-user install. 290 packagers carry patterns and 27 carry `none`.
 
 Two optional tags make a match narrower:
 
 - `ArpVersion` holds one wildcard pattern for the display version, for example `17.*`.
 - `ArpArch` holds `x64` or `x86`. `x86` is the 32-bit registry view (`v_GS_ADD_REMOVE_PROGRAMS`). `x64` is the 64-bit registry view (`v_GS_ADD_REMOVE_PROGRAMS_64`). Hardware inventory has no arm64 view, so an arm64 packager has no `ArpArch`.
 
-When Add/Remove Programs cannot tell two packagers apart, one packager owns the pattern and the other carries `none`. The owners are Citrix Workspace (Current Release) over the LTSR packagers, QGIS over QGIS LTR, NVIDIA GeForce over NVIDIA RTX Enterprise, and the x64 packagers of Microsoft 365 Apps, Project and Visio over the x86 packagers. The x64 and x86 Visual C++ runtime packagers own their entries, and the packager for both architectures carries `none`.
+When Add/Remove Programs cannot tell two packagers apart, one packager owns the pattern and the other carries `none`. The owners are Citrix Workspace (Current Release) over the LTSR packagers, QGIS over QGIS LTR, NVIDIA GeForce over NVIDIA RTX Enterprise, and the x64 packagers of Microsoft 365 Apps, Project and Visio over the x86 packagers. The x64 and x86 Visual C++ runtime packagers own their entries, and the packager for both architectures carries `none`. The two Power BI Desktop packagers are told apart by the display name: Power BI Desktop owns `Microsoft PowerBI Desktop (x64)`, and Power BI Desktop (optimized for Power BI Report Server) owns the names with a month and a year in parentheses, for example `Microsoft Power BI Desktop (September 2026) (x64)`.
 
 Limitation: some packagers share one Add/Remove Programs name with a sibling. These are Citrix Workspace Current Release and LTSR, QGIS and QGIS LTR, NVIDIA GeForce and NVIDIA RTX Enterprise, and Microsoft 365 Apps, Project and Visio in x64 and x86. Discover cannot tell which variant a client has installed, so it offers the owner of each group and never offers the siblings. Enabling a packager only makes its row visible, and Check ConfigMgr then shows its real state.
 
@@ -1233,7 +1234,7 @@ app-packager/
     AppPackagerDiscovery.psd1        # Module manifest
     AppPackagerCmImport.psm1         # ConfigMgr application to Intune Win32 apps: reader, rule translation, variants
     AppPackagerCmImport.psd1         # Module manifest
-    package-7zip.ps1                 # One script per application (316 total)
+    package-7zip.ps1                 # One script per application (317 total)
     package-chrome.ps1
     ...
     retired-packagers.txt            # Packagers removed from the catalog; the updater does not carry them forward
