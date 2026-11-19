@@ -256,6 +256,11 @@
       "file": "src/ApplicationPackagerEngine/Services/MecmTarget.cs",
       "rule": "LX-011",
       "reason": "Generated script text that hash tests and byte fixtures pin (decision D-33, owner default O-5: the user-visible target value is renamed, this generated text stays)."
+    },
+    {
+      "file": "SuiteCommon/SuiteCommon.psd1",
+      "rule": "LX-013",
+      "reason": "The Description of the shared SuiteCommon module names the CM site connection. SuiteCommon is vendored byte for byte into the tool repositories, so the wording is fixed with the next SuiteCommon change and not in the lexicon pass that made the checker read module manifests (Q-82)."
     }
   ]
 }
