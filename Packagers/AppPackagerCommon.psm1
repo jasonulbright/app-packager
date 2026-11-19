@@ -621,6 +621,19 @@ function Register-ReleaseAssetDigest {
     }
 }
 
+function Register-DownloadDigest {
+    <#
+    .SYNOPSIS
+        Registers the SHA-256 digest that a vendor publishes for one download URL. Invoke-DownloadWithRetry checks the file
+        against it. An empty digest says the vendor published none: the download logs a warning and goes on.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Url, [AllowEmptyString()][string]$Digest = '')
+    $text = $Digest.Trim()
+    if ($text -match '^[0-9A-Fa-f]{64}$') { $text = 'sha256:' + $text }
+    $script:ReleaseAssetDigests[$Url.Trim().ToLowerInvariant()] = $text
+}
+
 function Test-ReleaseAssetDigest {
     <#
     .SYNOPSIS
@@ -636,19 +649,19 @@ function Test-ReleaseAssetDigest {
     $name = [System.IO.Path]::GetFileName($OutFile)
     $digest = [string]$script:ReleaseAssetDigests[$key]
     if ($digest -notmatch '^sha256:(?<h>[0-9A-Fa-f]{64})$') {
-        Write-Log ("GitHub lists no SHA-256 digest for {0}; the file is not checked against one." -f $name) -Level WARN -Quiet:$Quiet
+        Write-Log ("No SHA-256 digest is published for {0}; the file is not checked against one." -f $name) -Level WARN -Quiet:$Quiet
         return
     }
     $expected = $Matches['h'].ToUpperInvariant()
     $actual = (Get-FileHash -LiteralPath $OutFile -Algorithm SHA256).Hash.ToUpperInvariant()
     if ($actual -ne $expected) {
         Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
-        throw ("The download {0} does not match the SHA-256 digest that GitHub lists for the release asset (expected {1}, got {2}). The file was removed and nothing was staged." -f $name, $expected, $actual)
+        throw ("The download {0} does not match the SHA-256 digest that the vendor publishes (expected {1}, got {2}). The file was removed and nothing was staged." -f $name, $expected, $actual)
     }
-    Write-Log ("SHA-256 digest matches the one GitHub lists for {0}." -f $name) -Quiet:$Quiet
+    Write-Log ("SHA-256 digest matches the one published for {0}." -f $name) -Quiet:$Quiet
 }
 
-Export-ModuleMember -Function Register-ReleaseAssetDigest, Test-ReleaseAssetDigest
+Export-ModuleMember -Function Register-ReleaseAssetDigest, Register-DownloadDigest, Test-ReleaseAssetDigest
 
 # The Authenticode result of each installer that Invoke-DownloadWithRetry checked in this session, by file name (lower case).
 $script:DownloadSignatures = @{}
@@ -7737,6 +7750,8 @@ function Get-LatestTemurinRelease {
         $downloadUrl = $asset.binary.installer.link
         $fileName    = $asset.binary.installer.name
         $rawVersion  = $asset.version.semver
+        # The API publishes the SHA-256 of the installer; the download is checked against it.
+        Register-DownloadDigest -Url $downloadUrl -Digest ([string]$asset.binary.installer.checksum)
 
         if ([string]::IsNullOrWhiteSpace($rawVersion)) { throw "version.semver is empty in Adoptium API response." }
 
@@ -7801,7 +7816,21 @@ function Get-LatestCorrettoRelease {
             $fileName = "amazon-corretto-$tagVersion-windows-$Architecture.msi"
         }
         $downloadUrl = "https://corretto.aws/downloads/resources/$tagVersion/$fileName"
-
+        if (-not $Quiet) {
+            # Amazon publishes the SHA-256 of the newest installer at latest_sha256/. It is the digest of this download only
+            # when the newest-installer link points at the file that this run downloads; otherwise the check is skipped.
+            $published = ''
+            try {
+                $latestName = "amazon-corretto-$FeatureVersion-$Architecture-windows-jdk.msi"
+                $target = (& curl.exe -s --max-time 30 -o NUL -w '%{redirect_url}' "https://corretto.aws/downloads/latest/$latestName") -join ''
+                if ($target.Trim() -ieq $downloadUrl) {
+                    $sumText = (& curl.exe -L --fail --silent --show-error --max-time 30 "https://corretto.aws/downloads/latest_sha256/$latestName") -join ' '
+                    if ($LASTEXITCODE -eq 0 -and $sumText.Trim() -match '^(?<h>[0-9A-Fa-f]{64})\b') { $published = $Matches['h'] }
+                }
+            }
+            catch { $published = '' }
+            Register-DownloadDigest -Url $downloadUrl -Digest $published
+        }
         # Normalize 5-part version to 4 parts (strip Corretto patch)
         $parts = $tagVersion -split '\.'
         if ($parts.Count -ge 5) {
