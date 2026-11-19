@@ -410,6 +410,57 @@ function Assert-DownloadAvailable {
 }
 Export-ModuleMember -Function Assert-DownloadAvailable
 
+function Get-DownloadUrlState {
+    <#
+    .SYNOPSIS
+        Asks a download host whether a file address exists: Exists, Missing or Unknown.
+    .DESCRIPTION
+        A range request of the first byte. Exists: status 200 or 206. Missing: 404 or 410. Every other answer, above all 403,
+        is Unknown: a host that refuses a request says nothing about the file, so a 403 is never read as "does not exist".
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Url,
+        [string[]]$ExtraCurlArgs = @()
+    )
+    $code = ''
+    try { $code = ([string]((curl.exe -L --silent --range 0-0 --output NUL --write-out '%{http_code}' --max-time 60 --max-redirs 10 @ExtraCurlArgs (ConvertTo-SafeCurlUrl $Url) 2>$null) -join '')).Trim() } catch { $code = '' }
+    if ($code -in @('200', '206')) { return 'Exists' }
+    if ($code -in @('404', '410')) { return 'Missing' }
+    return 'Unknown'
+}
+Export-ModuleMember -Function Get-DownloadUrlState
+
+function Select-AvailableDownloadUrl {
+    <#
+    .SYNOPSIS
+        The first address of a list that the host does not report as missing.
+    .DESCRIPTION
+        For a vendor that serves one file under two paths. The addresses are tried in order. An address that the host reports as
+        missing (404) is passed over and the next one is tried; an address that exists, or whose answer cannot be told (403, a
+        time-out), is the one to download from: the download then decides, and a 403 never sends the run to the next address.
+        Throws when every address is missing. -Probe replaces the host request (for tests); it takes the address and returns
+        Exists, Missing or Unknown.
+    #>
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string[]]$Urls,
+        [string[]]$ExtraCurlArgs = @(),
+        [scriptblock]$Probe
+    )
+    $tried = @()
+    foreach ($url in @($Urls | Where-Object { $_ })) {
+        $state = if ($Probe) { & $Probe $url } else { Get-DownloadUrlState -Url $url -ExtraCurlArgs $ExtraCurlArgs }
+        if ($state -eq 'Missing') {
+            Write-Log ("Not on the host (404)        : {0}" -f $url) -Level WARN
+            $tried += $url
+            continue
+        }
+        if ($state -eq 'Unknown') { Write-Log ("The host cannot tell (no 404): {0}; downloading from it" -f $url) -Level WARN }
+        return $url
+    }
+    throw ("The installer is not on the host at any of its addresses (404): {0}" -f ($tried -join ', '))
+}
+Export-ModuleMember -Function Select-AvailableDownloadUrl
+
 function Assert-InstallerSignature {
     <#
     .SYNOPSIS

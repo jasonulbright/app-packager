@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Tableau Desktop, Reader and Prep Builder download from the esdalt path first and from the tssoftware path when the host answers 404 for the first one; a 403 is no answer and never switches the path. Prep uses `esdalt/tableau_prep/<release>/TableauPrep-<release with hyphens>.exe`.
+
 ## [2026.11.19.0147] - 2026-11-19
 
 ## 316 packagers
