@@ -2525,10 +2525,7 @@ function Invoke-ProcessWithStreaming {
             # WPF dispatcher pump. Invoke returns a value on every pass; left in
             # the output, it turns the result into an array, and post-step notes
             # (WsusPublish, IntunePublish) cannot attach to it.
-            [void][System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke(
-                [System.Windows.Threading.DispatcherPriority]::Background,
-                [Action]{ }
-            )
+            Invoke-UiPump
             Start-Sleep -Milliseconds 50
         }
 
@@ -5909,13 +5906,22 @@ function Stop-UiRun {
     [void](Stop-RunChildren)
 }
 
+function Invoke-UiPump {
+    # Handles the pending window messages (a click on Cancel, painting) while a loop works on the window thread.
+    # Dispatcher.Invoke on the window thread only runs the delegate and leaves the input queue alone; a frame
+    # that ends from a Background callback processes everything that is queued first.
+    $frame = New-Object System.Windows.Threading.DispatcherFrame
+    [void][System.Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvoke(
+        [System.Windows.Threading.DispatcherPriority]::Background,
+        [System.Windows.Threading.DispatcherOperationCallback]{ param($f) $f.Continue = $false; $null },
+        $frame)
+    [System.Windows.Threading.Dispatcher]::PushFrame($frame)
+}
+
 function Test-UiRunCancelled {
     # Lets the window handle a click on Cancel (the loop runs on the window thread), then says whether Cancel was asked.
     if (-not $script:UiRun) { return $false }
-    [void][System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke(
-        [System.Windows.Threading.DispatcherPriority]::Background,
-        [Action]{ }
-    )
+    Invoke-UiPump
     return [bool]$script:UiRun.CancelRequested
 }
 
