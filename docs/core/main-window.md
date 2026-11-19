@@ -4,7 +4,7 @@ The main window lists the applications and holds the actions in a sidebar.
 
 ## What it does
 
-The grid shows one row for each packager. Its columns show the application, the vendor, the version that Configuration Manager has, the latest version, the status and the CVE data. The sidebar starts the actions for the checked rows. The log at the bottom shows what each action does.
+The grid shows one row for each packager. Each row starts with the icon of the application from the icon pack. A packager without an icon shows a gray placeholder. The icons are read into memory when a row comes into view, so an icon pack update can replace the files while the window is open, and the grid shows the new icons at once. The other columns show the application, the vendor, the version that Configuration Manager has, the latest version, the status and the CVE data. The sidebar starts the actions for the checked rows. The log at the bottom shows what each action does.
 
 ## When to use it
 

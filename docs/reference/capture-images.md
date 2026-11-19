@@ -33,6 +33,8 @@ Use it after a change that alters a window, and before a release.
 
 The Chrome CVE images (`cve-chrome-*.png` and `light-cve-chrome-*.png`) are not part of this run. Make them with the switch `-OnlyCveChrome`, and add `-AddNew` the first time. The run writes a packager history with Chrome 157.0.8103.40 on the site and 158.0.8127.37 as the latest version, checks only the Chrome row, and runs Check CVEs against the live NVD. It needs access to `services.nvd.nist.gov`. Allow `-Minutes 45`. Open the images and check that the CVE window shows a CVE with CVSS 9.6 and the status `Fixed`. If NVD no longer lists such a CVE for these versions, the step stops with an error.
 
+The switch `-OnlyGridIcons` runs a short window proof of the grid icons instead of the guide capture: the icon column in both themes, the placeholder, and an icon pack update while the grid is open. It needs access to GitHub for the icon pack download. Add `-ProofFolder <folder>` to keep the screenshots and the log. It changes no guide image.
+
 A second run does the missing-console test on a copy of the tool whose console detection reports `not found`. The command removes the saved settings of the lab account and the staging folder `C:\guide\app-packager\dl` before and after each run, so that an earlier stage cannot be reused.
 
 ## Limits

@@ -455,6 +455,17 @@
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
+                    <!-- The icon comes from the icon pack, read into memory and set on the image by
+                         the row loading code (no binding); a packager without an icon shows a placeholder. -->
+                    <DataGridTemplateColumn x:Name="colIcon" Width="44" MinWidth="44" CanUserSort="False" CanUserResize="False">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Image Width="24" Height="24" Stretch="Uniform"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                     <!-- MinWidth stops the star column collapsing to a sliver
                          when the four fixed-width debug columns become visible
                          (overflow scrolls horizontally instead); without it the
