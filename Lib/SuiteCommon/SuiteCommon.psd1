@@ -1,6 +1,6 @@
 @{
     RootModule        = 'SuiteCommon.psm1'
-    ModuleVersion = '2026.11.13.0083'
+    ModuleVersion = '2026.11.18.0093'
     GUID              = '7c1f2a9e-4b3d-4f8a-9c6e-2d5b8e1a7f40'
     Author            = 'Jason Ulbright'
     Description       = 'Shared core for the Configuration Manager tool suite: logging, CM site connection, settings persistence, window chrome, theming, dialogs.'
@@ -42,6 +42,9 @@
         # Theming
         'Initialize-SuiteTheme'
         'Update-TitleBarBrushes'
+        'Set-SuiteTitleForeground'
+        'Set-SuiteAccentButtonResource'
+        'Register-SuiteTitleForeground'
         'Update-SidebarButtonTheme'
         'Set-ButtonTheme'
         'Set-DialogTheme'
@@ -59,6 +62,25 @@
         'New-SuiteBgRunspace'
         'Stop-SuiteBgWork'
         'Close-SuiteBgRunspace'
+        'Start-SuiteBgWork'
+        'Receive-SuiteBgWork'
+        'Test-SuiteTransientFault'
+        'Invoke-SuiteCMRead'
+        'Get-SuiteCollectionMemberPlan'
+        'Get-SuiteCollectionMemberChunk'
+        'Read-SuiteCollectionMember'
+
+        # Window test helpers
+        'Get-SuiteContrastRatio'
+        'Get-SuiteVisualDescendant'
+        'Test-SuiteVisibleInTree'
+        'Get-SuiteButtonRow'
+        'Get-SuiteWindowChrome'
+        'Get-SuiteWindowBody'
+        'Get-SuiteTitleBarContrast'
+        'Close-SuiteOpenWindow'
+        'Get-SuiteRelativeLuminance'
+        'Get-SuiteButtonStateReport'
 
         # CM widgets
         'Build-CollectionTree'
