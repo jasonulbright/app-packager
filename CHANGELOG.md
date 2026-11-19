@@ -4,7 +4,13 @@
 
 ### Changed
 
+- Supersedence is a setting of the application, off by default. Options, Packaging, Supersedence has the default, a choice for each application and the buttons All applications, Selected applications and No applications. An application with supersedence on keeps the version in its name. At Package the tool looks for the older application with the same title and vendor (the highest version below the new one) and asks Yes, Skip or No before it applies the supersedence; Remember this answer covers the rest of the run. The older application is not changed. One Click and the command line apply none unless `-SupersedenceAnswer Yes` is given. With ConfigMgr and Intune the answer also sets the Intune supersedence of the app. The old settings keep their names and values, so no setting is changed for you; an application with supersedence on is now asked at Package and its name carries the version.
+
 - Tableau Desktop, Reader and Prep Builder download from the esdalt path first and from the tssoftware path when the host answers 404 for the first one; a 403 is no answer and never switches the path. Prep uses `esdalt/tableau_prep/<release>/TableauPrep-<release with hyphens>.exe`.
+
+### Removed
+
+- Apply Supersedence, Rewrite Old Versions and Restore Old Versions are gone from the sidebar, with the rewrite, the restore, the One Click supersedence pass, Use as old application and the options `-RewriteOldVersions`, `-Yes`, `-IdentityMarker`, `-Json` and `-ShownPlan` of Invoke-AppPackagerBuild. The tool no longer writes an identity marker into the keywords of an application; markers that exist stay as they are. Applications that an earlier rewrite changed stay as they are.
 
 ### Fixed
 

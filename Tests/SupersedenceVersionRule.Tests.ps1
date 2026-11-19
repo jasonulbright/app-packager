@@ -213,12 +213,11 @@ Describe 'The settings and the blocked combination' {
 }
 
 Describe 'The plan of one publish' {
-    It 'publishes with the shipped defaults the same detection, and only the marker is new' {
+    It 'publishes with the shipped defaults the same detection' {
         $manifest = New-TestManifest (New-TestFileClause)
         $plan = Get-SupersedencePlan -Manifest $manifest -Settings (New-SupersedenceSettings) -PublishesToConfigMgr $true -PublishesToIntune $true
         $plan.Refusal | Should -BeNullOrEmpty
         $plan.IntuneManifest.Detection.Operator | Should -Be 'GreaterEquals'
-        $plan.Marker | Should -Be 'APD-Line:catalog:vendor-app|default|x64'
         ($plan.ConfigMgrManifest | ConvertTo-Json -Depth 8) | Should -Be ($manifest | ConvertTo-Json -Depth 8)
     }
 
@@ -229,8 +228,8 @@ Describe 'The plan of one publish' {
         New-TestOverride $settings 'catalog:vendor-app' -Mode 'Replace'
         $without = Get-SupersedencePlan -Manifest $manifest -Settings $settings -PublishesToConfigMgr $true -PublishesToIntune $false
         $with = Get-SupersedencePlan -Manifest $manifest -Settings $settings -PublishesToConfigMgr $true -PublishesToIntune $false -FallbackApplicationId 'catalog:vendor-app'
-        $without.Marker | Should -BeNullOrEmpty
-        $with.Marker | Should -Be 'APD-Line:catalog:vendor-app|default|x64'
+        $without.Mode | Should -Be 'Off'
+        $with.Mode | Should -Be 'Replace'
         @($with.Log | Where-Object { $_ -match 'Replace' -and $_ -match 'title override' }).Count | Should -BeGreaterThan 0
     }
 
@@ -253,7 +252,6 @@ Describe 'The plan of one publish' {
         $settings.Mode = 'Replace and uninstall'
         $plan = Get-SupersedencePlan -Manifest (New-TestManifest (New-TestFileClause)) -Settings $settings -PublishesToConfigMgr $true -PublishesToIntune $false
         $plan.Refusal | Should -Be (Get-SupersedenceBlockedCombination -ConfigMgrRule 'Minimum' -Mode 'ReplaceAndUninstall')
-        $plan.Marker | Should -BeNullOrEmpty
     }
 
     It 'does not block an Intune only run with the ConfigMgr combination' {
@@ -315,33 +313,21 @@ Describe 'The plan of one publish' {
     }
 }
 
-Describe 'The identity marker' {
-    It 'holds the identity, the profile and the architecture' {
-        $manifest = New-TestManifest (New-TestFileClause)
-        $manifest.ProfileId = 'pilot'; $manifest.Architecture = 'ARM64'
-        Get-SupersedenceIdentityMarker -Manifest $manifest | Should -Be 'APD-Line:catalog:vendor-app|pilot|ARM64'
+Describe 'The identity marker is gone' {
+    It 'has no function that writes or reads a marker in the keywords' {
+        Get-Command Get-SupersedenceIdentityMarker -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+        Get-Command Set-CMApplicationIdentityMarker -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
     }
 
-    It 'is absent for a title without an application identifier' {
-        $manifest = New-TestManifest (New-TestFileClause)
-        $manifest.ApplicationId = ''
-        Get-SupersedenceIdentityMarker -Manifest $manifest | Should -BeNullOrEmpty
-    }
-
-    It 'is written after the application exists and never rewrites the keywords of the administrator' {
-        $text = (Get-Command Set-CMApplicationIdentityMarker).ScriptBlock.ToString()
-        $text | Should -Match 'Set-CMApplication -InputObject \$app -Keyword \$Marker'
-        $text | Should -Match 'Identity marker not written'
-        $text | Should -Match 'Get-CMApplication -Name \$ApplicationName -DisableWildcardHandling'
-        $text | Should -Match 'if \(\$others\.Count -gt 0\) \{ throw'
-        $text.IndexOf('$others') | Should -BeLessThan $text.IndexOf('Set-CMApplication -InputObject')
-        $text.IndexOf('SccmSerializer') | Should -BeLessThan $text.IndexOf('Set-CMApplication -InputObject')
+    It 'leaves the keywords of an application alone at a publish' {
         $publish = (Get-Command New-MECMApplicationFromManifest).ScriptBlock.ToString()
-        $publish.IndexOf('New-CMApplication @cmAppParams') | Should -BeLessThan $publish.IndexOf('Set-CMApplicationIdentityMarker -ApplicationName')
+        $publish | Should -Not -Match 'Identity marker'
+        $publish | Should -Not -Match 'Set-CMApplication -InputObject \$app -Keyword'
     }
 
-    It 'leaves the publish as it was when the plan has no marker' {
-        $publish = (Get-Command New-MECMApplicationFromManifest).ScriptBlock.ToString()
-        $publish | Should -Match 'if \(-not \[string\]::IsNullOrWhiteSpace\(\[string\]\$supersedencePlan\.Marker\)\)'
+    It 'offers no rewrite, restore or old-application function' {
+        foreach ($name in 'Invoke-SupersedenceRewrite', 'Invoke-SupersedenceRestore', 'Invoke-SupersedenceApply', 'Set-SupersedenceOldApplication', 'Clear-SupersedenceOldApplication') {
+            Get-Command $name -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+        }
     }
 }

@@ -114,7 +114,8 @@ Describe 'The command line level' {
     It 'has the parameters on Invoke-AppPackagerBuild.ps1' {
         $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RepoRoot 'Invoke-AppPackagerBuild.ps1'), [ref]$null, [ref]$null)
         $names = @($ast.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
-        foreach ($n in 'VersionRule', 'Supersedence', 'RewriteOldVersions', 'Yes', 'RecordInstalledValue', 'AcceptExactBlock', 'Architecture') { $names | Should -Contain $n }
+        foreach ($n in 'VersionRule', 'Supersedence', 'SupersedenceAnswer', 'RecordInstalledValue', 'AcceptExactBlock') { $names | Should -Contain $n }
+        foreach ($n in 'RewriteOldVersions', 'Yes', 'IdentityMarker', 'ShownPlan', 'Json') { $names | Should -Not -Contain $n }
     }
 
     It 'sets the environment of the child from the parameters' {
@@ -145,9 +146,10 @@ Describe 'The publish consumers' {
         $text | Should -Match '-PublishesToConfigMgr \$true -PublishesToIntune \$false'
     }
 
-    It 'runs the chain check before the publish only when the mode is on and the marker exists' {
+    It 'runs the chain check before the publish only when the mode is on and the run confirmed it' {
         $text = (Get-Command New-MECMApplicationFromManifest).ScriptBlock.ToString()
-        $text | Should -Match "\`$supersedencePlan\.Mode -ne 'Off' -and -not \[string\]::IsNullOrWhiteSpace\(\[string\]\`$supersedencePlan\.Marker\)"
+        $text | Should -Match 'Get-SupersedenceAnswer\) -ne ''Yes'''
+        $text | Should -Match 'Test-SupersedenceVersionInTitle'
         $text.IndexOf('Invoke-SupersedenceChainCheck') | Should -BeLessThan $text.IndexOf('Get-CMApplication -Name $appName -DisableWildcardHandling')
     }
 
