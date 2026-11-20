@@ -599,9 +599,14 @@ function Find-GitHubCli {
     .DESCRIPTION
         Looks on the PATH of this process first. A program that the suite launcher or a shortcut started can hold a PATH that
         lacks the folder of gh.exe (the installer changes the PATH of new sessions only), so the function then reads the
-        machine and user PATH from the registry and tries the folders where the installers of the GitHub CLI put it:
-        Program Files, the user profile (winget, scoop) and the Chocolatey folder.
+        system and user PATH from the registry and tries the folders where the installers of the GitHub CLI put it:
+        Program Files and the user profile (winget, scoop). -SearchFolder replaces the default folders (for a test).
     #>
+    param([string[]]$SearchFolder)
+    if ($SearchFolder) {
+        foreach ($folder in $SearchFolder) { $candidate = Join-Path $folder 'gh.exe'; if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate } }
+        return ''
+    }
     $found = Get-Command -Name 'gh.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($found) { return [string]$found.Source }
     $folders = New-Object System.Collections.Generic.List[string]
@@ -618,7 +623,6 @@ function Find-GitHubCli {
         $folders.Add((Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links'))
     }
     if ($env:USERPROFILE) { $folders.Add((Join-Path $env:USERPROFILE 'scoop\shims')) }
-    if ($env:ChocolateyInstall) { $folders.Add((Join-Path $env:ChocolateyInstall 'bin')) }
     foreach ($folder in $folders) {
         $candidate = Join-Path $folder 'gh.exe'
         if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
@@ -704,8 +708,8 @@ function Format-GitHubAuthStatus {
     .SYNOPSIS
         The one status text of the GitHub sign-in, with the wording of App Packager Desktop.
     .DESCRIPTION
-        Examples: 'Signed in via GitHub CLI as octocat (5,000 requests per hour, 4,991 remaining)',
-        'Token saved in settings as octocat (...)', 'Environment variable GITHUB_TOKEN as octocat (...)',
+        The text names the source, the account and the quota, for example 'Token saved in settings as octocat (...)',
+        'Environment variable GITHUB_TOKEN as octocat (...)', the sign-in of the GitHub CLI,
         'Not authenticated: 60 requests per hour (57 remaining)'. A token that GitHub refuses (401) and a blocked request (403) say so.
     #>
     param([Parameter(Mandatory)]$Status)

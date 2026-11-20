@@ -43,16 +43,16 @@ Describe 'The stored GitHub token' {
         finally { Set-Content -LiteralPath $path -Value $keep -Encoding UTF8 }
     }
 
-    It 'is used after GITHUB_TOKEN and GH_TOKEN' {
+    It 'wins over GITHUB_TOKEN and GH_TOKEN, and the source is named' {
         $env:GH_TOKEN = 'from-gh-token'
-        (Get-GitHubApiCurlArgs) -join ' ' | Should -Match 'Bearer from-gh-token'
         $env:GITHUB_TOKEN = 'from-github-token'
-        (Get-GitHubApiCurlArgs) -join ' ' | Should -Match 'Bearer from-github-token'
+        (Get-GitHubApiCurlArgs) -join ' ' | Should -Match ('Bearer ' + [regex]::Escape($script:Secret))
+        (Get-GitHubApiToken).Source | Should -Be 'Settings'
     }
 
     It 'is used before the gh login' {
         (Get-GitHubApiCurlArgs) -join ' ' | Should -Match ('Bearer ' + [regex]::Escape($script:Secret))
-        $body = (Get-Command Get-GitHubApiCurlArgs).Definition
+        $body = (Get-Command Get-GitHubApiToken).Definition
         $body.IndexOf('Get-StoredGitHubToken') | Should -BeLessThan $body.IndexOf('auth token')
     }
 

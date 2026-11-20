@@ -8353,8 +8353,8 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'upd.group'; Kind = 'Group'; Title = 'Updates'; Description = 'AppPackager looks for a newer release when it starts.' }
                 @{ Id = 'upd.check'; Title = 'Check at startup'; Kind = 'Check'; Pref = 'CheckForUpdatesAtStartup'; Label = 'Look for a newer release when AppPackager starts'; Tip = 'Turn it off to skip the lookup at launch.'; Keywords = 'update release version' }
                 @{ Id = 'gh.group'; Kind = 'Group'; Title = 'GitHub Authentication'; Description = 'The GitHub-backed packagers and the version monitor send a token as a bearer token. A token raises the limit from 60 to 5000 requests per hour. A token saved here wins over GITHUB_TOKEN, GH_TOKEN and the GitHub CLI sign-in.' }
-                @{ Id = 'gh.status'; Title = 'Status'; Kind = 'Status'; Tip = 'Shows which source supplies the GitHub token (saved here, an environment variable or the GitHub CLI sign-in), the account, and the requests that are left this hour.'; Keywords = 'github authentication token rate limit gh' }
-                @{ Id = 'gh.token'; Title = 'GitHub token'; Kind = 'Secret'; Pref = 'GitHub.TokenProtected'; Tip = 'Optional, DPAPI-protected. A token saved here overrides the token of the environment and of the GitHub CLI; the status line above says which source is in use.'; Keywords = 'github key personal access token pat' }
+                @{ Id = 'gh.status'; Title = 'Status'; Kind = 'Status'; Tip = 'Shows the source of the GitHub token, the account and the requests that are left this hour.'; Keywords = 'github authentication token rate limit gh' }
+                @{ Id = 'gh.token'; Title = 'GitHub token'; Kind = 'Secret'; Pref = 'GitHub.TokenProtected'; Tip = 'Optional token, stored with DPAPI, that overrides the environment and the GitHub CLI.'; Keywords = 'github key personal access token pat' }
             )
         })
 

@@ -3952,8 +3952,8 @@ Describe 'Find-GitHubCli' {
         $savedLocal = $env:LOCALAPPDATA
         try {
             $env:LOCALAPPDATA = $root
-            Mock Get-Command { $null } -ModuleName AppPackagerCommon -ParameterFilter { $Name -eq 'gh.exe' }
-            (Find-GitHubCli) | Should -Be (Join-Path $root 'Programs\GitHub CLI\gh.exe')
+            (Find-GitHubCli -SearchFolder @((Join-Path $root 'Missing'), (Join-Path $root 'Programs\GitHub CLI'))) | Should -Be (Join-Path $root 'Programs\GitHub CLI\gh.exe')
+            (Find-GitHubCli -SearchFolder @((Join-Path $root 'Missing'))) | Should -Be ''
         }
         finally {
             $env:LOCALAPPDATA = $savedLocal
@@ -3994,6 +3994,7 @@ Describe 'Get-GitHubApiAuthStatus' {
         $script:fakeCurl = Join-Path $script:fakeDir 'curl.cmd'
         Set-Content -LiteralPath $script:fakeCurl -Encoding ASCII -Value @(
             '@echo off'
+            'set HERE=%~dp0'
             'set LASTARG=%~1'
             ':next'
             'shift'
@@ -4001,7 +4002,7 @@ Describe 'Get-GitHubApiAuthStatus' {
             'set LASTARG=%~1'
             'goto next'
             ':done'
-            'if /i "%LASTARG:~-11%"=="/rate_limit" (type "%~dp0rate.txt") else (type "%~dp0user.txt")')
+            'if /i "%LASTARG:~-11%"=="/rate_limit" (type "%HERE%rate.txt") else (type "%HERE%user.txt")')
     }
     AfterAll { Remove-Item -LiteralPath $script:fakeDir -Recurse -Force -ErrorAction SilentlyContinue }
     BeforeEach {
