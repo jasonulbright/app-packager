@@ -39,7 +39,7 @@
     ScriptName : install.ps1
     Purpose    : Bootstrap install / update for AppPackager
     Owner      : CM Engineering
-    Version    : 2026.11.20.0148
+    Version    : 2026.11.20.0149
 #>
 
 [CmdletBinding()]
