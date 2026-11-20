@@ -53,7 +53,7 @@ Describe 'The stored GitHub token' {
     It 'is used before the gh login' {
         (Get-GitHubApiCurlArgs) -join ' ' | Should -Match ('Bearer ' + [regex]::Escape($script:Secret))
         $body = (Get-Command Get-GitHubApiToken).Definition
-        $body.IndexOf('Get-StoredGitHubToken') | Should -BeLessThan $body.IndexOf('auth token')
+        $body.IndexOf('$stored = Get-StoredGitHubToken') | Should -BeLessThan $body.IndexOf('& $gh auth token')
     }
 
     It 'never goes to a log' {
