@@ -385,6 +385,89 @@ Describe 'The Intune supersedence' {
         (InModuleScope AppPackagerCommon { Invoke-IntuneSupersedenceStep -Token 't' -AppId 'new2' -NewTitle 'x' -NewVersion '1' -Mode 'Off' }).Status | Should -Be 'NotRun'
         Should -Invoke Invoke-GraphJson -ModuleName AppPackagerCommon -Times 0 -Exactly
     }
+
+    It 'uses beta only for the relationship read and write, and v1.0 for the lookup' {
+        [void](InModuleScope AppPackagerCommon { Invoke-IntuneSupersedenceStep -Token 't' -AppId 'new2' -NewTitle 'Vendor App - 2.0.0' -NewVersion '2.0.0' -Publisher 'Vendor' -Mode 'Replace' })
+        Should -Invoke Invoke-GraphJson -ModuleName AppPackagerCommon -Times 1 -Exactly -ParameterFilter { $Method -eq 'GET' -and $Uri -like 'https://graph.microsoft.com/v1.0/*isof*' }
+        Should -Invoke Invoke-GraphJson -ModuleName AppPackagerCommon -Times 1 -Exactly -ParameterFilter { $Method -eq 'GET' -and $Uri -eq 'https://graph.microsoft.com/beta/deviceAppManagement/mobileApps/new2/relationships' }
+        Should -Invoke Invoke-GraphJson -ModuleName AppPackagerCommon -Times 1 -Exactly -ParameterFilter { $Method -eq 'POST' -and $Uri -eq 'https://graph.microsoft.com/beta/deviceAppManagement/mobileApps/new2/updateRelationships' }
+    }
+
+    It 'names the beta base once, as a constant, and only the two relationship calls use it' {
+        $source = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\Packagers\AppPackagerCommon.psm1') -Raw
+        ([regex]::Matches($source, 'graph\.microsoft\.com/beta')).Count | Should -Be 1
+        ([regex]::Matches($source, '\$RelationshipGraphBase/')).Count | Should -Be 2
+        $source | Should -Match "IntuneRelationshipGraphBase = 'https://graph\.microsoft\.com/beta'"
+    }
+
+    It 'sends the dependencies and the older supersedences of the app again in the same call' {
+        Mock Invoke-GraphJson -ModuleName AppPackagerCommon {
+            if ($Uri -like '*isof*') { return [pscustomobject]@{ value = @([pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'old1'; displayName = 'Vendor App - 1.0.0'; displayVersion = '1.0.0'; publisher = 'Vendor' }) } }
+            if ($Method -eq 'GET') {
+                return [pscustomobject]@{ value = @(
+                        [pscustomobject]@{ '@odata.type' = '#microsoft.graph.mobileAppDependency'; targetId = 'dep9'; targetType = 'child'; dependencyType = 'autoInstall' }
+                        [pscustomobject]@{ '@odata.type' = '#microsoft.graph.mobileAppSupersedence'; targetId = 'old0'; targetType = 'child'; supersedenceType = 'replace' }
+                    ) }
+            }
+            return $null
+        }
+        (InModuleScope AppPackagerCommon { Invoke-IntuneSupersedenceStep -Token 't' -AppId 'new2' -NewTitle 'Vendor App - 2.0.0' -NewVersion '2.0.0' -Publisher 'Vendor' -Mode 'Replace' }).Status | Should -Be 'Applied'
+        Should -Invoke Invoke-GraphJson -ModuleName AppPackagerCommon -Times 1 -Exactly -ParameterFilter {
+            $Method -eq 'POST' -and $Body.relationships.Count -eq 3 -and
+            $Body.relationships[0].targetId -eq 'dep9' -and $Body.relationships[0].dependencyType -eq 'autoInstall' -and
+            $Body.relationships[1].targetId -eq 'old0' -and $Body.relationships[1].supersedenceType -eq 'replace' -and
+            $Body.relationships[2].targetId -eq 'old1' -and $Body.relationships[2].supersedenceType -eq 'update'
+        }
+    }
+
+    It 'takes only the highest older version: n-2, a newer version, another vendor and another title stay untouched' {
+        Mock Invoke-GraphJson -ModuleName AppPackagerCommon {
+            if ($Method -eq 'GET' -and $Uri -like '*isof*') {
+                return [pscustomobject]@{ value = @(
+                        [pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'n2'; displayName = 'Vendor App - 1.0.0'; displayVersion = '1.0.0'; publisher = 'Vendor' }
+                        [pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'n1'; displayName = 'Vendor App - 1.5.0'; displayVersion = '1.5.0'; publisher = 'Vendor Inc.' }
+                        [pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'cur'; displayName = 'Vendor App - 2.0.0'; displayVersion = '2.0.0'; publisher = 'Vendor' }
+                        [pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'nxt'; displayName = 'Vendor App - 3.0.0'; displayVersion = '3.0.0'; publisher = 'Vendor' }
+                        [pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'wrv'; displayName = 'Vendor App - 1.9.0'; displayVersion = '1.9.0'; publisher = 'Another Vendor' }
+                        [pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'wrt'; displayName = 'Vendor Tool - 1.9.0'; displayVersion = '1.9.0'; publisher = 'Vendor' }
+                    ) }
+            }
+            if ($Method -eq 'GET') { return [pscustomobject]@{ value = @() } }
+            return $null
+        }
+        (InModuleScope AppPackagerCommon { Invoke-IntuneSupersedenceStep -Token 't' -AppId 'cur' -NewTitle 'Vendor App - 2.0.0' -NewVersion '2.0.0' -Publisher 'Vendor' -Mode 'Replace' }).Status | Should -Be 'Applied'
+        Should -Invoke Invoke-GraphJson -ModuleName AppPackagerCommon -Times 1 -Exactly -ParameterFilter { $Method -eq 'POST' -and $Body.relationships.Count -eq 1 -and $Body.relationships[0].targetId -eq 'n1' }
+    }
+
+    It 'makes no relation when the only other app has another vendor' {
+        Mock Invoke-GraphJson -ModuleName AppPackagerCommon {
+            if ($Method -eq 'GET' -and $Uri -like '*isof*') { return [pscustomobject]@{ value = @([pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'wrv'; displayName = 'Vendor App - 1.0.0'; displayVersion = '1.0.0'; publisher = 'Another Vendor' }) } }
+            return [pscustomobject]@{ value = @() }
+        }
+        $step = InModuleScope AppPackagerCommon { Invoke-IntuneSupersedenceStep -Token 't' -AppId 'new2' -NewTitle 'Vendor App - 2.0.0' -NewVersion '2.0.0' -Publisher 'Vendor' -Mode 'Replace' }
+        $step.Status | Should -Be 'NoOlderVersion'
+        Should -Invoke Invoke-GraphJson -ModuleName AppPackagerCommon -Times 0 -Exactly -ParameterFilter { $Method -eq 'POST' }
+    }
+
+    It 'reports a failed relationship write with a clear message, never throws, and changes nothing else' {
+        Mock Invoke-GraphJson -ModuleName AppPackagerCommon {
+            if ($Method -eq 'GET' -and $Uri -like '*isof*') { return [pscustomobject]@{ value = @([pscustomobject]@{ '@odata.type' = '#microsoft.graph.win32LobApp'; id = 'old1'; displayName = 'Vendor App - 1.0.0'; displayVersion = '1.0.0'; publisher = 'Vendor' }) } }
+            if ($Method -eq 'GET') { return [pscustomobject]@{ value = @() } }
+            throw 'Graph returned 404 (resource not found)'
+        }
+        $step = InModuleScope AppPackagerCommon { Invoke-IntuneSupersedenceStep -Token 't' -AppId 'new2' -NewTitle 'Vendor App - 2.0.0' -NewVersion '2.0.0' -Publisher 'Vendor' -Mode 'Replace' }
+        $step.Status | Should -Be 'NotApplied'
+        $step.Message | Should -Match 'The Intune app is published\. The supersedence relationship was not created: Graph returned 404'
+        $step.Failure | Should -Be $step.Message
+        Should -Invoke Invoke-GraphJson -ModuleName AppPackagerCommon -Times 0 -Exactly -ParameterFilter { $Method -in @('PATCH', 'DELETE') }
+    }
+
+    It 'runs after the publish, only for the answer Yes, and a failed relation leaves the app published' {
+        $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\start-apppackager.ps1') -Raw
+        $text.IndexOf('Publish-IntuneWin32App -TenantId') | Should -BeLessThan $text.IndexOf('Invoke-IntuneSupersedenceStep -Token')
+        $text | Should -Match "-ne 'Off' -and \`$SupersedenceAnswer -eq 'Yes'"
+        $text | Should -Match '\$pubNote\.Ok = \$true'
+    }
 }
 
 Describe 'The vendor compare' {
