@@ -157,6 +157,7 @@
         'Invoke-SupersedenceStepAndLog'
         'Get-SupersedenceBaseTitle'
         'Get-SupersedenceTitleNotice'
+        'Get-SupersedenceTitleLockNote'
         'Get-SupersedenceVendorKey'
         'Test-SupersedenceVersionInTitle'
         'Import-SupersedenceTitleRule'
