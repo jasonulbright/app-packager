@@ -46,11 +46,20 @@ Describe 'The lookup of the old application' {
         (Select-SupersedenceOldApplication -Applications @(New-TestApp '1' 'Vendor App 2' $Version) -NewTitle 'Vendor App 2.0' -NewVersion '2.0.0').Old | Should -BeNullOrEmpty
     }
 
-    It 'skips a retired application and takes the next lower one' {
+    It 'takes only the highest older version: when it is retired there is no older version, and n-2 is not taken' {
         $apps = @((New-TestApp '1' 'Vendor App 1.0' '1.0.0'), (New-TestApp '2' 'Vendor App 1.5' '1.5.0' $true))
         $result = Select-SupersedenceOldApplication -Applications $apps -NewTitle 'Vendor App 2.0' -NewVersion '2.0.0'
+        $result.Old | Should -BeNullOrEmpty
+        $result.Summary | Should -BeLike 'Supersedence: no older version of*'
+        @($result.Notes | Where-Object { $_ -match "1\.5\.0 is the highest older version and it is retired" }).Count | Should -Be 1
+    }
+
+    It 'reads a pre-release as older than its release' {
+        $result = Select-SupersedenceOldApplication -Applications @(New-TestApp '1' 'Vendor App 1.2.3-beta' '1.2.3-beta') -NewTitle 'Vendor App 1.2.3' -NewVersion '1.2.3'
         $result.Old.CiId | Should -Be '1'
-        @($result.Notes | Where-Object { $_ -match 'retired' }).Count | Should -BeGreaterThan 0
+        Compare-SupersedenceVersion -A '1.2.3-beta' -B '1.2.3' | Should -Be -1
+        Compare-SupersedenceVersion -A '1.2.3' -B '1.2.3-beta' | Should -Be 1
+        Compare-SupersedenceVersion -A '1.2.3' -B '1.2.3' | Should -Be 0
     }
 
     It 'skips a version that cannot be parsed and names it' {
@@ -137,7 +146,7 @@ Describe 'The supersedence step' {
     }
     BeforeEach {
         Mock Write-Log -ModuleName AppPackagerCommon {}
-        Mock Get-CMApplication -ModuleName AppPackagerCommon { $script:Site }
+        Mock Get-CMApplication -ModuleName AppPackagerCommon { @($script:Site | Where-Object { $_.LocalizedDisplayName -like $Name }) }
         Mock Get-CMDeploymentType -ModuleName AppPackagerCommon {
             [pscustomobject]@{ CI_ID = 99; LocalizedDisplayName = ($ApplicationName + ' - x64') }
         }
@@ -166,15 +175,29 @@ Describe 'The supersedence step' {
         $found.Summary | Should -Match "vendor 'Vendor'"
     }
 
-    It 'compares the vendor without regard to letter case, and not at all when the new application names none' {
+    It 'compares the vendor without regard to letter case, and matches nothing when the new application names no vendor' {
         $same = InModuleScope AppPackagerCommon { Get-SupersedenceLineApplication -BaseTitle 'Vendor App' -Vendor 'VENDOR' -NewApplicationName 'Vendor App 2.0' }
         ($same | Where-Object { $_.Title -eq 'Vendor App 1.0' }).VendorMatch | Should -BeTrue
-        $any = InModuleScope AppPackagerCommon { Get-SupersedenceLineApplication -BaseTitle 'Vendor App' -Vendor '' -NewApplicationName 'Vendor App 2.0' }
-        ($any | Where-Object { $_.Title -eq 'Vendor App 0.5' }).VendorMatch | Should -BeTrue
+        $none = InModuleScope AppPackagerCommon { Get-SupersedenceLineApplication -BaseTitle 'Vendor App' -Vendor '' -NewApplicationName 'Vendor App 2.0' }
+        ($none | Where-Object { $_.Title -eq 'Vendor App 1.0' }).VendorMatch | Should -BeFalse
+        ($none | Where-Object { $_.Title -eq 'Vendor App 0.5' }).VendorMatch | Should -BeFalse
     }
-    It 'finds the highest version below the new one' {
+
+    It 'finds no older version and says why when the new application names no vendor' {
         $found = InModuleScope AppPackagerCommon { Find-SupersedenceOldApplication -BaseTitle 'Vendor App' -Vendor '' -NewApplicationName 'Vendor App 2.0' -NewVersion '2.0.0' }
+        $found.Old | Should -BeNullOrEmpty
+        $found.Summary | Should -Match 'names no vendor'
+    }
+
+    It 'finds the highest version below the new one' {
+        $found = InModuleScope AppPackagerCommon { Find-SupersedenceOldApplication -BaseTitle 'Vendor App' -Vendor 'Vendor' -NewApplicationName 'Vendor App 2.0' -NewVersion '2.0.0' }
         $found.Old.Title | Should -Be 'Vendor App 1.0'
+    }
+
+    It 'asks the site with the wildcard of the base title and never reads another title' {
+        [void](InModuleScope AppPackagerCommon { Get-SupersedenceLineApplication -BaseTitle 'Vendor App' -Vendor 'Vendor' -NewApplicationName 'Vendor App 2.0' })
+        Should -Invoke Get-CMApplication -ModuleName AppPackagerCommon -Times 1 -Exactly -ParameterFilter { $Name -eq 'Vendor*App*' }
+        Should -Invoke Get-CMDeploymentType -ModuleName AppPackagerCommon -Times 0 -Exactly -ParameterFilter { $ApplicationName -eq 'Unrelated' }
     }
 
     It 'sets one relation for each pair by name, with the uninstall option of the mode' {
@@ -381,6 +404,13 @@ Describe 'The Intune supersedence' {
         $step.Message | Should -Match 'Graph is down'
     }
 
+    It 'matches nothing when the new app names no publisher, and says why' {
+        $step = InModuleScope AppPackagerCommon { Invoke-IntuneSupersedenceStep -Token 't' -AppId 'new2' -NewTitle 'Vendor App - 2.0.0' -NewVersion '2.0.0' -Publisher '' -Mode 'Replace' }
+        $step.Status | Should -Be 'NoOlderVersion'
+        $step.Message | Should -Match 'names no publisher'
+        Should -Invoke Invoke-GraphJson -ModuleName AppPackagerCommon -Times 0 -Exactly
+    }
+
     It 'does nothing for the mode Off' {
         (InModuleScope AppPackagerCommon { Invoke-IntuneSupersedenceStep -Token 't' -AppId 'new2' -NewTitle 'x' -NewVersion '1' -Mode 'Off' }).Status | Should -Be 'NotRun'
         Should -Invoke Invoke-GraphJson -ModuleName AppPackagerCommon -Times 0 -Exactly
@@ -467,6 +497,18 @@ Describe 'The Intune supersedence' {
         $text.IndexOf('Publish-IntuneWin32App -TenantId') | Should -BeLessThan $text.IndexOf('Invoke-IntuneSupersedenceStep -Token')
         $text | Should -Match "-ne 'Off' -and \`$SupersedenceAnswer -eq 'Yes'"
         $text | Should -Match '\$pubNote\.Ok = \$true'
+    }
+}
+
+Describe 'The note on the title page' {
+    It 'is empty while supersedence is off, and says so while it is on' {
+        InModuleScope AppPackagerCommon {
+            Get-SupersedenceTitleLockNote -Supersedence ([pscustomobject]@{ Mode = 'Off'; TitleOverrides = [pscustomobject]@{} }) | Should -BeNullOrEmpty
+            Get-SupersedenceTitleLockNote -Supersedence $null | Should -BeNullOrEmpty
+            Get-SupersedenceTitleLockNote -Supersedence ([pscustomobject]@{ Mode = 'Replace'; TitleOverrides = [pscustomobject]@{} }) | Should -Match 'on by default'
+            $own = [pscustomobject]@{ Mode = 'Off'; TitleOverrides = [pscustomobject]@{ 'catalog:a' = [pscustomobject]@{ Mode = 'Replace' }; 'catalog:b' = [pscustomobject]@{ Mode = 'Off' } } }
+            Get-SupersedenceTitleLockNote -Supersedence $own | Should -Match 'on for 1 application'
+        }
     }
 }
 

@@ -64,8 +64,9 @@ Describe 'The Options page' {
     It 'keeps the default Off' {
         $script:Shell | Should -Match "Pref = 'Supersedence.Mode'; Default = 'Off'"
     }
-    It 'switches the version in the title on and locks it while the default is on' {
+    It 'has the note field of the title page, and no code that writes the include-version box from the default' {
+        # The behaviour is tested in Invoke-SupersedenceOptionsSmoke.ps1 (window probe) and SupersedenceStep.Tests.ps1 (the note text).
         $script:Shell | Should -Match "Id = 'title.lock'"
-        $script:Shell | Should -Match '\$includeBox2\.IsEnabled = \$false'
+        $script:Shell | Should -Not -Match 'includeBox2'
     }
 }

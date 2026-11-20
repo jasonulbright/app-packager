@@ -3936,16 +3936,22 @@ function Compare-SupersedenceVersion {
         if ($partsA[$i] -lt $partsB[$i]) { return -1 }
         if ($partsA[$i] -gt $partsB[$i]) { return 1 }
     }
+    # The same numbers: a pre-release (1.2.3-beta) is older than the release (1.2.3).
+    $preA = ([string]$A).Trim() -match '-[A-Za-z]'
+    $preB = ([string]$B).Trim() -match '-[A-Za-z]'
+    if ($preA -and -not $preB) { return -1 }
+    if ($preB -and -not $preA) { return 1 }
     return 0
 }
 
 function Select-SupersedenceOldApplication {
     <#
     .SYNOPSIS
-        The newest application of the line whose title is not the new title, that is not retired and whose
-        version is lower than the packaged version.
+        The highest version of the line below the packaged version, among the applications whose title is not the new title.
     .DESCRIPTION
-        A version that cannot be read is skipped and named. Returns Old (or $null), Notes and Summary.
+        Only the highest older version is superseded, never a lower one. When that application is retired there is no older
+        version to supersede, and the summary says so. A version that cannot be read cannot be ranked: it is skipped and named.
+        A pre-release (1.2.3-beta) is older than its release (1.2.3). Returns Old (or $null), Notes and Summary.
     #>
     param([AllowEmptyCollection()][object[]]$Applications = @(), [Parameter(Mandatory)][string]$NewTitle, [Parameter(Mandatory)][string]$NewVersion, [AllowEmptyString()][string]$NewVendor = '')
     $notes = New-Object System.Collections.Generic.List[string]
@@ -3953,9 +3959,10 @@ function Select-SupersedenceOldApplication {
     foreach ($app in @($Applications)) {
         if ([string]::Equals([string]$app.Title, $NewTitle, [StringComparison]::OrdinalIgnoreCase)) { continue }
         if ($app.PSObject.Properties['VendorMatch'] -and -not [bool]$app.VendorMatch) {
-            $notes.Add(("'{0}' {1} has the vendor '{2}', and this application has the vendor '{3}', so it is not the older version." -f $app.Title, $app.SoftwareVersion, $app.Manufacturer, $NewVendor)); continue
+            if ([string]::IsNullOrWhiteSpace($NewVendor)) { $notes.Add(("This application names no vendor, so '{0}' {1} cannot be matched as the older version." -f $app.Title, $app.SoftwareVersion)) }
+            else { $notes.Add(("'{0}' {1} has the vendor '{2}', and this application has the vendor '{3}', so it is not the older version." -f $app.Title, $app.SoftwareVersion, $app.Manufacturer, $NewVendor)) }
+            continue
         }
-        if ($app.IsExpired) { $notes.Add("'$($app.Title)' is retired and was skipped."); continue }
         if ($null -eq (ConvertTo-SupersedenceVersion -Value $app.SoftwareVersion)) {
             $notes.Add("The version '$($app.SoftwareVersion)' of '$($app.Title)' cannot be read, so it was skipped."); continue
         }
@@ -3972,8 +3979,12 @@ function Select-SupersedenceOldApplication {
     }
     if ($null -eq (ConvertTo-SupersedenceVersion -Value $NewVersion)) { return (& $result $null ([string[]]@("The packaged version '$NewVersion' cannot be read."))) }
     if ($candidates.Count -eq 0) { return (& $result $null $notes) }
-    $ordered = @($candidates | Sort-Object -Descending -Property @{ Expression = { ConvertTo-SupersedenceVersion -Value $_.SoftwareVersion } })
+    $ordered = @($candidates | Sort-Object -Descending -Property @{ Expression = { ConvertTo-SupersedenceVersion -Value $_.SoftwareVersion } }, @{ Expression = { if ([string]$_.SoftwareVersion -match '-[A-Za-z]') { 0 } else { 1 } } })
     foreach ($other in ($ordered | Select-Object -Skip 1)) { $notes.Add("'$($other.Title)' $($other.SoftwareVersion) is also older and is not superseded by this publish.") }
+    if ($ordered[0].IsExpired) {
+        $notes.Add("'$($ordered[0].Title)' $($ordered[0].SoftwareVersion) is the highest older version and it is retired, so nothing is superseded.")
+        return (& $result $null $notes)
+    }
     return (& $result $ordered[0] $notes)
 }
 
@@ -4014,6 +4025,25 @@ function Get-SupersedenceDeploymentTypePair {
 
 # ---- the lookup of the older application (title and vendor, as Check ConfigMgr reads the site) ----
 
+function Get-SupersedenceTitleLockNote {
+    <#
+    .SYNOPSIS
+        The note on the Options page of the application title when supersedence is on (the default or the choice of an
+        application): the version is added to the name when the application is packaged. Empty when supersedence is off.
+        The note changes no setting; the choice of the operator stays as the operator made it.
+    #>
+    param([AllowNull()]$Supersedence)
+    if ($null -eq $Supersedence) { return '' }
+    $default = [string](Get-SupersedenceProperty $Supersedence 'Mode')
+    $overrides = Get-SupersedenceProperty $Supersedence 'TitleOverrides'
+    $own = 0
+    if ($overrides) { foreach ($p in $overrides.PSObject.Properties) { $mode = [string](Get-SupersedenceProperty $p.Value 'Mode'); if ($mode -and $mode -ne 'Off') { $own++ } } }
+    $why = ' This release and the older one must be separate applications. The choice above stays as you set it.'
+    if ($default -and $default -ne 'Off') { return 'Supersedence is on by default, so the version is added to the name of each application when it is packaged.' + $why }
+    if ($own -gt 0) { return ('Supersedence is on for {0} application(s), so the version is added to their names when they are packaged.' -f $own) + $why }
+    return ''
+}
+
 function Get-SupersedenceTitleNotice {
     # The line for an application whose title has no version while supersedence is on for it.
     param([Parameter(Mandatory)][string]$Title)
@@ -4050,10 +4080,10 @@ function Get-SupersedenceVendorKey {
 
 function Test-SupersedenceCandidateMatch {
     # The rule of the lookup: the title is a packaged title of the base title (the Check ConfigMgr rule) and the vendor is the
-    # same vendor. A vendor that the new application does not name is not compared.
+    # same vendor. A new application that names no vendor matches nothing, because the vendor cannot be compared.
     param([Parameter(Mandatory)][string]$BaseTitle, [AllowEmptyString()][string]$Vendor, [AllowEmptyString()][string]$Title, [AllowEmptyString()][string]$Manufacturer)
     if (-not (Test-MecmApplicationTitle -CMName $BaseTitle -Title $Title)) { return $false }
-    if ([string]::IsNullOrWhiteSpace($Vendor)) { return $true }
+    if ([string]::IsNullOrWhiteSpace($Vendor)) { return $false }
     return ((Get-SupersedenceVendorKey -Vendor $Vendor) -eq (Get-SupersedenceVendorKey -Vendor $Manufacturer))
 }
 
@@ -9502,7 +9532,7 @@ function Get-IntuneSupersedenceApplication {
         $page = Invoke-GraphJson -Method GET -Uri $uri -Token $Token
         foreach ($app in @($page.value)) {
             if ([string]$app.'@odata.type' -ne '#microsoft.graph.win32LobApp') { continue }
-            if (-not [string]::IsNullOrWhiteSpace($Publisher) -and (Get-SupersedenceVendorKey -Vendor $Publisher) -ne (Get-SupersedenceVendorKey -Vendor ([string]$app.publisher))) { continue }
+            if ([string]::IsNullOrWhiteSpace($Publisher) -or (Get-SupersedenceVendorKey -Vendor $Publisher) -ne (Get-SupersedenceVendorKey -Vendor ([string]$app.publisher))) { continue }
             if (-not (Test-MecmApplicationTitle -CMName $BaseTitle -Title ([string]$app.displayName))) { continue }
             $found += [pscustomobject]@{ Id = [string]$app.id; Title = [string]$app.displayName; SoftwareVersion = [string]$app.displayVersion; IsExpired = $false }
         }
@@ -9552,6 +9582,7 @@ function Invoke-IntuneSupersedenceStep {
     $result = { param($status, $message) [pscustomobject]@{ Status = $status; Message = $message; Warnings = @(); Failure = $(if ($status -eq 'NotApplied') { $message } else { $null }) } }
     if ($Mode -eq 'Off') { return (& $result 'NotRun' '') }
     try {
+        if ([string]::IsNullOrWhiteSpace($Publisher)) { return (& $result 'NoOlderVersion' ('Supersedence: no older version of {0} found; this app names no publisher, so no app can be matched as the older version.' -f $NewTitle)) }
         $baseTitle = Get-SupersedenceBaseTitle -AppName $NewTitle -Version $NewVersion
         $apps = @(Get-IntuneSupersedenceApplication -Token $Token -BaseTitle $baseTitle -Publisher $Publisher -GraphBase $GraphBase)
         $chosen = Select-SupersedenceOldApplication -Applications @($apps | Where-Object { $_.Id -ne $AppId }) -NewTitle $NewTitle -NewVersion $NewVersion

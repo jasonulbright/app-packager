@@ -7597,39 +7597,20 @@ function Connect-OptionsFieldLink {
             }.GetNewClosure()) | Out-Null
     }
 
-    # Supersedence on (the default) switches the version in the title on and locks it: this release and the older one must be
-    # separate applications. The bulk action of the per-application setting writes the default through the same combo.
-    if ($e.Contains('sup.mode') -and $e.Contains('title.include') -and $e.Contains('title.lock')) {
+    # The bulk action of the per-application setting reads and writes the default through the default combo of this page.
+    if ($e.Contains('sup.mode') -and $e.Contains('sup.apps')) {
         $modeEditor = $e['sup.mode']
-        $includeBox2 = $e['title.include'].Focus
-        $removeBox2 = $e['title.remove'].Focus
+        $e['sup.apps'].Bulk.GetDefault = { & $modeEditor.Get }.GetNewClosure()
+        $e['sup.apps'].Bulk.SetDefault = { param($v) & $modeEditor.Set $v }.GetNewClosure()
+    }
+
+    # The title page tells the operator when supersedence is on: the version is then added to the name when the application is
+    # packaged. The page shows a note and changes nothing, so the stored choice of the operator is never written by it.
+    if ($e.Contains('title.lock')) {
         $lockNote = $e['title.lock'].Text
-        $anyOn = { param($mode) ([string]$mode) -and ([string]$mode) -ne 'Off' }
-        $lockState = @{ Saved = $null }
-        $applyLock = {
-            $on = (& $anyOn (& $modeEditor.Get))
-            if ($on) {
-                if ($null -eq $lockState.Saved) { $lockState.Saved = ($includeBox2.IsChecked -eq $true) }
-                $includeBox2.IsChecked = $true
-                $includeBox2.IsEnabled = $false
-                $removeBox2.IsEnabled = $false
-                $lockNote.Text = 'Supersedence is on by default, so the version stays in each application name: this release and the older one must be separate applications.'
-                $lockNote.Visibility = [System.Windows.Visibility]::Visible
-            }
-            else {
-                $includeBox2.IsEnabled = $true
-                $removeBox2.IsEnabled = ($includeBox2.IsChecked -ne $true)
-                if ($null -ne $lockState.Saved) { $includeBox2.IsChecked = [bool]$lockState.Saved; $lockState.Saved = $null }
-                $lockNote.Text = ''
-                $lockNote.Visibility = [System.Windows.Visibility]::Collapsed
-            }
-        }.GetNewClosure()
-        if ($modeEditor.Element -is [System.Windows.Controls.Primitives.Selector]) { $modeEditor.Element.Add_SelectionChanged($applyLock) }
-        & $applyLock
-        if ($e.Contains('sup.apps')) {
-            $e['sup.apps'].Bulk.GetDefault = { & $modeEditor.Get }.GetNewClosure()
-            $e['sup.apps'].Bulk.SetDefault = { param($v) & $modeEditor.Set $v }.GetNewClosure()
-        }
+        $noteText = Get-SupersedenceTitleLockNote -Supersedence $Context.Prefs.Supersedence
+        $lockNote.Text = $noteText
+        $lockNote.Visibility = $(if ($noteText) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed })
     }
 
     # The test deployment needs automatic distribution and a DP group, because it runs after the content distribution.

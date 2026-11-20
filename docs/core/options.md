@@ -74,7 +74,7 @@ The estimated and maximum runtime, **Fallback distribution points** and **Neighb
 
 #### Application Title
 
-**Include version** and **Remove version**. Without a selection, a packager uses its own name.
+**Include version** and **Remove version**. Without a selection, a packager uses its own name. While supersedence is on for an application (the default or the choice of that application), a note says that the version is added to its name when it is packaged. The note changes no setting: the box shows the choice that you made.
 
 ![The Application Title section](../images/options-application-title.png)
 
