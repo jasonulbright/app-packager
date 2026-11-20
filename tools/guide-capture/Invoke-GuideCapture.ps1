@@ -55,6 +55,10 @@
     The steps write a packager history with Chrome 157.0.8103.40 on the site and 158.0.8127.37 as the
     latest version, then run Check CVEs against the live NVD. The default run does not include them.
 
+.PARAMETER OnlyBusyMeasure
+    Run only steps-busy-measure.ps1: CPU, handle, GDI and memory counters of the app for 30 seconds of the busy spinner with the icon list
+    loaded. It changes no guide image; the log and the samples go to the proof folder.
+
 .PARAMETER OnlySupersedence
     Run only steps-supersedence.ps1: the window proof of the supersedence confirmation (Yes with Remember this answer, Skip, and No in the light
     theme) and the images supersedence-by-application.png, supersedence-confirm.png and light-supersedence-confirm.png. It needs the proof applications
@@ -76,6 +80,7 @@ param(
     [switch]$AddNew,
     [switch]$OnlyCveChrome,
     [switch]$OnlyGridIcons,
+    [switch]$OnlyBusyMeasure,
     [switch]$OnlySupersedence,
     [string]$ProofFolder
 )
@@ -151,7 +156,7 @@ try {
         }
     } -ArgumentList $lockPath, $lockToken, 60, $LockWaitMinutes
     if (-not $haveLock) { throw "Another capture holds $lockPath. The wait of $LockWaitMinutes minutes is over." }
-    $runs = if ($OnlyGridIcons) { @('steps-grid-icons.ps1') } elseif ($OnlyCveChrome) { @('steps-cve-chrome.ps1') } elseif ($OnlySupersedence) { @('steps-supersedence.ps1') } else { @('steps-guide.ps1', 'steps-console-missing.ps1') }
+    $runs = if ($OnlyBusyMeasure) { @('steps-busy-measure.ps1') } elseif ($OnlyGridIcons) { @('steps-grid-icons.ps1') } elseif ($OnlyCveChrome) { @('steps-cve-chrome.ps1') } elseif ($OnlySupersedence) { @('steps-supersedence.ps1') } else { @('steps-guide.ps1', 'steps-console-missing.ps1') }
     foreach ($steps in $runs) {
         # A fresh copy for each run. Stop only the leftovers of an earlier capture of this app.
         Invoke-Command $session {
@@ -212,9 +217,9 @@ try {
     if ($duplicate.Count) { throw ("Two runs produced the same image. No image was replaced.`n" + ($duplicate -join "`n")) }
     # The Chrome CVE images come from the switch -OnlyCveChrome only. A full run neither makes them nor misses them.
     $missing = @(Get-ChildItem $images -Filter *.png | Where-Object { -not $capturedNames.Contains($_.Name) -and ($_.Name -notmatch '^(light-)?(cve-chrome|supersedence)-') } | ForEach-Object { $_.Name })
-    if ($missing.Count -and -not $OnlyCveChrome -and -not $OnlyGridIcons -and -not $OnlySupersedence) { throw ("The capture did not produce these guide images. No image was replaced.`n" + ($missing -join "`n")) }
+    if ($missing.Count -and -not $OnlyCveChrome -and -not $OnlyGridIcons -and -not $OnlyBusyMeasure -and -not $OnlySupersedence) { throw ("The capture did not produce these guide images. No image was replaced.`n" + ($missing -join "`n")) }
     # The grid icon proof keeps its images and logs in the proof folder and changes no guide image.
-    if ($OnlyGridIcons -or $OnlySupersedence) {
+    if ($OnlyGridIcons -or $OnlySupersedence -or $OnlyBusyMeasure) {
         if ($ProofFolder) {
             New-Item -ItemType Directory -Path $ProofFolder -Force | Out-Null
             foreach ($file in @(Get-ChildItem $tmp -Recurse -File | Where-Object { $_.Extension -in '.png', '.log', '.flag', '.txt' })) { Copy-Item $file.FullName (Join-Path $ProofFolder ($file.Directory.Name + '-' + $file.Name)) -Force }
