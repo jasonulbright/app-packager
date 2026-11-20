@@ -24,6 +24,8 @@
 - The buttons All applications and No applications of the supersedence setting now set the default too. The link between the buttons and the default setting was never made, so the default stayed as it was.
 - Supersedence takes only the highest older version. When that version is retired there is no older version and nothing is superseded; the next lower version is no longer taken. A pre-release (1.2.3-beta) counts as older than its release (1.2.3). A new application that names no vendor (or no publisher in Intune) matches nothing, and the log says so.
 - The Application Title page no longer tries to switch on and lock the include-version box when supersedence is on. That code never ran, because the box and the supersedence setting are on different pages, and it would have saved the forced value. The page shows a note and never writes the choice of the operator.
+- A download whose host name does not resolve now says so: "the vendor download host does not resolve", with the host name. The cause is the vendor (an outage or a removed download host), for example the Jabra Direct download host. Other download failures keep the general text.
+- PowerShell 7 (Devolutions): the latest version is the number of the pwsh-distro release (for example 7.7.0.1), not the file version of pwsh.exe or the version in Apps and features (for example 7.7.1). The log line and the parameter help now say so. Detection still reads the file version of pwsh.exe.
 - Options: the One Click section no longer needs a horizontal scroll bar at the smallest size of the window. The window is wider at its smallest size, and a handle between the list of sections and the section changes the width of the list.
 
 ## [2026.11.19.0147] - 2026-11-19
