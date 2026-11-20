@@ -94,3 +94,11 @@ Describe 'Devolutions PowerShell packager contract' {
         $script:Text | Should -Match '(?m)^WsusSupport: Yes\r?$'
     }
 }
+
+Describe 'Devolutions PowerShell version text' {
+    It 'says that the latest version is the release number, not the pwsh.exe file version' {
+        $text = Get-Content -LiteralPath $script:PackagerPath -Raw
+        $text | Should -Match 'pwsh-distro release number, not the pwsh\.exe file version'
+        $text | Should -Match 'not\s+the file version of pwsh\.exe'
+    }
+}

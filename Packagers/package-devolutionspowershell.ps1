@@ -76,7 +76,10 @@ ArpName: PowerShell 7-x64 (repackaged by Devolutions)
 
 .PARAMETER GetLatestVersionOnly
     Queries the pwsh-distro releases for the newest release that has the
-    Microsoft-payload x64 MSI, outputs its version string, and exits. No
+    Microsoft-payload x64 MSI, outputs its version string, and exits. The
+    number is the pwsh-distro release number (for example 7.7.0.1). It is not
+    the file version of pwsh.exe and not the version that Apps and features
+    shows (for example 7.7.1). No
     download or ConfigMgr changes are made.
 
 .REQUIREMENTS
@@ -168,7 +171,7 @@ function Get-DevolutionsPowerShellRelease {
     if ($LASTEXITCODE -ne 0) { throw "Failed to query the pwsh-distro releases API." }
 
     $release = Select-DevolutionsPowerShellAsset -Json $json
-    Write-Log "Latest release with the MSI  : $($release.Tag) ($($release.AssetName))" -Quiet:$Quiet
+    Write-Log "Latest release with the MSI  : $($release.Tag) ($($release.AssetName)); this is the pwsh-distro release number, not the pwsh.exe file version" -Quiet:$Quiet
     return $release
 }
 

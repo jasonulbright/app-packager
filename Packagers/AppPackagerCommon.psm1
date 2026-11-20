@@ -810,6 +810,7 @@ function Invoke-DownloadWithRetry {
     $Url = ConvertTo-SafeCurlUrl $Url
 
     $maxAttempts = 1 + $RetryCount
+    $lastCurlExit = 0
 
     for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         if ($attempt -gt 1) {
@@ -827,6 +828,7 @@ function Invoke-DownloadWithRetry {
             return
         }
 
+        $lastCurlExit = $exitCode
         Write-Log ("curl.exe failed (exit code {0}); falling back to Invoke-WebRequest." -f $exitCode) -Level WARN -Quiet:$Quiet
 
         # curl leaves a partial file when the transfer dies mid-stream; remove
@@ -867,7 +869,14 @@ function Invoke-DownloadWithRetry {
         }
     }
 
-    $msg = "Download failed after $maxAttempts attempt(s) via both curl.exe and Invoke-WebRequest: $Url"
+    # curl exit code 6: the host name does not resolve. The cause is the vendor (an outage or a removed download host).
+    if ($lastCurlExit -eq 6) {
+        $failedHost = try { ([System.Uri]$Url).Host } catch { $Url }
+        $msg = "Download failed: the vendor download host does not resolve ($failedHost). The vendor site can be down, or the vendor removed the host. Try again later. Download address: $Url"
+    }
+    else {
+        $msg = "Download failed after $maxAttempts attempt(s) via both curl.exe and Invoke-WebRequest: $Url"
+    }
     Write-Log $msg -Level ERROR -Quiet:$Quiet
     throw $msg
 }
