@@ -5655,7 +5655,9 @@ Describe 'URLs passed to curl.exe' {
     It 'names the vendor download host when its name does not resolve' {
         $out = Join-Path $TestDrive 'nohost.bin'
         $caught = $null
-        try { Invoke-DownloadWithRetry -Url 'https://download.vendor-host.invalid/setup.exe' -OutFile $out -RetryCount 0 -Quiet } catch { $caught = $_.Exception.Message }
+        $savedEap = $ErrorActionPreference
+        $ErrorActionPreference = 'Stop'
+        try { Invoke-DownloadWithRetry -Url 'https://download.vendor-host.invalid/setup.exe' -OutFile $out -RetryCount 0 -Quiet } catch { $caught = $_.Exception.Message } finally { $ErrorActionPreference = $savedEap }
         $caught | Should -Be 'Download failed: the vendor download host does not resolve (download.vendor-host.invalid). The vendor site can be down, or the vendor removed the host. Try again later. Download address: https://download.vendor-host.invalid/setup.exe'
         Test-Path -LiteralPath $out | Should -BeFalse
     }

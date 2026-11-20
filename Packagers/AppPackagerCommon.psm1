@@ -819,7 +819,11 @@ function Invoke-DownloadWithRetry {
         }
 
         $allArgs = @('-L', '--fail', '--silent', '--show-error') + $ExtraCurlArgs + @('-o', $OutFile, $Url)
-        & curl.exe @allArgs 2>$null
+        # Windows PowerShell 5.1 turns curl's stderr text into a terminating error under ErrorAction Stop,
+        # which skipped the exit code check and the fallback. Read the exit code instead.
+        $savedEap = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try { & curl.exe @allArgs 2>$null } finally { $ErrorActionPreference = $savedEap }
         $exitCode = $LASTEXITCODE
 
         if ($exitCode -eq 0) {
