@@ -65,6 +65,14 @@ A new version can supersede the older application. This is a setting of the appl
 
 **Remember this answer** applies the answer to the other applications of the run. The dialog also names an application whose title has no version yet: the version is added, so a new application is created. When the tool finds no older version, the log says so and nothing is asked. The tool does not rewrite the detection of applications that it published earlier, and it does not mark applications. An application that an earlier release marked keeps its keywords. See [Options](options.md) for the setting by application and the command line option `-SupersedenceAnswer`.
 
+#### Supersedence in Intune
+
+The same setting applies to **Publish to Intune**. After the Win32 app is published, and when you answered **Yes**, the tool looks for the older app with the same display name and the same publisher, takes the highest version below the new one, and creates one supersedence relation from the new app to it. Other titles and older versions are not changed. The version rule for Intune in Options sets the detection of the new app. In an unattended run the answer is **Skip**, with one line in the log.
+
+The relation is the only Microsoft Graph beta call of the tool. Microsoft Graph v1.0 has no resource for app relationships, so the tool reads the relations of the new app and writes them with the beta endpoint `updateRelationships`. Every other call uses v1.0. Microsoft can change a beta endpoint without notice. The write was not proven against a tenant: it is tested with a simulated Graph only. The write replaces all relations of the app, so the tool sends the dependencies and the supersedences that the app already has again.
+
+If the relation fails, the Intune app stays published, the log and the result say that the relation was not created and why, and you can add the relation in the Intune admin center. Intune does not assign the new app: assign it yourself, because a superseding app that has no assignment is ignored on the devices.
+
 ## Options and settings of this page
 
 | Setting | Effect |

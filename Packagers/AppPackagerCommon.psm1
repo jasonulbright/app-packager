@@ -9480,6 +9480,11 @@ function Get-IntuneNotesIdentityTags {
 
 # ---- supersedence of an Intune Win32 app (display name and publisher) ----
 
+# The single beta exception (owner, Q-94b). Microsoft Graph v1.0 has no resource for app relationships: mobileAppSupersedence and
+# the updateRelationships action exist only in /beta. Only the read of the relationships of the new app and the updateRelationships
+# call use this base. Every other Graph call of the app uses v1.0. Beta can change without notice.
+$script:IntuneRelationshipGraphBase = 'https://graph.microsoft.com/beta'
+
 function Get-IntuneSupersedenceApplication {
     <#
     .SYNOPSIS
@@ -9537,11 +9542,12 @@ function Invoke-IntuneSupersedenceStep {
     .SYNOPSIS
         The supersedence step of an Intune publish: the older app (same publisher and title, the highest version below this one)
         and one relationship from the new app to it. Never throws; the result is NotRun, NoOlderVersion, Applied or NotApplied.
+        The lookup of the older app uses v1.0. The relationship read and write use the beta base (the single beta exception).
     #>
     param(
         [Parameter(Mandatory)][string]$Token, [Parameter(Mandatory)][string]$AppId, [Parameter(Mandatory)][string]$NewTitle,
         [Parameter(Mandatory)][string]$NewVersion, [AllowEmptyString()][string]$Publisher = '', [Parameter(Mandatory)][string]$Mode,
-        [string]$GraphBase = 'https://graph.microsoft.com/v1.0'
+        [string]$GraphBase = 'https://graph.microsoft.com/v1.0', [string]$RelationshipGraphBase = $script:IntuneRelationshipGraphBase
     )
     $result = { param($status, $message) [pscustomobject]@{ Status = $status; Message = $message; Warnings = @(); Failure = $(if ($status -eq 'NotApplied') { $message } else { $null }) } }
     if ($Mode -eq 'Off') { return (& $result 'NotRun' '') }
@@ -9550,14 +9556,14 @@ function Invoke-IntuneSupersedenceStep {
         $apps = @(Get-IntuneSupersedenceApplication -Token $Token -BaseTitle $baseTitle -Publisher $Publisher -GraphBase $GraphBase)
         $chosen = Select-SupersedenceOldApplication -Applications @($apps | Where-Object { $_.Id -ne $AppId }) -NewTitle $NewTitle -NewVersion $NewVersion
         if ($null -eq $chosen.Old) { return (& $result 'NoOlderVersion' $chosen.Summary) }
-        $existing = @((Invoke-GraphJson -Method GET -Uri "$GraphBase/deviceAppManagement/mobileApps/$AppId/relationships" -Token $Token).value)
+        $existing = @((Invoke-GraphJson -Method GET -Uri "$RelationshipGraphBase/deviceAppManagement/mobileApps/$AppId/relationships" -Token $Token).value)
         $already = @($existing | Where-Object { [string]$_.'@odata.type' -eq '#microsoft.graph.mobileAppSupersedence' -and [string]$_.targetId -eq [string]$chosen.Old.Id -and [string]$_.targetType -eq 'child' })
         if ($already.Count -gt 0) { return (& $result 'Applied' ("{0} already supersedes {1} {2}" -f $NewTitle, $chosen.Old.Title, $chosen.Old.SoftwareVersion)) }
         $body = Get-IntuneSupersedenceBody -Existing $existing -OldAppId ([string]$chosen.Old.Id) -Mode $Mode
-        [void](Invoke-GraphJson -Method POST -Uri "$GraphBase/deviceAppManagement/mobileApps/$AppId/updateRelationships" -Token $Token -Body $body)
+        [void](Invoke-GraphJson -Method POST -Uri "$RelationshipGraphBase/deviceAppManagement/mobileApps/$AppId/updateRelationships" -Token $Token -Body $body)
         return (& $result 'Applied' ("{0} supersedes {1} {2}{3}" -f $NewTitle, $chosen.Old.Title, $chosen.Old.SoftwareVersion, $(if ($Mode -eq 'ReplaceAndUninstall') { ' and uninstalls it' } else { '' })))
     }
-    catch { return (& $result 'NotApplied' $_.Exception.Message) }
+    catch { return (& $result 'NotApplied' ("The Intune app is published. The supersedence relationship was not created: {0}" -f $_.Exception.Message)) }
 }
 
 function Publish-IntuneWin32App {
