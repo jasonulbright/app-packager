@@ -21,6 +21,9 @@
     GuideShots-app-packager. It removes the lock and its own files at the end. It never
     removes the folder C:\guide and never signs out a session.
 
+    Each run installs the latest icon pack (install-iconpack.ps1, from the app-packager-icons release) into the lab copy, so the
+    images show application icons. The lab computer needs access to GitHub for it.
+
     The lab computer needs a Configuration Manager console, a reachable SMS
     Provider and PowerShell remoting for the account in the credential script.
     Read the steps before you run them: they open dialogs of buttons that change
@@ -164,6 +167,12 @@ try {
         # The app files only. The names are root names of the repository: the folder .claude (worktrees) and the folders of tests, tools and documents stay out.
         foreach ($item in Get-ChildItem -LiteralPath $repo -Force | Where-Object { $_.Name -notin '.git', '.claude', '.github', '.vs', '.vscode', '.idea', 'node_modules', 'TestOutput', 'Logs', 'History', 'Reports', 'screenshots', 'TestResults', 'docs', 'Tests', 'tools', 'Samples', 'CATALOG-PARITY.csv' -and $_.Name -notlike '*.prefs.json' -and $_.Name -notlike '*.windowstate.json' -and $_.Name -notlike '*.lastscan.json' -and $_.Name -notlike '*.suppressions.json' -and $_.Name -notlike '*.local.*' -and $_.Name -notlike '.env*' -and $_.Name -notlike 'secrets*' -and $_.Name -notlike '*.pfx' -and $_.Name -notlike '*.key' -and $_.Name -notlike '*.png' }) {
             Copy-Item -LiteralPath $item.FullName -Destination "$root\$($item.Name)" -ToSession $session -Recurse -Force
+        }
+        # The icon pack goes in on every run, so that every image shows the icons that the users see. A run without icons stops here.
+        # The grid-icons proof makes its own pack state and is the only run that skips this step.
+        if (-not $OnlyGridIcons) {
+            $pack = Invoke-Command $session -FilePath (Join-Path $here 'install-iconpack.ps1') -ArgumentList $root
+            Write-Host ('Icon pack {0}: {1} icons in {2}' -f $pack.Tag, $pack.IconCount, $pack.Folder)
         }
         Copy-Item (Join-Path $here 'guilib.ps1') (Join-Path $root 'ui\guilib.ps1') -ToSession $session -Force
         Copy-Item (Join-Path $here 'main.ps1') (Join-Path $root 'ui\main.ps1') -ToSession $session -Force

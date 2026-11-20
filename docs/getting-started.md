@@ -56,6 +56,12 @@ The window shows the applications in a grid and the actions in a sidebar. The lo
 
 See [Main window](core/main-window.md) for each control.
 
+### Download the icon pack
+
+The install does not carry the application icons. The grid shows a gray placeholder in the first column until you download the icon pack. Open **Options**, select **Tools**, and select **Download** on the **Icon pack** line. The tool reads the latest release of `jasonulbright/app-packager-icons`, checks the SHA-256 of the pack and unpacks it into `Packagers\Icons`. The grid then shows the icon of each application at once. Run **Download** again after a new release of the pack: it replaces the icons and the window stays open. On a computer with no access to `api.github.com`, use **Install from file** with the `icon-pack.zip` of the release.
+
+![The main window with the application icons](images/check-latest-done.png)
+
 ## Options and settings of this page
 
 | Setting | Meaning |

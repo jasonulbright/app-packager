@@ -16,6 +16,7 @@ Use it after a change that alters a window, and before a release.
 
 - A lab computer with the Configuration Manager console, an SMS Provider that you can read, access to the vendor sites and to GitHub, and PowerShell remoting for an account.
 - A script, outside the repository, that sets `$LabCredential`.
+- Access from the lab computer to `api.github.com` and `github.com`. Every run installs the latest icon pack into its copy of the tool (`tools\guide-capture\install-iconpack.ps1`: it reads the latest release of `jasonulbright/app-packager-icons`, checks the SHA-256 and unpacks it into `Packagers\Icons`), so that every image shows the application icons as the users see them. The run stops when the pack cannot be installed. The switch `-OnlyGridIcons` is the only run that skips this step.
 - A domain account that has an interactive session on the lab computer.
 - Lab data only. The capture reads the site and downloads one installer to a local folder of the lab computer. The File Share Root of the capture points to a server that does not exist, so Publish to ConfigMgr stops at its share check. The capture never publishes to Intune or WSUS, never saves a Workbench profile and never starts a One Click run.
 

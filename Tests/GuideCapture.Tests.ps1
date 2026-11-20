@@ -86,4 +86,18 @@ Describe 'The capture tool takes the lab lock and keeps to its own folder' {
         $script:Code | Should -Match "-notin '\.git', '\.claude'"
         $script:Code | Should -Match 'Get-ChildItem -LiteralPath \$repo -Force'
     }
+
+    It 'installs the latest icon pack into the lab copy before every run except the grid icon proof' {
+        $script:Code | Should -Match 'install-iconpack\.ps1'
+        $script:Code | Should -Match 'if \(-not \$OnlyGridIcons\)'
+        $script:Code.IndexOf('install-iconpack.ps1') | Should -BeGreaterThan $script:Code.IndexOf("Get-ChildItem -LiteralPath `$repo -Force")
+    }
+
+    It 'the icon pack script checks the SHA-256 of the zip and fails when no icon is extracted' {
+        $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..	ools\guide-capture\install-iconpack.ps1') -Raw
+        $text | Should -Match 'jasonulbright/app-packager-icons'
+        $text | Should -Match 'Get-FileHash'
+        $text | Should -Match 'checksum did not match'
+        $text | Should -Match 'holds no icon'
+    }
 }
