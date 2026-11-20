@@ -5808,9 +5808,50 @@ $dataGrid.Add_LoadingRow({
                 $count = [System.Windows.Media.VisualTreeHelper]::GetChildrenCount($node)
                 for ($i = 0; $i -lt $count; $i++) { $queue.Enqueue([System.Windows.Media.VisualTreeHelper]::GetChild($node, $i)) }
             }
-            if ($image) { $image.Source = $source }
+            if ($image -and $null -eq $image.Source) { $image.Source = $source }
         }.GetNewClosure()
         [void]$dataGrid.Dispatcher.BeginInvoke([System.Windows.Threading.DispatcherPriority]::Background, [Action]$show)
+    })
+
+function Get-GridSignature {
+    # One string that changes when a value a grid column shows changes. The busy
+    # timer compares it so an idle tick does not rebuild the rows.
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Rows)
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($r in $Rows) {
+        [void]$sb.Append([string]$r.Selected).Append('|').Append([string]$r.Application).Append('|').Append([string]$r.CurrentVersion).Append('|').Append([string]$r.LatestVersion).Append('|').Append([string]$r.Status)
+        [void]$sb.Append('|').Append([string]$r.CveCount).Append('|').Append([string]$r.CveCvss).Append('|').Append([string]$r.CveKev).Append('|').Append([string]$r.CveFixed).Append('|').Append([string]$r.CveNewest)
+        [void]$sb.Append('|').Append([string]$r.CveEpss).Append('|').Append([string]$r.CveUpdated).Append('|').Append([string]$r.CveChecked).Append('|').Append([string]$r.LastChecked).Append("`n")
+    }
+    return $sb.ToString()
+}
+
+function Update-GridWhenChanged {
+    # Items.Refresh() rebuilds every row, and a rebuilt row shows its icon blank
+    # until it is set again: refreshing on each busy tick made the icons blink and
+    # cost CPU. Refresh only when a shown value changed since the last refresh.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Refreshes the grid view only.')]
+    param(
+        [Parameter(Mandatory)]$Grid,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Rows
+    )
+    $signature = Get-GridSignature -Rows $Rows
+    if ($signature -ceq $script:GridSignature) { return $false }
+    $script:GridSignature = $signature
+    $Grid.Items.Refresh()
+    return $true
+}
+
+# A rebuilt row gets its icon when its Image loads, before the first render, so a
+# refresh does not flash empty icons. The LoadingRow handler above stays as the
+# fallback for a cell that loads without the event.
+$dataGrid.AddHandler([System.Windows.FrameworkElement]::LoadedEvent, [System.Windows.RoutedEventHandler]{
+        param($sender, $e)
+        $image = $e.OriginalSource
+        if ($image -isnot [System.Windows.Controls.Image] -or $null -ne $image.Source) { return }
+        $item = $image.DataContext
+        if (-not $item -or -not $item.PSObject.Properties['Script']) { return }
+        $image.Source = Get-GridIconSource -ScriptName ([string]$item.Script)
     })
 
 function Update-GridIcons {
@@ -11384,7 +11425,7 @@ function Invoke-MultiAppPipeline {
         }
 
         # Re-render the grid so row.Status flips done in the bg are visible.
-        try { $dataGrid.Items.Refresh() } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
+        try { [void](Update-GridWhenChanged -Grid $dataGrid -Rows @($script:PackagerData)) } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
         if ($script:BgContext -and $script:BgContext.ContainsKey('OneClickTick')) { try { & $script:BgContext.OneClickTick } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ } }
 
         if ($script:BgState -and $script:BgState.Done) {
