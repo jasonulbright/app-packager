@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [2026.11.20.0150] - 2026-11-20
+
+## 317 packagers
+
+### Fixed
+
+- Fix the grid icons blinking while a long action shows the busy spinner.
+- Cut the processor use of the busy spinner with a long application list.
+
 ## [2026.11.20.0149] - 2026-11-20
 
 ## 317 packagers
