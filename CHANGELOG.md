@@ -2,9 +2,13 @@
 
 ## [Unreleased]
 
+## [2026.11.20.0149] - 2026-11-20
+
+## 317 packagers
+
 ### Changed
 
-- Controls of the main window, the Application Workbench and the dialogs that had no tooltip now have one, and the column headers that need an explanation have a tooltip too. A test fails when a named control has no tooltip.
+- Add tooltips to controls of the main window, the Application Workbench and dialogs.
 
 ## [2026.11.20.0148] - 2026-11-20
 
