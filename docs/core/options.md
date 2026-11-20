@@ -188,7 +188,7 @@ The Authenticode signing of the scripts that AppPackager stages: which kinds are
 
 The detected **Console**, **Content Prep Tool**, **7-Zip** and **Icon pack**. The values are read-only. The **Icon pack** line has two buttons: **Download** gets the latest icon pack from the `app-packager-icons` release, checks its SHA-256 and unpacks it into `Packagers\Icons`; **Install from file** does the same from a local or network `icon-pack.zip`. Download the pack once after the install and again after a new release of the pack, so that the grid shows the application icons.
 
-**GitHub Authentication** shows how AppPackager signs in to the GitHub API and how many requests are left this hour. The optional **GitHub token** field stores a personal access token with DPAPI for the current Windows user. The order is `GITHUB_TOKEN`, `GH_TOKEN`, the saved token, then the `gh` sign-in. With a token the limit is 5000 requests per hour; without one it is 60.
+**GitHub Authentication** shows how AppPackager signs in to the GitHub API and how many requests are left this hour. The optional **GitHub token** field stores a personal access token with DPAPI for the current Windows user. The order is the saved token, then `APP_PACKAGER_GITHUB_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN`, then the `gh` sign-in, so a token that you type here overrides the others. The **Status** line names the source in use, in the same words as App Packager Desktop: `Signed in via GitHub CLI as <account>`, `Token saved in settings as <account>`, `Environment variable GITHUB_TOKEN as <account>` or `Not authenticated: 60 requests per hour`. The note under the token box says which source provides the token and that a saved token wins. A token that GitHub refuses shows `Token rejected (401)`; the packagers do not fall back to anonymous calls. With a token the limit is 5000 requests per hour; without one it is 60. The app finds `gh.exe` on the PATH and, when the PATH of the process lacks it (a shortcut or the suite launcher started the app), in the Program Files, WinGet, scoop and Chocolatey folders.
 
 ### About
 
@@ -252,7 +252,7 @@ Without the console, the ConfigMgr section shows `Not detected` for it. The butt
 | Message or symptom | Cause | Fix |
 |---|---|---|
 | **Console** shows `Not detected`. | The console is not installed, or its module is not found. | Install the console, or set `SMS_ADMIN_UI_PATH` to its `bin\i386` folder. Start the tool again. |
-| **GitHub Authentication** shows `Anonymous`. | No token is set. | Type a **GitHub token** in Options, Tools, set `GITHUB_TOKEN` or `GH_TOKEN`, or run `gh auth login`. |
+| **GitHub Authentication** shows `Not authenticated`. | No token is set. | Type a **GitHub token** in Options, Tools, set `GITHUB_TOKEN` or `GH_TOKEN`, or run `gh auth login`. |
 | A signing test fails. | No certificate is chosen, or the key needs a PIN. | Choose a certificate by thumbprint. |
 | The save stops with a message about a port. | The port is not a whole number from 1 to 65535. | Correct the port. |
 | The import of a configuration.xml fails. | The file is not well-formed XML, or it has no `Add` element with a `Product`. | Correct the file. The message names the reason. |

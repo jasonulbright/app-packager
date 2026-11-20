@@ -21,6 +21,12 @@
         'Get-DeploymentLauncherCommandLine'
         'Resolve-DeploymentTypeTiming'
         'Get-GitHubApiCurlArgs'
+        'Find-GitHubCli'
+        'Get-GitHubApiToken'
+        'Get-GitHubSourcePhrase'
+        'Format-GitHubAuthStatus'
+        'Get-GitHubApiAuthStatus'
+        'Get-GitHubTokenBoxHint'
 
         # Environment / pre-flight
         'Test-IsAdmin'

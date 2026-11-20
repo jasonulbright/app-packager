@@ -592,6 +592,76 @@ function Select-GitHubReleaseJson {
     return (ConvertTo-Json -InputObject $ordered[0] -Depth 20 -Compress)
 }
 Export-ModuleMember -Function Select-GitHubReleaseJson
+function Find-GitHubCli {
+    <#
+    .SYNOPSIS
+        The path of gh.exe, or '' when the GitHub CLI is not installed for this user.
+    .DESCRIPTION
+        Looks on the PATH of this process first. A program that the suite launcher or a shortcut started can hold a PATH that
+        lacks the folder of gh.exe (the installer changes the PATH of new sessions only), so the function then reads the
+        machine and user PATH from the registry and tries the folders where the installers of the GitHub CLI put it:
+        Program Files, the user profile (winget, scoop) and the Chocolatey folder.
+    #>
+    $found = Get-Command -Name 'gh.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($found) { return [string]$found.Source }
+    $folders = New-Object System.Collections.Generic.List[string]
+    foreach ($scope in 'Machine', 'User') {
+        try {
+            $value = [Environment]::GetEnvironmentVariable('Path', $scope)
+            if ($value) { foreach ($part in $value.Split(';')) { if ($part.Trim()) { $folders.Add([Environment]::ExpandEnvironmentVariables($part.Trim())) } } }
+        }
+        catch { <# A PATH that cannot be read adds no folder. #> $null = $_ }
+    }
+    foreach ($root in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) { if ($root) { $folders.Add((Join-Path $root 'GitHub CLI')) } }
+    if ($env:LOCALAPPDATA) {
+        $folders.Add((Join-Path $env:LOCALAPPDATA 'Programs\GitHub CLI'))
+        $folders.Add((Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links'))
+    }
+    if ($env:USERPROFILE) { $folders.Add((Join-Path $env:USERPROFILE 'scoop\shims')) }
+    if ($env:ChocolateyInstall) { $folders.Add((Join-Path $env:ChocolateyInstall 'bin')) }
+    foreach ($folder in $folders) {
+        $candidate = Join-Path $folder 'gh.exe'
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+    }
+    return ''
+}
+
+function Get-GitHubApiToken {
+    <#
+    .SYNOPSIS
+        The GitHub token that every GitHub call of the app uses, and where it comes from.
+    .DESCRIPTION
+        The one place that resolves the token: the packagers (through Get-GitHubApiCurlArgs) and the GitHub status in Options
+        both call it, so the status cannot disagree with the calls. Order: the token saved in Options, Tools (the operator
+        typed it, so it wins), APP_PACKAGER_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN, then the sign-in of the GitHub CLI
+        (gh auth token). Returns Token and Source; Source is 'Settings', the variable name, 'gh auth login', or '' with no token.
+        A token is never logged. The CLI lookup runs once per process; -Refresh runs it again.
+    #>
+    [CmdletBinding()]
+    param([switch]$Refresh)
+
+    $stored = Get-StoredGitHubToken
+    if (-not [string]::IsNullOrWhiteSpace($stored)) { return [pscustomobject]@{ Token = $stored.Trim(); Source = 'Settings' } }
+    foreach ($name in 'APP_PACKAGER_GITHUB_TOKEN', 'GITHUB_TOKEN', 'GH_TOKEN') {
+        $value = [Environment]::GetEnvironmentVariable($name)
+        if (-not [string]::IsNullOrWhiteSpace($value)) { return [pscustomobject]@{ Token = $value.Trim(); Source = $name } }
+    }
+    if ($Refresh) { $script:GitHubCliToken = $null }
+    if ($null -eq $script:GitHubCliToken) {
+        $script:GitHubCliToken = ''
+        $gh = Find-GitHubCli
+        if ($gh) {
+            try {
+                $cliToken = (& $gh auth token 2>$null | Select-Object -First 1)
+                if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($cliToken)) { $script:GitHubCliToken = [string]$cliToken }
+            }
+            catch { $script:GitHubCliToken = '' }
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($script:GitHubCliToken)) { return [pscustomobject]@{ Token = $script:GitHubCliToken.Trim(); Source = 'gh auth login' } }
+    return [pscustomobject]@{ Token = ''; Source = '' }
+}
+
 function Get-GitHubApiCurlArgs {
     <#
     .SYNOPSIS
@@ -599,35 +669,135 @@ function Get-GitHubApiCurlArgs {
     .DESCRIPTION
         The unauthenticated GitHub API allows 60 requests per hour per source
         address; a version sweep over the catalog issues more than that. The
-        token comes from GITHUB_TOKEN, then GH_TOKEN, then the token that
-        Options, Tools saved, then the GitHub CLI's stored sign-in (gh auth
-        token) when gh.exe is on the PATH and signed in; with a token the call carries it as a bearer token and the limit
+        token comes from Get-GitHubApiToken (the token saved in Options, Tools,
+        then APP_PACKAGER_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN, then the GitHub CLI's
+        stored sign-in); with a token the call carries it as a bearer token and the limit
         is 5000 per hour. Returns an empty array when no token is available,
         so callers can splat the result unconditionally. The CLI lookup runs
-        once per process.
+        once per process. A token that GitHub refuses is not dropped: the call fails with 401, and the
+        GitHub row in Options, Tools says so.
     #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Returns the argument list for one call.')]
     param()
 
-    $token = $env:GITHUB_TOKEN
-    if ([string]::IsNullOrWhiteSpace($token)) { $token = $env:GH_TOKEN }
-    if ([string]::IsNullOrWhiteSpace($token)) { $token = Get-StoredGitHubToken }
-    if ([string]::IsNullOrWhiteSpace($token)) {
-        if ($null -eq $script:GitHubCliToken) {
-            $script:GitHubCliToken = ''
-            $gh = Get-Command -Name 'gh.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($gh) {
-                try {
-                    $cliToken = (& $gh.Source auth token 2>$null | Select-Object -First 1)
-                    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($cliToken)) { $script:GitHubCliToken = [string]$cliToken }
-                }
-                catch { $script:GitHubCliToken = '' }
-            }
-        }
-        $token = $script:GitHubCliToken
-    }
+    $token = (Get-GitHubApiToken).Token
     if ([string]::IsNullOrWhiteSpace($token)) { return @() }
     return @('-H', ('Authorization: Bearer ' + $token.Trim()), '-H', 'X-GitHub-Api-Version: 2022-11-28')
+}
+
+function Get-GitHubSourcePhrase {
+    <#
+    .SYNOPSIS
+        The words that name a token source (the same words as in App Packager Desktop).
+    #>
+    param([AllowEmptyString()][string]$Source)
+    switch ($Source) {
+        '' { return 'No token' }
+        'Settings' { return 'Token saved in settings' }
+        'gh auth login' { return 'GitHub CLI sign-in' }
+        default { return ('Environment variable ' + $Source) }
+    }
+}
+
+function Format-GitHubAuthStatus {
+    <#
+    .SYNOPSIS
+        The one status text of the GitHub sign-in, with the wording of App Packager Desktop.
+    .DESCRIPTION
+        Examples: 'Signed in via GitHub CLI as octocat (5,000 requests per hour, 4,991 remaining)',
+        'Token saved in settings as octocat (...)', 'Environment variable GITHUB_TOKEN as octocat (...)',
+        'Not authenticated: 60 requests per hour (57 remaining)'. A token that GitHub refuses (401) and a blocked request (403) say so.
+    #>
+    param([Parameter(Mandatory)]$Status)
+    $culture = [cultureinfo]::InvariantCulture
+    $phrase = Get-GitHubSourcePhrase -Source ([string]$Status.Source)
+    $suffix = $(if ([string]::IsNullOrWhiteSpace([string]$Status.Error)) { '' } else { ' (' + [string]$Status.Error + ')' })
+    if ([int]$Status.HttpStatus -eq 401) { return ('Token rejected (401): GitHub refused the credential (' + $phrase + ')' + $suffix + '. Replace the token, remove it, or sign in with the GitHub CLI again.') }
+    if ([int]$Status.HttpStatus -eq 403) { return ('GitHub refused the request (403)' + $suffix + '. ' + $(if ($Status.Authenticated) { $phrase + ' is in use' } else { 'No token is in use' }) + '.') }
+    if ($Status.Error) { return ('Unavailable - ' + [string]$Status.Error) }
+    $limitText = ''
+    if ($Status.Limit) { $limitText = ([int]$Status.Limit).ToString('N0', $culture) }
+    $remainingText = ''
+    if ($Status.Remaining) { $remainingText = ([int]$Status.Remaining).ToString('N0', $culture) }
+    if ($Status.Authenticated) {
+        $quota = ''
+        if ($limitText) { $quota = ' (' + $limitText + ' requests per hour' + $(if ($remainingText) { ', ' + $remainingText + ' remaining' } else { '' }) + ')' }
+        $who = $(if ($Status.Account) { ' as ' + [string]$Status.Account } else { '' })
+        if ([string]$Status.Source -eq 'gh auth login') { return ('Signed in via GitHub CLI' + $who + $quota) }
+        return ($phrase + $who + $quota)
+    }
+    if (-not $limitText) { $limitText = '60' }
+    return ('Not authenticated: ' + $limitText + ' requests per hour' + $(if ($remainingText) { ' (' + $remainingText + ' remaining)' } else { '' }))
+}
+
+function Get-GitHubApiAuthStatus {
+    <#
+    .SYNOPSIS
+        Asks api.github.com once what the token of the app is worth, and returns the status for Options.
+    .DESCRIPTION
+        Uses Get-GitHubApiToken, the function that the packagers use, so the status is the state of the real calls. One call
+        to /rate_limit gives the limit and the HTTP status (401 for a token that GitHub refuses, 403 for a blocked request);
+        with a token one call to /user names the account. The answer is cached for a minute; -Force asks again. The token is
+        never written to a log. The result has Authenticated, Source, Account, Limit, Remaining, HttpStatus and Error;
+        Format-GitHubAuthStatus turns it into the text.
+    #>
+    [CmdletBinding()]
+    param([switch]$Force)
+
+    if (-not $Force -and $script:GitHubStatusCache -and ([DateTime]::UtcNow - $script:GitHubStatusCacheTime).TotalSeconds -lt 60) { return $script:GitHubStatusCache }
+    $info = Get-GitHubApiToken -Refresh:$Force
+    $status = [pscustomobject]@{ Authenticated = (-not [string]::IsNullOrWhiteSpace($info.Token)); Source = [string]$info.Source; Account = ''; Limit = ''; Remaining = ''; HttpStatus = 0; Error = '' }
+    $curl = Get-Command curl.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $curl) {
+        $status.Error = 'curl.exe was not found'
+        return $status
+    }
+    $call = {
+        param($Url)
+        $lines = @(& $curl.Source -s -i --max-time 8 -A 'app-packager' @(Get-GitHubApiCurlArgs) $Url 2>$null)
+        $text = ($lines -join "`n") -replace "`r", ''
+        $code = 0
+        if ($text -match '(?s)^HTTP/\S+\s+(\d{3})') { $code = [int]$Matches[1] }
+        # With a proxy or a redirect the text can hold more than one header block; the last block is the answer.
+        $headerEnd = $text.LastIndexOf("`n`n")
+        $head = $(if ($headerEnd -ge 0) { $text.Substring(0, $headerEnd) } else { $text })
+        $body = $(if ($headerEnd -ge 0) { $text.Substring($headerEnd).Trim() } else { '' })
+        [pscustomobject]@{ Code = $code; Head = $head; Body = $body }
+    }
+    try {
+        $rate = & $call 'https://api.github.com/rate_limit'
+        if ($rate.Code -eq 0) { $status.Error = 'api.github.com did not answer'; return $status }
+        if ($rate.Head -match '(?im)^x-ratelimit-limit:\s*(\d+)') { $status.Limit = $Matches[1] }
+        if ($rate.Head -match '(?im)^x-ratelimit-remaining:\s*(\d+)') { $status.Remaining = $Matches[1] }
+        if ($rate.Code -in 401, 403) {
+            $status.HttpStatus = $rate.Code
+            try { $status.Error = [string](ConvertFrom-Json -InputObject $rate.Body -ErrorAction Stop).message } catch { <# The message is optional text. #> $null = $_ }
+        }
+        elseif ($rate.Code -ne 200) { $status.Error = ('api.github.com answered ' + $rate.Code) }
+        elseif ($status.Authenticated) {
+            $user = & $call 'https://api.github.com/user'
+            if ($user.Code -eq 200) { try { $status.Account = [string](ConvertFrom-Json -InputObject $user.Body -ErrorAction Stop).login } catch { <# The account name is optional text. #> $null = $_ } }
+            elseif ($user.Code -in 401, 403) {
+                $status.HttpStatus = $user.Code
+                try { $status.Error = [string](ConvertFrom-Json -InputObject $user.Body -ErrorAction Stop).message } catch { <# The message is optional text. #> $null = $_ }
+            }
+        }
+    }
+    catch { $status.Error = 'the status could not be read' }
+    $script:GitHubStatusCache = $status
+    $script:GitHubStatusCacheTime = [DateTime]::UtcNow
+    return $status
+}
+
+function Get-GitHubTokenBoxHint {
+    <#
+    .SYNOPSIS
+        The note under the token box in Options: which source is in use and that a typed token overrides it.
+    #>
+    param([bool]$HasSavedToken, [AllowEmptyString()][string]$Source)
+    if ($HasSavedToken) { return 'A token is saved here (encrypted for the current Windows user). It wins over the environment variables and the GitHub CLI. Leave the box empty to keep it.' }
+    if ([string]::IsNullOrEmpty($Source)) { return 'No token is in use. Type one here, set GITHUB_TOKEN, or sign in with the GitHub CLI (gh auth login).' }
+    return ((Get-GitHubSourcePhrase -Source $Source) + ' provides the token now. A token you save here wins over it.')
 }
 
 function ConvertTo-SafeCurlUrl {
