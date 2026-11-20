@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [2026.11.20.0151] - 2026-11-20
+
+## 317 packagers
+
+### Changed
+
+- Retake the guide images with the grid icons.
+
 ## [2026.11.20.0150] - 2026-11-20
 
 ## 317 packagers
