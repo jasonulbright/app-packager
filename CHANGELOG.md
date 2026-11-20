@@ -2,32 +2,36 @@
 
 ## [Unreleased]
 
+## [2026.11.20.0148] - 2026-11-20
+
+## 317 packagers
+
 ### Added
 
-- Add the Power BI Desktop (optimized for Power BI Report Server) packager. It is the application that report authors use to create reports for a Power BI Report Server, and it installs next to Power BI Desktop. The version comes from the change log of Power BI Report Server on Microsoft Learn and the installer from the Download Center page of Power BI Report Server. The stage checks the Microsoft signature and stops when the installer reports another version than the change log. NVD has no CPE for this edition, so the CVE columns show `CPE missing`.
+- Add the Power BI Desktop (Report Server) packager.
 
 ### Changed
 
-- The Discover unmanaged software tooltip and README say devices where the hardware inventory lists the installed apps.
-- Intune supersedence now calls the Microsoft Graph beta endpoint. Microsoft Graph v1.0 has no resource for app relationships, so the earlier v1.0 call could not work against a tenant. The read of the relations of the new app and the updateRelationships call use beta; every other call uses v1.0. This is the single beta exception: Microsoft can change a beta endpoint without notice, and the write is not proven against a tenant (tested with a simulated Graph only). The relations that the app already has (dependencies and supersedences) are read and sent again, and a failed relation leaves the app published with a clear message.
-- Supersedence is a setting of the application, off by default. Options, Packaging, Supersedence has the default, a choice for each application and the buttons All applications, Selected applications and No applications. An application with supersedence on keeps the version in its name. At Package the tool looks for the older application with the same title and vendor (the highest version below the new one) and asks Yes, Skip or No before it applies the supersedence; Remember this answer covers the rest of the run. The older application is not changed. One Click and the command line apply none unless `-SupersedenceAnswer Yes` is given. With ConfigMgr and Intune the answer also sets the Intune supersedence of the app. The old settings keep their names and values, so no setting is changed for you; an application with supersedence on is now asked at Package and its name carries the version.
-- TeamViewer Host installs the MSI instead of the EXE. TeamViewer gives the MSI only in the Management Console, so you put it in the installer source folder of the packager (Options, Applications, Local Installer Sources; file `TeamViewer_Host*.msi`). The version is the ProductVersion of that file, and detection reads the Add/Remove Programs entry. The four TeamViewer Host options (API token, Custom config ID, Assignment options, Desktop shortcut) are MSI properties again.
-- TortoiseSVN takes its x64 MSI from the installer source folder (file `TortoiseSVN-*-x64-*.msi`). The vendor site now blocks scripted requests with a bot protection, and the packager does not try to get around it. The version is the ProductVersion of the file (three parts).
-- Check Latest for these two packagers reports the version of the MSI in the installer source folder. With no folder, a missing folder or no matching file it fails with a message that says there is no web source and names the file to put there (and the folder, when one is set).
-- Tableau Desktop, Reader and Prep Builder download from the esdalt path first and try the tssoftware path when the first one fails for any reason: a refused or missing file (403, 404, another HTTP error), a connection failure, a redirect to a sign-in page, or a body that is no installer. The log says which address was used and why the first was skipped; the run fails only when both fail, and the message lists both reasons. Prep uses `esdalt/tableau_prep/<release>/TableauPrep-<release with hyphens>.exe`.
+- Change supersedence to a setting for each application, with a Yes, Skip or No question at Package.
+- Change Intune supersedence to call the Microsoft Graph beta relationship endpoint.
+- Change TeamViewer Host to install the MSI from the installer source folder.
+- Change TortoiseSVN to take its x64 MSI from the installer source folder.
+- Change the Tableau packagers to try the second download path when the first fails.
+- Change window wording to follow the ConfigMgr lexicon.
+- Change the Discover unmanaged software tooltip and README wording.
 
 ### Removed
 
-- Apply Supersedence, Rewrite Old Versions and Restore Old Versions are gone from the sidebar, with the rewrite, the restore, the One Click supersedence pass, Use as old application and the options `-RewriteOldVersions`, `-Yes`, `-IdentityMarker`, `-Json` and `-ShownPlan` of Invoke-AppPackagerBuild. The tool no longer writes an identity marker into the keywords of an application; markers that exist stay as they are. Applications that an earlier rewrite changed stay as they are.
+- Remove Apply Supersedence, Rewrite Old Versions and Restore Old Versions from the sidebar.
 
 ### Fixed
 
-- The buttons All applications and No applications of the supersedence setting now set the default too. The link between the buttons and the default setting was never made, so the default stayed as it was.
-- Supersedence takes only the highest older version. When that version is retired there is no older version and nothing is superseded; the next lower version is no longer taken. A pre-release (1.2.3-beta) counts as older than its release (1.2.3). A new application that names no vendor (or no publisher in Intune) matches nothing, and the log says so.
-- The Application Title page no longer tries to switch on and lock the include-version box when supersedence is on. That code never ran, because the box and the supersedence setting are on different pages, and it would have saved the forced value. The page shows a note and never writes the choice of the operator.
-- A download whose host name does not resolve now says so: "the vendor download host does not resolve", with the host name. The cause is the vendor (an outage or a removed download host), for example the Jabra Direct download host. Other download failures keep the general text.
-- PowerShell 7 (Devolutions): the latest version is the number of the pwsh-distro release (for example 7.7.0.1), not the file version of pwsh.exe or the version in Apps and features (for example 7.7.1). The log line and the parameter help now say so. Detection still reads the file version of pwsh.exe.
-- Options: the One Click section no longer needs a horizontal scroll bar at the smallest size of the window. The window is wider at its smallest size, and a handle between the list of sections and the section changes the width of the list.
+- Fix the All applications and No applications buttons of the supersedence setting.
+- Fix supersedence to take only the highest older version.
+- Fix the Application Title page note when supersedence is on.
+- Fix the download error for a vendor host that does not resolve.
+- Fix the PowerShell 7 (Devolutions) latest version text.
+- Fix the Options One Click section horizontal scroll bar at the smallest window size.
 
 ## [2026.11.19.0147] - 2026-11-19
 
