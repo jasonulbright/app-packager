@@ -5555,7 +5555,7 @@ $toggleDebugCols = $window.FindName('toggleDebugCols')
 $txtGridFilter = $window.FindName('txtGridFilter')
 $txtComment      = $window.FindName('txtComment')
 # Tooltips of the column headers. The key is the x:Name of the grid, then the header text of the column.
-# Set-GridHeaderTip reads this table. Tests/Tooltip.Guard.Tests.ps1 checks that each header exists.
+# Set-GridHeaderTip reads this table. A probe that loads only some functions of this script has neither, so the calls in the dialogs check for the function. Tests/Tooltip.Guard.Tests.ps1 checks that each header exists.
 $script:GridHeaderTip = @{
     dataGrid = @{
         'Current (ConfigMgr)' = 'The version that ConfigMgr has for the application.'
@@ -5565,7 +5565,7 @@ $script:GridHeaderTip = @{
         'Max CVSS'            = 'The highest CVSS score of those CVEs.'
         'KEV'                 = 'Yes when a CVE is in the Known Exploited Vulnerabilities catalog.'
         'Fixed by Update'     = 'How many of those CVEs the latest version removes.'
-        'Newest CVE'          = 'The most recently published CVE.'
+        'Newest CVE'          = 'The most recent publication date among those CVEs.'
         'Max EPSS'            = 'The highest EPSS score, the probability that a CVE is exploited.'
         'NVD Updated'         = 'When the NVD last changed the CVE data.'
         'CVEs Checked (UTC)'  = 'When the CVE check last ran.'
@@ -5634,6 +5634,8 @@ $script:GridHeaderTip = @{
 function Set-GridHeaderTip {
     # Puts the tooltip of each listed column on its header. The header style of the column keeps the style that it had.
     param([Parameter(Mandatory)][System.Windows.Controls.DataGrid]$Grid)
+    # A probe that loads only the functions of this script has no table.
+    if (-not $script:GridHeaderTip) { return }
     $tips = $script:GridHeaderTip[[string]$Grid.Name]
     if (-not $tips) { return }
     $headerType = [System.Windows.Controls.Primitives.DataGridColumnHeader]
@@ -6533,7 +6535,7 @@ function New-AppFlowPanel {
     $cboAction   = $element.FindName('cboAction')
     $toggleForce = $element.FindName('toggleForce')
     $dgApps      = $element.FindName('dgApps')
-    Set-GridHeaderTip -Grid $dgApps
+    if (Get-Command Set-GridHeaderTip -ErrorAction Ignore) { Set-GridHeaderTip -Grid $dgApps }
     $chkOneClickMecm   = $element.FindName('chkOneClickMecm')
     $chkOneClickWsus   = $element.FindName('chkOneClickWsus')
     $chkOneClickIntune = $element.FindName('chkOneClickIntune')
@@ -11682,7 +11684,7 @@ function Show-DropIntakeDialog {
             $btnStagePkg.ToolTip = 'Confirm the predicted values first. Packaging a wrong silent switch deploys a broken app.'
         }
         else {
-            $btnStagePkg.ToolTip = $null
+            $btnStagePkg.ToolTip = 'Stage the installer, then build the ConfigMgr application.'
         }
     }
     & $updateGate
@@ -12351,7 +12353,7 @@ function Show-DiscoveryDialog {
     $txtStatusLine = $dlg.FindName('txtDiscoverStatus')
     $txtNote = $dlg.FindName('txtDiscoverNote')
     $grid = $dlg.FindName('gridDiscover')
-    Set-GridHeaderTip -Grid $grid
+    if (Get-Command Set-GridHeaderTip -ErrorAction Ignore) { Set-GridHeaderTip -Grid $grid }
     $btnEnableSelected = $dlg.FindName('btnEnableSelected')
     $btnEnableAll = $dlg.FindName('btnEnableAll')
     $btnNotNow = $dlg.FindName('btnNotNow')
@@ -13369,7 +13371,7 @@ function Show-CveDetailDialog {
     $txtNote = $dlg.FindName('txtCveNote')
     $productLinks = $dlg.FindName('productLinks')
     $gridCves = $dlg.FindName('gridCves')
-    Set-GridHeaderTip -Grid $gridCves
+    if (Get-Command Set-GridHeaderTip -ErrorAction Ignore) { Set-GridHeaderTip -Grid $gridCves }
     $btnRefresh = $dlg.FindName('btnRefresh')
     $btnCopy = $dlg.FindName('btnCopy')
     $btnExport = $dlg.FindName('btnExport')
@@ -13704,7 +13706,7 @@ function Show-OneClickPlanDialog {
     Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
 
     $gridPlan = $dlg.FindName('gridPlan')
-    Set-GridHeaderTip -Grid $gridPlan
+    if (Get-Command Set-GridHeaderTip -ErrorAction Ignore) { Set-GridHeaderTip -Grid $gridPlan }
     $txtSummary = $dlg.FindName('txtPlanSummary')
     $txtAction = $dlg.FindName('txtPlanAction')
     $txtScope = $dlg.FindName('txtPlanScope')
@@ -14789,7 +14791,7 @@ function Show-ApplicationWorkbench {
     $cboDetFileProperty    = & $ctl 'cboDetFileProperty'
     $cboDetLogic           = & $ctl 'cboDetLogic'
     $dgDetClauses          = & $ctl 'dgDetClauses'
-    Set-GridHeaderTip -Grid $dgDetClauses
+    if (Get-Command Set-GridHeaderTip -ErrorAction Ignore) { Set-GridHeaderTip -Grid $dgDetClauses }
     $btnDetClauseAdd       = & $ctl 'btnDetClauseAdd'
     $btnDetClauseRemove    = & $ctl 'btnDetClauseRemove'
     $txtIntuneContract     = & $ctl 'txtIntuneContract'
@@ -14804,7 +14806,7 @@ function Show-ApplicationWorkbench {
     $btnReqReplace    = & $ctl 'btnReqReplace'
     $btnReqRemove     = & $ctl 'btnReqRemove'
     $dgRequirements   = & $ctl 'dgRequirements'
-    Set-GridHeaderTip -Grid $dgRequirements
+    if (Get-Command Set-GridHeaderTip -ErrorAction Ignore) { Set-GridHeaderTip -Grid $dgRequirements }
     $cboVariantSplit  = & $ctl 'cboVariantSplit'
     $cboInstallForMode = & $ctl 'cboInstallForMode'
     $txtSiteArchGc      = & $ctl 'txtSiteArchGc'
@@ -14844,7 +14846,7 @@ function Show-ApplicationWorkbench {
     foreach ($tb in @($txtSiteArchGc, $txtSiteLangGc, $txtSiteVpnGc, $txtSiteVpnPatterns)) { $tb.Add_LostFocus($saveSiteConditions) }
     $lblVariantSrc    = & $ctl 'lblVariantSrc'
     $dgVariants       = & $ctl 'dgVariants'
-    Set-GridHeaderTip -Grid $dgVariants
+    if (Get-Command Set-GridHeaderTip -ErrorAction Ignore) { Set-GridHeaderTip -Grid $dgVariants }
 
     # Timing section
     $chkEstimatedDefault  = & $ctl 'chkEstimatedDefault'
@@ -14863,7 +14865,7 @@ function Show-ApplicationWorkbench {
 
     # Source files section
     $dgSourceFiles      = & $ctl 'dgSourceFiles'
-    Set-GridHeaderTip -Grid $dgSourceFiles
+    if (Get-Command Set-GridHeaderTip -ErrorAction Ignore) { Set-GridHeaderTip -Grid $dgSourceFiles }
     $btnSourceAddFile   = & $ctl 'btnSourceAddFile'
     $btnSourceAddFolder = & $ctl 'btnSourceAddFolder'
     $btnSourceReplace   = & $ctl 'btnSourceReplace'
@@ -14872,12 +14874,12 @@ function Show-ApplicationWorkbench {
 
     # Review section
     $dgDiff          = & $ctl 'dgDiff'
-    Set-GridHeaderTip -Grid $dgDiff
+    if (Get-Command Set-GridHeaderTip -ErrorAction Ignore) { Set-GridHeaderTip -Grid $dgDiff }
     $dgFindings      = & $ctl 'dgFindings'
-    Set-GridHeaderTip -Grid $dgFindings
+    if (Get-Command Set-GridHeaderTip -ErrorAction Ignore) { Set-GridHeaderTip -Grid $dgFindings }
     $txtResolvedPlan = & $ctl 'txtResolvedPlan'
     $dgBuilds        = & $ctl 'dgBuilds'
-    Set-GridHeaderTip -Grid $dgBuilds
+    if (Get-Command Set-GridHeaderTip -ErrorAction Ignore) { Set-GridHeaderTip -Grid $dgBuilds }
 
     # Footer
     $chipContent   = & $ctl 'chipContent'
@@ -16529,7 +16531,7 @@ function Show-WsusPublishedUpdatesDialog {
     Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
 
     $gridUpdates = $dlg.FindName('gridUpdates')
-    Set-GridHeaderTip -Grid $gridUpdates
+    if (Get-Command Set-GridHeaderTip -ErrorAction Ignore) { Set-GridHeaderTip -Grid $gridUpdates }
     $txtSummary  = $dlg.FindName('txtSummary')
     $chkOther    = $dlg.FindName('chkOtherPublishers')
     $cboGroup    = $dlg.FindName('cboGroup')
