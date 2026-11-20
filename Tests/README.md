@@ -99,7 +99,6 @@ No test writes to a certificate trust store in any scope. `AppPackagerWsus.Tests
 - `Invoke-ScopeProbeSmoke.ps1` - launch-scope block exposes script functions to closures; run it with `& <path>`, not `-File`.
 - `Invoke-IntuneUploadReview.ps1` - block-blob upload against a loopback receiver, byte-for-byte.
 - `Invoke-AdobeExtractSmoke.ps1` - Adobe enterprise installer extraction by tar.exe and by the installer's own switches; needs a local copy of the installer and re-runs itself elevated.
-- `Invoke-TeamViewerHostVersionSmoke.ps1` - TeamViewer Host version read from the version resource fixed block when the string table is empty.
 - `Invoke-WorkbenchSmoke.ps1` - Application Workbench window build, population, validation and unsaved-switch paths.
 - `Invoke-SigningOptionsSmoke.ps1` - the Options script-signing panel, its certificate picker and its test button.
 - `Invoke-PackagerPrefsSmoke.ps1` - the Options Packager Preferences panel headless: the Adobe Acrobat Reader block, its edition and language rules, and the saved pair.

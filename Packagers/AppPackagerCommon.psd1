@@ -216,6 +216,7 @@
         'Get-PackagerRunOptions'
         'Resolve-PackagerRunFile'
         'Get-LocalSourceFolder'
+        'Get-InstallerFileVersion'
         'Resolve-LocalSourceInstaller'
 
         # ODT config XML

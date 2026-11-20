@@ -40,7 +40,7 @@ param(
 
     # Each needs a local copy of the vendor installer (the Adobe probe also
     # re-runs itself elevated), so neither is part of an unattended run.
-    [string[]]$SkipProbe = @('Invoke-AdobeExtractSmoke.ps1', 'Invoke-TeamViewerHostVersionSmoke.ps1'),
+    [string[]]$SkipProbe = @('Invoke-AdobeExtractSmoke.ps1'),
 
     [int]$ProbeTimeoutSec = 300,
 

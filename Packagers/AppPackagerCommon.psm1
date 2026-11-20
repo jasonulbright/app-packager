@@ -6643,6 +6643,21 @@ function Get-LocalSourceFolder {
     return ''
 }
 
+function Get-InstallerFileVersion {
+    <#
+    .SYNOPSIS
+        The version a dropped installer carries: the ProductVersion property of an
+        MSI file, the FileVersion of any other file, or '' when it has none.
+    #>
+    param([Parameter(Mandatory)][string]$Path)
+
+    if ([System.IO.Path]::GetExtension($Path) -eq '.msi') {
+        try { return [string](Get-MsiPropertyMap -MsiPath $Path)['ProductVersion'] }
+        catch { return '' }
+    }
+    return [string][System.Diagnostics.FileVersionInfo]::GetVersionInfo($Path).FileVersion
+}
+
 function Resolve-LocalSourceInstaller {
     <#
     .SYNOPSIS
@@ -6650,39 +6665,48 @@ function Resolve-LocalSourceInstaller {
         hybrid packager's local source folder.
 
     .DESCRIPTION
-        Hybrid packagers read the latest version from a public page, but the
-        vendor download requires a sign-in, so the installer comes from a
-        folder chosen in Options or at the Stage prompt. Vendors reuse one
-        file name across releases, so the file version decides, not the
-        download time. Throws when no folder is set, the folder is missing, or
-        it holds no matching installer.
+        A packager whose installer cannot be downloaded by script (a vendor
+        sign-in or a bot protection) takes it from a folder the operator fills,
+        chosen in Options or at the Stage prompt. Vendors reuse one file name
+        across releases, so the file version decides, not the download time
+        (the ProductVersion for an MSI file). Throws when no folder is set,
+        the folder is missing, or it holds no matching installer; -Hint says
+        what the folder must hold and ends every one of those messages.
     #>
     param(
         [Parameter(Mandatory)][string]$PackagerName,
         [Parameter(Mandatory)][string]$Filter,
         [string[]]$Exclude = @(),
-        [string]$Override
+        [string]$Override,
+        [string]$Hint = ''
     )
 
     $folder = Get-LocalSourceFolder -PackagerName $PackagerName -Override $Override
+    # Every refusal names what the folder must hold, so the operator knows what to put there.
+    $what = if ([string]::IsNullOrWhiteSpace($Hint)) { '' } else { " $Hint" }
 
     if ([string]::IsNullOrWhiteSpace($folder)) {
-        throw "No installer source folder is set for $PackagerName. Choose one in Options > Applications > Local Installer Sources, or run Stage from the app to be prompted."
+        throw "No installer source folder is set for $PackagerName. Choose one in Options > Applications > Local Installer Sources, or run Stage from the app to be prompted.$what"
     }
     if (-not (Test-Path -LiteralPath $folder -PathType Container)) {
-        throw "Installer source folder for $PackagerName not found: $folder"
+        throw "Installer source folder for $PackagerName not found: $folder.$what"
     }
 
+    # -Filter also matches 8.3 short names, so the name is checked again with -like.
     $candidates = @(Get-ChildItem -LiteralPath $folder -Filter $Filter -File -ErrorAction SilentlyContinue |
-        Where-Object { $name = $_.Name; -not @($Exclude | Where-Object { $name -like $_ }) })
+        Where-Object { $name = $_.Name; $name -like $Filter -and -not @($Exclude | Where-Object { $name -like $_ }) })
     if ($candidates.Count -eq 0) {
-        throw "No installer matching '$Filter' found in $folder"
+        $zipNote = ''
+        if (@(Get-ChildItem -LiteralPath $folder -Filter '*.zip' -File -ErrorAction SilentlyContinue).Count -gt 0) {
+            $zipNote = ' The folder holds a .zip file. Unzip it and keep the installer in the folder itself; a .zip is not read.'
+        }
+        throw "No installer matching '$Filter' found in $folder.$what$zipNote"
     }
 
     $ranked = foreach ($c in $candidates) {
         $v = $null
-        # FileVersion may carry a build label after the number ("10.0.1 (WinBuild...)").
-        $raw = ([string][System.Diagnostics.FileVersionInfo]::GetVersionInfo($c.FullName).FileVersion).Trim()
+        # The version may carry a build label after the number ("10.0.1 (WinBuild...)").
+        $raw = (Get-InstallerFileVersion -Path $c.FullName).Trim()
         if ($raw -match '^\d+(\.\d+){1,3}') { [void][version]::TryParse($Matches[0], [ref]$v) }
         if (-not $v) { $v = [version]'0.0' }
         [pscustomobject]@{ File = $c; Version = $v }
