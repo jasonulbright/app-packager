@@ -160,7 +160,7 @@ The sidebar has the workflow actions at the top, an **Add Installer...** button 
 - **One Click** - opens the plan for the apps you track in Options > Updates and CVEs > One Click, then runs Check Latest -> Stage -> Publish per destination without a prompt. See [One Click](#one-click). Multi-app loops (Check Latest, Stage, Package, One Click) run on a background STA runspace with an animated progress overlay so the window stays responsive instead of freezing during long downloads / extracts / ConfigMgr round-trips
 - **Check Latest** - queries vendor sources for the latest version of selected applications
 - **Check ConfigMgr** - queries your ConfigMgr site for the currently deployed version
-- **Discover unmanaged software** - finds hidden apps that hardware inventory shows installed on clients and that have no ConfigMgr application, and offers to show them in the grid. See [Discover unmanaged software](#discover-unmanaged-software)
+- **Discover unmanaged software** - finds hidden apps that hardware inventory shows installed on devices and that have no ConfigMgr application, and offers to show them in the grid. See [Discover unmanaged software](#discover-unmanaged-software)
 - **Stage Packages** - downloads installers, extracts metadata, generates wrappers and manifests locally, and builds a `.intunewin` when IntuneWinAppUtil is detected
 - **Publish to ConfigMgr** - reads manifests, copies content to network share, creates ConfigMgr applications
 - **Publish to Intune** - stages each checked app, builds its `.intunewin`, and publishes a Win32 app through Microsoft Graph

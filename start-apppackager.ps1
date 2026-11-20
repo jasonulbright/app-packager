@@ -5986,7 +5986,7 @@ function Get-SidebarSystemState {
         ConvertCmEnabled     = (-not $convertReason)
         ConvertCmToolTip     = $(if ($convertReason) { 'Convert ConfigMgr App to Intune: ' + $convertReason } else { 'Convert an existing ConfigMgr application to Intune Win32 apps, one app for each deployment type. It reads ConfigMgr and changes nothing there.' })
         DiscoverEnabled      = (-not $discoverReason)
-        DiscoverToolTip      = $(if ($discoverReason) { 'Discover unmanaged software: ' + $discoverReason } else { 'Find hidden apps that hardware inventory shows installed on clients and that have no ConfigMgr application' })
+        DiscoverToolTip      = $(if ($discoverReason) { 'Discover unmanaged software: ' + $discoverReason } else { 'Find hidden apps that hardware inventory shows installed on devices and that have no ConfigMgr application' })
         CheckMecmEnabled     = (-not $mecmReason)
         CheckMecmToolTip     = $(if ($mecmReason) { 'Check ConfigMgr: ' + $mecmReason } else { 'Query ConfigMgr for the currently deployed version of each checked app' })
         MecmEnabled          = (-not $mecmReason)
