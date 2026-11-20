@@ -5554,7 +5554,104 @@ $btnOptions      = $window.FindName('btnOptions')
 $toggleDebugCols = $window.FindName('toggleDebugCols')
 $txtGridFilter = $window.FindName('txtGridFilter')
 $txtComment      = $window.FindName('txtComment')
+# Tooltips of the column headers. The key is the x:Name of the grid, then the header text of the column.
+# Set-GridHeaderTip reads this table. Tests/Tooltip.Guard.Tests.ps1 checks that each header exists.
+$script:GridHeaderTip = @{
+    dataGrid = @{
+        'Current (ConfigMgr)' = 'The version that ConfigMgr has for the application.'
+        'Latest'              = 'The newest version that the vendor offers.'
+        'Status'              = 'The result of the last check or action.'
+        'CVEs'                = 'The number of CVEs that affect the ConfigMgr version.'
+        'Max CVSS'            = 'The highest CVSS score of those CVEs.'
+        'KEV'                 = 'Yes when a CVE is in the Known Exploited Vulnerabilities catalog.'
+        'Fixed by Update'     = 'How many of those CVEs the latest version removes.'
+        'Newest CVE'          = 'The most recently published CVE.'
+        'Max EPSS'            = 'The highest EPSS score, the probability that a CVE is exploited.'
+        'NVD Updated'         = 'When the NVD last changed the CVE data.'
+        'CVEs Checked (UTC)'  = 'When the CVE check last ran.'
+        'CMName'              = 'The name of the application in ConfigMgr.'
+        'Script'              = 'The packager script of the application.'
+        'Vendor URL'          = 'The vendor web page of the application.'
+        'Last Checked (UTC)'  = 'When the version check last ran.'
+    }
+    dgApps = @{
+        'Track'          = 'Track the application in One Click.'
+        'ConfigMgr'      = 'Publish the application to ConfigMgr.'
+        'WSUS'           = 'Publish the application to WSUS.'
+        'Intune'         = 'Publish the application to Intune.'
+        'Cadence (Days)' = 'Days that a version check stays fresh for the application.'
+    }
+    gridDiscover = @{
+        'Inventory Name' = 'The name in hardware inventory.'
+    }
+    gridCves = @{
+        'CVSS'     = 'The severity score of the CVE.'
+        'EPSS'     = 'The probability that the CVE is exploited.'
+        'KEV'      = 'Yes when the CVE is in the Known Exploited Vulnerabilities catalog.'
+        'Fixed In' = 'The version that fixes the CVE.'
+    }
+    gridPlan = @{
+        'Include'       = 'Include the application in the run.'
+        'ConfigMgr'     = 'Publish the application to ConfigMgr.'
+        'WSUS'          = 'Publish the application to WSUS.'
+        'Intune'        = 'Publish the application to Intune.'
+        'Last Published' = 'When the application was last published.'
+        'Planned'       = 'The action that the plan has for the application.'
+        'Reason'        = 'Why the plan has this action.'
+    }
+    gridUpdates = @{
+        'Approved For' = 'The groups that the update is approved for.'
+    }
+    dgDetClauses = @{
+        'Group'   = 'The group that the clause belongs to.'
+        'Subject' = 'What the clause checks.'
+    }
+    dgRequirements = @{
+        'Applies To' = 'The variants that the rule applies to.'
+    }
+    dgVariants = @{
+        'Estimated' = 'The estimated install time.'
+        'Maximum'   = 'The maximum run time.'
+    }
+    dgSourceFiles = @{
+        'Source'      = 'Where the file comes from.'
+        'Destination' = 'Where the file goes in the package.'
+        'SHA-256'     = 'The SHA-256 hash of the file.'
+    }
+    dgDiff = @{
+        'Default' = 'The value of the packager.'
+        'Custom'  = 'The value of this profile.'
+    }
+    dgFindings = @{
+        'Severity' = 'How serious the finding is.'
+        'Code'     = 'The code of the finding.'
+    }
+    dgBuilds = @{
+        'Result' = 'The result of the build.'
+    }
+}
+
+function Set-GridHeaderTip {
+    # Puts the tooltip of each listed column on its header. The header style of the column keeps the style that it had.
+    param([Parameter(Mandatory)][System.Windows.Controls.DataGrid]$Grid)
+    $tips = $script:GridHeaderTip[[string]$Grid.Name]
+    if (-not $tips) { return }
+    $headerType = [System.Windows.Controls.Primitives.DataGridColumnHeader]
+    foreach ($col in @($Grid.Columns)) {
+        $header = [string]$col.Header
+        if (-not $tips.ContainsKey($header)) { continue }
+        $base = $col.HeaderStyle
+        if (-not $base) { $base = $Grid.ColumnHeaderStyle }
+        if (-not $base) { $base = $Grid.TryFindResource($headerType) }
+        $style = New-Object System.Windows.Style($headerType)
+        if ($base) { $style.BasedOn = $base }
+        $style.Setters.Add((New-Object System.Windows.Setter([System.Windows.FrameworkElement]::ToolTipProperty, [string]$tips[$header])))
+        $col.HeaderStyle = $style
+    }
+}
+
 $dataGrid        = $window.FindName('dataGrid')
+Set-GridHeaderTip -Grid $dataGrid
 $colSelected     = $window.FindName('colSelected')
 $colIcon         = $window.FindName('colIcon')
 $txtLog          = $window.FindName('txtLog')
@@ -6362,21 +6459,21 @@ function New-AppFlowPanel {
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <TextBlock Grid.Row="0" Grid.Column="0" Text="Action on update" FontWeight="Bold" VerticalAlignment="Center" FontSize="12" Margin="0,0,8,0"/>
-        <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" Grid.Row="0" Grid.Column="1" x:Name="cboAction" Width="190" VerticalAlignment="Center">
+        <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" Grid.Row="0" Grid.Column="1" x:Name="cboAction" ToolTip="Choose what One Click does when a newer version exists." Width="190" VerticalAlignment="Center">
             <ComboBoxItem Content="Report only"/>
             <ComboBoxItem Content="Stage"/>
             <ComboBoxItem Content="Stage and Publish"/>
         </ComboBox>
-        <Controls:ToggleSwitch Grid.Row="0" Grid.Column="3" x:Name="toggleForce" IsOn="False"
+        <Controls:ToggleSwitch Grid.Row="0" Grid.Column="3" x:Name="toggleForce" ToolTip="Run the checks even when the cadence has not passed." IsOn="False"
                                 Header="Force on launch (ignore cadence)"
                                 OnContent="" OffContent="" MinWidth="0"
                                 VerticalAlignment="Center"/>
         <TextBlock Grid.Row="1" Grid.Column="0" Text="Default destinations" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
         <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,8,0,0"
                     ToolTip="The destinations of every tracked app that has no selection of its own in the grid.">
-            <CheckBox x:Name="chkOneClickMecm" Content="ConfigMgr" FontSize="12" Margin="0,0,16,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <CheckBox x:Name="chkOneClickWsus" Content="WSUS" FontSize="12" Margin="0,0,16,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <CheckBox x:Name="chkOneClickIntune" Content="Intune" FontSize="12" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <CheckBox x:Name="chkOneClickMecm" ToolTip="Publish to ConfigMgr by default." Content="ConfigMgr" FontSize="12" Margin="0,0,16,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <CheckBox x:Name="chkOneClickWsus" ToolTip="Publish to WSUS by default." Content="WSUS" FontSize="12" Margin="0,0,16,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <CheckBox x:Name="chkOneClickIntune" ToolTip="Publish to Intune by default." Content="Intune" FontSize="12" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
         <TextBlock Grid.Row="2" Grid.Column="0" Text="Existing ConfigMgr app" FontWeight="Bold" VerticalAlignment="Center" FontSize="12" Margin="0,8,8,0"/>
         <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" Grid.Row="2" Grid.Column="1" x:Name="cboOneClickOnExisting" Width="190" VerticalAlignment="Center" Margin="0,8,0,0"
@@ -6388,7 +6485,7 @@ function New-AppFlowPanel {
         <TextBox Grid.Row="3" Grid.Column="1" x:Name="txtOneClickCadenceDays" Width="360" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,8,0,0" MaxLength="3"
                  ToolTip="Days a version check stays fresh, from 1 to 365."/>
     </Grid>
-    <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" x:Name="dgApps" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+    <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" x:Name="dgApps" ToolTip="The tracked applications, each with its own destinations and cadence." AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
               GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0" BorderThickness="0"
               IsTextSearchEnabled="True" TextSearch.TextPath="Application">
         <DataGrid.Columns>
@@ -6436,6 +6533,7 @@ function New-AppFlowPanel {
     $cboAction   = $element.FindName('cboAction')
     $toggleForce = $element.FindName('toggleForce')
     $dgApps      = $element.FindName('dgApps')
+    Set-GridHeaderTip -Grid $dgApps
     $chkOneClickMecm   = $element.FindName('chkOneClickMecm')
     $chkOneClickWsus   = $element.FindName('chkOneClickWsus')
     $chkOneClickIntune = $element.FindName('chkOneClickIntune')
@@ -6574,10 +6672,10 @@ function Show-PreviewDialog {
     </Window.Resources>
     <DockPanel Margin="12">
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-            <Button x:Name="btnCopy"  Content="Copy" Margin="0,0,8,0" Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnCopy" ToolTip="Copy the text to the clipboard."  Content="Copy" Margin="0,0,8,0" Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <Button x:Name="btnClose" Content="Close" IsDefault="True" IsCancel="True" Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
-        <TextBox x:Name="txtContent"
+        <TextBox x:Name="txtContent" ToolTip="The text of this window."
                  IsReadOnly="True"
                  TextWrapping="NoWrap"
                  AcceptsReturn="True"
@@ -6633,11 +6731,11 @@ function New-ProductFilterPanel {
         <TextBlock Grid.Column="0" Text="Select which applications appear in the main grid. Uncheck to hide."
                    FontSize="12" Foreground="{DynamicResource MahApps.Brushes.Gray.MouseOver}" VerticalAlignment="Center" TextWrapping="Wrap"/>
         <StackPanel Grid.Column="1" Orientation="Horizontal">
-            <Button x:Name="btnSelAll"  Content="Select All" Margin="6,0,0,0" Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnSelNone" Content="Select None" Margin="6,0,0,0" Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnSelAll" ToolTip="Select every application in the list."  Content="Select All" Margin="6,0,0,0" Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+            <Button x:Name="btnSelNone" ToolTip="Clear the selection." Content="Select None" Margin="6,0,0,0" Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
     </Grid>
-    <TreeView ItemContainerStyle="{DynamicResource ThemedTreeViewItemStyle}" x:Name="treeApps" />
+    <TreeView ItemContainerStyle="{DynamicResource ThemedTreeViewItemStyle}" x:Name="treeApps" ToolTip="Select the applications to include." />
 </DockPanel>
 '@
 
@@ -6773,14 +6871,14 @@ function Show-CommandOverrideDialog {
         </Grid.RowDefinitions>
         <TextBlock x:Name="txtIntro" Grid.Row="0" TextWrapping="Wrap" FontSize="12" Margin="0,4,0,12"/>
         <TextBlock Grid.Row="1" Text="Install Command:" FontWeight="Bold" FontSize="12" Margin="0,0,0,4"/>
-        <TextBox   x:Name="txtInstall" Grid.Row="2" FontSize="12" FontFamily="Consolas" Margin="0,0,0,10"
+        <TextBox   x:Name="txtInstall" ToolTip="The install command; empty uses the packager default." Grid.Row="2" FontSize="12" FontFamily="Consolas" Margin="0,0,0,10"
                    Controls:TextBoxHelper.Watermark="install.bat (packager default)"/>
         <TextBlock Grid.Row="3" Text="Uninstall Command:" FontWeight="Bold" FontSize="12" Margin="0,0,0,4"/>
-        <TextBox   x:Name="txtUninstall" Grid.Row="4" FontSize="12" FontFamily="Consolas" Margin="0,0,0,16"
+        <TextBox   x:Name="txtUninstall" ToolTip="The uninstall command; empty uses the packager default." Grid.Row="4" FontSize="12" FontFamily="Consolas" Margin="0,0,0,16"
                    Controls:TextBoxHelper.Watermark="uninstall.bat (packager default)"/>
         <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="btnRevert" Content="Revert to Default" Style="{DynamicResource DialogButton}"/>
-            <Button x:Name="btnSave"   Content="Save"              Style="{DynamicResource DialogAccentButton}" IsDefault="True"/>
+            <Button x:Name="btnRevert" ToolTip="Clear both commands and use the packager defaults." Content="Revert to Default" Style="{DynamicResource DialogButton}"/>
+            <Button x:Name="btnSave" ToolTip="Save both commands."   Content="Save"              Style="{DynamicResource DialogAccentButton}" IsDefault="True"/>
             <Button x:Name="btnCancel" Content="Cancel"            Style="{DynamicResource DialogButton}" IsCancel="True"/>
         </StackPanel>
     </Grid>
@@ -6852,12 +6950,12 @@ function Show-SupersedenceConfirmDialog {
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <TextBlock x:Name="txtIntro" Grid.Row="0" TextWrapping="Wrap" FontSize="12" Margin="0,4,0,12"/>
-        <CheckBox  x:Name="chkRemember" Grid.Row="1" FontSize="12" Margin="0,0,0,16"
+        <CheckBox  x:Name="chkRemember" ToolTip="Use this answer for the other applications of this run." Grid.Row="1" FontSize="12" Margin="0,0,0,16"
                    Content="Remember this answer for the other applications of this run"/>
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="btnSkip" Content="Skip" Style="{DynamicResource DialogButton}"/>
-            <Button x:Name="btnYes"  Content="Yes"  Style="{DynamicResource DialogAccentButton}" IsDefault="True"/>
-            <Button x:Name="btnNo"   Content="No"   Style="{DynamicResource DialogButton}" IsCancel="True"/>
+            <Button x:Name="btnSkip" ToolTip="Package the application without the supersedence relation." Content="Skip" Style="{DynamicResource DialogButton}"/>
+            <Button x:Name="btnYes" ToolTip="Apply the supersedence relation to the new application."  Content="Yes"  Style="{DynamicResource DialogAccentButton}" IsDefault="True"/>
+            <Button x:Name="btnNo" ToolTip="Stop the run."   Content="No"   Style="{DynamicResource DialogButton}" IsCancel="True"/>
         </StackPanel>
     </Grid>
 </Controls:MetroWindow>
@@ -6916,12 +7014,12 @@ function Show-ExistingConflictDialog {
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <TextBlock x:Name="txtIntro" Grid.Row="0" TextWrapping="Wrap" FontSize="12" Margin="0,4,0,12"/>
-        <CheckBox  x:Name="chkAll" Grid.Row="1" FontSize="12" Margin="0,0,0,16"
+        <CheckBox  x:Name="chkAll" ToolTip="Use this answer for the other conflicts of this run." Grid.Row="1" FontSize="12" Margin="0,0,0,16"
                    Content="Do this for all remaining conflicts in this run"/>
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="btnSkip"      Content="Skip"          Style="{DynamicResource DialogButton}"/>
-            <Button x:Name="btnOverwrite" Content="Overwrite"     Style="{DynamicResource DialogAccentButton}" IsDefault="True"/>
-            <Button x:Name="btnCancel"    Content="Cancel Run"    Style="{DynamicResource DialogButton}" IsCancel="True"/>
+            <Button x:Name="btnSkip" ToolTip="Leave the existing application unchanged."      Content="Skip"          Style="{DynamicResource DialogButton}"/>
+            <Button x:Name="btnOverwrite" ToolTip="Update the content and deployment types of the existing application." Content="Overwrite"     Style="{DynamicResource DialogAccentButton}" IsDefault="True"/>
+            <Button x:Name="btnCancel" ToolTip="Stop the run."    Content="Cancel Run"    Style="{DynamicResource DialogButton}" IsCancel="True"/>
         </StackPanel>
     </Grid>
 </Controls:MetroWindow>
@@ -9274,8 +9372,8 @@ function New-OptionsDialog {
                      Controls:TextBoxHelper.ClearTextButton="True"
                      ToolTip="Type the name of a setting; Enter opens the first match."/>
             <Grid>
-                <TreeView x:Name="treeNav" BorderThickness="0" FontSize="13" ItemContainerStyle="{DynamicResource ThemedTreeViewItemStyle}"/>
-                <ListBox x:Name="lstSearch" BorderThickness="0" FontSize="13" Visibility="Collapsed" ItemContainerStyle="{DynamicResource ThemedListBoxItemStyle}"/>
+                <TreeView x:Name="treeNav" ToolTip="Select a group of settings." BorderThickness="0" FontSize="13" ItemContainerStyle="{DynamicResource ThemedTreeViewItemStyle}"/>
+                <ListBox x:Name="lstSearch" ToolTip="Select a search result to open the setting." BorderThickness="0" FontSize="13" Visibility="Collapsed" ItemContainerStyle="{DynamicResource ThemedListBoxItemStyle}"/>
             </Grid>
         </DockPanel>
 
@@ -9682,8 +9780,8 @@ function Show-FirstRunWizard {
                           Controls:ControlsHelper.ContentCharacterCasing="Normal"
                           ToolTip="Do not show this wizard again."/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button x:Name="btnWizSave" Content="Save" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-                    <Button x:Name="btnWizSkip" Content="Skip" IsCancel="True" Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    <Button x:Name="btnWizSave" ToolTip="Save the choices and close the wizard." Content="Save" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                    <Button x:Name="btnWizSkip" ToolTip="Close the wizard without saving." Content="Skip" IsCancel="True" Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -11426,42 +11524,42 @@ function Show-DropIntakeDialog {
             </Grid.RowDefinitions>
 
             <TextBlock Grid.Row="0" Grid.Column="0" Text="Application" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,8"/>
-            <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtDropAppName" Height="28" Margin="0,0,0,8"/>
+            <TextBox   Grid.Row="0" Grid.Column="1" x:Name="txtDropAppName" ToolTip="The name of the application." Height="28" Margin="0,0,0,8"/>
 
             <TextBlock Grid.Row="1" Grid.Column="0" Text="Publisher" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,8"/>
-            <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtDropPublisher" Height="28" Margin="0,0,0,8"/>
+            <TextBox   Grid.Row="1" Grid.Column="1" x:Name="txtDropPublisher" ToolTip="The publisher of the application." Height="28" Margin="0,0,0,8"/>
 
             <TextBlock Grid.Row="2" Grid.Column="0" Text="Version" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,8"/>
-            <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtDropVersion" Height="28" Margin="0,0,0,8"/>
+            <TextBox   Grid.Row="2" Grid.Column="1" x:Name="txtDropVersion" ToolTip="The version of the installer." Height="28" Margin="0,0,0,8"/>
 
             <!-- Shown only when the installer script accepts a mode switch; the
                  two radios swap every mode-dependent field together. -->
             <TextBlock Grid.Row="3" Grid.Column="0" x:Name="lblDropMode" Text="Install For" VerticalAlignment="Center" Margin="0,0,12,8" Visibility="Collapsed"/>
             <StackPanel Grid.Row="3" Grid.Column="1" x:Name="pnlDropMode" Orientation="Horizontal" Margin="0,0,0,8" Visibility="Collapsed">
-                <RadioButton x:Name="radDropCurrentUser" Content="Current user" GroupName="DropMode" VerticalAlignment="Center" Margin="0,0,18,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-                <RadioButton x:Name="radDropAllUsers" Content="All users (system)" GroupName="DropMode" VerticalAlignment="Center" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <RadioButton x:Name="radDropCurrentUser" ToolTip="Install for the signed-in user only." Content="Current user" GroupName="DropMode" VerticalAlignment="Center" Margin="0,0,18,0" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
+                <RadioButton x:Name="radDropAllUsers" ToolTip="Install for every user of the device." Content="All users (system)" GroupName="DropMode" VerticalAlignment="Center" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 <TextBlock x:Name="txtDropModeSwitch" VerticalAlignment="Center" Margin="14,0,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray1}"/>
             </StackPanel>
 
             <TextBlock Grid.Row="4" Grid.Column="0" Text="Install Args" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,8"/>
-            <TextBox   Grid.Row="4" Grid.Column="1" x:Name="txtDropInstallArgs" Height="28" Margin="0,0,0,8"/>
+            <TextBox   Grid.Row="4" Grid.Column="1" x:Name="txtDropInstallArgs" ToolTip="The silent install arguments of the installer." Height="28" Margin="0,0,0,8"/>
 
             <TextBlock Grid.Row="5" Grid.Column="0" x:Name="lblDropUninstall" Text="Uninstall Command" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,8"/>
-            <TextBox   Grid.Row="5" Grid.Column="1" x:Name="txtDropUninstallCmd" Height="28" Margin="0,0,0,8"/>
+            <TextBox   Grid.Row="5" Grid.Column="1" x:Name="txtDropUninstallCmd" ToolTip="The command that uninstalls the application." Height="28" Margin="0,0,0,8"/>
 
             <TextBlock Grid.Row="6" Grid.Column="0" Text="Detection" VerticalAlignment="Top" Margin="0,4,12,0"/>
             <TextBlock Grid.Row="6" Grid.Column="1" x:Name="txtDropDetection" TextWrapping="Wrap" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,4,0,0"/>
         </Grid>
 
-        <CheckBox Grid.Row="3" x:Name="chkDropConfirm" Margin="0,12,0,0"
+        <CheckBox Grid.Row="3" x:Name="chkDropConfirm" ToolTip="Confirm the predicted silent switches before you continue." Margin="0,12,0,0"
                   Content="I verified the predicted silent switches and detection for this installer"/>
 
         <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
             <Button x:Name="btnDropSaveApplication" Content="Save as Application" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource DialogButton}"
                     ToolTip="Save this installer as an application that opens in the Application Workbench."/>
-            <Button x:Name="btnDropSavePackager" Content="Save as Packager" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource DialogButton}"/>
-            <Button x:Name="btnDropStage" Content="Stage" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource DialogButton}"/>
-            <Button x:Name="btnDropStagePackage" Content="Stage and Package" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource DialogAccentButton}"/>
+            <Button x:Name="btnDropSavePackager" ToolTip="Save this installer as a packager script." Content="Save as Packager" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource DialogButton}"/>
+            <Button x:Name="btnDropStage" ToolTip="Stage the installer without building a ConfigMgr application." Content="Stage" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource DialogButton}"/>
+            <Button x:Name="btnDropStagePackage" ToolTip="Stage the installer, then build the ConfigMgr application." Content="Stage and Package" Margin="0,0,8,0" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource DialogAccentButton}"/>
             <Button x:Name="btnDropCancel" Content="Cancel" IsCancel="True" Controls:ControlsHelper.ContentCharacterCasing="Normal" Style="{DynamicResource DialogButton}"/>
         </StackPanel>
     </Grid>
@@ -12216,7 +12314,7 @@ function Show-DiscoveryDialog {
                        Text="Each app is hidden by the Product Filter, has no ConfigMgr application, and is installed on at least one client. Enabled apps join the grid for Check, Stage and Package."/>
             <TextBlock x:Name="txtDiscoverNote" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Visibility="Collapsed"/>
         </StackPanel>
-        <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="1" x:Name="gridDiscover" AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
+        <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="1" x:Name="gridDiscover" ToolTip="The installed applications that have no ConfigMgr application." AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
                   SelectionMode="Single" RowHeaderWidth="0">
             <DataGrid.Columns>
                 <DataGridCheckBoxColumn Header="" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="40"/>
@@ -12253,6 +12351,7 @@ function Show-DiscoveryDialog {
     $txtStatusLine = $dlg.FindName('txtDiscoverStatus')
     $txtNote = $dlg.FindName('txtDiscoverNote')
     $grid = $dlg.FindName('gridDiscover')
+    Set-GridHeaderTip -Grid $grid
     $btnEnableSelected = $dlg.FindName('btnEnableSelected')
     $btnEnableAll = $dlg.FindName('btnEnableAll')
     $btnNotNow = $dlg.FindName('btnNotNow')
@@ -12598,14 +12697,14 @@ function Show-CmImportDialog {
 
                 <TextBlock Text="Output Folder" FontSize="12" FontWeight="Bold" Margin="0,10,0,4"/>
                 <DockPanel>
-                    <Button x:Name="btnCmBrowse" Content="Browse..." DockPanel.Dock="Right" Margin="8,0,0,0"
+                    <Button x:Name="btnCmBrowse" ToolTip="Select the output folder." Content="Browse..." DockPanel.Dock="Right" Margin="8,0,0,0"
                             Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                     <TextBox x:Name="txtCmOutput" FontSize="13"
                              ToolTip="The folder that holds one subfolder for each application."/>
                 </DockPanel>
 
                 <TextBlock Text="Deployment Types" FontSize="12" FontWeight="Bold" Margin="0,10,0,4"/>
-                <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" x:Name="cmbCmStrategy" FontSize="13" SelectedIndex="0">
+                <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" x:Name="cmbCmStrategy" ToolTip="Choose how the deployment types become Intune apps." FontSize="13" SelectedIndex="0">
                     <ComboBoxItem Content="First match wins, like ConfigMgr (recommended)" Tag="PerDeploymentType"/>
                     <ComboBoxItem Content="Assign each app by group" Tag="AssignByGroup"/>
                 </ComboBox>
@@ -12895,10 +12994,10 @@ function Show-IntuneReviewDialog {
             <TextBlock x:Name="txtReview" TextWrapping="Wrap" FontSize="12"/>
         </ScrollViewer>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="btnReviewContinue" Content="Continue" Margin="0,0,8,0"
+            <Button x:Name="btnReviewContinue" ToolTip="Continue with the result as shown." Content="Continue" Margin="0,0,8,0"
                     Style="{DynamicResource DialogAccentButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnReviewAccept" Content="Accept Dropped Requirements and Continue" Margin="0,0,8,0"
+            <Button x:Name="btnReviewAccept" ToolTip="Accept the dropped requirements and continue." Content="Accept Dropped Requirements and Continue" Margin="0,0,8,0"
                     Style="{DynamicResource DialogButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <Button x:Name="btnReviewCancel" Content="Cancel" IsCancel="True"
@@ -13213,7 +13312,7 @@ function Show-CveDetailDialog {
                 </ItemsControl>
             </DockPanel>
         </StackPanel>
-        <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="1" x:Name="gridCves" AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
+        <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="1" x:Name="gridCves" ToolTip="The CVEs that affect this version." AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
                   SelectionMode="Single" RowHeaderWidth="0" IsReadOnly="True">
             <DataGrid.Columns>
                 <DataGridTextColumn MinWidth="64" Header="CVE" Binding="{Binding Id}" Width="140"/>
@@ -13249,7 +13348,7 @@ function Show-CveDetailDialog {
                     <Button x:Name="btnRefresh" Content="Refresh" Margin="0,0,8,0"
                             Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                             ToolTip="Look up the CVEs again and skip the cache."/>
-                    <Button x:Name="btnCopy" Content="Copy CVE IDs" Margin="0,0,8,0"
+                    <Button x:Name="btnCopy" ToolTip="Copy the CVE IDs to the clipboard." Content="Copy CVE IDs" Margin="0,0,8,0"
                             Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                     <Button x:Name="btnExport" Content="Export Report" Margin="0,0,8,0"
                             Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
@@ -13270,6 +13369,7 @@ function Show-CveDetailDialog {
     $txtNote = $dlg.FindName('txtCveNote')
     $productLinks = $dlg.FindName('productLinks')
     $gridCves = $dlg.FindName('gridCves')
+    Set-GridHeaderTip -Grid $gridCves
     $btnRefresh = $dlg.FindName('btnRefresh')
     $btnCopy = $dlg.FindName('btnCopy')
     $btnExport = $dlg.FindName('btnExport')
@@ -13530,7 +13630,7 @@ function Show-OneClickPlanDialog {
             <TextBlock x:Name="txtPlanHint" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray.MouseOver}"
                        Text="Include and the destination boxes apply to this run only; Options, Updates and CVEs, One Click holds the saved values. Run asks nothing after it starts."/>
         </StackPanel>
-        <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="1" x:Name="gridPlan" AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
+        <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="1" x:Name="gridPlan" ToolTip="The applications of the One Click plan." AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8"
                   SelectionMode="Single" RowHeaderWidth="0">
             <DataGrid.Columns>
                 <DataGridTemplateColumn MinWidth="95" x:Name="colInclude" Header="Include" Width="95">
@@ -13579,18 +13679,18 @@ function Show-OneClickPlanDialog {
                 <Button x:Name="btnCancelRun" DockPanel.Dock="Right" Content="Cancel" Margin="0,0,8,0" Visibility="Collapsed"
                         Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Stops the run after the application in flight."/>
-                <Button x:Name="btnOpenReport" DockPanel.Dock="Right" Content="Open Report" Margin="0,0,8,0" IsEnabled="False"
+                <Button x:Name="btnOpenReport" ToolTip="Open the report of this run." DockPanel.Dock="Right" Content="Open Report" Margin="0,0,8,0" IsEnabled="False"
                         Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 <Button x:Name="btnHistory" DockPanel.Dock="Right" Content="Run History" Margin="0,0,8,0"
                         Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                         ToolTip="Opens the folder with the reports of earlier runs."/>
                 <StackPanel Orientation="Horizontal">
-                    <Button x:Name="btnRun" Content="Run" Margin="0,0,8,0"
+                    <Button x:Name="btnRun" ToolTip="Run the plan." Content="Run" Margin="0,0,8,0"
                             Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                     <Button x:Name="btnPlanOnly" Content="Plan Only" Margin="0,0,16,0"
                             Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                             ToolTip="Writes the plan as a report without running anything."/>
-                    <CheckBox x:Name="chkForce" Content="Force: ignore the cadence and publish again" FontSize="12" VerticalAlignment="Center"
+                    <CheckBox x:Name="chkForce" ToolTip="Publish again even when the cadence has not passed." Content="Force: ignore the cadence and publish again" FontSize="12" VerticalAlignment="Center"
                               Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 </StackPanel>
             </DockPanel>
@@ -13604,6 +13704,7 @@ function Show-OneClickPlanDialog {
     Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
 
     $gridPlan = $dlg.FindName('gridPlan')
+    Set-GridHeaderTip -Grid $gridPlan
     $txtSummary = $dlg.FindName('txtPlanSummary')
     $txtAction = $dlg.FindName('txtPlanAction')
     $txtScope = $dlg.FindName('txtPlanScope')
@@ -14216,10 +14317,10 @@ function Show-WorkbenchUnsavedDialog {
     <StackPanel Margin="18,16,18,14">
         <TextBlock x:Name="txtUnsaved" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,16"/>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="btnUnsavedSave" Content="Save" Margin="0,0,8,0"
+            <Button x:Name="btnUnsavedSave" ToolTip="Save the changes and continue." Content="Save" Margin="0,0,8,0"
                     Style="{DynamicResource DialogAccentButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnUnsavedDiscard" Content="Discard" Margin="0,0,8,0"
+            <Button x:Name="btnUnsavedDiscard" ToolTip="Discard the changes and continue." Content="Discard" Margin="0,0,8,0"
                     Style="{DynamicResource DialogButton}"
                     Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <Button x:Name="btnUnsavedCancel" Content="Cancel" IsCancel="True"
@@ -14688,6 +14789,7 @@ function Show-ApplicationWorkbench {
     $cboDetFileProperty    = & $ctl 'cboDetFileProperty'
     $cboDetLogic           = & $ctl 'cboDetLogic'
     $dgDetClauses          = & $ctl 'dgDetClauses'
+    Set-GridHeaderTip -Grid $dgDetClauses
     $btnDetClauseAdd       = & $ctl 'btnDetClauseAdd'
     $btnDetClauseRemove    = & $ctl 'btnDetClauseRemove'
     $txtIntuneContract     = & $ctl 'txtIntuneContract'
@@ -14702,6 +14804,7 @@ function Show-ApplicationWorkbench {
     $btnReqReplace    = & $ctl 'btnReqReplace'
     $btnReqRemove     = & $ctl 'btnReqRemove'
     $dgRequirements   = & $ctl 'dgRequirements'
+    Set-GridHeaderTip -Grid $dgRequirements
     $cboVariantSplit  = & $ctl 'cboVariantSplit'
     $cboInstallForMode = & $ctl 'cboInstallForMode'
     $txtSiteArchGc      = & $ctl 'txtSiteArchGc'
@@ -14741,6 +14844,7 @@ function Show-ApplicationWorkbench {
     foreach ($tb in @($txtSiteArchGc, $txtSiteLangGc, $txtSiteVpnGc, $txtSiteVpnPatterns)) { $tb.Add_LostFocus($saveSiteConditions) }
     $lblVariantSrc    = & $ctl 'lblVariantSrc'
     $dgVariants       = & $ctl 'dgVariants'
+    Set-GridHeaderTip -Grid $dgVariants
 
     # Timing section
     $chkEstimatedDefault  = & $ctl 'chkEstimatedDefault'
@@ -14759,6 +14863,7 @@ function Show-ApplicationWorkbench {
 
     # Source files section
     $dgSourceFiles      = & $ctl 'dgSourceFiles'
+    Set-GridHeaderTip -Grid $dgSourceFiles
     $btnSourceAddFile   = & $ctl 'btnSourceAddFile'
     $btnSourceAddFolder = & $ctl 'btnSourceAddFolder'
     $btnSourceReplace   = & $ctl 'btnSourceReplace'
@@ -14767,9 +14872,12 @@ function Show-ApplicationWorkbench {
 
     # Review section
     $dgDiff          = & $ctl 'dgDiff'
+    Set-GridHeaderTip -Grid $dgDiff
     $dgFindings      = & $ctl 'dgFindings'
+    Set-GridHeaderTip -Grid $dgFindings
     $txtResolvedPlan = & $ctl 'txtResolvedPlan'
     $dgBuilds        = & $ctl 'dgBuilds'
+    Set-GridHeaderTip -Grid $dgBuilds
 
     # Footer
     $chipContent   = & $ctl 'chipContent'
@@ -16074,11 +16182,11 @@ function New-ScriptSigningPanel {
         <TextBlock Text="Require valid signatures" FontSize="15" Margin="0,0,0,6"/>
         <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,6"
                    Text="A publishing constraint, not a change to client execution policy. When a required category fails verification the build stops; there is no unsigned fallback."/>
-        <CheckBox x:Name="chkRequireDetection" FontSize="12" Margin="0,0,0,4"
+        <CheckBox x:Name="chkRequireDetection" ToolTip="Stop the build when a detection script has no valid signature." FontSize="12" Margin="0,0,0,4"
                   Content="Require valid detection signatures" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-        <CheckBox x:Name="chkRequireRequirements" FontSize="12" Margin="0,0,0,4"
+        <CheckBox x:Name="chkRequireRequirements" ToolTip="Stop the build when a requirement script has no valid signature." FontSize="12" Margin="0,0,0,4"
                   Content="Require valid requirement signatures" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-        <CheckBox x:Name="chkRequireDeployment" FontSize="12" Margin="0,0,0,12"
+        <CheckBox x:Name="chkRequireDeployment" ToolTip="Stop the build when a deployment script has no valid signature." FontSize="12" Margin="0,0,0,12"
                   Content="Require valid deployment script signatures" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
         <TextBlock Text="Signing identity" FontSize="15" Margin="0,0,0,6"/>
@@ -16103,7 +16211,7 @@ function New-ScriptSigningPanel {
             <TextBlock Grid.Row="1" Grid.Column="0" Text="Certificate" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,6"/>
             <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}"  Grid.Row="1" Grid.Column="1" x:Name="cboSignCertificate" FontSize="12" Height="28" Margin="0,0,0,6"
                        ToolTip="Select the certificate by its thumbprint."/>
-            <Button    Grid.Row="1" Grid.Column="2" x:Name="btnSignRefresh" Content="Refresh" Margin="8,0,0,6"
+            <Button    Grid.Row="1" Grid.Column="2" x:Name="btnSignRefresh" ToolTip="Read the certificates again." Content="Refresh" Margin="8,0,0,6"
                        Style="{DynamicResource InlineButtonStyle}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
 
             <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" x:Name="txtSignCertDetail" FontSize="11" TextWrapping="Wrap"
@@ -16317,7 +16425,7 @@ function Show-WsusPasswordPrompt {
     </Window.Resources>
     <StackPanel Margin="20,16,20,16">
         <TextBlock x:Name="txtPrompt" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,10"/>
-        <PasswordBox x:Name="pwdValue" FontSize="13" Margin="0,0,0,14"/>
+        <PasswordBox x:Name="pwdValue" ToolTip="Type the value that the prompt asks for." FontSize="13" Margin="0,0,0,14"/>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="btnOk" Content="OK" Margin="0,0,8,0" IsDefault="True" Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
             <Button x:Name="btnCancel" Content="Cancel" IsCancel="True" Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
@@ -16373,7 +16481,7 @@ function Show-WsusPublishedUpdatesDialog {
                       ToolTip="Lists every locally published update on the server, not only the ones AppPackager published."/>
             <TextBlock x:Name="txtSummary" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
         </DockPanel>
-        <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="1" x:Name="gridUpdates" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended"
+        <DataGrid RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" Grid.Row="1" x:Name="gridUpdates" ToolTip="The updates that AppPackager published to WSUS." AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended"
                   CanUserAddRows="False" HeadersVisibility="Column" Margin="16,0,16,8">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Title" Binding="{Binding Title}" Width="*" MinWidth="280"/>
@@ -16396,7 +16504,7 @@ function Show-WsusPublishedUpdatesDialog {
                 <StackPanel Orientation="Horizontal">
                     <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" x:Name="cboGroup" IsEditable="True" Width="200" Height="30" FontSize="12" Margin="0,0,8,0"
                               ToolTip="The computer group that Approve uses."/>
-                    <Button x:Name="btnApprove" Content="Approve for Group" Margin="0,0,8,0"
+                    <Button x:Name="btnApprove" ToolTip="Approve the selected updates for the group." Content="Approve for Group" Margin="0,0,8,0"
                             Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                     <Button x:Name="btnDecline" Content="Decline" Margin="0,0,8,0"
                             Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
@@ -16407,7 +16515,7 @@ function Show-WsusPublishedUpdatesDialog {
                     <Button x:Name="btnRemove" Content="Remove" Margin="0,0,8,0"
                             Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                             ToolTip="Decline the update and delete it from the WSUS database."/>
-                    <Button x:Name="btnRefresh" Content="Refresh"
+                    <Button x:Name="btnRefresh" ToolTip="Read the updates from WSUS again." Content="Refresh"
                             Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                 </StackPanel>
             </DockPanel>
@@ -16421,6 +16529,7 @@ function Show-WsusPublishedUpdatesDialog {
     Set-DialogChromeFromOwner -Dialog $dlg -Owner $Owner
 
     $gridUpdates = $dlg.FindName('gridUpdates')
+    Set-GridHeaderTip -Grid $gridUpdates
     $txtSummary  = $dlg.FindName('txtSummary')
     $chkOther    = $dlg.FindName('chkOtherPublishers')
     $cboGroup    = $dlg.FindName('cboGroup')
@@ -16517,18 +16626,18 @@ function Show-WsusCatalogImportDialog {
         </Grid.RowDefinitions>
         <TextBlock Grid.Row="0" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,8"
                    Text="Paste update IDs or catalog links, one or more per line. The Copy button on a catalog update details page copies its update ID. The WSUS server downloads the update metadata itself, so it needs internet access; update files follow the server's Update files setting."/>
-        <TextBox Grid.Row="1" x:Name="txtInput" AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" FontSize="12"
+        <TextBox Grid.Row="1" x:Name="txtInput" ToolTip="Paste the update IDs or catalog links here." AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" FontSize="12"
                  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                  Controls:TextBoxHelper.Watermark="12345678-90ab-cdef-1234-567890abcdef"/>
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,8">
-            <Button x:Name="btnImport" Content="Import" Margin="0,0,8,0"
+            <Button x:Name="btnImport" ToolTip="Import the updates into WSUS." Content="Import" Margin="0,0,8,0"
                     Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnLoadFile" Content="Load IDs from File..." Margin="0,0,8,0"
+            <Button x:Name="btnLoadFile" ToolTip="Read the update IDs from a text file." Content="Load IDs from File..." Margin="0,0,8,0"
                     Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
-            <Button x:Name="btnOpenCatalog" Content="Open the Catalog"
+            <Button x:Name="btnOpenCatalog" ToolTip="Open the Microsoft Update Catalog." Content="Open the Catalog"
                     Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
         </StackPanel>
-        <TextBox Grid.Row="3" x:Name="txtResults" IsReadOnly="True" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"
+        <TextBox Grid.Row="3" x:Name="txtResults" ToolTip="The result of the import." IsReadOnly="True" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"
                  VerticalScrollBarVisibility="Auto"/>
         <DockPanel Grid.Row="4" Margin="0,10,0,0">
             <Button x:Name="btnClose" DockPanel.Dock="Right" Content="Close" IsCancel="True"
