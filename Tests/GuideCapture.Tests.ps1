@@ -94,7 +94,7 @@ Describe 'The capture tool takes the lab lock and keeps to its own folder' {
     }
 
     It 'the icon pack script checks the SHA-256 of the zip and fails when no icon is extracted' {
-        $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..	ools\guide-capture\install-iconpack.ps1') -Raw
+        $text = Get-Content -LiteralPath (Join-Path $script:Root 'tools\guide-capture\install-iconpack.ps1') -Raw
         $text | Should -Match 'jasonulbright/app-packager-icons'
         $text | Should -Match 'Get-FileHash'
         $text | Should -Match 'checksum did not match'
