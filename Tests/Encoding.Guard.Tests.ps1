@@ -16,7 +16,7 @@ BeforeDiscovery {
     $tracked = $null
     if (Get-Command git -ErrorAction SilentlyContinue) { $tracked = @(git -C $root ls-files 2>$null) }
     if (-not $tracked -or $tracked.Count -eq 0) {
-        $tracked = @(Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object { $_.FullName -notmatch ('(^|[' + [regex]::Escape([string][System.IO.Path]::DirectorySeparatorChar) + '/])(\.git|\.claude)([' + [regex]::Escape([string][System.IO.Path]::DirectorySeparatorChar) + '/]|$)') } | ForEach-Object { $_.FullName.Substring($root.Length + 1) })
+        $tracked = @(Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object { $_.Name -notmatch '^(AppPackager\.preferences|packager-preferences)\.json$' -and $_.FullName -notmatch ('(^|[' + [regex]::Escape([string][System.IO.Path]::DirectorySeparatorChar) + '/])(\.git|\.claude)([' + [regex]::Escape([string][System.IO.Path]::DirectorySeparatorChar) + '/]|$)') } | ForEach-Object { $_.FullName.Substring($root.Length + 1) })
     }
     $script:FileD = @($tracked | Where-Object { $binary -notcontains [System.IO.Path]::GetExtension([string]$_).ToLowerInvariant() } | ForEach-Object { @{ Path = [string]$_ } })
 }

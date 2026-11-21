@@ -921,7 +921,8 @@ catch {
         $r = & $script:RunCli @('-Application', 'catalog:package-gfixture', '-Profile', $script:Profile.ProfileId, '-Stage', '-Target', 'ContentOnly', '-Version', '4.1.0',
             '-PackagersRoot', $script:FixturePackagers, '-DownloadRoot', $root) 'pin-old'
         $r.ExitCode | Should -Not -Be 0
-        $r.Err | Should -Match 'stages only the current vendor release, 4\.2\.1'
+        # The error text wraps at the console width of the host, so the line breaks are ignored.
+        ($r.Err -replace '\s+', ' ') | Should -Match 'stages only the current vendor release, 4\.2\.1'
         Test-Path -LiteralPath (Join-Path $root 'profiles') | Should -BeFalse
     }
 
