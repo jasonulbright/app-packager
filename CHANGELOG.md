@@ -7,6 +7,22 @@
 - Add the columns Estimated Runtime, Maximum Runtime and Reboot After Install to the All Applications grid.
 - Write those columns to the Workbench profile of the application.
 
+## [2026.11.20.0155] - 2026-11-20
+
+## 1 wording change in the GitHub status
+
+### Changed
+
+- Say Signed in by using GitHub CLI in the GitHub authentication status.
+
+## [2026.11.20.0154] - 2026-11-20
+
+## 1 change in the guide capture
+
+### Changed
+
+- Add the All Applications grid steps to the default guide capture run.
+
 ## [2026.11.20.0153] - 2026-11-20
 
 ## 14 columns in the All Applications grid

@@ -3965,7 +3965,7 @@ Describe 'Find-GitHubCli' {
 Describe 'Format-GitHubAuthStatus' {
     It 'words every source and state the same as App Packager Desktop' {
         $p = @{ Authenticated = $true; Account = 'octocat'; Limit = '5000'; Remaining = '4991'; HttpStatus = 0; Error = '' }
-        Format-GitHubAuthStatus -Status ([pscustomobject]($p + @{ Source = 'gh auth login' })) | Should -Be 'Signed in via GitHub CLI as octocat (5,000 requests per hour, 4,991 remaining)'
+        Format-GitHubAuthStatus -Status ([pscustomobject]($p + @{ Source = 'gh auth login' })) | Should -Be 'Signed in by using GitHub CLI as octocat (5,000 requests per hour, 4,991 remaining)'
         Format-GitHubAuthStatus -Status ([pscustomobject]($p + @{ Source = 'Settings' })) | Should -Be 'Token saved in settings as octocat (5,000 requests per hour, 4,991 remaining)'
         Format-GitHubAuthStatus -Status ([pscustomobject]($p + @{ Source = 'GITHUB_TOKEN' })) | Should -Be 'Environment variable GITHUB_TOKEN as octocat (5,000 requests per hour, 4,991 remaining)'
         Format-GitHubAuthStatus -Status ([pscustomobject]@{ Authenticated = $false; Source = ''; Account = ''; Limit = '60'; Remaining = '57'; HttpStatus = 0; Error = '' }) | Should -Be 'Not authenticated: 60 requests per hour (57 remaining)'
@@ -4015,7 +4015,7 @@ Describe 'Get-GitHubApiAuthStatus' {
         Set-Content -LiteralPath (Join-Path $script:fakeDir 'rate.txt') -Encoding ASCII -Value "HTTP/2 200`nx-ratelimit-limit: 5000`nx-ratelimit-remaining: 4991`n`n{}"
         Set-Content -LiteralPath (Join-Path $script:fakeDir 'user.txt') -Encoding ASCII -Value "HTTP/2 200`n`n{`"login`":`"octocat`"}"
         $status = Get-GitHubApiAuthStatus -Force
-        Format-GitHubAuthStatus -Status $status | Should -Be 'Signed in via GitHub CLI as octocat (5,000 requests per hour, 4,991 remaining)'
+        Format-GitHubAuthStatus -Status $status | Should -Be 'Signed in by using GitHub CLI as octocat (5,000 requests per hour, 4,991 remaining)'
     }
 
     It 'reports an anonymous budget' {
