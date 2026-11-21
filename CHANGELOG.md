@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [2026.11.21.0158] - 2026-11-21
+
+## 6 columns in the All Applications grid
+
 ### Added
 
 - Add the columns Free disk space (MB), Memory (MB) and OS build (minimum) to the All Applications grid.
