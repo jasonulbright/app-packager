@@ -69,6 +69,21 @@ The WSUS tests need no WSUS server and no WSUS API. Every server call goes throu
 
 `Invoke-FullRegression.ps1` runs that set on both hosts and prints the counts.
 
+### Run the Pester suite on a lab computer
+
+The Checks workflow runs the groups of `Invoke-Checks.ps1` in separate processes. A lab run does the same, once under Windows PowerShell 5.1 and once under PowerShell 7:
+
+```powershell
+.\Invoke-Checks.ps1 -Group Modules
+.\Invoke-Checks.ps1 -Group Smoke
+.\Invoke-Checks.ps1 -Group Tests
+```
+
+- Do not run `Invoke-Pester -Path Tests, Packagers` in one process. Test files share one process in that run, and about 220 tests fail that pass in their own group: the `Write-Log`, `Write-ContentWrappers` and `New-MECMApplicationFromManifest` tests. The groups pass.
+- Run the groups as the lab user in a session with a user profile (a WinRM session of the lab account, or an interactive session). A run as `SYSTEM` leaves the user folders and the temporary folder of the account out, and tests fail for that reason.
+- Copy the repository with `git archive`. The copy has no `.git`, so the encoding guard scans every file of the copy and skips the two preferences files that the tests write.
+- Under PowerShell 7 a scheduled task that logs on with a password produced no output on the lab; use a WinRM session of the lab account.
+
 ### Certificate rule
 
 No test writes to a certificate trust store in any scope. `AppPackagerWsus.Tests.ps1` creates throwaway certificates in `Cert:\CurrentUser\My` only to export test PFX files, and removes each one with its key right after the export. `SigningCombinations.Tests.ps1` creates a throwaway code-signing certificate in `Cert:\CurrentUser\My`, removes it in `AfterAll`, and asserts signature intactness (the hash and the signature block agree), never host trust: the build host is not required to trust the signer, and trusting it there would prove nothing about an endpoint. Adding a certificate to `Root` or `TrustedPublisher` raises an interactive Windows confirmation, which a test must never do.
