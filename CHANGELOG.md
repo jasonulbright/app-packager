@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [2026.11.21.0157] - 2026-11-21
+
+## 2 result files from Check ConfigMgr
+
+### Added
+
+- Write CheckConfigMgrResult.csv and CheckConfigMgrResult.json in the app data folder after Check ConfigMgr.
+- Add Export Check ConfigMgr results to the grid menu.
+- Use the same result format as the desktop app, for the Deployment Helper Update rollout.
+
 ## [2026.11.20.0156] - 2026-11-20
 
 ## 3 columns in the All Applications grid
