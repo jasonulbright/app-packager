@@ -28,7 +28,7 @@ BeforeAll {
     function Get-TvHostConfigPath { Join-Path $TestDrive 'none-tv.json' }
 
     # A key whose value is a map with keys that the user adds is one leaf.
-    $script:MapKey = @('LocalSourceFolders', 'DeploymentConditions.Apps', 'CommandOverrides.Apps', 'AppFlow.CadenceOverrides', 'AppFlow.Destinations', 'Supersedence.TitleOverrides', 'Supersedence.InstalledValues')
+    $script:MapKey = @('LocalSourceFolders', 'DeploymentConditions.Apps', 'CommandOverrides.Apps', 'AppFlow.CadenceOverrides', 'AppFlow.Destinations', 'Supersedence.TitleOverrides', 'Supersedence.InstalledValues', 'DistributionOverrides.Apps')
     function Get-LeafPath {
         param($Object, [string]$Prefix = '')
         foreach ($p in $Object.PSObject.Properties) {
@@ -158,7 +158,7 @@ Describe 'The old Options window and the new one write the same keys' {
             'AdobeReaderInstallOptions.AcceptEula', 'AdobeReaderInstallOptions.DisableDesktopShortcut', 'AdobeReaderInstallOptions.DisableChromeExtension', 'AdobeReaderInstallOptions.DisableBrowserIntegration', 'AdobeReaderInstallOptions.UpdateMode',
             'BeyondCompareOptions.DisableRemoteProfiles', 'BeyondCompareOptions.DisableSavedPasswords',
             'ScriptSigning.HashAlgorithm', 'Intune.MinimumWindowsRelease', 'AppFlow.DefaultCadenceDays', 'CheckForUpdatesAtStartup', 'SkipConfigReview', 'Intune.AcceptedRequirementDrops', 'ContentDistribution.TestCollectionIsUser', 'AppendArchitectureToTitle',
-            'Supersedence.Mode', 'Supersedence.ConfigMgrVersionRule', 'Supersedence.IntuneVersionRule', 'Supersedence.TitleOverrides', 'Supersedence.InstalledValues', 'Supersedence.AcceptedExactBlocks'
+            'Supersedence.Mode', 'Supersedence.ConfigMgrVersionRule', 'Supersedence.IntuneVersionRule', 'Supersedence.TitleOverrides', 'Supersedence.InstalledValues', 'Supersedence.AcceptedExactBlocks', 'DistributionOverrides.Apps'
         )
         $unexpected = @($new | Where-Object { $expected -notcontains $_ })
         $unexpected | Should -BeNullOrEmpty -Because ('new keys that the test does not list: ' + ($unexpected -join ', '))

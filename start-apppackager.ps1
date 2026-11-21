@@ -434,6 +434,10 @@ function Read-Preferences {
         DeploymentConditions = [pscustomobject]@{
             Apps = [pscustomobject]@{}
         }
+        # Per application, the DP group and the test collection of the content distribution. An empty value follows ContentDistribution.
+        DistributionOverrides = [pscustomobject]@{
+            Apps = [pscustomobject]@{}
+        }
         CommandOverrides = [pscustomobject]@{
             Apps = [pscustomobject]@{}
         }
@@ -821,6 +825,19 @@ function Read-Preferences {
                 }
             }
             $defaults.DeploymentConditions.Apps = [pscustomobject]$condProps
+        }
+
+        # DistributionOverrides: per-app DP group and test collection. A value is trimmed; an entry with no value is dropped.
+        if ($null -ne $data.DistributionOverrides -and $null -ne $data.DistributionOverrides.Apps) {
+            $distProps = [ordered]@{}
+            foreach ($prop in $data.DistributionOverrides.Apps.PSObject.Properties) {
+                if ($prop.Name -notmatch '^package-') { continue }
+                $dp = ([string]$prop.Value.DpGroup).Trim()
+                $tc = ([string]$prop.Value.TestCollection).Trim()
+                if (-not $dp -and -not $tc) { continue }
+                $distProps[$prop.Name] = [pscustomobject]@{ DpGroup = $dp; TestCollection = $tc }
+            }
+            $defaults.DistributionOverrides.Apps = [pscustomobject]$distProps
         }
 
         # CommandOverrides: per-app install/uninstall command replacements.
@@ -8163,7 +8180,7 @@ function Get-OptionsSectionDefinition {
         })
 
     $sections.Add(@{
-            Id = 'allapps'; Title = 'All Applications'; Parent = 'applications'; Kind = 'Fields'; Prefs = @('DeploymentConditions.Apps', 'Supersedence.TitleOverrides')
+            Id = 'allapps'; Title = 'All Applications'; Parent = 'applications'; Kind = 'Fields'; Prefs = @('DeploymentConditions.Apps', 'Supersedence.TitleOverrides', 'DistributionOverrides.Apps')
             Keywords = 'application grid package source type architecture x64 x86 arm64 install scope system user supersedence version title version rule detection greater equal'
             Description = 'One row for each application that the packagers offer. The Columns button chooses the columns, and the search box filters the rows. A cell that does not apply to an application is closed, and its tooltip says why. The runtime and reboot columns are fields of the Workbench profile of the application; the detection, the requirements and the distribution targets stay in the Application Workbench. Supersedence is off for every application until you turn it on, as a default or for one application. An application with supersedence on keeps the version in its title, so each release is its own application. At Package, the older version (same title and vendor, the highest version below this one) is looked up and you confirm the supersedence first. Version Rule sets the operator of the version clause in the detection of the application that is packaged. Follow the default uses the default in the three fields below. The command line options -VersionRule and -Supersedence outrank these values.'
             Fields = @(
@@ -9228,6 +9245,7 @@ function New-ApplicationGridWork {
         Destinations        = $(if ($flow -and $flow.PSObject.Properties['Destinations']) { ConvertTo-ApplicationGridMap $flow.Destinations } else { [ordered]@{} })
         DefaultDestinations = [pscustomobject]@{ ConfigMgr = [bool]$default.ConfigMgr; WSUS = [bool]$default.WSUS; Intune = [bool]$default.Intune }
         DefaultSupersedence = $mode
+        Dist                = $(if ($Prefs.PSObject.Properties['DistributionOverrides'] -and $Prefs.DistributionOverrides) { ConvertTo-ApplicationGridMap $Prefs.DistributionOverrides.Apps } else { [ordered]@{} })
         DataRoot            = $(try { Get-WorkbenchDataRoot -Preferences $Prefs -NoCreate } catch { '' })
         Profiles            = @{}
     }
@@ -9275,7 +9293,11 @@ function Get-ApplicationGridProfileContext {
     if ($active -ne 'default' -and (-not $own -or $active -ne [string]$own['ProfileId'])) {
         $blocked = 'The profile {0} is active for {1}, and a run reads the active profile only. Change it in the Application Workbench.' -f $(if ($activeName) { '"' + $activeName + '"' } else { $active }), [string]$Packager.Application
     }
-    $context = @{ Id = $id; Active = $active; Exists = [bool]$own; Profile = $profile; Blocked = $blocked; Dirty = $false }
+    $activeProfile = $null
+    if ($active -ne 'default' -and (-not $own -or $active -ne [string]$own['ProfileId'])) {
+        try { $activeProfile = ConvertTo-ApplicationGridTree -Object (Get-Profile -ApplicationId $id -ProfileId $active -DataRoot $Work.DataRoot) } catch { $activeProfile = $null }
+    }
+    $context = @{ Id = $id; Active = $active; Exists = [bool]$own; Profile = $profile; ActiveProfile = $activeProfile; Blocked = $blocked; Dirty = $false }
     $Work.Profiles[$base] = $context
     return $context
 }
@@ -9290,6 +9312,57 @@ function Set-ApplicationGridProfileValue {
     if ([string]$before -ne [string](Get-WorkbenchOverrideValue -Profile $context.Profile -Path $Path)) { $context.Dirty = $true }
 }
 
+function Set-ApplicationGridDistributionValue {
+    # The DP group or the test collection of one application. An empty value removes it, so the application follows the site-wide value.
+    param([Parameter(Mandatory)]$Work, [Parameter(Mandatory)]$Packager, [Parameter(Mandatory)][ValidateSet('DpGroup', 'TestCollection')][string]$Field, [AllowEmptyString()][string]$Value)
+    $key = [System.IO.Path]::GetFileNameWithoutExtension([string]$Packager.Script)
+    $entry = [ordered]@{ DpGroup = ''; TestCollection = '' }
+    $own = Get-ApplicationGridOwn -Table $Work.Dist -Key $key
+    if ($own) { foreach ($f in 'DpGroup', 'TestCollection') { $entry[$f] = [string]$own[$f] } }
+    $entry[$Field] = ([string]$Value).Trim()
+    if (-not $entry.DpGroup -and -not $entry.TestCollection) { if ($Work.Dist.Contains($key)) { $Work.Dist.Remove($key) } } else { $Work.Dist[$key] = $entry }
+}
+
+function Get-ApplicationGridRequirementValue {
+    # The value of the requirement operation of one rule in the profile ('' when the profile has none).
+    param([Parameter(Mandatory)]$Work, [Parameter(Mandatory)]$Packager, [Parameter(Mandatory)][string]$RuleId)
+    $profile = (Get-ApplicationGridProfileContext -Work $Work -Packager $Packager).Profile
+    foreach ($operation in @(Get-WorkbenchOverrideValue -Profile $profile -Path 'Requirements.Operations')) {
+        if ($null -eq $operation -or [string]$operation['RuleId'] -ne $RuleId -or [string]$operation['Op'] -eq 'Remove') { continue }
+        $rule = $operation['Rule']
+        if ($rule -is [System.Collections.IDictionary] -and $null -ne $rule['Value']) { return [string]$rule['Value'] }
+    }
+    return ''
+}
+
+function Set-ApplicationGridRequirementValue {
+    # Workbench semantics for a rule: an empty value removes the operation of the rule; a number adds it (Op Add, applies to every deployment type).
+    param([Parameter(Mandatory)]$Work, [Parameter(Mandatory)]$Packager, [Parameter(Mandatory)][string]$RuleId, [AllowEmptyString()][string]$Value)
+    $context = Get-ApplicationGridProfileContext -Work $Work -Packager $Packager
+    $before = Get-ApplicationGridRequirementValue -Work $Work -Packager $Packager -RuleId $RuleId
+    $kept = New-Object System.Collections.Generic.List[object]
+    foreach ($operation in @(Get-WorkbenchOverrideValue -Profile $context.Profile -Path 'Requirements.Operations')) {
+        if ($null -ne $operation -and [string]$operation['RuleId'] -ne $RuleId) { $kept.Add($operation) }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Value)) {
+        $kept.Add([ordered]@{ Op = 'Add'; RuleId = $RuleId; Rule = [ordered]@{ ConditionId = $RuleId; Value = [int64]$Value.Trim() }; AppliesTo = @('*') })
+    }
+    Set-WorkbenchOverrideValue -Profile $context.Profile -Path 'Requirements.Operations' -Value @($kept.ToArray())
+    if ($before -ne (Get-ApplicationGridRequirementValue -Work $Work -Packager $Packager -RuleId $RuleId)) { $context.Dirty = $true }
+}
+
+function Get-ApplicationGridDetectionText {
+    # Custom in Workbench when the profile of the application (its own, or the active one) has a detection that is not Inherit.
+    param([Parameter(Mandatory)]$Work, [Parameter(Mandatory)]$Packager)
+    $context = Get-ApplicationGridProfileContext -Work $Work -Packager $Packager
+    foreach ($profile in @($context.Profile, $context.ActiveProfile)) {
+        if ($null -eq $profile) { continue }
+        $mode = [string](Get-WorkbenchOverrideValue -Profile $profile -Path 'Detection.Mode')
+        if ($mode -and $mode -ne 'Inherit') { return 'Custom in Workbench' }
+    }
+    return 'Inherit'
+}
+
 function Save-ApplicationGridProfile {
     # Writes each profile that the grid changed, with the Workbench's own Save-Profile. The profile becomes the active profile only while
     # the application is on the default profile (or on this profile already).
@@ -9299,6 +9372,7 @@ function Save-ApplicationGridProfile {
         if (-not $context.Dirty -or $context.Blocked) { continue }
         $any = $false
         foreach ($path in 'Timing.EstimatedMinutes', 'Timing.MaximumMinutes', 'Install.RebootPolicy') { if (Test-WorkbenchOverridePresent -Profile $context.Profile -Path $path) { $any = $true } }
+        if (@(Get-WorkbenchOverrideValue -Profile $context.Profile -Path 'Requirements.Operations' | Where-Object { $null -ne $_ }).Count -gt 0) { $any = $true }
         if (-not $context.Exists -and -not $any) { $context.Dirty = $false; continue }
         $saved = Save-Profile -Profile $context.Profile -DataRoot $Work.DataRoot -SetActive:($context.Active -eq 'default')
         $context.Profile = ConvertTo-ApplicationGridTree -Object $saved
@@ -9452,6 +9526,39 @@ function Get-ApplicationGridSetting {
             Get = { param($w, $p) & $dest $w $p 'WSUS' }.GetNewClosure()
             Set = { param($w, $p, $v) & $setDest $w $p 'WSUS' $v }.GetNewClosure()
             NotApplicable = { param($w, $p) if ([string]$p.WsusSupport -eq 'No') { 'WSUS cannot carry {0}. Reason: {1}.' -f (& $name $p), $(if ([string]$p.WsusSupportReason) { ([string]$p.WsusSupportReason) -replace '\|', ', ' } else { 'the packager declares No' }) } else { $null } }.GetNewClosure() }
+        # The requirement templates are operations of the Workbench profile (Requirements.Operations). The stage turns them into the Requirements of the
+        # manifest, and the publish turns them into ConfigMgr requirement rules and Intune requirement rules.
+        @{ Id = 'diskspace'; Header = 'Free disk space (MB)'; Kind = 'Text'; Visible = $false; Width = 220; Choices = @()
+            Tip = 'The system drive needs at least this many MB free. Empty adds no requirement.'
+            Get = { param($w, $p) Get-ApplicationGridRequirementValue -Work $w -Packager $p -RuleId 'disk-space' }
+            Set = { param($w, $p, $v) $n = [int64]0; if ([string]::IsNullOrWhiteSpace($v) -or ([int64]::TryParse($v.Trim(), [ref]$n) -and $n -ge 1)) { Set-ApplicationGridRequirementValue -Work $w -Packager $p -RuleId 'disk-space' -Value $v } }
+            NotApplicable = { param($w, $p) (Get-ApplicationGridProfileContext -Work $w -Packager $p).Blocked } }
+        @{ Id = 'memory'; Header = 'Memory (MB)'; Kind = 'Text'; Visible = $false; Width = 150; Choices = @()
+            Tip = 'The device needs at least this many MB of physical memory. Empty adds no requirement.'
+            Get = { param($w, $p) Get-ApplicationGridRequirementValue -Work $w -Packager $p -RuleId 'memory' }
+            Set = { param($w, $p, $v) $n = [int64]0; if ([string]::IsNullOrWhiteSpace($v) -or ([int64]::TryParse($v.Trim(), [ref]$n) -and $n -ge 1)) { Set-ApplicationGridRequirementValue -Work $w -Packager $p -RuleId 'memory' -Value $v } }
+            NotApplicable = { param($w, $p) (Get-ApplicationGridProfileContext -Work $w -Packager $p).Blocked } }
+        @{ Id = 'osbuild'; Header = 'OS build (minimum)'; Kind = 'Text'; Visible = $false; Width = 210; Choices = @()
+            Tip = 'The lowest Windows build number that may install it, for example 19045. Empty adds no requirement.'
+            Get = { param($w, $p) Get-ApplicationGridRequirementValue -Work $w -Packager $p -RuleId 'os-build' }
+            Set = { param($w, $p, $v) $n = [int64]0; if ([string]::IsNullOrWhiteSpace($v) -or ([int64]::TryParse($v.Trim(), [ref]$n) -and $n -ge 1)) { Set-ApplicationGridRequirementValue -Work $w -Packager $p -RuleId 'os-build' -Value $v } }
+            NotApplicable = { param($w, $p) (Get-ApplicationGridProfileContext -Work $w -Packager $p).Blocked } }
+        @{ Id = 'dpgroup'; Header = 'Distribution point group'; Kind = 'Text'; Visible = $false; Width = 260; Choices = @()
+            Tip = 'The DP group of this application. Empty follows the DP group in Post Packaging.'
+            Get = { param($w, $p) $o = Get-ApplicationGridOwn -Table $w.Dist -Key ([System.IO.Path]::GetFileNameWithoutExtension([string]$p.Script)); if ($o) { [string]$o['DpGroup'] } else { '' } }
+            Set = { param($w, $p, $v) Set-ApplicationGridDistributionValue -Work $w -Packager $p -Field 'DpGroup' -Value $v }
+            NotApplicable = { param($w, $p) $null } }
+        @{ Id = 'testcollection'; Header = 'Test collection'; Kind = 'Text'; Visible = $false; Width = 170; Choices = @()
+            Tip = 'The test collection of this application. Empty follows the one in Post Packaging.'
+            Get = { param($w, $p) $o = Get-ApplicationGridOwn -Table $w.Dist -Key ([System.IO.Path]::GetFileNameWithoutExtension([string]$p.Script)); if ($o) { [string]$o['TestCollection'] } else { '' } }
+            Set = { param($w, $p, $v) Set-ApplicationGridDistributionValue -Work $w -Packager $p -Field 'TestCollection' -Value $v }
+            NotApplicable = { param($w, $p) $null } }
+        @{ Id = 'detection'; Header = 'Detection'; Kind = 'Link'; Visible = $false; Width = 190; Choices = @()
+            Tip = 'Edit the detection rule in the Workbench.'
+            Get = { param($w, $p) Get-ApplicationGridDetectionText -Work $w -Packager $p }
+            Set = { param($w, $p, $v) }
+            NotApplicable = { param($w, $p) 'Edit the detection rule in the Workbench.' }
+            Open = { param($row, $owner) Show-ApplicationWorkbench -Owner $owner -PreselectPackagerBase ([string]$row.Base) } }
         # The settings below are fields of the Workbench profile of the application (Timing.*, Install.RebootPolicy). Detection, requirements and
         # the distribution targets are lists of rules and stay in the Workbench.
         @{ Id = 'estimated'; Header = 'Estimated Runtime (min)'; Kind = 'Text'; Visible = $false; Width = 240; Choices = @()
@@ -9501,7 +9608,7 @@ function Update-ApplicationGridRow {
     foreach ($s in $Setting) {
         $cell = Get-ApplicationGridCell -Setting $s -Work $Work -Packager $Row.Packager
         $Row.Load('v_' + $s.Id, $cell.Shown)
-        $Row.Load('e_' + $s.Id, [bool](-not $cell.Reason))
+        $Row.Load('e_' + $s.Id, [bool](-not $cell.Reason -or $s.Kind -eq 'Link'))
         $Row.Load('t_' + $s.Id, $(if ($cell.Reason) { $cell.Reason } else { ('{0}: {1}' -f $Row.Application, $s.Tip) }))
         $items = $s.Choices
         if ($s.ContainsKey('Items')) { $items = & $s.Items $Row.Packager }
@@ -9586,6 +9693,9 @@ function Save-ApplicationGridWork {
     $commands = [ordered]@{}
     foreach ($key in $Work.Commands.Keys) { if ($Work.Commands[$key] -and ([string]$Work.Commands[$key]['Install'] -or [string]$Work.Commands[$key]['Uninstall'])) { $commands[$key] = $Work.Commands[$key] } }
     $Prefs.CommandOverrides.Apps = ConvertTo-ApplicationGridObject $commands
+    $dist = [ordered]@{}
+    foreach ($key in $Work.Dist.Keys) { if ($Work.Dist[$key] -and ([string]$Work.Dist[$key]['DpGroup'] -or [string]$Work.Dist[$key]['TestCollection'])) { $dist[$key] = $Work.Dist[$key] } }
+    $Prefs.DistributionOverrides.Apps = ConvertTo-ApplicationGridObject $dist
 
     $flow = $Prefs.AppFlow
     $tracked = New-Object 'System.Collections.Generic.List[string]'
@@ -9690,7 +9800,7 @@ function New-OptionsApplicationGrid {
     [void]$bar.Children.Add($searchBox)
     [void]$bar.Children.Add((& $newLabel 'Set'))
     $columnBox = & $newBox 190 'The column that the bulk buttons change.' 'sup.apps.column'
-    foreach ($s in $settings) { [void]$columnBox.Items.Add([string]$s.Header) }
+    foreach ($s in @($settings | Where-Object { $_.Kind -ne 'Link' })) { [void]$columnBox.Items.Add([string]$s.Header) }
     $valueBox = & $newBox 200 'The value that Apply writes. The first value of a column resets it.' 'sup.apps.value'
     $scopeBox = & $newBox 130 'The applications that Apply changes: the checked ones, the ones that pass the search, or all.' 'sup.apps.scope'
     foreach ($v in 'Checked', 'Filtered', 'All') { [void]$scopeBox.Items.Add($v) }
@@ -9754,6 +9864,9 @@ function New-OptionsApplicationGrid {
         if ($s.Kind -eq 'Choice') {
             [void]$columnXaml.AppendLine(('<DataGridTemplateColumn MinWidth="{0}" Header="{1}" Width="{2}" CanUserSort="False" Visibility="{3}"><DataGridTemplateColumn.CellTemplate><DataTemplate><ComboBox ItemContainerStyle="{{DynamicResource ThemedComboBoxItemStyle}}" ItemsSource="{{Binding [i_{4}]}}" SelectedItem="{{Binding [v_{4}], UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}}" IsEnabled="{{Binding [e_{4}]}}" ToolTip="{{Binding [t_{4}]}}" ToolTipService.ShowOnDisabled="True" Margin="2" MinHeight="24" FontSize="12" AutomationProperties.AutomationId="appgrid.{4}"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>' -f $minWidth, $s.Header, $width, $(if ($s.Visible) { 'Visible' } else { 'Collapsed' }), $id))
         }
+        elseif ($s.Kind -eq 'Link') {
+            [void]$columnXaml.AppendLine(('<DataGridTemplateColumn MinWidth="{0}" Header="{1}" Width="{2}" CanUserSort="False" Visibility="{3}"><DataGridTemplateColumn.CellTemplate><DataTemplate><Button Style="{{DynamicResource LinkButtonStyle}}" Content="{{Binding [v_{4}]}}" ToolTip="{{Binding [t_{4}]}}" Margin="4,2,2,2" HorizontalAlignment="Left" AutomationProperties.AutomationId="appgrid.{4}"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>' -f $minWidth, $s.Header, $width, $(if ($s.Visible) { 'Visible' } else { 'Collapsed' }), $id))
+        }
         else {
             [void]$columnXaml.AppendLine(('<DataGridTemplateColumn MinWidth="{0}" Header="{1}" Width="{2}" CanUserSort="False" Visibility="{3}"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBox Text="{{Binding [v_{4}], UpdateSourceTrigger=LostFocus, Mode=TwoWay}}" IsEnabled="{{Binding [e_{4}]}}" ToolTip="{{Binding [t_{4}]}}" ToolTipService.ShowOnDisabled="True" Margin="2" MinHeight="24" FontSize="12" VerticalContentAlignment="Center" AutomationProperties.AutomationId="appgrid.{4}"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>' -f $minWidth, $s.Header, $width, $(if ($s.Visible) { 'Visible' } else { 'Collapsed' }), $id))
         }
@@ -9800,6 +9913,16 @@ function New-OptionsApplicationGrid {
     }
     if (Get-Command Set-GridHeaderTip -ErrorAction Ignore) { Set-GridHeaderTip -Grid $grid }
     $grid.ItemsSource = $rows
+    # A link cell (the detection) opens the Workbench for the application of its row.
+    $openHandler = {
+        param($sender, $e)
+        $button = $e.OriginalSource -as [System.Windows.Controls.Button]
+        if (-not $button) { return }
+        $row = $button.DataContext -as [AppPackagerGridRow]
+        $setting = @($settings | Where-Object { $_.Kind -eq 'Link' -and [System.Windows.Automation.AutomationProperties]::GetAutomationId($button) -eq ('appgrid.' + $_.Id) })[0]
+        if ($row -and $setting -and $setting.ContainsKey('Open')) { try { & $setting.Open $row ([System.Windows.Window]::GetWindow($grid)) } catch { $summary.Text = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') } }
+    }.GetNewClosure()
+    $grid.AddHandler([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent, ([System.Windows.RoutedEventHandler]$openHandler))
     $view = [System.Windows.Data.CollectionViewSource]::GetDefaultView($rows)
     $view.Filter = [Predicate[object]]$passes
     $searchBox.Add_TextChanged({ $state.Search = $searchBox.Text.Trim(); $view.Refresh() }.GetNewClosure())

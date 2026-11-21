@@ -3369,16 +3369,16 @@ Describe 'Ad-hoc intake hardening' {
 }
 
 Describe 'Condition templates' {
-    It 'ships three defaults with stable ids' {
+    It 'ships six defaults with stable ids' {
         $doc = Get-DefaultConditionTemplates
-        @($doc.Conditions).Count | Should -Be 3
-        @($doc.Conditions | ForEach-Object { $_.Id }) | Should -Be @('cpu-arch', 'os-language', 'vpn-connected')
+        @($doc.Conditions).Count | Should -Be 6
+        @($doc.Conditions | ForEach-Object { $_.Id }) | Should -Be @('cpu-arch', 'os-language', 'disk-space', 'memory', 'os-build', 'vpn-connected')
     }
 
     It 'default rule types map each condition onto a supported rule cmdlet' {
         $doc = Get-DefaultConditionTemplates
         foreach ($c in $doc.Conditions) {
-            $c.RuleType | Should -BeIn @('CommonValue', 'OperatingSystemLanguage', 'Boolean')
+            $c.RuleType | Should -BeIn @('CommonValue', 'OperatingSystemLanguage', 'Boolean', 'FreeDiskSpace')
         }
     }
 
@@ -3395,7 +3395,7 @@ Describe 'Condition templates' {
 
     It 'falls back to defaults when the override file is absent' {
         Mock Get-ConditionTemplatesPath -ModuleName AppPackagerCommon { Join-Path $TestDrive 'missing.json' }
-        @((Get-ConditionTemplates).Conditions).Count | Should -Be 3
+        @((Get-ConditionTemplates).Conditions).Count | Should -Be 6
     }
 
     It 'prefers a parseable override file' {
@@ -3403,7 +3403,8 @@ Describe 'Condition templates' {
         '{"SchemaVersion":1,"Conditions":[{"Id":"custom-only","Kind":"BuiltIn","RuleType":"Boolean","GlobalConditionName":"X"}]}' |
             Set-Content -Path (Join-Path $TestDrive 'ct.json')
         $doc = Get-ConditionTemplates
-        @($doc.Conditions).Count | Should -Be 1
+        # Templates that the file lacks come from the defaults, after the file's own conditions.
+        @($doc.Conditions).Count | Should -Be 7
         $doc.Conditions[0].Id | Should -Be 'custom-only'
     }
 
@@ -3411,7 +3412,7 @@ Describe 'Condition templates' {
         Mock Get-ConditionTemplatesPath -ModuleName AppPackagerCommon { Join-Path $TestDrive 'bad.json' }
         Mock Write-Log -ModuleName AppPackagerCommon { }
         'not json at all {' | Set-Content -Path (Join-Path $TestDrive 'bad.json')
-        @((Get-ConditionTemplates).Conditions).Count | Should -Be 3
+        @((Get-ConditionTemplates).Conditions).Count | Should -Be 6
     }
 
     It 'save round-trips through the override path' {
