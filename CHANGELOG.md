@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [2026.11.20.0152] - 2026-11-20
+
+## 317 packagers
+
+### Changed
+
+- Show one GitHub sign-in status in Options that names the token source.
+- Let a token saved in Options win over the environment and the GitHub CLI.
+- Report a refused GitHub token as 401 and a blocked request as 403.
+- Find gh.exe in the Program Files and user folders when the PATH lacks it.
+
 ## [2026.11.20.0151] - 2026-11-20
 
 ## 317 packagers
