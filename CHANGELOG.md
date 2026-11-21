@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [2026.11.20.0153] - 2026-11-20
+
+## 14 columns in the All Applications grid
+
 ### Added
 
 - Add the All Applications grid to Options, with one row for each application.
