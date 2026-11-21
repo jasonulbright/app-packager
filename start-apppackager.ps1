@@ -8139,7 +8139,7 @@ function Get-OptionsSectionDefinition {
     $sections.Add(@{
             Id = 'allapps'; Title = 'All Applications'; Parent = 'applications'; Kind = 'Fields'; Prefs = @('DeploymentConditions.Apps', 'Supersedence.TitleOverrides')
             Keywords = 'application grid package source type architecture x64 x86 arm64 install scope system user supersedence version title version rule detection greater equal'
-            Description = 'One row for each application that the packagers offer. The Columns button chooses the columns, and the search box filters the rows. A cell that does not apply to an application is closed, and its tooltip says why. Supersedence is off for every application until you turn it on, as a default or for one application. An application with supersedence on keeps the version in its title, so each release is its own application. At Package, the older version (same title and vendor, the highest version below this one) is looked up and you confirm the supersedence first. Version Rule sets the operator of the version clause in the detection of the application that is packaged. Follow the default uses the default in the three fields below. The command line options -VersionRule and -Supersedence outrank these values.'
+            Description = 'One row for each application that the packagers offer. The Columns button chooses the columns, and the search box filters the rows. A cell that does not apply to an application is closed, and its tooltip says why. The runtime and reboot columns are fields of the Workbench profile of the application; the detection, the requirements and the distribution targets stay in the Application Workbench. Supersedence is off for every application until you turn it on, as a default or for one application. An application with supersedence on keeps the version in its title, so each release is its own application. At Package, the older version (same title and vendor, the highest version below this one) is looked up and you confirm the supersedence first. Version Rule sets the operator of the version clause in the detection of the application that is packaged. Follow the default uses the default in the three fields below. The command line options -VersionRule and -Supersedence outrank these values.'
             Fields = @(
                 @{ Id = 'sup.cmRule'; Title = 'Version rule, ConfigMgr'; Kind = 'Combo'; Pref = 'Supersedence.ConfigMgrVersionRule'; Default = 'Minimum'; Width = 260; Items = $versionRuleItems; Tip = 'Exact writes IsEquals when the installed value equals the expected value.'; Keywords = 'detection operator equals greater' }
                 @{ Id = 'sup.inRule'; Title = 'Version rule, Intune'; Kind = 'Combo'; Pref = 'Supersedence.IntuneVersionRule'; Default = 'Minimum'; Width = 260; Items = $versionRuleItems; Tip = 'Exact writes the operator equal to the version rule of the Intune detection.'; Keywords = 'detection operator equal greater' }
@@ -9202,6 +9202,83 @@ function New-ApplicationGridWork {
         Destinations        = $(if ($flow -and $flow.PSObject.Properties['Destinations']) { ConvertTo-ApplicationGridMap $flow.Destinations } else { [ordered]@{} })
         DefaultDestinations = [pscustomobject]@{ ConfigMgr = [bool]$default.ConfigMgr; WSUS = [bool]$default.WSUS; Intune = [bool]$default.Intune }
         DefaultSupersedence = $mode
+        DataRoot            = $(try { Get-WorkbenchDataRoot -Preferences $Prefs -NoCreate } catch { '' })
+        Profiles            = @{}
+    }
+}
+
+function ConvertTo-ApplicationGridTree {
+    # A stored profile (objects and arrays) as ordered tables, which the Workbench functions Set-WorkbenchOverrideValue and Save-Profile take.
+    param($Object)
+    if ($null -eq $Object) { return $null }
+    if ($Object -is [System.Collections.IDictionary] -or $Object -is [System.Management.Automation.PSCustomObject]) {
+        $table = [ordered]@{}
+        $pairs = $(if ($Object -is [System.Collections.IDictionary]) { foreach ($k in $Object.Keys) { [pscustomobject]@{ Name = $k; Value = $Object[$k] } } } else { $Object.PSObject.Properties })
+        foreach ($pair in $pairs) { $table[[string]$pair.Name] = ConvertTo-ApplicationGridTree -Object $pair.Value }
+        return $table
+    }
+    if ($Object -is [System.Collections.IEnumerable] -and $Object -isnot [string]) { return , @($Object | ForEach-Object { ConvertTo-ApplicationGridTree -Object $_ }) }
+    return $Object
+}
+
+function Get-ApplicationGridProfileContext {
+    # The Workbench profile of one application as the grid edits it: the profile that carries MigratedFrom = the name of the packager
+    # (the profile that the legacy migration makes), or a new profile of the same shape when the application has none. Blocked is the
+    # reason why the grid cannot edit it: another profile is active, and a run reads the active profile only.
+    param([Parameter(Mandatory)]$Work, [Parameter(Mandatory)]$Packager)
+    $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$Packager.Script)
+    if ($Work.Profiles.ContainsKey($base)) { return $Work.Profiles[$base] }
+    $id = 'catalog:' + $base
+    $definition = Get-ApplicationDefinition -ApplicationId $id -DataRoot $Work.DataRoot
+    $active = [string]$definition.ActiveProfileId
+    if ([string]::IsNullOrWhiteSpace($active)) { $active = 'default' }
+    $own = $null
+    $activeName = ''
+    foreach ($candidate in @(Get-Profiles -ApplicationId $id -DataRoot $Work.DataRoot)) {
+        if ($candidate.IsDefault) { continue }
+        if ([string]$candidate.ProfileId -eq $active) { $activeName = [string]$candidate.Name }
+        $stored = Get-Profile -ApplicationId $id -ProfileId ([string]$candidate.ProfileId) -DataRoot $Work.DataRoot
+        if ([string]$stored.MigratedFrom -eq $base) { $own = ConvertTo-ApplicationGridTree -Object $stored; [void]$own.Remove('IsDefault') }
+    }
+    $profile = $own
+    if (-not $profile) {
+        $profile = New-WorkbenchProfileObject -ApplicationId $id -Name 'Migrated'
+        $profile['MigratedFrom'] = $base
+    }
+    $blocked = $null
+    if ($active -ne 'default' -and (-not $own -or $active -ne [string]$own['ProfileId'])) {
+        $blocked = 'The profile {0} is active for {1}, and a run reads the active profile only. Change it in the Application Workbench.' -f $(if ($activeName) { '"' + $activeName + '"' } else { $active }), [string]$Packager.Application
+    }
+    $context = @{ Id = $id; Active = $active; Exists = [bool]$own; Profile = $profile; Blocked = $blocked; Dirty = $false }
+    $Work.Profiles[$base] = $context
+    return $context
+}
+
+function Set-ApplicationGridProfileValue {
+    # Workbench semantics: an empty value, or Inherit, removes the key (the field inherits); any other value is a custom override.
+    param([Parameter(Mandatory)]$Work, [Parameter(Mandatory)]$Packager, [Parameter(Mandatory)][string]$Path, [AllowEmptyString()]$Value)
+    $context = Get-ApplicationGridProfileContext -Work $Work -Packager $Packager
+    $before = Get-WorkbenchOverrideValue -Profile $context.Profile -Path $Path
+    if ($null -eq $Value -or [string]$Value -eq '') { Clear-WorkbenchOverrideValue -Profile $context.Profile -Path $Path }
+    else { Set-WorkbenchOverrideValue -Profile $context.Profile -Path $Path -Value $Value }
+    if ([string]$before -ne [string](Get-WorkbenchOverrideValue -Profile $context.Profile -Path $Path)) { $context.Dirty = $true }
+}
+
+function Save-ApplicationGridProfile {
+    # Writes each profile that the grid changed, with the Workbench's own Save-Profile. The profile becomes the active profile only while
+    # the application is on the default profile (or on this profile already).
+    param([Parameter(Mandatory)]$Work)
+    foreach ($base in @($Work.Profiles.Keys)) {
+        $context = $Work.Profiles[$base]
+        if (-not $context.Dirty -or $context.Blocked) { continue }
+        $any = $false
+        foreach ($path in 'Timing.EstimatedMinutes', 'Timing.MaximumMinutes', 'Install.RebootPolicy') { if (Test-WorkbenchOverridePresent -Profile $context.Profile -Path $path) { $any = $true } }
+        if (-not $context.Exists -and -not $any) { $context.Dirty = $false; continue }
+        $saved = Save-Profile -Profile $context.Profile -DataRoot $Work.DataRoot -SetActive:($context.Active -eq 'default')
+        $context.Profile = ConvertTo-ApplicationGridTree -Object $saved
+        [void]$context.Profile.Remove('IsDefault')
+        $context.Exists = $true
+        $context.Dirty = $false
     }
 }
 
@@ -9349,6 +9426,27 @@ function Get-ApplicationGridSetting {
             Get = { param($w, $p) & $dest $w $p 'WSUS' }.GetNewClosure()
             Set = { param($w, $p, $v) & $setDest $w $p 'WSUS' $v }.GetNewClosure()
             NotApplicable = { param($w, $p) if ([string]$p.WsusSupport -eq 'No') { 'WSUS cannot carry {0}. Reason: {1}.' -f (& $name $p), $(if ([string]$p.WsusSupportReason) { ([string]$p.WsusSupportReason) -replace '\|', ', ' } else { 'the packager declares No' }) } else { $null } }.GetNewClosure() }
+        # The settings below are fields of the Workbench profile of the application (Timing.*, Install.RebootPolicy). Detection, requirements and
+        # the distribution targets are lists of rules and stay in the Workbench.
+        @{ Id = 'estimated'; Header = 'Estimated Runtime (min)'; Kind = 'Text'; Visible = $false; Width = 240; Choices = @()
+            Tip = 'Estimated install time in minutes, from 1. Empty inherits the default.'
+            Get = { param($w, $p) $v = Get-WorkbenchOverrideValue -Profile (Get-ApplicationGridProfileContext -Work $w -Packager $p).Profile -Path 'Timing.EstimatedMinutes'; if ($null -ne $v) { [string]$v } else { '' } }
+            Set = { param($w, $p, $v) $n = 0; $profile = (Get-ApplicationGridProfileContext -Work $w -Packager $p).Profile; $max = Get-WorkbenchOverrideValue -Profile $profile -Path 'Timing.MaximumMinutes'
+                if ([string]::IsNullOrWhiteSpace($v)) { Set-ApplicationGridProfileValue -Work $w -Packager $p -Path 'Timing.EstimatedMinutes' -Value '' }
+                elseif ([int]::TryParse($v.Trim(), [ref]$n) -and $n -ge 1 -and ($null -eq $max -or $n -le [int]$max)) { Set-ApplicationGridProfileValue -Work $w -Packager $p -Path 'Timing.EstimatedMinutes' -Value $n } }
+            NotApplicable = { param($w, $p) (Get-ApplicationGridProfileContext -Work $w -Packager $p).Blocked } }
+        @{ Id = 'maximum'; Header = 'Maximum Runtime (min)'; Kind = 'Text'; Visible = $false; Width = 230; Choices = @()
+            Tip = 'Longest install time in minutes, from 1. Empty inherits the default.'
+            Get = { param($w, $p) $v = Get-WorkbenchOverrideValue -Profile (Get-ApplicationGridProfileContext -Work $w -Packager $p).Profile -Path 'Timing.MaximumMinutes'; if ($null -ne $v) { [string]$v } else { '' } }
+            Set = { param($w, $p, $v) $n = 0; $profile = (Get-ApplicationGridProfileContext -Work $w -Packager $p).Profile; $est = Get-WorkbenchOverrideValue -Profile $profile -Path 'Timing.EstimatedMinutes'
+                if ([string]::IsNullOrWhiteSpace($v)) { Set-ApplicationGridProfileValue -Work $w -Packager $p -Path 'Timing.MaximumMinutes' -Value '' }
+                elseif ([int]::TryParse($v.Trim(), [ref]$n) -and $n -ge 1 -and ($null -eq $est -or $n -ge [int]$est)) { Set-ApplicationGridProfileValue -Work $w -Packager $p -Path 'Timing.MaximumMinutes' -Value $n } }
+            NotApplicable = { param($w, $p) (Get-ApplicationGridProfileContext -Work $w -Packager $p).Blocked } }
+        @{ Id = 'reboot'; Header = 'Reboot After Install'; Kind = 'Choice'; Visible = $false; Width = 190; Choices = @('Inherit', 'No reboot', 'Soft reboot', 'Hard reboot', 'Force restart')
+            Tip = 'The restart behavior of the install. Inherit keeps the setting of the packager.'
+            Get = { param($w, $p) $v = [string](Get-WorkbenchOverrideValue -Profile (Get-ApplicationGridProfileContext -Work $w -Packager $p).Profile -Path 'Install.RebootPolicy'); if ($v) { $v } else { 'Inherit' } }
+            Set = { param($w, $p, $v) Set-ApplicationGridProfileValue -Work $w -Packager $p -Path 'Install.RebootPolicy' -Value $(if ($v -eq 'Inherit') { '' } else { $v }) }
+            NotApplicable = { param($w, $p) (Get-ApplicationGridProfileContext -Work $w -Packager $p).Blocked } }
     )
 }
 
@@ -9701,6 +9799,7 @@ function New-OptionsApplicationGrid {
     $commit = {
         param($ctx)
         Save-ApplicationGridWork -Prefs $ctx.Prefs -Work $work -Initial $initial
+        Save-ApplicationGridProfile -Work $work
     }.GetNewClosure()
     $setDefault = {
         param([string]$mode)
