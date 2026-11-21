@@ -57,9 +57,8 @@ Describe 'The confirmation before a Package run' {
 Describe 'The Options page' {
     It 'has the setting by application and the bulk action next to the default' {
         $script:Shell | Should -Match "Id = 'sup.apps'"
-        $script:Shell | Should -Match "'All applications'"
-        $script:Shell | Should -Match "'Selected applications'"
-        $script:Shell | Should -Match "'No applications'"
+        $script:Shell | Should -Match "'Checked', 'Filtered', 'All'"
+        $script:Shell | Should -Match "'None', 'None'"
     }
     It 'keeps the default Off' {
         $script:Shell | Should -Match "Pref = 'Supersedence.Mode'; Default = 'Off'"

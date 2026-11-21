@@ -105,7 +105,7 @@ Describe 'Options window' {
     }
 
     It 'commits only the sections that were built' {
-        $script:DialogText | Should -Match 'foreach \(\$id in @\(\$ctx\.Sections\.Keys\)\) \{ \$page = \$ctx\.Sections\[\$id\]; if \(\$page -and \$page\.Commit\)'
+        $script:DialogText | Should -Match 'foreach \(\$id in @\(\$ctx\.Sections\.Keys \| Sort-Object .*?\)\) \{ \$page = \$ctx\.Sections\[\$id\]; if \(\$page -and \$page\.Commit\)'
     }
 
     It 'does not wait for the GitHub status while the section is built' {

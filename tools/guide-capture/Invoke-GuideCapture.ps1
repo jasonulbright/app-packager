@@ -62,9 +62,15 @@
     Run only steps-busy-measure.ps1: CPU, handle, GDI and memory counters of the app for 30 seconds of the busy spinner with the icon list
     loaded. It changes no guide image; the log and the samples go to the proof folder.
 
+.PARAMETER OnlyAppGrid
+    Run only steps-appgrid.ps1: the window proof of the grid of all applications in Options (Applications, All Applications) with real mouse input:
+    a click on a check box, on a combo box and its item, on the bulk buttons and on the column chooser, typed text in the search box, then OK, a read of the preferences file and a second Options window in the light
+    theme. It adds the guide images options-all-applications.png, options-all-applications-columns.png and light-options-all-applications.png and the README images
+    screenshots\options-applications-dark.png and screenshots\options-applications-light.png. The default run does not include it.
+
 .PARAMETER OnlySupersedence
     Run only steps-supersedence.ps1: the window proof of the supersedence confirmation (Yes with Remember this answer, Skip, and No in the light
-    theme) and the images supersedence-by-application.png, supersedence-confirm.png and light-supersedence-confirm.png. It needs the proof applications
+    theme) and the images supersedence-confirm.png and light-supersedence-confirm.png. It needs the proof applications
     on the site and the share \\cm01.contoso.com\Q92Proof$, which the orchestrating script of the proof makes; the default run does not include it.
 
 .EXAMPLE
@@ -85,6 +91,7 @@ param(
     [switch]$OnlyGridIcons,
     [switch]$OnlyBusyMeasure,
     [switch]$OnlySupersedence,
+    [switch]$OnlyAppGrid,
     [string]$ProofFolder
 )
 $ErrorActionPreference = 'Stop'
@@ -159,7 +166,7 @@ try {
         }
     } -ArgumentList $lockPath, $lockToken, 60, $LockWaitMinutes
     if (-not $haveLock) { throw "Another capture holds $lockPath. The wait of $LockWaitMinutes minutes is over." }
-    $runs = if ($OnlyBusyMeasure) { @('steps-busy-measure.ps1') } elseif ($OnlyGridIcons) { @('steps-grid-icons.ps1') } elseif ($OnlyCveChrome) { @('steps-cve-chrome.ps1') } elseif ($OnlySupersedence) { @('steps-supersedence.ps1') } else { @('steps-guide.ps1', 'steps-console-missing.ps1') }
+    $runs = if ($OnlyBusyMeasure) { @('steps-busy-measure.ps1') } elseif ($OnlyGridIcons) { @('steps-grid-icons.ps1') } elseif ($OnlyCveChrome) { @('steps-cve-chrome.ps1') } elseif ($OnlyAppGrid) { @('steps-appgrid.ps1') } elseif ($OnlySupersedence) { @('steps-supersedence.ps1') } else { @('steps-guide.ps1', 'steps-console-missing.ps1') }
     foreach ($steps in $runs) {
         # A fresh copy for each run. Stop only the leftovers of an earlier capture of this app.
         Invoke-Command $session {
@@ -226,16 +233,23 @@ try {
     if ($duplicate.Count) { throw ("Two runs produced the same image. No image was replaced.`n" + ($duplicate -join "`n")) }
     # The Chrome CVE images come from the switch -OnlyCveChrome only. A full run neither makes them nor misses them.
     $missing = @(Get-ChildItem $images -Filter *.png | Where-Object { -not $capturedNames.Contains($_.Name) -and ($_.Name -notmatch '^(light-)?(cve-chrome|supersedence)-') } | ForEach-Object { $_.Name })
-    if ($missing.Count -and -not $OnlyCveChrome -and -not $OnlyGridIcons -and -not $OnlyBusyMeasure -and -not $OnlySupersedence) { throw ("The capture did not produce these guide images. No image was replaced.`n" + ($missing -join "`n")) }
+    if ($missing.Count -and -not $OnlyCveChrome -and -not $OnlyGridIcons -and -not $OnlyBusyMeasure -and -not $OnlySupersedence -and -not $OnlyAppGrid) { throw ("The capture did not produce these guide images. No image was replaced.`n" + ($missing -join "`n")) }
     # The grid icon proof keeps its images and logs in the proof folder and changes no guide image.
-    if ($OnlyGridIcons -or $OnlySupersedence -or $OnlyBusyMeasure) {
+    if ($OnlyGridIcons -or $OnlySupersedence -or $OnlyBusyMeasure -or $OnlyAppGrid) {
         if ($ProofFolder) {
             New-Item -ItemType Directory -Path $ProofFolder -Force | Out-Null
             foreach ($file in @(Get-ChildItem $tmp -Recurse -File | Where-Object { $_.Extension -in '.png', '.log', '.flag', '.txt' })) { Copy-Item $file.FullName (Join-Path $ProofFolder ($file.Directory.Name + '-' + $file.Name)) -Force }
         }
         # The supersedence proof adds its three guide images; every other image of the proof stays in the proof folder.
-        $captured = @($(if ($OnlySupersedence) { $captured | Where-Object { $_.Name -in 'supersedence-by-application.png', 'supersedence-confirm.png', 'light-supersedence-confirm.png' } }))
+        $captured = @($(if ($OnlySupersedence) { $captured | Where-Object { $_.Name -in 'supersedence-confirm.png', 'light-supersedence-confirm.png' } }))
         foreach ($png in $captured) { Copy-Item $png.FullName (Join-Path $images $png.Name) -Force }
+        # The grid proof adds two guide images and two README images.
+        if ($OnlyAppGrid) {
+            foreach ($png in @(Get-ChildItem $tmp -Recurse -Filter *.png | Where-Object { $_.Name -in 'options-all-applications.png', 'options-all-applications-columns.png', 'light-options-all-applications.png' })) { Copy-Item $png.FullName (Join-Path $images $png.Name) -Force }
+            $shots = Join-Path $repo 'screenshots'
+            New-Item -ItemType Directory -Path $shots -Force | Out-Null
+            foreach ($png in @(Get-ChildItem $tmp -Recurse -Filter *.png | Where-Object { $_.Name -in 'options-applications-dark.png', 'options-applications-light.png' })) { Copy-Item $png.FullName (Join-Path $shots $png.Name) -Force }
+        }
         $captured = @()
     }
     foreach ($png in $captured) {

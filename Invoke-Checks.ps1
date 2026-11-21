@@ -57,9 +57,15 @@ if (Test-GroupSelected 'Lint') {
     # Test files pass state to mock bodies through a global variable, and they define variables in BeforeAll that the It blocks read. Both are intended.
     # The tests also build a throwaway password as a SecureString from plain text.
     $testOnlyExclude = 'PSAvoidGlobalVars', 'PSUseDeclaredVarsMoreThanAssignments', 'PSAvoidUsingConvertToSecureStringWithPlainText'
+    # Each file is timed. A file that takes more than 20 seconds, or that stops the analyzer, is named in the log.
     $findings = @(foreach ($t in $targets) {
-            if ($t.Name -like '*.Tests.ps1' -or $t.FullName.Substring($root.Length).TrimStart('\', '/') -like 'Tests[\/]*') { Invoke-ScriptAnalyzer -Path $t.FullName -Settings $settings -ExcludeRule $testOnlyExclude }
-            else { Invoke-ScriptAnalyzer -Path $t.FullName -Settings $settings }
+            $watch = [System.Diagnostics.Stopwatch]::StartNew()
+            try {
+                if ($t.Name -like '*.Tests.ps1' -or $t.FullName.Substring($root.Length).TrimStart('\', '/') -like 'Tests[\/]*') { Invoke-ScriptAnalyzer -Path $t.FullName -Settings $settings -ExcludeRule $testOnlyExclude }
+                else { Invoke-ScriptAnalyzer -Path $t.FullName -Settings $settings }
+            }
+            catch { Write-Host ('Lint: the analyzer stopped on {0} after {1} seconds: {2}' -f $t.FullName, [int]$watch.Elapsed.TotalSeconds, $_.Exception.Message); $failed = $true }
+            if ($watch.Elapsed.TotalSeconds -gt 20) { Write-Host ('Lint: slow file {0} ({1} seconds)' -f $t.FullName, [int]$watch.Elapsed.TotalSeconds) }
         })
     $blocking = @($findings | Where-Object { $_.Severity -eq 'Error' })
     Write-Host ('Lint: {0} files, {1} findings, {2} with severity Error' -f $targets.Count, $findings.Count, $blocking.Count)

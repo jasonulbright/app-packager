@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add the All Applications grid to Options, with one row for each application.
+- Add the columns Package Source, Install Scope, Supersedence, Version in Title and Version Rule to the grid.
+- Add the columns Network, Network Split, Install Command, Uninstall Command, In One Click and Check Interval Days to the grid.
+- Add the columns Publish to ConfigMgr, Publish to Intune and Publish to WSUS to the grid.
+- Add the Columns button and a search box to the grid.
+- Add a bulk bar to the grid for checked, filtered and all applications, and for none.
+- Show a closed grid cell with a tooltip that gives the reason.
+
+### Changed
+
+- Move the supersedence defaults and the setting for each application from Options, Packaging, Supersedence to the grid.
+- Show Include version in Version in Title while supersedence is on for the application.
+
 ## [2026.11.20.0152] - 2026-11-20
 
 ## 317 packagers

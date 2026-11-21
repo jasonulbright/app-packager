@@ -114,17 +114,29 @@ Section 'setup' {
 }
 Section 'options: the setting by application' {
     Invoke-El (Get-El $win 'btnOptions'); $o = Find-LastLike 'Options*' 15
-    $node = @($o.FindAll('Descendants', (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::TreeItem)))) | Where-Object { $_.Current.Name -eq 'Supersedence' } | Select-Object -First 1
-    if (-not $node) { throw 'The Options tree has no Supersedence page.' }
+    Size-Win $o 1400 1040
+    $tree = @($o.FindAll('Descendants', (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::TreeItem))))
+    $group = $tree | Where-Object { $_.Current.Name -eq 'Applications' } | Select-Object -First 1
+    if ($group) { try { Expand-El $group } catch { $null = $_ }; Start-Sleep -Milliseconds 600 }
+    $node = @($o.FindAll('Descendants', (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::TreeItem)))) | Where-Object { $_.Current.Name -eq 'All Applications' } | Select-Object -First 1
+    if (-not $node) { throw 'The Options tree has no All Applications page.' }
     Select-El $node; Start-Sleep -Milliseconds 1200
+    # The grid is virtualized: each proof row is realized through the item container pattern, then its check box is toggled.
+    $grid = Get-El $o 'sup.apps'
     foreach ($name in 'Q92 Proof App', 'Q92 Proof Tool') {
-        $box = Find-Role $o 'CheckBox' $name
-        if (-not $box) { throw "No check box for $name in the setting by application." }
-        try { $box.SetFocus() } catch { $null = $_ }; Start-Sleep -Milliseconds 300
-        Toggle-El $box
+        $item = $grid.GetCurrentPattern([System.Windows.Automation.ItemContainerPattern]::Pattern).FindItemByProperty($null, $AE::NameProperty, $name)
+        if (-not $item) { throw "No row for $name in the grid of all applications." }
+        try { $item.GetCurrentPattern([System.Windows.Automation.VirtualizedItemPattern]::Pattern).Realize() } catch { $null = $_ }
+        Start-Sleep -Milliseconds 700
+        $row = $grid.FindFirst('Descendants', (New-Object System.Windows.Automation.AndCondition((New-Object System.Windows.Automation.PropertyCondition($AE::NameProperty, $name)), (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::DataItem)))))
+        # The supersedence cell of the row: open its list and select Replace.
+        $combo = Get-El $row 'appgrid.supersedence'
+        Expand-El $combo; Start-Sleep -Milliseconds 500
+        $replace = $root.FindFirst('Descendants', (New-Object System.Windows.Automation.AndCondition((New-Object System.Windows.Automation.PropertyCondition($AE::NameProperty, 'Replace')), (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem)))))
+        if (-not $replace) { throw 'The supersedence list has no item Replace.' }
+        Select-El $replace; Start-Sleep -Milliseconds 500
     }
-    Invoke-El (Get-El $o 'sup.apps.bulk.Selected'); Start-Sleep -Milliseconds 800
-    Shot $o 'supersedence-by-application'
+    Shot $o 'proof-all-applications'
     Invoke-El (Get-El $o 'btnOK'); Start-Sleep -Seconds 3
     Log ('options saved: ' + (Get-Content (Join-Path $appDir 'AppPackager.preferences.json') -Raw | Select-String 'catalog:package-q92proof[ab]' -AllMatches | ForEach-Object { $_.Matches.Count }))
 }

@@ -112,7 +112,7 @@ try {
     $titles = @($definition | Where-Object { -not $_.Parent } | ForEach-Object { $_.Title })
     & $assert (($titles -join '|') -eq 'Connections|Packaging|Applications|Updates and CVEs|Security|Tools|About') 'the tree has the seven top-level nodes in order'
     $applications = @($definition | Where-Object { $_.Parent -eq 'applications' } | ForEach-Object { $_.Title })
-    & $assert (($applications -join '|') -eq 'Adobe Acrobat Reader|Beyond Compare 5|Citrix Workspace App|DBeaver Community|Microsoft 365 Apps|SQL Server Management Studio|TeamViewer Host|Local Installer Sources') 'the applications are in alphabetical order and Local Installer Sources comes last'
+    & $assert (($applications -join '|') -eq 'Adobe Acrobat Reader|All Applications|Beyond Compare 5|Citrix Workspace App|DBeaver Community|Microsoft 365 Apps|SQL Server Management Studio|TeamViewer Host|Local Installer Sources') 'the applications are in alphabetical order and Local Installer Sources comes last'
     $citrixChildren = @($definition | Where-Object { $_.Parent -eq 'cwa' } | ForEach-Object { $_.Title })
     & $assert ($citrixChildren.Count -eq 0) 'Citrix Workspace App is one page with no child nodes'
     & $assert (@($definition | Where-Object { $_.Id -eq 'github' }).Count -eq 0) 'Security has no GitHub API node'

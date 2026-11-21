@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-# Window probe of the supersedence setting in Options: the bulk buttons move the default, and the title page shows a note
+# Window probe of the supersedence setting in Options, All Applications: the bulk buttons move the default, and the title page shows a note
 # when supersedence is on and never writes the include-version choice of the operator.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -31,20 +31,19 @@ function Set-ProbePrefs {
 }
 
 try {
-    # The bulk buttons write the default through the default combo of the page.
+    # The default combo of the page is the default of the grid: a default that is on closes the title of an application that follows it.
     Set-ProbePrefs '{}'
-    $page = New-OptionsTestPage -Id 'supersedence'
+    $page = New-OptionsTestPage -Id 'allapps'
     $mode = $page.Editors['sup.mode']
-    & $assert ((& $mode.Get) -eq 'Off') 'the default is Off before the bulk action'
-    $all = Find-OptionsButton -Element $page.Editors['sup.apps'].Element -Text 'All applications'
-    & $assert ($null -ne $all) 'the button All applications exists'
-    Invoke-OptionsButton $all
-    & $assert ((& $mode.Get) -ne 'Off') 'All applications sets the default to the chosen value'
+    $grid = $page.Editors['sup.apps']
+    & $assert ((& $mode.Get) -eq 'Off') 'the default is Off before any change'
+    & $assert (@($grid.Rows | Where-Object { -not $_['e_title'] }).Count -eq 0) 'every title is open while the default is Off'
+    & $mode.Set 'Replace'
+    & $assert ($grid.Work.DefaultSupersedence -eq 'Replace' -and @($grid.Rows | Where-Object { $_['e_title'] }).Count -eq 0) 'the default Replace closes the title of every application that follows it'
     & $page.Commit
-    & $assert ([string]$script:Prefs.Supersedence.Mode -ne 'Off') 'the saved default is on after All applications'
-    $none = Find-OptionsButton -Element $page.Editors['sup.apps'].Element -Text 'No applications'
-    Invoke-OptionsButton $none
-    & $assert ((& $mode.Get) -eq 'Off') 'No applications sets the default to Off'
+    & $assert ([string]$script:Prefs.Supersedence.Mode -eq 'Replace') 'the saved default is on after the change'
+    & $mode.Set 'Off'
+    & $assert (@($grid.Rows | Where-Object { -not $_['e_title'] }).Count -eq 0) 'the default Off opens the titles again'
 
     # The title page: a note while supersedence is on, and the choice of the operator is never written by it.
     foreach ($stored in $false, $true) {
