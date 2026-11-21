@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [2026.11.20.0155] - 2026-11-20
+
+## 1 wording change in the GitHub status
+
+### Changed
+
+- Say Signed in by using GitHub CLI in the GitHub authentication status.
+
 ## [2026.11.20.0154] - 2026-11-20
 
 ## 1 change in the guide capture
