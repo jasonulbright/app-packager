@@ -68,6 +68,10 @@
     theme. It adds the guide images options-all-applications.png, options-all-applications-columns.png, options-all-applications-profile.png and light-options-all-applications.png and the README images
     screenshots\options-applications-dark.png and screenshots\options-applications-light.png. The default run includes these steps too; this switch runs only them.
 
+.PARAMETER OnlyCheckResult
+    Run only steps-check-result.ps1: Check ConfigMgr on three rows, the result file CheckConfigMgrResult.csv and .json in the data folder, a real right-click on a row, the entry
+    Export Check ConfigMgr results... and its Save dialog, then a comparison of the exported file with the result file. It adds the guide image check-configmgr-export-menu.png.
+
 .PARAMETER OnlySupersedence
     Run only steps-supersedence.ps1: the window proof of the supersedence confirmation (Yes with Remember this answer, Skip, and No in the light
     theme) and the images supersedence-confirm.png and light-supersedence-confirm.png. It needs the proof applications
@@ -92,6 +96,7 @@ param(
     [switch]$OnlyBusyMeasure,
     [switch]$OnlySupersedence,
     [switch]$OnlyAppGrid,
+    [switch]$OnlyCheckResult,
     [string]$ProofFolder
 )
 $ErrorActionPreference = 'Stop'
@@ -166,7 +171,7 @@ try {
         }
     } -ArgumentList $lockPath, $lockToken, 60, $LockWaitMinutes
     if (-not $haveLock) { throw "Another capture holds $lockPath. The wait of $LockWaitMinutes minutes is over." }
-    $runs = if ($OnlyBusyMeasure) { @('steps-busy-measure.ps1') } elseif ($OnlyGridIcons) { @('steps-grid-icons.ps1') } elseif ($OnlyCveChrome) { @('steps-cve-chrome.ps1') } elseif ($OnlyAppGrid) { @('steps-appgrid.ps1') } elseif ($OnlySupersedence) { @('steps-supersedence.ps1') } else { @('steps-guide.ps1', 'steps-appgrid.ps1', 'steps-console-missing.ps1') }
+    $runs = if ($OnlyBusyMeasure) { @('steps-busy-measure.ps1') } elseif ($OnlyGridIcons) { @('steps-grid-icons.ps1') } elseif ($OnlyCveChrome) { @('steps-cve-chrome.ps1') } elseif ($OnlyCheckResult) { @('steps-check-result.ps1') } elseif ($OnlyAppGrid) { @('steps-appgrid.ps1') } elseif ($OnlySupersedence) { @('steps-supersedence.ps1') } else { @('steps-guide.ps1', 'steps-appgrid.ps1', 'steps-console-missing.ps1') }
     foreach ($steps in $runs) {
         # A fresh copy for each run. Stop only the leftovers of an earlier capture of this app.
         Invoke-Command $session {
@@ -232,16 +237,16 @@ try {
     foreach ($png in $captured) { if (-not $capturedNames.Add($png.Name)) { $duplicate.Add($png.Name) } }
     if ($duplicate.Count) { throw ("Two runs produced the same image. No image was replaced.`n" + ($duplicate -join "`n")) }
     # The Chrome CVE images come from the switch -OnlyCveChrome only. A full run neither makes them nor misses them.
-    $missing = @(Get-ChildItem $images -Filter *.png | Where-Object { -not $capturedNames.Contains($_.Name) -and ($_.Name -notmatch '^(light-)?(cve-chrome|supersedence)-') } | ForEach-Object { $_.Name })
-    if ($missing.Count -and -not $OnlyCveChrome -and -not $OnlyGridIcons -and -not $OnlyBusyMeasure -and -not $OnlySupersedence -and -not $OnlyAppGrid) { throw ("The capture did not produce these guide images. No image was replaced.`n" + ($missing -join "`n")) }
+    $missing = @(Get-ChildItem $images -Filter *.png | Where-Object { -not $capturedNames.Contains($_.Name) -and ($_.Name -notmatch '^(light-)?(cve-chrome|supersedence)-|^check-configmgr-export-menu') } | ForEach-Object { $_.Name })
+    if ($missing.Count -and -not $OnlyCveChrome -and -not $OnlyGridIcons -and -not $OnlyBusyMeasure -and -not $OnlySupersedence -and -not $OnlyAppGrid -and -not $OnlyCheckResult) { throw ("The capture did not produce these guide images. No image was replaced.`n" + ($missing -join "`n")) }
     # The grid icon proof keeps its images and logs in the proof folder and changes no guide image.
-    if ($OnlyGridIcons -or $OnlySupersedence -or $OnlyBusyMeasure -or $OnlyAppGrid) {
+    if ($OnlyGridIcons -or $OnlySupersedence -or $OnlyBusyMeasure -or $OnlyAppGrid -or $OnlyCheckResult) {
         if ($ProofFolder) {
             New-Item -ItemType Directory -Path $ProofFolder -Force | Out-Null
             foreach ($file in @(Get-ChildItem $tmp -Recurse -File | Where-Object { $_.Extension -in '.png', '.log', '.flag', '.txt' })) { Copy-Item $file.FullName (Join-Path $ProofFolder ($file.Directory.Name + '-' + $file.Name)) -Force }
         }
         # The supersedence proof adds its three guide images; every other image of the proof stays in the proof folder.
-        $captured = @($(if ($OnlySupersedence) { $captured | Where-Object { $_.Name -in 'supersedence-confirm.png', 'light-supersedence-confirm.png' } }))
+        $captured = @($(if ($OnlySupersedence) { $captured | Where-Object { $_.Name -in 'supersedence-confirm.png', 'light-supersedence-confirm.png' } } elseif ($OnlyCheckResult) { $captured | Where-Object { $_.Name -eq 'check-configmgr-export-menu.png' } }))
         foreach ($png in $captured) { Copy-Item $png.FullName (Join-Path $images $png.Name) -Force }
         # The grid proof adds two guide images and two README images.
         if ($OnlyAppGrid) {
