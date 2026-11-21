@@ -109,8 +109,12 @@ One grid with one row for each application that the packagers offer. Every setti
 | In One Click | No, Yes | `AppFlow.Tracked` |
 | Check Interval Days | A number from 1 to 365. Empty uses the default. | `AppFlow.CadenceOverrides` |
 | Publish to ConfigMgr, Publish to Intune, Publish to WSUS | Follow the default, Yes, No | `AppFlow.Destinations` |
+| Estimated Runtime (min), Maximum Runtime (min) | A whole number from 1. Empty inherits the default. | Workbench profile, `Timing.EstimatedMinutes` and `Timing.MaximumMinutes` |
+| Reboot After Install | Inherit, No reboot, Soft reboot, Hard reboot, Force restart | Workbench profile, `Install.RebootPolicy` |
 
 The first choice of a column is the value that resets it. **Follow the default** uses the default in the three fields above the grid: **Version rule, ConfigMgr**, **Version rule, Intune** and **Supersedence mode, ConfigMgr**. The shipped defaults are Minimum, Minimum and Off. The version rule sets the operator of the version clause in the detection of the application that Package publishes. Exact writes `IsEquals` only when a value read from the installed product equals the expected value: the ProductVersion of an MSI, or a value that you record with `-RecordInstalledValue`. Replace makes the new application supersede the older version. Replace and uninstall also uninstalls it, and it needs the ConfigMgr version rule Exact. Supersedence is off for every application until you turn it on.
+
+The last three columns are fields of the Workbench profile of the application, and they follow the rules of the Workbench: an empty value or Inherit removes the field from the profile, and any other value is a custom override. The grid writes them to the profile that the migration of the earlier settings makes (the profile with the name Migrated), and creates that profile in the same shape when the application has none. The profile becomes the active profile only while the application is on the packager default profile or on this profile. When another profile is active, the cells are closed and the tooltip names that profile, because a run reads the active profile only. The estimated runtime cannot be more than the maximum runtime. The detection, the requirements and the distribution targets are lists of rules. They stay in the [Application Workbench](workbench.md) and have no column.
 
 A cell that does not apply to an application is closed, and its tooltip gives the reason. Package Source is open only for a packager that offers an architecture split (7-Zip, Google Chrome and Mozilla Firefox). A packager of a family with an x64, x86 or ARM64 sibling shows its own architecture, because the sibling is another row. Install Scope is open only for a packager that supports both install modes. Network Split is open only for a packager that offers it. Publish to WSUS is closed for an application that WSUS cannot carry, and the tooltip names the reason. A package source and a network split are both splits, and a packager stages one split at a time: the last one that you choose replaces the other.
 
@@ -123,6 +127,8 @@ The setting applies to Intune too. The Intune relation is the single Microsoft G
 ![The grid of all applications in the dark theme](../images/options-all-applications.png)
 
 ![The grid with the columns In One Click and Publish to WSUS, and the tooltip of a closed cell](../images/options-all-applications-columns.png)
+
+![The runtime and reboot columns, which are fields of the Workbench profile](../images/options-all-applications-profile.png)
 
 ![The grid of all applications in the light theme](../images/light-options-all-applications.png)
 

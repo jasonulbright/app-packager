@@ -25,6 +25,8 @@ BeforeAll {
         'New-ApplicationGridWork', 'Get-ApplicationGridEntry', 'Get-ApplicationGridOwn', 'Get-ApplicationGridEffectiveSupersedence', 'Get-ApplicationGridSetting',
         'Get-ApplicationGridCell', 'Set-ApplicationGridCell', 'Update-ApplicationGridRow', 'New-ApplicationGridRow', 'Set-ApplicationGridBulkValue',
         'ConvertTo-ApplicationGridObject', 'Save-ApplicationGridWork', 'Get-ApplicationGridNotice',
+        'ConvertTo-ApplicationGridTree', 'Get-ApplicationGridProfileContext', 'Set-ApplicationGridProfileValue', 'Save-ApplicationGridProfile',
+        'Get-WorkbenchOverrideValue', 'Test-WorkbenchOverridePresent', 'Set-WorkbenchOverrideValue', 'Clear-WorkbenchOverrideValue',
         'Resolve-FirstRunCompleted', 'Read-Preferences', 'Get-WsusClassificationNameList',
         'ConvertTo-InstallModeValue', 'ConvertTo-VariantsJson', 'ConvertTo-RequirementsJson', 'ConvertTo-CommandsJson',
         'Get-InstallModesMapForContext', 'Get-VariantsMapForContext', 'Get-RequirementsMapForContext', 'Get-CommandsMapForContext', 'Get-TitleModesMapForContext',
@@ -91,7 +93,7 @@ AfterAll { foreach ($name in $script:GridFunction) { Remove-Item -Path ('functio
 
 Describe 'The registry' {
     It 'has one entry for each setting, with the columns in the order of the design' {
-        (@($script:Setting | ForEach-Object { $_.Id }) -join ',') | Should -Be 'source,scope,supersedence,title,rule,network,netsplit,install,uninstall,oneclick,cadence,toconfigmgr,tointune,towsus'
+        (@($script:Setting | ForEach-Object { $_.Id }) -join ',') | Should -Be 'source,scope,supersedence,title,rule,network,netsplit,install,uninstall,oneclick,cadence,toconfigmgr,tointune,towsus,estimated,maximum,reboot'
         (@($script:Setting | Where-Object { $_.Visible } | ForEach-Object { $_.Id }) -join ',') | Should -Be 'source,scope,supersedence,title,rule'
     }
     It 'gives every entry a header, a tip of one sentence, and the functions that the grid calls' {
@@ -491,6 +493,106 @@ Describe 'The code that packages and runs One Click uses the value that the grid
         $set = Get-OneClickDestinations -Prefs $script:Prefs -PackagerName 'package-demo'
         $set.WSUS | Should -BeFalse
         $set.Source | Should -Be 'Default'
+    }
+}
+
+Describe 'The Workbench profile columns' {
+    BeforeAll {
+        $script:SavedRoot = $env:APP_PACKAGER_WORKBENCH_ROOT
+        $env:APP_PACKAGER_WORKBENCH_ROOT = Join-Path $TestDrive 'workbench'
+        function Get-ProfileWork { New-ApplicationGridWork -Prefs (New-TestPrefs) }
+        function Save-ProfileCell {
+            param($Work, $Packager, [string]$Id, [string]$Value)
+            $ok = Set-ApplicationGridCell -Setting (Get-GridSetting $Id) -Work $Work -Packager $Packager -Value $Value
+            return $ok
+        }
+    }
+    AfterAll { $env:APP_PACKAGER_WORKBENCH_ROOT = $script:SavedRoot }
+
+    It 'creates the profile in the shape of the migration and makes it active while the application is on the default profile' {
+        $p = New-TestPackager -Base 'package-prof1'
+        $work = Get-ProfileWork
+        Save-ProfileCell $work $p 'estimated' '12' | Should -BeTrue
+        Save-ProfileCell $work $p 'maximum' '40' | Should -BeTrue
+        Save-ProfileCell $work $p 'reboot' 'Force restart' | Should -BeTrue
+        Save-ApplicationGridProfile -Work $work
+        $definition = Get-ApplicationDefinition -ApplicationId 'catalog:package-prof1' -DataRoot $work.DataRoot
+        $profiles = @(Get-Profiles -ApplicationId 'catalog:package-prof1' -DataRoot $work.DataRoot | Where-Object { -not $_.IsDefault })
+        $profiles.Count | Should -Be 1
+        $stored = Get-Profile -ApplicationId 'catalog:package-prof1' -ProfileId $profiles[0].ProfileId -DataRoot $work.DataRoot
+        $stored.MigratedFrom | Should -Be 'package-prof1'
+        $stored.Name | Should -Be 'Migrated'
+        $definition.ActiveProfileId | Should -Be $stored.ProfileId
+        [int]$stored.Timing.EstimatedMinutes | Should -Be 12
+        [int]$stored.Timing.MaximumMinutes | Should -Be 40
+        $stored.Install.RebootPolicy | Should -Be 'Force restart'
+    }
+    It 'reads the value back into a new working copy, and removes the key for an empty value or Inherit' {
+        $p = New-TestPackager -Base 'package-prof1'
+        $work = Get-ProfileWork
+        (Get-ApplicationGridCell -Setting (Get-GridSetting 'estimated') -Work $work -Packager $p).Value | Should -Be '12'
+        (Get-ApplicationGridCell -Setting (Get-GridSetting 'reboot') -Work $work -Packager $p).Value | Should -Be 'Force restart'
+        [void](Save-ProfileCell $work $p 'reboot' 'Inherit')
+        [void](Save-ProfileCell $work $p 'estimated' '')
+        Save-ApplicationGridProfile -Work $work
+        $again = Get-ProfileWork
+        $id = @(Get-Profiles -ApplicationId 'catalog:package-prof1' -DataRoot $again.DataRoot | Where-Object { -not $_.IsDefault })[0].ProfileId
+        $stored = Get-Profile -ApplicationId 'catalog:package-prof1' -ProfileId $id -DataRoot $again.DataRoot
+        $stored.Install.PSObject.Properties['RebootPolicy'] | Should -BeNullOrEmpty
+        $stored.Timing.PSObject.Properties['EstimatedMinutes'] | Should -BeNullOrEmpty
+        [int]$stored.Timing.MaximumMinutes | Should -Be 40 -Because 'a field that was not cleared stays'
+    }
+    It 'refuses a runtime that is not a positive whole number, or an estimate above the maximum' {
+        $p = New-TestPackager -Base 'package-prof2'
+        $work = Get-ProfileWork
+        [void](Save-ProfileCell $work $p 'maximum' '30')
+        foreach ($bad in 'abc', '0', '-2') { [void](Save-ProfileCell $work $p 'estimated' $bad) }
+        [void](Save-ProfileCell $work $p 'estimated' '31')
+        (Get-ApplicationGridCell -Setting (Get-GridSetting 'estimated') -Work $work -Packager $p).Value | Should -Be ''
+        [void](Save-ProfileCell $work $p 'estimated' '30')
+        (Get-ApplicationGridCell -Setting (Get-GridSetting 'estimated') -Work $work -Packager $p).Value | Should -Be '30'
+    }
+    It 'creates no profile when every value is empty' {
+        $p = New-TestPackager -Base 'package-prof3'
+        $work = Get-ProfileWork
+        [void](Save-ProfileCell $work $p 'reboot' 'Inherit')
+        Save-ApplicationGridProfile -Work $work
+        @(Get-Profiles -ApplicationId 'catalog:package-prof3' -DataRoot $work.DataRoot | Where-Object { -not $_.IsDefault }).Count | Should -Be 0
+    }
+    It 'greys the cells and names the profile when another profile is active, and writes nothing' {
+        $id = 'catalog:package-prof4'
+        $root = (Get-ProfileWork).DataRoot
+        $other = New-WorkbenchProfileObject -ApplicationId $id -Name 'Pilot'
+        $saved = Save-Profile -Profile $other -DataRoot $root -SetActive
+        $p = New-TestPackager -Base 'package-prof4' -Application 'Prof Four'
+        $work = Get-ProfileWork
+        foreach ($setting in 'estimated', 'maximum', 'reboot') {
+            (Get-ApplicationGridCell -Setting (Get-GridSetting $setting) -Work $work -Packager $p).Reason | Should -Be 'The profile "Pilot" is active for Prof Four, and a run reads the active profile only. Change it in the Application Workbench.'
+        }
+        Save-ProfileCell $work $p 'reboot' 'No reboot' | Should -BeFalse
+        Save-ApplicationGridProfile -Work $work
+        @(Get-Profiles -ApplicationId $id -DataRoot $root | Where-Object { -not $_.IsDefault }).Count | Should -Be 1
+        (Get-ApplicationDefinition -ApplicationId $id -DataRoot $root).ActiveProfileId | Should -Be $saved.ProfileId
+    }
+    It 'edits the migrated profile while it is the active profile' {
+        $p = New-TestPackager -Base 'package-prof1'
+        $work = Get-ProfileWork
+        (Get-ApplicationGridCell -Setting (Get-GridSetting 'maximum') -Work $work -Packager $p).Reason | Should -BeNullOrEmpty
+    }
+    It 'is what the stage reads: the effective settings and the install block of the profile' {
+        $p = New-TestPackager -Base 'package-prof5'
+        $work = Get-ProfileWork
+        [void](Save-ProfileCell $work $p 'estimated' '7')
+        [void](Save-ProfileCell $work $p 'maximum' '55')
+        [void](Save-ProfileCell $work $p 'reboot' 'Soft reboot')
+        Save-ApplicationGridProfile -Work $work
+        $definition = Get-ApplicationDefinition -ApplicationId 'catalog:package-prof5' -DataRoot $work.DataRoot
+        $profile = Get-Profile -ApplicationId 'catalog:package-prof5' -ProfileId $definition.ActiveProfileId -DataRoot $work.DataRoot
+        $settings = Resolve-EffectiveSettings -GlobalDefaults ([pscustomobject]@{ EstimatedRuntimeMins = 15; MaximumRuntimeMins = 30 }) -BaseManifest $null -Profile $profile
+        $settings['EstimatedMinutes'].Value | Should -Be 7
+        $settings['EstimatedMinutes'].Source | Should -Be 'Profile'
+        $settings['MaximumMinutes'].Value | Should -Be 55
+        $profile.Install.RebootPolicy | Should -Be 'Soft reboot'
     }
 }
 

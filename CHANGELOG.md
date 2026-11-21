@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add the columns Estimated Runtime, Maximum Runtime and Reboot After Install to the All Applications grid.
+- Write those columns to the Workbench profile of the application.
+
 ## [2026.11.20.0153] - 2026-11-20
 
 ## 14 columns in the All Applications grid

@@ -8,6 +8,9 @@ $dataDir = Join-Path $env:LOCALAPPDATA 'AppPackager'
 Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
 $dl = Join-Path $GuideRoot 'dl'
 Remove-Item $dl -Recurse -Force -ErrorAction SilentlyContinue
+# The Workbench profiles of the proof live in the capture folder, so that the profiles of the lab account stay as they are.
+$env:APP_PACKAGER_WORKBENCH_ROOT = Join-Path $GuideRoot 'wb'
+Remove-Item $env:APP_PACKAGER_WORKBENCH_ROOT -Recurse -Force -ErrorAction SilentlyContinue
 $win = Start-App 'start-apppackager.ps1' 'AppPackager*v20??.??.??.????'
 # The sidebar scrolls when the window is short; this height shows the Options button without a scroll.
 Size-Win $win 1440 1040
@@ -161,6 +164,17 @@ Section 'the grid, dark theme' {
         Move-To $wsusCell; Start-Sleep -Milliseconds 1800
         Shot $o 'options-all-applications-columns' -Hover
 
+        # The Workbench profile columns: the runtime and the reboot policy of Thonny are fields of its profile.
+        foreach ($h in 'In One Click', 'Publish to WSUS') { Toggle-Column $o $h }
+        foreach ($h in 'Estimated Runtime (min)', 'Reboot After Install') { Toggle-Column $o $h }
+        $thonny = Get-GridRow $o 'Thonny'
+        $estimated = Get-El $thonny 'appgrid.estimated'
+        Click-El $estimated; Send-Keys '17'; Send-Keys '{TAB}'; Start-Sleep -Milliseconds 800
+        Pick-Combo (Get-El (Get-GridRow $o 'Thonny') 'appgrid.reboot') 'Hard reboot'
+        Require ((Get-ComboText (Get-El (Get-GridRow $o 'Thonny') 'appgrid.reboot')) -eq 'Hard reboot') 'the reboot cell of Thonny shows Hard reboot'
+        Require ((Get-ElText (Get-El (Get-GridRow $o 'Thonny') 'appgrid.estimated')) -eq '17') 'the runtime cell of Thonny shows 17'
+        Shot $o 'options-all-applications-profile'
+
         # Save with a real click on OK.
         Click-El (Get-El $o 'btnOK'); Start-Sleep -Seconds 3
     }
@@ -171,6 +185,11 @@ Section 'the preferences file' {
     Log ('DeploymentConditions.Apps: ' + (($prefs.DeploymentConditions.Apps | ConvertTo-Json -Depth 5 -Compress)))
     Log ('Supersedence.TitleOverrides: ' + (($prefs.Supersedence.TitleOverrides | ConvertTo-Json -Depth 5 -Compress)))
     Log ('AppFlow.Tracked: ' + (@($prefs.AppFlow.Tracked) -join ','))
+    $profileFile = @(Get-ChildItem -LiteralPath (Join-Path $env:APP_PACKAGER_WORKBENCH_ROOT 'applications\catalog_package-thonny\profiles') -Recurse -Filter 'profile.json')[0]
+    Require ([bool]$profileFile) 'the Workbench profile of Thonny exists'
+    $profile = Get-Content -LiteralPath $profileFile.FullName -Raw | ConvertFrom-Json
+    Log ('profile: ' + ($profile | ConvertTo-Json -Depth 4 -Compress))
+    Require ($profile.MigratedFrom -eq 'package-thonny' -and [int]$profile.Timing.EstimatedMinutes -eq 17 -and $profile.Install.RebootPolicy -eq 'Hard reboot') 'the profile holds MigratedFrom, the runtime 17 and the reboot policy Hard reboot'
     Require ($prefs.DeploymentConditions.Apps.'package-thonny'.InstallMode -eq 'CurrentUser') 'the file holds InstallMode CurrentUser for Thonny'
     Require ($prefs.DeploymentConditions.Apps.'package-chrome'.Split -eq 'Architecture') 'the file holds Split Architecture for Google Chrome'
     Require ([string]$prefs.DeploymentConditions.Apps.'package-chrome'.TitleMode -eq 'NoVersion') 'the file keeps the stored title choice of Google Chrome while the title is closed'

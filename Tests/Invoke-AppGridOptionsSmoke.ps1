@@ -8,6 +8,7 @@ $fixtureDir = Join-Path $env:TEMP ('ap-appgrid-options-' + [guid]::NewGuid().ToS
 [void](New-Item -ItemType Directory -Path $fixtureDir -Force)
 . (Join-Path $PSScriptRoot 'OptionsTestSupport.ps1') -Root $root -FixtureDir $fixtureDir
 
+$env:APP_PACKAGER_WORKBENCH_ROOT = Join-Path $fixtureDir 'workbench'
 $assert = {
     param([bool]$Condition, [string]$Message)
     if (-not $Condition) { throw ('FAIL: ' + $Message) }
@@ -78,14 +79,14 @@ try {
     $window.Show()
     $window.UpdateLayout()
     $grid = $editor.Grid
-    & $assert ($grid.Columns.Count -eq 17) 'the grid has three fixed columns and one column for each of the 14 settings'
+    & $assert ($grid.Columns.Count -eq 20) 'the grid has three fixed columns and one column for each of the 17 settings'
     $visible = @($grid.Columns | Where-Object { $_.Visibility -eq 'Visible' } | ForEach-Object { [string]$_.Header })
     & $assert (($visible -join '|') -eq '|Application|Vendor|Package Source|Install Scope|Supersedence|Version in Title|Version Rule') 'the default columns are the five settings of the design'
     foreach ($c in $grid.Columns) { if ($c.Header -and $c.Header -notin 'Application', 'Vendor') { & $assert ($c.MinWidth -ge 10 * ([string]$c.Header).Length) ('the column ' + $c.Header + ' holds its header') } }
 
     # The column chooser.
     $columnsButton = Find-ById -Element $editor.Element -Id 'sup.apps.columns'
-    & $assert ($columnsButton -and $editor.Menu.Items.Count -eq 14) 'the Columns button has a menu with one item for each setting'
+    & $assert ($columnsButton -and $editor.Menu.Items.Count -eq 17) 'the Columns button has a menu with one item for each setting'
     $networkItem = @($editor.Menu.Items | Where-Object { $_.Header -eq 'Network' })[0]
     & $assert (-not $networkItem.IsChecked -and -not [string]::IsNullOrWhiteSpace([string]$networkItem.ToolTip)) 'a column that is not shown is not checked, and its item has a tooltip'
     Invoke-MenuItem $networkItem $true
@@ -176,6 +177,12 @@ try {
     & $page.Editors['sup.mode'].Set 'Off'
     & $assert (@($rows | Where-Object { -not $_['e_title'] }).Count -eq 0) 'the default Off opens the titles again'
 
+    # A Workbench profile column: a cell writes the profile of the application when the options are saved.
+    Invoke-MenuItem (@($editor.Menu.Items | Where-Object { $_.Header -eq 'Reboot After Install' })[0]) $true
+    $window.UpdateLayout()
+    $reboot = Find-RowControl -Grid $grid -Row $scopeRow -Id 'appgrid.reboot'
+    $reboot.SelectedItem = 'Soft reboot'
+    & $assert ($scopeRow['v_reboot'] -eq 'Soft reboot') 'the reboot combo box writes the row'
     # Save and reload.
     $scopeRow = @($rows | Where-Object { $_.Base -eq $scopeRow.Base })[0]
     [void](Set-ApplicationGridCell -Setting (@($editor.Settings | Where-Object { $_.Id -eq 'oneclick' })[0]) -Work $editor.Work -Packager $scopeRow.Packager -Value 'Yes')
@@ -183,6 +190,9 @@ try {
     & $page.Commit
     Save-Preferences $script:Prefs
     $script:Prefs = Read-Preferences
+    $profileRoot = $env:APP_PACKAGER_WORKBENCH_ROOT
+    $stored = @(Get-Profiles -ApplicationId $scopeRow.Id -DataRoot $profileRoot | Where-Object { -not $_.IsDefault })
+    & $assert ($stored.Count -eq 1 -and (Get-Profile -ApplicationId $scopeRow.Id -ProfileId $stored[0].ProfileId -DataRoot $profileRoot).Install.RebootPolicy -eq 'Soft reboot') 'the saved Workbench profile holds the reboot policy of the row'
     $entry = $script:Prefs.DeploymentConditions.Apps.($scopeRow.Base)
     & $assert ($entry.InstallMode -eq 'AllUsers') 'the saved file holds the scope of the row'
     & $assert ($script:Prefs.Supersedence.TitleOverrides.($scopeRow.Id).Mode -eq 'Replace and uninstall') 'the saved file holds the supersedence of the row'
