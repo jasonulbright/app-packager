@@ -5870,6 +5870,11 @@ $menuOpenCveSources.Header = "Open CVE Sources"
 
 $menuCopyCveIds = New-Object System.Windows.Controls.MenuItem
 $menuCopyCveIds.Header = "Copy CVE IDs"
+
+$menuExportCheckResult = New-Object System.Windows.Controls.MenuItem
+$menuExportCheckResult.Header = "Export Check ConfigMgr results..."
+$menuExportCheckResult.ToolTip = "Saves the result of the last Check ConfigMgr run as a CSV or JSON file. The file type in the dialog chooses all checked applications or only those with an update available."
+$menuSepExport = New-Object System.Windows.Controls.Separator
 $menuSep0 = New-Object System.Windows.Controls.Separator
 
 $contextMenu.Items.Add($menuEditApplication) | Out-Null
@@ -5881,6 +5886,8 @@ $contextMenu.Items.Add($menuSep1) | Out-Null
 $contextMenu.Items.Add($menuCopyLatestVersion) | Out-Null
 $contextMenu.Items.Add($menuOpenCveSources) | Out-Null
 $contextMenu.Items.Add($menuCopyCveIds) | Out-Null
+$contextMenu.Items.Add($menuSepExport) | Out-Null
+$contextMenu.Items.Add($menuExportCheckResult) | Out-Null
 
 $dataGrid.ContextMenu = $contextMenu
 
@@ -5904,6 +5911,25 @@ $dataGrid.Add_MouseDoubleClick({
     $row = $dataGrid.SelectedItem
     if (-not $row) { return }
     Show-ApplicationWorkbench -Owner $window -PreselectPackagerBase ([System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script))
+})
+
+$menuExportCheckResult.Add_Click({
+    if (@($script:LastCheckConfigMgrResult).Count -eq 0) {
+        Add-LogLine -Message 'No Check ConfigMgr result yet. Run Check ConfigMgr first.'
+        return
+    }
+    $save = New-Object Microsoft.Win32.SaveFileDialog
+    $save.Title = 'Export Check ConfigMgr Results'
+    $save.Filter = 'CSV, all checked applications (*.csv)|*.csv|CSV, only updates available (*.csv)|*.csv|JSON, all checked applications (*.json)|*.json|JSON, only updates available (*.json)|*.json'
+    $save.FileName = 'CheckConfigMgrResult'
+    if ($save.ShowDialog($window) -ne $true) { return }
+    try {
+        $out = Export-CheckConfigMgrResult -Result $script:LastCheckConfigMgrResult -Path $save.FileName -OnlyUpdatesAvailable:($save.FilterIndex -in 2, 4)
+        Add-LogLine -Message ('Exported {0} Check ConfigMgr result rows to: {1}' -f $out.Count, $out.Path)
+    }
+    catch {
+        Add-LogLine -Message ('Export failed: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The file could not be written.'))
+    }
 })
 
 $menuOpenLogFolder.Add_Click({
@@ -12803,6 +12829,21 @@ $btnCheckLatest.Add_Click({
     }
 })
 
+# The rows of the last Check ConfigMgr run, as the result file carries them. The context menu entry
+# "Export Check ConfigMgr results..." saves them again to a file the user chooses.
+$script:LastCheckConfigMgrResult = @()
+function Save-CheckConfigMgrResult {
+    param([object[]]$Rows)
+    $script:LastCheckConfigMgrResult = @(ConvertTo-CheckConfigMgrResultRow -Rows $Rows)
+    try {
+        $written = Write-CheckConfigMgrResultDefault -Result $script:LastCheckConfigMgrResult
+        Add-LogLine -Message ('Check ConfigMgr result written to: {0}' -f $written.Path)
+    }
+    catch {
+        Add-LogLine -Message ('Check ConfigMgr result file not written: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The file could not be written.'))
+    }
+}
+
 # --- 2. Check ConfigMgr ---
 $btnCheckMECM.Add_Click({
     # The check reads the saved site code and site server. The footer shows the same values.
@@ -12898,6 +12939,7 @@ $btnCheckMECM.Add_Click({
             # The selection stays as the user left it.
             Hide-BusyIndicator
             $dataGrid.Items.Refresh()
+            Save-CheckConfigMgrResult -Rows @($selectedRows)
             $cmLine = Get-RunCancelledLine -Operation 'CheckConfigMgr' -Done $cmIndex -Total $cmTotal
             Add-LogLine -Message $cmLine
             $txtStatus.Text = $cmLine
@@ -12907,6 +12949,7 @@ $btnCheckMECM.Add_Click({
         Select-OnlyUpdateAvailable
         $dataGrid.Items.Refresh()
         Add-LogLine -Message (Get-CheckResultSummaryLine -Check 'Check ConfigMgr' -Rows @($selectedRows) -SelectedCount (@($script:PackagerData | Where-Object { $_.Selected -eq $true }).Count))
+        Save-CheckConfigMgrResult -Rows @($selectedRows)
 
         $notFound = @(Get-AutoHideOffer -Prefs $script:Prefs -Rows @($script:PackagerData))
         if ($notFound.Count -gt 0) {
