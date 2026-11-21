@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [2026.11.20.0156] - 2026-11-20
+
+## 3 columns in the All Applications grid
+
 ### Added
 
 - Add the columns Estimated Runtime, Maximum Runtime and Reboot After Install to the All Applications grid.
