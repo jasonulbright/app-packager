@@ -252,14 +252,19 @@ Describe 'Resolve-SigningCertificate' {
 
 Describe 'Test-SigningConfiguration' {
     It 'signs and verifies a temporary file without leaving it behind' {
-        $before = @(Get-ChildItem ([System.IO.Path]::GetTempPath()) -Filter 'appackager-sign-*.ps1' -ErrorAction SilentlyContinue).Count
+        # A private temp folder, so that a parallel run in the shared temp folder cannot change the count.
+        $savedTemp = $env:TEMP; $savedTmp = $env:TMP
+        $ownTemp = Join-Path $TestDrive 'own-temp-config'; New-Item -ItemType Directory -Path $ownTemp -Force | Out-Null
+        $env:TEMP = $ownTemp; $env:TMP = $ownTemp
+        try {
         $r = Test-SigningConfiguration -Policy (& $script:Policy $true $true $true) -TimeoutSeconds 120
         $r.Ok | Should -BeTrue
         $r.SignatureIntact | Should -BeTrue
         $r.Thumbprint | Should -Be $script:Thumbprint
         $r.TimestampVerified | Should -BeFalse
         $r.TimedOut | Should -BeFalse
-        @(Get-ChildItem ([System.IO.Path]::GetTempPath()) -Filter 'appackager-sign-*.ps1' -ErrorAction SilentlyContinue).Count | Should -Be $before
+        @(Get-ChildItem $ownTemp -Filter 'appackager-sign-*.ps1' -ErrorAction SilentlyContinue).Count | Should -Be 0
+        } finally { $env:TEMP = $savedTemp; $env:TMP = $savedTmp }
     }
 
     It 'reports the certificate problem instead of throwing' {
@@ -419,11 +424,15 @@ Describe 'Signature verification' {
         $p = Join-Path $script:Root 'bytes.ps1'
         Set-Content -LiteralPath $p -Value "Write-Output 'Detected'`r`nexit 0" -Encoding ASCII
         $null = Invoke-ScriptSigning -Path $p -Category Detection -Policy (& $script:Policy $true $false $false)
-        $before = @(Get-ChildItem ([System.IO.Path]::GetTempPath()) -Filter 'appackager-sign-*.ps1' -ErrorAction SilentlyContinue).Count
+        $savedTemp = $env:TEMP; $savedTmp = $env:TMP
+        $ownTemp = Join-Path $TestDrive 'own-temp-bytes'; New-Item -ItemType Directory -Path $ownTemp -Force | Out-Null
+        $env:TEMP = $ownTemp; $env:TMP = $ownTemp
+        try {
         $r = Test-ScriptSignatureBytes -Bytes ([System.IO.File]::ReadAllBytes($p))
         $r.SignatureIntact | Should -BeTrue
         $r.Sha256.Length | Should -Be 64
-        @(Get-ChildItem ([System.IO.Path]::GetTempPath()) -Filter 'appackager-sign-*.ps1' -ErrorAction SilentlyContinue).Count | Should -Be $before
+        @(Get-ChildItem $ownTemp -Filter 'appackager-sign-*.ps1' -ErrorAction SilentlyContinue).Count | Should -Be 0
+        } finally { $env:TEMP = $savedTemp; $env:TMP = $savedTmp }
     }
 
     It 'reports a tampered byte array as HashMismatch' {
