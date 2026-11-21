@@ -727,7 +727,7 @@ function Format-GitHubAuthStatus {
         $quota = ''
         if ($limitText) { $quota = ' (' + $limitText + ' requests per hour' + $(if ($remainingText) { ', ' + $remainingText + ' remaining' } else { '' }) + ')' }
         $who = $(if ($Status.Account) { ' as ' + [string]$Status.Account } else { '' })
-        if ([string]$Status.Source -eq 'gh auth login') { return ('Signed in via GitHub CLI' + $who + $quota) }
+        if ([string]$Status.Source -eq 'gh auth login') { return ('Signed in by using GitHub CLI' + $who + $quota) }
         return ($phrase + $who + $quota)
     }
     if (-not $limitText) { $limitText = '60' }
