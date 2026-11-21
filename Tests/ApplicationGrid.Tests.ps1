@@ -26,6 +26,7 @@ BeforeAll {
         'Get-ApplicationGridCell', 'Set-ApplicationGridCell', 'Update-ApplicationGridRow', 'New-ApplicationGridRow', 'Set-ApplicationGridBulkValue',
         'ConvertTo-ApplicationGridObject', 'Save-ApplicationGridWork', 'Get-ApplicationGridNotice',
         'ConvertTo-ApplicationGridTree', 'Get-ApplicationGridProfileContext', 'Set-ApplicationGridProfileValue', 'Save-ApplicationGridProfile',
+        'Get-ApplicationGridRequirementValue', 'Set-ApplicationGridRequirementValue', 'Get-ApplicationGridDetectionText', 'Set-ApplicationGridDistributionValue',
         'Get-WorkbenchOverrideValue', 'Test-WorkbenchOverridePresent', 'Set-WorkbenchOverrideValue', 'Clear-WorkbenchOverrideValue',
         'Resolve-FirstRunCompleted', 'Read-Preferences', 'Get-WsusClassificationNameList',
         'ConvertTo-InstallModeValue', 'ConvertTo-VariantsJson', 'ConvertTo-RequirementsJson', 'ConvertTo-CommandsJson',
@@ -93,7 +94,7 @@ AfterAll { foreach ($name in $script:GridFunction) { Remove-Item -Path ('functio
 
 Describe 'The registry' {
     It 'has one entry for each setting, with the columns in the order of the design' {
-        (@($script:Setting | ForEach-Object { $_.Id }) -join ',') | Should -Be 'source,scope,supersedence,title,rule,network,netsplit,install,uninstall,oneclick,cadence,toconfigmgr,tointune,towsus,estimated,maximum,reboot'
+        (@($script:Setting | ForEach-Object { $_.Id }) -join ',') | Should -Be 'source,scope,supersedence,title,rule,network,netsplit,install,uninstall,oneclick,cadence,toconfigmgr,tointune,towsus,diskspace,memory,osbuild,dpgroup,testcollection,detection,estimated,maximum,reboot'
         (@($script:Setting | Where-Object { $_.Visible } | ForEach-Object { $_.Id }) -join ',') | Should -Be 'source,scope,supersedence,title,rule'
     }
     It 'gives every entry a header, a tip of one sentence, and the functions that the grid calls' {
@@ -101,7 +102,7 @@ Describe 'The registry' {
             $s.Header | Should -Match '^[A-Z]'
             $s.Tip.Length | Should -BeLessThan 101 -Because $s.Id
             $s.Tip | Should -Match '\.$'
-            $s.Kind | Should -BeIn 'Choice', 'Text'
+            $s.Kind | Should -BeIn 'Choice', 'Text', 'Link'
             foreach ($f in 'Get', 'Set', 'NotApplicable') { $s[$f] | Should -BeOfType [scriptblock] -Because ($s.Id + ' ' + $f) }
             if ($s.Kind -eq 'Choice') { @($s.Choices).Count | Should -BeGreaterThan 1 }
         }
@@ -593,6 +594,194 @@ Describe 'The Workbench profile columns' {
         $settings['EstimatedMinutes'].Source | Should -Be 'Profile'
         $settings['MaximumMinutes'].Value | Should -Be 55
         $profile.Install.RebootPolicy | Should -Be 'Soft reboot'
+    }
+}
+
+Describe 'The requirement columns' {
+    BeforeAll {
+        $script:SavedRoot2 = $env:APP_PACKAGER_WORKBENCH_ROOT
+        $env:APP_PACKAGER_WORKBENCH_ROOT = Join-Path $TestDrive 'workbench2'
+        function Get-ReqWork { New-ApplicationGridWork -Prefs (New-TestPrefs) }
+        function Set-ReqCell { param($Work, $Packager, [string]$Id, [string]$Value) Set-ApplicationGridCell -Setting (Get-GridSetting $Id) -Work $Work -Packager $Packager -Value $Value }
+    }
+    AfterAll { $env:APP_PACKAGER_WORKBENCH_ROOT = $script:SavedRoot2 }
+
+    It 'writes a rule operation into the Migrated profile for a number, and removes it for an empty value' {
+        $p = New-TestPackager -Base 'package-req1'
+        $work = Get-ReqWork
+        Set-ReqCell $work $p 'diskspace' '2048' | Should -BeTrue
+        Set-ReqCell $work $p 'memory' '4096' | Should -BeTrue
+        Set-ReqCell $work $p 'osbuild' '19045' | Should -BeTrue
+        Save-ApplicationGridProfile -Work $work
+        $id = @(Get-Profiles -ApplicationId 'catalog:package-req1' -DataRoot $work.DataRoot | Where-Object { -not $_.IsDefault })[0].ProfileId
+        $stored = Get-Profile -ApplicationId 'catalog:package-req1' -ProfileId $id -DataRoot $work.DataRoot
+        $stored.MigratedFrom | Should -Be 'package-req1'
+        $ops = @($stored.Requirements.Operations)
+        $ops.Count | Should -Be 3
+        ($ops | Where-Object { $_.RuleId -eq 'disk-space' }).Rule.Value | Should -Be 2048
+        ($ops | Where-Object { $_.RuleId -eq 'memory' }).Op | Should -Be 'Add'
+        ($ops | Where-Object { $_.RuleId -eq 'os-build' }).Rule.ConditionId | Should -Be 'os-build'
+        @(($ops | Where-Object { $_.RuleId -eq 'os-build' }).AppliesTo) | Should -Be @('*')
+        $again = Get-ReqWork
+        (Get-ApplicationGridCell -Setting (Get-GridSetting 'memory') -Work $again -Packager $p).Value | Should -Be '4096'
+        Set-ReqCell $again $p 'memory' '' | Should -BeTrue
+        Save-ApplicationGridProfile -Work $again
+        $after = Get-Profile -ApplicationId 'catalog:package-req1' -ProfileId $id -DataRoot $work.DataRoot
+        @($after.Requirements.Operations | Where-Object { $_.RuleId -eq 'memory' }).Count | Should -Be 0
+        @($after.Requirements.Operations).Count | Should -Be 2
+    }
+    It 'ignores a value that is not a whole number of 1 or more' {
+        $p = New-TestPackager -Base 'package-req2'
+        $work = Get-ReqWork
+        foreach ($bad in 'abc', '0', '-5', '1.5') { [void](Set-ReqCell $work $p 'diskspace' $bad) }
+        (Get-ApplicationGridCell -Setting (Get-GridSetting 'diskspace') -Work $work -Packager $p).Value | Should -Be ''
+    }
+    It 'is what the stage turns into the requirements of the manifest' {
+        $p = New-TestPackager -Base 'package-req1'
+        $work = Get-ReqWork
+        $profile = Get-ApplicationGridProfileContext -Work $work -Packager $p
+        $operations = @($profile.Profile.Requirements.Operations)
+        $specs = InModuleScope AppPackagerWorkbench -Parameters @{ Operations = $operations } { param($Operations) @((Set-WorkbenchRequirementOperations -ManifestData @{ Requirements = @() } -Operations $Operations)['Requirements']) }
+        ($specs | Where-Object { $_.ConditionId -eq 'disk-space' }).Value | Should -Be 2048
+        ($specs | Where-Object { $_.ConditionId -eq 'os-build' }).Value | Should -Be 19045
+    }
+    It 'becomes a ConfigMgr requirement rule with the operator GreaterEquals' {
+        InModuleScope AppPackagerCommon {
+            function New-CMRequirementRuleFreeDiskSpaceValue { param($InputObject, $PartitionOption, $RuleOperator, $Value1) [pscustomobject]@{ Kind = 'Disk'; Operator = [string]$RuleOperator; Partition = [string]$PartitionOption; Value = $Value1 } }
+            function New-CMRequirementRuleCommonValue { param($InputObject, $RuleOperator, $Value1) [pscustomobject]@{ Kind = 'Common'; Operator = [string]$RuleOperator; Value = $Value1 } }
+            Mock Get-OrCreateGlobalConditionFromTemplate { [pscustomobject]@{ Name = $Template.GlobalConditionName } }
+            Mock Write-Log { }
+            $manifest = [pscustomobject]@{ Requirements = @(
+                    [pscustomobject]@{ ConditionId = 'disk-space'; Value = 2048 }
+                    [pscustomobject]@{ ConditionId = 'memory'; Value = 4096 }
+                    [pscustomobject]@{ ConditionId = 'os-build'; Value = 19045 }
+                    [pscustomobject]@{ ConditionId = 'cpu-arch'; Value = 'x64' }) }
+            $rules = @(New-DeploymentTypeRequirementRules -Manifest $manifest -IgnoreEnvironment)
+            $rules.Count | Should -Be 4
+            $disk = $rules | Where-Object { $_.Kind -eq 'Disk' }
+            $disk.Operator | Should -Be 'GreaterEquals'; $disk.Partition | Should -Be 'System'; $disk.Value | Should -Be 2048
+            @($rules | Where-Object { $_.Kind -eq 'Common' -and $_.Operator -eq 'GreaterEquals' } | ForEach-Object { [string]$_.Value } | Sort-Object) | Should -Be @('19045', '4096')
+            ($rules | Where-Object { $_.Kind -eq 'Common' -and $_.Operator -eq 'IsEquals' }).Value | Should -Be '9' -Because 'the architecture rule keeps IsEquals'
+            Should -Invoke Get-OrCreateGlobalConditionFromTemplate -Times 4 -Exactly
+            # The stubs live in the module scope, so the test removes them.
+            Remove-Item -Path 'Function:\New-CMRequirementRuleFreeDiskSpaceValue', 'Function:\New-CMRequirementRuleCommonValue' -ErrorAction SilentlyContinue
+        }
+    }
+    It 'refuses a requirement value that is not a number' {
+        foreach ($bad in 'lots', '0', '-4', '1.5', '') { { ConvertTo-RequirementWholeNumber -ConditionId 'memory' -Value $bad } | Should -Throw '*whole number*' }
+        ConvertTo-RequirementWholeNumber -ConditionId 'memory' -Value ' 4096 ' | Should -Be 4096
+    }
+    It 'becomes an Intune requirement rule that checks the same value' {
+        $templates = Get-DefaultConditionTemplates
+        $specs = @([pscustomobject]@{ ConditionId = 'disk-space'; Value = 2048 }, [pscustomobject]@{ ConditionId = 'memory'; Value = 4096 }, [pscustomobject]@{ ConditionId = 'os-build'; Value = 19045 })
+        $result = @(ConvertTo-IntuneRequirementRules -Specs $specs -Templates $templates)
+        $result.Count | Should -Be 3
+        foreach ($r in $result) { $r.Translated | Should -BeTrue -Because ([string]$r.Gap); $r.Rule.ruleType | Should -Be 'requirement'; $r.Rule.comparisonValue | Should -Be 'True' }
+        $script = { param($r) [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($r.Rule.scriptContent)) }
+        (& $script $result[0]) | Should -Match 'FreeSpace / 1MB -ge 2048'
+        (& $script $result[1]) | Should -Match 'TotalPhysicalMemory / 1MB -ge 4096'
+        (& $script $result[2]) | Should -Match 'BuildNumber'
+        (& $script $result[2]) | Should -Match '-ge 19045'
+    }
+    It 'names a requirement that has no Intune rule as a gap, not as an error' {
+        $templates = Get-DefaultConditionTemplates
+        $result = @(ConvertTo-IntuneRequirementRules -Specs @([pscustomobject]@{ ConditionId = 'memory'; Value = 'lots' }) -Templates $templates)
+        $result[0].Translated | Should -BeFalse
+        $result[0].Gap | Should -Match 'whole number'
+    }
+    It 'adds a saved templates file the new templates that it lacks' {
+        InModuleScope AppPackagerCommon {
+            $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('ap-tmpl-' + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory $dir | Out-Null
+            $file = Join-Path $dir 'condition-templates.json'
+            $old = Get-DefaultConditionTemplates
+            $old.Conditions = @($old.Conditions | Where-Object { $_.Id -in 'cpu-arch', 'os-language', 'vpn-connected' })
+            $old | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $file
+            Mock Get-ConditionTemplatesPath { $file }
+            try {
+                $ids = @((Get-ConditionTemplates).Conditions | ForEach-Object { $_.Id })
+                $ids | Should -Contain 'disk-space'; $ids | Should -Contain 'memory'; $ids | Should -Contain 'os-build'
+            }
+            finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+    }
+}
+
+Describe 'The distribution point group and test collection columns' {
+    It 'resolves the per-application value first and the site-wide value as fallback' {
+        $site = [pscustomobject]@{ AutoDistribute = $true; DPGroupName = 'Site DPG'; DeployToTestCollection = $true; TestCollectionName = 'Site Test' }
+        $over = [pscustomobject]@{ 'package-a' = [pscustomobject]@{ DpGroup = 'App DPG'; TestCollection = '' }; 'package-b' = [pscustomobject]@{ DpGroup = ''; TestCollection = 'App Test' } }
+        $a = Resolve-ContentDistribution -ContentDistribution $site -Overrides $over -ApplicationId 'catalog:package-a'
+        $a.DPGroupName | Should -Be 'App DPG'; $a.DpGroupSource | Should -Be 'Application'
+        $a.TestCollectionName | Should -Be 'Site Test'; $a.TestCollectionSource | Should -Be 'Site'
+        $b = Resolve-ContentDistribution -ContentDistribution $site -Overrides $over -ApplicationId 'catalog:package-b'
+        $b.DPGroupName | Should -Be 'Site DPG'; $b.TestCollectionName | Should -Be 'App Test'
+        $c = Resolve-ContentDistribution -ContentDistribution $site -Overrides $over -ApplicationId 'catalog:package-c'
+        $c.DPGroupName | Should -Be 'Site DPG'; $c.DpGroupSource | Should -Be 'Site'
+        (Resolve-ContentDistribution -ContentDistribution $site -Overrides $null -ApplicationId $null).DPGroupName | Should -Be 'Site DPG'
+        $a.AutoDistribute | Should -BeTrue -Because 'the switches stay site-wide'
+    }
+    It 'follows the site-wide value again when the per-application value is emptied' {
+        $p = New-TestPackager -Base 'package-dist1'
+        $prefs = New-TestPrefs '{ "ContentDistribution": { "AutoDistribute": true, "DPGroupName": "Site DPG", "TestCollectionName": "Site Test" } }'
+        $work = New-ApplicationGridWork -Prefs $prefs
+        $initial = New-ApplicationGridWork -Prefs $prefs
+        [void](Set-ApplicationGridCell -Setting (Get-GridSetting 'dpgroup') -Work $work -Packager $p -Value ' App DPG ')
+        Save-ApplicationGridWork -Prefs $prefs -Work $work -Initial $initial
+        $saved = Save-TestPrefs -Prefs $prefs
+        $saved.DistributionOverrides.Apps.'package-dist1'.DpGroup | Should -Be 'App DPG'
+        (Resolve-ContentDistribution -ContentDistribution $saved.ContentDistribution -Overrides $saved.DistributionOverrides.Apps -ApplicationId 'catalog:package-dist1').DPGroupName | Should -Be 'App DPG'
+        $work2 = New-ApplicationGridWork -Prefs $saved
+        [void](Set-ApplicationGridCell -Setting (Get-GridSetting 'dpgroup') -Work $work2 -Packager $p -Value '')
+        Save-ApplicationGridWork -Prefs $saved -Work $work2 -Initial (New-ApplicationGridWork -Prefs $saved)
+        $again = Save-TestPrefs -Prefs $saved
+        $again.DistributionOverrides.Apps.PSObject.Properties['package-dist1'] | Should -BeNullOrEmpty
+        (Resolve-ContentDistribution -ContentDistribution $again.ContentDistribution -Overrides $again.DistributionOverrides.Apps -ApplicationId 'catalog:package-dist1').DPGroupName | Should -Be 'Site DPG'
+    }
+    It 'keeps the site-wide keys and reads an older file that has no overrides' {
+        $prefs = New-TestPrefs '{ "ContentDistribution": { "DPGroupName": "Only Site" } }'
+        $prefs.ContentDistribution.DPGroupName | Should -Be 'Only Site'
+        @($prefs.DistributionOverrides.Apps.PSObject.Properties).Count | Should -Be 0
+    }
+    It 'is read by the package code before the site-wide setting' {
+        $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'Packagers\AppPackagerCommon.psm1') -Raw
+        $text | Should -Match 'Resolve-ContentDistribution -ContentDistribution \$prefsObj\.ContentDistribution -Overrides'
+        $text.IndexOf('Resolve-ContentDistribution -ContentDistribution $prefsObj') | Should -BeLessThan $text.IndexOf('Start-CMContentDistribution -ApplicationName')
+    }
+}
+
+Describe 'The detection column' {
+    BeforeAll {
+        $script:SavedRoot3 = $env:APP_PACKAGER_WORKBENCH_ROOT
+        $env:APP_PACKAGER_WORKBENCH_ROOT = Join-Path $TestDrive 'workbench3'
+    }
+    AfterAll { $env:APP_PACKAGER_WORKBENCH_ROOT = $script:SavedRoot3 }
+    It 'shows Inherit, is read-only and says where to edit the rule' {
+        $p = New-TestPackager -Base 'package-det1'
+        $work = New-ApplicationGridWork -Prefs (New-TestPrefs)
+        $cell = Get-ApplicationGridCell -Setting (Get-GridSetting 'detection') -Work $work -Packager $p
+        $cell.Value | Should -Be 'Inherit'
+        $cell.Reason | Should -Be 'Edit the detection rule in the Workbench.'
+        Set-ApplicationGridCell -Setting (Get-GridSetting 'detection') -Work $work -Packager $p -Value 'Custom in Workbench' | Should -BeFalse
+    }
+    It 'shows Custom in Workbench when the profile of the application has a custom detection' {
+        $p = New-TestPackager -Base 'package-det2'
+        $work = New-ApplicationGridWork -Prefs (New-TestPrefs)
+        $profile = New-WorkbenchProfileObject -ApplicationId 'catalog:package-det2' -Name 'Migrated'
+        $profile['MigratedFrom'] = 'package-det2'
+        $profile['Detection'] = @{ Mode = 'Custom'; Rule = @{ Type = 'File'; FilePath = 'C:\x'; FileName = 'x.exe' } }
+        [void](Save-Profile -Profile $profile -DataRoot $work.DataRoot -SetActive)
+        $again = New-ApplicationGridWork -Prefs (New-TestPrefs)
+        (Get-ApplicationGridCell -Setting (Get-GridSetting 'detection') -Work $again -Packager $p).Value | Should -Be 'Custom in Workbench'
+    }
+    It 'shows the detection of another active profile' {
+        $p = New-TestPackager -Base 'package-det3'
+        $work = New-ApplicationGridWork -Prefs (New-TestPrefs)
+        $profile = New-WorkbenchProfileObject -ApplicationId 'catalog:package-det3' -Name 'Pilot'
+        $profile['Detection'] = @{ Mode = 'Custom'; Rule = @{ Type = 'File'; FilePath = 'C:\x'; FileName = 'x.exe' } }
+        [void](Save-Profile -Profile $profile -DataRoot $work.DataRoot -SetActive)
+        $again = New-ApplicationGridWork -Prefs (New-TestPrefs)
+        (Get-ApplicationGridCell -Setting (Get-GridSetting 'detection') -Work $again -Packager $p).Value | Should -Be 'Custom in Workbench'
     }
 }
 

@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add the columns Free disk space (MB), Memory (MB) and OS build (minimum) to the All Applications grid.
+- Add the columns Distribution point group and Test collection to the All Applications grid.
+- Add the read-only column Detection that opens the Workbench.
+- Add the condition templates disk-space, memory and os-build for requirements.
+- Use the DP group and the test collection of an application before the site-wide value at Package.
+
 ## [2026.11.20.0156] - 2026-11-20
 
 ## 3 columns in the All Applications grid

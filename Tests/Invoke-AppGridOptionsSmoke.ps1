@@ -79,14 +79,14 @@ try {
     $window.Show()
     $window.UpdateLayout()
     $grid = $editor.Grid
-    & $assert ($grid.Columns.Count -eq 20) 'the grid has three fixed columns and one column for each of the 17 settings'
+    & $assert ($grid.Columns.Count -eq 26) 'the grid has three fixed columns and one column for each of the 23 settings'
     $visible = @($grid.Columns | Where-Object { $_.Visibility -eq 'Visible' } | ForEach-Object { [string]$_.Header })
     & $assert (($visible -join '|') -eq '|Application|Vendor|Package Source|Install Scope|Supersedence|Version in Title|Version Rule') 'the default columns are the five settings of the design'
     foreach ($c in $grid.Columns) { if ($c.Header -and $c.Header -notin 'Application', 'Vendor') { & $assert ($c.MinWidth -ge 10 * ([string]$c.Header).Length) ('the column ' + $c.Header + ' holds its header') } }
 
     # The column chooser.
     $columnsButton = Find-ById -Element $editor.Element -Id 'sup.apps.columns'
-    & $assert ($columnsButton -and $editor.Menu.Items.Count -eq 17) 'the Columns button has a menu with one item for each setting'
+    & $assert ($columnsButton -and $editor.Menu.Items.Count -eq 23) 'the Columns button has a menu with one item for each setting'
     $networkItem = @($editor.Menu.Items | Where-Object { $_.Header -eq 'Network' })[0]
     & $assert (-not $networkItem.IsChecked -and -not [string]::IsNullOrWhiteSpace([string]$networkItem.ToolTip)) 'a column that is not shown is not checked, and its item has a tooltip'
     Invoke-MenuItem $networkItem $true
