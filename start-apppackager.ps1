@@ -5919,7 +5919,7 @@ $menuExportCheckResult.Add_Click({
         return
     }
     $save = New-Object Microsoft.Win32.SaveFileDialog
-    $save.Title = 'Export the Check ConfigMgr result'
+    $save.Title = 'Export Check ConfigMgr Results'
     $save.Filter = 'CSV, all checked applications (*.csv)|*.csv|CSV, only updates available (*.csv)|*.csv|JSON, all checked applications (*.json)|*.json|JSON, only updates available (*.json)|*.json'
     $save.FileName = 'CheckConfigMgrResult'
     if ($save.ShowDialog($window) -ne $true) { return }
