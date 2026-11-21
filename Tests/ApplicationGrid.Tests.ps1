@@ -668,11 +668,8 @@ Describe 'The requirement columns' {
         }
     }
     It 'refuses a requirement value that is not a number' {
-        InModuleScope AppPackagerCommon {
-            Mock Get-OrCreateGlobalConditionFromTemplate { [pscustomobject]@{ Name = 'x' } }
-            Mock Write-Log { }
-            { New-DeploymentTypeRequirementRules -Manifest ([pscustomobject]@{ Requirements = @([pscustomobject]@{ ConditionId = 'memory'; Value = 'lots' }) }) -IgnoreEnvironment } | Should -Throw '*whole number*'
-        }
+        foreach ($bad in 'lots', '0', '-4', '1.5', '') { { ConvertTo-RequirementWholeNumber -ConditionId 'memory' -Value $bad } | Should -Throw '*whole number*' }
+        ConvertTo-RequirementWholeNumber -ConditionId 'memory' -Value ' 4096 ' | Should -Be 4096
     }
     It 'becomes an Intune requirement rule that checks the same value' {
         $templates = Get-DefaultConditionTemplates
