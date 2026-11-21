@@ -66,7 +66,7 @@
     Run only steps-appgrid.ps1: the window proof of the grid of all applications in Options (Applications, All Applications) with real mouse input:
     a click on a check box, on a combo box and its item, on the bulk buttons and on the column chooser, typed text in the search box, then OK, a read of the preferences file and a second Options window in the light
     theme. It adds the guide images options-all-applications.png, options-all-applications-columns.png and light-options-all-applications.png and the README images
-    screenshots\options-applications-dark.png and screenshots\options-applications-light.png. The default run does not include it.
+    screenshots\options-applications-dark.png and screenshots\options-applications-light.png. The default run includes these steps too; this switch runs only them.
 
 .PARAMETER OnlySupersedence
     Run only steps-supersedence.ps1: the window proof of the supersedence confirmation (Yes with Remember this answer, Skip, and No in the light
@@ -166,7 +166,7 @@ try {
         }
     } -ArgumentList $lockPath, $lockToken, 60, $LockWaitMinutes
     if (-not $haveLock) { throw "Another capture holds $lockPath. The wait of $LockWaitMinutes minutes is over." }
-    $runs = if ($OnlyBusyMeasure) { @('steps-busy-measure.ps1') } elseif ($OnlyGridIcons) { @('steps-grid-icons.ps1') } elseif ($OnlyCveChrome) { @('steps-cve-chrome.ps1') } elseif ($OnlyAppGrid) { @('steps-appgrid.ps1') } elseif ($OnlySupersedence) { @('steps-supersedence.ps1') } else { @('steps-guide.ps1', 'steps-console-missing.ps1') }
+    $runs = if ($OnlyBusyMeasure) { @('steps-busy-measure.ps1') } elseif ($OnlyGridIcons) { @('steps-grid-icons.ps1') } elseif ($OnlyCveChrome) { @('steps-cve-chrome.ps1') } elseif ($OnlyAppGrid) { @('steps-appgrid.ps1') } elseif ($OnlySupersedence) { @('steps-supersedence.ps1') } else { @('steps-guide.ps1', 'steps-appgrid.ps1', 'steps-console-missing.ps1') }
     foreach ($steps in $runs) {
         # A fresh copy for each run. Stop only the leftovers of an earlier capture of this app.
         Invoke-Command $session {
@@ -257,7 +257,7 @@ try {
     }
     # The README shows guide images. Each README file takes the captured image of the same view. A view that did not
     # capture keeps its old README image.
-    $readmeImages = @{ 'main-dark.png' = 'check-latest-done.png'; 'setup.png' = 'setup-first-run.png'; 'workbench.png' = 'workbench-application.png'; 'drop-preview.png' = 'drop-intake.png' }
+    $readmeImages = @{ 'main-dark.png' = 'check-latest-done.png'; 'setup.png' = 'setup-first-run.png'; 'workbench.png' = 'workbench-application.png'; 'drop-preview.png' = 'drop-intake.png'; 'options-applications-dark.png' = 'options-applications-dark.png'; 'options-applications-light.png' = 'options-applications-light.png' }
     foreach ($key in $readmeImages.Keys) {
         $source = $captured | Where-Object { $_.Name -eq $readmeImages[$key] } | Select-Object -First 1
         $target = Join-Path (Join-Path $repo 'screenshots') $key

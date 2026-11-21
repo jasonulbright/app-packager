@@ -52,7 +52,7 @@ function Capture-OptionsTree($o) {
     $groups = @('Connections', 'Packaging', 'Applications', 'Updates and CVEs', 'Security')
     foreach ($it in $treeItems) {
         $name = $it.Current.Name
-        if ($name -in $groups) { continue }
+        if ($name -in $groups -or $name -eq 'All Applications') { continue }  # steps-appgrid captures the grid page
         Select-El $it; Start-Sleep -Milliseconds 900
         Shot $o ('options-' + (($name.ToLowerInvariant() -replace '[^a-z0-9]+', '-').Trim('-')))
     }
@@ -66,7 +66,7 @@ function Capture-OptionsLight($o) {
     $treeItems = @($o.FindAll('Descendants', (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::TreeItem))))
     foreach ($it in $treeItems) {
         $name = $it.Current.Name
-        if ($name -in $groups) { continue }
+        if ($name -in $groups -or $name -eq 'All Applications') { continue }  # steps-appgrid captures the grid page
         Select-El $it; Start-Sleep -Milliseconds 900
         Shot $o ('light-options-' + (($name.ToLowerInvariant() -replace '[^a-z0-9]+', '-').Trim('-')))
     }
