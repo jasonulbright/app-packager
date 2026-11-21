@@ -4437,6 +4437,41 @@ function Get-SupersedenceFallbackApplicationId {
     return ('catalog:' + [System.IO.Path]::GetFileNameWithoutExtension([string]$frame.ScriptName))
 }
 
+function Resolve-ContentDistribution {
+    <#
+    .SYNOPSIS
+        The content distribution settings of one application: the per-application value first, the site-wide value as fallback.
+
+    .DESCRIPTION
+        ContentDistribution is the site-wide section of the preferences. Overrides is DistributionOverrides.Apps, one entry for each
+        packager name with DpGroup and TestCollection. An entry value that is empty or missing keeps the site-wide value. The
+        switches (AutoDistribute, DeployToTestCollection and the collection options) stay site-wide. The result is a copy.
+    #>
+    param(
+        [AllowNull()]$ContentDistribution,
+        [AllowNull()]$Overrides = $null,
+        [AllowNull()][string]$ApplicationId = ''
+    )
+    if ($null -eq $ContentDistribution) { return $null }
+    $copy = [ordered]@{}
+    foreach ($p in $ContentDistribution.PSObject.Properties) { $copy[$p.Name] = $p.Value }
+    $copy['DpGroupSource'] = 'Site'
+    $copy['TestCollectionSource'] = 'Site'
+    $base = ([string]$ApplicationId -split ':', 2)[-1]
+    if ($Overrides -and -not [string]::IsNullOrWhiteSpace($base)) {
+        $entry = $null
+        if ($Overrides -is [System.Collections.IDictionary]) { if ($Overrides.Contains($base)) { $entry = $Overrides[$base] } }
+        elseif ($Overrides.PSObject.Properties[$base]) { $entry = $Overrides.PSObject.Properties[$base].Value }
+        if ($entry) {
+            $dp = ([string]$(if ($entry -is [System.Collections.IDictionary]) { $entry['DpGroup'] } else { $entry.DpGroup })).Trim()
+            $tc = ([string]$(if ($entry -is [System.Collections.IDictionary]) { $entry['TestCollection'] } else { $entry.TestCollection })).Trim()
+            if ($dp) { $copy['DPGroupName'] = $dp; $copy['DpGroupSource'] = 'Application' }
+            if ($tc) { $copy['TestCollectionName'] = $tc; $copy['TestCollectionSource'] = 'Application' }
+        }
+    }
+    return [pscustomobject]$copy
+}
+
 function Invoke-SupersedenceStepAndLog {
     # Runs the supersedence step and writes its result to the log. A failure is a warning, never an error.
     param([Parameter(Mandatory)][string]$ApplicationName, [Parameter(Mandatory)][string]$Version, [Parameter(Mandatory)]$Plan, [AllowEmptyString()][string]$Vendor = '')
@@ -4956,6 +4991,38 @@ function Get-DefaultConditionTemplates {
                 PlatformType        = 1
             }
             [pscustomobject]@{
+                Id                  = 'disk-space'
+                GlobalConditionName = 'Disk space'
+                Kind                = 'BuiltIn'
+                RuleType            = 'FreeDiskSpace'
+                Operator            = 'GreaterEquals'
+                # The free space of the system drive, in MB.
+                IntuneScript        = '(Get-CimInstance -ClassName Win32_LogicalDisk -Filter ("DeviceID=''" + $env:SystemDrive + "''")).FreeSpace / 1MB -ge {0}'
+                Description         = 'The free disk space of the system drive in MB is at least the value.'
+            }
+            [pscustomobject]@{
+                Id                  = 'memory'
+                GlobalConditionName = 'Total physical memory'
+                Kind                = 'BuiltIn'
+                RuleType            = 'CommonValue'
+                Operator            = 'GreaterEquals'
+                # The built-in condition compares in MB.
+                IntuneScript        = '(Get-CimInstance -ClassName Win32_ComputerSystem).TotalPhysicalMemory / 1MB -ge {0}'
+                Description         = 'The total physical memory in MB is at least the value.'
+            }
+            [pscustomobject]@{
+                Id                  = 'os-build'
+                GlobalConditionName = 'APKG - OS Build Number'
+                Kind                = 'Wql'
+                RuleType            = 'CommonValue'
+                DataType            = 'Integer'
+                Operator            = 'GreaterEquals'
+                Namespace           = 'root\cimv2'
+                Class               = 'Win32_OperatingSystem'
+                Property            = 'BuildNumber'
+                Description         = 'Win32_OperatingSystem.BuildNumber is at least the value.'
+            }
+            [pscustomobject]@{
                 Id                  = 'vpn-connected'
                 GlobalConditionName = 'APKG - VPN Connected'
                 Kind                = 'Script'
@@ -4984,7 +5051,13 @@ function Get-ConditionTemplates {
     if (Test-Path -LiteralPath $path) {
         try {
             $doc = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-            if ($doc -and $doc.Conditions) { return $doc }
+            if ($doc -and $doc.Conditions) {
+                # A file from an earlier version lacks the newer templates; they come from the defaults.
+                $have = @($doc.Conditions | ForEach-Object { [string]$_.Id })
+                $missing = @((Get-DefaultConditionTemplates).Conditions | Where-Object { $have -notcontains [string]$_.Id })
+                if ($missing.Count -gt 0) { $doc.Conditions = @(@($doc.Conditions) + $missing) }
+                return $doc
+            }
             Write-Log ("Condition templates file has no Conditions; using built-in defaults: {0}" -f $path) -Level WARN
         }
         catch {
@@ -5583,6 +5656,23 @@ function Get-DeploymentTypeRequirementSpecs {
     return $specs
 }
 
+function Get-ConditionTemplateOperator {
+    # The comparison of a value template: IsEquals unless the template names another operator.
+    param([Parameter(Mandatory)]$Template)
+    if ($Template.PSObject.Properties['Operator'] -and -not [string]::IsNullOrWhiteSpace([string]$Template.Operator)) { return [string]$Template.Operator }
+    return 'IsEquals'
+}
+
+function ConvertTo-RequirementWholeNumber {
+    # A requirement value that is compared as a number: a whole number of 1 or more.
+    param([Parameter(Mandatory)][string]$ConditionId, [AllowEmptyString()][string]$Value)
+    $number = [int64]0
+    if (-not [int64]::TryParse(([string]$Value).Trim(), [ref]$number) -or $number -lt 1) {
+        throw "Condition '$ConditionId' requires a whole number of 1 or more (got '$Value')."
+    }
+    return $number
+}
+
 function New-DeploymentTypeRequirementRules {
     <#
     .SYNOPSIS
@@ -5629,7 +5719,13 @@ function New-DeploymentTypeRequirementRules {
                 if ([string]::IsNullOrWhiteSpace($value1)) {
                     throw "Condition '$condId' requires a Value."
                 }
-                $rules += New-CMRequirementRuleCommonValue -InputObject $gc -RuleOperator IsEquals -Value1 $value1
+                $operator = Get-ConditionTemplateOperator -Template $template
+                if ($operator -ne 'IsEquals') { [void](ConvertTo-RequirementWholeNumber -ConditionId $condId -Value $value1) }
+                $rules += New-CMRequirementRuleCommonValue -InputObject $gc -RuleOperator $operator -Value1 $value1
+            }
+            'FreeDiskSpace' {
+                $megabytes = ConvertTo-RequirementWholeNumber -ConditionId $condId -Value ([string]$spec.Value)
+                $rules += New-CMRequirementRuleFreeDiskSpaceValue -InputObject $gc -PartitionOption System -RuleOperator (Get-ConditionTemplateOperator -Template $template) -Value1 $megabytes
             }
             'OperatingSystemLanguage' {
                 $cultures = @()
@@ -6534,10 +6630,11 @@ function New-MECMApplicationFromManifest {
                 $prefsRaw = Get-Content -LiteralPath $prefsPath -Raw -Encoding UTF8 -ErrorAction Stop
                 if (-not [string]::IsNullOrWhiteSpace($prefsRaw)) {
                     $prefsObj = $prefsRaw | ConvertFrom-Json -ErrorAction Stop
-                    $cd = $prefsObj.ContentDistribution
+                    $distributionId = $(if ($Manifest.PSObject.Properties['ApplicationId'] -and [string]$Manifest.ApplicationId) { [string]$Manifest.ApplicationId } else { [string](Get-SupersedenceFallbackApplicationId) })
+                    $cd = Resolve-ContentDistribution -ContentDistribution $prefsObj.ContentDistribution -Overrides $(if ($prefsObj.PSObject.Properties['DistributionOverrides'] -and $prefsObj.DistributionOverrides) { $prefsObj.DistributionOverrides.Apps } else { $null }) -ApplicationId $distributionId
                     if ($cd -and [bool]$cd.AutoDistribute -and -not [string]::IsNullOrWhiteSpace([string]$cd.DPGroupName)) {
                         $dpGroup = [string]$cd.DPGroupName
-                        Write-Log "Distributing content         : DP group '$dpGroup'"
+                        Write-Log "Distributing content         : DP group '$dpGroup' ($($cd.DpGroupSource))"
                         try {
                             Start-CMContentDistribution -ApplicationName $appName -DistributionPointGroupName $dpGroup -ErrorAction Stop
                             Write-Log "Content distribution         : initiated"
@@ -9391,12 +9488,30 @@ function Get-IntuneRequirementScriptPlan {
                 $boolValue = $parsed
             }
         }
+        'FreeDiskSpace' {
+            $value = [string](ConvertTo-RequirementWholeNumber -ConditionId $id -Value $(if ($null -eq $rawValue) { '' } else { [string]$rawValue }))
+        }
         default { throw ("Condition '{0}' has unsupported RuleType '{1}'." -f $id, $ruleType) }
+    }
+    if ($ruleType -ceq 'CommonValue' -and (Get-ConditionTemplateOperator -Template $template) -ne 'IsEquals') {
+        $value = [string](ConvertTo-RequirementWholeNumber -ConditionId $id -Value $value)
     }
 
     $checkScript = $null
     $expected = $true
-    if ($ruleType -ceq 'CommonValue' -and $kind -ceq 'Wql') {
+    if ($template.PSObject.Properties['IntuneScript'] -and -not [string]::IsNullOrWhiteSpace([string]$template.IntuneScript) -and $ruleType -in 'CommonValue', 'FreeDiskSpace') {
+        # A built-in condition with a number: the check script reads the same value that the ConfigMgr condition reads. The value is a validated whole number.
+        $checkScript = @('$ErrorActionPreference = ''SilentlyContinue''', ('Write-Output ([bool]({0}))' -f ([string]$template.IntuneScript -f $value))) -join "`r`n"
+    }
+    elseif ($ruleType -ceq 'CommonValue' -and $kind -ceq 'Wql' -and (Get-ConditionTemplateOperator -Template $template) -eq 'GreaterEquals') {
+        if ([string]$template.Property -cnotmatch '^[A-Za-z0-9_]+$') { throw ("The WMI property name '{0}' is not a plain name." -f $template.Property) }
+        $checkScript = @(
+            '$ErrorActionPreference = ''SilentlyContinue'''
+            ('$values = @(Get-CimInstance -Namespace {0} -ClassName {1} | ForEach-Object {{ [int64]$_.{2} }})' -f (& $quote $template.Namespace), (& $quote $template.Class), $template.Property)
+            ('Write-Output (@($values | Where-Object {{ $_ -ge {0} }}).Count -gt 0)' -f $value)
+        ) -join "`r`n"
+    }
+    elseif ($ruleType -ceq 'CommonValue' -and $kind -ceq 'Wql') {
         if ([string]::IsNullOrWhiteSpace([string]$template.Namespace) -or [string]::IsNullOrWhiteSpace([string]$template.Class) -or [string]::IsNullOrWhiteSpace([string]$template.Property)) {
             throw ("The condition '{0}' names no WMI namespace, class and property." -f $template.Id)
         }
