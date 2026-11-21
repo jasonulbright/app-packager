@@ -5,9 +5,12 @@
 ### Added
 
 - Add the All Applications grid to Options, with one row for each application.
-- Add the columns Source Type, Install Scope, Supersedence, Version in Title and Version Rule to the grid.
-- Add bulk buttons to the grid for checked applications, all applications and none.
-- Add the buttons Check all and Check none to the grid.
+- Add the columns Package Source, Install Scope, Supersedence, Version in Title and Version Rule to the grid.
+- Add the columns Network, Network Split, Install Command, Uninstall Command, In One Click and Check Interval Days to the grid.
+- Add the columns Publish to ConfigMgr, Publish to Intune and Publish to WSUS to the grid.
+- Add the Columns button and a search box to the grid.
+- Add a bulk bar to the grid for checked, filtered and all applications, and for none.
+- Show a closed grid cell with a tooltip that gives the reason.
 
 ### Changed
 

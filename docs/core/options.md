@@ -94,31 +94,35 @@ The edition, the languages of the multilingual edition, and the Adobe properties
 
 #### All Applications
 
-One grid with one row for each application that the packagers offer. Every setting of one application is in this grid, and nowhere else in Options. Select a column header to sort the grid.
+One grid with one row for each application that the packagers offer. Every setting of one application is in this grid. The **Columns** button chooses the columns. The five columns that show first are Package Source, Install Scope, Supersedence, Version in Title and Version Rule. The search box shows only the applications whose name or vendor holds the text that you type. Select a column header to sort the grid.
 
-| Column | What it sets | When it is open |
+| Column | Choices | Stored in |
 |---|---|---|
-| Source Type | **Packager default**, or **x64 and ARM64**, which stages one deployment type for each architecture. | Only for a packager that offers an architecture split. A packager of a family with an x64, x86 or ARM64 sibling shows its own architecture and cannot change it: the sibling is another row. |
-| Install Scope | **Packager default**, **System** (all users) or **User** (the current user). The packaging code passes the choice to the packager as `APP_PACKAGER_INSTALL_MODE`: `AllUsers` or `CurrentUser`. | Only for a packager that supports both install modes. |
-| Supersedence | **Follow the default**, **Off**, **Replace** or **Replace and uninstall**. | Always. |
-| Version in Title | **Follow the default**, **Include version** or **No version**. | Always, but locked while supersedence is on. |
-| Version Rule | **Follow the default**, **Minimum** (this version or newer, written as `GreaterEquals`) or **Exact** (this version only, written as `IsEquals`). | Always. |
+| Package Source | Packager default, x64 and ARM64 | `DeploymentConditions.Apps`, `Split` |
+| Install Scope | Packager default, System, User | `DeploymentConditions.Apps`, `InstallMode` |
+| Supersedence | Follow the default, Off, Replace, Replace and uninstall | `Supersedence.TitleOverrides`, `Mode` |
+| Version in Title | Follow the default, Include version, No version | `DeploymentConditions.Apps`, `TitleMode` |
+| Version Rule | Follow the default, Minimum, Exact | `Supersedence.TitleOverrides`, `VersionRule` |
+| Network | Any, VPN only, On site only | `DeploymentConditions.Apps`, `Network` |
+| Network Split | None, Network split | `DeploymentConditions.Apps`, `Split` |
+| Install Command, Uninstall Command | A command line. Empty keeps the command of the packager. | `CommandOverrides.Apps` |
+| In One Click | No, Yes | `AppFlow.Tracked` |
+| Check Interval Days | A number from 1 to 365. Empty uses the default. | `AppFlow.CadenceOverrides` |
+| Publish to ConfigMgr, Publish to Intune, Publish to WSUS | Follow the default, Yes, No | `AppFlow.Destinations` |
 
-**Follow the default** uses the default in the three fields above the grid: **Version rule, ConfigMgr**, **Version rule, Intune** and **Supersedence mode, ConfigMgr**. The shipped defaults are Minimum, Minimum and Off. The version rule sets the operator of the version clause in the detection of the application that Package publishes. Exact writes `IsEquals` only when a value read from the installed product equals the expected value: the ProductVersion of an MSI, or a value that you record with `-RecordInstalledValue`. Replace makes the new application supersede the older version. Replace and uninstall also uninstalls it, and it needs the ConfigMgr version rule Exact. Supersedence is off for every application until you turn it on.
+The first choice of a column is the value that resets it. **Follow the default** uses the default in the three fields above the grid: **Version rule, ConfigMgr**, **Version rule, Intune** and **Supersedence mode, ConfigMgr**. The shipped defaults are Minimum, Minimum and Off. The version rule sets the operator of the version clause in the detection of the application that Package publishes. Exact writes `IsEquals` only when a value read from the installed product equals the expected value: the ProductVersion of an MSI, or a value that you record with `-RecordInstalledValue`. Replace makes the new application supersede the older version. Replace and uninstall also uninstalls it, and it needs the ConfigMgr version rule Exact. Supersedence is off for every application until you turn it on.
 
-While supersedence is on for an application, its title must hold the version, because the new release and the older one must be separate applications. The grid then shows **Include version** in Version in Title and the box is closed. A note under the buttons counts these applications. The grid keeps the choice that you made in that column: when supersedence is off again, the column shows your choice again.
+A cell that does not apply to an application is closed, and its tooltip gives the reason. Package Source is open only for a packager that offers an architecture split (7-Zip, Google Chrome and Mozilla Firefox). A packager of a family with an x64, x86 or ARM64 sibling shows its own architecture, because the sibling is another row. Install Scope is open only for a packager that supports both install modes. Network Split is open only for a packager that offers it. Publish to WSUS is closed for an application that WSUS cannot carry, and the tooltip names the reason. A package source and a network split are both splits, and a packager stages one split at a time: the last one that you choose replaces the other.
 
-The bulk bar changes one column. Choose the column and the value, then press a button:
+While supersedence is on for an application, its title must hold the version, because the new release and the older one must be separate applications. The grid then shows **Include version** in Version in Title, and the cell is closed. A note under the buttons counts these applications. The grid keeps the choice that you made in that column: when supersedence is off again, the column shows your choice again.
 
-- **Checked applications** writes the value for each application whose box is checked. **Check all** and **Check none** change the boxes.
-- **All applications** writes the value for every application that can take it. For Supersedence and Version Rule it sets the default in the fields above and clears the own value of each application.
-- **No applications** resets the column for every application to its shipped value. For Supersedence and Version Rule it also sets the default back to Off and Minimum.
+The bar above the grid changes one column: **Set** a column **to** a value **for** Checked, Filtered or All, then press **Apply**. Checked is the applications whose box is checked, Filtered is the applications that the search shows, and All is every application. **None** resets the column for every application. **Check all** and **Check none** change the boxes. The bulk actions skip a cell that does not apply, and the line under the bar says how many cells they skipped. Nothing is saved until you choose **OK**.
 
-A line under the bar says how many applications changed. Nothing is saved until you choose **OK**. The setting applies to Intune too. The Intune relation is the single Microsoft Graph beta call of the tool, because Graph v1.0 has no resource for app relationships. See [Supersedence in Intune](stage-publish.md#supersedence-in-intune).
-
-The grid writes `DeploymentConditions.Apps` (Split, InstallMode and TitleMode of the application) and `Supersedence.TitleOverrides` (Mode and VersionRule of the application). A value that the grid does not own, such as a condition of the Workbench, stays as it was. See [Settings](../reference/settings.md).
+The setting applies to Intune too. The Intune relation is the single Microsoft Graph beta call of the tool, because Graph v1.0 has no resource for app relationships. See [Supersedence in Intune](stage-publish.md#supersedence-in-intune). The grid writes only the keys of the table. A value that the grid does not own, such as a condition of the Workbench or a language list, stays as it was. The One Click page of Options edits the same One Click keys, and the grid saves after it. See [Settings](../reference/settings.md).
 
 ![The grid of all applications in the dark theme](../images/options-all-applications.png)
+
+![The grid with the columns In One Click and Publish to WSUS, and the tooltip of a closed cell](../images/options-all-applications-columns.png)
 
 ![The grid of all applications in the light theme](../images/light-options-all-applications.png)
 

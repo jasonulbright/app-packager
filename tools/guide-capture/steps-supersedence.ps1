@@ -129,10 +129,13 @@ Section 'options: the setting by application' {
         try { $item.GetCurrentPattern([System.Windows.Automation.VirtualizedItemPattern]::Pattern).Realize() } catch { $null = $_ }
         Start-Sleep -Milliseconds 700
         $row = $grid.FindFirst('Descendants', (New-Object System.Windows.Automation.AndCondition((New-Object System.Windows.Automation.PropertyCondition($AE::NameProperty, $name)), (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::DataItem)))))
-        Toggle-El (Get-El $row 'appgrid.check')
+        # The supersedence cell of the row: open its list and select Replace.
+        $combo = Get-El $row 'appgrid.supersedence'
+        Expand-El $combo; Start-Sleep -Milliseconds 500
+        $replace = $root.FindFirst('Descendants', (New-Object System.Windows.Automation.AndCondition((New-Object System.Windows.Automation.PropertyCondition($AE::NameProperty, 'Replace')), (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem)))))
+        if (-not $replace) { throw 'The supersedence list has no item Replace.' }
+        Select-El $replace; Start-Sleep -Milliseconds 500
     }
-    # The default value of the bulk bar is the column Supersedence with the value Replace.
-    Invoke-El (Get-El $o 'sup.apps.bulk.Checked'); Start-Sleep -Milliseconds 800
     Shot $o 'proof-all-applications'
     Invoke-El (Get-El $o 'btnOK'); Start-Sleep -Seconds 3
     Log ('options saved: ' + (Get-Content (Join-Path $appDir 'AppPackager.preferences.json') -Raw | Select-String 'catalog:package-q92proof[ab]' -AllMatches | ForEach-Object { $_.Matches.Count }))

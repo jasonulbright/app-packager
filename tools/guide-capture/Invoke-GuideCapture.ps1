@@ -64,8 +64,8 @@
 
 .PARAMETER OnlyAppGrid
     Run only steps-appgrid.ps1: the window proof of the grid of all applications in Options (Applications, All Applications) with real mouse input:
-    a click on a check box, on a combo box and its item, and on the bulk buttons, then OK, a read of the preferences file and a second Options window in the light
-    theme. It adds the guide images options-all-applications.png and light-options-all-applications.png and the README images
+    a click on a check box, on a combo box and its item, on the bulk buttons and on the column chooser, typed text in the search box, then OK, a read of the preferences file and a second Options window in the light
+    theme. It adds the guide images options-all-applications.png, options-all-applications-columns.png and light-options-all-applications.png and the README images
     screenshots\options-applications-dark.png and screenshots\options-applications-light.png. The default run does not include it.
 
 .PARAMETER OnlySupersedence
@@ -245,7 +245,7 @@ try {
         foreach ($png in $captured) { Copy-Item $png.FullName (Join-Path $images $png.Name) -Force }
         # The grid proof adds two guide images and two README images.
         if ($OnlyAppGrid) {
-            foreach ($png in @(Get-ChildItem $tmp -Recurse -Filter *.png | Where-Object { $_.Name -in 'options-all-applications.png', 'light-options-all-applications.png' })) { Copy-Item $png.FullName (Join-Path $images $png.Name) -Force }
+            foreach ($png in @(Get-ChildItem $tmp -Recurse -Filter *.png | Where-Object { $_.Name -in 'options-all-applications.png', 'options-all-applications-columns.png', 'light-options-all-applications.png' })) { Copy-Item $png.FullName (Join-Path $images $png.Name) -Force }
             $shots = Join-Path $repo 'screenshots'
             New-Item -ItemType Directory -Path $shots -Force | Out-Null
             foreach ($png in @(Get-ChildItem $tmp -Recurse -Filter *.png | Where-Object { $_.Name -in 'options-applications-dark.png', 'options-applications-light.png' })) { Copy-Item $png.FullName (Join-Path $shots $png.Name) -Force }
