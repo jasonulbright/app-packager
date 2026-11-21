@@ -58,7 +58,7 @@ Describe 'The Options page' {
     It 'has the setting by application and the bulk action next to the default' {
         $script:Shell | Should -Match "Id = 'sup.apps'"
         $script:Shell | Should -Match "'All applications'"
-        $script:Shell | Should -Match "'Selected applications'"
+        $script:Shell | Should -Match "'Checked applications'"
         $script:Shell | Should -Match "'No applications'"
     }
     It 'keeps the default Off' {

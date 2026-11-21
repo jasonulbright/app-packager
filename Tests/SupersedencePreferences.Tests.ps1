@@ -126,10 +126,10 @@ Describe 'The command line level' {
 }
 
 Describe 'Options' {
-    It 'has the three fields in Options, Packaging, Supersedence' {
-        $section = Get-OptionsSectionDefinition | Where-Object { $_.Id -eq 'supersedence' }
-        $section.Title | Should -Be 'Supersedence'
-        $section.Parent | Should -Be 'packaging'
+    It 'has the three fields in Options, Applications, All Applications' {
+        $section = Get-OptionsSectionDefinition | Where-Object { $_.Id -eq 'allapps' }
+        $section.Title | Should -Be 'All Applications'
+        $section.Parent | Should -Be 'applications'
         $prefs = @($section.Fields | ForEach-Object { $_.Pref })
         $prefs | Should -Contain 'Supersedence.ConfigMgrVersionRule'
         $prefs | Should -Contain 'Supersedence.IntuneVersionRule'

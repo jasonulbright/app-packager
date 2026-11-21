@@ -53,7 +53,7 @@ This guide did not run a publish to a real share. A successful publish was not c
 
 ### Supersedence
 
-A new version can supersede the older application. This is a setting of the application, and it is off until you turn it on in Options, Packaging, Supersedence. The application then keeps the version in its name, so each release is its own application. At **Publish to ConfigMgr** the tool looks for the older application with the same title and the same vendor, takes the highest version below the new one, and asks first:
+A new version can supersede the older application. This is a setting of the application, and it is off until you turn it on in Options, Applications, All Applications. The application then keeps the version in its name, so each release is its own application. At **Publish to ConfigMgr** the tool looks for the older application with the same title and the same vendor, takes the highest version below the new one, and asks first:
 
 1. **Yes** applies the supersedence: the new application supersedes the older one, one relation for each pair of deployment types. The older application is not changed.
 2. **Skip** packages the application without the supersedence.

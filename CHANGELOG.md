@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add the All Applications grid to Options, with one row for each application.
+- Add the columns Source Type, Install Scope, Supersedence, Version in Title and Version Rule to the grid.
+- Add bulk buttons to the grid for checked applications, all applications and none.
+- Add the buttons Check all and Check none to the grid.
+
+### Changed
+
+- Move the supersedence defaults and the setting for each application from Options, Packaging, Supersedence to the grid.
+- Show Include version in Version in Title while supersedence is on for the application.
+
 ## [2026.11.20.0151] - 2026-11-20
 
 ## 317 packagers

@@ -74,7 +74,7 @@ The estimated and maximum runtime, **Fallback distribution points** and **Neighb
 
 #### Application Title
 
-**Include version** and **Remove version**. Without a selection, a packager uses its own name. While supersedence is on for an application (the default or the choice of that application), a note says that the version is added to its name when it is packaged. The note changes no setting: the box shows the choice that you made.
+**Include version** and **Remove version**. Without a selection, a packager uses its own name. While supersedence is on for an application (the default or the choice of that application), a note says that the version is added to its name when it is packaged. The note changes no setting: the box shows the choice that you made. The title of one application is set in [All Applications](#all-applications).
 
 ![The Application Title section](../images/options-application-title.png)
 
@@ -84,14 +84,6 @@ The estimated and maximum runtime, **Fallback distribution points** and **Neighb
 
 ![The Post Packaging section](../images/options-post-packaging.png)
 
-#### Supersedence
-
-**Version rule, ConfigMgr**, **Version rule, Intune**, **Supersedence mode, ConfigMgr** and **By application**. The version rule sets the operator of the version clause in the detection of the application that Package publishes. Minimum writes `GreaterEquals` (this version or newer). Exact writes `IsEquals` (this version only), and only when a value read from the installed product equals the expected value: the ProductVersion of an MSI, or a value that you record with `-RecordInstalledValue`. The supersedence mode Replace makes the new application supersede the older version. Replace and uninstall also uninstalls it, and it needs the ConfigMgr version rule Exact. Supersedence is off for every application until you turn it on, and the shipped default is Off. The mode in this section is the default; **By application** lists each packager with its own choice (Default follows the mode above). The three buttons write one value in one step: **All applications** sets the default to the chosen value and removes the values of single applications, **Selected applications** writes it on each checked application, and **No applications** removes every value of a single application and sets the default to Off. Nothing is saved until you choose OK. An application with supersedence on keeps the version in its name, because the new version and the older one must be separate applications: while the default is on, **Include version** in Application Title is on and cannot be cleared, and a packager with its own supersedence setting names its application with the version at Package. At Package the tool looks for the older application with the title and the vendor of the application that it packages (the query of Check ConfigMgr), takes the highest version below the new one, and asks you before it writes anything: **Yes** applies the supersedence, **Skip** packages the application without it, and **No** stops the run. **Remember this answer** keeps the answer for the other applications of the run. When no older version exists, the log says so and the tool asks nothing. The older application is never changed. A run that nobody can ask, One Click and the command line, never applies a supersedence unless the command line gives `-SupersedenceAnswer Yes`. With a publish to ConfigMgr and Intune, the same answer sets the supersedence of the Intune app; a publish to Intune alone is not asked. See [Command line](../reference/command-line.md) for `-VersionRule`, `-Supersedence`, `-SupersedenceAnswer`, `-RecordInstalledValue` and `-AcceptExactBlock`.
-
-The setting applies to Intune too. The Intune relation is the single Microsoft Graph beta call of the tool, because Graph v1.0 has no resource for app relationships. See [Supersedence in Intune](stage-publish.md#supersedence-in-intune).
-
-![The setting by application and the three bulk buttons](../images/supersedence-by-application.png)
-
 ### Applications
 
 #### Adobe Acrobat Reader
@@ -99,6 +91,36 @@ The setting applies to Intune too. The Intune relation is the single Microsoft G
 The edition, the languages of the multilingual edition, and the Adobe properties `EULA_ACCEPT`, `DISABLEDESKTOPSHORTCUT`, `ENABLE_CHROMEEXT`, `DISABLE_BROWSER_INTEGRATION` and `UPDATE_MODE`.
 
 ![The Adobe Acrobat Reader section](../images/options-adobe-acrobat-reader.png)
+
+#### All Applications
+
+One grid with one row for each application that the packagers offer. Every setting of one application is in this grid, and nowhere else in Options. Select a column header to sort the grid.
+
+| Column | What it sets | When it is open |
+|---|---|---|
+| Source Type | **Packager default**, or **x64 and ARM64**, which stages one deployment type for each architecture. | Only for a packager that offers an architecture split. A packager of a family with an x64, x86 or ARM64 sibling shows its own architecture and cannot change it: the sibling is another row. |
+| Install Scope | **Packager default**, **System** (all users) or **User** (the current user). The packaging code passes the choice to the packager as `APP_PACKAGER_INSTALL_MODE`: `AllUsers` or `CurrentUser`. | Only for a packager that supports both install modes. |
+| Supersedence | **Follow the default**, **Off**, **Replace** or **Replace and uninstall**. | Always. |
+| Version in Title | **Follow the default**, **Include version** or **No version**. | Always, but locked while supersedence is on. |
+| Version Rule | **Follow the default**, **Minimum** (this version or newer, written as `GreaterEquals`) or **Exact** (this version only, written as `IsEquals`). | Always. |
+
+**Follow the default** uses the default in the three fields above the grid: **Version rule, ConfigMgr**, **Version rule, Intune** and **Supersedence mode, ConfigMgr**. The shipped defaults are Minimum, Minimum and Off. The version rule sets the operator of the version clause in the detection of the application that Package publishes. Exact writes `IsEquals` only when a value read from the installed product equals the expected value: the ProductVersion of an MSI, or a value that you record with `-RecordInstalledValue`. Replace makes the new application supersede the older version. Replace and uninstall also uninstalls it, and it needs the ConfigMgr version rule Exact. Supersedence is off for every application until you turn it on.
+
+While supersedence is on for an application, its title must hold the version, because the new release and the older one must be separate applications. The grid then shows **Include version** in Version in Title and the box is closed. A note under the buttons counts these applications. The grid keeps the choice that you made in that column: when supersedence is off again, the column shows your choice again.
+
+The bulk bar changes one column. Choose the column and the value, then press a button:
+
+- **Checked applications** writes the value for each application whose box is checked. **Check all** and **Check none** change the boxes.
+- **All applications** writes the value for every application that can take it. For Supersedence and Version Rule it sets the default in the fields above and clears the own value of each application.
+- **No applications** resets the column for every application to its shipped value. For Supersedence and Version Rule it also sets the default back to Off and Minimum.
+
+A line under the bar says how many applications changed. Nothing is saved until you choose **OK**. The setting applies to Intune too. The Intune relation is the single Microsoft Graph beta call of the tool, because Graph v1.0 has no resource for app relationships. See [Supersedence in Intune](stage-publish.md#supersedence-in-intune).
+
+The grid writes `DeploymentConditions.Apps` (Split, InstallMode and TitleMode of the application) and `Supersedence.TitleOverrides` (Mode and VersionRule of the application). A value that the grid does not own, such as a condition of the Workbench, stays as it was. See [Settings](../reference/settings.md).
+
+![The grid of all applications in the dark theme](../images/options-all-applications.png)
+
+![The grid of all applications in the light theme](../images/light-options-all-applications.png)
 
 #### Beyond Compare 5
 
@@ -232,8 +254,8 @@ Without the console, the ConfigMgr section shows `Not detected` for it. The butt
 | Section | What it sets |
 |---|---|
 | Connections | Systems, ConfigMgr, WSUS, Intune and the connection tests. |
-| Packaging | Folders, deployment type defaults, the title rule, the Post Packaging steps and Supersedence. |
-| Applications | The install options of seven applications and the local installer sources. |
+| Packaging | Folders, deployment type defaults, the title rule and the Post Packaging steps. |
+| Applications | The grid of all applications, the install options of seven applications and the local installer sources. |
 | Updates and CVEs | The tracked set and its destinations, the product filter and the CVE lookup. |
 | Security | Authenticode signing of staged scripts. |
 | Tools | The detected tools. |

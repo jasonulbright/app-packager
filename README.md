@@ -181,8 +181,8 @@ All workflow actions share the same persistent history file at `%LOCALAPPDATA%\A
 | Section | What it sets |
 |---|---|
 | Connections | Systems in Use, ConfigMgr, WSUS, Intune, and a Test Connection button for each. |
-| Packaging | Folders, deployment type defaults, the application title rule, the Post Packaging steps, and Supersedence. |
-| Applications | The install options of Adobe Acrobat Reader, Beyond Compare 5, Citrix Workspace App, DBeaver Community, Microsoft 365 Apps, SQL Server Management Studio and TeamViewer Host, and the local installer sources. |
+| Packaging | Folders, deployment type defaults, the application title rule and the Post Packaging steps. |
+| Applications | One grid of all applications (package source type, install scope, supersedence, version in title and version rule), then the install options of Adobe Acrobat Reader, Beyond Compare 5, Citrix Workspace App, DBeaver Community, Microsoft 365 Apps, SQL Server Management Studio and TeamViewer Host, and the local installer sources. |
 | Updates and CVEs | One Click, the product filter and the CVE lookup. |
 | Security | Script Signing. |
 | Tools | The detected console, Content Prep Tool, 7-Zip and icon pack, and GitHub Authentication. |
@@ -483,7 +483,7 @@ It creates the run snapshot, sets the child environment and launches the package
 
 ### Supersedence
 
-Supersedence is a setting of the application and it is off until you turn it on (Options, Packaging, Supersedence: a default, a choice for each application, and the buttons **All applications**, **Selected applications** and **No applications**). An application with supersedence on keeps the version in its name. At Package the tool looks for the older application with the same title and vendor, takes the highest version below the new one and asks first: **Yes** applies it, **Skip** packages without it, **No** stops the run, and **Remember this answer** keeps the answer for the run. The older application is not changed, and the tool does not rewrite the detection of published applications. One Click and the command line never apply a supersedence unless `-SupersedenceAnswer Yes` is given.
+Supersedence is a setting of the application and it is off until you turn it on (Options, Applications, All Applications: a default, a choice for each application, and the buttons **Checked applications**, **All applications** and **No applications**). An application with supersedence on keeps the version in its name. At Package the tool looks for the older application with the same title and vendor, takes the highest version below the new one and asks first: **Yes** applies it, **Skip** packages without it, **No** stops the run, and **Remember this answer** keeps the answer for the run. The older application is not changed, and the tool does not rewrite the detection of published applications. One Click and the command line never apply a supersedence unless `-SupersedenceAnswer Yes` is given.
 
 ### Convert a ConfigMgr application to Intune
 
@@ -1043,8 +1043,8 @@ ArpName: 7-Zip [0-9]*
 | `SecurityAdvisoryUrl` | The vendor's security advisory page (https). Shown as `Vendor advisory` in the CVE window, the Open CVE Sources menu and every report. 94 packagers carry one; only pages that answered HTTP 200 were added. |
 | `UpdateCadenceDays` | Default cadence for Full Run's Report action. Integer days between vendor re-queries. Falls back to 7 when absent. Override per-app in App Flow. |
 | `IconSource` | Where the application icon comes from: `Installer`, `External`, or `None`. See [Application Icons](#application-icons). |
-| `SupportsVariants` | Comma-separated variant splits the packager can stage (`Architecture`, `Language`, `Network`). Enables the Variant split column. |
-| `SupportsInstallModes` | `CurrentUser, AllUsers` when the installer takes a mode switch and the packager uses the standard wrappers. Enables the Install for column. |
+| `SupportsVariants` | Comma-separated variant splits the packager can stage (`Architecture`, `Language`, `Network`). Enables the Source Type choice in Options, Applications, All Applications (the `Architecture` split). |
+| `SupportsInstallModes` | `CurrentUser, AllUsers` when the installer takes a mode switch and the packager uses the standard wrappers. Enables the Install Scope choice in Options, Applications, All Applications. |
 | `RequiresTools` | Comma-separated list of detected tools the packager depends on. Read-only metadata; surfaced through `Get-PackagerMetadata` and reserved for future preflight warnings. Adobe Reader declares `7-Zip`. |
 | `WsusSupport` | `Yes`, or `No (<code>)` with the WSUS compatibility codes the publish would report: `DetectionNotMappable`, `PerUserInstall`, `InstallerTypeUnsupported`, `CustomInstall`, `InstallerMissing`, `PayloadInSubfolder`, several joined with `\|`. Every packager carries it; the One Click plan shows **WSUS: not supported** from it before a run. |
 | `ArpName` | Wildcard patterns for the Add/Remove Programs display name, separated by ` \| `. [Discover unmanaged software](#discover-unmanaged-software) matches them with `-like` against hardware inventory. `none` marks an app with no machine-wide Add/Remove Programs entry: a portable app, a store app, or a per-user install. Every packager carries it. |

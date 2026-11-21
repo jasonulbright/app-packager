@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-# Window probe of the supersedence setting in Options: the bulk buttons move the default, and the title page shows a note
+# Window probe of the supersedence setting in Options, All Applications: the bulk buttons move the default, and the title page shows a note
 # when supersedence is on and never writes the include-version choice of the operator.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -33,7 +33,7 @@ function Set-ProbePrefs {
 try {
     # The bulk buttons write the default through the default combo of the page.
     Set-ProbePrefs '{}'
-    $page = New-OptionsTestPage -Id 'supersedence'
+    $page = New-OptionsTestPage -Id 'allapps'
     $mode = $page.Editors['sup.mode']
     & $assert ((& $mode.Get) -eq 'Off') 'the default is Off before the bulk action'
     $all = Find-OptionsButton -Element $page.Editors['sup.apps'].Element -Text 'All applications'

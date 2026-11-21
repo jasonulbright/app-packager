@@ -5574,6 +5574,13 @@ $script:GridHeaderTip = @{
         'Vendor URL'          = 'The vendor web page of the application.'
         'Last Checked (UTC)'  = 'When the version check last ran.'
     }
+    dgAppGrid = @{
+        'Source Type'         = 'The package source of the application, where the packager offers a choice.'
+        'Install Scope'       = 'Install for all users or for the current user, where the packager offers both.'
+        'Supersedence'        = 'Whether a new version supersedes the older version.'
+        'Version in Title'    = 'Whether the title of the application holds the version.'
+        'Version Rule'        = 'Minimum accepts this version or newer, and Exact accepts only this version.'
+    }
     dgApps = @{
         'Track'          = 'Track the application in One Click.'
         'ConfigMgr'      = 'Publish the application to ConfigMgr.'
@@ -5639,17 +5646,28 @@ function Set-GridHeaderTip {
     $tips = $script:GridHeaderTip[[string]$Grid.Name]
     if (-not $tips) { return }
     $headerType = [System.Windows.Controls.Primitives.DataGridColumnHeader]
-    foreach ($col in @($Grid.Columns)) {
-        $header = [string]$col.Header
-        if (-not $tips.ContainsKey($header)) { continue }
-        $base = $col.HeaderStyle
-        if (-not $base) { $base = $Grid.ColumnHeaderStyle }
-        if (-not $base) { $base = $Grid.TryFindResource($headerType) }
-        $style = New-Object System.Windows.Style($headerType)
-        if ($base) { $style.BasedOn = $base }
-        $style.Setters.Add((New-Object System.Windows.Setter([System.Windows.FrameworkElement]::ToolTipProperty, [string]$tips[$header])))
-        $col.HeaderStyle = $style
-    }
+    $state = @{ Done = $false }
+    $apply = {
+        if ($state.Done) { return }
+        $state.Done = $true
+        foreach ($col in @($Grid.Columns)) {
+            $header = [string]$col.Header
+            if (-not $tips.ContainsKey($header)) { continue }
+            $base = $col.HeaderStyle
+            if (-not $base) { $base = $Grid.ColumnHeaderStyle }
+            if (-not $base) { $base = $Grid.TryFindResource($headerType) }
+            $style = New-Object System.Windows.Style($headerType)
+            if ($base) { $style.BasedOn = $base }
+            $style.Setters.Add((New-Object System.Windows.Setter([System.Windows.FrameworkElement]::ToolTipProperty, [string]$tips[$header])))
+            $col.HeaderStyle = $style
+        }
+    }.GetNewClosure()
+    # A grid in a panel that is not in a window yet cannot find the themed header style of its window. It finds the default style of the
+    # application, and a style based on that draws a plain white header. Such a grid gets its tips when it loads, and only then.
+    $top = $Grid
+    while ($true) { $parent = [System.Windows.LogicalTreeHelper]::GetParent($top); if (-not $parent) { break }; $top = $parent }
+    if ($Grid.IsLoaded -or $top -is [System.Windows.Window]) { & $apply }
+    else { $Grid.Add_Loaded({ & $apply }.GetNewClosure()) }
 }
 
 $dataGrid        = $window.FindName('dataGrid')
@@ -7615,6 +7633,15 @@ function New-OptionsFieldRow {
     [void]$grid.Children.Add($title)
 
     $element = $Editor.Element
+    if ($Field.FullWidth) {
+        # The editor takes the whole row, with no title column: a grid has its own column headers.
+        $grid.ColumnDefinitions.Clear()
+        $element.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Stretch
+        [void]$grid.Children.Remove($title)
+        [void]$grid.Children.Add($element)
+        $Editor.Row = $grid
+        return $grid
+    }
     if ($Field.Indent) { $element.Margin = New-Object System.Windows.Thickness([double]$Field.Indent, 0, 0, 0) }
     if ([double]::IsInfinity($element.MaxWidth)) {
         $element.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
@@ -7738,11 +7765,25 @@ function Connect-OptionsFieldLink {
             }.GetNewClosure()) | Out-Null
     }
 
-    # The bulk action of the per-application setting reads and writes the default through the default combo of this page.
+    # The grid of all applications reads and writes the defaults through the default combos of this page. It follows the supersedence
+    # default, because the title of an application that follows it is locked while the default is on.
     if ($e.Contains('sup.mode') -and $e.Contains('sup.apps')) {
         $modeEditor = $e['sup.mode']
-        $e['sup.apps'].Bulk.GetDefault = { & $modeEditor.Get }.GetNewClosure()
-        $e['sup.apps'].Bulk.SetDefault = { param($v) & $modeEditor.Set $v }.GetNewClosure()
+        $gridEditor = $e['sup.apps']
+        $gridEditor.Bulk.GetSupersedenceDefault = { & $modeEditor.Get }.GetNewClosure()
+        $gridEditor.Bulk.SetSupersedenceDefault = { param($v) & $modeEditor.Set $v }.GetNewClosure()
+        $syncDefault = {
+            $value = [string](& $modeEditor.Get)
+            foreach ($row in $gridEditor.Rows) { $row.DefaultSupersedence = $value }
+            & $gridEditor.RefreshNotice
+        }.GetNewClosure()
+        $modeEditor.Focus.Add_SelectionChanged($syncDefault)
+        & $syncDefault
+        if ($e.Contains('sup.cmRule') -and $e.Contains('sup.inRule')) {
+            $cmRuleEditor = $e['sup.cmRule']
+            $inRuleEditor = $e['sup.inRule']
+            $gridEditor.Bulk.SetRuleDefault = { param($v) & $cmRuleEditor.Set $v; & $inRuleEditor.Set $v }.GetNewClosure()
+        }
     }
 
     # The title page tells the operator when supersedence is on: the version is then added to the name when the application is
@@ -7989,10 +8030,8 @@ function Get-OptionsNonUiPreference {
     return [ordered]@{
         'FirstRunCompleted'         = 'The Setup wizard writes it. The box Do not show this again and Save set it.'
         'DiscoveryEnabled'          = 'The Discover unmanaged software window writes it when an application is enabled.'
-        'DeploymentConditions.Apps' = 'The conditions dialog of the main window edits it for each application.'
         'CommandOverrides.Apps'     = 'The command override dialog of the main window edits it for each application.'
         'WorkbenchDataRoot'         = 'File only. It sets the data folder of the Workbench; APP_PACKAGER_WORKBENCH_ROOT overrides it.'
-        'Supersedence.TitleOverrides' = 'File only. It holds the version rule and the supersedence mode of one application, keyed by its identifier.'
         'Supersedence.InstalledValues' = 'The command line writes it with -RecordInstalledValue. It holds the value read from an installed product.'
         'Supersedence.AcceptedExactBlocks' = 'The command line writes it with -AcceptExactBlock. It holds the titles and versions whose Exact guard block is accepted.'
         'cwa:Installation.EnableSSON' = 'It follows Single sign-on in Options, Applications, Citrix Workspace App, Installation.'
@@ -8138,23 +8177,11 @@ function Get-OptionsSectionDefinition {
             )
         })
 
-    $versionRuleItems = @(@{ Label = 'Minimum (this version or newer)'; Value = 'Minimum' }, @{ Label = 'Exact (this version only)'; Value = 'Exact' })
-    $supersedenceModeItems = @(@{ Label = 'Off'; Value = 'Off' }, @{ Label = 'Replace'; Value = 'Replace' }, @{ Label = 'Replace and uninstall'; Value = 'Replace and uninstall' })
-    $sections.Add(@{
-            Id = 'supersedence'; Title = 'Supersedence'; Parent = 'packaging'; Kind = 'Fields'
-            Description = 'The version rule sets the operator of the version clause in the detection that is published. Supersedence is off for every application until you turn it on, as a default or for one application. An application with supersedence on keeps the version in its title, so each release is its own application. At Package, the older version (same title and vendor, the highest version below this one) is looked up and you confirm the supersedence first. The version rule applies to the detection of the application that is packaged. The command line options -VersionRule and -Supersedence outrank these values.'
-            Fields = @(
-                @{ Id = 'sup.cmRule'; Title = 'Version rule, ConfigMgr'; Kind = 'Combo'; Pref = 'Supersedence.ConfigMgrVersionRule'; Default = 'Minimum'; Width = 260; Items = $versionRuleItems; Tip = 'Exact writes IsEquals when the installed value equals the expected value.'; Keywords = 'detection operator equals greater' }
-                @{ Id = 'sup.inRule'; Title = 'Version rule, Intune'; Kind = 'Combo'; Pref = 'Supersedence.IntuneVersionRule'; Default = 'Minimum'; Width = 260; Items = $versionRuleItems; Tip = 'Exact writes the operator equal to the version rule of the Intune detection.'; Keywords = 'detection operator equal greater' }
-                @{ Id = 'sup.mode'; Title = 'Supersedence mode, ConfigMgr'; Kind = 'Combo'; Pref = 'Supersedence.Mode'; Default = 'Off'; Width = 260; Items = $supersedenceModeItems; Tip = 'The default for every application that has no value of its own.'; Keywords = 'replace uninstall older version' }
-                @{ Id = 'sup.apps'; Title = 'By application'; Kind = 'Custom'; Tip = 'The supersedence of one application, and one action for all applications, the checked ones, or none.'; Keywords = 'supersedence application bulk all selected none override'
-                    Build = { param($Field, $Context) New-OptionsSupersedenceEditor -Context $Context } }
-            )
-        })
-
     # ---------------------------------------------------------------- Applications
     $sections.Add(@{ Id = 'applications'; Title = 'Applications'; Kind = 'Group' })
 
+    $versionRuleItems = @(@{ Label = 'Minimum (this version or newer)'; Value = 'Minimum' }, @{ Label = 'Exact (this version only)'; Value = 'Exact' })
+    $supersedenceModeItems = @(@{ Label = 'Off'; Value = 'Off' }, @{ Label = 'Replace'; Value = 'Replace' }, @{ Label = 'Replace and uninstall'; Value = 'Replace and uninstall' })
     $sections.Add(@{
             Id = 'adobe'; Title = 'Adobe Acrobat Reader'; Parent = 'applications'; Kind = 'Fields'
             Post = { param($Context, $Page) Initialize-OptionsAdobeSection -Context $Context -Page $Page }
@@ -8169,6 +8196,19 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'adobe.chrome'; Title = 'Chrome extension'; Kind = 'Check'; Pref = 'AdobeReaderInstallOptions.DisableChromeExtension'; Label = 'Do not install the Chrome extension (ENABLE_CHROMEEXT=0)'; Tip = 'Blocks the Adobe Chrome extension at install, for sites that set extensions by policy.' }
                 @{ Id = 'adobe.browser'; Title = 'Browser viewer control'; Kind = 'Check'; Pref = 'AdobeReaderInstallOptions.DisableBrowserIntegration'; Label = 'Do not install the browser viewer control (DISABLE_BROWSER_INTEGRATION=YES)'; Tip = 'Skips the PDF viewer ActiveX control for Internet Explorer.' }
                 @{ Id = 'adobe.update'; Title = 'Update mode'; Kind = 'Combo'; Pref = 'AdobeReaderInstallOptions.UpdateMode'; Default = ''; Width = 460; Items = @($notSet, @{ Label = '0 - check and install manually'; Value = '0' }, @{ Label = '2 - download automatically, user chooses when to install'; Value = '2' }, @{ Label = '3 - install updates automatically'; Value = '3' }, @{ Label = '4 - notify, user chooses to download and install'; Value = '4' }); Tip = 'Sets how Reader updates itself (UPDATE_MODE); use 0 when ConfigMgr updates Reader.' }
+            )
+        })
+
+    $sections.Add(@{
+            Id = 'allapps'; Title = 'All Applications'; Parent = 'applications'; Kind = 'Fields'; Prefs = @('DeploymentConditions.Apps', 'Supersedence.TitleOverrides')
+            Keywords = 'application grid package source type architecture x64 x86 arm64 install scope system user supersedence version title version rule detection greater equal'
+            Description = 'One row for each application that the packagers offer. Source Type and Install Scope are open only for a packager that offers the choice. Supersedence is off for every application until you turn it on, as a default or for one application. An application with supersedence on keeps the version in its title, so each release is its own application. At Package, the older version (same title and vendor, the highest version below this one) is looked up and you confirm the supersedence first. Version rule sets the operator of the version clause in the detection of the application that is packaged. Follow the default uses the default in the three fields below. The command line options -VersionRule and -Supersedence outrank these values.'
+            Fields = @(
+                @{ Id = 'sup.cmRule'; Title = 'Version rule, ConfigMgr'; Kind = 'Combo'; Pref = 'Supersedence.ConfigMgrVersionRule'; Default = 'Minimum'; Width = 260; Items = $versionRuleItems; Tip = 'Exact writes IsEquals when the installed value equals the expected value.'; Keywords = 'detection operator equals greater' }
+                @{ Id = 'sup.inRule'; Title = 'Version rule, Intune'; Kind = 'Combo'; Pref = 'Supersedence.IntuneVersionRule'; Default = 'Minimum'; Width = 260; Items = $versionRuleItems; Tip = 'Exact writes the operator equal to the version rule of the Intune detection.'; Keywords = 'detection operator equal greater' }
+                @{ Id = 'sup.mode'; Title = 'Supersedence mode, ConfigMgr'; Kind = 'Combo'; Pref = 'Supersedence.Mode'; Default = 'Off'; Width = 260; Items = $supersedenceModeItems; Tip = 'The default for every application that follows the default.'; Keywords = 'replace uninstall older version' }
+                @{ Id = 'sup.apps'; Title = 'By application'; Kind = 'Custom'; FullWidth = $true; Tip = 'The settings of each application, and the bulk actions for them.'; Keywords = 'application bulk checked all none override source type install scope supersedence version title rule'
+                    Build = { param($Field, $Context) New-OptionsApplicationGrid -Context $Context } }
             )
         })
 
@@ -9075,116 +9115,503 @@ function New-OptionsLocalSourceEditor {
     return @{ Element = $stack; Focus = $first; Get = $null; Set = $null; Commit = $commit }
 }
 
-function Get-OptionsSupersedenceChoice {
-    # The choices of the setting of one application. 'Default' stores no value: the application follows the default above.
-    return @(
-        @{ Label = 'Default'; Value = '' }, @{ Label = 'Off'; Value = 'Off' }, @{ Label = 'Replace'; Value = 'Replace' }, @{ Label = 'Replace and uninstall'; Value = 'Replace and uninstall' }
-    )
+# =============================================================================
+# Options window: the grid of all applications
+# -----------------------------------------------------------------------------
+# One row per application of the catalog. Each column is a setting of one application:
+#   Package source type  DeploymentConditions.Apps.<base>.Split (only a packager that declares SupportsVariants: Architecture)
+#   Install scope        DeploymentConditions.Apps.<base>.InstallMode (only a packager that declares both install modes)
+#   Supersedence         Supersedence.TitleOverrides.<id>.Mode
+#   Version in title     DeploymentConditions.Apps.<base>.TitleMode (locked while supersedence is on)
+#   Version rule         Supersedence.TitleOverrides.<id>.VersionRule
+# <base> is the packager name without the extension, <id> is catalog:<base>. The packaging code reads the same keys.
+# =============================================================================
+function Get-ApplicationGridLabel {
+    # The words of the grid. The row class carries the same words for the title lock.
+    return @{
+        Follow         = 'Follow the default'
+        PackagerDefault = 'Packager default'
+        ArchSplit      = 'x64 and ARM64'
+        System         = 'System'
+        User           = 'User'
+        Off            = 'Off'
+        Replace        = 'Replace'
+        ReplaceUninstall = 'Replace and uninstall'
+        Include        = 'Include version'
+        NoVersion      = 'No version'
+        Minimum        = 'Minimum'
+        Exact          = 'Exact'
+    }
 }
 
-function New-OptionsSupersedenceEditor {
-    # The supersedence setting of each application, and the bulk action: all applications, selected applications, no applications.
-    param([Parameter(Mandatory)][hashtable]$Context)
-    $stack = New-Object System.Windows.Controls.StackPanel
-    $stack.MaxWidth = 640
-    $choices = @(Get-OptionsSupersedenceChoice)
-    $stored = $Context.Prefs.Supersedence.TitleOverrides
-    $rows = [ordered]@{}
-    $first = $null
+function Initialize-ApplicationGridType {
+    # The row of the grid. It tells the grid when a value changes, and it holds the title lock: while supersedence is on for the
+    # application (its own value, or the default when it follows the default) the title shows Include version and cannot change.
+    # The stored choice of the title stays as it was, so that turning supersedence off shows the choice of the operator again.
+    if ('AppPackagerGridRow' -as [type]) { return }
+    $source = @'
+using System;
+using System.ComponentModel;
+public class AppPackagerGridRow : INotifyPropertyChanged
+{
+    public const string FollowLabel = "Follow the default";
+    public const string OffLabel = "Off";
+    public const string IncludeLabel = "Include version";
+    public event PropertyChangedEventHandler PropertyChanged;
+    private void Raise(string name) { PropertyChangedEventHandler h = PropertyChanged; if (h != null) { h(this, new PropertyChangedEventArgs(name)); } }
 
-    $bulkPanel = New-Object System.Windows.Controls.WrapPanel
-    $bulkPanel.Margin = New-Object System.Windows.Thickness(0, 0, 0, 8)
-    $bulkValue = New-Object System.Windows.Controls.ComboBox
-    $bulkValue.FontSize = 13
-    $bulkValue.Width = 200
-    $bulkValue.Height = (Get-OptionsInputHeight)
-    $bulkValue.Margin = New-Object System.Windows.Thickness(0, 0, 8, 4)
-    $bulkValue.ToolTip = 'The value that All applications and Selected applications write.'
-    foreach ($c in $choices | Where-Object { $_.Value }) { [void]$bulkValue.Items.Add([string]$c.Label) }
-    $bulkValue.SelectedIndex = 1
-    [void]$bulkPanel.Children.Add($bulkValue)
+    public string Base { get; set; }
+    public string Id { get; set; }
+    public string Application { get; set; }
+    public string Vendor { get; set; }
+    public string[] ArchItems { get; set; }
+    public bool ArchEnabled { get; set; }
+    public string ArchTip { get; set; }
+    public string OriginalArch { get; set; }
+    public string[] ScopeItems { get; set; }
+    public bool ScopeEnabled { get; set; }
+    public string ScopeTip { get; set; }
+    public string[] SupersedenceItems { get; set; }
+    public string SupersedenceTip { get; set; }
+    public string[] TitleItems { get; set; }
+    public string[] RuleItems { get; set; }
+    public string RuleTip { get; set; }
+
+    private bool _checked;
+    public bool Checked { get { return _checked; } set { if (_checked != value) { _checked = value; Raise("Checked"); } } }
+    private string _arch;
+    public string Arch { get { return _arch; } set { if (value != null && _arch != value) { _arch = value; Raise("Arch"); } } }
+    private string _scope;
+    public string Scope { get { return _scope; } set { if (value != null && _scope != value) { _scope = value; Raise("Scope"); } } }
+    private string _rule;
+    public string Rule { get { return _rule; } set { if (value != null && _rule != value) { _rule = value; Raise("Rule"); } } }
+    private string _supersedence = FollowLabel;
+    public string Supersedence { get { return _supersedence; } set { if (value != null && _supersedence != value) { _supersedence = value; Raise("Supersedence"); RaiseTitle(); } } }
+    private string _defaultSupersedence = OffLabel;
+    public string DefaultSupersedence { get { return _defaultSupersedence; } set { if (_defaultSupersedence != value) { _defaultSupersedence = value; RaiseTitle(); } } }
+    private string _title = FollowLabel;
+    public string Title { get { return _title; } set { if (value != null && _title != value) { _title = value; Raise("Title"); Raise("TitleShown"); } } }
+
+    public bool TitleLocked
+    {
+        get
+        {
+            string effective = (_supersedence == FollowLabel) ? _defaultSupersedence : _supersedence;
+            return effective != OffLabel;
+        }
+    }
+    public bool TitleEnabled { get { return !TitleLocked; } }
+    public string TitleShown
+    {
+        get { return TitleLocked ? IncludeLabel : _title; }
+        set { if (value != null && !TitleLocked) { Title = value; } }
+    }
+    public string TitleTip
+    {
+        get
+        {
+            if (TitleLocked) { return "Supersedence is on for this application, so its title keeps the version. This release and the older one must be separate applications."; }
+            return "Whether the title of this application holds the version. Follow the default uses Application Title.";
+        }
+    }
+    private void RaiseTitle() { Raise("TitleLocked"); Raise("TitleEnabled"); Raise("TitleShown"); Raise("TitleTip"); }
+    // UI Automation names a row of the grid by this text, so that a test finds the row of an application by its name.
+    public override string ToString() { return Application; }
+}
+'@
+    Add-Type -TypeDefinition $source -Language CSharp
+}
+
+function Get-ApplicationGridCapability {
+    # What a packager lets the grid choose. The source type is a choice only for a packager that declares SupportsVariants: Architecture
+    # (the engine then stages the x64 and the ARM64 deployment type). A packager of a family with an x64, x86 or ARM64 sibling shows its
+    # own architecture and cannot change it: the sibling is another row. The install scope is a choice only when the packager declares both modes.
+    param([Parameter(Mandatory)]$Packager)
+    $label = Get-ApplicationGridLabel
+    $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$Packager.Script)
+    $variants = @($Packager.SupportsVariants)
+    $modes = @($Packager.SupportsInstallModes)
+    $arch = [pscustomobject]@{ Enabled = $false; Items = @($label.PackagerDefault); Fixed = $null }
+    if ($variants -contains 'Architecture') {
+        $arch.Enabled = $true
+        $arch.Items = @($label.PackagerDefault, $label.ArchSplit)
+    }
+    elseif ($base -match '(?i)(x64|x86|arm64)$') {
+        $fixed = $Matches[1].ToLowerInvariant().Replace('arm64', 'ARM64')
+        $arch.Items = @($fixed)
+        $arch.Fixed = $fixed
+    }
+    $scope = [pscustomobject]@{ Enabled = $false; Items = @($label.PackagerDefault) }
+    if ($modes -contains 'AllUsers' -and $modes -contains 'CurrentUser') {
+        $scope.Enabled = $true
+        $scope.Items = @($label.PackagerDefault, $label.System, $label.User)
+    }
+    return [pscustomobject]@{ Architecture = $arch; InstallScope = $scope }
+}
+
+function Get-ApplicationGridItemList {
+    # One array for each distinct list, so that the rows share it. A combo box that gets another list of items clears its selection.
+    param([Parameter(Mandatory)][string[]]$Item)
+    if ($null -eq $script:ApplicationGridItemCache) { $script:ApplicationGridItemCache = @{} }
+    $key = $Item -join '|'
+    if (-not $script:ApplicationGridItemCache.ContainsKey($key)) { $script:ApplicationGridItemCache[$key] = [string[]]@($Item) }
+    return , $script:ApplicationGridItemCache[$key]
+}
+
+function New-ApplicationGridRow {
+    # One row from the catalog row and the stored values. Conditions is DeploymentConditions.Apps, Overrides is Supersedence.TitleOverrides.
+    param(
+        [Parameter(Mandatory)]$Packager,
+        $Conditions = $null,
+        $Overrides = $null,
+        [string]$DefaultSupersedence = 'Off'
+    )
+    Initialize-ApplicationGridType
+    $label = Get-ApplicationGridLabel
+    $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$Packager.Script)
+    $id = 'catalog:' + $base
+    $capability = Get-ApplicationGridCapability -Packager $Packager
+    $entry = $null
+    if ($Conditions -and $Conditions.PSObject.Properties[$base]) { $entry = $Conditions.$base }
+    $own = $null
+    if ($Overrides -and $Overrides.PSObject.Properties[$id]) { $own = $Overrides.$id }
+
+    $arch = [string]$capability.Architecture.Items[0]
+    if ($capability.Architecture.Enabled -and $entry -and [string]$entry.Split -eq 'Architecture') { $arch = $label.ArchSplit }
+    $scope = $label.PackagerDefault
+    if ($capability.InstallScope.Enabled -and $entry) {
+        if ([string]$entry.InstallMode -eq 'AllUsers') { $scope = $label.System } elseif ([string]$entry.InstallMode -eq 'CurrentUser') { $scope = $label.User }
+    }
+    $title = $label.Follow
+    if ($entry) {
+        if ([string]$entry.TitleMode -eq 'IncludeVersion') { $title = $label.Include } elseif ([string]$entry.TitleMode -eq 'NoVersion') { $title = $label.NoVersion }
+    }
+    $supersedence = $label.Follow
+    $rule = $label.Follow
+    if ($own) {
+        $mode = [string]$own.Mode
+        if ($mode -eq 'Off') { $supersedence = $label.Off } elseif ($mode -eq 'Replace') { $supersedence = $label.Replace } elseif ($mode -eq 'Replace and uninstall') { $supersedence = $label.ReplaceUninstall }
+        if ([string]$own.VersionRule -eq 'Minimum') { $rule = $label.Minimum } elseif ([string]$own.VersionRule -eq 'Exact') { $rule = $label.Exact }
+    }
+    $name = [string]$Packager.Application
+
+    $row = New-Object AppPackagerGridRow
+    $row.Base = $base
+    $row.Id = $id
+    $row.Application = $name
+    $row.Vendor = [string]$Packager.Vendor
+    $row.ArchItems = Get-ApplicationGridItemList -Item $capability.Architecture.Items
+    $row.ArchEnabled = [bool]$capability.Architecture.Enabled
+    $row.ArchTip = $(if ($capability.Architecture.Enabled) { ('Chooses the package source of {0}: x64 and ARM64 stages a deployment type for each.' -f $name) }
+        elseif ($capability.Architecture.Fixed) { ('{0} is packaged for {1}, and another packager of the catalog packages the other architectures.' -f $name, $capability.Architecture.Fixed) }
+        else { ('The packager of {0} has one package source, so there is no choice.' -f $name) })
+    $row.OriginalArch = $arch
+    $row.Arch = $arch
+    $row.ScopeItems = Get-ApplicationGridItemList -Item $capability.InstallScope.Items
+    $row.ScopeEnabled = [bool]$capability.InstallScope.Enabled
+    $row.ScopeTip = $(if ($capability.InstallScope.Enabled) { ('Installs {0} for all users (System) or for the current user (User).' -f $name) } else { ('The packager of {0} has one install scope, so there is no choice.' -f $name) })
+    $row.Scope = $scope
+    $row.SupersedenceItems = Get-ApplicationGridItemList -Item @($label.Follow, $label.Off, $label.Replace, $label.ReplaceUninstall)
+    $row.SupersedenceTip = ('The supersedence of {0}. Follow the default uses the default above.' -f $name)
+    $row.TitleItems = Get-ApplicationGridItemList -Item @($label.Follow, $label.Include, $label.NoVersion)
+    $row.RuleItems = Get-ApplicationGridItemList -Item @($label.Follow, $label.Minimum, $label.Exact)
+    $row.RuleTip = ('The detection of {0} accepts this version or newer (Minimum) or this version only (Exact).' -f $name)
+    $row.Title = $title
+    $row.Rule = $rule
+    $row.DefaultSupersedence = $DefaultSupersedence
+    $row.Supersedence = $supersedence
+    return $row
+}
+
+function Set-ApplicationGridBulkValue {
+    <#
+    .SYNOPSIS
+        The bulk action of the grid, on the rows. One column, and one scope: Checked (the rows with the check box on), All (every row)
+        or None (every row back to the shipped value).
+    .DESCRIPTION
+        A row that cannot take the value (an architecture or an install scope that the packager does not offer) is left as it is.
+        For Supersedence and VersionRule the scope All sets the default and removes the value of each row, and None removes the value
+        of each row and sets the default to the shipped value (Off, Minimum). Returns the number of rows that changed and the new
+        default of the column (a value for Supersedence and VersionRule, $null for the others).
+    #>
+    param(
+        [Parameter(Mandatory)][ValidateSet('Architecture', 'InstallScope', 'Supersedence', 'Title', 'VersionRule')][string]$Column,
+        [Parameter(Mandatory)][ValidateSet('Checked', 'All', 'None')][string]$Scope,
+        [AllowEmptyString()][string]$Value = '',
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Row
+    )
+    $label = Get-ApplicationGridLabel
+    $spec = switch ($Column) {
+        'Architecture' { @{ Property = 'Arch'; Enabled = 'ArchEnabled'; Reset = $label.PackagerDefault; Allowed = @($label.PackagerDefault, $label.ArchSplit); Default = $null } }
+        'InstallScope' { @{ Property = 'Scope'; Enabled = 'ScopeEnabled'; Reset = $label.PackagerDefault; Allowed = @($label.PackagerDefault, $label.System, $label.User); Default = $null } }
+        'Supersedence' { @{ Property = 'Supersedence'; Enabled = $null; Reset = $label.Follow; Allowed = @($label.Off, $label.Replace, $label.ReplaceUninstall); Default = $label.Off } }
+        'Title' { @{ Property = 'Title'; Enabled = $null; Reset = $label.Follow; Allowed = @($label.Follow, $label.Include, $label.NoVersion); Default = $null } }
+        'VersionRule' { @{ Property = 'Rule'; Enabled = $null; Reset = $label.Follow; Allowed = @($label.Minimum, $label.Exact); Default = $label.Minimum } }
+    }
+    if ($Scope -ne 'None' -and $Value -notin $spec.Allowed) { throw ("The value '{0}' is not a value of the column {1}." -f $Value, $Column) }
+    $hasDefault = ($null -ne $spec.Default)
+    $newDefault = $null
+    $target = @($Row | Where-Object { $Scope -ne 'Checked' -or $_.Checked })
+    $changed = 0
+    foreach ($r in $target) {
+        if ($spec.Enabled -and -not [bool]$r.($spec.Enabled)) { continue }
+        $new = $Value
+        if ($Scope -eq 'None') { $new = $spec.Reset }
+        elseif ($Scope -eq 'All' -and $hasDefault) { $new = $spec.Reset }
+        if ([string]$r.($spec.Property) -ne $new) { $changed++; $r.($spec.Property) = $new }
+    }
+    if ($hasDefault) {
+        if ($Scope -eq 'All') { $newDefault = $Value }
+        elseif ($Scope -eq 'None') { $newDefault = $spec.Default }
+    }
+    return [pscustomobject]@{ Changed = $changed; Default = $newDefault; Rows = $target.Count }
+}
+
+function Update-ApplicationGridPreference {
+    # Writes the rows into the preferences. A key that the grid does not own (Architecture, Network and Languages of a condition entry,
+    # a Language or Network split, the other fields of an override, an entry of an application that is not in the catalog) stays as it was.
+    param([Parameter(Mandatory)]$Prefs, [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Row)
+    $label = Get-ApplicationGridLabel
+    $apps = [ordered]@{}
+    if ($Prefs.DeploymentConditions -and $Prefs.DeploymentConditions.Apps) { foreach ($p in $Prefs.DeploymentConditions.Apps.PSObject.Properties) { $apps[$p.Name] = $p.Value } }
+    $overrides = [ordered]@{}
+    if ($Prefs.Supersedence -and $Prefs.Supersedence.TitleOverrides) { foreach ($p in $Prefs.Supersedence.TitleOverrides.PSObject.Properties) { $overrides[$p.Name] = $p.Value } }
+
+    foreach ($r in $Row) {
+        $entry = [ordered]@{ Architecture = 'Any'; Languages = @(); Network = 'Any'; Split = 'None'; TitleMode = ''; InstallMode = '' }
+        if ($apps.Contains($r.Base) -and $apps[$r.Base]) { foreach ($p in $apps[$r.Base].PSObject.Properties) { $entry[$p.Name] = $p.Value } }
+        if ($r.ArchEnabled -and [string]$r.Arch -ne [string]$r.OriginalArch) {
+            $entry['Split'] = $(if ([string]$r.Arch -eq $label.ArchSplit) { 'Architecture' } else { 'None' })
+        }
+        if ($r.ScopeEnabled) {
+            $entry['InstallMode'] = switch ([string]$r.Scope) { 'System' { 'AllUsers' } 'User' { 'CurrentUser' } default { '' } }
+        }
+        $entry['TitleMode'] = switch ([string]$r.Title) { 'Include version' { 'IncludeVersion' } 'No version' { 'NoVersion' } default { '' } }
+        $empty = ([string]$entry['Architecture'] -eq 'Any' -and [string]$entry['Network'] -eq 'Any' -and @($entry['Languages']).Count -eq 0 -and [string]$entry['Split'] -eq 'None' -and -not [string]$entry['TitleMode'] -and -not [string]$entry['InstallMode'])
+        if ($empty) { if ($apps.Contains($r.Base)) { $apps.Remove($r.Base) } } else { $apps[$r.Base] = [pscustomobject]$entry }
+
+        $over = [ordered]@{}
+        if ($overrides.Contains($r.Id) -and $overrides[$r.Id]) { foreach ($p in $overrides[$r.Id].PSObject.Properties) { $over[$p.Name] = $p.Value } }
+        $mode = [string]$r.Supersedence
+        if ($mode -eq $label.Follow) { $over.Remove('Mode') } else { $over['Mode'] = $mode }
+        $rule = [string]$r.Rule
+        if ($rule -eq $label.Follow) { $over.Remove('VersionRule') } else { $over['VersionRule'] = $rule }
+        if ($over.Count -gt 0) { $overrides[$r.Id] = [pscustomobject]$over } elseif ($overrides.Contains($r.Id)) { $overrides.Remove($r.Id) }
+    }
+    $Prefs.DeploymentConditions.Apps = [pscustomobject]$apps
+    $Prefs.Supersedence.TitleOverrides = [pscustomobject]$overrides
+}
+
+function Get-ApplicationGridNotice {
+    # The note under the bulk bar: how many applications have supersedence on, so that their title keeps the version. Empty for none.
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Row)
+    $locked = @($Row | Where-Object { $_.TitleLocked }).Count
+    if ($locked -eq 0) { return '' }
+    return ('Supersedence is on for {0} application(s). Their titles keep the version, because this release and the older one must be separate applications. The choice in Version in Title stays as you set it.' -f $locked)
+}
+
+function New-OptionsApplicationGrid {
+    # The grid and its bulk actions, as the editor of the field sup.apps. Connect-OptionsFieldLink links it to the default fields of the page.
+    param([Parameter(Mandatory)][hashtable]$Context)
+    Initialize-ApplicationGridType
+    $label = Get-ApplicationGridLabel
+    $columns = @(
+        @{ Name = 'Source Type'; Key = 'Architecture'; Values = @($label.PackagerDefault, $label.ArchSplit); Tip = 'Sets the package source type of the applications that offer a choice.' }
+        @{ Name = 'Install Scope'; Key = 'InstallScope'; Values = @($label.PackagerDefault, $label.System, $label.User); Tip = 'Sets the install scope of the applications that offer System and User.' }
+        @{ Name = 'Supersedence'; Key = 'Supersedence'; Values = @($label.Off, $label.Replace, $label.ReplaceUninstall); Tip = 'Sets supersedence. All applications sets the default.' }
+        @{ Name = 'Version in Title'; Key = 'Title'; Values = @($label.Follow, $label.Include, $label.NoVersion); Tip = 'Sets whether the title holds the version.' }
+        @{ Name = 'Version Rule'; Key = 'VersionRule'; Values = @($label.Minimum, $label.Exact); Tip = 'Sets the version rule. All applications sets the default.' }
+    )
+
+    $stack = New-Object System.Windows.Controls.StackPanel
+    $stack.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Stretch
+
+    $rows = New-Object 'System.Collections.ObjectModel.ObservableCollection[AppPackagerGridRow]'
+    $conditions = $null
+    if ($Context.Prefs.DeploymentConditions) { $conditions = $Context.Prefs.DeploymentConditions.Apps }
+    $overrides = $Context.Prefs.Supersedence.TitleOverrides
+    $defaultMode = [string]$Context.Prefs.Supersedence.Mode
+    if (-not $defaultMode) { $defaultMode = 'Off' }
+    foreach ($packager in @(Get-OptionsPackagerList -Context $Context | Sort-Object Vendor, Application)) {
+        $rows.Add((New-ApplicationGridRow -Packager $packager -Conditions $conditions -Overrides $overrides -DefaultSupersedence $defaultMode))
+    }
+
+    $notice = New-OptionsTextBlock -Text '' -Size 12
+    $notice.Margin = New-Object System.Windows.Thickness(0, 0, 0, 8)
+    $notice.MaxWidth = 860
+    $notice.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+    $notice.ToolTip = 'The title of an application with supersedence on keeps the version.'
     $summary = New-OptionsTextBlock -Text '' -Size 12
     $summary.Margin = New-Object System.Windows.Thickness(0, 0, 0, 8)
     $summary.ToolTip = 'Nothing is saved until you choose OK.'
+    $state = @{
+        GetSupersedenceDefault = { 'Off' }; SetSupersedenceDefault = { param($v) }
+        SetRuleDefault = { param($v) }
+    }
+    $refreshNotice = {
+        $text = Get-ApplicationGridNotice -Row @($rows)
+        $notice.Text = $text
+        $notice.Visibility = $(if ($text) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed })
+    }.GetNewClosure()
+    & $refreshNotice
 
-    $state = @{ GetDefault = { 'Off' }; SetDefault = { param($v) } }
-    $valueOf = { param($label) $hit = @($choices | Where-Object { $_.Label -eq $label })[0]; if ($hit) { [string]$hit.Value } else { '' } }.GetNewClosure()
+    # The bulk bar: the column, the value, then the scope, then the selection.
+    $bar = New-Object System.Windows.Controls.WrapPanel
+    $bar.Margin = New-Object System.Windows.Thickness(0, 0, 0, 8)
+    $bar.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+    $columnBox = New-Object System.Windows.Controls.ComboBox
+    $columnBox.FontSize = 13
+    $columnBox.Width = 170
+    $columnBox.Height = (Get-OptionsInputHeight)
+    $columnBox.Margin = New-Object System.Windows.Thickness(0, 0, 8, 4)
+    $columnBox.ToolTip = 'The column that the bulk buttons change.'
+    $columnBox.SetResourceReference([System.Windows.Controls.ItemsControl]::ItemContainerStyleProperty, 'ThemedComboBoxItemStyle')
+    foreach ($c in $columns) { [void]$columnBox.Items.Add([string]$c.Name) }
+    $valueBox = New-Object System.Windows.Controls.ComboBox
+    $valueBox.FontSize = 13
+    $valueBox.Width = 190
+    $valueBox.Height = (Get-OptionsInputHeight)
+    $valueBox.Margin = New-Object System.Windows.Thickness(0, 0, 8, 4)
+    $valueBox.ToolTip = 'The value that the bulk buttons write.'
+    $valueBox.SetResourceReference([System.Windows.Controls.ItemsControl]::ItemContainerStyleProperty, 'ThemedComboBoxItemStyle')
+    [System.Windows.Automation.AutomationProperties]::SetAutomationId($columnBox, 'sup.apps.column')
+    [System.Windows.Automation.AutomationProperties]::SetAutomationId($valueBox, 'sup.apps.value')
+    $columnBox.Add_SelectionChanged({
+            $picked = @($columns | Where-Object { $_.Name -eq [string]$columnBox.SelectedItem })[0]
+            $valueBox.Items.Clear()
+            if ($picked) { foreach ($v in $picked.Values) { [void]$valueBox.Items.Add([string]$v) } }
+            $valueBox.SelectedIndex = $(if ($valueBox.Items.Count -gt 1) { 1 } else { 0 })
+            $valueBox.ToolTip = ('The value that the bulk buttons write in {0}.' -f $picked.Name)
+        }.GetNewClosure())
+    $columnBox.SelectedIndex = 2
+    [void]$bar.Children.Add($columnBox)
+    [void]$bar.Children.Add($valueBox)
+
     $bulk = {
         param([string]$scope)
-        $current = [ordered]@{}
-        $picked = @()
-        foreach ($key in $rows.Keys) {
-            $current[$key] = & $valueOf ([string]$rows[$key].Combo.SelectedItem)
-            if ($rows[$key].Check.IsChecked -eq $true) { $picked += $key }
+        $picked = @($columns | Where-Object { $_.Name -eq [string]$columnBox.SelectedItem })[0]
+        if (-not $picked) { $summary.Text = 'Choose a column first.'; return }
+        if ($scope -eq 'Checked' -and @($rows | Where-Object { $_.Checked }).Count -eq 0) { $summary.Text = 'Check at least one application first.'; return }
+        $result = Set-ApplicationGridBulkValue -Column $picked.Key -Scope $scope -Value ([string]$valueBox.SelectedItem) -Row @($rows)
+        if ($picked.Key -eq 'Supersedence' -and $null -ne $result.Default) {
+            & $state.SetSupersedenceDefault $result.Default
+            foreach ($r in $rows) { $r.DefaultSupersedence = [string]$result.Default }
         }
-        if ($scope -eq 'Selected' -and $picked.Count -eq 0) { $summary.Text = 'Check at least one application first.'; return }
-        $result = Set-SupersedenceBulkValue -Scope $scope -Value (& $valueOf ([string]$bulkValue.SelectedItem)) -Default ([string](& $state.GetDefault)) -Overrides $current -Selected $picked
-        foreach ($key in $rows.Keys) {
-            $label = @($choices | Where-Object { $_.Value -eq [string]$result.Overrides[$key] })[0].Label
-            $rows[$key].Combo.SelectedItem = $label
-        }
-        & $state.SetDefault $result.Default
-        $summary.Text = ('{0} application(s) changed their own value. The default is now {1}. Choose OK to save.' -f $result.Changed, $result.Default)
+        if ($picked.Key -eq 'VersionRule' -and $null -ne $result.Default) { & $state.SetRuleDefault $result.Default }
+        & $refreshNotice
+        $text = ('{0}: {1} application(s) changed.' -f $picked.Name, $result.Changed)
+        if ($picked.Key -eq 'Supersedence' -and $null -ne $result.Default) { $text += (' The default is now {0}.' -f $result.Default) }
+        if ($picked.Key -eq 'VersionRule' -and $null -ne $result.Default) { $text += (' The default is now {0}.' -f $result.Default) }
+        $summary.Text = ($text + ' Choose OK to save.')
     }.GetNewClosure()
-    foreach ($action in @(@('All', 'All applications', 'Sets the default to the chosen value and removes the values of single applications.'),
-            @('Selected', 'Selected applications', 'Writes the chosen value on each checked application below.'),
-            @('None', 'No applications', 'Removes every value of a single application and sets the default to Off.'))) {
+    foreach ($action in @(@('Checked', 'Checked applications', 'Writes the chosen value in the column for each checked application.'),
+            @('All', 'All applications', 'Writes the chosen value in the column for every application.'),
+            @('None', 'No applications', 'Resets the column for every application to the shipped value.'))) {
         $button = New-OptionsButton -Label ([string]$action[1]) -Tip ([string]$action[2])
         $button.Margin = New-Object System.Windows.Thickness(0, 0, 8, 4)
         $scopeName = [string]$action[0]
         $button.Add_Click({ try { & $bulk $scopeName } catch { $summary.Text = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') } }.GetNewClosure())
-        [void]$bulkPanel.Children.Add($button)
+        [void]$bar.Children.Add($button)
         [System.Windows.Automation.AutomationProperties]::SetAutomationId($button, ('sup.apps.bulk.' + $scopeName))
     }
-    [void]$stack.Children.Add($bulkPanel)
-    [void]$stack.Children.Add($summary)
-
-    foreach ($row in @(Get-OptionsPackagerList -Context $Context)) {
-        $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script)
-        $id = 'catalog:' + $base
-        $line = New-Object System.Windows.Controls.DockPanel
-        $line.LastChildFill = $true
-        $line.Margin = New-Object System.Windows.Thickness(0, 0, 0, 4)
-        $combo = New-Object System.Windows.Controls.ComboBox
-        $combo.FontSize = 13
-        $combo.Width = 200
-        $combo.Height = (Get-OptionsInputHeight)
-        foreach ($c in $choices) { [void]$combo.Items.Add([string]$c.Label) }
-        $own = ''
-        if ($stored -and $stored.PSObject.Properties[$id] -and $stored.$id.PSObject.Properties['Mode']) { $own = [string]$stored.$id.Mode }
-        $combo.SelectedItem = @($choices | Where-Object { $_.Value -eq $own })[0].Label
-        if ($null -eq $combo.SelectedItem) { $combo.SelectedIndex = 0 }
-        $combo.ToolTip = ('The supersedence of {0}. Default follows the setting above.' -f [string]$row.Application)
-        [System.Windows.Controls.DockPanel]::SetDock($combo, [System.Windows.Controls.Dock]::Right)
-        $check = New-Object System.Windows.Controls.CheckBox
-        $check.FontSize = 13
-        $check.Content = New-OptionsTextBlock -Text ([string]$row.Application) -Size 13 -Wrap $false
-        $check.VerticalContentAlignment = [System.Windows.VerticalAlignment]::Center
-        $check.ToolTip = 'Check it to include it in Selected applications.'
-        [void]$line.Children.Add($combo)
-        [void]$line.Children.Add($check)
-        [void]$stack.Children.Add($line)
-        $rows[$id] = @{ Combo = $combo; Check = $check }
-        if (-not $first) { $first = $check }
+    foreach ($pick in @(@($true, 'Check all', 'Checks the box of every application.'), @($false, 'Check none', 'Clears the box of every application.'))) {
+        $button = New-OptionsButton -Label ([string]$pick[1]) -Tip ([string]$pick[2])
+        $button.Margin = New-Object System.Windows.Thickness(0, 0, 8, 4)
+        $checkedValue = [bool]$pick[0]
+        $button.Add_Click({ foreach ($r in $rows) { $r.Checked = $checkedValue }; $summary.Text = ('{0} application(s) checked.' -f @($rows | Where-Object { $_.Checked }).Count) }.GetNewClosure())
+        [void]$bar.Children.Add($button)
+        [System.Windows.Automation.AutomationProperties]::SetAutomationId($button, ('sup.apps.select.' + $(if ($checkedValue) { 'all' } else { 'none' })))
     }
-    if ($rows.Count -eq 0) { [void]$stack.Children.Add((New-OptionsTextBlock -Text 'No packager of this catalog is listed.' -Size 12)) }
+    [void]$stack.Children.Add($bar)
+    [void]$stack.Children.Add($summary)
+    [void]$stack.Children.Add($notice)
+
+    $xaml = @'
+<DataGrid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+          xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+          RowStyle="{DynamicResource GridRowStyle}" CellStyle="{DynamicResource GridCellStyle}" x:Name="dgAppGrid"
+          ToolTip="Every application that the packagers offer, with the settings of each one."
+          AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" CanUserReorderColumns="False"
+          GridLinesVisibility="Horizontal" HeadersVisibility="Column" RowHeaderWidth="0" Height="520" FontSize="12"
+          SelectionMode="Single" IsTextSearchEnabled="True" TextSearch.TextPath="Application"
+          HorizontalAlignment="Stretch" BorderThickness="1" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}">
+    <DataGrid.Columns>
+        <DataGridTemplateColumn MinWidth="44" Header="" Width="44" CanUserSort="True" SortMemberPath="Checked">
+            <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                    <CheckBox IsChecked="{Binding Checked, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                              AutomationProperties.AutomationId="appgrid.check"
+                              ToolTip="Check it to include the application in the bulk buttons for checked applications."/>
+                </DataTemplate>
+            </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+        <DataGridTextColumn MinWidth="125" Header="Application" Width="*" Binding="{Binding Application}" IsReadOnly="True">
+            <DataGridTextColumn.ElementStyle>
+                <Style TargetType="TextBlock">
+                    <Setter Property="ToolTip" Value="{Binding Application}"/>
+                    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                </Style>
+            </DataGridTextColumn.ElementStyle>
+        </DataGridTextColumn>
+        <DataGridTextColumn MinWidth="94" Header="Vendor" Width="110" Binding="{Binding Vendor}" IsReadOnly="True"/>
+        <DataGridTemplateColumn MinWidth="130" Header="Source Type" Width="132" CanUserSort="True" SortMemberPath="Arch">
+            <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                    <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" ItemsSource="{Binding ArchItems}" SelectedItem="{Binding Arch, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                              IsEnabled="{Binding ArchEnabled}" ToolTip="{Binding ArchTip}" Margin="2" MinHeight="24" FontSize="12" AutomationProperties.AutomationId="appgrid.arch"/>
+                </DataTemplate>
+            </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+        <DataGridTemplateColumn MinWidth="138" Header="Install Scope" Width="138" CanUserSort="True" SortMemberPath="Scope">
+            <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                    <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" ItemsSource="{Binding ScopeItems}" SelectedItem="{Binding Scope, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                              IsEnabled="{Binding ScopeEnabled}" ToolTip="{Binding ScopeTip}" Margin="2" MinHeight="24" FontSize="12" AutomationProperties.AutomationId="appgrid.scope"/>
+                </DataTemplate>
+            </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+        <DataGridTemplateColumn MinWidth="150" Header="Supersedence" Width="150" CanUserSort="True" SortMemberPath="Supersedence">
+            <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                    <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" ItemsSource="{Binding SupersedenceItems}" SelectedItem="{Binding Supersedence, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                              ToolTip="{Binding SupersedenceTip}" Margin="2" MinHeight="24" FontSize="12" AutomationProperties.AutomationId="appgrid.supersedence"/>
+                </DataTemplate>
+            </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+        <DataGridTemplateColumn MinWidth="152" Header="Version in Title" Width="152" CanUserSort="True" SortMemberPath="TitleShown">
+            <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                    <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" ItemsSource="{Binding TitleItems}" SelectedItem="{Binding TitleShown, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                              IsEnabled="{Binding TitleEnabled}" ToolTip="{Binding TitleTip}" Margin="2" MinHeight="24" FontSize="12" AutomationProperties.AutomationId="appgrid.title"/>
+                </DataTemplate>
+            </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+        <DataGridTemplateColumn MinWidth="134" Header="Version Rule" Width="134" CanUserSort="True" SortMemberPath="Rule">
+            <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                    <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" ItemsSource="{Binding RuleItems}" SelectedItem="{Binding Rule, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                              ToolTip="{Binding RuleTip}" Margin="2" MinHeight="24" FontSize="12" AutomationProperties.AutomationId="appgrid.rule"/>
+                </DataTemplate>
+            </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+    </DataGrid.Columns>
+</DataGrid>
+'@
+    [xml]$xml = Expand-SharedStyle $xaml
+    $grid = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
+    if (Get-Command Set-GridHeaderTip -ErrorAction Ignore) { Set-GridHeaderTip -Grid $grid }
+    $grid.ItemsSource = $rows
+    # A change in a combo box of the grid updates the note. The binding has written the row before the event arrives here.
+    $changed = { & $refreshNotice }.GetNewClosure()
+    $grid.AddHandler([System.Windows.Controls.Primitives.Selector]::SelectionChangedEvent, ([System.Windows.Controls.SelectionChangedEventHandler]$changed))
+    [void]$stack.Children.Add($grid)
+    # The field id (sup.apps) is the automation id of the grid: New-OptionsFieldEditor sets it on the Focus control.
 
     $commit = {
         param($ctx)
-        if ($rows.Count -eq 0) { return }
-        $overrides = [ordered]@{}
-        $existing = $ctx.Prefs.Supersedence.TitleOverrides
-        if ($existing) { foreach ($p in $existing.PSObject.Properties) { $overrides[$p.Name] = $p.Value } }
-        foreach ($key in $rows.Keys) {
-            $mode = & $valueOf ([string]$rows[$key].Combo.SelectedItem)
-            $entry = [ordered]@{}
-            if ($overrides.Contains($key) -and $overrides[$key]) { foreach ($p in $overrides[$key].PSObject.Properties) { $entry[$p.Name] = $p.Value } }
-            if ($mode) { $entry['Mode'] = $mode } else { $entry.Remove('Mode') }
-            if ($entry.Count -gt 0) { $overrides[$key] = [pscustomobject]$entry } elseif ($overrides.Contains($key)) { $overrides.Remove($key) }
-        }
-        $ctx.Prefs.Supersedence.TitleOverrides = [pscustomobject]$overrides
+        Update-ApplicationGridPreference -Prefs $ctx.Prefs -Row @($rows)
     }.GetNewClosure()
-    return @{ Element = $stack; Focus = $first; Get = $null; Set = $null; Commit = $commit; Bulk = $state; Rows = $rows }
+    return @{ Element = $stack; Focus = $grid; Get = $null; Set = $null; Commit = $commit; Bulk = $state; Rows = $rows; Grid = $grid; RefreshNotice = $refreshNotice; Summary = $summary }
 }
 
 # =============================================================================
@@ -9382,7 +9809,7 @@ function New-OptionsDialog {
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
     Title="Options"
-    Width="1260" Height="760"
+    Width="1400" Height="760"
     MinWidth="1100" MinHeight="600"
     WindowStartupLocation="CenterOwner"
     TitleCharacterCasing="Normal"

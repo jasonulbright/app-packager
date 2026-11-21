@@ -78,7 +78,7 @@ This guide did not run these commands. It ran the same actions through the windo
 | `-EstimatedMinutes`, `-MaximumMinutes` | Run overrides. They are never written to the profile. |
 | `-SiteCode`, `-ProviderMachineName`, `-FileServerPath`, `-Comment` | The ConfigMgr values. |
 | `-WsusServer`, `-WsusPort`, `-WsusUseSsl`, `-WsusApprovalGroup` | The WSUS values. |
-| `-VersionRule` | `Minimum` or `Exact`. It outranks the title override and the site default of Options, Packaging, Supersedence. |
+| `-VersionRule` | `Minimum` or `Exact`. It outranks the title override and the site default of Options, Applications, All Applications. |
 | `-Supersedence` | `Off`, `Replace` or `ReplaceAndUninstall`. `ReplaceAndUninstall` needs `-VersionRule Exact`. |
 | `-RecordInstalledValue`, `-AcceptExactBlock` | Run alone. They store the value read from the installed product, or the acceptance of a block of the Exact guard, for `-Application` and `-Version`. |
 | `-SupersedenceAnswer` | `Yes` applies the supersedence of a title whose supersedence is on: the older version (same title and vendor, the highest version below this one) gets one relation from the new application. `Skip` is the default and packages without it. A run that nobody is asked in never applies it by itself. |
