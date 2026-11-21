@@ -8739,6 +8739,111 @@ function Get-CheckResultSummaryLine {
 Export-ModuleMember -Function Get-CheckResultSummaryLine
 
 # ---------------------------------------------------------------------------
+# The result file of Check ConfigMgr. App Packager Desktop writes the same format, so the Update rollout view of
+# Deployment Helper reads either one. CheckConfigMgrResult.csv (UTF-8 with a byte order mark, CRLF, every field in quotes,
+# a header row) and the twin CheckConfigMgrResult.json (an array of objects with the same names) are overwritten after each
+# run, in %LOCALAPPDATA%\AppPackager. Only a row with a usable answer is in the file: not Error, Cancelled, a row
+# that has no vendor version, or a row that was never checked.
+# ---------------------------------------------------------------------------
+$script:CheckConfigMgrResultColumns = @('Application', 'Vendor', 'CMName', 'InstalledSoftwareName', 'Architecture', 'ConfigMgrVersion', 'LatestVersion', 'Status', 'Source', 'CheckedAtUtc')
+
+function Get-CheckConfigMgrResultFolder {
+    <#
+    .SYNOPSIS
+        The folder of the fixed result file: %LOCALAPPDATA%\AppPackager.
+    #>
+    Join-Path $env:LOCALAPPDATA 'AppPackager'
+}
+
+function ConvertTo-CheckConfigMgrResultRow {
+    <#
+    .SYNOPSIS
+        Maps the grid rows of a Check ConfigMgr run to the rows of the result file.
+    .DESCRIPTION
+        Status: 'Update available' (with or without a CVE count) is UpdateAvailable, 'Up to date' and 'Current newer' are UpToDate,
+        'Not found in ConfigMgr' is NotFound. A row with any other status is left out.
+        InstalledSoftwareName is the ArpName of the packager (Add/Remove Programs display-name wildcards, joined with ' | ').
+        Architecture is x86, x64 or arm64: the ArpArch of the packager, else a (x86), (x64) or (ARM64) mark in the application name, else x64.
+    #>
+    param(
+        [AllowEmptyCollection()][AllowNull()][object[]]$Rows = @(),
+        [datetime]$CheckedAtUtc = [datetime]::UtcNow
+    )
+    $stamp = $CheckedAtUtc.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [System.Globalization.CultureInfo]::InvariantCulture)
+    foreach ($row in @($Rows | Where-Object { $_ })) {
+        $gridStatus = [string]$row.Status
+        $status = $(if ($gridStatus -like 'Update available*') { 'UpdateAvailable' }
+            elseif ($gridStatus -in @('Up to date', 'Current newer')) { 'UpToDate' }
+            elseif ($gridStatus -eq 'Not found in ConfigMgr') { 'NotFound' }
+            else { $null })
+        if (-not $status) { continue }
+        $arpNames = @(([string]$row.ArpName) -split '\|' | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -ine 'none' })
+        $arch = ([string]$row.ArpArch).Trim().ToLowerInvariant()
+        if ($arch -notin @('x86', 'x64', 'arm64')) {
+            $arch = $(if ([string]$row.Application -match '\((x86|x64|arm64)\)') { $Matches[1].ToLowerInvariant() } else { 'x64' })
+        }
+        [ordered]@{
+            Application           = [string]$row.Application
+            Vendor                = [string]$row.Vendor
+            CMName                = [string]$row.CMName
+            InstalledSoftwareName = ($arpNames -join ' | ')
+            Architecture          = $arch
+            ConfigMgrVersion      = [string]$row.CurrentVersion
+            LatestVersion         = [string]$row.LatestVersion
+            Status                = $status
+            Source                = 'AppPackager'
+            CheckedAtUtc          = $stamp
+        }
+    }
+}
+
+function Export-CheckConfigMgrResult {
+    <#
+    .SYNOPSIS
+        Writes result rows (from ConvertTo-CheckConfigMgrResultRow) to a CSV or a JSON file; the extension chooses the format.
+    .DESCRIPTION
+        -OnlyUpdatesAvailable keeps the UpdateAvailable rows. The file is written beside the target and moved over it.
+        Returns the path and the count of rows written.
+    #>
+    param(
+        [AllowEmptyCollection()][AllowNull()][object[]]$Result = @(),
+        [Parameter(Mandatory)][string]$Path,
+        [switch]$OnlyUpdatesAvailable
+    )
+    $rows = @($Result | Where-Object { $_ -and (-not $OnlyUpdatesAvailable -or [string]$_.Status -eq 'UpdateAvailable') })
+    $folder = Split-Path -Parent $Path
+    if ($folder -and -not (Test-Path -LiteralPath $folder)) { New-Item -ItemType Directory -Path $folder -Force | Out-Null }
+    if ($Path -like '*.json') {
+        $text = $(if ($rows.Count -eq 0) { '[]' } else { ConvertTo-Json -InputObject @($rows | ForEach-Object { [pscustomobject]$_ }) -Depth 3 })
+    }
+    else {
+        $quote = { param($v) '"' + ([string]$v).Replace('"', '""') + '"' }
+        $lines = New-Object System.Collections.Generic.List[string]
+        $lines.Add((($script:CheckConfigMgrResultColumns | ForEach-Object { & $quote $_ }) -join ','))
+        foreach ($r in $rows) { $lines.Add((($script:CheckConfigMgrResultColumns | ForEach-Object { & $quote $r[$_] }) -join ',')) }
+        $text = ($lines -join "`r`n") + "`r`n"
+    }
+    $temp = $Path + '.tmp'
+    [System.IO.File]::WriteAllText($temp, $text, (New-Object System.Text.UTF8Encoding($true)))
+    Move-Item -LiteralPath $temp -Destination $Path -Force
+    [pscustomobject]@{ Path = $Path; Count = $rows.Count }
+}
+
+function Write-CheckConfigMgrResultDefault {
+    <#
+    .SYNOPSIS
+        Writes CheckConfigMgrResult.csv and CheckConfigMgrResult.json in the app data folder, over the previous run.
+    #>
+    param(
+        [AllowEmptyCollection()][AllowNull()][object[]]$Result = @(),
+        [string]$Folder = (Get-CheckConfigMgrResultFolder)
+    )
+    [void](Export-CheckConfigMgrResult -Result $Result -Path (Join-Path $Folder 'CheckConfigMgrResult.json'))
+    Export-CheckConfigMgrResult -Result $Result -Path (Join-Path $Folder 'CheckConfigMgrResult.csv')
+}
+Export-ModuleMember -Function Get-CheckConfigMgrResultFolder, ConvertTo-CheckConfigMgrResultRow, Export-CheckConfigMgrResult, Write-CheckConfigMgrResultDefault
+
+# ---------------------------------------------------------------------------
 # Cancel for every run (Q-69). The window sets one run state for the run that is active. The state is kept in the
 # application domain, so the background runspace and the window thread see the same object. Every child process that
 # a run starts is registered by its process id; Cancel and closing the window stop those processes and no others

@@ -41,6 +41,27 @@ Use them before you stage, to see the current version and the latest version sid
 
 The first Check ConfigMgr can offer to hide the applications that the site does not have. Answer in the dialog.
 
+### The result file
+
+Each **Check ConfigMgr** run writes the result to two files in `%LOCALAPPDATA%\AppPackager`: `CheckConfigMgrResult.csv` and `CheckConfigMgrResult.json`. The next run overwrites them. The log shows the path. The files hold one row for each checked application, except a row that ended in `Error` or that has no vendor version. The Update rollout view of Deployment Helper reads the file to list the applications that are behind. App Packager Desktop writes the same format.
+
+To save the result of the last run in a place that you choose, right-click a row and select **Export Check ConfigMgr results...**. The **Save as type** list chooses the format and the filter: CSV or JSON, all checked applications or only the applications with an update available.
+
+![The row menu with Export Check ConfigMgr results](../images/check-configmgr-export-menu.png)
+
+The CSV is UTF-8 with a byte order mark, and every field is in quotes. The columns are:
+
+| Column | Content |
+|---|---|
+| `Application`, `Vendor`, `CMName` | The packager of the row. |
+| `InstalledSoftwareName` | The Add/Remove Programs name patterns of the packager, joined with a vertical bar and spaces. Empty when the packager has none. |
+| `Architecture` | `x64`, `x86` or `arm64`. |
+| `ConfigMgrVersion` | The version in ConfigMgr. Empty for `NotFound`. |
+| `LatestVersion` | The vendor version. |
+| `Status` | `UpdateAvailable`, `UpToDate` (also `Current newer`) or `NotFound`. |
+| `Source` | `AppPackager` here, `APD` in App Packager Desktop. |
+| `CheckedAtUtc` | The end of the run, `yyyy-MM-ddTHH:mm:ssZ`. |
+
 ### If the console is missing
 
 On a computer without the console, the tool turns off **Check ConfigMgr**, **Publish to ConfigMgr** and **Convert ConfigMgr App to Intune**.
