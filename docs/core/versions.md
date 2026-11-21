@@ -59,7 +59,7 @@ The Options dialog shows the console as not detected.
 
 | Setting | Effect |
 |---|---|
-| **GitHub Authentication** row in Options, Tools | Shows whether the GitHub calls carry a token. Without a token, GitHub allows 60 calls for each hour and address. |
+| **GitHub Authentication** row in Options, Tools | Names the source of the GitHub token, or shows `Not authenticated`; `Token rejected (401)` means GitHub refuses the token. Without a token, GitHub allows 60 calls for each hour and address. |
 | **Look up CVEs after Check ConfigMgr** | Starts Check CVEs for the same rows after Check ConfigMgr. See [Check CVEs](cve.md). |
 
 ## Limits

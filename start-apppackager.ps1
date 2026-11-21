@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.11.20.0151
+    Version    : 2026.11.20.0152
     Updated    : 2026-09-09
 #>
 
@@ -1142,53 +1142,6 @@ function Invoke-DetectSevenZipCli {
     }
 
     return $result
-}
-
-function Get-GitHubApiAuthStatus {
-    # Reports how the 90 GitHub-backed packagers will authenticate against
-    # api.github.com, in the same order Get-GitHubApiCurlArgs resolves the
-    # token: GITHUB_TOKEN, GH_TOKEN, the token saved in Options, Tools, then the GitHub CLI's stored login.
-    # Anonymous calls are limited to 60 per hour per address, which a version
-    # sweep over the catalog exceeds. The rate-limit probe is one request with
-    # a short timeout; when it cannot complete the source is still reported.
-    $source = ''
-    if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) { $source = 'GITHUB_TOKEN environment variable' }
-    elseif (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { $source = 'GH_TOKEN environment variable' }
-    elseif (-not [string]::IsNullOrWhiteSpace((Get-StoredGitHubToken))) { $source = 'token saved in Options, Tools' }
-    else {
-        $gh = Get-Command -Name 'gh.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($gh) {
-            $args = @()
-            try { $args = @(Get-GitHubApiCurlArgs) } catch { $args = @() }
-            if ($args.Count -gt 0) {
-                $source = 'GitHub CLI login (gh.exe)'
-                try {
-                    $status = (& $gh.Source auth status 2>&1 | Out-String)
-                    if ($status -match 'account\s+(\S+)') { $source = 'GitHub CLI login (gh.exe), account ' + $Matches[1] }
-                }
-                catch { <# Reading the GitHub account name is optional display text. #> $null = $_ }
-            }
-        }
-    }
-
-    $limit = ''
-    $remaining = ''
-    try {
-        $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
-        if ($curl) {
-            $headers = (& $curl.Source -sI --max-time 6 -A 'app-packager' @(Get-GitHubApiCurlArgs) 'https://api.github.com/rate_limit' 2>$null) -join "`n"
-            if ($headers -match '(?im)^x-ratelimit-limit:\s*(\d+)')     { $limit = $Matches[1] }
-            if ($headers -match '(?im)^x-ratelimit-remaining:\s*(\d+)') { $remaining = $Matches[1] }
-        }
-    }
-    catch { <# Reading the GitHub rate limit is optional display information. #> $null = $_ }
-
-    return [pscustomobject]@{
-        Authenticated = -not [string]::IsNullOrWhiteSpace($source)
-        Source        = $source
-        Limit         = $limit
-        Remaining     = $remaining
-    }
 }
 
 function Get-IntuneWinToolCachePath {
@@ -7482,6 +7435,7 @@ function New-OptionsFieldEditor {
             $editor.Element = $panel
             $editor.Focus = $pwd
             $editor.Get = { $pwd.SecurePassword }.GetNewClosure()
+            $editor.Hint = $hint
             $editor.Set = { param($v) $hint.Visibility = $(if ([string]::IsNullOrWhiteSpace([string]$v)) { [System.Windows.Visibility]::Collapsed } else { [System.Windows.Visibility]::Visible }) }.GetNewClosure()
         }
         { $_ -in 'File', 'Folder' } {
@@ -8421,9 +8375,9 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'tools.iconpack'; Title = 'Icon pack'; Kind = 'Status'; Tip = 'Shows the state of the packager icon pack.'; Keywords = 'icons'; Buttons = @(@{ Id = 'download'; Label = 'Download'; Tip = 'Downloads the icon pack and extracts it into Packagers\Icons.' }, @{ Id = 'file'; Label = 'Install from file...'; Tip = 'Installs the icon pack from a local or UNC zip file.' }) }
                 @{ Id = 'upd.group'; Kind = 'Group'; Title = 'Updates'; Description = 'AppPackager looks for a newer release when it starts.' }
                 @{ Id = 'upd.check'; Title = 'Check at startup'; Kind = 'Check'; Pref = 'CheckForUpdatesAtStartup'; Label = 'Look for a newer release when AppPackager starts'; Tip = 'Turn it off to skip the lookup at launch.'; Keywords = 'update release version' }
-                @{ Id = 'gh.group'; Kind = 'Group'; Title = 'GitHub Authentication'; Description = 'The GitHub-backed packagers and the version monitor send a token as a bearer token. A token raises the limit from 60 to 5000 requests per hour.' }
-                @{ Id = 'gh.status'; Title = 'Status'; Kind = 'Status'; Tip = 'Shows how AppPackager signs in to the GitHub API and the requests that are left this hour.'; Keywords = 'github authentication token rate limit gh' }
-                @{ Id = 'gh.token'; Title = 'GitHub token'; Kind = 'Secret'; Pref = 'GitHub.TokenProtected'; Tip = 'Optional, DPAPI-protected; 5000 requests per hour with a token, 60 without.'; Keywords = 'github key personal access token pat' }
+                @{ Id = 'gh.group'; Kind = 'Group'; Title = 'GitHub Authentication'; Description = 'The GitHub-backed packagers and the version monitor send a token as a bearer token. A token raises the limit from 60 to 5000 requests per hour. A token saved here wins over GITHUB_TOKEN, GH_TOKEN and the GitHub CLI sign-in.' }
+                @{ Id = 'gh.status'; Title = 'Status'; Kind = 'Status'; Tip = 'Shows the source of the GitHub token, the account and the requests that are left this hour.'; Keywords = 'github authentication token rate limit gh' }
+                @{ Id = 'gh.token'; Title = 'GitHub token'; Kind = 'Secret'; Pref = 'GitHub.TokenProtected'; Tip = 'Optional token, stored with DPAPI, that overrides the environment and the GitHub CLI.'; Keywords = 'github key personal access token pat' }
             )
         })
 
@@ -8537,7 +8491,7 @@ function Initialize-OptionsToolsSection {
     $sevenZip = Get-OptionsToolStatusText -Prefs $prefs -Tool SevenZip
     & $Page.Editors['tools.sevenzip'].Set $sevenZip.Text
     $Page.Editors['tools.sevenzip'].Text.ToolTip = $sevenZip.Tip
-    Start-OptionsGitHubCheck -StatusText $Page.Editors['gh.status'].Text
+    Start-OptionsGitHubCheck -StatusText $Page.Editors['gh.status'].Text -TokenEditor $Page.Editors['gh.token']
 
     $prepEditor = $Page.Editors['tools.contentprep']
     $downloadButton = $prepEditor.Buttons['download']
@@ -8604,19 +8558,14 @@ function Initialize-OptionsToolsSection {
 function Start-OptionsGitHubCheck {
     # The check needs a web request to api.github.com and may start gh.exe; a slow proxy would hold the
     # window for seconds, so a background runspace answers and a timer fills the line in.
-    param([Parameter(Mandatory)]$StatusText)
+    param([Parameter(Mandatory)]$StatusText, $TokenEditor)
     $show = {
         param($gh)
-        $quota = ''
-        if ($gh.Limit) {
-            $quota = ' (' + $gh.Limit + ' requests/hour'
-            if ($gh.Remaining) { $quota += ', ' + $gh.Remaining + ' remaining' }
-            $quota += ')'
-        }
-        if ($gh.Authenticated) { $StatusText.Text = ([string][char]0x2713 + ' Authenticated  -  ' + $gh.Source + $quota) }
-        else {
-            $remaining = $(if ($gh.Remaining) { ', ' + $gh.Remaining + ' remaining' } else { '' })
-            $StatusText.Text = ([string][char]0x2717 + ' Anonymous  -  60 requests/hour per address' + $remaining + '; type a token below, set GITHUB_TOKEN or run gh auth login')
+        # The text comes from the module that the packagers use, with the words of App Packager Desktop.
+        $StatusText.Text = Format-GitHubAuthStatus -Status $gh
+        if ($TokenEditor -and $TokenEditor.Hint) {
+            $TokenEditor.Hint.Text = Get-GitHubTokenBoxHint -HasSavedToken ($gh.Source -eq 'Settings') -Source ([string]$gh.Source)
+            $TokenEditor.Hint.Visibility = [System.Windows.Visibility]::Visible
         }
     }.GetNewClosure()
     $StatusText.Text = 'Checking GitHub access...'
@@ -8630,15 +8579,14 @@ function Start-OptionsGitHubCheck {
         $shell = [powershell]::Create()
         $shell.Runspace = $runspace
         [void]$shell.AddScript({
-                param($State, $ModulePath, $FunctionText)
+                param($State, $ModulePath)
                 try {
                     Import-Module -Name $ModulePath -DisableNameChecking -ErrorAction Stop
-                    Set-Item -Path 'function:Get-GitHubApiAuthStatus' -Value ([scriptblock]::Create($FunctionText))
                     $State.Result = Get-GitHubApiAuthStatus
                 }
                 catch { $State.Result = $null }
                 finally { $State.Done = $true }
-            }).AddArgument($state).AddArgument((Join-Path $PSScriptRoot 'Packagers\AppPackagerCommon.psd1')).AddArgument((Get-Item -Path 'function:Get-GitHubApiAuthStatus').ScriptBlock.ToString())
+            }).AddArgument($state).AddArgument((Join-Path $PSScriptRoot 'Packagers\AppPackagerCommon.psd1'))
         $handle = $shell.BeginInvoke()
         $timer = New-Object System.Windows.Threading.DispatcherTimer
         $timer.Interval = [TimeSpan]::FromMilliseconds(250)
