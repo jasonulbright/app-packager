@@ -3866,16 +3866,15 @@ Describe 'Intune Win32 repeat publish' {
 
 Describe 'Get-GitHubApiCurlArgs' {
     BeforeEach {
-        $script:savedGitHubToken = $env:GITHUB_TOKEN
-        $script:savedGhToken = $env:GH_TOKEN
-        $env:GITHUB_TOKEN = $null
-        $env:GH_TOKEN = $null
+        $script:savedGh = @{}
+        foreach ($name in 'APP_PACKAGER_GITHUB_TOKEN', 'GITHUB_TOKEN', 'GH_TOKEN') { $script:savedGh[$name] = [Environment]::GetEnvironmentVariable($name); [Environment]::SetEnvironmentVariable($name, $null) }
+        # No token saved in Options on the machine that runs the test.
+        Mock Get-StoredGitHubToken { '' } -ModuleName AppPackagerCommon
         # Forget any CLI token cached by an earlier call in this process.
         InModuleScope AppPackagerCommon { $script:GitHubCliToken = $null }
     }
     AfterEach {
-        $env:GITHUB_TOKEN = $script:savedGitHubToken
-        $env:GH_TOKEN = $script:savedGhToken
+        foreach ($name in $script:savedGh.Keys) { [Environment]::SetEnvironmentVariable($name, $script:savedGh[$name]) }
         InModuleScope AppPackagerCommon { $script:GitHubCliToken = $null }
     }
 
@@ -3891,14 +3890,152 @@ Describe 'Get-GitHubApiCurlArgs' {
     }
 
     It 'returns no arguments without a token or a signed-in GitHub CLI' {
-        Mock Get-Command { $null } -ModuleName AppPackagerCommon -ParameterFilter { $Name -eq 'gh.exe' }
+        Mock Find-GitHubCli { '' } -ModuleName AppPackagerCommon
         @(Get-GitHubApiCurlArgs).Count | Should -Be 0
     }
 
     It 'uses the GitHub CLI login when no environment token is set' {
-        Mock Get-Command { [pscustomobject]@{ Source = 'gh.exe' } } -ModuleName AppPackagerCommon -ParameterFilter { $Name -eq 'gh.exe' }
+        Mock Find-GitHubCli { 'gh.exe' } -ModuleName AppPackagerCommon
         InModuleScope AppPackagerCommon { $script:GitHubCliToken = 'cli-token' }
         (Get-GitHubApiCurlArgs)[1] | Should -Be 'Authorization: Bearer cli-token'
+    }
+}
+
+Describe 'Get-GitHubApiToken' {
+    BeforeEach {
+        $script:savedGh = @{}
+        foreach ($name in 'APP_PACKAGER_GITHUB_TOKEN', 'GITHUB_TOKEN', 'GH_TOKEN') { $script:savedGh[$name] = [Environment]::GetEnvironmentVariable($name); [Environment]::SetEnvironmentVariable($name, $null) }
+        Mock Get-StoredGitHubToken { '' } -ModuleName AppPackagerCommon
+        Mock Find-GitHubCli { '' } -ModuleName AppPackagerCommon
+        InModuleScope AppPackagerCommon { $script:GitHubCliToken = $null }
+    }
+    AfterEach {
+        foreach ($name in $script:savedGh.Keys) { [Environment]::SetEnvironmentVariable($name, $script:savedGh[$name]) }
+        InModuleScope AppPackagerCommon { $script:GitHubCliToken = $null }
+    }
+
+    It 'names each source' {
+        (Get-GitHubApiToken).Source | Should -Be ''
+        $env:GH_TOKEN = 'g'
+        (Get-GitHubApiToken).Source | Should -Be 'GH_TOKEN'
+        $env:GITHUB_TOKEN = 'h'
+        (Get-GitHubApiToken).Source | Should -Be 'GITHUB_TOKEN'
+        $env:APP_PACKAGER_GITHUB_TOKEN = 'a'
+        (Get-GitHubApiToken).Source | Should -Be 'APP_PACKAGER_GITHUB_TOKEN'
+        Mock Get-StoredGitHubToken { 'saved' } -ModuleName AppPackagerCommon
+        $found = Get-GitHubApiToken
+        $found.Source | Should -Be 'Settings'
+        $found.Token | Should -Be 'saved'
+    }
+
+    It 'reads the sign-in of the GitHub CLI when nothing else is set' {
+        Mock Find-GitHubCli { 'C:\Users\x\scoop\shims\gh.exe' } -ModuleName AppPackagerCommon
+        InModuleScope AppPackagerCommon { $script:GitHubCliToken = 'cli-token' }
+        $found = Get-GitHubApiToken
+        $found.Source | Should -Be 'gh auth login'
+        $found.Token | Should -Be 'cli-token'
+    }
+
+    It 'lets the saved token win over the environment and the CLI' {
+        Mock Get-StoredGitHubToken { 'saved' } -ModuleName AppPackagerCommon
+        $env:GITHUB_TOKEN = 'env'
+        InModuleScope AppPackagerCommon { $script:GitHubCliToken = 'cli-token' }
+        (Get-GitHubApiToken).Token | Should -Be 'saved'
+    }
+}
+
+Describe 'Find-GitHubCli' {
+    It 'finds gh.exe in a folder that is not on the PATH of the process' {
+        $root = Join-Path ([IO.Path]::GetTempPath()) ('ghcli-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $root 'Programs\GitHub CLI') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $root 'Programs\GitHub CLI\gh.exe') -Value 'x'
+        $savedLocal = $env:LOCALAPPDATA
+        try {
+            $env:LOCALAPPDATA = $root
+            (Find-GitHubCli -SearchFolder @((Join-Path $root 'Missing'), (Join-Path $root 'Programs\GitHub CLI'))) | Should -Be (Join-Path $root 'Programs\GitHub CLI\gh.exe')
+            (Find-GitHubCli -SearchFolder @((Join-Path $root 'Missing'))) | Should -Be ''
+        }
+        finally {
+            $env:LOCALAPPDATA = $savedLocal
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+Describe 'Format-GitHubAuthStatus' {
+    It 'words every source and state the same as App Packager Desktop' {
+        $p = @{ Authenticated = $true; Account = 'octocat'; Limit = '5000'; Remaining = '4991'; HttpStatus = 0; Error = '' }
+        Format-GitHubAuthStatus -Status ([pscustomobject]($p + @{ Source = 'gh auth login' })) | Should -Be 'Signed in via GitHub CLI as octocat (5,000 requests per hour, 4,991 remaining)'
+        Format-GitHubAuthStatus -Status ([pscustomobject]($p + @{ Source = 'Settings' })) | Should -Be 'Token saved in settings as octocat (5,000 requests per hour, 4,991 remaining)'
+        Format-GitHubAuthStatus -Status ([pscustomobject]($p + @{ Source = 'GITHUB_TOKEN' })) | Should -Be 'Environment variable GITHUB_TOKEN as octocat (5,000 requests per hour, 4,991 remaining)'
+        Format-GitHubAuthStatus -Status ([pscustomobject]@{ Authenticated = $false; Source = ''; Account = ''; Limit = '60'; Remaining = '57'; HttpStatus = 0; Error = '' }) | Should -Be 'Not authenticated: 60 requests per hour (57 remaining)'
+        Format-GitHubAuthStatus -Status ([pscustomobject]@{ Authenticated = $false; Source = ''; Account = ''; Limit = ''; Remaining = ''; HttpStatus = 0; Error = '' }) | Should -Be 'Not authenticated: 60 requests per hour'
+    }
+
+    It 'reports a refused token (401) and a blocked request (403)' {
+        $text = Format-GitHubAuthStatus -Status ([pscustomobject]@{ Authenticated = $true; Source = 'GITHUB_TOKEN'; Account = ''; Limit = ''; Remaining = ''; HttpStatus = 401; Error = 'Bad credentials' })
+        $text | Should -BeLike 'Token rejected (401): GitHub refused the credential (Environment variable GITHUB_TOKEN) (Bad credentials)*'
+        $text = Format-GitHubAuthStatus -Status ([pscustomobject]@{ Authenticated = $true; Source = 'Settings'; Account = ''; Limit = ''; Remaining = ''; HttpStatus = 403; Error = 'Resource not accessible' })
+        $text | Should -BeLike 'GitHub refused the request (403) (Resource not accessible). Token saved in settings is in use.'
+    }
+
+    It 'words the token box note with the source that wins' {
+        Get-GitHubTokenBoxHint -HasSavedToken $true -Source 'Settings' | Should -BeLike '*wins over the environment variables and the GitHub CLI*'
+        Get-GitHubTokenBoxHint -HasSavedToken $false -Source 'gh auth login' | Should -Be 'GitHub CLI sign-in provides the token now. A token you save here wins over it.'
+        Get-GitHubTokenBoxHint -HasSavedToken $false -Source '' | Should -BeLike 'No token is in use.*'
+    }
+}
+
+Describe 'Get-GitHubApiAuthStatus' {
+    BeforeAll {
+        # A stand-in curl.exe: a command file that prints the canned answer of the URL it is given.
+        $script:fakeDir = Join-Path ([IO.Path]::GetTempPath()) ('ghfake-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:fakeDir -Force | Out-Null
+        $script:fakeCurl = Join-Path $script:fakeDir 'curl.cmd'
+        Set-Content -LiteralPath $script:fakeCurl -Encoding ASCII -Value @(
+            '@echo off'
+            'set HERE=%~dp0'
+            'set LASTARG=%~1'
+            ':next'
+            'shift'
+            'if "%~1"=="" goto done'
+            'set LASTARG=%~1'
+            'goto next'
+            ':done'
+            'if /i "%LASTARG:~-11%"=="/rate_limit" (type "%HERE%rate.txt") else (type "%HERE%user.txt")')
+    }
+    AfterAll { Remove-Item -LiteralPath $script:fakeDir -Recurse -Force -ErrorAction SilentlyContinue }
+    BeforeEach {
+        Mock Get-Command { [pscustomobject]@{ Source = $script:fakeCurl } } -ModuleName AppPackagerCommon -ParameterFilter { $Name -eq 'curl.exe' }
+        InModuleScope AppPackagerCommon { $script:GitHubStatusCache = $null }
+    }
+
+    It 'names the account for a token that works' {
+        Mock Get-GitHubApiToken { [pscustomobject]@{ Token = 't'; Source = 'gh auth login' } } -ModuleName AppPackagerCommon
+        Set-Content -LiteralPath (Join-Path $script:fakeDir 'rate.txt') -Encoding ASCII -Value "HTTP/2 200`nx-ratelimit-limit: 5000`nx-ratelimit-remaining: 4991`n`n{}"
+        Set-Content -LiteralPath (Join-Path $script:fakeDir 'user.txt') -Encoding ASCII -Value "HTTP/2 200`n`n{`"login`":`"octocat`"}"
+        $status = Get-GitHubApiAuthStatus -Force
+        Format-GitHubAuthStatus -Status $status | Should -Be 'Signed in via GitHub CLI as octocat (5,000 requests per hour, 4,991 remaining)'
+    }
+
+    It 'reports an anonymous budget' {
+        Mock Get-GitHubApiToken { [pscustomobject]@{ Token = ''; Source = '' } } -ModuleName AppPackagerCommon
+        Set-Content -LiteralPath (Join-Path $script:fakeDir 'rate.txt') -Encoding ASCII -Value "HTTP/2 200`nx-ratelimit-limit: 60`nx-ratelimit-remaining: 57`n`n{}"
+        Format-GitHubAuthStatus -Status (Get-GitHubApiAuthStatus -Force) | Should -Be 'Not authenticated: 60 requests per hour (57 remaining)'
+    }
+
+    It 'reports 401 for an expired token instead of falling back' {
+        Mock Get-GitHubApiToken { [pscustomobject]@{ Token = 'old'; Source = 'GITHUB_TOKEN' } } -ModuleName AppPackagerCommon
+        Set-Content -LiteralPath (Join-Path $script:fakeDir 'rate.txt') -Encoding ASCII -Value "HTTP/2 401`n`n{`"message`":`"Bad credentials`",`"status`":`"401`"}"
+        $status = Get-GitHubApiAuthStatus -Force
+        $status.HttpStatus | Should -Be 401
+        Format-GitHubAuthStatus -Status $status | Should -BeLike 'Token rejected (401): GitHub refused the credential (Environment variable GITHUB_TOKEN) (Bad credentials)*'
+    }
+
+    It 'reports 403' {
+        Mock Get-GitHubApiToken { [pscustomobject]@{ Token = 'x'; Source = 'Settings' } } -ModuleName AppPackagerCommon
+        Set-Content -LiteralPath (Join-Path $script:fakeDir 'rate.txt') -Encoding ASCII -Value "HTTP/2 403`n`n{`"message`":`"Forbidden`",`"status`":`"403`"}"
+        (Get-GitHubApiAuthStatus -Force).HttpStatus | Should -Be 403
     }
 }
 

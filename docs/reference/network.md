@@ -15,7 +15,7 @@ Use it to open the firewall for the tool, or to check the traffic.
 | Who sends the call | What it sends | When |
 |---|---|---|
 | A packager script | A version lookup, then the installer download, with `curl.exe` against the vendor site. 92 packagers read `https://api.github.com/repos/<owner>/<repo>/releases/latest`. | Check Latest, One Click, Stage. |
-| The GitHub token logic | The bearer token from `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`. Without a token, the calls are anonymous: 60 for each hour and address. | Every GitHub call. |
+| The GitHub token logic | The bearer token from the token saved in Options, `APP_PACKAGER_GITHUB_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`. Without a token, the calls are anonymous: 60 for each hour and address. | Every GitHub call. |
 | `start-apppackager.ps1` | The update check `https://api.github.com/repos/jasonulbright/app-packager/releases/latest`, once in 24 hours at the start. The icon pack and Content Prep downloads from Options. The `rate_limit` probe of the GitHub row. | At the start, and from Options. |
 | Check CVEs | One NVD read for each product of the checked applications (`services.nvd.nist.gov`; one call for each 2000 records, kept for six hours), EPSS from `api.first.org`, the CISA KEV catalog once a day (`www.cisa.gov`), and Shodan CVEDB (`cvedb.shodan.io`) when NVD fails. Open the firewall for all four names. | Check CVEs, CVE Report. |
 | Check ConfigMgr, Publish to ConfigMgr | The console module to the SMS Provider, the file share. | Those actions. |
