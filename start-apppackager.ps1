@@ -477,7 +477,8 @@ function Read-Preferences {
         $raw = Get-Content -LiteralPath $path -Raw -ErrorAction Stop
         if ([string]::IsNullOrWhiteSpace($raw)) { return $defaults }
         $data = $raw | ConvertFrom-Json -ErrorAction Stop
-        $data = Merge-AppSiteIntoPreferenceData -Data $data
+        # A host that loads this function without the packager module (a probe) reads the file as it is.
+        if (Get-Command -Name Merge-AppSiteIntoPreferenceData -ErrorAction SilentlyContinue) { $data = Merge-AppSiteIntoPreferenceData -Data $data }
 
         if ($null -ne $data.Vulnerability) {
             $vu = $data.Vulnerability
