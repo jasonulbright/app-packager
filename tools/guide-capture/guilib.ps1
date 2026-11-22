@@ -51,8 +51,18 @@ function Size-Win($Win, [int]$W = 1440, [int]$H = 900) {
     $w2 = [Math]::Min($W, $sw.Width); $h2 = [Math]::Min($H, $sw.Height - 40)
     [void][NativeUi]::MoveWindow($hh, 0, 0, $w2, $h2, $true); Start-Sleep -Milliseconds 900
 }
+# A real mouse move, not only SetCursorPos: WPF raises MouseLeave and closes a tooltip only after a real move. Then wait until no tooltip shows.
+function Move-MouseAway {
+    [void][NativeUi]::SetCursorPos(1900, 1060); Start-Sleep -Milliseconds 100
+    [NativeUi]::mouse_event(1, 3, 3, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 100
+    [NativeUi]::mouse_event(1, -3, -3, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 300
+    $tipCond = New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::ToolTip)
+    $end = (Get-Date).AddSeconds(8)
+    while ((Get-Date) -lt $end -and $root.FindFirst('Descendants', $tipCond)) { Start-Sleep -Milliseconds 400 }
+    if ($root.FindFirst('Descendants', $tipCond)) { Log 'TOOLTIP still shown after the mouse moved away; the next shot holds it' }
+}
 function Shot($Win, [string]$Name, [switch]$Hover) {
-    if (-not $Hover) { [void][NativeUi]::SetCursorPos(1900, 1060); if ($Win.Current.ClassName -eq 'MetroWindow') { try { (Get-El $Win 'txtLog' -Quiet).SetFocus() } catch { $null = $_ } } }
+    if (-not $Hover) { Move-MouseAway; if ($Win.Current.ClassName -eq 'MetroWindow') { try { (Get-El $Win 'txtLog' -Quiet).SetFocus() } catch { $null = $_ } } }
     Start-Sleep -Milliseconds 1300
     $r = $Win.Current.BoundingRectangle
     $x = [int][Math]::Max(0, $r.X); $y = [int][Math]::Max(0, $r.Y)
