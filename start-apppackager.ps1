@@ -8241,6 +8241,7 @@ function Get-OptionsNonUiPreference {
     # has one entry. The inventory test fails for a key that is in neither this list nor a field.
     return [ordered]@{
         'FirstRunCompleted'         = 'The Setup wizard writes it. The box Do not show this again and Save set it.'
+        'SiteDataMigratedFrom'      = 'The tool writes the site code for which it copied the single-site files into the site folder.'
         'DiscoveryEnabled'          = 'The Discover unmanaged software window writes it when an application is enabled.'
         'CommandOverrides.Apps'     = 'The command override dialog of the main window edits it for each application.'
         'WorkbenchDataRoot'         = 'File only. It sets the data folder of the Workbench; APP_PACKAGER_WORKBENCH_ROOT overrides it.'
@@ -8278,7 +8279,7 @@ function Get-OptionsSectionDefinition {
             Post = { param($Context, $Page) Initialize-OptionsConfigMgrSection -Context $Context -Page $Page }
             Fields = @(
                 @{ Id = 'cm.siteCode'; Title = 'Site code'; Kind = 'ComboText'; Pref = 'SiteCode'; Keywords = 'site switch sites list data folder'
-                    Tip = 'The ConfigMgr site code, for example ABC. The list holds the saved sites. Pick one or type a new code, then select OK to switch; the changes in this window are saved to the current site first.'
+                    Tip = 'The ConfigMgr site code, for example ABC; pick a saved site or type a new code to switch the site on OK.'
                     ItemsFrom = { @(Get-AppSiteList | ForEach-Object { [string]$_.Name }) }
                     ToText = { param($Value) $name = Get-AppSiteName; if ($name -and (ConvertFrom-SuiteSiteFolderName -Name $name).SiteCode -ceq [string]$Value) { $name } else { [string]$Value } }
                     FromText = { param($Text) $parsed = ConvertFrom-SuiteSiteFolderName -Name ([string]$Text); if ($parsed) { $script:SiteRequest = $parsed.FolderName; $parsed.SiteCode } else { [string]$Text } }
