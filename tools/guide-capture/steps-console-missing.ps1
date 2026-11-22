@@ -1,6 +1,7 @@
 # Test copy only: the console detection reports "not found", as on a computer without the console.
 $dataDir = Join-Path $env:LOCALAPPDATA 'AppPackager'
 Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-CaptureSiteData
 $f = Join-Path $appDir 'start-apppackager.ps1'
 $t = [IO.File]::ReadAllText($f)
 $start = $t.IndexOf('function Invoke-DetectConfigMgrConsole')
@@ -27,3 +28,4 @@ Invoke-El (Get-El $win 'btnOptions'); $o = Find-LastLike 'Options*' 15; Start-Sl
 Invoke-El (Get-El $o 'Cancel'); Start-Sleep -Seconds 1
 Stop-App 'start-apppackager.ps1'
 Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-CaptureSiteData

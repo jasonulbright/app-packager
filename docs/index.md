@@ -23,6 +23,7 @@ AppPackager packages 317 enterprise applications for Configuration Manager, Intu
 ## Reference
 
 - [Settings](reference/settings.md): what the tool saves and where.
+- [Sites and site data](reference/site-data.md): one folder for each ConfigMgr site, the site list, and the copy on the first start.
 - [Installer options audit](reference/installer-options-audit.md): each installer switch of seven applications and its vendor source.
 - [Files and logs](reference/files-and-logs.md): every folder and file that the tool writes.
 - [Permissions](reference/permissions.md): the rights that each action needs.

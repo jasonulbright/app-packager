@@ -16,6 +16,9 @@ BeforeAll {
     $tokens = $null; $errors = $null
     $script:Ast = [System.Management.Automation.Language.Parser]::ParseFile($script:LauncherPath, [ref]$tokens, [ref]$errors)
     if ($errors) { throw ($errors.Message -join '; ') }
+    # Read-Preferences and Save-Preferences use the per-site functions of these modules.
+    Import-Module (Join-Path $script:RepoRoot 'Lib\SuiteCommon\SuiteCommon.psd1') -Force -DisableNameChecking -Global
+    Import-Module (Join-Path $script:RepoRoot 'Packagers\AppPackagerCommon.psd1') -Force -DisableNameChecking -Global
     # The functions load into this scope, so the loop does the dot-sourcing.
     foreach ($name in 'Resolve-FirstRunCompleted', 'Read-Preferences', 'Get-WsusClassificationNameList', 'Read-CwaSwitches', 'Get-CwaSwitchesPath', 'Read-TvHostConfig', 'Get-TvHostConfigPath', 'Get-OptionsNonUiPreference', 'Get-OptionsSectionDefinition', 'Save-Preferences') {
         $fn = $script:Ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
@@ -151,7 +154,7 @@ Describe 'The old Options window and the new one write the same keys' {
     It 'lists the keys that are new, so that a change of the schema is a decision' {
         $new = @($script:PrefLeaf | Where-Object { $p = $_; -not ($script:OldCommitPath | Where-Object { $_ -eq $p -or $p.StartsWith($_ + '.') }) -and $p -notmatch '^(DetectedTools|DeploymentConditions|CommandOverrides)' })
         $expected = @(
-            'DiscoveryEnabled', 'DiscoverySqlInstance', 'DiscoverySqlPort', 'WorkbenchDataRoot', 'Vulnerability.CacheTtlMinutes',
+            'SiteDataMigratedFrom', 'DiscoveryEnabled', 'DiscoverySqlInstance', 'DiscoverySqlPort', 'WorkbenchDataRoot', 'Vulnerability.CacheTtlMinutes',
             'M365Options.Languages', 'M365Options.OfficeMgmtCom', 'M365Options.UpdatesEnabled', 'M365Options.ForceAppShutdown', 'M365Options.RemoveMsi', 'M365Options.MigrateArch', 'M365Options.SharedComputerLicensing', 'M365Options.DeviceBasedLicensing',
             'M365CustomConfig.Enabled', 'M365CustomConfig.FileName', 'M365CustomConfig.SizeBytes', 'GitHub.TokenProtected',
             'SSMSInstallOptions.Workloads', 'SSMSInstallOptions.Languages', 'SSMSInstallOptions.NoCache',
@@ -248,12 +251,14 @@ Describe 'Save-Preferences mirrors only known keys into packager-preferences.jso
     It 'mirrors the preferences into the packager file that the packagers read' {
         $root = Join-Path $TestDrive 'app'
         New-Item -ItemType Directory -Path (Join-Path $root 'Packagers') -Force | Out-Null
+        $script:PrefPath = Join-Path $root 'prefs.json'
         Set-Content -LiteralPath $script:PrefPath -Value '{}' -Encoding UTF8
         $prefs = Read-Preferences
         $prefs.M365CustomConfig.Enabled = $true
         Set-Content -LiteralPath (Join-Path $root 'Packagers\m365-configuration.user.xml') -Value '<Configuration />' -Encoding UTF8
         $saveText = ($script:Ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Save-Preferences' }, $false)).Extent.Text.Replace('$PSScriptRoot', ("'" + $root + "'"))
         function Set-DeploymentTypeContentEnvironment { param($Prefs) }
+        . ([scriptblock]::Create(($script:Ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Write-PreferenceFile' }, $false)).Extent.Text))
         . ([scriptblock]::Create($saveText))
         . ([scriptblock]::Create(($script:Ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-PackagerPreferenceMirror' }, $false)).Extent.Text.Replace('$PSScriptRoot', ("'" + $root + "'"))))
         Save-Preferences -Prefs $prefs

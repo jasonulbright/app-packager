@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## 1 site list in Options
+
+### Added
+
+- Add the list Site code in Options, ConfigMgr, to switch to another site.
+- Keep site settings, ConfigMgr versions and Check ConfigMgr results in a folder for each site.
+- Copy the single-site files to the site folder once, and keep the old files.
+
+### Changed
+
+- Write the Check ConfigMgr result files to the site folder.
+
 ## [2026.11.22.0160] - 2026-11-22
 
 ## 5 All Applications images with the Installer Type column

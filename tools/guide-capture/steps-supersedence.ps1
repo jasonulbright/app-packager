@@ -4,6 +4,7 @@
 # Three Package runs: Yes with Remember this answer, Skip for each application, and No in the light theme.
 $dataDir = Join-Path $env:LOCALAPPDATA 'AppPackager'
 Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-CaptureSiteData
 $dl = Join-Path $GuideRoot 'dl'
 Remove-Item $dl -Recurse -Force -ErrorAction SilentlyContinue
 $q = 'C:\guide\q92'
@@ -183,4 +184,5 @@ Section 'the sidebar has no rewrite, restore or apply button' {
 Get-ChildItem -LiteralPath (Join-Path $appDir 'Logs') -Filter *.log -File -ErrorAction SilentlyContinue | Copy-Item -Destination $OutDir -Force
 Stop-App 'start-apppackager.ps1'
 Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-CaptureSiteData
 Remove-Item $dl -Recurse -Force -ErrorAction SilentlyContinue

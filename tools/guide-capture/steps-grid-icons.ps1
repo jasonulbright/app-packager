@@ -4,6 +4,7 @@
 # grid is open replaces the files (no handle on them) and the grid takes the new icons.
 $dataDir = Join-Path $env:LOCALAPPDATA 'AppPackager'
 Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-CaptureSiteData
 $dl = Join-Path $GuideRoot 'dl'
 Remove-Item $dl -Recurse -Force -ErrorAction SilentlyContinue
 $packDir = Join-Path $appDir 'Packagers\Icons'

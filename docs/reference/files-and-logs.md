@@ -28,7 +28,8 @@ None.
 | `<Download Root>\<App>\<Version>\` | The staged content of an application, with `stage-manifest.json`. |
 | `<File Share Root>\Applications\<Vendor>\<Application>\<Version>\` | The packaged content on the share, for the default layout. |
 | `<Output folder>\ConfigMgrImport\<application>\` | The plan, the report and the content of a conversion to Intune. |
-| `%LOCALAPPDATA%\AppPackager\app-history.json` | The history of the checks. |
+| `%LOCALAPPDATA%\AppPackager\app-history.json` | The history of the checks. The ConfigMgr version of each application is kept in the site folder. |
+| `%LOCALAPPDATA%\AppPackagerData\sites\<site code>\` | The settings, the ConfigMgr state and the result files of one site. See [Sites and site data](site-data.md). |
 | `%LOCALAPPDATA%\AppPackager\update-check.json` | The result of the daily update check. |
 | `%LOCALAPPDATA%\AppPackager\vuln-results\` | The CVE results, one file for each CPE and version pair, used for six hours. |
 | `%LOCALAPPDATA%\AppPackager\vuln-products\` | The NVD records of each product, used for six hours. |

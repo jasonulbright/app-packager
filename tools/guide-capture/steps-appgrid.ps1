@@ -6,6 +6,7 @@
 # folder screenshots), options-all-applications, options-all-applications-columns and light-options-all-applications (guide).
 $dataDir = Join-Path $env:LOCALAPPDATA 'AppPackager'
 Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-CaptureSiteData
 $dl = Join-Path $GuideRoot 'dl'
 Remove-Item $dl -Recurse -Force -ErrorAction SilentlyContinue
 # The Workbench profiles of the proof live in the capture folder, so that the profiles of the lab account stay as they are.

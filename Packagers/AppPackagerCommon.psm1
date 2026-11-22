@@ -7506,6 +7506,356 @@ function Get-LatestCorrettoRelease {
 }
 
 # ---------------------------------------------------------------------------
+# Per-site data
+# ---------------------------------------------------------------------------
+# The data of one ConfigMgr site is kept in <data root>\sites\<SITE>, the layout of
+# docs\reference\site-data-contract.md in the suite repository (Get-SuiteSiteFolder).
+# The process works in one site: the start script sets APP_PACKAGER_SITE after it has
+# resolved the site and checked the migration. Without that value every function here
+# answers with the single-site layout, so a packager that runs alone is unchanged.
+# Global data (history, CVE cache, logs, per-application options) never moves.
+# The preferences file keeps a copy of the active site's values for readers that run
+# outside this process; the site folder is the store.
+
+$script:AppSiteScopedKeys = @(
+    'SiteCode', 'ProviderMachineName', 'FileShareRoot', 'ContentDistribution', 'Wsus', 'DistributionOverrides',
+    'DiscoverySqlServer', 'DiscoverySqlInstance', 'DiscoverySqlPort', 'DiscoverySqlDatabase'
+)
+$script:AppSiteStateKeys = @('LastCmVersion', 'LastCmChecked', 'LastCmSite')
+$script:AppSiteSecretName = 'token|secret|password|passwd|apikey|api_key|credential|protected|webhook'
+
+function Get-AppSiteScopedKey {
+    <#
+    .SYNOPSIS
+        The preference keys that belong to a site. The same names as the settings.json of the site folder.
+    #>
+    return @($script:AppSiteScopedKeys)
+}
+
+function Get-AppSiteName {
+    <#
+    .SYNOPSIS
+        The site folder name this process works in (AB1 or AB1~2), or $null for the single-site layout.
+    #>
+    $parsed = ConvertFrom-SuiteSiteFolderName -Name ([Environment]::GetEnvironmentVariable('APP_PACKAGER_SITE'))
+    if ($parsed) { return $parsed.FolderName }
+    return $null
+}
+
+function Get-AppSiteFolder {
+    <#
+    .SYNOPSIS
+        Path of the active site folder, or of an area below it. $null for the single-site layout. Creates nothing.
+    #>
+    param([string]$Area)
+    $site = Get-AppSiteName
+    if (-not $site) { return $null }
+    if ($Area) { return (Get-SuiteSiteFolder -SiteCode $site -Area $Area) }
+    return (Get-SuiteSiteFolder -SiteCode $site)
+}
+
+function Read-AppSiteJson {
+    # The parsed object, or $null when the file is missing, empty or not JSON.
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+    try {
+        $text = [IO.File]::ReadAllText($Path)
+        if ([string]::IsNullOrWhiteSpace($text)) { return $null }
+        # PowerShell 7 turns an ISO text into a date; the contract keeps the text.
+        $splat = @{}
+        if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $splat['DateKind'] = 'String' }
+        return ($text | ConvertFrom-Json -ErrorAction Stop @splat)
+    }
+    catch { return $null }
+}
+
+function Write-AppSiteJson {
+    # UTF-8 without a byte order mark, LF. A temp file and a rename: a crash leaves the old file.
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)]$Object)
+    $dir = Split-Path -Path $Path -Parent
+    if (-not (Test-Path -LiteralPath $dir)) { [void](New-Item -ItemType Directory -Path $dir -Force) }
+    $text = (ConvertTo-Json -InputObject $Object -Depth 12).Replace("`r`n", "`n") + "`n"
+    $tmp = '{0}.{1}.tmp' -f $Path, [guid]::NewGuid().ToString('N')
+    [IO.File]::WriteAllBytes($tmp, (New-Object System.Text.UTF8Encoding($false)).GetBytes($text))
+    Move-Item -LiteralPath $tmp -Destination $Path -Force
+}
+
+function ConvertTo-AppSiteOrdered {
+    # An ordered copy of the top-level properties of a parsed JSON object. Empty when the value is no object.
+    param($Object)
+    $copy = [ordered]@{}
+    if ($Object -is [pscustomobject]) { foreach ($p in $Object.PSObject.Properties) { $copy[$p.Name] = $p.Value } }
+    return $copy
+}
+
+function Remove-AppSiteSecret {
+    # Drops every property whose name looks like a secret, at any depth. A site file never holds one.
+    param($Node)
+    if ($Node -is [pscustomobject]) {
+        foreach ($name in @($Node.PSObject.Properties.Name)) {
+            if ($name -match $script:AppSiteSecretName) { $Node.PSObject.Properties.Remove($name); continue }
+            Remove-AppSiteSecret -Node $Node.$name
+        }
+    }
+    elseif ($Node -is [System.Collections.IEnumerable] -and $Node -isnot [string]) {
+        foreach ($child in @($Node)) { Remove-AppSiteSecret -Node $child }
+    }
+}
+
+function ConvertTo-AppSiteCopy {
+    # A deep copy through JSON, so that a site file value never shares an object with the live preferences.
+    param($Value)
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [string] -or $Value -is [ValueType]) { return $Value }
+    return (ConvertTo-Json -InputObject $Value -Depth 12 | ConvertFrom-Json)
+}
+
+function Get-AppSiteSettings {
+    <#
+    .SYNOPSIS
+        The settings.json of a site as an object, or $null. Reads only.
+    #>
+    param([Parameter(Mandatory)][string]$SiteName)
+    return (Read-AppSiteJson -Path (Join-Path (Get-SuiteSiteFolder -SiteCode $SiteName) 'settings.json'))
+}
+
+function Save-AppSiteSettings {
+    <#
+    .SYNOPSIS
+        Writes the site-scoped keys of the preferences into the settings.json of the active site.
+    .DESCRIPTION
+        Merges by top-level key: a key that another app wrote (ProviderMachine, SiteHygiene) stays. No secret is written.
+        Returns $false when the process works in the single-site layout.
+    #>
+    param([Parameter(Mandatory)]$Prefs)
+    $site = Get-AppSiteName
+    if (-not $site) { return $false }
+    $path = Join-Path (Get-SuiteSiteFolder -SiteCode $site) 'settings.json'
+    $settings = ConvertTo-AppSiteOrdered -Object (Read-AppSiteJson -Path $path)
+    foreach ($key in $script:AppSiteScopedKeys) {
+        if (-not $Prefs.PSObject.Properties[$key]) { continue }
+        $value = ConvertTo-AppSiteCopy -Value $Prefs.$key
+        Remove-AppSiteSecret -Node $value
+        $settings[$key] = $value
+    }
+    $parsed = ConvertFrom-SuiteSiteFolderName -Name $site
+    $settings['SiteCode'] = $parsed.SiteCode
+    Write-AppSiteJson -Path $path -Object ([pscustomobject]$settings)
+    return $true
+}
+
+function Update-AppSiteIdentity {
+    <#
+    .SYNOPSIS
+        Creates or refreshes the site.json of a site: identity, the SMS Provider list and the last use.
+    .DESCRIPTION
+        An existing label, creation time and migratedFrom stay. A provider that is new goes to the front of the list.
+    #>
+    param([Parameter(Mandatory)][string]$SiteName, [string]$Provider)
+    $parsed = ConvertFrom-SuiteSiteFolderName -Name $SiteName
+    if (-not $parsed) { throw "Invalid site folder name: '$SiteName'." }
+    $path = Join-Path (Get-SuiteSiteFolder -SiteCode $SiteName) 'site.json'
+    $now = [datetime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+    $site = ConvertTo-AppSiteOrdered -Object (Read-AppSiteJson -Path $path)
+    if ($site['siteCode'] -cne $parsed.SiteCode) {
+        $site = [ordered]@{ schemaVersion = 1; siteCode = $parsed.SiteCode; providers = @(); createdUtc = $now; lastUsedUtc = $now }
+    }
+    $providers = @(@($site['providers']) | Where-Object { $_ })
+    $name = ([string]$Provider).Trim()
+    if ($name -and ($providers -notcontains $name)) { $providers = @($name) + $providers }
+    $site['providers'] = $providers
+    $site['lastUsedUtc'] = $now
+    Write-AppSiteJson -Path $path -Object ([pscustomobject]$site)
+}
+
+function Set-AppActiveSite {
+    <#
+    .SYNOPSIS
+        Writes active-site.json in the data root: the site that the next start of any tool opens.
+    #>
+    param([Parameter(Mandatory)][string]$SiteName)
+    if (-not (Test-SuiteSiteName -Name $SiteName)) { throw "Invalid site folder name: '$SiteName'." }
+    $path = Join-Path (Get-SuiteDataRoot) 'active-site.json'
+    $current = Read-AppSiteJson -Path $path
+    if ($current -and $current.schemaVersion -eq 1 -and [string]$current.siteCode -ceq $SiteName) { return }
+    $now = [datetime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+    Write-AppSiteJson -Path $path -Object ([pscustomobject][ordered]@{ schemaVersion = 1; siteCode = $SiteName; changedUtc = $now })
+}
+
+function Get-AppSiteList {
+    <#
+    .SYNOPSIS
+        The known sites: one object per valid folder below <data root>\sites, in name order.
+    #>
+    $root = Join-Path (Get-SuiteDataRoot) 'sites'
+    if (-not (Test-Path -LiteralPath $root -PathType Container)) { return @() }
+    $list = New-Object System.Collections.Generic.List[object]
+    foreach ($dir in @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | Sort-Object Name)) {
+        $parsed = ConvertFrom-SuiteSiteFolderName -Name $dir.Name
+        if (-not $parsed -or $parsed.FolderName -cne $dir.Name) { continue }
+        $site = Read-AppSiteJson -Path (Join-Path $dir.FullName 'site.json')
+        $label = ''; $provider = ''
+        if ($site) {
+            if ($site.label) { $label = [string]$site.label }
+            if (@($site.providers).Count -gt 0) { $provider = [string]@($site.providers)[0] }
+        }
+        $list.Add([pscustomobject]@{ Name = $dir.Name; SiteCode = $parsed.SiteCode; Label = $label; Provider = $provider })
+    }
+    return $list.ToArray()
+}
+
+function Resolve-AppStartupSite {
+    <#
+    .SYNOPSIS
+        The site folder name that a start opens, or $null for the single-site layout.
+    .DESCRIPTION
+        Order: the explicit site (a command-line value), SUITE_CM_SITECODE, APP_PACKAGER_SITE, active-site.json,
+        then the site code that the preferences file saved. A value that is not a valid site name is skipped.
+    #>
+    param([string]$Explicit, [string]$SavedSiteCode)
+    $parsed = ConvertFrom-SuiteSiteFolderName -Name $Explicit
+    if ($parsed) { return $parsed.FolderName }
+    $active = Get-SuiteActiveSite
+    if ($active) { return $active.SiteCode }
+    $parsed = ConvertFrom-SuiteSiteFolderName -Name $SavedSiteCode
+    if ($parsed) { return $parsed.FolderName }
+    return $null
+}
+
+function Initialize-AppSiteData {
+    <#
+    .SYNOPSIS
+        Makes a site folder ready: the site identity, and the one-time copy of the single-site data.
+    .DESCRIPTION
+        $LegacySiteCode names the site that the single-site files belong to (the site code of the preferences file
+        before the first migration). When $MigrateLegacy is set, Invoke-SuiteSiteMigration copies those files into
+        that site's folder: copy, verify the SHA-256, keep the old files. Then every site key that the copy left out
+        (the SQL server of Discover, the per-application DP overrides, a key that a conflict kept back) is added from
+        $LegacyPrefs. The caller records that the copy ran. Returns Ok, Report and Text. A failed copy returns
+        Ok = $false and the caller keeps the single-site layout.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$SiteName,
+        [Parameter(Mandatory)][string]$AppRoot,
+        [switch]$MigrateLegacy,
+        [string]$LegacySiteCode,
+        $LegacyPrefs,
+        [string]$SuiteRoot,
+        [string]$LocalRoot
+    )
+    $result = [pscustomobject]@{ Ok = $true; Report = $null; Text = '' }
+    if (-not (Test-SuiteSiteName -Name $SiteName)) {
+        $result.Ok = $false; $result.Text = "Invalid site folder name: '$SiteName'."
+        return $result
+    }
+    try {
+        if ($MigrateLegacy -and (Test-SuiteSiteCode -SiteCode $LegacySiteCode)) {
+            if (-not $SuiteRoot) { $SuiteRoot = Split-Path -Path $AppRoot -Parent }
+            $splat = @{ SuiteRoot = $SuiteRoot; AppPackagerRoot = $AppRoot; SiteCode = $LegacySiteCode }
+            if ($LocalRoot) { $splat.LocalRoot = $LocalRoot }
+            $report = Invoke-SuiteSiteMigration @splat
+            $result.Report = $report
+            $result.Text = Format-SuiteSiteMigrationReport -Report $report
+            if ($report.Outcome -eq 'Failed') { $result.Ok = $false; return $result }
+            if ($LegacyPrefs) { Add-AppSiteMissingSettings -SiteName $LegacySiteCode.ToUpperInvariant() -Source $LegacyPrefs }
+        }
+        $provider = ''
+        $settings = Get-AppSiteSettings -SiteName $SiteName
+        if ($settings -and $settings.ProviderMachineName) { $provider = [string]$settings.ProviderMachineName }
+        Update-AppSiteIdentity -SiteName $SiteName -Provider $provider
+    }
+    catch {
+        $result.Ok = $false
+        $result.Text = $_.Exception.Message
+    }
+    return $result
+}
+
+function Add-AppSiteMissingSettings {
+    <#
+    .SYNOPSIS
+        Adds the site keys that the migration left out of settings.json, from the single-site preferences. Never replaces a key.
+    #>
+    param([Parameter(Mandatory)][string]$SiteName, [Parameter(Mandatory)]$Source)
+    $path = Join-Path (Get-SuiteSiteFolder -SiteCode $SiteName) 'settings.json'
+    $settings = ConvertTo-AppSiteOrdered -Object (Read-AppSiteJson -Path $path)
+    $added = 0
+    foreach ($key in $script:AppSiteScopedKeys) {
+        if ($settings.Contains($key) -or -not $Source.PSObject.Properties[$key]) { continue }
+        $value = ConvertTo-AppSiteCopy -Value $Source.$key
+        Remove-AppSiteSecret -Node $value
+        $settings[$key] = $value
+        $added++
+    }
+    if (-not $settings.Contains('ProviderMachineName') -and $Source.PSObject.Properties['MECM'] -and $Source.MECM -and $Source.MECM.ServerFQDN) {
+        $settings['ProviderMachineName'] = [string]$Source.MECM.ServerFQDN
+        $added++
+    }
+    if ($added -gt 0) { Write-AppSiteJson -Path $path -Object ([pscustomobject]$settings) }
+}
+
+function Merge-AppSiteIntoPreferenceData {
+    <#
+    .SYNOPSIS
+        Replaces the site-scoped keys of parsed preferences data with the values of the active site.
+    .DESCRIPTION
+        A key that the site has not stored is removed, so the default applies and the values of another
+        site never show. The provider comes from ProviderMachineName, then ProviderMachine or SMSProvider
+        of the same file, then the first provider of site.json. Returns the data unchanged for the single-site layout.
+    #>
+    param([Parameter(Mandatory)]$Data)
+    $site = Get-AppSiteName
+    if (-not $site) { return $Data }
+    $settings = Get-AppSiteSettings -SiteName $site
+    foreach ($key in $script:AppSiteScopedKeys) {
+        if ($Data.PSObject.Properties[$key]) { $Data.PSObject.Properties.Remove($key) }
+        if ($settings -and $settings.PSObject.Properties[$key]) { $Data | Add-Member -NotePropertyName $key -NotePropertyValue $settings.$key }
+    }
+    if ($Data.PSObject.Properties['MECM']) { $Data.PSObject.Properties.Remove('MECM') }
+    if (-not $Data.PSObject.Properties['ProviderMachineName']) {
+        $provider = ''
+        foreach ($alias in 'ProviderMachine', 'SMSProvider') { if (-not $provider -and $settings -and $settings.PSObject.Properties[$alias]) { $provider = [string]$settings.$alias } }
+        if (-not $provider) {
+            $identity = Read-AppSiteJson -Path (Join-Path (Get-SuiteSiteFolder -SiteCode $site) 'site.json')
+            if ($identity -and @($identity.providers).Count -gt 0) { $provider = [string]@($identity.providers)[0] }
+        }
+        if ($provider) { $Data | Add-Member -NotePropertyName 'ProviderMachineName' -NotePropertyValue $provider }
+    }
+    $parsed = ConvertFrom-SuiteSiteFolderName -Name $site
+    $Data | Add-Member -NotePropertyName 'SiteCode' -NotePropertyValue $parsed.SiteCode -Force
+    return $Data
+}
+
+function Read-AppSiteState {
+    # The ConfigMgr state per packager of the active site: LastCmVersion, LastCmChecked, LastCmSite.
+    $folder = Get-AppSiteFolder
+    if (-not $folder) { return $null }
+    return (Read-AppSiteJson -Path (Join-Path (Join-Path $folder 'state') 'app-state.json'))
+}
+
+function Save-AppSiteState {
+    # Writes the per-packager ConfigMgr state of the active site. Keys that another app wrote stay.
+    param([Parameter(Mandatory)][hashtable]$History)
+    $folder = Get-AppSiteFolder
+    if (-not $folder) { return }
+    $path = Join-Path (Join-Path $folder 'state') 'app-state.json'
+    $state = ConvertTo-AppSiteOrdered -Object (Read-AppSiteJson -Path $path)
+    foreach ($name in $History.Keys) {
+        $entry = $History[$name]
+        $fresh = [ordered]@{}
+        foreach ($key in $script:AppSiteStateKeys) {
+            $value = $null
+            if ($entry -is [System.Collections.IDictionary]) { if ($entry.Contains($key)) { $value = $entry[$key] } }
+            elseif ($entry -and $entry.PSObject.Properties[$key]) { $value = $entry.$key }
+            if ($null -ne $value) { $fresh[$key] = $value }
+        }
+        if ($fresh.Count -eq 0) { continue }
+        $state[[string]$name] = [pscustomobject]$fresh
+    }
+    Write-AppSiteJson -Path $path -Object ([pscustomobject]$state)
+}
+
+# ---------------------------------------------------------------------------
 # Packager history (per-app timestamps for batch/scheduled workflow)
 # ---------------------------------------------------------------------------
 # Storage lives under %LOCALAPPDATA%\AppPackager\app-history.json. It is NEVER
@@ -7525,6 +7875,64 @@ function Get-LatestCorrettoRelease {
 #   },
 #   ...
 # }
+
+Export-ModuleMember -Function Get-AppSiteScopedKey, Get-AppSiteName, Get-AppSiteFolder, Get-AppSiteSettings, Save-AppSiteSettings, Update-AppSiteIdentity, Set-AppActiveSite, Get-AppSiteList, Resolve-AppStartupSite, Initialize-AppSiteData, Merge-AppSiteIntoPreferenceData
+
+function Merge-AppSiteStateIntoHistory {
+    # In a site, the ConfigMgr state of a packager comes from the site state file only. A value that the
+    # single-site history file still holds belongs to the site that the migration copied it to.
+    param([Parameter(Mandatory)][hashtable]$History)
+    foreach ($name in @($History.Keys)) {
+        $entry = $History[$name]
+        if ($entry -and $entry.PSObject -and $entry.PSObject.Properties) {
+            foreach ($key in $script:AppSiteStateKeys) { if ($entry.PSObject.Properties[$key]) { $entry.PSObject.Properties.Remove($key) } }
+        }
+    }
+    $state = Read-AppSiteState
+    if (-not $state) { return }
+    foreach ($p in $state.PSObject.Properties) {
+        if (-not $p.Value -or -not $p.Value.PSObject) { continue }
+        $entry = $History[$p.Name]
+        if (-not $entry) {
+            $entry = [pscustomobject]@{ LastChecked = $null; LastStaged = $null; LastPackaged = $null; LastKnownVersion = $null; LastResult = $null }
+            $History[$p.Name] = $entry
+        }
+        foreach ($key in $script:AppSiteStateKeys) {
+            if (-not $p.Value.PSObject.Properties[$key]) { continue }
+            $value = $p.Value.$key
+            if ($key -eq 'LastCmChecked') { $value = Convert-PackagerHistoryTimestampToString -Value $value }
+            if ($entry -is [System.Collections.IDictionary]) { $entry[$key] = $value }
+            else { $entry | Add-Member -NotePropertyName $key -NotePropertyValue $value -Force }
+        }
+    }
+}
+
+function Get-AppHistoryWithoutSiteState {
+    # The history for the global file in a site: the ConfigMgr state goes to the site, and the values that the
+    # file already holds stay as they are, because the old files are kept after the migration.
+    param([Parameter(Mandatory)][hashtable]$History, [Parameter(Mandatory)][string]$Path)
+    $onDisk = Read-AppSiteJson -Path $Path
+    $out = [ordered]@{}
+    foreach ($name in $History.Keys) {
+        $entry = $History[$name]
+        $copy = [ordered]@{}
+        if ($entry -is [System.Collections.IDictionary]) { foreach ($k in $entry.Keys) { $copy[[string]$k] = $entry[$k] } }
+        elseif ($entry -and $entry.PSObject) { foreach ($pp in $entry.PSObject.Properties) { $copy[$pp.Name] = $pp.Value } }
+        foreach ($key in $script:AppSiteStateKeys) { $copy.Remove($key) }
+        $old = $null
+        if ($onDisk -and $onDisk.PSObject.Properties[$name]) { $old = $onDisk.$name }
+        if ($old -and $old.PSObject) {
+            foreach ($key in $script:AppSiteStateKeys) {
+                if (-not $old.PSObject.Properties[$key]) { continue }
+                $value = $old.$key
+                if ($key -eq 'LastCmChecked') { $value = Convert-PackagerHistoryTimestampToString -Value $value }
+                $copy[$key] = $value
+            }
+        }
+        $out[[string]$name] = $copy
+    }
+    return $out
+}
 
 function Get-PackagerHistoryPath {
     <#
@@ -7573,6 +7981,7 @@ function Read-PackagerHistory {
             }
             $hash[$p.Name] = $entry
         }
+        if (Get-AppSiteName) { Merge-AppSiteStateIntoHistory -History $hash }
         return $hash
     }
     catch {
@@ -7591,7 +8000,12 @@ function Save-PackagerHistory {
     param([Parameter(Mandatory)][hashtable]$History)
     $path = Get-PackagerHistoryPath
     try {
-        ($History | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $path -Encoding UTF8
+        $toWrite = $History
+        if (Get-AppSiteName) {
+            Save-AppSiteState -History $History
+            $toWrite = Get-AppHistoryWithoutSiteState -History $History -Path $path
+        }
+        ($toWrite | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $path -Encoding UTF8
     }
     catch {
         Write-Log ("Save-PackagerHistory: could not write {0}: {1}" -f $path, $_.Exception.Message) -Level ERROR
@@ -8770,8 +9184,10 @@ $script:CheckConfigMgrResultColumns = @('Application', 'Vendor', 'CMName', 'Inst
 function Get-CheckConfigMgrResultFolder {
     <#
     .SYNOPSIS
-        The folder of the fixed result file: %LOCALAPPDATA%\AppPackager.
+        The folder of the fixed result file: results of the active site folder, else %LOCALAPPDATA%\AppPackager.
     #>
+    $site = Get-AppSiteFolder -Area 'results'
+    if ($site) { return $site }
     Join-Path $env:LOCALAPPDATA 'AppPackager'
 }
 

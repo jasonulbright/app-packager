@@ -30,7 +30,9 @@ Close the tool. Delete `AppPackager.preferences.json` and `AppPackager.windowsta
 | `Packagers\packager-preferences.json` | The values that packagers read at stage time. The tool copies them from the Options dialog. |
 | `Packagers\m365-configuration.user.xml` | The copy of the configuration.xml that you imported in Options, Applications, Microsoft 365 Apps. It stays on this computer. An update keeps it. |
 | `Packagers\citrix-workspace-switches.json`, `Packagers\teamviewer-host-config.json` | The Citrix Workspace and TeamViewer Host settings. |
-| `%LOCALAPPDATA%\AppPackager\app-history.json` | The latest version, the version on the site, the last check and the CVE summary of each application. |
+| `%LOCALAPPDATA%\AppPackager\app-history.json` | The latest version, the last check and the CVE summary of each application. The version on the site is kept for each site. |
+| `%LOCALAPPDATA%\AppPackagerData\sites\<site code>\` | The data of one ConfigMgr site: its settings, the version on the site and the result files. See [Sites and site data](site-data.md). |
+| `%LOCALAPPDATA%\AppPackagerData\active-site.json` | The site that the next start opens. |
 
 ## Where each setting is edited
 
@@ -39,6 +41,7 @@ Every key of `AppPackager.preferences.json`, `Packagers\citrix-workspace-switche
 | Key | Why Options has no field |
 |---|---|
 | `FirstRunCompleted` | The Setup window writes it. The box **Don't show this again** and **Save** set it. |
+| `SiteDataMigratedFrom` | The tool writes the site code for which it copied the single-site files into the site folder. See [Sites and site data](site-data.md). |
 | `DiscoveryEnabled` | The Discover unmanaged software window writes it when you enable an application. |
 | `CommandOverrides.Apps` | The command override dialog of the main window edits it for each application. |
 | `WorkbenchDataRoot` | File only. It sets the data folder of the Workbench. The variable `APP_PACKAGER_WORKBENCH_ROOT` overrides it. |

@@ -43,7 +43,7 @@ The first Check ConfigMgr can offer to hide the applications that the site does 
 
 ### The result file
 
-Each **Check ConfigMgr** run writes the result to two files in `%LOCALAPPDATA%\AppPackager`: `CheckConfigMgrResult.csv` and `CheckConfigMgrResult.json`. The next run overwrites them. The log shows the path. The files hold one row for each checked application, except a row that ended in `Error` or that has no vendor version. The Update rollout view of Deployment Helper reads the file to list the applications that are behind. App Packager Desktop writes the same format.
+Each **Check ConfigMgr** run writes the result to two files in the `results` folder of the active site, `%LOCALAPPDATA%\AppPackagerData\sites\<site code>\results`: `CheckConfigMgrResult.csv` and `CheckConfigMgrResult.json`. Before the site folders, the files were in `%LOCALAPPDATA%\AppPackager`; the first start copies them and keeps the old files. The next run overwrites them. The log shows the path. The files hold one row for each checked application, except a row that ended in `Error` or that has no vendor version. The Update rollout view of Deployment Helper reads the file to list the applications that are behind. App Packager Desktop writes the same format.
 
 To save the result of the last run in a place that you choose, right-click a row and select **Export Check ConfigMgr results...**. The **Save as type** list chooses the format and the filter: CSV or JSON, all checked applications or only the applications with an update available.
 
