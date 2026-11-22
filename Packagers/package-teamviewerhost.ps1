@@ -348,6 +348,8 @@ function Invoke-StageTeamViewerHostExe {
 
     $localContentPath = Join-Path $BaseDownloadRoot $version
     Initialize-Folder -Path $localContentPath
+    # A folder of this version may hold the MSI from an earlier run. Only the chosen type ships.
+    Remove-Item -LiteralPath (Join-Path $localContentPath $InstallerFileName) -Force -ErrorAction SilentlyContinue
     Copy-Item -LiteralPath $localExe -Destination (Join-Path $localContentPath $ExeFileName) -Force -ErrorAction Stop
     Write-Log "Copied EXE to staged folder  : $localContentPath"
 
@@ -450,6 +452,7 @@ function Invoke-StageTeamViewerHostMsi {
     $localContentPath = Join-Path $BaseDownloadRoot $version
     Initialize-Folder -Path $localContentPath
 
+    Remove-Item -LiteralPath (Join-Path $localContentPath $ExeFileName) -Force -ErrorAction SilentlyContinue
     $stagedMsi = Join-Path $localContentPath $InstallerFileName
     Copy-Item -LiteralPath $localMsi -Destination $stagedMsi -Force -ErrorAction Stop
     Write-Log "Copied MSI to staged folder  : $stagedMsi"

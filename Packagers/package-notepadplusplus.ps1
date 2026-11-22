@@ -199,6 +199,11 @@ function Invoke-StageNotepadPlusPlus {
     $localContentPath = Join-Path $BaseDownloadRoot $version
     Initialize-Folder -Path $localContentPath
 
+    # A folder of this version may hold the installer of the other type from an earlier run. Only the chosen type ships.
+    foreach ($stale in @(Get-ChildItem -LiteralPath $localContentPath -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*Installer*' -and $_.Name -ne $installerFileName })) {
+        Remove-Item -LiteralPath $stale.FullName -Force -ErrorAction SilentlyContinue
+    }
+
     $stagedExe = Join-Path $localContentPath $installerFileName
     if (-not (Test-Path -LiteralPath $stagedExe)) {
         Copy-Item -LiteralPath $localExe -Destination $stagedExe -Force -ErrorAction Stop
