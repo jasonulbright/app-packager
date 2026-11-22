@@ -78,7 +78,8 @@ function Open-AllApplications {
     }
     if (-not $o) { throw 'Options did not open after three real clicks.' }
     Start-Sleep -Seconds 1
-    Size-Win $o 1400 1040
+    # Six columns come before the rule list (Package Source, Install Scope, Installer Type, Supersedence, Version in Title, Version Rule). A narrower window leaves Version Rule outside the visible columns, and the grid then makes no cell for it.
+    Size-Win $o 1600 1040
     $tree = @($o.FindAll('Descendants', (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::TreeItem))))
     $group = $tree | Where-Object { $_.Current.Name -eq 'Applications' } | Select-Object -First 1
     if (-not $group) { throw 'The Options tree has no Applications group.' }
@@ -99,7 +100,7 @@ function Get-WsusRefusedApplication {
 # A real click on the Columns button, then on the item of one column.
 # The column menu has one check item for each column and is longer than the screen below the button, so the item is chosen with real keys:
 # a click opens the menu, Down moves to the item, Enter checks or clears it, Escape closes the menu.
-$script:MenuOrder = @('Package Source', 'Install Scope', 'Supersedence', 'Version in Title', 'Version Rule', 'Network', 'Network Split', 'Install Command', 'Uninstall Command', 'In One Click', 'Check Interval Days', 'Publish to ConfigMgr', 'Publish to Intune', 'Publish to WSUS', 'Free disk space (MB)', 'Memory (MB)', 'OS build (minimum)', 'Distribution point group', 'Test collection', 'Detection', 'Estimated Runtime (min)', 'Maximum Runtime (min)', 'Reboot After Install')
+$script:MenuOrder = @('Package Source', 'Install Scope', 'Installer Type', 'Supersedence', 'Version in Title', 'Version Rule', 'Network', 'Network Split', 'Install Command', 'Uninstall Command', 'In One Click', 'Check Interval Days', 'Publish to ConfigMgr', 'Publish to Intune', 'Publish to WSUS', 'Free disk space (MB)', 'Memory (MB)', 'OS build (minimum)', 'Distribution point group', 'Test collection', 'Detection', 'Estimated Runtime (min)', 'Maximum Runtime (min)', 'Reboot After Install')
 function Toggle-Column($o, [string]$Header) {
     $index = [Array]::IndexOf($script:MenuOrder, $Header)
     if ($index -lt 0) { throw "Unknown column $Header." }
