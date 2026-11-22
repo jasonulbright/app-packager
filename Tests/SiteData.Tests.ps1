@@ -19,7 +19,7 @@ BeforeAll {
     $tokens = $null; $errors = $null
     $script:Ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RepoRoot 'start-apppackager.ps1'), [ref]$tokens, [ref]$errors)
     if ($errors) { throw ($errors.Message -join '; ') }
-    foreach ($name in 'Read-Preferences', 'Write-PreferenceFile', 'Save-Preferences', 'Enable-AppSite', 'Initialize-AppSiteLayout', 'Switch-AppSite',
+    foreach ($name in 'Read-Preferences', 'Write-PreferenceFile', 'Save-Preferences', 'Enable-AppSite', 'Get-LegacySiteSource', 'Set-ActiveSiteHint', 'Initialize-AppSiteLayout', 'Switch-AppSite',
         'Get-DeploymentTargetNames', 'Get-KnownDeploymentTarget', 'Resolve-FirstRunCompleted', 'Set-DeploymentTypeContentEnvironment', 'Get-PackagerPreferenceMirror') {
         $fn = $script:Ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }.GetNewClosure(), $false)
         if (-not $fn) { throw "start-apppackager.ps1 no longer defines $name." }
@@ -336,11 +336,40 @@ Describe 'Start, save and switch in the launcher' {
         Test-Path -LiteralPath (Join-Path (Get-SuiteDataRoot) 'sites') | Should -BeFalse
     }
 
+    It 'does not start a site from the shipped default code when the wizard is closed without a site' {
+        $prefs = Read-Preferences
+        $prefs.FirstRunCompleted = $true
+        Save-Preferences -Prefs $prefs
+        Get-AppSiteName | Should -BeNullOrEmpty
+        Test-Path -LiteralPath (Join-Path (Get-SuiteDataRoot) 'sites') | Should -BeFalse
+    }
+
+    It 'does not start a site at launch while the Setup of the preferences file is not done' {
+        $prefs = Read-Preferences
+        Write-PreferenceFile -Prefs $prefs
+        Set-AppActiveSite -SiteName 'CD2'
+        Initialize-AppSiteLayout -ExplicitSite ''
+        Get-AppSiteName | Should -BeNullOrEmpty
+        Test-Path -LiteralPath (Join-Path (Get-SuiteDataRoot) 'sites\MCM') | Should -BeFalse
+    }
+
+    It 'does not copy the files of one site into another when the start copy did not run' {
+        Initialize-LegacyFile -Fixture $script:Fx
+        $prefs = Read-Preferences
+        $prefs.SiteCode = 'CD2'
+        $script:SiteRequest = 'CD2'
+        Save-Preferences -Prefs $prefs
+        Get-AppSiteName | Should -Be 'CD2'
+        Test-Path -LiteralPath (Join-Path (Get-SuiteDataRoot) 'sites\CD2\results') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path (Get-SuiteDataRoot) 'sites\AB1\results\CheckConfigMgrResult.csv') | Should -BeTrue
+    }
+
     It 'starts the first site when the Setup wizard is done' {
         $prefs = Read-Preferences
         $prefs.SiteCode = 'AB1'
         $prefs.ProviderMachineName = 'cm01.example.com'
         $prefs.FirstRunCompleted = $true
+        $script:SiteRequest = 'AB1'
         Save-Preferences -Prefs $prefs
         Get-AppSiteName | Should -Be 'AB1'
         $prefs.SiteDataMigratedFrom | Should -Be 'AB1'

@@ -7561,7 +7561,10 @@ function Read-AppSiteJson {
     try {
         $text = [IO.File]::ReadAllText($Path)
         if ([string]::IsNullOrWhiteSpace($text)) { return $null }
-        return ($text | ConvertFrom-Json -ErrorAction Stop)
+        # PowerShell 7 turns an ISO text into a date; the contract keeps the text.
+        $splat = @{}
+        if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $splat['DateKind'] = 'String' }
+        return ($text | ConvertFrom-Json -ErrorAction Stop @splat)
     }
     catch { return $null }
 }
@@ -7572,7 +7575,7 @@ function Write-AppSiteJson {
     $dir = Split-Path -Path $Path -Parent
     if (-not (Test-Path -LiteralPath $dir)) { [void](New-Item -ItemType Directory -Path $dir -Force) }
     $text = (ConvertTo-Json -InputObject $Object -Depth 12).Replace("`r`n", "`n") + "`n"
-    $tmp = $Path + '.tmp'
+    $tmp = '{0}.{1}.tmp' -f $Path, [guid]::NewGuid().ToString('N')
     [IO.File]::WriteAllBytes($tmp, (New-Object System.Text.UTF8Encoding($false)).GetBytes($text))
     Move-Item -LiteralPath $tmp -Destination $Path -Force
 }

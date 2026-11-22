@@ -1046,8 +1046,8 @@ function Save-Preferences {
     $typed = ConvertFrom-SuiteSiteFolderName -Name ([string]$Prefs.SiteCode)
     $target = $null
     if ($requested) { if ($requested -cne $active) { $target = $requested } }
-    elseif ($typed -and $typed.SiteCode -cne $activeCode) { $target = $typed.FolderName }
-    # A copy that never finished its first setup has no site yet: the first site starts when the Setup wizard is done.
+    elseif ($active -and $typed -and $typed.SiteCode -cne $activeCode) { $target = $typed.FolderName }
+    # The first site starts only when the operator named one and the Setup wizard is done; the default code never starts a site.
     if ($target -and -not $active -and -not [bool]$Prefs.FirstRunCompleted) { $target = $null }
 
     if (-not $target) {
@@ -1062,15 +1062,34 @@ function Save-Preferences {
         Switch-AppSite -Prefs $Prefs -SiteName $target
         return
     }
-    $enabled = Enable-AppSite -SiteName $target -MigratedFrom ([string]$Prefs.SiteDataMigratedFrom) -LegacySiteCode '' -LegacyPrefs $Prefs
+    $legacy = Get-LegacySiteSource
+    $enabled = Enable-AppSite -SiteName $target -MigratedFrom ([string]$Prefs.SiteDataMigratedFrom) -LegacySiteCode $legacy.Code -LegacyPrefs $legacy.Prefs
     if ($enabled.Ok) {
         $env:APP_PACKAGER_SITE = $target
         $Prefs.SiteDataMigratedFrom = $enabled.MigratedFrom
         $Prefs.SiteCode = (ConvertFrom-SuiteSiteFolderName -Name $target).SiteCode
-        Set-AppActiveSite -SiteName $target
+        Set-ActiveSiteHint -SiteName $target
     }
     else { Write-Log ('Site data folder not used: {0}' -f $enabled.Text) -Level WARN }
     Write-PreferenceFile -Prefs $Prefs
+}
+
+function Get-LegacySiteSource {
+    # The preferences file as it is on disk: the site code and the values that the single-site files belong to. A copy
+    # that never finished its Setup has none, because its site code is the shipped default.
+    $path = Get-PreferencesPath
+    $none = [pscustomobject]@{ Code = ''; Prefs = $null }
+    if (-not (Test-Path -LiteralPath $path)) { return $none }
+    try { $raw = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { return $none }
+    if (-not $raw -or -not (Resolve-FirstRunCompleted -StoredValue $raw.FirstRunCompleted -PreferencesFileExisted $true)) { return $none }
+    return [pscustomobject]@{ Code = [string]$raw.SiteCode; Prefs = $raw }
+}
+
+function Set-ActiveSiteHint {
+    # active-site.json only tells the next start which site to open. A failed write does not stop a save or a switch.
+    param([Parameter(Mandatory)][string]$SiteName)
+    try { Set-AppActiveSite -SiteName $SiteName }
+    catch { try { Write-Log ('active-site.json was not written: {0}' -f $_.Exception.Message) -Level WARN } catch { <# Logging is best effort here. #> $null = $_ } }
 }
 
 function Enable-AppSite {
@@ -1112,6 +1131,8 @@ function Initialize-AppSiteLayout {
     }
     # A copy with no preferences file starts the Setup wizard. The site folders of other tools stay untouched until it is done.
     if (-not $raw) { return }
+    # A copy whose Setup is not done has only the shipped default site code.
+    if (-not (Resolve-FirstRunCompleted -StoredValue $raw.FirstRunCompleted -PreferencesFileExisted $true)) { return }
     $saved = [string]$raw.SiteCode
     $migrated = [string]$raw.SiteDataMigratedFrom
     $site = Resolve-AppStartupSite -Explicit $ExplicitSite -SavedSiteCode $saved
@@ -1125,7 +1146,7 @@ function Initialize-AppSiteLayout {
         return
     }
     $env:APP_PACKAGER_SITE = $site
-    if (-not $hadActiveFile) { Set-AppActiveSite -SiteName $site }
+    if (-not $hadActiveFile) { Set-ActiveSiteHint -SiteName $site }
     if ($enabled.MigratedFrom -cne $migrated) { $script:PendingSiteMigratedFrom = $enabled.MigratedFrom }
 }
 
@@ -1136,7 +1157,8 @@ function Switch-AppSite {
     $parsed = ConvertFrom-SuiteSiteFolderName -Name $SiteName
     if (-not $parsed) { throw ("'{0}' is not a site code. Use three letters or digits, for example AB1." -f $SiteName) }
     if (Test-PipelineBusy) { throw 'A run is active. Switch the site when it has finished.' }
-    $enabled = Enable-AppSite -SiteName $parsed.FolderName -MigratedFrom ([string]$Prefs.SiteDataMigratedFrom) -LegacySiteCode ([string]$Prefs.SiteCode) -LegacyPrefs $Prefs
+    $legacy = Get-LegacySiteSource
+    $enabled = Enable-AppSite -SiteName $parsed.FolderName -MigratedFrom ([string]$Prefs.SiteDataMigratedFrom) -LegacySiteCode $legacy.Code -LegacyPrefs $legacy.Prefs
     if (-not $enabled.Ok) { throw ('The data folder of site {0} could not be prepared. {1}' -f $parsed.FolderName, $enabled.Text) }
     $previous = $env:APP_PACKAGER_SITE
     $env:APP_PACKAGER_SITE = $parsed.FolderName
@@ -1145,9 +1167,9 @@ function Switch-AppSite {
     foreach ($key in (Get-AppSiteScopedKey)) { if ($fresh.PSObject.Properties[$key]) { $Prefs.$key = $fresh.$key } }
     $Prefs.SiteCode = $parsed.SiteCode
     $Prefs.SiteDataMigratedFrom = $enabled.MigratedFrom
-    Set-AppActiveSite -SiteName $parsed.FolderName
     $script:LastCheckConfigMgrResult = @()
     Write-PreferenceFile -Prefs $Prefs
+    Set-ActiveSiteHint -SiteName $parsed.FolderName
     Update-AppSiteIdentity -SiteName $parsed.FolderName -Provider ([string]$Prefs.ProviderMachineName)
     Write-Log ('Site switched to {0}.' -f $parsed.FolderName) -Level INFO
 }
@@ -10599,6 +10621,7 @@ function New-OptionsDialog {
             return $true
         }
         catch {
+            $script:SiteRequest = $null
             [void](Show-ThemedMessage -Owner $dlg -Title 'Save Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Error)
             return $false
         }
