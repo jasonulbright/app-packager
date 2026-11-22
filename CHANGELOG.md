@@ -2,12 +2,18 @@
 
 ## [Unreleased]
 
+## [2026.11.22.0159] - 2026-11-22
+
 ## 1 column in the All Applications grid
 
 ### Added
 
 - Add the column Installer Type (EXE or MSI) to the All Applications grid.
 - Add the EXE and the MSI installer type to 7-Zip, Notepad++ and TeamViewer Host.
+
+### Changed
+
+- Retake the guide images for the wider Options window and the Check ConfigMgr log.
 
 ## [2026.11.21.0158] - 2026-11-21
 
