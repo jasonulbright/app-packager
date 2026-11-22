@@ -33,6 +33,19 @@ function Get-El($Scope, [string]$Id, [switch]$Quiet) {
     $el
 }
 function Invoke-El($El) { [void][NativeUi]::SetCursorPos(1900, 1060); $El.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
+# The per-site data of the lab account. Every run starts and ends without it, so that no run sees the sites of an earlier one.
+function Remove-CaptureSiteData {
+    $root = Join-Path $env:LOCALAPPDATA 'AppPackagerData'
+    Remove-Item (Join-Path $root 'sites') -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $root 'active-site.json') -Force -ErrorAction SilentlyContinue
+}
+# A second site, so that the list of sites in Options shows more than one entry. The tool lists a folder with a valid site.json.
+function New-CaptureSite([string]$Code, [string]$Provider) {
+    $dir = Join-Path (Join-Path (Join-Path $env:LOCALAPPDATA 'AppPackagerData') 'sites') $Code
+    New-Item -ItemType Directory $dir -Force | Out-Null
+    $now = [datetime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    ([ordered]@{ schemaVersion = 1; siteCode = $Code; providers = @($Provider); createdUtc = $now; lastUsedUtc = $now } | ConvertTo-Json) | Set-Content -LiteralPath (Join-Path $dir 'site.json') -Encoding UTF8
+}
 function Set-Text($El, [string]$Text) { $El.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($Text) }
 function Toggle-El($El) { $El.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle() }
 function Select-El($El) { $El.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select() }

@@ -7,6 +7,7 @@ public class GuiRes { [DllImport("user32.dll")] public static extern uint GetGui
 '@
 $dataDir = Join-Path $env:LOCALAPPDATA 'AppPackager'
 Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-CaptureSiteData
 $dl = Join-Path $GuideRoot 'dl'
 Remove-Item $dl -Recurse -Force -ErrorAction SilentlyContinue
 $win = Start-App 'start-apppackager.ps1' 'AppPackager*v20??.??.??.????'

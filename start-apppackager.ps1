@@ -321,6 +321,8 @@ function Read-Preferences {
         # 0 means the default port of the instance.
         DiscoverySqlPort     = 0
         DiscoverySqlDatabase = ''
+        # The site that the single-site files were copied for. Empty until the copy has run.
+        SiteDataMigratedFrom = ''
         FirstRunCompleted    = $false
         # Looks for a newer release at launch; off keeps the launch free of the lookup.
         CheckForUpdatesAtStartup = $true
@@ -475,6 +477,7 @@ function Read-Preferences {
         $raw = Get-Content -LiteralPath $path -Raw -ErrorAction Stop
         if ([string]::IsNullOrWhiteSpace($raw)) { return $defaults }
         $data = $raw | ConvertFrom-Json -ErrorAction Stop
+        $data = Merge-AppSiteIntoPreferenceData -Data $data
 
         if ($null -ne $data.Vulnerability) {
             $vu = $data.Vulnerability
@@ -488,6 +491,7 @@ function Read-Preferences {
             if ($null -ne $vu.LookupAfterCheckCm) { try { $defaults.Vulnerability.LookupAfterCheckCm = [bool]$vu.LookupAfterCheckCm } catch { <# Reading a boolean setting from the preferences file; a bad value keeps the default. #> $null = $_ } }
         }
 
+        if ($null -ne $data.SiteDataMigratedFrom) { $defaults.SiteDataMigratedFrom = [string]$data.SiteDataMigratedFrom }
         if ($null -ne $data.SiteCode)             { $defaults.SiteCode             = [string]$data.SiteCode }
         if ($null -ne $data.ProviderMachineName)  { $defaults.ProviderMachineName  = [string]$data.ProviderMachineName }
         elseif ($data.MECM -and $null -ne $data.MECM.ServerFQDN) {
@@ -999,7 +1003,7 @@ function Get-PackagerPreferenceMirror {
     }
 }
 
-function Save-Preferences {
+function Write-PreferenceFile {
     param([Parameter(Mandatory)][pscustomobject]$Prefs)
 
     $path = Get-PreferencesPath
@@ -1007,7 +1011,8 @@ function Save-Preferences {
     Set-Content -LiteralPath $path -Value $json -Encoding UTF8
     Set-DeploymentTypeContentEnvironment -Prefs $Prefs
 
-    $pkgPrefsPath = Join-Path (Join-Path $PSScriptRoot "Packagers") "packager-preferences.json"
+    $appRoot = Split-Path -Path $path -Parent
+    $pkgPrefsPath = Join-Path (Join-Path $appRoot "Packagers") "packager-preferences.json"
     try {
         $pkgPrefs = @{}
         if (Test-Path -LiteralPath $pkgPrefsPath) {
@@ -1016,13 +1021,135 @@ function Save-Preferences {
                 $pkgPrefs[$prop.Name] = $prop.Value
             }
         }
-        $mirror = Get-PackagerPreferenceMirror -Prefs $Prefs -Folder (Join-Path $PSScriptRoot "Packagers")
+        $mirror = Get-PackagerPreferenceMirror -Prefs $Prefs -Folder (Join-Path $appRoot "Packagers")
         foreach ($key in $mirror.Keys) { $pkgPrefs[$key] = $mirror[$key] }
         $pkgPrefs | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $pkgPrefsPath -Encoding UTF8
     }
     catch {
         Write-Warning ("Failed to save packager preferences ({0}): {1}" -f $pkgPrefsPath, $_.Exception.Message)
     }
+
+    # The site folder is the store of the site-scoped keys. The file above keeps a copy of the active site for other readers.
+    [void](Save-AppSiteSettings -Prefs $Prefs)
+}
+
+function Save-Preferences {
+    param([Parameter(Mandatory)][pscustomobject]$Prefs)
+
+    # Options names the site that the operator picked in $script:SiteRequest. A site code that differs from the
+    # active site and comes from anywhere else (a command-line value) counts as a switch too.
+    $requested = $script:SiteRequest
+    $script:SiteRequest = $null
+    $active = Get-AppSiteName
+    $activeCode = ''
+    if ($active) { $activeCode = (ConvertFrom-SuiteSiteFolderName -Name $active).SiteCode }
+    $typed = ConvertFrom-SuiteSiteFolderName -Name ([string]$Prefs.SiteCode)
+    $target = $null
+    if ($requested) { if ($requested -cne $active) { $target = $requested } }
+    elseif ($typed -and $typed.SiteCode -cne $activeCode) { $target = $typed.FolderName }
+    # A copy that never finished its first setup has no site yet: the first site starts when the Setup wizard is done.
+    if ($target -and -not $active -and -not [bool]$Prefs.FirstRunCompleted) { $target = $null }
+
+    if (-not $target) {
+        if ($active -and $typed) { $Prefs.SiteCode = $activeCode }
+        Write-PreferenceFile -Prefs $Prefs
+        return
+    }
+    if ($active) {
+        # The changes made in the window belong to the site that was active: write them there, then switch.
+        $Prefs.SiteCode = $activeCode
+        Write-PreferenceFile -Prefs $Prefs
+        Switch-AppSite -Prefs $Prefs -SiteName $target
+        return
+    }
+    $enabled = Enable-AppSite -SiteName $target -MigratedFrom ([string]$Prefs.SiteDataMigratedFrom) -LegacySiteCode '' -LegacyPrefs $Prefs
+    if ($enabled.Ok) {
+        $env:APP_PACKAGER_SITE = $target
+        $Prefs.SiteDataMigratedFrom = $enabled.MigratedFrom
+        $Prefs.SiteCode = (ConvertFrom-SuiteSiteFolderName -Name $target).SiteCode
+        Set-AppActiveSite -SiteName $target
+    }
+    else { Write-Log ('Site data folder not used: {0}' -f $enabled.Text) -Level WARN }
+    Write-PreferenceFile -Prefs $Prefs
+}
+
+function Enable-AppSite {
+    # Makes a site folder ready: the identity and, once, the copy of the single-site files. The caller sets
+    # APP_PACKAGER_SITE when Ok. MigratedFrom is the site that the copy ran for, or '' when it has not run.
+    param(
+        [Parameter(Mandatory)][string]$SiteName,
+        [string]$MigratedFrom,
+        [string]$LegacySiteCode,
+        $LegacyPrefs
+    )
+    $splat = @{ SiteName = $SiteName; AppRoot = (Split-Path -Path (Get-PreferencesPath) -Parent); LocalRoot = $env:LOCALAPPDATA }
+    $ran = [string]::IsNullOrWhiteSpace($MigratedFrom)
+    $legacy = $LegacySiteCode
+    if ($ran) {
+        # The single-site files belong to the site code of the preferences file. A start in another site (the suite launcher
+        # passes one) copies them for their own site first.
+        if (-not (Test-SuiteSiteCode -SiteCode $legacy)) { $legacy = (ConvertFrom-SuiteSiteFolderName -Name $SiteName).SiteCode }
+        $splat.MigrateLegacy = $true
+        $splat.LegacySiteCode = $legacy
+        $splat.LegacyPrefs = $LegacyPrefs
+    }
+    $result = Initialize-AppSiteData @splat
+    $recorded = $MigratedFrom
+    if ($result.Ok -and $ran) { $recorded = $legacy.ToUpperInvariant() }
+    if ($result.Ok -and $result.Report) { try { Write-Log ($result.Text.TrimEnd()) -Level INFO } catch { <# The migration report is written to the log when a log exists. #> $null = $_ } }
+    return [pscustomobject]@{ Ok = [bool]$result.Ok; MigratedFrom = $recorded; Text = [string]$result.Text }
+}
+
+function Initialize-AppSiteLayout {
+    # Resolves the site before the preferences are read. Order: the -SiteCode value, SUITE_CM_SITECODE, APP_PACKAGER_SITE,
+    # active-site.json, then the site code of the preferences file. No site: the single-site layout stays.
+    param([string]$ExplicitSite)
+    $script:PendingSiteMigratedFrom = $null
+    $raw = $null
+    $path = Get-PreferencesPath
+    if (Test-Path -LiteralPath $path) {
+        try { $raw = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { $raw = $null }
+    }
+    # A copy with no preferences file starts the Setup wizard. The site folders of other tools stay untouched until it is done.
+    if (-not $raw) { return }
+    $saved = [string]$raw.SiteCode
+    $migrated = [string]$raw.SiteDataMigratedFrom
+    $site = Resolve-AppStartupSite -Explicit $ExplicitSite -SavedSiteCode $saved
+    if (-not $site) { return }
+    $activeFile = Join-Path (Get-SuiteDataRoot) 'active-site.json'
+    $hadActiveFile = Test-Path -LiteralPath $activeFile
+    $enabled = Enable-AppSite -SiteName $site -MigratedFrom $migrated -LegacySiteCode $saved -LegacyPrefs $raw
+    if (-not $enabled.Ok) {
+        $env:APP_PACKAGER_SITE = $null
+        Write-Warning ('The site data folder of {0} is not used; the single-site files stay in use. {1}' -f $site, $enabled.Text)
+        return
+    }
+    $env:APP_PACKAGER_SITE = $site
+    if (-not $hadActiveFile) { Set-AppActiveSite -SiteName $site }
+    if ($enabled.MigratedFrom -cne $migrated) { $script:PendingSiteMigratedFrom = $enabled.MigratedFrom }
+}
+
+function Switch-AppSite {
+    # Changes the site this process works in. The caller has saved the changes for the old site. The values of the
+    # new site replace the site keys in $Prefs: its stored settings, or the defaults for a site that is new.
+    param([Parameter(Mandatory)][pscustomobject]$Prefs, [Parameter(Mandatory)][string]$SiteName)
+    $parsed = ConvertFrom-SuiteSiteFolderName -Name $SiteName
+    if (-not $parsed) { throw ("'{0}' is not a site code. Use three letters or digits, for example AB1." -f $SiteName) }
+    if (Test-PipelineBusy) { throw 'A run is active. Switch the site when it has finished.' }
+    $enabled = Enable-AppSite -SiteName $parsed.FolderName -MigratedFrom ([string]$Prefs.SiteDataMigratedFrom) -LegacySiteCode ([string]$Prefs.SiteCode) -LegacyPrefs $Prefs
+    if (-not $enabled.Ok) { throw ('The data folder of site {0} could not be prepared. {1}' -f $parsed.FolderName, $enabled.Text) }
+    $previous = $env:APP_PACKAGER_SITE
+    $env:APP_PACKAGER_SITE = $parsed.FolderName
+    try { $fresh = Read-Preferences }
+    catch { $env:APP_PACKAGER_SITE = $previous; throw }
+    foreach ($key in (Get-AppSiteScopedKey)) { if ($fresh.PSObject.Properties[$key]) { $Prefs.$key = $fresh.$key } }
+    $Prefs.SiteCode = $parsed.SiteCode
+    $Prefs.SiteDataMigratedFrom = $enabled.MigratedFrom
+    Set-AppActiveSite -SiteName $parsed.FolderName
+    $script:LastCheckConfigMgrResult = @()
+    Write-PreferenceFile -Prefs $Prefs
+    Update-AppSiteIdentity -SiteName $parsed.FolderName -Provider ([string]$Prefs.ProviderMachineName)
+    Write-Log ('Site switched to {0}.' -f $parsed.FolderName) -Level INFO
 }
 
 function Invoke-DetectConfigMgrConsole {
@@ -1206,7 +1333,9 @@ function Invoke-DetectIntuneWinAppUtil {
     return $result
 }
 
+Initialize-AppSiteLayout -ExplicitSite $(if ($PSBoundParameters.ContainsKey('SiteCode')) { $SiteCode } else { '' })
 $script:Prefs = Read-Preferences
+if ($script:PendingSiteMigratedFrom) { $script:Prefs.SiteDataMigratedFrom = $script:PendingSiteMigratedFrom }
 
 # Refresh tool detection once per launch. Persists into the same
 # preferences JSON so the status is available immediately on next start.
@@ -7531,6 +7660,7 @@ function New-OptionsFieldEditor {
             $cmb.IsEditable = $true
             Set-OptionsInputSize -Control $cmb -Field $Field
             $cmb.SetResourceReference([System.Windows.Controls.ItemsControl]::ItemContainerStyleProperty, 'ThemedComboBoxItemStyle')
+            if ($Field.ItemsFrom) { foreach ($entry in @(& $Field.ItemsFrom)) { [void]$cmb.Items.Add([string]$entry) } }
             $editor.Element = $cmb
             $editor.Focus = $cmb
             $editor.Get = { ([string]$cmb.Text).Trim() }.GetNewClosure()
@@ -7759,6 +7889,10 @@ function Test-OptionsFieldInput {
     # Returns an error text, or $null when the field holds a value that can be stored.
     param([Parameter(Mandatory)][hashtable]$Editor)
     $field = $Editor.Field
+    if ($field.Validate -and $Editor.Get) {
+        $problem = & $field.Validate ([string](& $Editor.Get))
+        if ($problem) { return [string]$problem }
+    }
     if ([string]$field.Kind -ne 'Number') { return $null }
     $text = [string](& $Editor.Get)
     if (-not $text) { return $null }
@@ -8121,7 +8255,12 @@ function Get-OptionsSectionDefinition {
             Description = 'The site that AppPackager publishes to and reads from.'
             Post = { param($Context, $Page) Initialize-OptionsConfigMgrSection -Context $Context -Page $Page }
             Fields = @(
-                @{ Id = 'cm.siteCode'; Title = 'Site code'; Kind = 'Text'; Pref = 'SiteCode'; MaxLength = 5; Size = 'Short'; Tip = 'The ConfigMgr site code, for example ABC.' }
+                @{ Id = 'cm.siteCode'; Title = 'Site code'; Kind = 'ComboText'; Pref = 'SiteCode'; Keywords = 'site switch sites list data folder'
+                    Tip = 'The ConfigMgr site code, for example ABC. The list holds the saved sites. Pick one or type a new code, then select OK to switch; the changes in this window are saved to the current site first.'
+                    ItemsFrom = { @(Get-AppSiteList | ForEach-Object { [string]$_.Name }) }
+                    ToText = { param($Value) $name = Get-AppSiteName; if ($name -and (ConvertFrom-SuiteSiteFolderName -Name $name).SiteCode -ceq [string]$Value) { $name } else { [string]$Value } }
+                    FromText = { param($Text) $parsed = ConvertFrom-SuiteSiteFolderName -Name ([string]$Text); if ($parsed) { $script:SiteRequest = $parsed.FolderName; $parsed.SiteCode } else { [string]$Text } }
+                    Validate = { param($Text) if ($Text -and -not (Test-SuiteSiteName -Name $Text)) { 'The site code is three letters or digits, for example ABC. SMS, CON, ENV, AUX, NUL and PRN are not allowed. A second environment with the same code is written ABC~2.' } } }
                 @{ Id = 'cm.provider'; Title = 'Site server / SMS Provider'; Kind = 'Text'; Pref = 'ProviderMachineName'; MaxLength = 200; Tip = 'The computer name of the SMS Provider of the site.'; Keywords = 'smsprovider provider site server' }
                 @{ Id = 'cm.dbGroup'; Kind = 'Group'; Title = 'Site database'; Description = 'Discover unmanaged software reads this database. An empty field takes its value from the site definition.' }
                 @{ Id = 'cm.sqlServer'; Title = 'SQL server'; Kind = 'Text'; Pref = 'DiscoverySqlServer'; MaxLength = 200; Tip = 'The host name of the SQL Server that holds the site database.'; Keywords = 'discovery sql discover' }
@@ -10313,6 +10452,7 @@ function New-OptionsDialog {
     $btnOK = $dlg.FindName('btnOK')
     $btnCancel = $dlg.FindName('btnCancel')
 
+    $script:SiteRequest = $null
     $ctx = New-OptionsContext -Prefs $script:Prefs
     $ctx.Owner = $dlg
     $ctx.FieldTable = Get-OptionsFieldTable
@@ -10446,10 +10586,11 @@ function New-OptionsDialog {
         }
         try {
             $siteBefore = Get-SiteIdentityKey -SiteCode $ctx.Prefs.SiteCode -ProviderMachineName $ctx.Prefs.ProviderMachineName
+            $siteNameBefore = Get-AppSiteName
             # The grid of all applications commits last: its One Click keys are changes on top of what the One Click page wrote.
             foreach ($id in @($ctx.Sections.Keys | Sort-Object { $_ -eq 'allapps' })) { $page = $ctx.Sections[$id]; if ($page -and $page.Commit) { & $page.Commit } }
-            $siteChanged = (Get-SiteIdentityKey -SiteCode $ctx.Prefs.SiteCode -ProviderMachineName $ctx.Prefs.ProviderMachineName) -cne $siteBefore
             Save-Preferences -Prefs $ctx.Prefs
+            $siteChanged = ((Get-SiteIdentityKey -SiteCode $ctx.Prefs.SiteCode -ProviderMachineName $ctx.Prefs.ProviderMachineName) -cne $siteBefore) -or ((Get-AppSiteName) -cne $siteNameBefore)
             if ($ctx.Touched['cwa']) { Save-CwaSwitches -Switches $ctx.Aux.cwa }
             if ($ctx.Touched['tv']) { Save-TvHostConfig -Config $ctx.Aux.tv }
             Invoke-RefreshGrid -DiscardSiteResults:$siteChanged

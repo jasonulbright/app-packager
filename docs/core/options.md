@@ -12,7 +12,7 @@ The search box above the tree finds a setting by name. Type a name, for example 
 
 A value that cannot be stored stops the save and opens its field. A port outside 1 to 65535 is one example.
 
-The footer of the main window shows the saved site code and site server. Options and Setup are the only places where you change them. The Setup window and the Connections sections use the same fields. A value that you type in Setup is the value that Options shows.
+The footer of the main window shows the saved site code and site server. Options and Setup are the only places where you change them. The list **Site code** in the ConfigMgr section switches to another site. See [Sites and site data](../reference/site-data.md). The Setup window and the Connections sections use the same fields. A value that you type in Setup is the value that Options shows.
 
 ## When to use it
 
@@ -36,7 +36,7 @@ Select the systems that AppPackager publishes to. The sidebar disables the butto
 
 #### ConfigMgr
 
-**Site code**, **Site server / SMS Provider**, the site database (**SQL server**, **SQL instance**, **SQL port**, **Database name**) and **Content share UNC**. Discover connects to `server\instance,port`. An empty database field takes its value from the site definition, and an empty database name means `CM_` and the site code. A name `server\instance,port` in the SQL server field shows split into the three fields. **Console status** shows whether the console is installed on this computer.
+**Site code** (a list of the saved sites, in which you can also type a new code), **Site server / SMS Provider**, the site database (**SQL server**, **SQL instance**, **SQL port**, **Database name**) and **Content share UNC**. Discover connects to `server\instance,port`. An empty database field takes its value from the site definition, and an empty database name means `CM_` and the site code. A name `server\instance,port` in the SQL server field shows split into the three fields. **Console status** shows whether the console is installed on this computer.
 
 ![The ConfigMgr section](../images/options-configmgr.png)
 

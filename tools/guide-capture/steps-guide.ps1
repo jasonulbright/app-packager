@@ -4,6 +4,8 @@
 # check before it copies content or touches the site. Every confirmation of a change is answered No or Cancel.
 $dataDir = Join-Path $env:LOCALAPPDATA 'AppPackager'
 Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-CaptureSiteData
+New-CaptureSite 'CD2' 'cm02.example.com'
 $dl = Join-Path $GuideRoot 'dl'
 Remove-Item $dl -Recurse -Force -ErrorAction SilentlyContinue
 # Close the browser window of an earlier CVE report, so that it cannot match a lookup.
@@ -91,6 +93,8 @@ Section 'grid' {
 }
 Section 'options' {
     Invoke-El (Get-El $win 'btnOptions'); $o = Find-LastLike 'Options*' 15
+    # The list of sites: the lab site and the second site of New-CaptureSite.
+    Expand-El (Get-El $o 'cm.siteCode'); Start-Sleep -Milliseconds 800; Shot $o 'options-site-list'; Collapse-El (Get-El $o 'cm.siteCode'); Start-Sleep -Milliseconds 500
     Capture-OptionsTree $o
     # Close the dialog without a save, so that it does not cover the main window in the next images.
     Invoke-El (Get-El $o 'Cancel'); Start-Sleep -Seconds 2
@@ -196,5 +200,6 @@ Section 'light' {
 }
 Stop-App 'start-apppackager.ps1'
 Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-CaptureSiteData
 Remove-Item $dl -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue

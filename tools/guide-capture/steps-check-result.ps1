@@ -4,6 +4,7 @@
 # check before it copies content or touches the site. Every confirmation of a change is answered No or Cancel.
 $dataDir = Join-Path $env:LOCALAPPDATA 'AppPackager'
 Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-CaptureSiteData
 $dl = Join-Path $GuideRoot 'dl'
 Remove-Item $dl -Recurse -Force -ErrorAction SilentlyContinue
 # Close the browser window of an earlier CVE report, so that it cannot match a lookup.
@@ -70,8 +71,10 @@ Section 'check configmgr and export' {
         Start-Sleep -Seconds 2
     }
     Log ('status after Check ConfigMgr: ' + (Status))
-    $resultCsv = Join-Path $dataDir 'CheckConfigMgrResult.csv'
-    $resultJson = Join-Path $dataDir 'CheckConfigMgrResult.json'
+    # The result files are in the results folder of the active site.
+    $resultDir = Join-Path (Join-Path (Join-Path (Join-Path $env:LOCALAPPDATA 'AppPackagerData') 'sites') ([string]$Capture.SiteCode).ToUpperInvariant()) 'results'
+    $resultCsv = Join-Path $resultDir 'CheckConfigMgrResult.csv'
+    $resultJson = Join-Path $resultDir 'CheckConfigMgrResult.json'
     if (-not (Test-Path -LiteralPath $resultCsv)) { throw "no result file at $resultCsv" }
     if (-not (Test-Path -LiteralPath $resultJson)) { throw "no result file at $resultJson" }
     Log ('result file: ' + @(Get-Content -LiteralPath $resultCsv).Count + ' lines'); Get-Content -LiteralPath $resultCsv -TotalCount 4 | ForEach-Object { Log $_ }
