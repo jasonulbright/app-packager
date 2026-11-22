@@ -40,6 +40,10 @@ Select the systems that AppPackager publishes to. The sidebar disables the butto
 
 ![The ConfigMgr section](../images/options-configmgr.png)
 
+The list **Site code** holds the saved sites. Pick one, or type a new site code, and select **OK** to switch.
+
+![The list of sites](../images/options-site-list.png)
+
 #### WSUS
 
 The server, the **Port**, **Use SSL**, the signing certificate, the classification, the approval group and **Decline superseded**. The port is 8530 for HTTP and 8531 for HTTPS, and it follows **Use SSL** until you type a custom port. A port outside 1 to 65535 stops the save. See [Publish to Intune and Publish to WSUS](publish-intune-wsus.md).
