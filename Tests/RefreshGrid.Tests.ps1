@@ -316,3 +316,45 @@ Describe 'Selection after a Stage or Package run' {
         $data[0].Selected | Should -BeFalse
     }
 }
+
+Describe 'The main grid shows the properties that the rows have' {
+    # A column that binds to a property name that the rows lack shows an empty cell for every row. The rows come out of
+    # Invoke-RefreshGrid, the code that builds them for the grid, and the bindings out of the dataGrid of MainWindow.xaml.
+    BeforeAll {
+        $script:FirefoxStatus = 'Ready'
+        $script:ChromeLatest = '130.0'
+        $script:ChromeCm = '129.0'
+        $script:ChromeCmSite = 'MCM'
+        $script:ChromeSummary = & $script:NewChromeSummary
+        $script:Prefs = [pscustomobject]@{ HiddenApplications = @(); SiteCode = 'MCM' }
+        $script:GridSessionRows = $null
+        $script:PackagerData = New-Object System.Collections.ObjectModel.ObservableCollection[object]
+        Invoke-RefreshGrid
+        [xml]$doc = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\MainWindow.xaml') -Raw
+        $ns = New-Object System.Xml.XmlNamespaceManager($doc.NameTable)
+        $ns.AddNamespace('w', 'http://schemas.microsoft.com/winfx/2006/xaml/presentation')
+        $ns.AddNamespace('x', 'http://schemas.microsoft.com/winfx/2006/xaml')
+        $grid = $doc.SelectSingleNode("//w:DataGrid[@x:Name='dataGrid']", $ns)
+        $script:BoundPaths = @([regex]::Matches($grid.OuterXml, '\{Binding\s+(?:Path=)?([A-Za-z_]\w*)([^{}]{0,80})') |
+                Where-Object { $_.Groups[2].Value -notmatch 'RelativeSource|ElementName' } | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+        $script:Row = @($script:PackagerData)[0]
+    }
+
+    It 'reads the bindings of the grid' {
+        $script:BoundPaths.Count | Should -BeGreaterThan 5
+    }
+
+    It 'gives the grid rows to show' {
+        $script:PackagerData.Count | Should -BeGreaterThan 0
+    }
+
+    It 'has a property for the binding <_>' -ForEach @('Application', 'Vendor', 'CurrentVersion', 'LatestVersion', 'Status', 'CveCount', 'CveCvss', 'CveKev', 'CveFixed', 'CveNewest', 'CveEpss', 'CveUpdated', 'CveChecked', 'CMName', 'Script', 'VendorURL', 'LastChecked') {
+        $script:BoundPaths | Should -Contain $_ -Because 'the test names the columns of the grid; a renamed column needs a new name here'
+        $script:Row.PSObject.Properties.Name | Should -Contain $_
+    }
+
+    It 'has a property on the rows for every binding of the grid' {
+        $missing = @($script:BoundPaths | Where-Object { $script:Row.PSObject.Properties.Name -notcontains $_ })
+        $missing | Should -BeNullOrEmpty -Because 'each of these columns would show an empty cell'
+    }
+}
