@@ -62,8 +62,11 @@ function Move-MouseAway($Win) {
     while ((Get-Date) -lt $end -and $root.FindFirst('Descendants', $tipCond)) { Start-Sleep -Milliseconds 400 }
     if ($Win -and $root.FindFirst('Descendants', $tipCond)) {
         $r = $Win.Current.BoundingRectangle
-        [void][NativeUi]::SetCursorPos([int]($r.X + $r.Width / 2), [int]($r.Y + 14)); Start-Sleep -Milliseconds 300
-        [NativeUi]::mouse_event(1, 2, 2, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 400
+        # A window that is closing has an empty rectangle: skip the touch then.
+        if (-not [double]::IsInfinity($r.X) -and -not [double]::IsNaN($r.X) -and $r.Width -gt 0) {
+            [void][NativeUi]::SetCursorPos([int]($r.X + $r.Width / 2), [int]($r.Y + 14)); Start-Sleep -Milliseconds 300
+            [NativeUi]::mouse_event(1, 2, 2, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 400
+        }
         [void][NativeUi]::SetCursorPos(1900, 1060); Start-Sleep -Milliseconds 100
         [NativeUi]::mouse_event(1, 3, 3, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 100
         [NativeUi]::mouse_event(1, -3, -3, 0, [UIntPtr]::Zero); Start-Sleep -Seconds 2
