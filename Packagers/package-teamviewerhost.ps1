@@ -21,7 +21,7 @@ ArpName: TeamViewer Host
     > All Applications > Installer Type). MSI is the default and is described
     below. EXE downloads TeamViewer_Host_Setup_x64.exe, reads the version from
     its file properties, installs with /S, uninstalls with the NSIS uninstall.exe
-    /S and detects TeamViewer.exe by file version. TeamViewer documents the
+    /S and detects the TeamViewer Host entry in Add/Remove Programs. TeamViewer documents the
     silent install for the MSI (msiexec /qn plus properties) and does not
     document an EXE switch, so the EXE type does not pass the properties of
     teamviewer-host-config.json; the packager logs a warning for each one.
@@ -384,8 +384,16 @@ function Invoke-StageTeamViewerHostExe {
         -InstallPs1Content $installContent `
         -UninstallPs1Content $uninstallContent
 
-    $detectionPath = "{0}\TeamViewer" -f $env:ProgramFiles
-    Write-Log "Detection                    : $detectionPath\TeamViewer.exe version >= $version"
+    # Detection reads the Add/Remove Programs entry of the Host. The file TeamViewer.exe in Program Files\TeamViewer is shared with
+    # the Full client, so a file rule would report Host as installed on a machine that has only the Full client.
+    $arpEntry = @{
+        Type              = "ArpEntry"
+        View              = "Both"
+        DisplayNamePrefix = "TeamViewer Host"
+        WindowsInstaller  = $false
+        Version           = $version
+    }
+    Write-Log "Detection                    : Add/Remove Programs entry 'TeamViewer Host*' (both views), DisplayVersion >= $version"
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
@@ -399,14 +407,11 @@ function Invoke-StageTeamViewerHostExe {
         UninstallArgs   = "/S"
         RunningProcess  = @("TeamViewer_Service", "TeamViewer")
         Detection       = @{
-            Type          = "File"
-            FilePath      = $detectionPath
-            FileName      = "TeamViewer.exe"
-            PropertyType  = "Version"
-            Operator      = "GreaterEquals"
-            ExpectedValue = $version
-            Is64Bit       = $true
+            Type           = "Script"
+            ScriptLanguage = "PowerShell"
+            ScriptText     = (New-ArpEntryDetectionScript -Entry $arpEntry)
         }
+        WsusDetection   = $arpEntry
     }
 
     Set-Content -LiteralPath (Join-Path $BaseDownloadRoot "staged-version.txt") -Value $version -Encoding ASCII -ErrorAction Stop

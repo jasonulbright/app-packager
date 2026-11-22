@@ -2403,6 +2403,9 @@ function Write-BuildRecord {
         StageRoot       = $StageRoot
         SealedAt        = (Get-Date -Format 'o')
     }
+    # The installer type that the run asked for ('' is the packager default). A build of another type is stale (Test-WorkbenchBuildIsCurrent).
+    $requestedType = ([string]$env:APP_PACKAGER_INSTALLER_TYPE).Trim().ToUpperInvariant()
+    $record['RequestedInstallerType'] = $(if ($requestedType -in @('EXE', 'MSI')) { $requestedType } else { '' })
     $policyDigest = Get-WorkbenchMember -InputObject $record['ScriptSigning'] -Path 'PolicyDigest'
     $record['PolicyDigest'] = $(if ($policyDigest.Found) { [string]$policyDigest.Value } else { '' })
 

@@ -259,10 +259,6 @@ function Invoke-Stage7Zip {
     $localContentPath = Join-Path $BaseDownloadRoot $displayVersion
     Initialize-Folder -Path $localContentPath
 
-    # A folder of this version may hold the installer of the other type from an earlier run. Only the chosen type ships.
-    $otherInstaller = Join-Path $localContentPath $(if ($installerType -eq 'MSI') { $ExeFileName } else { $MsiFileName })
-    Remove-Item -LiteralPath $otherInstaller -Force -ErrorAction SilentlyContinue
-
     if ($installerType -eq 'MSI') {
         $stagedMsi = Join-Path $localContentPath $MsiFileName
         if (-not (Test-Path -LiteralPath $stagedMsi)) {
@@ -286,6 +282,11 @@ function Invoke-Stage7Zip {
         Copy-Item -LiteralPath $localExe -Destination (Join-Path $localContentPath $ExeFileName) -Force -ErrorAction Stop
         Write-Log "Copied EXE to staged folder  : $localContentPath"
     }
+
+    # A folder of this version may hold the installer of the other type from an earlier run. Only the chosen type ships.
+    # It goes after the chosen installer is staged, so a failed stage leaves the earlier content in place.
+    $otherInstaller = Join-Path $localContentPath $(if ($installerType -eq 'MSI') { $ExeFileName } else { $MsiFileName })
+    Remove-Item -LiteralPath $otherInstaller -Force -ErrorAction SilentlyContinue
 
     # --- Derive ARP detection from MSI properties ---
     # For standard MSI installs the ARP uninstall key name is the ProductCode GUID.

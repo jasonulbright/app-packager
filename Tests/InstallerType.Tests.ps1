@@ -15,7 +15,7 @@ BeforeAll {
     $tokens = $null; $errors = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RepoRoot 'start-apppackager.ps1'), [ref]$tokens, [ref]$errors)
     if ($errors) { throw ($errors.Message -join '; ') }
-    foreach ($name in 'Get-PackagerMetadata', 'ConvertTo-InstallerTypeValue') {
+    foreach ($name in 'Get-PackagerMetadata', 'ConvertTo-InstallerTypeValue', 'Test-WorkbenchBuildIsCurrent') {
         $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
         if (-not $fn) { throw "start-apppackager.ps1 no longer defines $name." }
         . ([scriptblock]::Create($fn.Extent.Text))
@@ -118,12 +118,13 @@ Describe 'package-teamviewerhost' {
         $script:Text | Should -Match 'Resolve-LocalSourceInstaller'
         $script:Text | Should -Match ([regex]::Escape('InstallerType   = "MSI"'))
     }
-    It 'stages the vendor exe for the EXE type with /S and a file-version detection' {
+    It 'stages the vendor exe for the EXE type with /S and a Host-only ARP detection' {
         $script:Text | Should -Match 'function Invoke-StageTeamViewerHostExe'
         $script:Text | Should -Match 'TeamViewer_Host_Setup_x64\.exe'
         $script:Text | Should -Match ([regex]::Escape("ArgumentList @(''/S'')"))
         $script:Text | Should -Match ([regex]::Escape('InstallerType   = "EXE"'))
-        $script:Text | Should -Match ([regex]::Escape('FileName      = "TeamViewer.exe"'))
+        $script:Text | Should -Match ([regex]::Escape('DisplayNamePrefix = "TeamViewer Host"'))
+        $script:Text | Should -Not -Match ([regex]::Escape('FileName      = "TeamViewer.exe"'))
     }
     It 'warns that the EXE type ignores the MSI properties of the config file' {
         $script:Text | Should -Match 'MSI properties that the EXE installer type does not pass'
@@ -138,5 +139,43 @@ Describe 'Confirm-LocalSourceFolders' {
         $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'start-apppackager.ps1') -Raw
         $text | Should -Match ([regex]::Escape("SupportsInstallerTypes) -contains 'EXE'"))
         $text | Should -Match ([regex]::Escape("if (`$chosen -eq 'EXE') { `$kept.Add(`$row); continue }"))
+    }
+}
+
+Describe 'Build freshness with the installer type' {
+    BeforeAll {
+        function global:Get-LatestBuildRecord { param($ApplicationId, $ProfileId) $null }
+    }
+    AfterAll { Remove-Item -Path function:global:Get-LatestBuildRecord -ErrorAction SilentlyContinue }
+
+    It 'treats a build of the other installer type as stale and keeps a build of the same type' {
+        Mock Get-LatestBuildRecord { [pscustomobject]@{ SoftwareVersion = '1.0'; ProfileRevision = 2; PolicyDigest = 'd'; RequestedInstallerType = 'MSI' } }
+        Test-WorkbenchBuildIsCurrent -ApplicationId 'catalog:x' -Version '1.0' -ProfileRevision 2 -PolicyDigest 'd' -InstallerType 'MSI' | Should -BeTrue
+        Test-WorkbenchBuildIsCurrent -ApplicationId 'catalog:x' -Version '1.0' -ProfileRevision 2 -PolicyDigest 'd' -InstallerType 'EXE' | Should -BeFalse
+        Test-WorkbenchBuildIsCurrent -ApplicationId 'catalog:x' -Version '1.0' -ProfileRevision 2 -PolicyDigest 'd' | Should -BeFalse -Because 'the default differs from a build that asked for MSI'
+    }
+    It 'reads a record from before the installer type as the packager default' {
+        Mock Get-LatestBuildRecord { [pscustomobject]@{ SoftwareVersion = '1.0'; ProfileRevision = 2; PolicyDigest = 'd' } }
+        Test-WorkbenchBuildIsCurrent -ApplicationId 'catalog:x' -Version '1.0' -ProfileRevision 2 -PolicyDigest 'd' | Should -BeTrue
+        Test-WorkbenchBuildIsCurrent -ApplicationId 'catalog:x' -Version '1.0' -ProfileRevision 2 -PolicyDigest 'd' -InstallerType 'EXE' | Should -BeFalse
+    }
+    It 'seals the requested installer type in the build record' {
+        $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'Packagers\AppPackagerWorkbench.psm1') -Raw
+        $text | Should -Match ([regex]::Escape("`$record['RequestedInstallerType']"))
+    }
+}
+
+Describe 'The installer type reaches every launch of a packager' {
+    BeforeAll { $script:Launcher = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'start-apppackager.ps1') -Raw }
+    It 'sets APP_PACKAGER_INSTALLER_TYPE for the batch child and restores it' {
+        $script:Launcher | Should -Match ([regex]::Escape('$env:APP_PACKAGER_INSTALLER_TYPE = $installerType'))
+        $script:Launcher | Should -Match ([regex]::Escape('Remove-Item Env:\APP_PACKAGER_INSTALLER_TYPE'))
+    }
+    It 'passes the type to the latest-version query of One Click and the batch run' {
+        $script:Launcher | Should -Match ([regex]::Escape("`$psi.EnvironmentVariables['APP_PACKAGER_INSTALLER_TYPE'] = `$InstallerType"))
+        ([regex]::Matches($script:Launcher, [regex]::Escape('-InstallerType $(if ($Ctx.InstallerTypesByApp)'))).Count | Should -BeGreaterThan 8
+    }
+    It 'puts the installer type map in every Operation context' {
+        $script:Launcher | Should -Match ([regex]::Escape("`$context['InstallerTypesByApp'] = Get-InstallerTypesMapForContext`r`n    if (`$Operation -eq 'Package')"))
     }
 }

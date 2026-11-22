@@ -2341,7 +2341,8 @@ function Invoke-PackagerGetLatestVersion {
         [string]$FileServerPath = $null,
         [string]$DownloadRoot = $null,
         [string]$M365Channel = $null,
-        [string]$M365DeployMode = $null
+        [string]$M365DeployMode = $null,
+        [string]$InstallerType = ''
     )
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -2362,6 +2363,8 @@ function Invoke-PackagerGetLatestVersion {
     $psi.RedirectStandardError  = $true
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow  = $true
+    # The installer type of the application decides where a packager that offers both types reads its version (TeamViewer Host).
+    if ($InstallerType -in @('EXE', 'MSI')) { $psi.EnvironmentVariables['APP_PACKAGER_INSTALLER_TYPE'] = $InstallerType }
 
     $p = New-Object System.Diagnostics.Process
     try {
@@ -4651,7 +4654,9 @@ function Invoke-BatchUpdate {
         # LastChecked - next run should retry, not wait for cadence.
         $latest = $null
         try {
-            $latest = Invoke-PackagerGetLatestVersion -PackagerPath $scriptPath -SiteCode $SiteCode -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot
+            $batchLatestType = ''
+            if ($ConditionApps -and $ConditionApps.PSObject.Properties[$baseName]) { $batchLatestType = ConvertTo-InstallerTypeValue -Entry $ConditionApps.PSObject.Properties[$baseName].Value }
+            $latest = Invoke-PackagerGetLatestVersion -PackagerPath $scriptPath -SiteCode $SiteCode -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -InstallerType $batchLatestType
         } catch {
             Write-Log ("[batch] {0}: check failed: {1}" -f $baseName, $_.Exception.Message) -Level WARN
             $results += [pscustomobject]@{ Name = $baseName; Action = 'CheckFailed'; OldVersion = $lastKnown; NewVersion = $null; Reason = (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') }
@@ -4687,7 +4692,8 @@ function Invoke-BatchUpdate {
                     $batchDigest = [string](Get-SigningPolicy -Json $SigningJson).PolicyDigest
                 }
                 $current = Test-WorkbenchBuildIsCurrent -ApplicationId $batchAppId -ProfileId $batchProfileId `
-                    -Version ([string]$latest) -ProfileRevision $batchRevision -PolicyDigest $batchDigest
+                    -Version ([string]$latest) -ProfileRevision $batchRevision -PolicyDigest $batchDigest `
+                    -InstallerType $(if ($ConditionApps -and $ConditionApps.PSObject.Properties[$baseName]) { ConvertTo-InstallerTypeValue -Entry $ConditionApps.PSObject.Properties[$baseName].Value } else { '' })
                 if ($null -ne $current -and -not $current) { $buildStale = $true }
             }
             catch { $buildStale = $false }
@@ -4725,6 +4731,7 @@ function Invoke-BatchUpdate {
         $requirementsJson = ''
         $variantsJson = ''
         $installMode = ''
+        $installerType = ''
         $commandsJson = ''
         $titleMode = ''
         if ($ConditionApps) {
@@ -4733,6 +4740,7 @@ function Invoke-BatchUpdate {
                 $requirementsJson = ConvertTo-RequirementsJson -Entry $condProp.Value
                 $variantsJson = ConvertTo-VariantsJson -Entry $condProp.Value
                 $installMode = ConvertTo-InstallModeValue -Entry $condProp.Value
+                $installerType = ConvertTo-InstallerTypeValue -Entry $condProp.Value
                 if ([string]$condProp.Value.TitleMode -in @('IncludeVersion', 'NoVersion')) { $titleMode = [string]$condProp.Value.TitleMode }
             }
         }
@@ -4755,6 +4763,8 @@ function Invoke-BatchUpdate {
             $previousCommandsEnv = $null
             $restoreModeEnv = $false
             $previousModeEnv = $null
+            $restoreInstallerTypeEnv = $false
+            $previousInstallerTypeEnv = $null
             $previousTitleModeEnv = $env:APP_PACKAGER_TITLE_MODE
 
             # The workbench bridge, the same set Invoke-PackagerStage and
@@ -4835,6 +4845,11 @@ function Invoke-BatchUpdate {
                     $previousModeEnv = $env:APP_PACKAGER_INSTALL_MODE
                     $env:APP_PACKAGER_INSTALL_MODE = $installMode
                 }
+                if (-not [string]::IsNullOrWhiteSpace($installerType)) {
+                    $restoreInstallerTypeEnv = $true
+                    $previousInstallerTypeEnv = $env:APP_PACKAGER_INSTALLER_TYPE
+                    $env:APP_PACKAGER_INSTALLER_TYPE = $installerType
+                }
 
                 Push-Location -LiteralPath $packagerWorkingDirectory
                 $pushedPackagerLocation = $true
@@ -4881,6 +4896,14 @@ function Invoke-BatchUpdate {
                     }
                     else {
                         Remove-Item Env:\APP_PACKAGER_INSTALL_MODE -ErrorAction SilentlyContinue
+                    }
+                }
+                if ($restoreInstallerTypeEnv) {
+                    if ($null -ne $previousInstallerTypeEnv) {
+                        $env:APP_PACKAGER_INSTALLER_TYPE = $previousInstallerTypeEnv
+                    }
+                    else {
+                        Remove-Item Env:\APP_PACKAGER_INSTALLER_TYPE -ErrorAction SilentlyContinue
                     }
                 }
                 if ($restoreVariantsEnv) {
@@ -11208,7 +11231,8 @@ function Invoke-MultiAppPipeline {
                                 -FileServerPath $Ctx.FileShareRoot `
                                 -DownloadRoot $Ctx.DownloadRoot `
                                 -M365Channel $Ctx.M365Channel `
-                                -M365DeployMode $Ctx.M365DeployMode
+                                -M365DeployMode $Ctx.M365DeployMode `
+                                -InstallerType $(if ($Ctx.InstallerTypesByApp) { [string]$Ctx.InstallerTypesByApp[$baseName] } else { '' })
                             $row.LatestVersion = $latest
                             Clear-StaleCveCells -Row $row
 
@@ -11494,7 +11518,8 @@ function Invoke-MultiAppPipeline {
                                 -FileServerPath $Ctx.FileShareRoot `
                                 -DownloadRoot $Ctx.DownloadRoot `
                                 -M365Channel $Ctx.M365Channel `
-                                -M365DeployMode $Ctx.M365DeployMode
+                                -M365DeployMode $Ctx.M365DeployMode `
+                                -InstallerType $(if ($Ctx.InstallerTypesByApp) { [string]$Ctx.InstallerTypesByApp[$baseName] } else { '' })
                             $row.LatestVersion = $latest
                             Clear-StaleCveCells -Row $row
                             if ($pr) { $pr.Version = [string]$latest }
@@ -11543,7 +11568,8 @@ function Invoke-MultiAppPipeline {
                         $buildStale = $false
                         if ($planApplicationId) {
                             $current = Test-WorkbenchBuildIsCurrent -ApplicationId $planApplicationId -ProfileId $planProfileId `
-                                -Version $latest -ProfileRevision $planRevision -PolicyDigest ([string]$Ctx.SigningDigest)
+                                -Version $latest -ProfileRevision $planRevision -PolicyDigest ([string]$Ctx.SigningDigest) `
+                                -InstallerType $(if ($Ctx.InstallerTypesByApp) { [string]$Ctx.InstallerTypesByApp[$baseName] } else { '' })
                             if ($null -ne $current -and -not $current) { $buildStale = $true }
                         }
 
@@ -11900,7 +11926,8 @@ function Invoke-MultiAppPipeline {
                                 -FileServerPath $Ctx.FileShareRoot `
                                 -DownloadRoot $Ctx.DownloadRoot `
                                 -M365Channel $Ctx.M365Channel `
-                                -M365DeployMode $Ctx.M365DeployMode
+                                -M365DeployMode $Ctx.M365DeployMode `
+                                -InstallerType $(if ($Ctx.InstallerTypesByApp) { [string]$Ctx.InstallerTypesByApp[$baseName] } else { '' })
                             $row.LatestVersion = $latest
                             Clear-StaleCveCells -Row $row
                             [void]$State.LogQueue.Enqueue(('Latest: ' + $latest))
@@ -11977,7 +12004,8 @@ function Invoke-MultiAppPipeline {
                         $buildStale = $false
                         if ($planApplicationId) {
                             $current = Test-WorkbenchBuildIsCurrent -ApplicationId $planApplicationId -ProfileId $planProfileId `
-                                -Version $latest -ProfileRevision $planRevision -PolicyDigest ([string]$Ctx.SigningDigest)
+                                -Version $latest -ProfileRevision $planRevision -PolicyDigest ([string]$Ctx.SigningDigest) `
+                                -InstallerType $(if ($Ctx.InstallerTypesByApp) { [string]$Ctx.InstallerTypesByApp[$baseName] } else { '' })
                             if ($null -ne $current -and -not $current) { $buildStale = $true }
                         }
                         $shouldAct      = $actionStale -or $Ctx.ForceFlag -or $buildStale
@@ -15535,7 +15563,8 @@ function Test-WorkbenchBuildIsCurrent {
         [string]$ProfileId = 'default',
         [AllowEmptyString()][string]$Version,
         [int]$ProfileRevision = 0,
-        [AllowEmptyString()][string]$PolicyDigest
+        [AllowEmptyString()][string]$PolicyDigest,
+        [AllowEmptyString()][string]$InstallerType = ''
     )
     if (-not (Get-Command -Name 'Get-LatestBuildRecord' -ErrorAction SilentlyContinue)) { return $null }
     $record = $null
@@ -15544,6 +15573,10 @@ function Test-WorkbenchBuildIsCurrent {
     if ([string]$record.SoftwareVersion -ne [string]$Version) { return $false }
     if ([int]$record.ProfileRevision -ne [int]$ProfileRevision) { return $false }
     if ([string]$record.PolicyDigest -ne [string]$PolicyDigest) { return $false }
+    # A build of the other installer type is stale. A record from before the installer type has none, which is the packager default.
+    $recordType = ''
+    if ($record.PSObject.Properties['RequestedInstallerType']) { $recordType = [string]$record.RequestedInstallerType }
+    if ($recordType -ne [string]$InstallerType) { return $false }
     return $true
 }
 
@@ -17009,6 +17042,7 @@ function New-WorkbenchPipelineContext {
         SigningJson       = Get-WorkbenchSigningPolicyJson
         SigningDigest     = Get-WorkbenchSigningPolicyDigest
     }
+    $context['InstallerTypesByApp'] = Get-InstallerTypesMapForContext
     if ($Operation -eq 'Package') {
         $context['SiteCode']             = $script:Prefs.SiteCode
         $context['ProviderMachineName']  = $script:Prefs.ProviderMachineName
@@ -17022,7 +17056,6 @@ function New-WorkbenchPipelineContext {
         $context['VariantsByApp']        = Get-VariantsMapForContext
         $context['CommandsByApp']        = Get-CommandsMapForContext
         $context['InstallModesByApp']    = Get-InstallModesMapForContext
-        $context['InstallerTypesByApp'] = Get-InstallerTypesMapForContext
         $context['TitleModesByApp']      = Get-TitleModesMapForContext
         $context['DefaultTitleMode']     = Get-DefaultTitleModeForContext
         $context['IntunePublishConfig']  = Get-IntunePublishConfigForContext -Target $target

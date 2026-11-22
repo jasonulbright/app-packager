@@ -352,7 +352,9 @@ function Invoke-PackageNotepadPlusPlus {
 if ($GetLatestVersionOnly) {
     try {
         $ProgressPreference = 'SilentlyContinue'
-        $info = Get-LatestNotepadPlusPlusVersion -Quiet
+        $latestType = Get-RequestedInstallerType
+        if (-not $latestType) { $latestType = 'EXE' }
+        $info = Get-LatestNotepadPlusPlusVersion -Quiet -InstallerType $latestType
         if (-not $info) { exit 1 }
         Write-Output $info.Version
         exit 0
