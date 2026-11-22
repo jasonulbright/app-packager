@@ -72,8 +72,8 @@ function Move-MouseAway($Win) {
         [NativeUi]::mouse_event(1, 3, 3, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 100
         [NativeUi]::mouse_event(1, -3, -3, 0, [UIntPtr]::Zero); Start-Sleep -Seconds 2
     }
-    if ($Win -and $root.FindFirst('Descendants', $tipCond)) {
-        # The keyboard focus of a text box holds its tooltip. The focus moves to the Cancel or OK button of the window, which has none.
+    if ($Win -and ($Win.Current.Name -eq 'Options' -or $root.FindFirst('Descendants', $tipCond))) {
+        # The keyboard focus of a text box holds its tooltip. The Options window is always treated so, because UI Automation does not always list that tooltip. The focus moves to the Cancel or OK button of the window, which has none.
         foreach ($n in 'Cancel', 'OK') {
             $b = $Win.FindFirst('Descendants', (New-Object System.Windows.Automation.AndCondition((New-Object System.Windows.Automation.PropertyCondition($AE::NameProperty, $n)), (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)))))
             if ($b) { try { $b.SetFocus() } catch { $null = $_ }; Start-Sleep -Seconds 2; break }
