@@ -1,3 +1,4 @@
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.1.0' }
 # Guards for the capture tool: the lab folder carries the repository name (not the name of the folder that runs the capture),
 # and every shot moves the real mouse away first so that no tooltip stays in an image.
 BeforeAll {
