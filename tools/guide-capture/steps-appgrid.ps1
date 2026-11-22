@@ -56,7 +56,7 @@ function Pick-Combo($Combo, [string]$Item) {
 }
 # The column list of the bulk bar is long and opens scrolled to the selected column, so the column is chosen with real keys: open the list with
 # a click, press Home, press Down to the column, press Enter.
-$script:ColumnOrder = @('Package Source', 'Install Scope', 'Supersedence', 'Version in Title', 'Version Rule', 'Network', 'Network Split', 'Install Command', 'Uninstall Command', 'In One Click', 'Check Interval Days', 'Publish to ConfigMgr', 'Publish to Intune', 'Publish to WSUS', 'Free disk space (MB)', 'Memory (MB)', 'OS build (minimum)', 'Distribution point group', 'Test collection', 'Estimated Runtime (min)', 'Maximum Runtime (min)', 'Reboot After Install')
+$script:ColumnOrder = @('Package Source', 'Install Scope', 'Installer Type', 'Supersedence', 'Version in Title', 'Version Rule', 'Network', 'Network Split', 'Install Command', 'Uninstall Command', 'In One Click', 'Check Interval Days', 'Publish to ConfigMgr', 'Publish to Intune', 'Publish to WSUS', 'Free disk space (MB)', 'Memory (MB)', 'OS build (minimum)', 'Distribution point group', 'Test collection', 'Estimated Runtime (min)', 'Maximum Runtime (min)', 'Reboot After Install')
 function Pick-Column($o, [string]$Name) {
     $index = [Array]::IndexOf($script:ColumnOrder, $Name)
     if ($index -lt 0) { throw "Unknown column $Name." }
