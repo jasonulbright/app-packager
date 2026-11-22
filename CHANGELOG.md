@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [2026.11.22.0160] - 2026-11-22
+
+## 5 All Applications images with the Installer Type column
+
+### Changed
+
+- Retake 5 All Applications images so they show the Installer Type column.
+- Remove the stray tooltip from the guide images.
+- Use a neutral lab folder name in the guide images.
+
 ## [2026.11.22.0159] - 2026-11-22
 
 ## 1 column in the All Applications grid
