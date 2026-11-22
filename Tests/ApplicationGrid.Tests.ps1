@@ -29,7 +29,7 @@ BeforeAll {
         'Get-ApplicationGridRequirementValue', 'Set-ApplicationGridRequirementValue', 'Get-ApplicationGridDetectionText', 'Set-ApplicationGridDistributionValue',
         'Get-WorkbenchOverrideValue', 'Test-WorkbenchOverridePresent', 'Set-WorkbenchOverrideValue', 'Clear-WorkbenchOverrideValue',
         'Resolve-FirstRunCompleted', 'Read-Preferences', 'Get-WsusClassificationNameList',
-        'ConvertTo-InstallModeValue', 'ConvertTo-VariantsJson', 'ConvertTo-RequirementsJson', 'ConvertTo-CommandsJson',
+        'ConvertTo-InstallModeValue', 'ConvertTo-InstallerTypeValue', 'Get-InstallerTypesMapForContext', 'ConvertTo-VariantsJson', 'ConvertTo-RequirementsJson', 'ConvertTo-CommandsJson',
         'Get-InstallModesMapForContext', 'Get-VariantsMapForContext', 'Get-RequirementsMapForContext', 'Get-CommandsMapForContext', 'Get-TitleModesMapForContext',
         'Set-PackagerEnvironment', 'Get-SupersedenceLockedTitleMode') {
         $fn = $script:Ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
@@ -51,20 +51,21 @@ BeforeAll {
     function Get-CatalogRow {
         foreach ($file in @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'Packagers') -Filter 'package-*.ps1' -File | Sort-Object Name)) {
             $head = @(Get-Content -LiteralPath $file.FullName -TotalCount 60)
-            $variants = @(); $modes = @(); $app = $file.BaseName; $vendor = 'Vendor'; $wsus = ''; $reason = ''
+            $variants = @(); $modes = @(); $types = @(); $app = $file.BaseName; $vendor = 'Vendor'; $wsus = ''; $reason = ''
             foreach ($line in $head) {
                 if ($line -match '^\s*(?:#\s*)?SupportsVariants\s*:\s*(.+?)\s*$') { $variants = @($Matches[1] -split ',' | ForEach-Object { $_.Trim() }) }
                 if ($line -match '^\s*(?:#\s*)?SupportsInstallModes\s*:\s*(.+?)\s*$') { $modes = @($Matches[1] -split ',' | ForEach-Object { $_.Trim() }) }
+                if ($line -match '^\s*(?:#\s*)?SupportsInstallerTypes\s*:\s*(.+?)\s*$') { $types = @($Matches[1] -split ',' | ForEach-Object { $_.Trim() }) }
                 if ($line -match '^\s*(?:#\s*)?App\s*:\s*(.+?)\s*$') { $app = $Matches[1] }
                 if ($line -match '^\s*(?:#\s*)?Vendor\s*:\s*(.+?)\s*$') { $vendor = $Matches[1] }
                 if ($line -match '^\s*(?:#\s*)?WsusSupport\s*:\s*(Yes|No)\s*(?:\(\s*([A-Za-z|]+)\s*\))?\s*$') { $wsus = $Matches[1]; $reason = $Matches[2] }
             }
-            [pscustomobject]@{ Script = $file.Name; Application = $app; Vendor = $vendor; SupportsVariants = $variants; SupportsInstallModes = $modes; WsusSupport = $wsus; WsusSupportReason = $reason }
+            [pscustomobject]@{ Script = $file.Name; Application = $app; Vendor = $vendor; SupportsVariants = $variants; SupportsInstallModes = $modes; SupportsInstallerTypes = $types; WsusSupport = $wsus; WsusSupportReason = $reason }
         }
     }
     function New-TestPackager {
-        param([string]$Base = 'package-demo', [string[]]$Variants = @(), [string[]]$Modes = @(), [string]$Application = 'Demo App', [string]$Wsus = 'Yes', [string]$WsusReason = '')
-        [pscustomobject]@{ Script = ($Base + '.ps1'); Application = $Application; Vendor = 'Demo Vendor'; SupportsVariants = $Variants; SupportsInstallModes = $Modes; WsusSupport = $Wsus; WsusSupportReason = $WsusReason }
+        param([string]$Base = 'package-demo', [string[]]$Variants = @(), [string[]]$Modes = @(), [string[]]$InstallerTypes = @(), [string]$Application = 'Demo App', [string]$Wsus = 'Yes', [string]$WsusReason = '')
+        [pscustomobject]@{ Script = ($Base + '.ps1'); Application = $Application; Vendor = 'Demo Vendor'; SupportsVariants = $Variants; SupportsInstallModes = $Modes; SupportsInstallerTypes = $InstallerTypes; WsusSupport = $Wsus; WsusSupportReason = $WsusReason }
     }
     function New-TestPrefs {
         param([string]$Json = '{}')
@@ -78,7 +79,7 @@ BeforeAll {
     }
     # Sets columns of one application, saves the preferences and reads them back, as the Options window and the next start do.
     function Invoke-Grid {
-        param([System.Collections.IDictionary]$Set, [string]$Json = '{}', $Packager = (New-TestPackager -Variants @('Architecture', 'Network') -Modes @('CurrentUser', 'AllUsers')))
+        param([System.Collections.IDictionary]$Set, [string]$Json = '{}', $Packager = (New-TestPackager -Variants @('Architecture', 'Network') -Modes @('CurrentUser', 'AllUsers') -InstallerTypes @('EXE', 'MSI')))
         $prefs = New-TestPrefs $Json
         $work = New-ApplicationGridWork -Prefs $prefs
         $initial = New-ApplicationGridWork -Prefs $prefs
@@ -94,8 +95,8 @@ AfterAll { foreach ($name in $script:GridFunction) { Remove-Item -Path ('functio
 
 Describe 'The registry' {
     It 'has one entry for each setting, with the columns in the order of the design' {
-        (@($script:Setting | ForEach-Object { $_.Id }) -join ',') | Should -Be 'source,scope,supersedence,title,rule,network,netsplit,install,uninstall,oneclick,cadence,toconfigmgr,tointune,towsus,diskspace,memory,osbuild,dpgroup,testcollection,detection,estimated,maximum,reboot'
-        (@($script:Setting | Where-Object { $_.Visible } | ForEach-Object { $_.Id }) -join ',') | Should -Be 'source,scope,supersedence,title,rule'
+        (@($script:Setting | ForEach-Object { $_.Id }) -join ',') | Should -Be 'source,scope,installer,supersedence,title,rule,network,netsplit,install,uninstall,oneclick,cadence,toconfigmgr,tointune,towsus,diskspace,memory,osbuild,dpgroup,testcollection,detection,estimated,maximum,reboot'
+        (@($script:Setting | Where-Object { $_.Visible } | ForEach-Object { $_.Id }) -join ',') | Should -Be 'source,scope,installer,supersedence,title,rule'
     }
     It 'gives every entry a header, a tip of one sentence, and the functions that the grid calls' {
         foreach ($s in $script:Setting) {
@@ -137,6 +138,13 @@ Describe 'What each cell offers' {
         (Get-ApplicationGridCell -Setting $s -Work $work -Packager (New-TestPackager -Modes @('CurrentUser', 'AllUsers'))).Reason | Should -BeNullOrEmpty
         foreach ($modes in @('AllUsers'), @('CurrentUser'), @()) { (Get-ApplicationGridCell -Setting $s -Work $work -Packager (New-TestPackager -Modes $modes)).Reason | Should -Match 'one install scope' }
     }
+    It 'opens Installer Type only for a packager that declares both types' {
+        $work = New-ApplicationGridWork -Prefs (New-TestPrefs)
+        $s = Get-GridSetting 'installer'
+        $s.Choices | Should -Be @('Packager default', 'EXE', 'MSI')
+        (Get-ApplicationGridCell -Setting $s -Work $work -Packager (New-TestPackager -InstallerTypes @('EXE', 'MSI'))).Reason | Should -BeNullOrEmpty
+        foreach ($types in @('EXE'), @('MSI'), @()) { (Get-ApplicationGridCell -Setting $s -Work $work -Packager (New-TestPackager -InstallerTypes $types)).Reason | Should -Match 'one installer type' }
+    }
     It 'opens Network Split only for a packager that declares a network split' {
         $work = New-ApplicationGridWork -Prefs (New-TestPrefs)
         $s = Get-GridSetting 'netsplit'
@@ -158,6 +166,8 @@ Describe 'What each cell offers' {
         $rows.Count | Should -Be $catalog.Count
         @($rows | Where-Object { $_['e_source'] }).Count | Should -Be @($catalog | Where-Object { $_.SupportsVariants -contains 'Architecture' }).Count
         @($rows | Where-Object { $_['e_scope'] }).Count | Should -Be @($catalog | Where-Object { $_.SupportsInstallModes -contains 'AllUsers' -and $_.SupportsInstallModes -contains 'CurrentUser' }).Count
+        @($rows | Where-Object { $_['e_installer'] }).Count | Should -Be @($catalog | Where-Object { $_.SupportsInstallerTypes -contains 'EXE' -and $_.SupportsInstallerTypes -contains 'MSI' }).Count
+        @($rows | Where-Object { $_['e_installer'] }).Count | Should -BeGreaterThan 2
         @($rows | Where-Object { $_['e_netsplit'] }).Count | Should -Be @($catalog | Where-Object { $_.SupportsVariants -contains 'Network' }).Count
         @($rows | Where-Object { -not $_['e_towsus'] }).Count | Should -Be @($catalog | Where-Object { $_.WsusSupport -eq 'No' }).Count
         @($rows | Where-Object { -not $_['e_towsus'] }).Count | Should -BeGreaterThan 0
@@ -303,6 +313,7 @@ Describe 'What the grid writes' {
         $e = $prefs.DeploymentConditions.Apps.'package-demo'
         $e.Split | Should -Be 'Architecture'
         $e.InstallMode | Should -Be 'CurrentUser'
+        $e.InstallerType | Should -Be ''
         $e.Network | Should -Be 'VpnOnly'
         $e.TitleMode | Should -Be 'NoVersion'
         $prefs.Supersedence.TitleOverrides.'catalog:package-demo'.Mode | Should -Be 'Replace and uninstall'
@@ -385,7 +396,7 @@ Describe 'What the grid writes' {
 Describe 'The code that packages and runs One Click uses the value that the grid wrote' {
     BeforeAll {
         $script:SavedEnv = @{}
-        foreach ($n in 'APP_PACKAGER_INSTALL_MODE', 'APP_PACKAGER_VARIANTS', 'APP_PACKAGER_COMMANDS', 'APP_PACKAGER_REQUIREMENTS') { $script:SavedEnv[$n] = [Environment]::GetEnvironmentVariable($n) }
+        foreach ($n in 'APP_PACKAGER_INSTALL_MODE', 'APP_PACKAGER_INSTALLER_TYPE', 'APP_PACKAGER_VARIANTS', 'APP_PACKAGER_COMMANDS', 'APP_PACKAGER_REQUIREMENTS') { $script:SavedEnv[$n] = [Environment]::GetEnvironmentVariable($n) }
     }
     BeforeEach { foreach ($n in $script:SavedEnv.Keys) { [Environment]::SetEnvironmentVariable($n, $null) } }
     AfterAll { foreach ($n in $script:SavedEnv.Keys) { [Environment]::SetEnvironmentVariable($n, $script:SavedEnv[$n]) } }
@@ -399,6 +410,36 @@ Describe 'The code that packages and runs One Click uses the value that the grid
         $start.EnvironmentVariables['APP_PACKAGER_INSTALL_MODE'] | Should -Be 'CurrentUser'
         $env:APP_PACKAGER_INSTALL_MODE = $start.EnvironmentVariables['APP_PACKAGER_INSTALL_MODE']
         Get-RequestedInstallMode | Should -Be 'CurrentUser'
+    }
+    It 'passes Installer Type MSI to the child process as APP_PACKAGER_INSTALLER_TYPE=MSI, and the default as nothing' {
+        $prefs = Invoke-Grid -Set ([ordered]@{ installer = 'MSI' })
+        $prefs.DeploymentConditions.Apps.'package-demo'.InstallerType | Should -Be 'MSI'
+        $map = Get-InstallerTypesMapForContext
+        $map['package-demo'] | Should -Be 'MSI'
+        $start = New-Object System.Diagnostics.ProcessStartInfo
+        Set-PackagerEnvironment -StartInfo $start -InstallerType ([string]$map['package-demo'])
+        $start.EnvironmentVariables['APP_PACKAGER_INSTALLER_TYPE'] | Should -Be 'MSI'
+        $env:APP_PACKAGER_INSTALLER_TYPE = $start.EnvironmentVariables['APP_PACKAGER_INSTALLER_TYPE']
+        Get-RequestedInstallerType | Should -Be 'MSI'
+        $env:APP_PACKAGER_INSTALLER_TYPE = 'exe'
+        Get-RequestedInstallerType | Should -Be 'EXE'
+        $env:APP_PACKAGER_INSTALLER_TYPE = 'pkg'
+        { Get-RequestedInstallerType } | Should -Throw '*EXE or MSI*'
+        $env:APP_PACKAGER_INSTALLER_TYPE = $null
+        Get-RequestedInstallerType | Should -BeNullOrEmpty
+        [void](Invoke-Grid -Set ([ordered]@{ installer = 'Packager default' }) -Json (Get-SavedJson))
+        (Get-InstallerTypesMapForContext).ContainsKey('package-demo') | Should -BeFalse
+    }
+    It 'skips Installer Type in a bulk action for an application with one installer type' {
+        $work = New-ApplicationGridWork -Prefs (New-TestPrefs)
+        $rows = @(
+            (New-ApplicationGridRow -Packager (New-TestPackager -Base 'package-both' -InstallerTypes @('EXE', 'MSI')) -Setting $script:Setting -Work $work),
+            (New-ApplicationGridRow -Packager (New-TestPackager -Base 'package-one') -Setting $script:Setting -Work $work))
+        $r = Set-ApplicationGridBulkValue -Setting (Get-GridSetting 'installer') -Scope All -Value 'EXE' -Row $rows -Work $work
+        $r.Changed | Should -Be 1
+        $r.Skipped | Should -Be 1
+        [string]$work.Apps['package-both']['InstallerType'] | Should -Be 'EXE'
+        $work.Apps.Contains('package-one') | Should -BeFalse
     }
     It 'passes Install Scope System as AllUsers, and the default as nothing' {
         [void](Invoke-Grid -Set ([ordered]@{ scope = 'System' }))

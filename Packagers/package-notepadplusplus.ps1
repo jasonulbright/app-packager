@@ -7,6 +7,7 @@ CPE: cpe:2.3:a:notepad-plus-plus:notepad%2b%2b:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://notepad-plus-plus.org/news/
 DownloadPageUrl: https://notepad-plus-plus.org/downloads/
 IconSource: Installer
+SupportsInstallerTypes: EXE, MSI
 WsusSupport: Yes
 ArpName: Notepad++ (64-bit x64)
 
@@ -20,6 +21,12 @@ ArpName: Notepad++ (64-bit x64)
     detection.
     Detection uses notepad++.exe version >= packaged version in the Program
     Files install path.
+
+    The installer type is a setting of the application (Options > Applications
+    > All Applications > Installer Type). EXE is the default: the NSIS installer
+    with /S /noUpdater, uninstall.exe /S. MSI stages the x64 MSI of the same
+    GitHub release: msiexec /qn /norestart. Detection is the same file version
+    for both types.
 
     Supports two-phase operation:
       -StageOnly    Download, generate content wrappers, write manifest
@@ -104,7 +111,10 @@ $BaseDownloadRoot = Join-Path $DownloadRoot "NotepadPlusPlus"
 
 
 function Get-LatestNotepadPlusPlusVersion {
-    param([switch]$Quiet)
+    param([switch]$Quiet, [ValidateSet('EXE', 'MSI')][string]$InstallerType = 'EXE')
+
+    # The EXE (NSIS) and the MSI are both release assets of the same GitHub release.
+    $assetPattern = if ($InstallerType -eq 'MSI') { '*Installer.x64.msi' } else { '*Installer.x64.exe' }
 
     Write-Log "GitHub API URL               : $GitHubApiUrl" -Quiet:$Quiet
 
@@ -112,19 +122,19 @@ function Get-LatestNotepadPlusPlusVersion {
         $json = (curl.exe -L --fail --silent --show-error -A "PowerShell" @(Get-GitHubApiCurlArgs) $GitHubApiUrl) -join ''
         if ($LASTEXITCODE -ne 0) { throw "Failed to fetch GitHub release info: $GitHubApiUrl" }
 
-        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -like "*Installer.x64.exe" }
+        $release = Select-GitHubReleaseByAsset -Releases @(ConvertFrom-Json $json) -AssetFilter { $_.name -like $assetPattern }
         $version = $release.tag_name -replace '^v'
 
         $downloadUrl = $null
         foreach ($asset in $release.assets) {
-            if ($asset.name -like "*Installer.x64.exe") {
+            if ($asset.name -like $assetPattern) {
                 $downloadUrl = $asset.browser_download_url
                 break
             }
         }
 
         if (-not $downloadUrl) {
-            throw "Could not find x64 installer asset in GitHub release."
+            throw "Could not find the x64 $InstallerType installer asset in GitHub release."
         }
 
         Write-Log "Latest Notepad++ version     : $version" -Quiet:$Quiet
@@ -156,7 +166,11 @@ function Invoke-StageNotepadPlusPlus {
     Initialize-Folder -Path $BaseDownloadRoot
 
     # --- Get version ---
-    $releaseInfo = Get-LatestNotepadPlusPlusVersion
+    $installerType = Get-RequestedInstallerType
+    if (-not $installerType) { $installerType = 'EXE' }
+    Write-Log "Installer type               : $installerType"
+
+    $releaseInfo = Get-LatestNotepadPlusPlusVersion -InstallerType $installerType
     if (-not $releaseInfo) { throw "Could not resolve Notepad++ version." }
 
     $version           = $releaseInfo.Version
@@ -195,19 +209,34 @@ function Invoke-StageNotepadPlusPlus {
     }
 
     # --- Generate content wrappers ---
-    # Install: kill Notepad++ process first, then run NSIS silent installer
-    $installContent = (
-        'Stop-Process -Name "notepad++" -Force -ErrorAction SilentlyContinue',
-        ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $installerFileName),
-        '$proc = Start-Process -FilePath $exePath -ArgumentList @(''/S'', ''/noUpdater'') -Wait -PassThru -NoNewWindow',
-        'exit $proc.ExitCode'
-    ) -join "`r`n"
+    $msiProductCode = $null
+    if ($installerType -eq 'MSI') {
+        # Install: kill Notepad++ first, then msiexec /qn /norestart. Uninstall: msiexec /x of the staged MSI.
+        $msiProps = Get-MsiPropertyMap -MsiPath $stagedExe
+        $msiProductCode = $msiProps['ProductCode']
+        if ([string]::IsNullOrWhiteSpace($msiProductCode)) { throw "MSI ProductCode missing: $stagedExe" }
+        $msiWrappers = New-MsiWrapperContent -MsiFileName $installerFileName
+        $installContent = (
+            'Stop-Process -Name "notepad++" -Force -ErrorAction SilentlyContinue',
+            $msiWrappers.Install
+        ) -join "`r`n"
+        $uninstallContent = $msiWrappers.Uninstall
+    }
+    else {
+        # Install: kill Notepad++ process first, then run NSIS silent installer
+        $installContent = (
+            'Stop-Process -Name "notepad++" -Force -ErrorAction SilentlyContinue',
+            ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $installerFileName),
+            '$proc = Start-Process -FilePath $exePath -ArgumentList @(''/S'', ''/noUpdater'') -Wait -PassThru -NoNewWindow',
+            'exit $proc.ExitCode'
+        ) -join "`r`n"
 
-    # Uninstall: run NSIS uninstaller from install path
-    $uninstallContent = (
-        '$proc = Start-Process -FilePath ''C:\Program Files\Notepad++\uninstall.exe'' -ArgumentList @(''/S'') -Wait -PassThru -NoNewWindow',
-        'exit $proc.ExitCode'
-    ) -join "`r`n"
+        # Uninstall: run NSIS uninstaller from install path
+        $uninstallContent = (
+            '$proc = Start-Process -FilePath ''C:\Program Files\Notepad++\uninstall.exe'' -ArgumentList @(''/S'') -Wait -PassThru -NoNewWindow',
+            'exit $proc.ExitCode'
+        ) -join "`r`n"
+    }
 
     Write-ContentWrappers -OutputPath $localContentPath `
         -InstallPs1Content $installContent `
@@ -225,14 +254,14 @@ function Invoke-StageNotepadPlusPlus {
     Write-Log ""
 
     $manifestPath = Join-Path $localContentPath "stage-manifest.json"
-    Write-StageManifest -Path $manifestPath -ManifestData @{
+    $manifestData = @{
         AppName         = $appName
         Publisher       = $publisher
         SoftwareVersion = $version
         InstallerFile   = $installerFileName
-        InstallerType   = "EXE"
-        InstallArgs     = "/S /noUpdater"
-        UninstallArgs   = "/S"
+        InstallerType   = $installerType
+        InstallArgs     = $(if ($installerType -eq 'MSI') { "/qn /norestart" } else { "/S /noUpdater" })
+        UninstallArgs   = $(if ($installerType -eq 'MSI') { "/qn /norestart" } else { "/S" })
         RunningProcess  = @("notepad++")
         Detection       = @{
             Type          = "File"
@@ -244,6 +273,8 @@ function Invoke-StageNotepadPlusPlus {
             Is64Bit       = $true
         }
     }
+    if ($msiProductCode) { $manifestData['ProductCode'] = $msiProductCode }
+    Write-StageManifest -Path $manifestPath -ManifestData $manifestData
 
     # Save version marker for Package phase
     Set-Content -LiteralPath (Join-Path $BaseDownloadRoot "staged-version.txt") -Value $version -Encoding ASCII -ErrorAction Stop

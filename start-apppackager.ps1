@@ -814,7 +814,9 @@ function Read-Preferences {
                 if ([string]$entry.TitleMode -in @('IncludeVersion', 'NoVersion')) { $titleMode = [string]$entry.TitleMode }
                 $installMode = ''
                 if ([string]$entry.InstallMode -in @('CurrentUser', 'AllUsers')) { $installMode = [string]$entry.InstallMode }
-                if ($arch -eq 'Any' -and $network -eq 'Any' -and $langs.Count -eq 0 -and $split -eq 'None' -and -not $titleMode -and -not $installMode) { continue }
+                $installerType = ''
+                if ([string]$entry.InstallerType -in @('EXE', 'MSI')) { $installerType = [string]$entry.InstallerType }
+                if ($arch -eq 'Any' -and $network -eq 'Any' -and $langs.Count -eq 0 -and $split -eq 'None' -and -not $titleMode -and -not $installMode -and -not $installerType) { continue }
                 $condProps[$prop.Name] = [pscustomobject]@{
                     Architecture = $arch
                     Languages    = $langs
@@ -822,6 +824,7 @@ function Read-Preferences {
                     Split        = $split
                     TitleMode    = $titleMode
                     InstallMode  = $installMode
+                    InstallerType = $installerType
                 }
             }
             $defaults.DeploymentConditions.Apps = [pscustomobject]$condProps
@@ -1265,6 +1268,7 @@ function Get-PackagerMetadata {
         UpdateCadenceDays = $null
         SupportsVariants  = @()
         SupportsInstallModes = @()
+        SupportsInstallerTypes = @()
         LocalSource       = $false
         LocalSourceRequired = $false
         ReviewBeforeStage = $false
@@ -1279,7 +1283,7 @@ function Get-PackagerMetadata {
 
     # Every key test below starts with the same prefix; one match per line
     # rules out the lines that carry no key, which are nearly all of them.
-    $keyLine = New-Object System.Text.RegularExpressions.Regex('^\s*(?:#\s*)?(?:Vendor|App|CMName|VendorUrl|CPE|ReleaseNotesUrl|DownloadPageUrl|SecurityAdvisoryUrl|SupportsVariants|SupportsInstallModes|LocalSource|ReviewBeforeStage|WsusSupport|ArpName|ArpVersion|ArpArch|UpdateCadenceDays|Application)\s*:', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $keyLine = New-Object System.Text.RegularExpressions.Regex('^\s*(?:#\s*)?(?:Vendor|App|CMName|VendorUrl|CPE|ReleaseNotesUrl|DownloadPageUrl|SecurityAdvisoryUrl|SupportsVariants|SupportsInstallModes|SupportsInstallerTypes|LocalSource|ReviewBeforeStage|WsusSupport|ArpName|ArpVersion|ArpArch|UpdateCadenceDays|Application)\s*:', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
 
     $inSynopsis = $false
     foreach ($line in $lines) {
@@ -1300,6 +1304,10 @@ function Get-PackagerMetadata {
         }
         if ($meta.SupportsInstallModes.Count -eq 0 -and $l -match '^\s*(?:#\s*)?SupportsInstallModes\s*:\s*(.+?)\s*$') {
             $meta.SupportsInstallModes = @($Matches[1] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -in @('CurrentUser', 'AllUsers') })
+            continue
+        }
+        if ($meta.SupportsInstallerTypes.Count -eq 0 -and $l -match '^\s*(?:#\s*)?SupportsInstallerTypes\s*:\s*(.+?)\s*$') {
+            $meta.SupportsInstallerTypes = @($Matches[1] -split ',' | ForEach-Object { $_.Trim().ToUpperInvariant() } | Where-Object { $_ -in @('EXE', 'MSI') })
             continue
         }
         if (-not $meta.LocalSource -and $l -match '^\s*(?:#\s*)?LocalSource\s*:\s*(Required|Optional)\s*$') {
@@ -1350,6 +1358,7 @@ function Get-PackagerMetadata {
         UpdateCadenceDays = $meta.UpdateCadenceDays
         SupportsVariants  = @($meta.SupportsVariants)
         SupportsInstallModes = @($meta.SupportsInstallModes)
+        SupportsInstallerTypes = @($meta.SupportsInstallerTypes)
         LocalSource       = [bool]$meta.LocalSource
         LocalSourceRequired = [bool]$meta.LocalSourceRequired
         ReviewBeforeStage = [bool]$meta.ReviewBeforeStage
@@ -1407,6 +1416,7 @@ function Get-Packagers {
                 UpdateCadenceDays = $m.UpdateCadenceDays
                 SupportsVariants  = @($m.SupportsVariants)
                 SupportsInstallModes = @($m.SupportsInstallModes)
+                SupportsInstallerTypes = @($m.SupportsInstallerTypes)
                 WsusSupport       = [string]$m.WsusSupport
                 WsusSupportReason = [string]$m.WsusSupportReason
                 LocalSource       = [bool]$m.LocalSource
@@ -1435,6 +1445,7 @@ function Get-Packagers {
                 UpdateCadenceDays = $null
                 SupportsVariants  = @()
                 SupportsInstallModes = @()
+                SupportsInstallerTypes = @()
                 CPE               = ""
                 SecurityAdvisoryUrl = ""
                 ArpName           = ""
@@ -2695,6 +2706,7 @@ function Invoke-PackagerStage {
         [string]$SevenZipPath = '',
         [string]$VariantsJson = '',
         [string]$InstallMode = '',
+        [string]$InstallerType = '',
         [string]$RunSnapshotPath = '',
         [string]$SigningJson = '',
         [string]$WorkbenchDataRoot = '',
@@ -2740,7 +2752,7 @@ function Invoke-PackagerStage {
         # the env var first and fall back to Program Files\<tool> defaults.
         # Variant splits and the install mode shape the staged content, so
         # they travel with the Stage child too.
-        Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -VariantsJson $VariantsJson -InstallMode $InstallMode -RunSnapshotPath $RunSnapshotPath -SigningJson $SigningJson -WorkbenchDataRoot $WorkbenchDataRoot -DownloadRoot $DownloadRoot
+        Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -VariantsJson $VariantsJson -InstallMode $InstallMode -InstallerType $InstallerType -RunSnapshotPath $RunSnapshotPath -SigningJson $SigningJson -WorkbenchDataRoot $WorkbenchDataRoot -DownloadRoot $DownloadRoot
 
         if ($runEnvironment) { $psi.EnvironmentVariables['APP_PACKAGER_RUN_OPTIONS'] = [string]$runEnvironment.Json }
 
@@ -2781,6 +2793,7 @@ function Invoke-PackagerPackage {
         [ValidateSet('', 'Yes', 'Skip')][string]$SupersedenceAnswer = '',
         [switch]$Preflight,
         [string]$InstallMode = '',
+        [string]$InstallerType = '',
         [string]$RunSnapshotPath = '',
         [string]$SigningJson = '',
         [string]$WorkbenchDataRoot = '',
@@ -2837,7 +2850,7 @@ function Invoke-PackagerPackage {
     $psi.RedirectStandardError  = $true
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow  = $true
-    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName -RequirementsJson $RequirementsJson -VariantsJson $VariantsJson -CommandsJson $CommandsJson -OnExisting $OnExisting -InstallMode $InstallMode -RunSnapshotPath $RunSnapshotPath -SigningJson $SigningJson -WorkbenchDataRoot $WorkbenchDataRoot -DownloadRoot $DownloadRoot -BuildId $BuildId -StageManifestPath $selectedManifestPath
+    Set-PackagerEnvironment -StartInfo $psi -SevenZipPath $SevenZipPath -ProviderMachineName $ProviderMachineName -RequirementsJson $RequirementsJson -VariantsJson $VariantsJson -CommandsJson $CommandsJson -OnExisting $OnExisting -InstallMode $InstallMode -InstallerType $InstallerType -RunSnapshotPath $RunSnapshotPath -SigningJson $SigningJson -WorkbenchDataRoot $WorkbenchDataRoot -DownloadRoot $DownloadRoot -BuildId $BuildId -StageManifestPath $selectedManifestPath
     $psi.EnvironmentVariables['APP_PACKAGER_TITLE_MODE'] = $TitleMode
     # Only a confirmed Yes applies a supersedence; a run that nobody was asked in (One Click, the command line) never does.
     $psi.EnvironmentVariables['APP_PACKAGER_SUPERSEDENCE_ANSWER'] = $(if ($SupersedenceAnswer -eq 'Yes') { 'Yes' } else { 'Skip' })
@@ -3039,6 +3052,7 @@ function Set-PackagerEnvironment {
         [string]$CommandsJson,
         [string]$OnExisting,
         [string]$InstallMode,
+        [string]$InstallerType,
         [string]$RunSnapshotPath,
         [string]$SigningJson,
         [string]$WorkbenchDataRoot,
@@ -3076,6 +3090,9 @@ function Set-PackagerEnvironment {
     }
     if (-not [string]::IsNullOrWhiteSpace($InstallMode)) {
         $StartInfo.EnvironmentVariables['APP_PACKAGER_INSTALL_MODE'] = [string]$InstallMode
+    }
+    if (-not [string]::IsNullOrWhiteSpace($InstallerType)) {
+        $StartInfo.EnvironmentVariables['APP_PACKAGER_INSTALLER_TYPE'] = [string]$InstallerType
     }
     if (-not [string]::IsNullOrWhiteSpace($SevenZipPath)) {
         $StartInfo.EnvironmentVariables['APP_PACKAGER_SEVENZIP'] = [string]$SevenZipPath
@@ -3164,6 +3181,32 @@ function Get-InstallModesMapForContext {
     return $map
 }
 
+function ConvertTo-InstallerTypeValue {
+    # Maps one Deployment Conditions prefs entry onto the APP_PACKAGER_INSTALLER_TYPE value (EXE or MSI) that a SupportsInstallerTypes
+    # packager reads through Get-RequestedInstallerType. Returns '' for the packager default.
+    param($Entry)
+
+    if (-not $Entry -or -not $Entry.PSObject.Properties['InstallerType']) { return '' }
+    $type = [string]$Entry.InstallerType
+    if ($type -notin @('EXE', 'MSI')) { return '' }
+    return $type
+}
+
+function Get-InstallerTypesMapForContext {
+    # Prebuilt on the UI thread, same reason as Get-InstallModesMapForContext.
+    $map = @{}
+    try {
+        $apps = $script:Prefs.DeploymentConditions.Apps
+        if ($apps) {
+            foreach ($prop in $apps.PSObject.Properties) {
+                $type = ConvertTo-InstallerTypeValue -Entry $prop.Value
+                if ($type) { $map[$prop.Name] = $type }
+            }
+        }
+    } catch { }
+    return $map
+}
+
 function Get-TitleModesMapForContext {
     $map = @{}
     $apps = $script:Prefs.DeploymentConditions.Apps
@@ -3195,6 +3238,13 @@ function Confirm-LocalSourceFolders {
         $meta = $null
         try { $meta = Get-PackagerMetadata -Path ([string]$row.FullPath) } catch { }
         if (-not $meta -or -not $meta.LocalSourceRequired) { $kept.Add($row); continue }
+        # An application set to the EXE installer type downloads its installer, so it needs no source folder.
+        $rowBase = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script)
+        if (@($meta.SupportsInstallerTypes) -contains 'EXE') {
+            $chosen = ''
+            try { $chosen = [string]$script:Prefs.DeploymentConditions.Apps.$rowBase.InstallerType } catch { }
+            if ($chosen -eq 'EXE') { $kept.Add($row); continue }
+        }
 
         $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script)
         $folder = ''
@@ -9095,6 +9145,7 @@ function New-OptionsLocalSourceEditor {
 # One row per application of the catalog. Each column is a setting of one application:
 #   Package source type  DeploymentConditions.Apps.<base>.Split (only a packager that declares SupportsVariants: Architecture)
 #   Install scope        DeploymentConditions.Apps.<base>.InstallMode (only a packager that declares both install modes)
+#   Installer type       DeploymentConditions.Apps.<base>.InstallerType (only a packager that declares SupportsInstallerTypes: EXE, MSI)
 #   Supersedence         Supersedence.TitleOverrides.<id>.Mode
 #   Version in title     DeploymentConditions.Apps.<base>.TitleMode (locked while supersedence is on)
 #   Version rule         Supersedence.TitleOverrides.<id>.VersionRule
@@ -9108,6 +9159,8 @@ function Get-ApplicationGridLabel {
         ArchSplit        = 'x64 and ARM64'
         System           = 'System'
         User             = 'User'
+        Exe              = 'EXE'
+        Msi              = 'MSI'
         Off              = 'Off'
         Replace          = 'Replace'
         ReplaceUninstall = 'Replace and uninstall'
@@ -9175,7 +9228,7 @@ public class AppPackagerGridRow : INotifyPropertyChanged
 function Get-ApplicationGridCapability {
     # What a packager lets the grid choose. The source type is a choice only for a packager that declares SupportsVariants: Architecture
     # (the engine then stages the x64 and the ARM64 deployment type). A packager of a family with an x64, x86 or ARM64 sibling shows its
-    # own architecture and cannot change it: the sibling is another row. The install scope is a choice only when both modes are declared.
+    # own architecture and cannot change it: the sibling is another row. The install scope is a choice only when both modes are declared. The installer type is a choice only when the packager declares both types (SupportsInstallerTypes: EXE, MSI).
     param([Parameter(Mandatory)]$Packager)
     $label = Get-ApplicationGridLabel
     $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$Packager.Script)
@@ -9196,7 +9249,13 @@ function Get-ApplicationGridCapability {
         $scope.Enabled = $true
         $scope.Items = @($label.PackagerDefault, $label.System, $label.User)
     }
-    return [pscustomobject]@{ Architecture = $arch; InstallScope = $scope }
+    $types = @($Packager.SupportsInstallerTypes)
+    $installer = [pscustomobject]@{ Enabled = $false; Items = @($label.PackagerDefault) }
+    if ($types -contains 'EXE' -and $types -contains 'MSI') {
+        $installer.Enabled = $true
+        $installer.Items = @($label.PackagerDefault, $label.Exe, $label.Msi)
+    }
+    return [pscustomobject]@{ Architecture = $arch; InstallScope = $scope; InstallerType = $installer }
 }
 
 function Get-ApplicationGridItemList {
@@ -9387,7 +9446,7 @@ function Get-ApplicationGridEntry {
     param([Parameter(Mandatory)]$Work, [Parameter(Mandatory)]$Packager)
     $base = [System.IO.Path]::GetFileNameWithoutExtension([string]$Packager.Script)
     if (-not $Work.Apps.Contains($base) -or -not $Work.Apps[$base]) {
-        $Work.Apps[$base] = [ordered]@{ Architecture = 'Any'; Languages = @(); Network = 'Any'; Split = 'None'; TitleMode = ''; InstallMode = '' }
+        $Work.Apps[$base] = [ordered]@{ Architecture = 'Any'; Languages = @(); Network = 'Any'; Split = 'None'; TitleMode = ''; InstallMode = ''; InstallerType = '' }
     }
     return $Work.Apps[$base]
 }
@@ -9465,6 +9524,12 @@ function Get-ApplicationGridSetting {
             Get = { param($w, $p) $m = [string](Get-ApplicationGridEntry -Work $w -Packager $p).InstallMode; if ($m -eq 'AllUsers') { $l.System } elseif ($m -eq 'CurrentUser') { $l.User } else { $l.PackagerDefault } }.GetNewClosure()
             Set = { param($w, $p, $v) (Get-ApplicationGridEntry -Work $w -Packager $p)['InstallMode'] = $(if ($v -eq $l.System) { 'AllUsers' } elseif ($v -eq $l.User) { 'CurrentUser' } else { '' }) }.GetNewClosure()
             NotApplicable = { param($w, $p) if ((Get-ApplicationGridCapability -Packager $p).InstallScope.Enabled) { $null } else { 'The packager of {0} has one install scope, so there is no choice.' -f (& $name $p) } }.GetNewClosure() }
+        @{ Id = 'installer'; Header = 'Installer Type'; Kind = 'Choice'; Visible = $true; Width = 140; Choices = @($l.PackagerDefault, $l.Exe, $l.Msi)
+            Tip = 'Packages the EXE installer or the MSI installer of the application, where the packager supports both. Each type has its own silent switches and detection.'
+            Get = { param($w, $p) $m = [string](Get-ApplicationGridEntry -Work $w -Packager $p).InstallerType; if ($m -eq 'EXE') { $l.Exe } elseif ($m -eq 'MSI') { $l.Msi } else { $l.PackagerDefault } }.GetNewClosure()
+            Set = { param($w, $p, $v) (Get-ApplicationGridEntry -Work $w -Packager $p)['InstallerType'] = $(if ($v -eq $l.Exe) { 'EXE' } elseif ($v -eq $l.Msi) { 'MSI' } else { '' }) }.GetNewClosure()
+            Items = { param($p) (Get-ApplicationGridCapability -Packager $p).InstallerType.Items }.GetNewClosure()
+            NotApplicable = { param($w, $p) if ((Get-ApplicationGridCapability -Packager $p).InstallerType.Enabled) { $null } else { 'The packager of {0} has one installer type, so there is no choice.' -f (& $name $p) } }.GetNewClosure() }
         @{ Id = 'supersedence'; Header = 'Supersedence'; Kind = 'Choice'; Visible = $true; Width = 152; Choices = @($l.Follow, $l.Off, $l.Replace, $l.ReplaceUninstall)
             Tip = 'Whether a new version supersedes the older version. Follow the default uses the default above.'
             Get = { param($w, $p) $o = Get-ApplicationGridOwn -Table $w.Overrides -Key ('catalog:' + (& $base $p)); $m = if ($o) { [string]$o['Mode'] } else { '' }; if ($m -eq 'Off') { $l.Off } elseif ($m -eq 'Replace') { $l.Replace } elseif ($m -eq 'Replace and uninstall') { $l.ReplaceUninstall } else { $l.Follow } }.GetNewClosure()
@@ -9683,7 +9748,7 @@ function Save-ApplicationGridWork {
     foreach ($key in $Work.Apps.Keys) {
         $e = $Work.Apps[$key]
         if (-not $e) { continue }
-        $empty = ([string]$e['Architecture'] -eq 'Any' -and [string]$e['Network'] -eq 'Any' -and @($e['Languages']).Count -eq 0 -and [string]$e['Split'] -eq 'None' -and -not [string]$e['TitleMode'] -and -not [string]$e['InstallMode'])
+        $empty = ([string]$e['Architecture'] -eq 'Any' -and [string]$e['Network'] -eq 'Any' -and @($e['Languages']).Count -eq 0 -and [string]$e['Split'] -eq 'None' -and -not [string]$e['TitleMode'] -and -not [string]$e['InstallMode'] -and -not [string]$e['InstallerType'])
         if (-not $empty) { $apps[$key] = $e }
     }
     $Prefs.DeploymentConditions.Apps = ConvertTo-ApplicationGridObject $apps
@@ -11260,6 +11325,7 @@ function Invoke-MultiAppPipeline {
                                 -SevenZipPath $Ctx.SevenZipPath `
                                 -VariantsJson $(if ($Ctx.VariantsByApp) { [string]$Ctx.VariantsByApp[$baseName] } else { '' }) `
                                 -InstallMode $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' }) `
+                                -InstallerType $(if ($Ctx.InstallerTypesByApp) { [string]$Ctx.InstallerTypesByApp[$baseName] } else { '' }) `
                                 -RunOptionsJson $(if ($Ctx.RunOptionsByApp) { [string]$Ctx.RunOptionsByApp[$baseName] } else { '' }) `
                                 -RunSnapshotPath $planSnapshot -SigningJson $planSigning -WorkbenchDataRoot $planDataRoot
 
@@ -11336,6 +11402,7 @@ function Invoke-MultiAppPipeline {
                                 VariantsJson         = $varJson
                                 CommandsJson         = $cmdJson
                                 InstallMode          = $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' })
+                                InstallerType      = $(if ($Ctx.InstallerTypesByApp) { [string]$Ctx.InstallerTypesByApp[$baseName] } else { '' })
                             }
                             $packageArgs['TitleMode'] = $(if ($Ctx.TitleModesByApp -and [string]$Ctx.TitleModesByApp[$baseName]) { [string]$Ctx.TitleModesByApp[$baseName] } else { [string]$Ctx.DefaultTitleMode })
                             $packageArgs['TitleMode'] = Get-SupersedenceLockedTitleMode -PackagerPath $path -TitleMode ([string]$packageArgs['TitleMode'])
@@ -11576,6 +11643,7 @@ function Invoke-MultiAppPipeline {
                                 -SevenZipPath $Ctx.SevenZipPath `
                                 -VariantsJson $(if ($Ctx.VariantsByApp) { [string]$Ctx.VariantsByApp[$baseName] } else { '' }) `
                                 -InstallMode $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' }) `
+                                -InstallerType $(if ($Ctx.InstallerTypesByApp) { [string]$Ctx.InstallerTypesByApp[$baseName] } else { '' }) `
                                 -RunSnapshotPath $planSnapshot -SigningJson $planSigning -WorkbenchDataRoot $planDataRoot
                             if ($stg.ExitCode -eq 0) {
                                 $stageOk = $true
@@ -11648,6 +11716,7 @@ function Invoke-MultiAppPipeline {
                                             CommandsJson         = $cmdJson
                                             OnExisting           = $onExisting
                                             InstallMode          = $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' })
+                                            InstallerType      = $(if ($Ctx.InstallerTypesByApp) { [string]$Ctx.InstallerTypesByApp[$baseName] } else { '' })
                                             TitleMode            = $(if ($Ctx.TitleModesByApp -and [string]$Ctx.TitleModesByApp[$baseName]) { [string]$Ctx.TitleModesByApp[$baseName] } else { [string]$Ctx.DefaultTitleMode })
                                         }
                                         $packageArgs['TitleMode'] = Get-SupersedenceLockedTitleMode -PackagerPath $path -TitleMode ([string]$packageArgs['TitleMode'])
@@ -11951,6 +12020,7 @@ function Invoke-MultiAppPipeline {
                                 -SevenZipPath $Ctx.SevenZipPath `
                                 -VariantsJson $(if ($Ctx.VariantsByApp) { [string]$Ctx.VariantsByApp[$baseName] } else { '' }) `
                                 -InstallMode $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' }) `
+                                -InstallerType $(if ($Ctx.InstallerTypesByApp) { [string]$Ctx.InstallerTypesByApp[$baseName] } else { '' }) `
                                 -RunSnapshotPath $planSnapshot -SigningJson $planSigning -WorkbenchDataRoot $planDataRoot
 
                             if ($stg.ExitCode -eq 0) {
@@ -12033,6 +12103,7 @@ function Invoke-MultiAppPipeline {
                                 VariantsJson         = $varJson
                                 CommandsJson         = $cmdJson
                                 InstallMode          = $(if ($Ctx.InstallModesByApp) { [string]$Ctx.InstallModesByApp[$baseName] } else { '' })
+                                InstallerType      = $(if ($Ctx.InstallerTypesByApp) { [string]$Ctx.InstallerTypesByApp[$baseName] } else { '' })
                             }
                             $packageArgs['TitleMode'] = $(if ($Ctx.TitleModesByApp -and [string]$Ctx.TitleModesByApp[$baseName]) { [string]$Ctx.TitleModesByApp[$baseName] } else { [string]$Ctx.DefaultTitleMode })
                             $packageArgs['TitleMode'] = Get-SupersedenceLockedTitleMode -PackagerPath $path -TitleMode ([string]$packageArgs['TitleMode'])
@@ -14000,6 +14071,7 @@ function Start-PublishRun {
         VariantsByApp        = Get-VariantsMapForContext
         CommandsByApp        = Get-CommandsMapForContext
         InstallModesByApp    = Get-InstallModesMapForContext
+        InstallerTypesByApp = Get-InstallerTypesMapForContext
         TitleModesByApp      = Get-TitleModesMapForContext
         DefaultTitleMode     = Get-DefaultTitleModeForContext
         IntunePublishConfig  = $(if ($intuneOnlyRun) { Get-IntunePublishConfigForContext -Target $Target } else { $null })
@@ -14795,6 +14867,7 @@ function Show-OneClickPlanDialog {
             VariantsByApp        = Get-VariantsMapForContext
             CommandsByApp        = Get-CommandsMapForContext
             InstallModesByApp    = Get-InstallModesMapForContext
+            InstallerTypesByApp = Get-InstallerTypesMapForContext
             TitleModesByApp      = Get-TitleModesMapForContext
             DefaultTitleMode     = Get-DefaultTitleModeForContext
             IntunePublishConfig  = Get-IntunePublishConfigForContext -Target 'IntuneOnly'
@@ -14948,6 +15021,7 @@ function Get-WorkbenchUiApplications {
             LatestVersionText    = $(if ([string]$a.Kind -eq 'Byo') { 'Manual updates' } else { '' })
             SupportsVariants     = $(if ($meta) { @($meta.SupportsVariants) } else { @() })
             SupportsInstallModes = $(if ($meta) { @($meta.SupportsInstallModes) } else { @() })
+            SupportsInstallerTypes = $(if ($meta) { @($meta.SupportsInstallerTypes) } else { @() })
         })
     }
     return $result
@@ -16948,6 +17022,7 @@ function New-WorkbenchPipelineContext {
         $context['VariantsByApp']        = Get-VariantsMapForContext
         $context['CommandsByApp']        = Get-CommandsMapForContext
         $context['InstallModesByApp']    = Get-InstallModesMapForContext
+        $context['InstallerTypesByApp'] = Get-InstallerTypesMapForContext
         $context['TitleModesByApp']      = Get-TitleModesMapForContext
         $context['DefaultTitleMode']     = Get-DefaultTitleModeForContext
         $context['IntunePublishConfig']  = Get-IntunePublishConfigForContext -Target $target

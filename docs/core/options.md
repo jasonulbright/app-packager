@@ -94,12 +94,13 @@ The edition, the languages of the multilingual edition, and the Adobe properties
 
 #### All Applications
 
-One grid with one row for each application that the packagers offer. Every setting of one application is in this grid. The **Columns** button chooses the columns. The five columns that show first are Package Source, Install Scope, Supersedence, Version in Title and Version Rule. The search box shows only the applications whose name or vendor holds the text that you type. Select a column header to sort the grid.
+One grid with one row for each application that the packagers offer. Every setting of one application is in this grid. The **Columns** button chooses the columns. The six columns that show first are Package Source, Install Scope, Installer Type, Supersedence, Version in Title and Version Rule. The search box shows only the applications whose name or vendor holds the text that you type. Select a column header to sort the grid.
 
 | Column | Choices | Stored in |
 |---|---|---|
 | Package Source | Packager default, x64 and ARM64 | `DeploymentConditions.Apps`, `Split` |
 | Install Scope | Packager default, System, User | `DeploymentConditions.Apps`, `InstallMode` |
+| Installer Type | Packager default, EXE, MSI | `DeploymentConditions.Apps`, `InstallerType` |
 | Supersedence | Follow the default, Off, Replace, Replace and uninstall | `Supersedence.TitleOverrides`, `Mode` |
 | Version in Title | Follow the default, Include version, No version | `DeploymentConditions.Apps`, `TitleMode` |
 | Version Rule | Follow the default, Minimum, Exact | `Supersedence.TitleOverrides`, `VersionRule` |
@@ -121,7 +122,7 @@ The last three columns are fields of the Workbench profile of the application, a
 
 The columns Distribution point group and Test collection set a value for one application. When a package run distributes content or deploys to the test collection, it reads the value of the application first and the value in Post Packaging as the fallback. Distribute content, Test deployment and the other options of Post Packaging stay site-wide.
 
-A cell that does not apply to an application is closed, and its tooltip gives the reason. Package Source is open only for a packager that offers an architecture split (7-Zip, Google Chrome and Mozilla Firefox). A packager of a family with an x64, x86 or ARM64 sibling shows its own architecture, because the sibling is another row. Install Scope is open only for a packager that supports both install modes. Network Split is open only for a packager that offers it. Publish to WSUS is closed for an application that WSUS cannot carry, and the tooltip names the reason. A package source and a network split are both splits, and a packager stages one split at a time: the last one that you choose replaces the other.
+A cell that does not apply to an application is closed, and its tooltip gives the reason. Installer Type is open only for a packager that declares both types (7-Zip, Notepad++ and TeamViewer Host). Each type has its own silent switches, detection and wrapper. 7-Zip stages the MSI by default (`/qn`) or the x64 exe (`/S`). Notepad++ stages the exe by default (`/S /noUpdater`) or the x64 MSI of the same release (`/qn`). TeamViewer Host stages the MSI that you put in its Local Installer Sources folder by default, or the vendor exe (`/S`); TeamViewer documents the silent install for the MSI only, and the exe type ignores the MSI properties of `teamviewer-host-config.json`. Package Source is open only for a packager that offers an architecture split (7-Zip, Google Chrome and Mozilla Firefox). A packager of a family with an x64, x86 or ARM64 sibling shows its own architecture, because the sibling is another row. Install Scope is open only for a packager that supports both install modes. Network Split is open only for a packager that offers it. Publish to WSUS is closed for an application that WSUS cannot carry, and the tooltip names the reason. A package source and a network split are both splits, and a packager stages one split at a time: the last one that you choose replaces the other.
 
 While supersedence is on for an application, its title must hold the version, because the new release and the older one must be separate applications. The grid then shows **Include version** in Version in Title, and the cell is closed. A note under the buttons counts these applications. The grid keeps the choice that you made in that column: when supersedence is off again, the column shows your choice again.
 

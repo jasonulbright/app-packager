@@ -9,6 +9,7 @@ DownloadPageUrl: https://www.7-zip.org/download.html
 IconSource: External
 UpdateCadenceDays: 90
 SupportsVariants: Architecture
+SupportsInstallerTypes: EXE, MSI
 WsusSupport: Yes
 ArpName: 7-Zip [0-9]*
 
@@ -19,6 +20,13 @@ ArpName: 7-Zip [0-9]*
     Downloads the latest 7-Zip x64 MSI from the official 7-zip.org download page,
     stages content to a versioned local folder with ARP detection metadata, and
     creates a ConfigMgr Application with registry-based detection.
+
+    The installer type is a setting of the application (Options > Applications
+    > All Applications > Installer Type). MSI is the default: msiexec /qn
+    /norestart, detection by the ProductCode ARP key. EXE stages the vendor x64
+    exe installer from the same download page instead: /S, uninstall with
+    Uninstall.exe /S, detection by the fixed 7-Zip ARP key. Both types read the
+    version from the MSI of the same release.
 
     Supports two-phase operation:
       -StageOnly    Download, derive ARP detection from MSI properties, write manifest
@@ -100,6 +108,7 @@ $AppFolder    = "7-Zip"
 $BaseDownloadRoot = Join-Path $DownloadRoot "7-Zip"
 $MsiFileName      = "7zip-x64.msi"
 $ArmExeFileName   = "7zip-arm64.exe"
+$ExeFileName      = "7zip-x64.exe"
 
 # --- Functions ---
 
@@ -148,7 +157,7 @@ function Resolve-7ZipX64MsiUrl {
 
 
 function Resolve-7ZipArm64ExeUrl {
-    param([switch]$Quiet)
+    param([switch]$Quiet, [ValidateSet('arm64', 'x64')][string]$Architecture = 'arm64')
 
     try {
         $html = (curl.exe -L --fail --silent --show-error $DownloadPageUrl) -join "`n"
@@ -156,10 +165,10 @@ function Resolve-7ZipArm64ExeUrl {
 
         # Links are relative (a/7z2501-arm64.exe) or absolute GitHub release
         # URLs; [uri]::new against the site base handles both.
-        $rx = [regex]'href\s*=\s*"(?<href>[^"]*?7z(?<ver>\d{4})-arm64\.exe)"'
+        $rx = [regex]('href\s*=\s*"(?<href>[^"]*?7z(?<ver>\d{4})-' + $Architecture + '\.exe)"')
         $rxMatches = $rx.Matches($html)
         if (-not $rxMatches -or $rxMatches.Count -lt 1) {
-            throw "Could not locate any ARM64 exe links on the download page."
+            throw "Could not locate any $Architecture exe links on the download page."
         }
 
         $candidates = foreach ($m in $rxMatches) {
@@ -172,7 +181,7 @@ function Resolve-7ZipArm64ExeUrl {
         $base = [uri]"https://www.7-zip.org/"
         $final = ([uri]::new($base, $best.Href)).AbsoluteUri
 
-        Write-Log "Resolved ARM64 exe URL       : $final" -Quiet:$Quiet
+        Write-Log "Resolved $Architecture exe URL       : $final" -Quiet:$Quiet
         return [pscustomobject]@{ Url = $final; VerDigits = $best.VerDigits }
     }
     catch {
@@ -234,6 +243,11 @@ function Invoke-Stage7Zip {
 
     $displayVersion = Get-7ZipDisplayVersion -RawVersion $productVersionRaw  # e.g. 25.01
 
+    # The installer type is the application's setting: MSI by default, EXE on request. The MSI stays the version source for both.
+    $installerType = Get-RequestedInstallerType
+    if (-not $installerType) { $installerType = 'MSI' }
+    Write-Log "Installer type               : $installerType"
+
     Write-Log "MSI ProductName              : $productName"
     Write-Log "MSI ProductVersion (raw)     : $productVersionRaw"
     Write-Log "Version (display)            : $displayVersion"
@@ -245,27 +259,54 @@ function Invoke-Stage7Zip {
     $localContentPath = Join-Path $BaseDownloadRoot $displayVersion
     Initialize-Folder -Path $localContentPath
 
-    $stagedMsi = Join-Path $localContentPath $MsiFileName
-    if (-not (Test-Path -LiteralPath $stagedMsi)) {
-        Copy-Item -LiteralPath $localMsi -Destination $stagedMsi -Force -ErrorAction Stop
-        Write-Log "Copied MSI to staged folder  : $stagedMsi"
+    if ($installerType -eq 'MSI') {
+        $stagedMsi = Join-Path $localContentPath $MsiFileName
+        if (-not (Test-Path -LiteralPath $stagedMsi)) {
+            Copy-Item -LiteralPath $localMsi -Destination $stagedMsi -Force -ErrorAction Stop
+            Write-Log "Copied MSI to staged folder  : $stagedMsi"
+        }
+        else {
+            Write-Log "Staged MSI exists. Skipping copy."
+        }
     }
     else {
-        Write-Log "Staged MSI exists. Skipping copy."
+        # The vendor x64 exe of the same release. Its version digits must match the MSI.
+        $exeInfo = Resolve-7ZipArm64ExeUrl -Architecture x64
+        if (-not $exeInfo) { throw "EXE installer type requested but the x64 exe URL could not be resolved." }
+        $expectedDigitsX64 = $displayVersion -replace '\.', ''
+        if ([string]$exeInfo.VerDigits -ne $expectedDigitsX64) {
+            throw "x64 exe version ($($exeInfo.VerDigits)) does not match the MSI version ($displayVersion); refusing to stage a mismatched pair."
+        }
+        $localExe = Join-Path $BaseDownloadRoot $ExeFileName
+        Invoke-DownloadWithRetry -Url $exeInfo.Url -OutFile $localExe
+        Copy-Item -LiteralPath $localExe -Destination (Join-Path $localContentPath $ExeFileName) -Force -ErrorAction Stop
+        Write-Log "Copied EXE to staged folder  : $localContentPath"
     }
 
     # --- Derive ARP detection from MSI properties ---
     # For standard MSI installs the ARP uninstall key name is the ProductCode GUID.
     # This avoids a temp install/uninstall cycle that can crash Explorer when the
     # product registers shell extensions (e.g. 7-Zip context menu).
-    $arpRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\" + $productCode
-    $arpEntry = [pscustomobject]@{
-        RegistryKeyRelative = $arpRegistryKey
-        DisplayName         = $productName
-        DisplayVersion      = $productVersionRaw   # raw MSI ProductVersion = what Windows writes to registry
-        Is64Bit             = $true
+    if ($installerType -eq 'MSI') {
+        $arpRegistryKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\" + $productCode
+        $arpEntry = [pscustomobject]@{
+            RegistryKeyRelative = $arpRegistryKey
+            DisplayName         = $productName
+            DisplayVersion      = $productVersionRaw   # raw MSI ProductVersion = what Windows writes to registry
+            Is64Bit             = $true
+        }
+        Write-Log "ARP detection derived from MSI properties (no temp install needed)."
     }
-    Write-Log "ARP detection derived from MSI properties (no temp install needed)."
+    else {
+        # The NSIS exe writes the fixed key 7-Zip and the display version (for example 25.01).
+        $arpEntry = [pscustomobject]@{
+            RegistryKeyRelative = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\7-Zip'
+            DisplayName         = $productName
+            DisplayVersion      = $displayVersion
+            Is64Bit             = $true
+        }
+        Write-Log "ARP detection for the exe    : fixed 7-Zip key, DisplayVersion $displayVersion"
+    }
 
     Write-Log ""
     Write-Log "ARP DisplayName              : $($arpEntry.DisplayName)"
@@ -275,7 +316,13 @@ function Invoke-Stage7Zip {
     Write-Log ""
 
     # --- Generate content wrappers ---
-    $wrapperContent = New-MsiWrapperContent -MsiFileName $MsiFileName
+    if ($installerType -eq 'MSI') {
+        $wrapperContent = New-MsiWrapperContent -MsiFileName $MsiFileName
+    }
+    else {
+        $wrapperContent = New-ExeWrapperContent -InstallerFileName $ExeFileName -InstallArgs "'/S'" `
+            -UninstallCommand 'C:\Program Files\7-Zip\Uninstall.exe' -UninstallArgs "'/S'"
+    }
     Write-ContentWrappers -OutputPath $localContentPath `
         -InstallPs1Content $wrapperContent.Install `
         -UninstallPs1Content $wrapperContent.Uninstall
@@ -349,11 +396,10 @@ function Invoke-Stage7Zip {
         AppName         = $appName
         Publisher       = $publisher
         SoftwareVersion = $displayVersion
-        InstallerFile   = $MsiFileName
-        InstallerType   = "MSI"
-        InstallArgs     = "/qn /norestart"
-        UninstallArgs   = "/qn /norestart"
-        ProductCode     = $productCode
+        InstallerFile   = $(if ($installerType -eq 'MSI') { $MsiFileName } else { $ExeFileName })
+        InstallerType   = $installerType
+        InstallArgs     = $(if ($installerType -eq 'MSI') { "/qn /norestart" } else { "/S" })
+        UninstallArgs   = $(if ($installerType -eq 'MSI') { "/qn /norestart" } else { "/S" })
         RunningProcess  = @("7zFM", "7zG")
         Detection       = @{
             Type                = "RegistryKeyValue"
@@ -364,6 +410,7 @@ function Invoke-Stage7Zip {
             Is64Bit             = $arpEntry.Is64Bit
         }
     }
+    if ($installerType -eq 'MSI') { $manifestData['ProductCode'] = $productCode }
     if ($deploymentTypes) { $manifestData['DeploymentTypes'] = $deploymentTypes }
     Write-StageManifest -Path $manifestPath -ManifestData $manifestData
 

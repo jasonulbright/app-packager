@@ -107,6 +107,7 @@
         'Get-RequestedPackagerVariants'
         'Get-RequestedCommandOverrides'
         'Get-RequestedInstallMode'
+        'Get-RequestedInstallerType'
         'Set-StageManifestInstallMode'
 
         # Supersedence: version rule, Exact guard, supersedence mode

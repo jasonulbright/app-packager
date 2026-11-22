@@ -9,13 +9,23 @@ DownloadPageUrl: https://www.teamviewer.com/en-us/download/windows/
 SecurityAdvisoryUrl: https://www.teamviewer.com/en/trust-center/security-bulletins/
 IconSource: Installer
 LocalSource: Required
+SupportsInstallerTypes: EXE, MSI
 WsusSupport: Yes
 ArpName: TeamViewer Host
 
 .SYNOPSIS
-    Packages TeamViewer Host (x64) MSI for ConfigMgr.
+    Packages TeamViewer Host (x64) for ConfigMgr, as an MSI or as the vendor EXE.
 
 .DESCRIPTION
+    The installer type is a setting of the application (Options > Applications
+    > All Applications > Installer Type). MSI is the default and is described
+    below. EXE downloads TeamViewer_Host_Setup_x64.exe, reads the version from
+    its file properties, installs with /S, uninstalls with the NSIS uninstall.exe
+    /S and detects TeamViewer.exe by file version. TeamViewer documents the
+    silent install for the MSI (msiexec /qn plus properties) and does not
+    document an EXE switch, so the EXE type does not pass the properties of
+    teamviewer-host-config.json; the packager logs a warning for each one.
+
     Stages the TeamViewer Host MSI from the installer source folder of this
     packager (Options > Applications > Local Installer Sources), creates the
     content wrappers and a ConfigMgr Application with detection by the
@@ -132,6 +142,10 @@ $InstallerFilter   = "TeamViewer_Host*.msi"
 $InstallerFileName = "TeamViewer_Host.msi"
 $FolderHint = "Put the TeamViewer Host MSI (TeamViewer_Host.msi) in that folder. TeamViewer gives it only in the Management Console, under Design and Deploy; unzip the download first when it is a .zip."
 
+# The EXE installer type downloads the vendor NSIS installer. The MSI type reads the MSI above from the installer source folder.
+$ExeDownloadUrl = "https://dl.teamviewer.com/download/TeamViewer_Host_Setup_x64.exe"
+$ExeFileName    = "TeamViewer_Host_Setup_x64.exe"
+
 $VendorFolder = "TeamViewer"
 $AppFolder    = "TeamViewer Host"
 
@@ -219,8 +233,81 @@ function Get-TeamViewerHostMsiArguments {
 }
 
 
+function Get-RequestedTeamViewerHostInstallerType {
+    <#
+    .SYNOPSIS
+        The installer type of this run: the application setting (EXE or MSI), MSI when the setting is the packager default.
+    #>
+    $type = Get-RequestedInstallerType
+    if (-not $type) { return 'MSI' }
+    return $type
+}
+
+
+function Get-TeamViewerHostExeVersion {
+    <#
+    .SYNOPSIS
+        Reads the product version from a TeamViewer Host EXE as a dotted version string.
+
+    .DESCRIPTION
+        The NSIS installer leaves the version resource string table empty, so FileVersionInfo.ProductVersion and FileVersion come
+        back blank. The fixed block of the same resource is populated, and its four Product parts match the vendor MSI ProductVersion.
+        The string table is tried first, then the fixed block. Both empty throws.
+    #>
+    param([Parameter(Mandatory)][string]$ExePath)
+
+    $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($ExePath)
+    $v  = $vi.ProductVersion
+    if ([string]::IsNullOrWhiteSpace($v)) { $v = $vi.FileVersion }
+    if (-not [string]::IsNullOrWhiteSpace($v)) { return $v.Trim() }
+
+    $fixed = "{0}.{1}.{2}.{3}" -f $vi.ProductMajorPart, $vi.ProductMinorPart, $vi.ProductBuildPart, $vi.ProductPrivatePart
+    if ($fixed -ne '0.0.0.0') { return $fixed }
+
+    throw "Could not read a product version from $ExePath - the version resource string table and its fixed block are both empty."
+}
+
+
+function Write-IgnoredConfigWarnings {
+    <#
+    .SYNOPSIS
+        Logs a warning for each teamviewer-host-config.json key that is an MSI property. The EXE type does not pass them.
+    #>
+    $cfg = Read-TeamViewerHostConfig
+    if (-not $cfg) { return }
+
+    $ignored = @()
+    if (-not [string]::IsNullOrWhiteSpace([string]$cfg.ApiToken))          { $ignored += 'ApiToken (APITOKEN)' }
+    if (-not [string]::IsNullOrWhiteSpace([string]$cfg.CustomConfigId))    { $ignored += 'CustomConfigId (CUSTOMCONFIGID)' }
+    if (-not [string]::IsNullOrWhiteSpace([string]$cfg.AssignmentOptions)) { $ignored += 'AssignmentOptions (ASSIGNMENTOPTIONS)' }
+    if ($cfg.PSObject.Properties['RemoveDesktopShortcut'] -and ([string]$cfg.RemoveDesktopShortcut) -match '^(true|1)$') { $ignored += 'RemoveDesktopShortcut (DESKTOPSHORTCUTS)' }
+
+    if ($ignored.Count -gt 0) {
+        Write-Log "teamviewer-host-config.json holds MSI properties that the EXE installer type does not pass:" -Level WARN
+        foreach ($k in $ignored) { Write-Log "  - $k" -Level WARN }
+        Write-Log "These values are ignored for the EXE type. Choose the MSI installer type to use them." -Level WARN
+    }
+}
+
+
 function Get-LatestTeamViewerHostVersion {
     param([switch]$Quiet)
+
+    if ((Get-RequestedTeamViewerHostInstallerType) -eq 'EXE') {
+        Write-Log "TeamViewer Host EXE URL      : $ExeDownloadUrl" -Quiet:$Quiet
+        try {
+            Initialize-Folder -Path $BaseDownloadRoot
+            $localExe = Join-Path $BaseDownloadRoot $ExeFileName
+            Invoke-CachedDownload -Url $ExeDownloadUrl -OutFile $localExe -Quiet:$Quiet
+            $version = Get-TeamViewerHostExeVersion -ExePath $localExe
+            Write-Log "Latest TeamViewer Host ver   : $version" -Quiet:$Quiet
+            return $version
+        }
+        catch {
+            Write-Log "Failed to get TeamViewer Host version: $($_.Exception.Message)" -Level ERROR
+            return $null
+        }
+    }
 
     try {
         $localMsi = Resolve-TeamViewerHostMsi
@@ -242,7 +329,91 @@ function Get-LatestTeamViewerHostVersion {
 # Stage phase
 # ---------------------------------------------------------------------------
 
+function Invoke-StageTeamViewerHostExe {
+    Write-Log ""
+    Write-Log ("=" * 60)
+    Write-Log "TeamViewer Host (x64, EXE) - STAGE phase"
+    Write-Log ("=" * 60)
+    Write-Log ""
+
+    Initialize-Folder -Path $BaseDownloadRoot
+
+    $localExe = Join-Path $BaseDownloadRoot $ExeFileName
+    Write-Log "Local EXE path               : $localExe"
+    Invoke-CachedDownload -Url $ExeDownloadUrl -OutFile $localExe
+
+    $version = Get-TeamViewerHostExeVersion -ExePath $localExe
+    Write-Log "EXE ProductVersion           : $version"
+    Write-Log ""
+
+    $localContentPath = Join-Path $BaseDownloadRoot $version
+    Initialize-Folder -Path $localContentPath
+    Copy-Item -LiteralPath $localExe -Destination (Join-Path $localContentPath $ExeFileName) -Force -ErrorAction Stop
+    Write-Log "Copied EXE to staged folder  : $localContentPath"
+
+    Write-IgnoredConfigWarnings
+
+    # Install: stop a running TeamViewer first (the installer cannot replace an open exe), run the NSIS installer with /S, then close
+    # a GUI that the post-install step may launch in the SYSTEM session. Uninstall: the NSIS uninstaller at the Host install path.
+    $installContent = (
+        'Stop-Process -Name "TeamViewer","tv_w32","tv_x64" -Force -ErrorAction SilentlyContinue',
+        ('$exePath = Join-Path $PSScriptRoot ''{0}''' -f $ExeFileName),
+        '$proc = Start-Process -FilePath $exePath -ArgumentList @(''/S'') -Wait -PassThru -NoNewWindow',
+        'Stop-Process -Name "TeamViewer","tv_w32","tv_x64" -Force -ErrorAction SilentlyContinue',
+        'exit $proc.ExitCode'
+    ) -join "`r`n"
+    $uninstallContent = (
+        'Stop-Process -Name "TeamViewer","tv_w32","tv_x64" -Force -ErrorAction SilentlyContinue',
+        '$uninstall = Join-Path $env:ProgramFiles ''TeamViewer\uninstall.exe''',
+        'if (-not (Test-Path -LiteralPath $uninstall)) { exit 0 }',
+        '$proc = Start-Process -FilePath $uninstall -ArgumentList @(''/S'') -Wait -PassThru -NoNewWindow',
+        'exit $proc.ExitCode'
+    ) -join "`r`n"
+    Write-ContentWrappers -OutputPath $localContentPath `
+        -InstallPs1Content $installContent `
+        -UninstallPs1Content $uninstallContent
+
+    $detectionPath = "{0}\TeamViewer" -f $env:ProgramFiles
+    Write-Log "Detection                    : $detectionPath\TeamViewer.exe version >= $version"
+    Write-Log ""
+
+    $manifestPath = Join-Path $localContentPath "stage-manifest.json"
+    Write-StageManifest -Path $manifestPath -ManifestData @{
+        AppName         = "TeamViewer Host $version"
+        Publisher       = "TeamViewer"
+        SoftwareVersion = $version
+        InstallerFile   = $ExeFileName
+        InstallerType   = "EXE"
+        InstallArgs     = "/S"
+        UninstallArgs   = "/S"
+        RunningProcess  = @("TeamViewer_Service", "TeamViewer")
+        Detection       = @{
+            Type          = "File"
+            FilePath      = $detectionPath
+            FileName      = "TeamViewer.exe"
+            PropertyType  = "Version"
+            Operator      = "GreaterEquals"
+            ExpectedValue = $version
+            Is64Bit       = $true
+        }
+    }
+
+    Set-Content -LiteralPath (Join-Path $BaseDownloadRoot "staged-version.txt") -Value $version -Encoding ASCII -ErrorAction Stop
+
+    Write-Log ""
+    Write-Log "Stage complete               : $localContentPath"
+
+    return $localContentPath
+}
+
+
 function Invoke-StageTeamViewerHost {
+    if ((Get-RequestedTeamViewerHostInstallerType) -eq 'EXE') { return (Invoke-StageTeamViewerHostExe) }
+    return (Invoke-StageTeamViewerHostMsi)
+}
+
+
+function Invoke-StageTeamViewerHostMsi {
     Write-Log ""
     Write-Log ("=" * 60)
     Write-Log "TeamViewer Host (x64) - STAGE phase"
