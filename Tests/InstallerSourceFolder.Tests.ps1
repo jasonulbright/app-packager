@@ -85,7 +85,8 @@ Describe 'The packager <Name> stages from the installer source folder' -ForEach 
     }
 
     It 'sends no web request and does not touch the protected page' {
-        $code = ((Get-Content -LiteralPath $script:Path -Raw) -replace '(?s)^\s*<#.*?\n#>', '')
+        # The MSI type is the source-folder path. The code between the EXE installer type markers is the download path of the EXE type.
+        $code = ((Get-Content -LiteralPath $script:Path -Raw) -replace '(?s)^\s*<#.*?\n#>', '') -replace '(?s)#region EXE installer type.*?#endregion EXE installer type', ''
         $code | Should -Not -Match 'curl\.exe|Invoke-WebRequest|Invoke-RestMethod|Invoke-DownloadWithRetry|Invoke-CachedDownload|Net\.WebClient|HttpClient'
         $code | Should -Not -Match 'sourceforge|tortoisesvn\.net/downloads|download\.teamviewer|dl\.teamviewer'
     }

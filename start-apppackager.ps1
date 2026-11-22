@@ -9525,7 +9525,7 @@ function Get-ApplicationGridSetting {
             Set = { param($w, $p, $v) (Get-ApplicationGridEntry -Work $w -Packager $p)['InstallMode'] = $(if ($v -eq $l.System) { 'AllUsers' } elseif ($v -eq $l.User) { 'CurrentUser' } else { '' }) }.GetNewClosure()
             NotApplicable = { param($w, $p) if ((Get-ApplicationGridCapability -Packager $p).InstallScope.Enabled) { $null } else { 'The packager of {0} has one install scope, so there is no choice.' -f (& $name $p) } }.GetNewClosure() }
         @{ Id = 'installer'; Header = 'Installer Type'; Kind = 'Choice'; Visible = $true; Width = 140; Choices = @($l.PackagerDefault, $l.Exe, $l.Msi)
-            Tip = 'Packages the EXE installer or the MSI installer of the application, where the packager supports both. Each type has its own silent switches and detection.'
+            Tip = 'Packages the EXE or the MSI installer, where the packager offers both.'
             Get = { param($w, $p) $m = [string](Get-ApplicationGridEntry -Work $w -Packager $p).InstallerType; if ($m -eq 'EXE') { $l.Exe } elseif ($m -eq 'MSI') { $l.Msi } else { $l.PackagerDefault } }.GetNewClosure()
             Set = { param($w, $p, $v) (Get-ApplicationGridEntry -Work $w -Packager $p)['InstallerType'] = $(if ($v -eq $l.Exe) { 'EXE' } elseif ($v -eq $l.Msi) { 'MSI' } else { '' }) }.GetNewClosure()
             Items = { param($p) (Get-ApplicationGridCapability -Packager $p).InstallerType.Items }.GetNewClosure()
@@ -9877,7 +9877,7 @@ function New-OptionsApplicationGrid {
             $valueBox.Text = ''
             if ($s -and $s.Kind -eq 'Choice') { foreach ($v in $s.Choices) { [void]$valueBox.Items.Add([string]$v) }; $valueBox.SelectedIndex = $(if ($s.Choices.Count -gt 1) { 1 } else { 0 }) }
         }.GetNewClosure())
-    $columnBox.SelectedIndex = 2
+    $columnBox.SelectedIndex = [Math]::Max(0, $columnBox.Items.IndexOf('Supersedence'))
     [void]$bar.Children.Add($columnBox)
     [void]$bar.Children.Add((& $newLabel 'to'))
     [void]$bar.Children.Add($valueBox)

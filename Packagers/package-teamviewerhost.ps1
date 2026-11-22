@@ -142,9 +142,11 @@ $InstallerFilter   = "TeamViewer_Host*.msi"
 $InstallerFileName = "TeamViewer_Host.msi"
 $FolderHint = "Put the TeamViewer Host MSI (TeamViewer_Host.msi) in that folder. TeamViewer gives it only in the Management Console, under Design and Deploy; unzip the download first when it is a .zip."
 
+#region EXE installer type
 # The EXE installer type downloads the vendor NSIS installer. The MSI type reads the MSI above from the installer source folder.
 $ExeDownloadUrl = "https://dl.teamviewer.com/download/TeamViewer_Host_Setup_x64.exe"
 $ExeFileName    = "TeamViewer_Host_Setup_x64.exe"
+#endregion EXE installer type
 
 $VendorFolder = "TeamViewer"
 $AppFolder    = "TeamViewer Host"
@@ -244,6 +246,7 @@ function Get-RequestedTeamViewerHostInstallerType {
 }
 
 
+#region EXE installer type
 function Get-TeamViewerHostExeVersion {
     <#
     .SYNOPSIS
@@ -290,9 +293,13 @@ function Write-IgnoredConfigWarnings {
 }
 
 
+#endregion EXE installer type
+
+
 function Get-LatestTeamViewerHostVersion {
     param([switch]$Quiet)
 
+    #region EXE installer type
     if ((Get-RequestedTeamViewerHostInstallerType) -eq 'EXE') {
         Write-Log "TeamViewer Host EXE URL      : $ExeDownloadUrl" -Quiet:$Quiet
         try {
@@ -308,6 +315,7 @@ function Get-LatestTeamViewerHostVersion {
             return $null
         }
     }
+    #endregion EXE installer type
 
     try {
         $localMsi = Resolve-TeamViewerHostMsi
@@ -329,6 +337,7 @@ function Get-LatestTeamViewerHostVersion {
 # Stage phase
 # ---------------------------------------------------------------------------
 
+#region EXE installer type
 function Invoke-StageTeamViewerHostExe {
     Write-Log ""
     Write-Log ("=" * 60)
@@ -413,6 +422,9 @@ function Invoke-StageTeamViewerHost {
     if ((Get-RequestedTeamViewerHostInstallerType) -eq 'EXE') { return (Invoke-StageTeamViewerHostExe) }
     return (Invoke-StageTeamViewerHostMsi)
 }
+
+
+#endregion EXE installer type
 
 
 function Invoke-StageTeamViewerHostMsi {

@@ -178,7 +178,7 @@ try {
     $global:txtComment = New-Object System.Windows.Controls.TextBox
     $global:txtStatus = New-Object System.Windows.Controls.TextBlock
     foreach ($stub in 'Get-SevenZipPathForContext', 'Get-IntuneWinToolPathForContext', 'Get-RequirementsMapForContext', 'Get-VariantsMapForContext',
-        'Get-CommandsMapForContext', 'Get-InstallModesMapForContext', 'Get-TitleModesMapForContext', 'Get-DefaultTitleModeForContext',
+        'Get-CommandsMapForContext', 'Get-InstallModesMapForContext', 'Get-InstallerTypesMapForContext', 'Get-TitleModesMapForContext', 'Get-DefaultTitleModeForContext',
         'Get-IntunePublishConfigForContext', 'Get-WsusPublishConfigForContext', 'Get-WorkbenchRunPlanForContext',
         'Get-WorkbenchSigningPolicyJson', 'Get-WorkbenchSigningPolicyDigest') {
         Set-Item -Path ('function:global:' + $stub) -Value { param($Rows, $Target) $null }

@@ -439,7 +439,7 @@ Describe 'The code that packages and runs One Click uses the value that the grid
         $r.Changed | Should -Be 1
         $r.Skipped | Should -Be 1
         [string]$work.Apps['package-both']['InstallerType'] | Should -Be 'EXE'
-        $work.Apps.Contains('package-one') | Should -BeFalse
+        [string]$work.Apps['package-one']['InstallerType'] | Should -Be '' -Because 'a skipped cell writes no value'
     }
     It 'passes Install Scope System as AllUsers, and the default as nothing' {
         [void](Invoke-Grid -Set ([ordered]@{ scope = 'System' }))
