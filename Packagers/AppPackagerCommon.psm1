@@ -8421,6 +8421,26 @@ function Get-RequestedInstallMode {
 
 Export-ModuleMember -Function Get-RequestedInstallMode
 
+function Get-RequestedInstallerType {
+    <#
+    .SYNOPSIS
+        Reads the APP_PACKAGER_INSTALLER_TYPE environment value the GUI sets for a SupportsInstallerTypes packager.
+
+    .DESCRIPTION
+        Returns 'EXE' or 'MSI', or $null when no type is requested (the packager default applies). Any other value throws instead of
+        staging the packager's default type against the operator's choice.
+    #>
+    $value = [string]$env:APP_PACKAGER_INSTALLER_TYPE
+    if ([string]::IsNullOrWhiteSpace($value)) { return $null }
+    $value = $value.Trim().ToUpperInvariant()
+    if ($value -notin @('EXE', 'MSI')) {
+        throw "APP_PACKAGER_INSTALLER_TYPE must be EXE or MSI (got '$value')."
+    }
+    return $value
+}
+
+Export-ModuleMember -Function Get-RequestedInstallerType
+
 function Set-StageManifestInstallMode {
     <#
     .SYNOPSIS
