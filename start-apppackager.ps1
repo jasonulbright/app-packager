@@ -7971,7 +7971,12 @@ function Connect-OptionsFieldLink {
             if (-not $database) { $database = $(if ($siteBox -and $siteBox.Text.Trim()) { 'CM_' + $siteBox.Text.Trim().ToUpperInvariant() } else { 'CM_<site code>' }) }
             $targetText.Text = ('{0}, database {1}' -f $name, $database)
         }.GetNewClosure()
-        foreach ($box in @($serverBox, $instanceBox, $portBox, $databaseBox, $siteBox)) { if ($box) { $box.Add_TextChanged($refresh) } }
+        foreach ($box in @($serverBox, $instanceBox, $portBox, $databaseBox, $siteBox)) {
+            if (-not $box) { continue }
+            # The site code is an editable list: its text box raises the routed event.
+            if ($box -is [System.Windows.Controls.ComboBox]) { $box.AddHandler([System.Windows.Controls.Primitives.TextBoxBase]::TextChangedEvent, [System.Windows.Controls.TextChangedEventHandler]$refresh) }
+            else { $box.Add_TextChanged($refresh) }
+        }
         & $refresh
     }
 
