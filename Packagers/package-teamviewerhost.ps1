@@ -262,7 +262,12 @@ function Get-TeamViewerHostExeVersion {
     $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($ExePath)
     $v  = $vi.ProductVersion
     if ([string]::IsNullOrWhiteSpace($v)) { $v = $vi.FileVersion }
-    if (-not [string]::IsNullOrWhiteSpace($v)) { return $v.Trim() }
+    if (-not [string]::IsNullOrWhiteSpace($v)) {
+        $v = $v.Trim()
+        # The version names the content folder and the detection rule, so a text that is not a version stops the stage here.
+        if ($v -notmatch '^\d+(\.\d+){1,3}$') { throw "The product version of $ExePath is not a dotted number: $v" }
+        return $v
+    }
 
     $fixed = "{0}.{1}.{2}.{3}" -f $vi.ProductMajorPart, $vi.ProductMinorPart, $vi.ProductBuildPart, $vi.ProductPrivatePart
     if ($fixed -ne '0.0.0.0') { return $fixed }

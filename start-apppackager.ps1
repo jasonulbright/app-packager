@@ -5281,7 +5281,10 @@ function Invoke-CveMonitor {
             Write-Log ('[cve] Latest: {0}' -f $row.Application) -Level INFO
             try {
                 $prior = [string]$row.LatestVersion
-                $latest = Invoke-PackagerGetLatestVersion -PackagerPath $row.FullPath -SiteCode $SiteCode -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -M365Channel $M365Channel -M365DeployMode $M365DeployMode
+                $cveRowBase = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script)
+                $cveType = ''
+                try { $cveType = ConvertTo-InstallerTypeValue -Entry $script:Prefs.DeploymentConditions.Apps.$cveRowBase } catch { $cveType = '' }
+                $latest = Invoke-PackagerGetLatestVersion -PackagerPath $row.FullPath -SiteCode $SiteCode -FileServerPath $FileServerPath -DownloadRoot $DownloadRoot -M365Channel $M365Channel -M365DeployMode $M365DeployMode -InstallerType $cveType
                 $row.LatestVersion = $latest
                 Clear-StaleCveCells -Row $row
                 $result = $(if ($prior -and $prior -eq $latest) { 'NoChange' } else { 'Updated' })

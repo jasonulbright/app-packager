@@ -431,6 +431,12 @@ if ($uninstallCommand) { $commands['Uninstall'] = [string]$uninstallCommand }
 if ($commands.Count -gt 1) { $legacy['APP_PACKAGER_COMMANDS'] = ($commands | ConvertTo-Json -Depth 3 -Compress) }
 $installModeValue = Get-CliProfileField $profileObject 'InstallMode'
 if ($installModeValue) { $legacy['APP_PACKAGER_INSTALL_MODE'] = [string]$installModeValue }
+# The installer type of the application (Options > Applications > All Applications) is stored with the deployment conditions.
+$installerTypeValue = ''
+$conditionApps = Get-CliProfileField (Get-CliPreference 'DeploymentConditions') 'Apps'
+$conditionEntry = Get-CliProfileField $conditionApps $packagerName
+$installerTypeValue = [string](Get-CliProfileField $conditionEntry 'InstallerType')
+if ($installerTypeValue -in @('EXE', 'MSI')) { $legacy['APP_PACKAGER_INSTALLER_TYPE'] = $installerTypeValue }
 $titleModeValue = [string](Get-CliProfileField (Get-CliProfileField $profileObject 'Application') 'TitleMode')
 $titleModeValue = switch ($titleModeValue) { 'Include version' { 'IncludeVersion' } 'No version' { 'NoVersion' } default { $titleModeValue } }
 if (-not $titleModeValue -and [bool](Get-CliProfileField $preferences 'IncludeVersionInTitle')) { $titleModeValue = 'IncludeVersion' }

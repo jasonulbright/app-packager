@@ -171,11 +171,25 @@ Describe 'The installer type reaches every launch of a packager' {
         $script:Launcher | Should -Match ([regex]::Escape('$env:APP_PACKAGER_INSTALLER_TYPE = $installerType'))
         $script:Launcher | Should -Match ([regex]::Escape('Remove-Item Env:\APP_PACKAGER_INSTALLER_TYPE'))
     }
-    It 'passes the type to the latest-version query of One Click and the batch run' {
+    It 'sets the value on the child of the latest-version query' {
         $script:Launcher | Should -Match ([regex]::Escape("`$psi.EnvironmentVariables['APP_PACKAGER_INSTALLER_TYPE'] = `$InstallerType"))
-        ([regex]::Matches($script:Launcher, [regex]::Escape('-InstallerType $(if ($Ctx.InstallerTypesByApp)'))).Count | Should -BeGreaterThan 8
+    }
+    It 'passes -InstallerType at every call of the latest-version query, the stage and the package function' {
+        $tokens = $null; $errors = $null
+        $tree = [System.Management.Automation.Language.Parser]::ParseInput($script:Launcher, [ref]$tokens, [ref]$errors)
+        $calls = @($tree.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -in 'Invoke-PackagerGetLatestVersion', 'Invoke-PackagerStage', 'Invoke-PackagerPackage' }, $true))
+        $calls.Count | Should -BeGreaterThan 8
+        # A call that splats a hashtable gets the value from the hashtable; the launcher builds three of them with an InstallerType key.
+        ([regex]::Matches($script:Launcher, '(?m)^\s*InstallerType\s+= \$\(if \(\$Ctx\.InstallerTypesByApp\)')).Count | Should -Be 3
+        $missing = @($calls | Where-Object { @($_.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.VariableExpressionAst] -and $_.Splatted }).Count -eq 0 } | Where-Object { @($_.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -eq 'InstallerType' }).Count -eq 0 } |
+            ForEach-Object { 'line ' + $_.Extent.StartLineNumber })
+        $missing | Should -BeNullOrEmpty
+    }
+    It 'sets the value in the CLI build from the saved deployment conditions' {
+        $cli = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'Invoke-AppPackagerBuild.ps1') -Raw
+        $cli | Should -Match ([regex]::Escape("`$legacy['APP_PACKAGER_INSTALLER_TYPE']"))
     }
     It 'puts the installer type map in every Operation context' {
-        $script:Launcher | Should -Match ([regex]::Escape("`$context['InstallerTypesByApp'] = Get-InstallerTypesMapForContext`r`n    if (`$Operation -eq 'Package')"))
+        $script:Launcher | Should -Match ("(?s)" + [regex]::Escape("`$context['InstallerTypesByApp'] = Get-InstallerTypesMapForContext") + "\r?\n\s*if \(\`$Operation -eq 'Package'\)")
     }
 }
