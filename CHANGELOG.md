@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2026.11.22.0161] - 2026-11-22
+
 ## 1 site list in Options
 
 ### Added
