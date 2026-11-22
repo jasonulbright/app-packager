@@ -8279,7 +8279,7 @@ function Get-OptionsSectionDefinition {
             Post = { param($Context, $Page) Initialize-OptionsConfigMgrSection -Context $Context -Page $Page }
             Fields = @(
                 @{ Id = 'cm.siteCode'; Title = 'Site code'; Kind = 'ComboText'; Pref = 'SiteCode'; Keywords = 'site switch sites list data folder'
-                    Tip = 'The ConfigMgr site code, for example ABC; pick a saved site or type a new code to switch the site on OK.'
+                    Tip = 'The ConfigMgr site code, for example ABC; a saved or new code switches the site on OK.'
                     ItemsFrom = { @(Get-AppSiteList | ForEach-Object { [string]$_.Name }) }
                     ToText = { param($Value) $name = Get-AppSiteName; if ($name -and (ConvertFrom-SuiteSiteFolderName -Name $name).SiteCode -ceq [string]$Value) { $name } else { [string]$Value } }
                     FromText = { param($Text) $parsed = ConvertFrom-SuiteSiteFolderName -Name ([string]$Text); if ($parsed) { $script:SiteRequest = $parsed.FolderName; $parsed.SiteCode } else { [string]$Text } }
