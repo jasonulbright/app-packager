@@ -25,6 +25,8 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+          # The full history: GuideImageStaleness.Tests.ps1 compares commit dates of the guide images and their sources.
+          fetch-depth: 0
       - name: Install PSScriptAnalyzer
         shell: pwsh
         run: Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Force -Scope CurrentUser
@@ -44,6 +46,8 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+          # The full history: GuideImageStaleness.Tests.ps1 compares commit dates of the guide images and their sources.
+          fetch-depth: 0
       - name: Install Pester
         shell: powershell
         run: Install-Module Pester -RequiredVersion 5.7.1 -Force -Scope CurrentUser -SkipPublisherCheck
@@ -63,6 +67,8 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+          # The full history: GuideImageStaleness.Tests.ps1 compares commit dates of the guide images and their sources.
+          fetch-depth: 0
       - name: Install Pester
         shell: pwsh
         run: Install-Module Pester -RequiredVersion 5.7.1 -Force -Scope CurrentUser -SkipPublisherCheck
@@ -80,6 +86,8 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+          # The full history: GuideImageStaleness.Tests.ps1 compares commit dates of the guide images and their sources.
+          fetch-depth: 0
       - name: Run the window probes
         shell: powershell
         run: .\Invoke-Checks.ps1 -Group Probes

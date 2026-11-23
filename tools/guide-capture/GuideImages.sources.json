@@ -1,0 +1,24 @@
+{
+  "_note": "Guide image id to the source files of the screen it shows (H-5). An image is stale when a commit that touches one of its sources is newer than the last commit that touched docs/images/<id>.png. The list 'shared' applies to every image. Each rule adds its sources to every image whose id matches one of its 'ids' patterns (* is a wildcard). A source is a git pathspec: a file, a folder (ends in /) or a pattern with *. Every image id in docs/images needs at least one rule (Tests/GuideImageStaleness.Tests.ps1). The dialogs and the options pages are built in start-apppackager.ps1, a single large file, so an image of one of them is stale after any commit to that file. That is a known over-report: the list is a warning, and a person decides which of the listed images to retake.",
+  "ignoreSubjects": ["^Release "],
+  "shared": [
+    "Lib/SuiteCommon/",
+    "Lib/Microsoft.Xaml.Behaviors.dll",
+    "Lib/MahApps.Metro.dll",
+    "Lib/ControlzEx.dll"
+  ],
+  "rules": [
+    { "ids": ["main-*", "light-main", "grid-*", "sidebar-*"], "sources": ["MainWindow.xaml"] },
+    { "ids": ["workbench-*"], "sources": ["WorkbenchWindow.xaml"] },
+    {
+      "ids": ["add-installer-dialog", "convert-*", "check-*", "cve-*", "light-cve-*", "discover-*", "console-missing-*", "drop-*", "one-click-*", "publish-*", "stage-*", "supersedence-*", "light-supersedence-*", "options-*", "light-options*", "setup-*", "sidebar-comment"],
+      "sources": ["MainWindow.xaml", "start-apppackager.ps1"]
+    },
+    { "ids": ["convert-*"], "sources": ["Convert-CMApplicationToIntune.ps1"] },
+    { "ids": ["stage-*", "publish-*"], "sources": ["Invoke-AppPackagerBuild.ps1"] },
+    { "ids": ["options-adobe-acrobat-reader"], "sources": ["Packagers/package-adobereader.ps1"] },
+    { "ids": ["options-beyond-compare-5"], "sources": ["Packagers/package-beyondcompare5.ps1"] },
+    { "ids": ["options-citrix-workspace-app"], "sources": ["Packagers/package-citrixworkspace-*.ps1"] },
+    { "ids": ["options-teamviewer-host"], "sources": ["Packagers/package-teamviewer*.ps1"] }
+  ]
+}
