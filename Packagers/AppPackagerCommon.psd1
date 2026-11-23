@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AppPackagerCommon.psm1'
-    ModuleVersion     = '0.0.30'
+    ModuleVersion     = '0.0.31'
     GUID              = 'f5cdd2d6-eb09-47bd-8493-16dfd5666455'
     Author            = 'AppPackager'
     Description       = 'Shared helpers for AppPackager packager scripts.'
