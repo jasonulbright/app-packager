@@ -7826,6 +7826,577 @@ function Merge-AppSiteIntoPreferenceData {
     return $Data
 }
 
+# ---------------------------------------------------------------------------
+# Site file (Q-112h)
+# ---------------------------------------------------------------------------
+# One portable zip file with the non-secret settings of one site, the same format that App Packager Desktop writes and reads.
+# Three fixed entries: manifest.json (kind, format version, site code, label, SHA-256 and size of the other entries),
+# settings.json and scope.json. settings.json holds only the keys below (an allowlist, not a denylist): a secret, a token, a
+# credential, the site code value and every record of a site cannot enter it because no item names them. Import never extracts
+# to disk: it reads the three entries in memory with a size limit, refuses any other entry name (a path with .., a drive, a
+# separator, an absolute path), checks the hash of each entry, the site code rules and the allowlist, and only then writes
+# the settings of a site. An existing value is kept unless the caller chooses Replace for the item.
+
+$script:AppSiteFileKind = 'app-packager-site-file'
+$script:AppSiteFileVersion = 1
+$script:AppSiteFileEntryNames = @('manifest.json', 'settings.json', 'scope.json')
+$script:AppSiteFileMaxFileBytes = 1000000
+$script:AppSiteFileMaxEntryBytes = 500000
+$script:AppSiteFileMaxLabel = 80
+$script:AppSiteFileLogName = 'imported-from.json'
+$script:AppSiteFileBackupInfix = '.before-import-'
+$script:AppSiteFileMaxBackups = 5
+# The item ids are the ids of the scope manifest (docs\reference\site-data-contract.md); the keys are the names in settings.json.
+$script:AppSiteFileItems = @(
+    [pscustomobject]@{ Id = 'apd.content-distribution'; Label = 'Content distribution (DP group, test collection)'; Keys = @('ContentDistribution'); Environment = $false }
+    [pscustomobject]@{ Id = 'apd.distribution-overrides'; Label = 'Distribution overrides for single applications'; Keys = @('DistributionOverrides'); Environment = $false }
+    [pscustomobject]@{ Id = 'apd.destinations'; Label = 'One Click destination flags'; Keys = @('OneClick.Destinations', 'OneClick.DefaultDestinations'); Environment = $false }
+    [pscustomobject]@{ Id = 'apd.hygiene-options'; Label = 'Site Hygiene options'; Keys = @('SiteHygiene', 'SiteHygieneLive'); Environment = $false }
+    [pscustomobject]@{ Id = 'apd.share-root'; Label = 'File share root'; Keys = @('FileShareRoot'); Environment = $true }
+    [pscustomobject]@{ Id = 'apd.wsus'; Label = 'WSUS server settings'; Keys = @('Wsus'); Environment = $true }
+    [pscustomobject]@{ Id = 'apd.sql-server'; Label = 'Discovery SQL Server'; Keys = @('DiscoverySqlServer'); Environment = $true }
+    [pscustomobject]@{ Id = 'apd.sql-database'; Label = 'Discovery SQL database'; Keys = @('DiscoverySqlDatabase'); Environment = $true }
+    [pscustomobject]@{ Id = 'apd.provider'; Label = 'SMS Provider (server FQDN)'; Keys = @('ProviderMachine'); Environment = $true }
+)
+
+function Get-AppSiteFileItem {
+    <#
+    .SYNOPSIS
+        The settings groups that a site file can carry. Environment values are off by default on import.
+    #>
+    return @($script:AppSiteFileItems)
+}
+
+function Test-AppSiteFileObject {
+    # True for a parsed JSON object. Windows PowerShell 5.1 answers -is [pscustomobject] for every value, so the type name decides.
+    param($Value)
+    return ($null -ne $Value) -and ($Value.GetType().FullName -ceq 'System.Management.Automation.PSCustomObject')
+}
+
+function Remove-AppSiteFileSecret {
+    # Drops every property whose name looks like a secret, at any depth and inside arrays.
+    param($Node)
+    if (Test-AppSiteFileObject $Node) {
+        foreach ($name in @($Node.PSObject.Properties.Name)) {
+            if ($name -match $script:AppSiteSecretName) { $Node.PSObject.Properties.Remove($name); continue }
+            Remove-AppSiteFileSecret -Node $Node.$name
+        }
+    }
+    elseif ($Node -is [System.Collections.IEnumerable] -and $Node -isnot [string]) {
+        foreach ($child in @($Node)) { Remove-AppSiteFileSecret -Node $child }
+    }
+}
+
+function Get-AppSiteFileValue {
+    # The value at a dotted path of a parsed JSON object, or $null.
+    param($Object, [Parameter(Mandatory)][string]$Path)
+    $node = $Object
+    foreach ($part in $Path.Split('.')) {
+        if (-not (Test-AppSiteFileObject $node) -or -not $node.PSObject.Properties[$part]) { return $null }
+        $node = $node.$part
+    }
+    return $node
+}
+
+function Set-AppSiteFileValue {
+    # Sets the value at a dotted path and creates the objects on the way.
+    param([Parameter(Mandatory)]$Object, [Parameter(Mandatory)][string]$Path, $Value)
+    $parts = $Path.Split('.')
+    $node = $Object
+    for ($i = 0; $i -lt $parts.Count - 1; $i++) {
+        $child = $null
+        if ($node.PSObject.Properties[$parts[$i]]) { $child = $node.($parts[$i]) }
+        if (-not (Test-AppSiteFileObject $child)) {
+            $child = New-Object psobject
+            $node | Add-Member -NotePropertyName $parts[$i] -NotePropertyValue $child -Force
+        }
+        $node = $child
+    }
+    $node | Add-Member -NotePropertyName $parts[-1] -NotePropertyValue $Value -Force
+}
+
+function Test-AppSiteFileEmpty {
+    param($Value)
+    if ($null -eq $Value) { return $true }
+    if ($Value -is [string]) { return [string]::IsNullOrWhiteSpace($Value) }
+    if ((Test-AppSiteFileObject $Value)) { return (@($Value.PSObject.Properties).Count -eq 0) }
+    if ($Value -is [System.Collections.IEnumerable]) { return (@($Value).Count -eq 0) }
+    return $false
+}
+
+function ConvertTo-AppSiteFileCanonical {
+    # A text for comparing two values: properties sorted, no formatting.
+    param($Value)
+    if ($null -eq $Value) { return 'null' }
+    if ((Test-AppSiteFileObject $Value)) {
+        $parts = foreach ($p in @($Value.PSObject.Properties | Sort-Object Name)) { '{0}:{1}' -f $p.Name, (ConvertTo-AppSiteFileCanonical -Value $p.Value) }
+        return '{' + (@($parts) -join ',') + '}'
+    }
+    if ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [string]) {
+        return '[' + ((@($Value) | ForEach-Object { ConvertTo-AppSiteFileCanonical -Value $_ }) -join ',') + ']'
+    }
+    if ($Value -is [string]) { return ('"' + $Value + '"') }
+    return ([string]$Value).ToLowerInvariant()
+}
+
+function Get-AppSiteFileSecretPath {
+    # The paths of the properties whose name looks like a secret, at any depth.
+    param($Node, [string]$Prefix = '')
+    $found = New-Object System.Collections.Generic.List[string]
+    if ((Test-AppSiteFileObject $Node)) {
+        foreach ($p in @($Node.PSObject.Properties)) {
+            if ($p.Name -match $script:AppSiteSecretName) { $found.Add($Prefix + $p.Name); continue }
+            foreach ($f in @(Get-AppSiteFileSecretPath -Node $p.Value -Prefix ($Prefix + $p.Name + '.'))) { $found.Add($f) }
+        }
+    }
+    elseif ($Node -is [System.Collections.IEnumerable] -and $Node -isnot [string]) {
+        foreach ($child in @($Node)) { foreach ($f in @(Get-AppSiteFileSecretPath -Node $child -Prefix $Prefix)) { $found.Add($f) } }
+    }
+    return $found.ToArray()
+}
+
+function Get-AppSiteFileHash {
+    param([Parameter(Mandatory)][byte[]]$Bytes)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return (([BitConverter]::ToString($sha.ComputeHash($Bytes))).Replace('-', '').ToLowerInvariant()) }
+    finally { $sha.Dispose() }
+}
+
+function Get-AppSiteFileJsonBytes {
+    param([Parameter(Mandatory)]$Object)
+    $text = (ConvertTo-Json -InputObject $Object -Depth 12).Replace("`r`n", "`n") + "`n"
+    return (New-Object System.Text.UTF8Encoding($false)).GetBytes($text)
+}
+
+function ConvertFrom-AppSiteFileJson {
+    # The parsed JSON object of the bytes, or $null when they are no JSON object.
+    param([Parameter(Mandatory)][byte[]]$Bytes)
+    try {
+        $text = (New-Object System.Text.UTF8Encoding($false, $true)).GetString($Bytes)
+        $splat = @{}
+        if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $splat['DateKind'] = 'String' }
+        $parsed = $text | ConvertFrom-Json -ErrorAction Stop @splat
+        if ((Test-AppSiteFileObject $parsed)) { return $parsed }
+        return $null
+    }
+    catch { return $null }
+}
+
+function Get-AppSiteFileText {
+    # A text from a file, for a message: control characters out, length limited.
+    param($Text)
+    $clean = -join (@(([string]$Text).ToCharArray()) | ForEach-Object { if ([char]::IsControl($_)) { '?' } else { $_ } })
+    if ($clean.Length -gt 60) { return $clean.Substring(0, 57) + '...' }
+    return $clean
+}
+
+function ConvertTo-AppSiteFileLabel {
+    param([string]$Label)
+    $text = (-join (@($Label.ToCharArray()) | Where-Object { -not [char]::IsControl($_) })).Trim()
+    if ($text.Length -gt $script:AppSiteFileMaxLabel) { $text = $text.Substring(0, $script:AppSiteFileMaxLabel) }
+    return $text
+}
+
+function New-AppSiteFileResult {
+    param([bool]$Ok, [string]$Reason = '', $Content = $null, [string]$Path = '', [int]$ItemCount = 0)
+    return [pscustomobject]@{ Ok = $Ok; Reason = $Reason; Content = $Content; Path = $Path; ItemCount = $ItemCount }
+}
+
+function Get-AppSiteFileSuggestedName {
+    # site-AB1-20261123.zip
+    param([Parameter(Mandatory)][string]$SiteName, [datetime]$UtcNow = [datetime]::UtcNow)
+    return ('site-{0}-{1}.zip' -f $SiteName.Replace('~', '-'), $UtcNow.ToString('yyyyMMdd', [Globalization.CultureInfo]::InvariantCulture))
+}
+
+function Export-AppSiteFile {
+    <#
+    .SYNOPSIS
+        Writes the site file of a site: only the allowlisted settings, never a secret. Reads the site, changes nothing in it.
+    .DESCRIPTION
+        The file is built in a temporary file, read back with the import rules, and then moved to Path.
+        Returns Ok, Reason, Path, ItemCount.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$SiteName,
+        [Parameter(Mandatory)][string]$Path,
+        [datetime]$UtcNow = [datetime]::UtcNow
+    )
+    $parsed = ConvertFrom-SuiteSiteFolderName -Name $SiteName
+    if (-not $parsed) { return (New-AppSiteFileResult -Ok $false -Reason "'$SiteName' is not a site folder name.") }
+    $folder = Get-SuiteSiteFolder -SiteCode $parsed.FolderName
+    if (-not (Test-Path -LiteralPath $folder -PathType Container)) { return (New-AppSiteFileResult -Ok $false -Reason "The site $($parsed.FolderName) does not exist.") }
+    if ([string]::IsNullOrWhiteSpace($Path)) { return (New-AppSiteFileResult -Ok $false -Reason 'Choose where to save the site file.') }
+    $settingsPath = Join-Path $folder 'settings.json'
+    $source = $null
+    if (Test-Path -LiteralPath $settingsPath -PathType Leaf) {
+        $source = Read-AppSiteJson -Path $settingsPath
+        if ($null -eq $source) { return (New-AppSiteFileResult -Ok $false -Reason "The settings of site $($parsed.FolderName) cannot be read. Nothing was exported.") }
+    }
+    # The PowerShell app stores the provider as ProviderMachineName; the file carries ProviderMachine.
+    if ($source -and -not (Get-AppSiteFileValue -Object $source -Path 'ProviderMachine') -and $source.PSObject.Properties['ProviderMachineName']) {
+        $source | Add-Member -NotePropertyName 'ProviderMachine' -NotePropertyValue $source.ProviderMachineName -Force
+    }
+    $settings = New-Object psobject
+    $ids = New-Object System.Collections.Generic.List[string]
+    foreach ($item in $script:AppSiteFileItems) {
+        $any = $false
+        foreach ($key in $item.Keys) {
+            if ($key.Split('.')[-1] -match $script:AppSiteSecretName) { continue }
+            $value = ConvertTo-AppSiteCopy -Value (Get-AppSiteFileValue -Object $source -Path $key)
+            Remove-AppSiteFileSecret -Node $value
+            if (Test-AppSiteFileEmpty -Value $value) { continue }
+            Set-AppSiteFileValue -Object $settings -Path $key -Value $value
+            $any = $true
+        }
+        if ($any) { $ids.Add($item.Id) }
+    }
+    $label = ''
+    $identity = Read-AppSiteJson -Path (Join-Path $folder 'site.json')
+    if ($identity -and $identity.label) { $label = ConvertTo-AppSiteFileLabel -Label ([string]$identity.label) }
+    $scopeItems = foreach ($item in $script:AppSiteFileItems) {
+        [ordered]@{ id = $item.Id; keys = @($item.Keys); environmentValue = [bool]$item.Environment; present = [bool]($ids -contains $item.Id) }
+    }
+    $scope = [ordered]@{ items = @($scopeItems); neverExported = @('apd.site-code', 'apd.github-token', 'apd.intune-secret', 'apd.feed-credentials', 'apd.nvd-key', 'apd.check-cm-result', 'apd.inventory', 'apd.site-operations', 'apd.deployments') }
+    $settingsBytes = Get-AppSiteFileJsonBytes -Object $settings
+    $scopeBytes = Get-AppSiteFileJsonBytes -Object $scope
+    $manifest = [ordered]@{
+        kind = $script:AppSiteFileKind
+        formatVersion = $script:AppSiteFileVersion
+        schemaVersion = 1
+        siteCode = $parsed.SiteCode
+        label = $label
+        createdUtc = $UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+        createdBy = 'AppPackager (PowerShell)'
+        items = @($ids.ToArray())
+        entries = @(
+            [ordered]@{ name = 'settings.json'; sha256 = (Get-AppSiteFileHash -Bytes $settingsBytes); bytes = $settingsBytes.Length }
+            [ordered]@{ name = 'scope.json'; sha256 = (Get-AppSiteFileHash -Bytes $scopeBytes); bytes = $scopeBytes.Length }
+        )
+    }
+    $manifestBytes = Get-AppSiteFileJsonBytes -Object $manifest
+
+    Add-Type -AssemblyName System.IO.Compression
+    $temp = $Path + '.exporting'
+    try {
+        $dir = Split-Path -Path ([IO.Path]::GetFullPath($Path)) -Parent
+        if ($dir -and -not (Test-Path -LiteralPath $dir)) { [void](New-Item -ItemType Directory -Path $dir -Force) }
+        if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
+        $stream = [IO.File]::Open($temp, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        try {
+            $zip = New-Object System.IO.Compression.ZipArchive($stream, [System.IO.Compression.ZipArchiveMode]::Create, $false)
+            try {
+                foreach ($e in @(@('manifest.json', $manifestBytes), @('settings.json', $settingsBytes), @('scope.json', $scopeBytes))) {
+                    $entry = $zip.CreateEntry($e[0], [System.IO.Compression.CompressionLevel]::Optimal)
+                    $out = $entry.Open()
+                    try { $out.Write($e[1], 0, $e[1].Length) } finally { $out.Dispose() }
+                }
+            }
+            finally { $zip.Dispose() }
+        }
+        finally { $stream.Dispose() }
+        $check = Read-AppSiteFile -Path $temp
+        if (-not $check.Ok) { throw ('The new site file did not verify: ' + $check.Reason) }
+        Move-Item -LiteralPath $temp -Destination $Path -Force
+        return (New-AppSiteFileResult -Ok $true -Path $Path -ItemCount $ids.Count)
+    }
+    catch {
+        if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
+        return (New-AppSiteFileResult -Ok $false -Reason $_.Exception.Message)
+    }
+}
+
+function Read-AppSiteFile {
+    <#
+    .SYNOPSIS
+        Reads a site file in memory and checks every rule. Writes nothing. A refused file has a Reason that names the rule.
+    .DESCRIPTION
+        Returns Ok, Reason and Content (SiteCode, Label, CreatedUtc, Settings, SettingsSha256, ItemIds) when Ok.
+    #>
+    param([Parameter(Mandatory)][string]$Path)
+    $refuse = { param($reason) New-AppSiteFileResult -Ok $false -Reason $reason }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return (& $refuse 'The site file does not exist.') }
+    $length = (Get-Item -LiteralPath $Path).Length
+    if ($length -eq 0) { return (& $refuse 'The site file is empty.') }
+    if ($length -gt $script:AppSiteFileMaxFileBytes) { return (& $refuse ('The file is larger than {0} KB. A site file is a few kilobytes; this is not a site file.' -f ($script:AppSiteFileMaxFileBytes / 1000))) }
+    Add-Type -AssemblyName System.IO.Compression
+    $parts = @{}
+    $stream = $null
+    $zip = $null
+    try {
+        try {
+            $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+            $zip = New-Object System.IO.Compression.ZipArchive($stream, [System.IO.Compression.ZipArchiveMode]::Read, $false)
+        }
+        catch { return (& $refuse 'The file is not a valid zip file.') }
+        $entries = @($zip.Entries)
+        if ($entries.Count -gt $script:AppSiteFileEntryNames.Count) { return (& $refuse ('The file holds {0} entries; a site file holds exactly {1}.' -f $entries.Count, $script:AppSiteFileEntryNames.Count)) }
+        foreach ($entry in $entries) {
+            $name = [string]$entry.FullName
+            if ($name.Contains('..') -or $name.IndexOfAny([char[]]@('/', '\', ':')) -ge 0 -or $name.StartsWith('~')) {
+                return (& $refuse ("The entry name '{0}' is a path, not a plain file name. The file was refused and nothing was written." -f (Get-AppSiteFileText $name)))
+            }
+            if ($script:AppSiteFileEntryNames -cnotcontains $name) { return (& $refuse ("The entry '{0}' is not part of a site file. The file was refused." -f (Get-AppSiteFileText $name))) }
+            if ($parts.ContainsKey($name)) { return (& $refuse ("The entry '{0}' appears twice. The file was refused." -f $name)) }
+            if ($entry.Length -gt $script:AppSiteFileMaxEntryBytes) { return (& $refuse ("The entry '{0}' is larger than {1} KB. The file was refused." -f $name, ($script:AppSiteFileMaxEntryBytes / 1000))) }
+            # The declared size can lie: read with a hard limit.
+            $es = $entry.Open()
+            $ms = New-Object System.IO.MemoryStream
+            try {
+                $buffer = New-Object byte[] 8192
+                while (($n = $es.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                    if ($ms.Length + $n -gt $script:AppSiteFileMaxEntryBytes) { return (& $refuse ("The entry '{0}' is larger than {1} KB when unpacked. The file was refused." -f $name, ($script:AppSiteFileMaxEntryBytes / 1000))) }
+                    $ms.Write($buffer, 0, $n)
+                }
+                $parts[$name] = $ms.ToArray()
+            }
+            finally { $es.Dispose(); $ms.Dispose() }
+        }
+    }
+    catch { return (& $refuse 'The file is not a valid zip file.') }
+    finally {
+        if ($zip) { $zip.Dispose() }
+        if ($stream) { $stream.Dispose() }
+    }
+    foreach ($required in $script:AppSiteFileEntryNames) {
+        if (-not $parts.ContainsKey($required)) { return (& $refuse ("The entry '{0}' is missing. This is not a complete site file." -f $required)) }
+    }
+
+    $manifest = ConvertFrom-AppSiteFileJson -Bytes $parts['manifest.json']
+    if (-not $manifest) { return (& $refuse 'manifest.json is not a JSON object.') }
+    if ([string]$manifest.kind -cne $script:AppSiteFileKind) { return (& $refuse 'manifest.json is not the manifest of a site file (kind).') }
+    $version = 0
+    if (-not $manifest.PSObject.Properties['formatVersion'] -or -not [int]::TryParse([string]$manifest.formatVersion, [ref]$version)) { return (& $refuse 'manifest.json has no format version.') }
+    if ($version -gt $script:AppSiteFileVersion) { return (& $refuse ('The file has format version {0}. This version of the application reads version {1}. Update the application.' -f $version, $script:AppSiteFileVersion)) }
+    if ($version -lt 1) { return (& $refuse ('The file has format version {0}, which is not valid.' -f $version)) }
+
+    $code = [string]$manifest.siteCode
+    if (-not (Test-SuiteSiteCode -SiteCode $code) -or $code -cne $code.ToUpperInvariant()) {
+        if ([string]::IsNullOrEmpty($code)) { return (& $refuse 'manifest.json has no site code.') }
+        return (& $refuse ("The site code '{0}' in the file is not valid: use exactly three letters or digits, and not a reserved name." -f (Get-AppSiteFileText $code)))
+    }
+
+    if (-not $manifest.PSObject.Properties['entries'] -or $manifest.entries -is [string]) { return (& $refuse 'manifest.json lists no entries.') }
+    $listed = @{}
+    foreach ($e in @($manifest.entries)) {
+        if (-not (Test-AppSiteFileObject $e)) { return (& $refuse 'manifest.json has an entry that is not an object.') }
+        $en = [string]$e.name
+        if (($en -cne 'settings.json' -and $en -cne 'scope.json') -or $listed.ContainsKey($en)) {
+            return (& $refuse ("manifest.json lists the entry '{0}', which a site file does not have, or lists an entry twice." -f (Get-AppSiteFileText $en)))
+        }
+        $bytes = -1L
+        if ($e.PSObject.Properties['bytes'] -and $e.bytes -isnot [string] -and $e.bytes -isnot [bool]) { try { $bytes = [long]$e.bytes } catch { $bytes = -1L } }
+        $listed[$en] = @{ Hash = ([string]$e.sha256).ToLowerInvariant(); Bytes = $bytes }
+    }
+    foreach ($name in 'settings.json', 'scope.json') {
+        if (-not $listed.ContainsKey($name)) { return (& $refuse ('manifest.json has no hash for {0}.' -f $name)) }
+        if ($listed[$name].Hash -notmatch '^[0-9a-f]{64}$') { return (& $refuse ('The hash of {0} in manifest.json is not a SHA-256 value.' -f $name)) }
+        if ((Get-AppSiteFileHash -Bytes $parts[$name]) -cne $listed[$name].Hash) { return (& $refuse ('The SHA-256 of {0} does not match manifest.json. The file was changed or damaged and was refused.' -f $name)) }
+        if ($listed[$name].Bytes -ne $parts[$name].Length) { return (& $refuse ('The size of {0} does not match manifest.json. The file was refused.' -f $name)) }
+    }
+
+    # Allowlist: the settings hold the keys of the items and nothing else, and no secret-like name.
+    $raw = ConvertFrom-AppSiteFileJson -Bytes $parts['settings.json']
+    if (-not $raw) { return (& $refuse 'settings.json is not a JSON object.') }
+    $allowedTop = @($script:AppSiteFileItems | ForEach-Object { $_.Keys } | ForEach-Object { $_.Split('.')[0] } | Select-Object -Unique)
+    foreach ($p in @($raw.PSObject.Properties)) {
+        if ($allowedTop -cnotcontains $p.Name) { return (& $refuse ('settings.json holds a setting that a site file does not carry ({0}). The file was refused.' -f (Get-AppSiteFileText $p.Name))) }
+    }
+    $secrets = @(Get-AppSiteFileSecretPath -Node $raw)
+    if ($secrets.Count -gt 0) { return (& $refuse ('settings.json holds a value with a secret-like name ({0}). A site file never carries secrets; the file was refused.' -f (Get-AppSiteFileText $secrets[0]))) }
+    $clean = New-Object psobject
+    $ids = New-Object System.Collections.Generic.List[string]
+    foreach ($item in $script:AppSiteFileItems) {
+        $any = $false
+        foreach ($key in $item.Keys) {
+            $value = ConvertTo-AppSiteCopy -Value (Get-AppSiteFileValue -Object $raw -Path $key)
+            if (Test-AppSiteFileEmpty -Value $value) { continue }
+            Set-AppSiteFileValue -Object $clean -Path $key -Value $value
+            $any = $true
+        }
+        if ($any) { $ids.Add($item.Id) }
+    }
+    if ((ConvertTo-AppSiteFileCanonical -Value $clean) -cne (ConvertTo-AppSiteFileCanonical -Value $raw)) { return (& $refuse 'settings.json holds a setting that a site file does not carry. The file was refused.') }
+
+    $scope = ConvertFrom-AppSiteFileJson -Bytes $parts['scope.json']
+    if (-not $scope -or -not $scope.PSObject.Properties['items'] -or $scope.items -is [string]) { return (& $refuse 'scope.json is not a scope manifest.') }
+    $known = @($script:AppSiteFileItems | ForEach-Object { $_.Id })
+    foreach ($s in @($scope.items)) {
+        if (-not (Test-AppSiteFileObject $s) -or $known -cnotcontains [string]$s.id) { return (& $refuse 'scope.json names an item that this version does not know. The file was refused.') }
+    }
+
+    $content = [pscustomobject]@{
+        SiteCode       = $code
+        Label          = (ConvertTo-AppSiteFileLabel -Label ([string]$manifest.label))
+        CreatedUtc     = [string]$manifest.createdUtc
+        CreatedBy      = (Get-AppSiteFileText $manifest.createdBy)
+        Settings       = $clean
+        SettingsSha256 = $listed['settings.json'].Hash
+        ItemIds        = @($ids.ToArray())
+    }
+    return (New-AppSiteFileResult -Ok $true -Content $content)
+}
+
+function Get-AppSiteFileNewName {
+    # The folder name that an import of this file creates: the code, or the first free CODE~N when the code is in use.
+    param([Parameter(Mandatory)]$Content)
+    return (Get-SuiteFreeSiteFolderName -SiteCode $Content.SiteCode -ExistingNames @(Get-AppSiteList | ForEach-Object { $_.Name }))
+}
+
+function New-AppSiteFileImportResult {
+    # Positional use after -Site: outcome, reason, rows, created.
+    param([string]$Site, [Parameter(Position = 0)][string]$Result, [Parameter(Position = 1)][string]$Reason, [Parameter(Position = 2)]$Rows, [Parameter(Position = 3)][bool]$Created)
+    # Windows PowerShell 5.1 fails on @() of a generic list of objects; ToArray() is safe.
+    if ($Rows -is [System.Collections.Generic.List[object]]) { $list = $Rows.ToArray() } else { $list = @($Rows) }
+    $written = 0
+    foreach ($r in $list) { if ($r.Outcome -ceq 'Copied' -or $r.Outcome -ceq 'Replaced') { $written++ } }
+    return [pscustomobject]@{ Outcome = $Result; Reason = $Reason; TargetSite = $Site; Created = $Created; Rows = $list; Written = $written }
+}
+
+function Invoke-AppSiteFileImport {
+    <#
+    .SYNOPSIS
+        Plans (-DryRun) or runs the import of a read site file into a site folder: an existing site (merge), or the new site name.
+    .DESCRIPTION
+        Environment values (share, WSUS, SQL, provider) are off unless named in -ItemId. A value that the target already
+        holds is kept unless its item is named in -ReplaceId; a replace keeps a verified backup of settings.json. A site that
+        does not exist is created only under the name that Get-AppSiteFileNewName gives. The file's site code value is never written.
+        Returns Outcome (Done, NothingToDo, Refused, Failed), Reason, TargetSite, Created, Written and Rows.
+    #>
+    param(
+        [Parameter(Mandatory)]$Content,
+        [Parameter(Mandatory)][string]$TargetSite,
+        [string[]]$ItemId,
+        [string[]]$ReplaceId = @(),
+        [switch]$DryRun,
+        [datetime]$UtcNow = [datetime]::UtcNow
+    )
+    $parsed = ConvertFrom-SuiteSiteFolderName -Name $TargetSite
+    if (-not $parsed -or $parsed.FolderName -cne $TargetSite) { return (New-AppSiteFileImportResult -Site $TargetSite -Result 'Refused' "The target site '$TargetSite' is not a site folder name." @() $false) }
+    $folder = Get-SuiteSiteFolder -SiteCode $parsed.FolderName
+    $creating = -not (Test-Path -LiteralPath $folder -PathType Container)
+    if ($creating -and $TargetSite -cne (Get-AppSiteFileNewName -Content $Content)) {
+        return (New-AppSiteFileImportResult -Site $TargetSite -Result 'Refused' "The site $TargetSite does not exist. A new site from this file is named $(Get-AppSiteFileNewName -Content $Content)." @() $false)
+    }
+    $targetPath = Join-Path $folder 'settings.json'
+    $target = $null
+    if (-not $creating -and (Test-Path -LiteralPath $targetPath -PathType Leaf)) {
+        $target = Read-AppSiteJson -Path $targetPath
+        if ($null -eq $target) { return (New-AppSiteFileImportResult -Site $TargetSite -Result 'Refused' "The settings of site $TargetSite cannot be read. Nothing was changed." @() $false) }
+    }
+    if ($null -eq $target) { $target = New-Object psobject }
+    $targetHash = ''
+    if (-not $creating -and (Test-Path -LiteralPath $targetPath -PathType Leaf)) { $targetHash = (Get-FileHash -LiteralPath $targetPath -Algorithm SHA256).Hash.ToLowerInvariant() }
+
+    $selected = @($ItemId)
+    if (-not $PSBoundParameters.ContainsKey('ItemId')) { $selected = @($script:AppSiteFileItems | Where-Object { -not $_.Environment } | ForEach-Object { $_.Id }) }
+    $rows = New-Object System.Collections.Generic.List[object]
+    $writes = New-Object System.Collections.Generic.List[object]
+    foreach ($item in $script:AppSiteFileItems) {
+        $isSelected = $selected -ccontains $item.Id
+        $anySource = $false; $anyNew = $false; $anyConflict = $false
+        $itemWrites = New-Object System.Collections.Generic.List[object]
+        foreach ($key in $item.Keys) {
+            $sourceValue = Get-AppSiteFileValue -Object $Content.Settings -Path $key
+            if (Test-AppSiteFileEmpty -Value $sourceValue) { continue }
+            $anySource = $true
+            $writeKey = $key
+            $targetValue = Get-AppSiteFileValue -Object $target -Path $key
+            if ($key -ceq 'ProviderMachine' -and $target.PSObject.Properties['ProviderMachineName'] -and -not (Test-AppSiteFileEmpty -Value $target.ProviderMachineName)) {
+                $writeKey = 'ProviderMachineName'
+                $targetValue = $target.ProviderMachineName
+            }
+            if (Test-AppSiteFileEmpty -Value $targetValue) { $anyNew = $true; $itemWrites.Add(@{ Key = $writeKey; Value = $sourceValue }) }
+            elseif ((ConvertTo-AppSiteFileCanonical -Value $targetValue) -ceq (ConvertTo-AppSiteFileCanonical -Value $sourceValue)) { $null = $true }
+            else { $anyConflict = $true; $itemWrites.Add(@{ Key = $writeKey; Value = $sourceValue }) }
+        }
+        $state = 'Same'
+        if (-not $anySource) { $state = 'NotInSource' } elseif ($anyConflict) { $state = 'Conflict' } elseif ($anyNew) { $state = 'New' }
+        if (-not $isSelected) { $outcome = 'Skipped' }
+        elseif ($state -eq 'NotInSource') { $outcome = 'NotInSource' }
+        elseif ($state -eq 'Same') { $outcome = 'AlreadyDone' }
+        elseif ($state -eq 'Conflict' -and ($ReplaceId -cnotcontains $item.Id)) { $outcome = 'Keep' }
+        else {
+            foreach ($w in $itemWrites) { $writes.Add([pscustomobject]@{ Key = $w.Key; Value = $w.Value; Replace = ($state -eq 'Conflict') }) }
+            if ($state -eq 'Conflict') { $outcome = 'Replace' } else { $outcome = 'Copy' }
+        }
+        $rows.Add([pscustomobject]@{ Id = $item.Id; Label = $item.Label; Environment = [bool]$item.Environment; State = $state; Outcome = $outcome })
+    }
+    $pending = @($rows | Where-Object { $_.Outcome -in 'Copy', 'Replace' }).Count
+    if ($DryRun) {
+        $reason = ''
+        if ($pending -eq 0) { $reason = 'Nothing to copy: the ticked items are already in the target, not set in the file, or kept.' }
+        $planOutcome = 'NothingToDo'
+        if ($pending -gt 0) { $planOutcome = 'Done' }
+        return (New-AppSiteFileImportResult -Site $TargetSite -Result $planOutcome $reason $rows $creating)
+    }
+    if ($pending -eq 0) {
+        foreach ($r in $rows) { if ($r.Outcome -ceq 'Keep') { $r.Outcome = 'Kept' } }
+        return (New-AppSiteFileImportResult -Site $TargetSite -Result 'NothingToDo' 'Nothing changed: the ticked items are already in the target, not set in the file, or kept.' $rows $false)
+    }
+
+    try {
+        if ($creating) {
+            [void](New-Item -ItemType Directory -Path $folder -Force)
+            Update-AppSiteIdentity -SiteName $parsed.FolderName
+            if ($Content.Label) {
+                $identityPath = Join-Path $folder 'site.json'
+                $identity = ConvertTo-AppSiteOrdered -Object (Read-AppSiteJson -Path $identityPath)
+                $identity['label'] = $Content.Label
+                Write-AppSiteJson -Path $identityPath -Object ([pscustomobject]$identity)
+            }
+        }
+        $updated = ConvertTo-AppSiteCopy -Value $target
+        if ($null -eq $updated) { $updated = New-Object psobject }
+        foreach ($w in $writes) { Set-AppSiteFileValue -Object $updated -Path $w.Key -Value (ConvertTo-AppSiteCopy -Value $w.Value) }
+        if (@($writes | Where-Object { $_.Replace }).Count -gt 0 -and (Test-Path -LiteralPath $targetPath -PathType Leaf)) {
+            $stamp = $UtcNow.ToString("yyyyMMdd'T'HHmmss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+            $backup = $targetPath + $script:AppSiteFileBackupInfix + $stamp
+            for ($n = 2; Test-Path -LiteralPath $backup; $n++) { $backup = $targetPath + $script:AppSiteFileBackupInfix + $stamp + '-' + $n }
+            Copy-Item -LiteralPath $targetPath -Destination $backup
+            if ((Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash.ToLowerInvariant() -ne $targetHash) {
+                Remove-Item -LiteralPath $backup -Force
+                throw 'The backup of the target settings did not match its source.'
+            }
+            $old = @(Get-ChildItem -LiteralPath $folder -Filter ('settings.json' + $script:AppSiteFileBackupInfix + '*') | Sort-Object Name -Descending | Select-Object -Skip $script:AppSiteFileMaxBackups)
+            foreach ($f in $old) { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue }
+        }
+        # The replace goes ahead only while the target file is still the file that was read: another save in between is not overwritten.
+        $current = ''
+        if (Test-Path -LiteralPath $targetPath -PathType Leaf) { $current = (Get-FileHash -LiteralPath $targetPath -Algorithm SHA256).Hash.ToLowerInvariant() }
+        if ($current -ne $targetHash) { throw 'The target settings changed while the import ran.' }
+        Write-AppSiteJson -Path $targetPath -Object $updated
+        $check = Read-AppSiteJson -Path $targetPath
+        foreach ($w in $writes) {
+            if ((ConvertTo-AppSiteFileCanonical -Value (Get-AppSiteFileValue -Object $check -Path $w.Key)) -cne (ConvertTo-AppSiteFileCanonical -Value $w.Value)) {
+                throw ('The value of {0} in the target does not match the file after the write.' -f $w.Key)
+            }
+        }
+    }
+    catch {
+        $failure = $_.Exception.Message
+        $failed = @($rows | ForEach-Object { if ($_.Outcome -in 'Copy', 'Replace') { $_.Outcome = 'Failed' }; $_ })
+        return (New-AppSiteFileImportResult -Site $TargetSite -Result 'Failed' ($failure + ' The old target settings stay in use; run the import again.') $failed $false)
+    }
+    foreach ($r in $rows) {
+        switch ($r.Outcome) { 'Copy' { $r.Outcome = 'Copied' } 'Replace' { $r.Outcome = 'Replaced' } 'Keep' { $r.Outcome = 'Kept' } }
+    }
+    $warning = ''
+    try {
+        $provider = @($writes | Where-Object { $_.Key -in 'ProviderMachine', 'ProviderMachineName' })[0]
+        if ($provider -and -not [string]::IsNullOrWhiteSpace([string]$provider.Value)) { Update-AppSiteIdentity -SiteName $parsed.FolderName -Provider ([string]$provider.Value) }
+        $logItems = foreach ($r in $rows) { [ordered]@{ id = $r.Id; outcome = $r.Outcome; state = $r.State } }
+        Write-AppSiteJson -Path (Join-Path $folder $script:AppSiteFileLogName) -Object ([pscustomobject][ordered]@{
+                schemaVersion = 1; sourceSite = $Content.SiteCode; sourceKind = 'file'
+                importedUtc = $UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+                sourceSettingsSha256 = $Content.SettingsSha256
+                targetSettingsSha256 = (Get-FileHash -LiteralPath $targetPath -Algorithm SHA256).Hash.ToLowerInvariant()
+                items = @($logItems)
+            })
+    }
+    catch { $warning = 'The provider list or the log could not be written (' + $_.Exception.Message + ').' }
+    return (New-AppSiteFileImportResult -Site $TargetSite -Result 'Done' $warning $rows $creating)
+}
+
 function Read-AppSiteState {
     # The ConfigMgr state per packager of the active site: LastCmVersion, LastCmChecked, LastCmSite.
     $folder = Get-AppSiteFolder

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- Export the settings of a site to one zip file, and import such a file on another computer.
+- Keep every secret out of the site file, and refuse a file that fails a manifest, hash or name check.
+- Read and write the same site file as App Packager Desktop.
+
 ## [2026.11.22.0161] - 2026-11-22
 
 ## 1 site list in Options

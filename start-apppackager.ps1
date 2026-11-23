@@ -8299,6 +8299,11 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'cm.sqlTarget'; Title = 'Discover reads'; Kind = 'Status'; Tip = 'The SQL Server name and database that Discover unmanaged software connects to.'; Keywords = 'discovery sql target' }
                 @{ Id = 'cm.shareGroup'; Kind = 'Group'; Title = 'Content source' }
                 @{ Id = 'cm.fileShare'; Title = 'Content share UNC'; Kind = 'Text'; Pref = 'FileShareRoot'; MaxLength = 200; Tip = 'The UNC path of the share that holds the application content sources.'; Keywords = 'file share root unc' }
+                @{ Id = 'cm.siteFileGroup'; Kind = 'Group'; Title = 'Site file'; Description = 'Move the settings of this site to another computer in one file. The file holds names and options only: never a secret, a token or a credential, and no results or history.' }
+                @{ Id = 'cm.siteFile'; Title = 'Site file'; Kind = 'Actions'; Tip = 'Moves the saved settings of the active site to another computer as one zip file.'; Keywords = 'site file export import move computer machine zip'; Buttons = @(
+                    @{ Id = 'export'; Label = 'Export site file...'; Tip = 'Saves the settings of the active site; no secret is written.' }
+                    @{ Id = 'import'; Label = 'Import site file...'; Tip = 'Merges a site file into a site or creates a new site; it asks before it replaces a value.' }
+                ) }
                 @{ Id = 'cm.console'; Title = 'Console status'; Kind = 'Status'; Tip = 'Shows whether the ConfigMgr console is installed on this computer.'; Keywords = 'adminui' }
             )
         })
@@ -8753,11 +8758,111 @@ function Get-OptionsToolStatusText {
     }
 }
 
+function Invoke-OptionsSiteFileExport {
+    # The Export site file button of the ConfigMgr page: saves the settings of the active site (as saved on disk) in one zip file.
+    param([Parameter(Mandatory)]$Owner)
+    $site = Get-AppSiteName
+    if (-not $site) {
+        [void](Show-ThemedMessage -Owner $Owner -Title 'Export Site File' -Message 'No site is active yet. Enter the site code, select OK, then export the site file.' -Buttons OK -Icon Info)
+        return
+    }
+    $save = New-Object Microsoft.Win32.SaveFileDialog
+    $save.Title = 'Export Site File'
+    $save.Filter = 'Site file (*.zip)|*.zip'
+    $save.DefaultExt = '.zip'
+    $save.AddExtension = $true
+    $save.OverwritePrompt = $true
+    $save.FileName = Get-AppSiteFileSuggestedName -SiteName $site
+    if (-not $save.ShowDialog()) { return }
+    $result = Export-AppSiteFile -SiteName $site -Path $save.FileName
+    if ($result.Ok) {
+        [void](Show-ThemedMessage -Owner $Owner -Title 'Export Site File' -Icon Info -Buttons OK -Message ("Site {0} was exported to {1}.`n`n{2} setting groups. The file holds no secret, token or credential. Changes in this window that you have not saved with OK are not in the file." -f $site, $result.Path, $result.ItemCount))
+    }
+    else { [void](Show-ThemedMessage -Owner $Owner -Title 'Export Site File' -Icon Warning -Buttons OK -Message ('The site file was not written. ' + $result.Reason)) }
+}
+
+function Invoke-OptionsSiteFileImport {
+    # The Import site file button of the ConfigMgr page. The file is checked first; nothing is written until the last question is answered OK.
+    param([Parameter(Mandatory)]$Owner)
+    $open = New-Object Microsoft.Win32.OpenFileDialog
+    $open.Title = 'Import Site File'
+    $open.Filter = 'Site file (*.zip)|*.zip'
+    $open.CheckFileExists = $true
+    if (-not $open.ShowDialog()) { return }
+    $read = Read-AppSiteFile -Path $open.FileName
+    if (-not $read.Ok) {
+        [void](Show-ThemedMessage -Owner $Owner -Title 'Import Site File' -Icon Warning -Buttons OK -Message ('The file was refused and nothing was written. ' + $read.Reason))
+        return
+    }
+    $content = $read.Content
+    $active = Get-AppSiteName
+    $newName = Get-AppSiteFileNewName -Content $content
+    $target = $newName
+    $mergeSite = @(Get-AppSiteList | Where-Object { $_.SiteCode -ceq $content.SiteCode -and $_.Name -cne $active } | Select-Object -First 1)
+    $sameActive = $false
+    if ($active) { $sameActive = ((ConvertFrom-SuiteSiteFolderName -Name $active).SiteCode -ceq $content.SiteCode) }
+    if ($mergeSite.Count -gt 0) {
+        $answer = Show-ThemedMessage -Owner $Owner -Title 'Import Site File' -Buttons YesNo -Icon Question -Message ("The file is for site {0}. Merge it into the existing site {1}?`n`nYes: values that {1} already has are kept; the rest is added.`nNo: create the new site {2} from the file." -f $content.SiteCode, $mergeSite[0].Name, $newName)
+        if ($answer -eq 'Yes') { $target = $mergeSite[0].Name }
+    }
+    else {
+        $why = ''
+        if ($sameActive) { $why = ("Site {0} is the active site and is open in this window, so the file is not merged into it.`n`n" -f $active) }
+        $answer = Show-ThemedMessage -Owner $Owner -Title 'Import Site File' -Buttons OKCancel -Icon Question -Message ("{0}The import creates the new site {1} from the file (site code {2}). It does not switch to it." -f $why, $newName, $content.SiteCode)
+        if ($answer -ne 'OK') { return }
+    }
+    $environmentIds = @(Get-AppSiteFileItem | Where-Object { $_.Environment } | ForEach-Object { $_.Id })
+    $itemIds = @(Get-AppSiteFileItem | Where-Object { -not $_.Environment } | ForEach-Object { $_.Id })
+    $hasEnvironment = (@($content.ItemIds | Where-Object { $environmentIds -contains $_ }).Count -gt 0)
+    if ($hasEnvironment) {
+        $answer = Show-ThemedMessage -Owner $Owner -Title 'Import Site File' -Buttons YesNo -Icon Question -Message "The file also holds values of one environment: the file share, WSUS server, SQL server and database, and the SMS Provider.`n`nCopy them too? They are usually different at another site."
+        if ($answer -eq 'Yes') { $itemIds = @(Get-AppSiteFileItem | ForEach-Object { $_.Id }) }
+    }
+    $plan = Invoke-AppSiteFileImport -Content $content -TargetSite $target -ItemId $itemIds -DryRun
+    if ($plan.Outcome -eq 'Refused') {
+        [void](Show-ThemedMessage -Owner $Owner -Title 'Import Site File' -Icon Warning -Buttons OK -Message $plan.Reason)
+        return
+    }
+    $replaceIds = @()
+    $conflicts = @($plan.Rows | Where-Object { $_.Outcome -eq 'Keep' })
+    if ($conflicts.Count -gt 0) {
+        $names = (@($conflicts | ForEach-Object { '  - ' + $_.Label }) -join "`n")
+        $answer = Show-ThemedMessage -Owner $Owner -Title 'Import Site File' -Buttons YesNo -Icon Question -Message ("Site {0} already has other values for:`n{1}`n`nReplace them with the values of the file?`n`nNo keeps the values of {0}. A replace keeps a backup of the settings file." -f $target, $names)
+        if ($answer -eq 'Yes') { $replaceIds = @($conflicts | ForEach-Object { $_.Id }) }
+    }
+    $plan = Invoke-AppSiteFileImport -Content $content -TargetSite $target -ItemId $itemIds -ReplaceId $replaceIds -DryRun
+    if ($plan.Outcome -ne 'Done') {
+        [void](Show-ThemedMessage -Owner $Owner -Title 'Import Site File' -Icon Info -Buttons OK -Message ('Nothing to import. ' + $plan.Reason))
+        return
+    }
+    $lines = @($plan.Rows | Where-Object { $_.Outcome -in 'Copy', 'Replace', 'Keep' } | ForEach-Object {
+            $what = 'keep the current value'
+            if ($_.Outcome -eq 'Copy') { $what = 'copy' } elseif ($_.Outcome -eq 'Replace') { $what = 'replace' }
+            '  {0}: {1}' -f $_.Label, $what
+        })
+    $verb = 'merge into'
+    if ($plan.Created) { $verb = 'create' }
+    $answer = Show-ThemedMessage -Owner $Owner -Title 'Import Site File' -Buttons OKCancel -Icon Question -Message ("Import will {0} site {1}:`n{2}`n`nThe file is not changed. Select OK to write." -f $verb, $target, ($lines -join "`n"))
+    if ($answer -ne 'OK') { return }
+    $run = Invoke-AppSiteFileImport -Content $content -TargetSite $target -ItemId $itemIds -ReplaceId $replaceIds
+    if ($run.Outcome -in 'Refused', 'Failed') {
+        [void](Show-ThemedMessage -Owner $Owner -Title 'Import Site File' -Icon Warning -Buttons OK -Message ('The import did not finish. ' + $run.Reason))
+        return
+    }
+    $text = ('Site {0} was updated: {1} written. Choose it in the Site code list to switch to it.' -f $target, $run.Written)
+    if ($run.Reason) { $text += "`n`n" + $run.Reason }
+    [void](Show-ThemedMessage -Owner $Owner -Title 'Import Site File' -Icon Info -Buttons OK -Message $text)
+}
+
 function Initialize-OptionsConfigMgrSection {
     param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][hashtable]$Page)
     $status = Get-OptionsToolStatusText -Prefs $Context.Prefs -Tool Console
     & $Page.Editors['cm.console'].Set $status.Text
     $Page.Editors['cm.console'].Text.ToolTip = $status.Tip
+    $siteFileButtons = $Page.Editors['cm.siteFile'].Buttons
+    $siteFileOwner = $Context.Owner
+    $siteFileButtons['export'].Add_Click({ Invoke-OptionsSiteFileExport -Owner $siteFileOwner }.GetNewClosure())
+    $siteFileButtons['import'].Add_Click({ Invoke-OptionsSiteFileImport -Owner $siteFileOwner }.GetNewClosure())
 }
 
 function Initialize-OptionsFoldersSection {
