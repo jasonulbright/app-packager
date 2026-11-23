@@ -44,6 +44,12 @@ The list **Site code** holds the saved sites. Pick one, or type a new site code,
 
 ![The list of sites](../images/options-site-list.png)
 
+### Site file
+
+**Export site file...** saves the settings of the active site in one zip file, to take to another computer. The file holds names and options only: the content distribution names, the distribution overrides, the One Click destinations, the Site Hygiene options, and the values of one environment (file share, WSUS, SQL server and database, SMS Provider). It never holds a secret, a token or a credential, and no results or history. App Packager Desktop writes and reads the same file.
+
+**Import site file...** reads such a file. The app checks the manifest, the SHA-256 of each part, the site code and the entry names first, and refuses a file that fails a check without writing anything. It then merges the file into an existing site (values that the site already has are kept unless you answer Yes to replace them, and a replace keeps a backup of the settings file) or creates a new site. The values of one environment are copied only when you answer Yes. A site that is open in this window is not changed: the import creates a new site, and you switch to it from the list **Site code**.
+
 #### WSUS
 
 The server, the **Port**, **Use SSL**, the signing certificate, the classification, the approval group and **Decline superseded**. The port is 8530 for HTTP and 8531 for HTTPS, and it follows **Use SSL** until you type a custom port. A port outside 1 to 65535 stops the save. See [Publish to Intune and Publish to WSUS](publish-intune-wsus.md).
