@@ -8316,7 +8316,7 @@ function Get-OptionsSectionDefinition {
                 @{ Id = 'wsus.server'; Title = 'Server'; Kind = 'Text'; Pref = 'Wsus.ServerName'; MaxLength = 255; Watermark = 'wsus01.contoso.com'; Tip = 'The WSUS server name, or the top-level software update point.'; Keywords = 'wsus server' }
                 @{ Id = 'wsus.port'; Title = 'Port'; Kind = 'Number'; Pref = 'Wsus.PortNumber'; Min = 1; Max = 65535; Default = 8530; Tip = 'The WSUS port; 8530 for HTTP and 8531 for HTTPS unless the site uses another port.'; Keywords = 'wsus port 8530 8531' }
                 @{ Id = 'wsus.ssl'; Title = 'Use SSL'; Kind = 'Check'; Pref = 'Wsus.UseSsl'; Label = 'Connect to the WSUS administration API over HTTPS'; Tip = 'Switches the port between 8530 and 8531 until you type a custom port.'; Keywords = 'wsus https tls' }
-                @{ Id = 'wsus.certGroup'; Kind = 'Group'; Title = 'Signing certificate'; Description = 'Clients install a locally published update only when the signing certificate is in their Trusted Publishers store, and in Trusted Root Certification Authorities when it is self-signed. The policy Allow signed updates from an intranet Microsoft update service location must be enabled (AcceptTrustedPublisherCerts = 1 under HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate).' }
+                @{ Id = 'wsus.certGroup'; Kind = 'Group'; Title = 'Signing certificate'; Description = 'Devices install a locally published update only when the signing certificate is in their Trusted Publishers store, and in Trusted Root Certification Authorities when it is self-signed. The policy Allow signed updates from an intranet Microsoft update service location must be enabled (AcceptTrustedPublisherCerts = 1 under HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate).' }
                 @{ Id = 'wsus.cert'; Title = 'Certificate'; Kind = 'Status'; Tip = 'The signing certificate of the WSUS server; Test Connection reads it.'; Keywords = 'wsus signing certificate' }
                 @{ Id = 'wsus.certActions'; Title = 'Certificate actions'; Kind = 'Actions'; Tip = 'Create, import or export the signing certificate of the WSUS server.'; Keywords = 'pfx self-signed export'; Buttons = @(
                         @{ Id = 'create'; Label = 'Create self-signed...'; Tip = 'Has the WSUS server create and use a self-signed signing certificate.' }
@@ -17385,7 +17385,7 @@ function New-ScriptSigningPanel {
       VerticalScrollBarVisibility="Auto">
     <StackPanel>
         <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Margin="0,0,0,12"
-                   Text="Authenticode signing for the scripts AppPackager generates. Signing a detection script does not sign install wrappers, and signing deployment scripts does not sign requirement scripts. A local signature check does not prove the certificate is trusted on your clients."/>
+                   Text="Authenticode signing for the scripts AppPackager generates. Signing a detection script does not sign install wrappers, and signing deployment scripts does not sign requirement scripts. A local signature check does not prove the certificate is trusted on your devices."/>
 
         <TextBlock Text="Sign" FontSize="15" Margin="0,0,0,6"/>
         <CheckBox x:Name="chkSignDetection" FontSize="12" Margin="0,0,0,4"
@@ -17727,7 +17727,7 @@ function Show-WsusPublishedUpdatesDialog {
                             Style="{DynamicResource DialogAccentButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"/>
                     <Button x:Name="btnDecline" Content="Decline" Margin="0,0,8,0"
                             Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
-                            ToolTip="Decline the update so that no client gets it."/>
+                            ToolTip="Decline the update so that no device gets it."/>
                     <Button x:Name="btnExpire" Content="Expire" Margin="0,0,8,0"
                             Style="{DynamicResource DialogButton}" Controls:ControlsHelper.ContentCharacterCasing="Normal"
                             ToolTip="Expire the update on the server for good."/>
