@@ -1,7 +1,7 @@
 <#
 Vendor: MSEndpointMgr
 App: Intune Debug Toolkit
-CMName: Intune Debug Toolkit
+CMName: IntuneDebugTools
 VendorUrl: https://msendpointmgr.com/
 CPE: cpe:2.3:a:msendpointmgr:intune_debug_toolkit:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/MSEndpointMgr/IntuneDebugToolkit
