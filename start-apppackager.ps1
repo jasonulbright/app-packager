@@ -6031,16 +6031,27 @@ function Update-GridFilter {
 }
 $txtGridFilter.Add_TextChanged({ Update-GridFilter })
 
-# Row icons are set on the Image of the cell when a row is created (the grid
-# virtualizes, so 300+ packagers decode only what scrolls into view; the
-# decoded icons are cached). The cell does not bind the icon: a binding
-# through the PowerShell row object does not deliver an ImageSource.
+# Row icons are set on the Image of the cell, never bound (a binding through the
+# PowerShell row object does not deliver an ImageSource). The grid virtualizes
+# and RECYCLES row containers: after a sort, a filter or a refresh a container
+# is reused for another packager, so the icon follows the item of the row at
+# the moment it is set, never the item the container showed before. The icon
+# is derived from the packager Script name, which is the row identity.
+function Set-GridRowImage {
+    # Sets the icon of one cell Image from the item that the Image shows now.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Sets one Image source only.')]
+    param($Image, $Item)
+    if ($Image -isnot [System.Windows.Controls.Image]) { return }
+    if (-not $Item -or -not $Item.PSObject.Properties['Script']) { return }
+    $source = Get-GridIconSource -ScriptName ([string]$Item.Script)
+    if (-not [object]::ReferenceEquals($Image.Source, $source)) { $Image.Source = $source }
+}
+
 $dataGrid.Add_LoadingRow({
         param($sender, $e)
-        $item = $e.Row.Item
-        if (-not $item -or -not $item.PSObject.Properties['Script']) { return }
-        $source = Get-GridIconSource -ScriptName ([string]$item.Script)
+        $row = $e.Row
         $show = {
+            $item = $row.Item
             $cell = $colIcon.GetCellContent($item)
             $image = $null
             $queue = New-Object System.Collections.Generic.Queue[System.Windows.DependencyObject]
@@ -6051,7 +6062,7 @@ $dataGrid.Add_LoadingRow({
                 $count = [System.Windows.Media.VisualTreeHelper]::GetChildrenCount($node)
                 for ($i = 0; $i -lt $count; $i++) { $queue.Enqueue([System.Windows.Media.VisualTreeHelper]::GetChild($node, $i)) }
             }
-            if ($image -and $null -eq $image.Source) { $image.Source = $source }
+            if ($image) { Set-GridRowImage -Image $image -Item $item }
         }.GetNewClosure()
         [void]$dataGrid.Dispatcher.BeginInvoke([System.Windows.Threading.DispatcherPriority]::Background, [Action]$show)
     })
@@ -6086,15 +6097,21 @@ function Update-GridWhenChanged {
 }
 
 # A rebuilt row gets its icon when its Image loads, before the first render, so a
-# refresh does not flash empty icons. The LoadingRow handler above stays as the
-# fallback for a cell that loads without the event.
+# refresh does not flash empty icons. The same Image also follows its DataContext:
+# a recycled container shows another packager after a sort, and the icon changes
+# with it. The LoadingRow handler above stays as the fallback.
 $dataGrid.AddHandler([System.Windows.FrameworkElement]::LoadedEvent, [System.Windows.RoutedEventHandler]{
         param($sender, $e)
         $image = $e.OriginalSource
-        if ($image -isnot [System.Windows.Controls.Image] -or $null -ne $image.Source) { return }
-        $item = $image.DataContext
-        if (-not $item -or -not $item.PSObject.Properties['Script']) { return }
-        $image.Source = Get-GridIconSource -ScriptName ([string]$item.Script)
+        if ($image -isnot [System.Windows.Controls.Image]) { return }
+        if ($image.Tag -ne 'gridicon') {
+            $image.Tag = 'gridicon'
+            $image.add_DataContextChanged([System.Windows.DependencyPropertyChangedEventHandler]{
+                    param($img, $args2)
+                    Set-GridRowImage -Image $img -Item $args2.NewValue
+                })
+        }
+        Set-GridRowImage -Image $image -Item $image.DataContext
     })
 
 function Update-GridIcons {
