@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [2026.11.23.0162] - 2026-11-23
+
+## 1 site file export and import
+
 ### Added
 
 - Export the settings of a site to one zip file, and import such a file on another computer.
