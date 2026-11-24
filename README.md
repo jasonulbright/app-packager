@@ -237,7 +237,7 @@ CWA switches persist to `Packagers/citrix-workspace-switches.json`; TeamViewer H
 
 **Updates and CVEs, CVE Lookup** - the NVD API key, the cache time of a lookup and Look up CVEs after Check ConfigMgr.
 
-**Deployment Conditions** - requirement rules are optional and off for every application until you add one in the [Application Workbench](#application-workbench) under Requirements & variants. The client evaluates them at deployment evaluation time, so no collections are involved. Three site conditions ship, matched by name so a condition your site already has is reused; their names and the VPN adapter patterns are edited in that same section and persist to `Packagers/condition-templates.json`:
+**Requirement rules** - These rules are optional and off for every application until you add one in the [Application Workbench](#application-workbench) under Requirements & variants. The client evaluates them at deployment evaluation time, so no collections are involved. Three site conditions ship, matched by name so a condition your site already has is reused; their names and the VPN adapter patterns are edited in that same section and persist to `Packagers/condition-templates.json`:
 
 - **Architecture** - `Any` / `x64 only` / `ARM64 only`, backed by a WQL global condition on `Win32_Processor.Architecture` (9 = x64, 12 = ARM64). The numeric property compares identically on every OS language, and unlike the OS-platform requirement list it needs no update when a new Windows version releases.
 - **OS languages** - comma-separated culture codes (for example `de-DE, en-US`) mapped onto the site's built-in Operating System Language condition with a OneOf rule. Useful when a packaged build is single-language and MUI or English builds are deployed separately.
@@ -543,7 +543,7 @@ All packager scripts accept the same core parameters:
 |---|---|
 | `-SiteCode` | ConfigMgr site code PSDrive name (default: `MCM`) |
 | `APP_PACKAGER_CM_PROVIDER` | Optional environment override for the SMS Provider computer used to create a missing `CMSite` PSDrive |
-| `APP_PACKAGER_REQUIREMENTS` | Optional environment JSON (`{"SchemaVersion":1,"Rules":[...]}`) of requirement rule specs applied to the deployment type; the GUI sets it per app from the Deployment Conditions panel |
+| `APP_PACKAGER_REQUIREMENTS` | Optional environment JSON (`{"SchemaVersion":1,"Rules":[...]}`) of requirement rule specs applied to the deployment type; the GUI sets it per app from the Requirements section of the Workbench |
 | `APP_PACKAGER_VARIANTS` | Optional environment JSON selecting a multi-deployment-type variant split for packagers that declare `SupportsVariants:`; the GUI sets it from the Variant split column |
 | `APP_PACKAGER_INSTALL_MODE` | Optional `CurrentUser` or `AllUsers` for packagers that declare `SupportsInstallModes:`; the Stage phase rewrites arguments, uninstaller, detection and install behavior from that branch of the installer. The GUI sets it from the Install for column |
 | `APP_PACKAGER_INSTALLER_TYPE` | Optional `EXE` or `MSI` for packagers that declare `SupportsInstallerTypes:`; the Stage phase stages that installer type with its own silent switches, wrapper and detection. The GUI sets it from the Installer Type column; the CLI reads it from the saved deployment conditions. |

@@ -292,4 +292,95 @@ Describe 'A loop on the window thread hears Cancel (Check ConfigMgr, the convers
         $script:Script | Should -Match 'PushFrame'
         $script:Script | Should -Not -Match '\[void\]\[System\.Windows\.Threading\.Dispatcher\]::CurrentDispatcher\.Invoke\(\s*\[System\.Windows\.Threading\.DispatcherPriority\]::Background'
     }
-}}
+}
+
+Describe 'The dropped-installer analysis has a Cancel (Q-69)' {
+    It 'names the run and counts the analyzed installers' {
+        Get-RunCancelledLine -Operation 'DropIntake' -Done 1 -Total 3 | Should -Be 'Cancelled: 1 of 3 installers analyzed. Nothing was staged or packaged.'
+        Get-RunCancelledLine -Operation 'DropIntake' -Done 0 -Total 1 | Should -Be 'Cancelled: 0 of 1 installer analyzed. Nothing was staged or packaged.'
+        Get-RunCancelledLine -Operation 'DropIntake' -Done 1 -Total 4 | Should -Not -Match '(?i)finish|complete'
+    }
+    It 'the window script offers Cancel, takes a run state and checks Cancel before and after each analysis' {
+        $script:Script | Should -Match "Show-BusyIndicator -Title 'Analyzing dropped installers' -Step \(Format-BusyStep[^\r\n]*\) -AllowCancel"
+        $m = [regex]::Match($script:Script, '(?s)function Invoke-DropIntake \{(?<body>.*?)\r?\n\}\r?\n\r?\n\$script:PendingDropQueue')
+        $m.Success | Should -BeTrue
+        $body = $m.Groups['body'].Value
+        $body | Should -Match 'Start-UiRun -Total \$installerTotal'
+        # A drop that arrives while the first one pumps messages must not start a second run: the guard names the run state.
+        $body | Should -Match '-or \$null -ne \$script:DiscoveryJob -or \$script:UiRun\) \{'
+        $body | Should -Match 'if \(Test-UiRunCancelled\) \{ \$dropCancelled = \$true; \$dropDone = \$installerIndex; break \}'
+        $body | Should -Match '\$cancelledInFlight = Test-UiRunCancelled\s+Hide-BusyIndicator\s+if \(\$cancelledInFlight\) \{ \$dropCancelled = \$true; \$dropDone = \$installerIndex - 1; break \}'
+        $body | Should -Match "Get-RunCancelledLine -Operation 'DropIntake'"
+        $body | Should -Match '(?s)finally \{\s+Stop-UiRun\s+Hide-BusyIndicator'
+        # The run state ends before the background run of the jobs starts, and a cancel never reaches it.
+        $body.IndexOf('Stop-UiRun') | Should -BeLessThan $body.IndexOf('Invoke-AdHocPipeline')
+        $body.IndexOf("Get-RunCancelledLine -Operation 'DropIntake'") | Should -BeLessThan $body.IndexOf('Invoke-AdHocPipeline')
+    }
+}
+
+Describe 'Invoke-DropIntake with a fake analysis and a fake Cancel (Q-69)' {
+    BeforeAll {
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput($script:Script, [ref]$null, [ref]$null)
+        $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-DropIntake' }, $true)
+        . ([scriptblock]::Create($fn.Extent.Text))
+        $script:Dir = Join-Path ([IO.Path]::GetTempPath()) ('dropcancel-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:Files = @(1..3 | ForEach-Object { $f = Join-Path $script:Dir ("setup$_.exe"); Set-Content -LiteralPath $f -Value 'x'; $f })
+    }
+    AfterAll { Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue }
+    BeforeEach {
+        $script:BgState = $null; $script:CmImportRunning = $false; $script:DiscoveryJob = $null
+        $script:Prefs = [pscustomobject]@{ DownloadRoot = 'C:\dl'; SiteCode = 'XXX'; FileShareRoot = '\x\y'; ProviderMachineName = 'p'; ContentLayout = ''; EstimatedRuntimeMins = 0; MaximumRuntimeMins = 0
+            DetectedTools = [pscustomobject]@{ ConfigMgrConsole = [pscustomobject]@{ Found = $true } } }
+        $script:window = New-Object psobject; $script:txtStatus = [pscustomobject]@{ Text = '' }; $script:txtComment = [pscustomobject]@{ Text = '' }
+        $script:Calls = [System.Collections.Generic.List[string]]::new()
+        $script:CancelAnswers = [System.Collections.Generic.Queue[bool]]::new()
+        $script:Logged = [System.Collections.Generic.List[string]]::new()
+        $script:Pipeline = $null
+        function Add-LogLine { param([string]$Message) $script:Logged.Add($Message) }
+        function Show-BusyIndicator { param([string]$Title, [string]$Step, [switch]$AllowCancel) $script:Calls.Add('busy' + $(if ($AllowCancel) { '+cancel' } else { '' })) }
+        function Hide-BusyIndicator { $script:Calls.Add('hide') }
+        function Start-UiRun { param([int]$Total) $script:Calls.Add("start:$Total") }
+        function Stop-UiRun { $script:Calls.Add('stop') }
+        function Format-BusyStep { param($Verb, $Index, $Total, $Name) "$Verb $Index/$Total" }
+        function Test-UiRunCancelled { $a = if ($script:CancelAnswers.Count) { $script:CancelAnswers.Dequeue() } else { $false }; $script:Calls.Add("poll:$a"); $a }
+        function Get-InstallerAnalysis { param($Path) $script:Calls.Add('analyze'); [pscustomobject]@{ FileName = (Split-Path -Leaf $Path); InstallerType = 'EXE'; Confidence = 'High' } }
+        function Show-DropIntakeDialog { param($Owner, $Analysis, $PackageAvailable, $PackageUnavailableReason) $script:Calls.Add('dialog'); $null }
+        function Invoke-AdHocPipeline { param($Jobs, $Context) $script:Pipeline = @($Jobs) }
+        function Get-WorkbenchSigningPolicyJson { '' }
+        function Test-WorkbenchModuleAvailable { $false }
+        function Show-ThemedMessage { param($Owner, $Title, $Message, $Buttons, $Icon) 'OK' }
+    }
+
+    It 'Cancel before the second installer: stops the loop, reports 1 of 3, starts no pipeline, ends the run state' {
+        $script:CancelAnswers.Enqueue($false); $script:CancelAnswers.Enqueue($false); $script:CancelAnswers.Enqueue($true)
+        Invoke-DropIntake -Paths $script:Files
+        @($script:Calls | Where-Object { $_ -eq 'analyze' }).Count | Should -Be 1
+        $script:Calls | Should -Contain 'busy+cancel'
+        $script:Calls | Should -Not -Contain 'busy'
+        $script:Calls[0] | Should -Be 'start:3'
+        $script:Calls[-1] | Should -Be 'hide'
+        $script:Calls | Should -Contain 'stop'
+        $script:Pipeline | Should -BeNullOrEmpty
+        $script:txtStatus.Text | Should -Be 'Cancelled: 1 of 3 installers analyzed. Nothing was staged or packaged.'
+        $script:Logged | Should -Contain $script:txtStatus.Text
+    }
+    It 'Cancel during the analysis of the first installer: its result is dropped and its dialog stays closed' {
+        $script:CancelAnswers.Enqueue($false); $script:CancelAnswers.Enqueue($true)
+        Invoke-DropIntake -Paths $script:Files
+        @($script:Calls | Where-Object { $_ -eq 'analyze' }).Count | Should -Be 1
+        $script:Calls | Should -Not -Contain 'dialog'
+        # The click is handled while the busy panel still covers the window; the panel hides after it.
+        $script:Calls.IndexOf('poll:True') | Should -BeLessThan $script:Calls.IndexOf('hide')
+        $script:txtStatus.Text | Should -Be 'Cancelled: 0 of 3 installers analyzed. Nothing was staged or packaged.'
+        $script:Pipeline | Should -BeNullOrEmpty
+    }
+    It 'without Cancel every installer is analyzed and the run state ends' {
+        Invoke-DropIntake -Paths $script:Files
+        @($script:Calls | Where-Object { $_ -eq 'analyze' }).Count | Should -Be 3
+        @($script:Calls | Where-Object { $_ -eq 'dialog' }).Count | Should -Be 3
+        $script:Calls | Should -Contain 'stop'
+        @($script:Logged | Where-Object { $_ -like 'Cancelled:*' }).Count | Should -Be 0
+    }
+}
+}

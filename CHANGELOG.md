@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- Cancel the analysis of dropped installers with the Cancel button.
+
+### Fixed
+
+- Rename the Deployment Conditions text in the README to Requirement rules.
+- Remove a stale limit about the stage manifest from the One Click guide.
+
 ## [2026.11.23.0162] - 2026-11-23
 
 ## 1 site file export and import

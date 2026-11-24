@@ -13154,7 +13154,8 @@ function Invoke-DropIntake {
     # The action buttons are disabled while a pipeline runs, but the window
     # itself still receives drops; starting a second pipeline here would
     # hard-stop the running one mid-flight.
-    if (($script:BgState -and -not [bool]$script:BgState.Done) -or $script:CmImportRunning -or $null -ne $script:DiscoveryJob) {
+    # A second drop can reach this function while the first one pumps messages for Cancel, so a run on the window thread counts too.
+    if (($script:BgState -and -not [bool]$script:BgState.Done) -or $script:CmImportRunning -or $null -ne $script:DiscoveryJob -or $script:UiRun) {
         [void](Show-ThemedMessage -Owner $window -Title 'Pipeline Running' `
             -Message 'A pipeline is already running. Wait for it to finish (or cancel it), then drop the installer again.' `
             -Buttons OK -Icon Info)
@@ -13191,58 +13192,86 @@ function Invoke-DropIntake {
     $jobs = @()
     $installerTotal = @($installers).Count
     $installerIndex = 0
-    foreach ($installer in $installers) {
-        $installerIndex++
-        Show-BusyIndicator -Title 'Analyzing dropped installers' -Step (Format-BusyStep -Verb 'Analyze' -Index $installerIndex -Total $installerTotal -Name (Split-Path -Leaf $installer))
-        try {
-            $analysis = Get-InstallerAnalysis -Path $installer
-        }
-        catch {
-            Hide-BusyIndicator
-            Add-LogLine -Message ('Analysis failed for {0}: {1}' -f (Split-Path -Leaf $installer), (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
-            continue
-        }
-        Hide-BusyIndicator
-        Add-LogLine -Message ('Analyzed drop: {0} ({1}, {2})' -f $analysis.FileName, $analysis.InstallerType, $analysis.Confidence)
-
-        $choice = Show-DropIntakeDialog -Owner $window -Analysis $analysis `
-            -PackageAvailable $packageAvailable -PackageUnavailableReason $packageReason
-        if (-not $choice) {
-            Add-LogLine -Message ('Skipped: ' + $analysis.FileName)
-            continue
-        }
-        # The dialog hands back the analysis for the install mode it shows.
-        if ($choice.Analysis) { $analysis = $choice.Analysis }
-
-        if ($choice.Action -eq 'SaveApplication') {
-            Add-LogLine -Message ('Saved as application {0}. It appears in the workbench with manual updates; nothing was staged or deployed.' -f [string]$choice.ApplicationId)
-            $answer = Show-ThemedMessage -Owner $window -Title 'Saved' `
-                -Message ('"{0}" is saved as an application. Open it in the Application Workbench now?' -f [string]$choice.Values.AppName) `
-                -Buttons YesNo -Icon Question
-            if ($answer -eq 'Yes') {
-                Show-ApplicationWorkbench -Owner $window -PreselectApplicationId ([string]$choice.ApplicationId)
-            }
-            continue
-        }
-
-        if ($choice.Action -eq 'SavePackager') {
+    $dropCancelled = $false
+    $dropDone = 0
+    # The loop works on the window thread. It gets a run state, so Cancel and closing the window treat it like any other run.
+    Start-UiRun -Total $installerTotal
+    try {
+        foreach ($installer in $installers) {
+            # Cancel stops before the next installer. The choices that the dialogs collected so far are dropped: nothing is staged or packaged.
+            if (Test-UiRunCancelled) { $dropCancelled = $true; $dropDone = $installerIndex; break }
+            $installerIndex++
+            Show-BusyIndicator -Title 'Analyzing dropped installers' -Step (Format-BusyStep -Verb 'Analyze' -Index $installerIndex -Total $installerTotal -Name (Split-Path -Leaf $installer)) -AllowCancel
+            $analysis = $null
+            $analysisError = $null
             try {
-                $generated = New-PackagerFromDrop -Analysis $analysis `
-                    -PackagersRoot (Join-Path $PSScriptRoot 'Packagers') `
-                    -AppName $choice.Values.AppName -Publisher $choice.Values.Publisher `
-                    -SoftwareVersion $choice.Values.SoftwareVersion
-                Add-LogLine -Message ('Packager written: {0}. Fill in the download source before first use.' -f (Split-Path -Leaf $generated))
-                Invoke-RefreshGrid
+                $analysis = Get-InstallerAnalysis -Path $installer
             }
             catch {
-                [void](Show-ThemedMessage -Owner $window -Title 'Save Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Error)
+                $analysisError = Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'
             }
-            continue
-        }
+            # The analysis blocks the window thread, so a click on Cancel waits in the input queue. The window handles it here,
+            # while the busy panel still covers the window: a click that is handled after the panel is hidden would hit the grid below it.
+            # A click on Cancel while this installer was analyzed: its result is dropped and the dialog does not open.
+            $cancelledInFlight = Test-UiRunCancelled
+            Hide-BusyIndicator
+            if ($cancelledInFlight) { $dropCancelled = $true; $dropDone = $installerIndex - 1; break }
+            if ($analysisError) {
+                Add-LogLine -Message ('Analysis failed for {0}: {1}' -f (Split-Path -Leaf $installer), $analysisError)
+                continue
+            }
+            Add-LogLine -Message ('Analyzed drop: {0} ({1}, {2})' -f $analysis.FileName, $analysis.InstallerType, $analysis.Confidence)
 
-        $jobs += ,@{ Analysis = $analysis; Values = $choice.Values; Action = $choice.Action }
+            $choice = Show-DropIntakeDialog -Owner $window -Analysis $analysis `
+                -PackageAvailable $packageAvailable -PackageUnavailableReason $packageReason
+            if (-not $choice) {
+                Add-LogLine -Message ('Skipped: ' + $analysis.FileName)
+                continue
+            }
+            # The dialog hands back the analysis for the install mode it shows.
+            if ($choice.Analysis) { $analysis = $choice.Analysis }
+
+            if ($choice.Action -eq 'SaveApplication') {
+                Add-LogLine -Message ('Saved as application {0}. It appears in the workbench with manual updates; nothing was staged or deployed.' -f [string]$choice.ApplicationId)
+                $answer = Show-ThemedMessage -Owner $window -Title 'Saved' `
+                    -Message ('"{0}" is saved as an application. Open it in the Application Workbench now?' -f [string]$choice.Values.AppName) `
+                    -Buttons YesNo -Icon Question
+                if ($answer -eq 'Yes') {
+                    Show-ApplicationWorkbench -Owner $window -PreselectApplicationId ([string]$choice.ApplicationId)
+                }
+                continue
+            }
+
+            if ($choice.Action -eq 'SavePackager') {
+                try {
+                    $generated = New-PackagerFromDrop -Analysis $analysis `
+                        -PackagersRoot (Join-Path $PSScriptRoot 'Packagers') `
+                        -AppName $choice.Values.AppName -Publisher $choice.Values.Publisher `
+                        -SoftwareVersion $choice.Values.SoftwareVersion
+                    Add-LogLine -Message ('Packager written: {0}. Fill in the download source before first use.' -f (Split-Path -Leaf $generated))
+                    Invoke-RefreshGrid
+                }
+                catch {
+                    [void](Show-ThemedMessage -Owner $window -Title 'Save Failed' -Message (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.') -Buttons OK -Icon Error)
+                }
+                continue
+            }
+
+            $jobs += ,@{ Analysis = $analysis; Values = $choice.Values; Action = $choice.Action }
+        }
+    }
+    finally {
+        Stop-UiRun
+        Hide-BusyIndicator
     }
 
+    if ($dropCancelled) {
+        # Nothing is staged or packaged after a cancel; an application or packager that was already saved stays.
+        $dropLine = Get-RunCancelledLine -Operation 'DropIntake' -Done $dropDone -Total $installerTotal
+        Add-LogLine -Message $dropLine
+        $txtStatus.Text = $dropLine
+        return
+    }
     if ($jobs.Count -eq 0) { return }
 
     $txtStatus.Text = 'Processing dropped installers...'
