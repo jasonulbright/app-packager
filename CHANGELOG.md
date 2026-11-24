@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [2026.11.24.0165] - 2026-11-24
+
+## 1 grid fix
+
+### Fixed
+
+- Show each application's own icon after scrolling and sorting the Packagers grid.
+
 ## [2026.11.24.0164] - 2026-11-24
 
 ## 5 One Click and Options changes
