@@ -318,6 +318,17 @@ Describe 'The dropped-installer analysis has a Cancel (Q-69)' {
     }
 }
 
+Describe 'A Workbench run does not start while a run on the window thread is active (Q-69)' {
+    It 'the Workbench run handler checks the run state before it validates or closes the window' {
+        $m = [regex]::Match($script:Script, '(?s)\$runFromWorkbench = \{(?<body>.*?)\r?\n    \}\r?\n    \$btnStage')
+        $m.Success | Should -BeTrue
+        $body = $m.Groups['body'].Value
+        $body | Should -Match '(?s)if \(\$script:UiRun\) \{\s+\[void\]\(Show-ThemedMessage -Owner \$win -Title \$operation.*?A run is already in progress'
+        $body.IndexOf('$script:UiRun') | Should -BeLessThan $body.IndexOf('$wb.Dirty')
+        $body.IndexOf('$script:UiRun') | Should -BeLessThan $body.IndexOf('$win.Close()')
+    }
+}
+
 Describe 'Invoke-DropIntake with a fake analysis and a fake Cancel (Q-69)' {
     BeforeAll {
         $ast = [System.Management.Automation.Language.Parser]::ParseInput($script:Script, [ref]$null, [ref]$null)
@@ -345,7 +356,8 @@ Describe 'Invoke-DropIntake with a fake analysis and a fake Cancel (Q-69)' {
         function Format-BusyStep { param($Verb, $Index, $Total, $Name) "$Verb $Index/$Total" }
         function Test-UiRunCancelled { $a = if ($script:CancelAnswers.Count) { $script:CancelAnswers.Dequeue() } else { $false }; $script:Calls.Add("poll:$a"); $a }
         function Get-InstallerAnalysis { param($Path) $script:Calls.Add('analyze'); [pscustomobject]@{ FileName = (Split-Path -Leaf $Path); InstallerType = 'EXE'; Confidence = 'High' } }
-        function Show-DropIntakeDialog { param($Owner, $Analysis, $PackageAvailable, $PackageUnavailableReason) $script:Calls.Add('dialog'); $null }
+        # The dialog of the first installer returns a staging job; the dialogs of the others skip (return nothing).
+        function Show-DropIntakeDialog { param($Owner, $Analysis, $PackageAvailable, $PackageUnavailableReason) $script:Calls.Add('dialog'); if ($Analysis.FileName -eq 'setup1.exe') { [pscustomobject]@{ Action = 'Stage'; Values = [pscustomobject]@{ AppName = 'One' }; Analysis = $null } } else { $null } }
         function Invoke-AdHocPipeline { param($Jobs, $Context) $script:Pipeline = @($Jobs) }
         function Get-WorkbenchSigningPolicyJson { '' }
         function Test-WorkbenchModuleAvailable { $false }
@@ -361,6 +373,8 @@ Describe 'Invoke-DropIntake with a fake analysis and a fake Cancel (Q-69)' {
         $script:Calls[0] | Should -Be 'start:3'
         $script:Calls[-1] | Should -Be 'hide'
         $script:Calls | Should -Contain 'stop'
+        # The first installer gave a staging job before the cancel; a cancel never starts it.
+        @($script:Calls | Where-Object { $_ -eq 'dialog' }).Count | Should -Be 1
         $script:Pipeline | Should -BeNullOrEmpty
         $script:txtStatus.Text | Should -Be 'Cancelled: 1 of 3 installers analyzed. Nothing was staged or packaged.'
         $script:Logged | Should -Contain $script:txtStatus.Text
@@ -375,10 +389,12 @@ Describe 'Invoke-DropIntake with a fake analysis and a fake Cancel (Q-69)' {
         $script:txtStatus.Text | Should -Be 'Cancelled: 0 of 3 installers analyzed. Nothing was staged or packaged.'
         $script:Pipeline | Should -BeNullOrEmpty
     }
-    It 'without Cancel every installer is analyzed and the run state ends' {
+    It 'without Cancel every installer is analyzed, the job of the first one runs, and the run state ends' {
         Invoke-DropIntake -Paths $script:Files
         @($script:Calls | Where-Object { $_ -eq 'analyze' }).Count | Should -Be 3
         @($script:Calls | Where-Object { $_ -eq 'dialog' }).Count | Should -Be 3
+        @($script:Pipeline).Count | Should -Be 1
+        $script:Pipeline[0].Action | Should -Be 'Stage'
         $script:Calls | Should -Contain 'stop'
         @($script:Logged | Where-Object { $_ -like 'Cancelled:*' }).Count | Should -Be 0
     }
