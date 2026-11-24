@@ -117,11 +117,11 @@ Describe 'The registry' {
 }
 
 Describe 'What each cell offers' {
-    It 'opens Package Source only for a packager that declares an architecture split' {
+    It 'opens Architecture only for a packager that declares an architecture split' {
         $work = New-ApplicationGridWork -Prefs (New-TestPrefs)
         $s = Get-GridSetting 'source'
         (Get-ApplicationGridCell -Setting $s -Work $work -Packager (New-TestPackager -Variants @('Architecture'))).Reason | Should -BeNullOrEmpty
-        (Get-ApplicationGridCell -Setting $s -Work $work -Packager (New-TestPackager -Variants @('Language'))).Reason | Should -Match 'one package source'
+        (Get-ApplicationGridCell -Setting $s -Work $work -Packager (New-TestPackager -Variants @('Language'))).Reason | Should -Match 'one architecture'
         (Get-ApplicationGridCell -Setting $s -Work $work -Packager (New-TestPackager)).Reason | Should -Not -BeNullOrEmpty
     }
     It 'shows the own architecture of a sibling packager, closed, and says why' {
@@ -347,13 +347,13 @@ Describe 'What the grid writes' {
         $e.Architecture | Should -Be 'ARM64'
         $e.Network | Should -Be 'VpnOnly'
         @($e.Languages) | Should -Be @('de-DE')
-        $e.Split | Should -Be 'Language' -Because 'a Language split is not a package source'
+        $e.Split | Should -Be 'Language' -Because 'a Language split is not an architecture'
         $prefs.DeploymentConditions.Apps.'package-gone'.Architecture | Should -Be 'x64'
         $prefs.Supersedence.TitleOverrides.'catalog:package-demo'.Mode | Should -Be 'Replace'
         $prefs.Supersedence.TitleOverrides.'catalog:package-demo'.VersionRule | Should -Be 'Exact'
         $prefs.Supersedence.TitleOverrides.'custom:other'.Mode | Should -Be 'Off'
     }
-    It 'keeps one split at a time: a package source and a network split replace each other' {
+    It 'keeps one split at a time: an architecture split and a network split replace each other' {
         $prefs = Invoke-Grid -Set ([ordered]@{ source = 'x64 and ARM64' })
         $prefs.DeploymentConditions.Apps.'package-demo'.Split | Should -Be 'Architecture'
         $prefs = Invoke-Grid -Json (Get-SavedJson) -Set ([ordered]@{ netsplit = 'Network split' })
@@ -447,7 +447,7 @@ Describe 'The code that packages and runs One Click uses the value that the grid
         [void](Invoke-Grid -Set ([ordered]@{ scope = 'Packager default' }) -Json (Get-SavedJson))
         (Get-InstallModesMapForContext).ContainsKey('package-demo') | Should -BeFalse
     }
-    It 'passes the Package Source x64 and ARM64 as an Architecture split, and Network Split as a Network split' {
+    It 'passes the Architecture x64 and ARM64 as an Architecture split, and Network Split as a Network split' {
         [void](Invoke-Grid -Set ([ordered]@{ source = 'x64 and ARM64' }))
         $start = New-Object System.Diagnostics.ProcessStartInfo
         Set-PackagerEnvironment -StartInfo $start -VariantsJson ((Get-VariantsMapForContext)['package-demo'])

@@ -30,7 +30,7 @@ Installs the latest release into `%LOCALAPPDATA%\AppPackager`. Only a zip crosse
 On an unrestricted network, the installer can do the whole flow itself - resolve the release from the GitHub API, download, verify SHA-256, extract:
 
 ```powershell
-curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.11.24.0163
+curl.exe -Lso "$env:TEMP\ap.zip" https://github.com/jasonulbright/app-packager/releases/latest/download/AppPackager.zip; Expand-Archive "$env:TEMP\ap.zip" "$env:TEMP\ap-setup" -Force; & "$env:TEMP\ap-setup\install.ps1" -InstallPath 'D:\Tools\AppPackager' -Version 2026.11.24.0164
 ```
 
 Omitting `-ZipPath` makes it download and checksum-verify the requested release; `-InstallPath` picks the folder and `-Version` pins a release. `-Force` is required to replace a non-empty folder that holds no existing AppPackager install. If even the curl download is blocked, fetch the zip in a browser and run the same `-ZipPath` command against it.
@@ -184,7 +184,7 @@ All workflow actions share the same persistent history file at `%LOCALAPPDATA%\A
 |---|---|
 | Connections | Systems in Use, ConfigMgr, WSUS, Intune, and a Test Connection button for each. |
 | Packaging | Folders, deployment type defaults, the application title rule and the Post Packaging steps. |
-| Applications | One grid of all applications (package source, install scope, supersedence, version in title, version rule and more), then the install options of Adobe Acrobat Reader, Beyond Compare 5, Citrix Workspace App, DBeaver Community, Microsoft 365 Apps, SQL Server Management Studio and TeamViewer Host, and the local installer sources. |
+| Applications | One grid of all applications (architecture, install scope, supersedence, version in title, version rule and more), then the install options of Adobe Acrobat Reader, Beyond Compare 5, Citrix Workspace App, DBeaver Community, Microsoft 365 Apps, SQL Server Management Studio and TeamViewer Host, and the local installer sources. |
 | Updates and CVEs | One Click, the product filter and the CVE lookup. |
 | Security | Script Signing. |
 | Tools | The detected console, Content Prep Tool, 7-Zip and icon pack, and GitHub Authentication. |
@@ -231,7 +231,7 @@ M365 Deploy mode controls how Office 365 products are staged and detected:
 
 CWA switches persist to `Packagers/citrix-workspace-switches.json`; TeamViewer Host config persists to `Packagers/teamviewer-host-config.json`; packager-facing M365, company name, SSMS, DBeaver, Adobe, Beyond Compare 5 and local source values are mirrored to `Packagers/packager-preferences.json`. GUI preferences persist to `AppPackager.preferences.json`. [Settings](docs/reference/settings.md) lists every key and where Options edits it.
 
-**Updates and CVEs, One Click** - configures the **One Click** sidebar button. Pick which packagers the tracked set includes (Track column), choose the action (Report only / Stage / Stage and Publish), set the default destinations (ConfigMgr, WSUS, Intune) and, per row, the destinations of an app that differs from the default. A row with no destination box checked is skipped. Choose what a run does with a ConfigMgr application that already exists (skip or overwrite; a run never asks), toggle Force on launch (bypasses cadence and the duplicate guard), and set per-app cadence overrides in the grid. Tracked apps and their settings persist to `AppPackager.preferences.json`. Default cadence for each packager is read from its `UpdateCadenceDays:` header tag (falling back to 7 days); per-app overrides in this section take precedence.
+**Updates and CVEs, One Click** - configures the **One Click** sidebar button. Pick which packagers the tracked set includes (Track column), set the default destinations (ConfigMgr, WSUS, Intune) and, per row, the destinations of an app that differs from the default. A row with no destination box checked is skipped. Choose what a run does with a ConfigMgr application that already exists (skip or overwrite; a run never asks), toggle Force on launch (bypasses cadence and the duplicate guard), and set per-app cadence overrides in the grid. Tracked apps and their settings persist to `AppPackager.preferences.json`. Default cadence for each packager is read from its `UpdateCadenceDays:` header tag (falling back to 7 days); per-app overrides in this section take precedence.
 
 **Updates and CVEs, Product Filter** - show or hide individual packager scripts in the main grid, grouped by vendor in a checkbox TreeView with Select All / Select None helpers. Hidden applications persist to `AppPackager.preferences.json`. **Not offered by Discover** shows how many apps discovery leaves out; **Clear List** empties that list on OK. On the first Check ConfigMgr run, the tool offers to auto-hide applications not found in your ConfigMgr environment.
 
@@ -1046,7 +1046,7 @@ ArpName: 7-Zip [0-9]*
 | `SecurityAdvisoryUrl` | The vendor's security advisory page (https). Shown as `Vendor advisory` in the CVE window, the Open CVE Sources menu and every report. 94 packagers carry one; only pages that answered HTTP 200 were added. |
 | `UpdateCadenceDays` | Default cadence for Full Run's Report action. Integer days between vendor re-queries. Falls back to 7 when absent. Override per-app in App Flow. |
 | `IconSource` | Where the application icon comes from: `Installer`, `External`, or `None`. See [Application Icons](#application-icons). |
-| `SupportsVariants` | Comma-separated variant splits the packager can stage (`Architecture`, `Language`, `Network`). Enables the Package Source choice in Options, Applications, All Applications (the `Architecture` split). |
+| `SupportsVariants` | Comma-separated variant splits the packager can stage (`Architecture`, `Language`, `Network`). Enables the Architecture choice in Options, Applications, All Applications (the `Architecture` split). |
 | `SupportsInstallModes` | `CurrentUser, AllUsers` when the installer takes a mode switch and the packager uses the standard wrappers. Enables the Install Scope choice in Options, Applications, All Applications. |
 | `SupportsInstallerTypes` | `EXE, MSI` when the packager can stage both installer types. Enables the Installer Type choice in Options, Applications, All Applications. The packager reads the choice with `Get-RequestedInstallerType`. |
 | `RequiresTools` | Comma-separated list of detected tools the packager depends on. Read-only metadata; surfaced through `Get-PackagerMetadata` and reserved for future preflight warnings. Adobe Reader declares `7-Zip`. |

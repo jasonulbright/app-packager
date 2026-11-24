@@ -4,7 +4,7 @@ One Click is the unattended run for the applications that you track: it plans th
 
 ## What it does
 
-One Click runs Check Latest for each tracked application. With the action **Report only**, it stops after the check. With **Stage**, it also stages an application that has an update. With **Stage and Publish**, it also publishes to the destinations that you chose. It asks nothing during the run. An application that exists already follows the policy that you saved in Options, Updates and CVEs, One Click.
+One Click always runs the whole chain for each tracked application: Check Latest, Check ConfigMgr, Check CVEs, Stage and Package. It publishes to the destinations that you chose. When the plan opens, the tool first runs Check Latest for each application that no check has read in this session, so the version column of the plan is never empty because the check did not run. It asks nothing during the run. An application that exists already follows the policy that you saved in Options, Updates and CVEs, One Click.
 
 ## When to use it
 
@@ -20,7 +20,7 @@ Use it to keep a fixed set of applications current with one click, or from a sch
 ### Choose what One Click tracks
 
 1. Select **Options**, then **Updates and CVEs**, then **One Click**.
-2. Select **Track** for each application. Choose the action: **Report only**, **Stage** or **Stage and Publish**. Choose the default destinations and, for a row, its own destinations. A row without a destination is skipped.
+2. Select **Track** for each application. Choose the default destinations and, for a row, its own destinations. A row without a destination is skipped.
 
 ![The One Click section](../images/options-one-click.png)
 
@@ -43,7 +43,6 @@ During the run, the grid becomes a progress grid. A failed application does not 
 | Setting | Effect |
 |---|---|
 | Track | Adds the application to the One Click set. |
-| Action | Report only, Stage, or Stage and Publish. |
 | Destinations | ConfigMgr, WSUS, Intune, by default and for each row. |
 | Policy for an existing application | Overwrite or Skip, applied without a question. |
 | **Force** | Ignores the guard that skips a version that a destination already has. |

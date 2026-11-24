@@ -4212,25 +4212,6 @@ function Get-SupersedenceDeploymentTypePair {
 
 # ---- the lookup of the older application (title and vendor, as Check ConfigMgr reads the site) ----
 
-function Get-SupersedenceTitleLockNote {
-    <#
-    .SYNOPSIS
-        The note on the Options page of the application title when supersedence is on (the default or the choice of an
-        application): the version is added to the name when the application is packaged. Empty when supersedence is off.
-        The note changes no setting; the choice of the operator stays as the operator made it.
-    #>
-    param([AllowNull()]$Supersedence)
-    if ($null -eq $Supersedence) { return '' }
-    $default = [string](Get-SupersedenceProperty $Supersedence 'Mode')
-    $overrides = Get-SupersedenceProperty $Supersedence 'TitleOverrides'
-    $own = 0
-    if ($overrides) { foreach ($p in $overrides.PSObject.Properties) { $mode = [string](Get-SupersedenceProperty $p.Value 'Mode'); if ($mode -and $mode -ne 'Off') { $own++ } } }
-    $why = ' This release and the older one must be separate applications. The choice above stays as you set it.'
-    if ($default -and $default -ne 'Off') { return 'Supersedence is on by default, so the version is added to the name of each application when it is packaged.' + $why }
-    if ($own -gt 0) { return ('Supersedence is on for {0} application(s), so the version is added to their names when they are packaged.' -f $own) + $why }
-    return ''
-}
-
 function Get-SupersedenceTitleNotice {
     # The line for an application whose title has no version while supersedence is on for it.
     param([Parameter(Mandatory)][string]$Title)

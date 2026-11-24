@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [2026.11.24.0164] - 2026-11-24
+
+## 5 One Click and Options changes
+
+### Changed
+
+- Renamed the Package Source column of the Applications grid to Architecture.
+- Run Check Latest, Check ConfigMgr, Check CVEs, Stage and Package in every One Click run.
+- Check the latest version of each application without one before the One Click plan opens.
+
+### Removed
+
+- Removed the supersedence note from the Application Title page.
+- Removed the Action choice from the One Click options.
+
 ## [2026.11.24.0163] - 2026-11-24
 
 ## 1 more action with Cancel

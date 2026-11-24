@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.11.24.0163
+    Version    : 2026.11.24.0164
     Updated    : 2026-09-09
 #>
 
@@ -5198,6 +5198,38 @@ function Get-CveSkipReason {
     return ''
 }
 
+function Invoke-OneClickCveStep {
+    # The Check CVEs step of One Click, run for one row after the version check and the Check ConfigMgr read. It fills the
+    # CVE cells and records the summary. A failed lookup is logged and never stops the row. Returns the text for the log.
+    param([Parameter(Mandatory)]$Row, [Parameter(Mandatory)][string]$PackagerName, [Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$State)
+    $reason = Get-CveSkipReason -Cpe ([string]$Row.Cpe) -Current ([string]$Row.CurrentVersion) -Latest ([string]$Row.LatestVersion)
+    if ($reason) {
+        $Row.CveCount = $reason
+        foreach ($n in 'CveCvss', 'CveKev', 'CveEpss', 'CveChecked', 'CveFixed', 'CveNewest', 'CveUpdated') { $Row.$n = '' }
+        Set-CveCellsPair -Row $Row
+        return ('Check CVEs skipped: {0}.' -f $reason)
+    }
+    try {
+        if ($null -eq $Context.KevCatalog) { $Context.KevCatalog = Get-KevCatalog }
+        $res = Get-ProductVulnerabilities -Cpe ([string]$Row.Cpe) -CurrentVersion ([string]$Row.CurrentVersion) -LatestVersion ([string]$Row.LatestVersion) `
+            -ApiKey ([string]$Context.NvdApiKey) -CacheTtlMinutes ([int]$Context.CacheTtlMinutes) -KevCatalog $Context.KevCatalog -Force:([bool]$Context.ForceRefresh) `
+            -VendorAdvisoryUrl $(if ($Row.PSObject.Properties['AdvisoryUrl']) { [string]$Row.AdvisoryUrl } else { '' })
+        if ([bool]$State.Aborted) { return '' }
+        if ($Context.CveSession -and -not $res.Error) { $Context.CveSession[[string]$Row.Script] = $res }
+        $summary = Get-VulnerabilitySummary -Result $res
+        $cells = Get-CveGridCells -Summary $summary -Cpe ([string]$Row.Cpe)
+        $Row.CveCount = $cells.Count; $Row.CveCvss = $cells.Cvss; $Row.CveKev = $cells.Kev; $Row.CveEpss = $cells.Epss; $Row.CveChecked = $cells.Checked
+        $Row.CveFixed = $cells.Fixed; $Row.CveNewest = $cells.Newest; $Row.CveUpdated = $cells.Updated
+        Set-CveCellsPair -Row $Row
+        if ($res.Error) { return ('Check CVEs failed: ' + $res.Error) }
+        try { Update-PackagerHistory -PackagerName $PackagerName -Event VulnChecked -Data $summary } catch { <# The history is bookkeeping; the run does not depend on it. #> $null = $_ }
+        return ('Check CVEs: ' + (ConvertTo-VulnerabilityResultText -Result $res))
+    }
+    catch {
+        return ('Check CVEs failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
+    }
+}
+
 function Remove-ExpiredCveReports {
     # Deletes the report files older than KeepDays. Only the names the report
     # writer produces (Export-VulnerabilityReport with its default name) are
@@ -6724,7 +6756,7 @@ function New-AppFlowPanel {
            xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro">
     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" FontSize="12"
                Foreground="{DynamicResource MahApps.Brushes.Gray.MouseOver}" Margin="0,0,0,12"
-               Text="One Click opens a plan of the apps you track here, then runs Check (and optionally Stage / Publish) without further prompts. Each row publishes to its own destinations; a row with no box checked is skipped. Rows that keep the default follow it when the default changes. The sidebar publish buttons choose their own destination per run."/>
+               Text="One Click opens a plan of the apps you track here, then runs the whole chain without further prompts: Check Latest, Check ConfigMgr, Check CVEs, Stage and Package. Each row publishes to its own destinations; a row with no box checked is skipped. Rows that keep the default follow it when the default changes. The sidebar publish buttons choose their own destination per run."/>
     <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto"/>
@@ -6738,12 +6770,6 @@ function New-AppFlowPanel {
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <TextBlock Grid.Row="0" Grid.Column="0" Text="Action on update" FontWeight="Bold" VerticalAlignment="Center" FontSize="12" Margin="0,0,8,0"/>
-        <ComboBox ItemContainerStyle="{DynamicResource ThemedComboBoxItemStyle}" Grid.Row="0" Grid.Column="1" x:Name="cboAction" ToolTip="Choose what One Click does when a newer version exists." Width="190" VerticalAlignment="Center">
-            <ComboBoxItem Content="Report only"/>
-            <ComboBoxItem Content="Stage"/>
-            <ComboBoxItem Content="Stage and Publish"/>
-        </ComboBox>
         <Controls:ToggleSwitch Grid.Row="0" Grid.Column="3" x:Name="toggleForce" ToolTip="Run the checks even when the cadence has not passed." IsOn="False"
                                 Header="Force on launch (ignore cadence)"
                                 OnContent="" OffContent="" MinWidth="0"
@@ -6810,7 +6836,6 @@ function New-AppFlowPanel {
     $reader = New-Object System.Xml.XmlNodeReader $xml
     $element = [System.Windows.Markup.XamlReader]::Load($reader)
 
-    $cboAction   = $element.FindName('cboAction')
     $toggleForce = $element.FindName('toggleForce')
     $dgApps      = $element.FindName('dgApps')
     if (Get-Command Set-GridHeaderTip -ErrorAction Ignore) { Set-GridHeaderTip -Grid $dgApps }
@@ -6860,12 +6885,6 @@ function New-AppFlowPanel {
     }
 
     $dgApps.ItemsSource = $rows
-    $cboAction.SelectedIndex = switch ($currentPrefs.Action) {
-        'Report'          { 0 }
-        'Stage'           { 1 }
-        'StageAndPackage' { 2 }
-        default           { 0 }
-    }
     $toggleForce.IsOn = [bool]$currentPrefs.ForceOnLaunch
 
     $prefsRef = $script:Prefs
@@ -6874,12 +6893,6 @@ function New-AppFlowPanel {
         [void]$dgApps.CommitEdit([System.Windows.Controls.DataGridEditingUnit]::Row,  $true)
 
         $newTracked = @($rows | Where-Object { $_.Tracked } | ForEach-Object { $_.Packager })
-        $newAction = switch ($cboAction.SelectedIndex) {
-            0 { 'Report' }
-            1 { 'Stage' }
-            2 { 'StageAndPackage' }
-            default { 'Report' }
-        }
 
         $overrideProps = [ordered]@{}
         foreach ($row in $rows) {
@@ -6900,7 +6913,6 @@ function New-AppFlowPanel {
         }
 
         $prefsRef.AppFlow.Tracked             = $newTracked
-        $prefsRef.AppFlow.Action              = $newAction
         $prefsRef.AppFlow.CadenceOverrides    = [pscustomobject]$overrideProps
         $prefsRef.AppFlow.ForceOnLaunch       = [bool]$toggleForce.IsOn
         $prefsRef.AppFlow.Destinations        = [pscustomobject]$destProps
@@ -8004,15 +8016,6 @@ function Connect-OptionsFieldLink {
         & $syncDefault
     }
 
-    # The title page tells the operator when supersedence is on: the version is then added to the name when the application is
-    # packaged. The page shows a note and changes nothing, so the stored choice of the operator is never written by it.
-    if ($e.Contains('title.lock')) {
-        $lockNote = $e['title.lock'].Text
-        $noteText = Get-SupersedenceTitleLockNote -Supersedence $Context.Prefs.Supersedence
-        $lockNote.Text = $noteText
-        $lockNote.Visibility = $(if ($noteText) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed })
-    }
-
     # The test deployment needs automatic distribution and a DP group, because it runs after the content distribution.
     if ($e.Contains('dist.auto') -and $e.Contains('dist.group') -and $e.Contains('dist.test')) {
         $autoBox = $e['dist.auto'].Focus
@@ -8388,7 +8391,6 @@ function Get-OptionsSectionDefinition {
             Fields = @(
                 @{ Id = 'title.include'; Title = 'Include version'; Kind = 'Check'; Pref = 'IncludeVersionInTitle'; Label = 'Add the version to each application name'; Tip = 'Creates a separate application for each release.' }
                 @{ Id = 'title.arch'; Title = 'Add architecture'; Kind = 'Check'; Pref = 'AppendArchitectureToTitle'; Label = 'Add the architecture to application names'; Tip = 'Clear it to keep names without (x64), (x86) or (ARM64).' }
-                @{ Id = 'title.lock'; Kind = 'Note'; Text = '' }
                 @{ Id = 'title.remove'; Title = 'Remove version'; Kind = 'Check'; Pref = 'RemoveVersionFromTitle'; Label = 'Remove the release version from the vendor product name'; Tip = 'Keeps one application for all releases; it applies while Include version is off.' }
             )
         })
@@ -8430,7 +8432,7 @@ function Get-OptionsSectionDefinition {
 
     $sections.Add(@{
             Id = 'allapps'; Title = 'All Applications'; Parent = 'applications'; Kind = 'Fields'; Prefs = @('DeploymentConditions.Apps', 'Supersedence.TitleOverrides', 'DistributionOverrides.Apps')
-            Keywords = 'application grid package source type architecture x64 x86 arm64 install scope system user supersedence version title version rule detection greater equal'
+            Keywords = 'application grid architecture package source type x64 x86 arm64 install scope system user supersedence version title version rule detection greater equal'
             Description = 'One row for each application that the packagers offer. The Columns button chooses the columns, and the search box filters the rows. A cell that does not apply to an application is closed, and its tooltip says why. The runtime and reboot columns are fields of the Workbench profile of the application; the detection, the requirements and the distribution targets stay in the Application Workbench. Supersedence is off for every application until you turn it on, as a default or for one application. An application with supersedence on keeps the version in its title, so each release is its own application. At Package, the older version (same title and vendor, the highest version below this one) is looked up and you confirm the supersedence first. Version Rule sets the operator of the version clause in the detection of the application that is packaged. Follow the default uses the default in the three fields below. The command line options -VersionRule and -Supersedence outrank these values.'
             Fields = @(
                 @{ Id = 'sup.cmRule'; Title = 'Version rule, ConfigMgr'; Kind = 'Combo'; Pref = 'Supersedence.ConfigMgrVersionRule'; Default = 'Minimum'; Width = 260; Items = $versionRuleItems; Tip = 'Exact writes IsEquals when the installed value equals the expected value.'; Keywords = 'detection operator equals greater' }
@@ -8613,7 +8615,6 @@ function Get-OptionsSectionDefinition {
             Id = 'oneclick'; Title = 'One Click'; Parent = 'updates'; Kind = 'Panel'; Factory = { New-AppFlowPanel }
             Prefs = @('AppFlow', 'Intune.DeploymentTarget', 'Intune.PublishToIntune')
             SearchFields = @(
-                @{ Id = 'oc.action'; Title = 'Action on update'; Control = 'cboAction' }
                 @{ Id = 'oc.force'; Title = 'Force on launch'; Control = 'toggleForce' }
                 @{ Id = 'oc.destinations'; Title = 'Default destinations'; Control = 'chkOneClickMecm'; Keywords = 'configmgr wsus intune' }
                 @{ Id = 'oc.existing'; Title = 'Existing ConfigMgr app'; Control = 'cboOneClickOnExisting' }
@@ -9442,7 +9443,7 @@ function New-OptionsLocalSourceEditor {
 # Options window: the grid of all applications
 # -----------------------------------------------------------------------------
 # One row per application of the catalog. Each column is a setting of one application:
-#   Package source type  DeploymentConditions.Apps.<base>.Split (only a packager that declares SupportsVariants: Architecture)
+#   Architecture         DeploymentConditions.Apps.<base>.Split (only a packager that declares SupportsVariants: Architecture)
 #   Install scope        DeploymentConditions.Apps.<base>.InstallMode (only a packager that declares both install modes)
 #   Installer type       DeploymentConditions.Apps.<base>.InstallerType (only a packager that declares SupportsInstallerTypes: EXE, MSI)
 #   Supersedence         Supersedence.TitleOverrides.<id>.Mode
@@ -9812,12 +9813,12 @@ function Get-ApplicationGridSetting {
     $commandGet = { param($w, $p, [string]$field) $own = Get-ApplicationGridOwn -Table $w.Commands -Key (& $base $p); if ($own) { [string]$own[$field] } else { '' } }.GetNewClosure()
 
     return @(
-        @{ Id = 'source'; Header = 'Package Source'; Kind = 'Choice'; Visible = $true; Width = 150; Choices = @($l.PackagerDefault, $l.ArchSplit)
-            Tip = 'The package source of the application, where the packager offers a choice.'
+        @{ Id = 'source'; Header = 'Architecture'; Kind = 'Choice'; Visible = $true; Width = 150; Choices = @($l.PackagerDefault, $l.ArchSplit)
+            Tip = 'The architecture of the package: the packager default, or x64 and ARM64 packages, where the packager offers a choice.'
             Items = { param($p) (Get-ApplicationGridCapability -Packager $p).Architecture.Items }.GetNewClosure()
             Get = { param($w, $p) $c = Get-ApplicationGridCapability -Packager $p; if ($c.Architecture.Fixed) { return [string]$c.Architecture.Fixed }; if ([string](Get-ApplicationGridEntry -Work $w -Packager $p).Split -eq 'Architecture' -and $c.Architecture.Enabled) { $l.ArchSplit } else { $l.PackagerDefault } }.GetNewClosure()
             Set = { param($w, $p, $v) $e = Get-ApplicationGridEntry -Work $w -Packager $p; if ($v -eq $l.ArchSplit) { $e['Split'] = 'Architecture' } elseif ([string]$e['Split'] -eq 'Architecture') { $e['Split'] = 'None' } }.GetNewClosure()
-            NotApplicable = { param($w, $p) $c = Get-ApplicationGridCapability -Packager $p; if ($c.Architecture.Enabled) { $null } elseif ($c.Architecture.Fixed) { '{0} is packaged for {1}. Another packager of the catalog packages the other architectures.' -f (& $name $p), $c.Architecture.Fixed } else { 'The packager of {0} has one package source, so there is no choice.' -f (& $name $p) } }.GetNewClosure() }
+            NotApplicable = { param($w, $p) $c = Get-ApplicationGridCapability -Packager $p; if ($c.Architecture.Enabled) { $null } elseif ($c.Architecture.Fixed) { '{0} is packaged for {1}. Another packager of the catalog packages the other architectures.' -f (& $name $p), $c.Architecture.Fixed } else { 'The packager of {0} has one architecture, so there is no choice.' -f (& $name $p) } }.GetNewClosure() }
         @{ Id = 'scope'; Header = 'Install Scope'; Kind = 'Choice'; Visible = $true; Width = 140; Choices = @($l.PackagerDefault, $l.System, $l.User)
             Tip = 'Installs for all users (System) or for the current user (User), where the packager offers both.'
             Get = { param($w, $p) $m = [string](Get-ApplicationGridEntry -Work $w -Packager $p).InstallMode; if ($m -eq 'AllUsers') { $l.System } elseif ($m -eq 'CurrentUser') { $l.User } else { $l.PackagerDefault } }.GetNewClosure()
@@ -11862,7 +11863,7 @@ function Invoke-MultiAppPipeline {
                         # below says only what this tool published earlier.
                         $observedCm = ''
                         $observedUnknown = $false
-                        if ($Ctx.Action -eq 'StageAndPackage' -and 'ConfigMgr' -in $wanted -and -not $Ctx.ForceFlag -and $Ctx.AdminUiFound -and -not [string]::IsNullOrWhiteSpace([string]$row.CMName)) {
+                        if ($Ctx.Action -eq 'StageAndPackage' -and 'ConfigMgr' -in $wanted -and $Ctx.AdminUiFound -and -not [string]::IsNullOrWhiteSpace([string]$row.CMName)) {
                             try {
                                 $siteRes = Get-MecmCurrentVersionByCMName -SiteCode $Ctx.SiteCode -ProviderMachineName $Ctx.ProviderMachineName -CMName ([string]$row.CMName)
                                 if ($siteRes.Found -and -not [string]::IsNullOrWhiteSpace([string]$siteRes.SoftwareVersion)) {
@@ -11877,6 +11878,11 @@ function Invoke-MultiAppPipeline {
                                 [void]$State.LogQueue.Enqueue(('ConfigMgr site version for {0} not read: {1}' -f $app, (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')))
                             }
                         }
+                        # Check CVEs belongs to the chain of every run: after the version check and the ConfigMgr read, before the stage.
+                        & $setStep ('checking CVEs of ' + $app)
+                        $cveLine = Invoke-OneClickCveStep -Row $row -PackagerName $baseName -Context $Ctx -State $State
+                        if ($cveLine) { [void]$State.LogQueue.Enqueue($cveLine) }
+
                         if ($Ctx.Action -eq 'StageAndPackage') {
                             foreach ($d in $wanted) {
                                 $instance = [string]$(if ($Ctx.InstanceKeys) { $Ctx.InstanceKeys[$d] } else { '' })
@@ -12648,6 +12654,7 @@ function Invoke-MultiAppPipeline {
             Set-RunState -State $null
             [void](Stop-RunChildren)
             if ($script:BgContext -and $script:BgContext.ContainsKey('OneClickDone')) { try { & $script:BgContext.OneClickDone $doneState } catch { Add-LogLine -Message ('One Click report failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) } }
+            if ($script:BgContext -and $script:BgContext.ContainsKey('AfterDone')) { try { & $script:BgContext.AfterDone $doneState } catch { Add-LogLine -Message ('The step after the run failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) } }
             if ($script:BgContext -and $script:BgContext.ContainsKey('CveDone')) { try { & $script:BgContext.CveDone $doneState } catch { Add-LogLine -Message ('CVE window update failed: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) } }
         }
     })
@@ -15212,6 +15219,11 @@ function Show-OneClickPlanDialog {
             RunPlanByApp         = Get-WorkbenchRunPlanForContext -Rows $rowsToRun -Target 'ConfigMgr'
             SigningJson          = Get-WorkbenchSigningPolicyJson
             SigningDigest        = Get-WorkbenchSigningPolicyDigest
+            CveSession           = (Get-CveRunContext).CveSession
+            NvdApiKey            = Get-CveNvdApiKey
+            CacheTtlMinutes      = Get-CveCacheTtlMinutes
+            KevCatalog           = $null
+            ForceRefresh         = $false
             OneClickPlan         = $planByApp
             OneClickRows         = $progress
             OneClickTick         = $tick
@@ -15241,7 +15253,8 @@ function Show-OneClickPlanDialog {
 }
 
 $btnFullRun.Add_Click({
-    $action = [string]$script:Prefs.AppFlow.Action
+    # One Click always runs the whole chain: version check, Check ConfigMgr, Check CVEs, stage, package (D-47).
+    $action = 'StageAndPackage'
     $trackedBases = @($script:Prefs.AppFlow.Tracked)
     if ($trackedBases.Count -eq 0) {
         Add-LogLine -Message "No apps are tracked for One Click. Open Options, Updates and CVEs, One Click."
@@ -15263,7 +15276,31 @@ $btnFullRun.Add_Click({
         $txtStatus.Text = "No visible tracked apps."
         return
     }
-    Show-OneClickPlanDialog -Owner $window -Rows $rows -Action $action -Force ([bool]$script:Prefs.AppFlow.ForceOnLaunch)
+    # The plan shows the version of every application. An application that no Check Latest has read in this session is
+    # checked first, so the plan never shows an empty version because the check did not run.
+    $unchecked = @($rows | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.LatestVersion) })
+    $forceOnLaunch = [bool]$script:Prefs.AppFlow.ForceOnLaunch
+    if ($unchecked.Count -gt 0 -and -not (Test-PipelineBusy)) {
+        $siteCodeValue = [string]$script:Prefs.SiteCode
+        if ([string]::IsNullOrWhiteSpace($siteCodeValue)) { $siteCodeValue = 'MCM' }
+        $openPlan = {
+            param($DoneState)
+            if ($DoneState -and $DoneState.Canceled) { return }
+            Show-OneClickPlanDialog -Owner $window -Rows $rows -Action $action -Force $forceOnLaunch
+        }.GetNewClosure()
+        $txtStatus.Text = ('One Click: checking the latest version of {0} application(s) for the plan...' -f $unchecked.Count)
+        Invoke-MultiAppPipeline -Operation CheckLatest -Rows $unchecked -Context @{
+            SiteCode       = $siteCodeValue
+            FileShareRoot  = $script:Prefs.FileShareRoot
+            DownloadRoot   = $script:Prefs.DownloadRoot
+            M365Channel    = $script:Prefs.M365Channel
+            M365DeployMode = $script:Prefs.M365DeployMode
+            SevenZipPath   = Get-SevenZipPathForContext
+            AfterDone      = $openPlan
+        }
+        return
+    }
+    Show-OneClickPlanDialog -Owner $window -Rows $rows -Action $action -Force $forceOnLaunch
 })
 
 # =============================================================================

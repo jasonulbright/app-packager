@@ -81,7 +81,7 @@ try {
     $grid = $editor.Grid
     & $assert ($grid.Columns.Count -eq 27) 'the grid has three fixed columns and one column for each of the 24 settings'
     $visible = @($grid.Columns | Where-Object { $_.Visibility -eq 'Visible' } | ForEach-Object { [string]$_.Header })
-    & $assert (($visible -join '|') -eq '|Application|Vendor|Package Source|Install Scope|Installer Type|Supersedence|Version in Title|Version Rule') 'the default columns are the six settings of the design'
+    & $assert (($visible -join '|') -eq '|Application|Vendor|Architecture|Install Scope|Installer Type|Supersedence|Version in Title|Version Rule') 'the default columns are the six settings of the design'
     foreach ($c in $grid.Columns) { if ($c.Header -and $c.Header -notin 'Application', 'Vendor') { & $assert ($c.MinWidth -ge 10 * ([string]$c.Header).Length) ('the column ' + $c.Header + ' holds its header') } }
 
     # The column chooser.

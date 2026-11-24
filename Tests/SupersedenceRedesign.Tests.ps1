@@ -63,9 +63,10 @@ Describe 'The Options page' {
     It 'keeps the default Off' {
         $script:Shell | Should -Match "Pref = 'Supersedence.Mode'; Default = 'Off'"
     }
-    It 'has the note field of the title page, and no code that writes the include-version box from the default' {
-        # The behaviour is tested in Invoke-SupersedenceOptionsSmoke.ps1 (window probe) and SupersedenceStep.Tests.ps1 (the note text).
-        $script:Shell | Should -Match "Id = 'title.lock'"
+    It 'has no note, column or check box for supersedence on the title page, and no code that writes the include-version box from the default' {
+        # Supersedence is set in Options only (D-47). The behaviour is tested in Invoke-SupersedenceOptionsSmoke.ps1 (window probe).
+        $script:Shell | Should -Not -Match "Id = 'title.lock'"
+        $script:Shell | Should -Not -Match 'Get-SupersedenceTitleLockNote'
         $script:Shell | Should -Not -Match 'includeBox2'
     }
 }
