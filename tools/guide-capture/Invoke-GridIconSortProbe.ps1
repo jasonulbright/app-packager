@@ -96,6 +96,7 @@ Start-Sleep -Seconds 2
 
 # The verification of the realized rows: the icon of each row against the pack file of the row's packager.
 function Test-GridIcons([string]$Label) {
+    [void][NativeUi]::SetCursorPos(1900, 1060)
     Start-Sleep -Milliseconds 1200
     $rows = Items (Get-Grid) 'DataItem'
     $checked = 0; $bad = New-Object System.Collections.Generic.List[string]
@@ -154,10 +155,17 @@ function Test-GridIcons([string]$Label) {
     if ($bad.Count) { Shot $win ('grid-icon-fail-' + (($Label -replace '[^A-Za-z0-9]+', '-').Trim('-'))) }
 }
 
+function Wheel-Grid([int]$Notches) {
+    $r = (Get-Grid).Current.BoundingRectangle
+    [void][NativeUi]::SetCursorPos([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2))
+    for ($i = 0; $i -lt [Math]::Abs($Notches); $i++) { [NativeUi]::mouse_event(0x800, 0, 0, [BitConverter]::ToUInt32([BitConverter]::GetBytes([int]([Math]::Sign($Notches) * -120)), 0), [UIntPtr]::Zero); Start-Sleep -Milliseconds 40 }
+    Start-Sleep -Milliseconds 600
+}
 function Invoke-SortRun([string]$Theme) {
     Test-GridIcons "$Theme, before sorting"
     $headers = @(Items (Get-Grid) 'HeaderItem' | Where-Object { $_.Current.Name -and $_.Current.BoundingRectangle.Width -gt 0 })
     $names = @($headers | ForEach-Object { $_.Current.Name } | Select-Object -Unique)
+    if ($env:ICON_QUICK) { $names = @($names | Where-Object { $_ -in 'Application', 'Status', 'Vendor' }) }
     Say ("$Theme columns: " + ($names -join ', '))
     foreach ($name in $names) {
         foreach ($dir in 'ascending', 'descending') {
@@ -178,6 +186,20 @@ function Invoke-SortRun([string]$Theme) {
             Send-Keys '{PGUP}{PGUP}'
             Test-GridIcons "$Theme, sort by $name $dir, scrolled back up"
             Send-Keys '^{HOME}'
+        }
+    }
+    # The owner's path: scroll with the wheel to the middle of the list, sort there, scroll on, sort again.
+    foreach ($name in @('Application', 'Status', 'Vendor')) {
+        foreach ($dir in 'ascending', 'descending') {
+            Wheel-Grid 25
+            $hdr = @(Items (Get-Grid) 'HeaderItem' | Where-Object { $_.Current.Name -eq $name })[0]
+            if (-not $hdr) { continue }
+            Click-El $hdr; Start-Sleep -Milliseconds 800
+            Test-GridIcons "$Theme, wheel to the middle, sort by $name $dir"
+            Wheel-Grid 20
+            Test-GridIcons "$Theme, wheel on, sort by $name $dir"
+            Wheel-Grid -35
+            Test-GridIcons "$Theme, wheel back up, sort by $name $dir"
         }
     }
     # Filter, then clear: the ItemsSource changes twice.
