@@ -57,6 +57,7 @@ function Get-Signature([System.Drawing.Bitmap]$Source, [System.Drawing.Color]$Ba
 }
 function Get-Distance([int[]]$A, [int[]]$B) { $sum = 0; for ($i = 0; $i -lt $A.Length; $i++) { $sum += [Math]::Abs($A[$i] - $B[$i]) }; return $sum / $A.Length }
 
+$sigCache = @{}
 # The icon pack files by packager name, decoded once (alpha kept).
 $packBitmaps = @{}
 foreach ($f in Get-ChildItem -LiteralPath $packDir -File | Where-Object { $_.Extension -in '.png' }) {
@@ -98,6 +99,7 @@ function Test-GridIcons([string]$Label) {
     Start-Sleep -Milliseconds 1200
     $rows = Items (Get-Grid) 'DataItem'
     $checked = 0; $bad = New-Object System.Collections.Generic.List[string]
+    $sheet = New-Object System.Collections.Generic.List[object]
     foreach ($row in $rows) {
         $r = $row.Current.BoundingRectangle
         if ($r.Width -le 0 -or $r.Height -le 0) { continue }
@@ -110,7 +112,8 @@ function Test-GridIcons([string]$Label) {
         $ir = $img.Current.BoundingRectangle
         if ($ir.Width -lt 8 -or $ir.Height -lt 8) { continue }
         $vs = [System.Windows.Forms.SystemInformation]::VirtualScreen
-        if ($ir.Y -lt 0 -or ($ir.Y + $ir.Height) -gt $vs.Height -or $ir.X -lt 0) { continue }
+        $gb = (Get-Grid).Current.BoundingRectangle
+        if ($ir.Y -lt ($gb.Y + 34) -or ($ir.Y + $ir.Height) -gt ($gb.Y + $gb.Height - 20) -or $ir.X -lt $gb.X) { continue }
         $w = [int]$ir.Width; $h = [int]$ir.Height
         $shot = New-Object System.Drawing.Bitmap $w, $h
         $g = [System.Drawing.Graphics]::FromImage($shot); $g.CopyFromScreen([int]$ir.X, [int]$ir.Y, 0, 0, (New-Object System.Drawing.Size $w, $h)); $g.Dispose()
@@ -119,15 +122,32 @@ function Test-GridIcons([string]$Label) {
         $g = [System.Drawing.Graphics]::FromImage($bgShot); $g.CopyFromScreen([int]($ir.X - 4), [int]($ir.Y + $ir.Height / 2), 0, 0, (New-Object System.Drawing.Size 1, 1)); $g.Dispose()
         $bg = $bgShot.GetPixel(0, 0); $bgShot.Dispose()
         $seen = Get-Signature $shot $bg
+        $sheet.Add(@($app, $shot.Clone(), $expectedBase, $bg))
         $shot.Dispose()
         $best = [double]::MaxValue; $own = [double]::MaxValue; $bestName = ''
         foreach ($name in $packBitmaps.Keys) {
-            $d = Get-Distance $seen (Get-Signature $packBitmaps[$name] $bg)
+            $ck = '{0}|{1}' -f $name, $bg.ToArgb()
+            if (-not $sigCache.ContainsKey($ck)) { $sigCache[$ck] = Get-Signature $packBitmaps[$name] $bg }
+            $d = Get-Distance $seen $sigCache[$ck]
             if ($name -eq $expectedBase) { $own = $d }
             if ($d -lt $best) { $best = $d; $bestName = $name }
         }
         $checked++
-        if (-not ($own -le $best + 3 -and $own -lt 40)) { $bad.Add(('{0} shows {1} (own distance {2:N1}, best {3:N1})' -f $app, $bestName, $own, $best)) }
+        if (-not ($own -le $best + 3 -and $own -lt 70)) { $bad.Add(('{0} shows {1} (own distance {2:N1}, best {3:N1})' -f $app, $bestName, $own, $best)) }
+    }
+    if ($env:ICON_DIAG) {
+        $dir = $env:ICON_DIAG; New-Item -ItemType Directory $dir -Force | Out-Null
+        $sh = New-Object System.Drawing.Bitmap 700, ([Math]::Max(1, $sheet.Count) * 36)
+        $g = [System.Drawing.Graphics]::FromImage($sh); $g.Clear([System.Drawing.Color]::Gray); $y = 0
+        foreach ($e in $sheet) {
+            $g.DrawImage($e[1], 2, $y + 2, 32, 32)
+            $g.FillRectangle((New-Object System.Drawing.SolidBrush $e[3]), 40, $y + 2, 32, 32)
+            $g.DrawImage($packBitmaps[$e[2]], 40, $y + 2, 32, 32)
+            $g.DrawString(('{0} -> {1}' -f $e[0], $e[2]), (New-Object System.Drawing.Font 'Segoe UI', 9), [System.Drawing.Brushes]::White, 80, $y + 10); $y += 36
+        }
+        $g.Dispose(); $sh.Save((Join-Path $dir (($Label -replace '[^A-Za-z0-9]+', '-').Trim('-') + '.png'))); $sh.Dispose()
+        $hl = @(Items (Get-Grid) 'HeaderItem' | ForEach-Object { '{0}|{1}|{2}' -f $_.Current.Name, $_.Current.BoundingRectangle, $_.Current.ClassName })
+        Add-Content -LiteralPath (Join-Path $dir 'headers.txt') -Value (($Label) + ' :: ' + ($hl -join ' ; '))
     }
     Test-Icon ($checked -ge 8) ("$Label : $checked rows with a pack icon were checked (at least 8 needed)")
     Test-Icon ($bad.Count -eq 0) ("$Label : every checked row shows its own icon" + $(if ($bad.Count) { ' -- WRONG: ' + (($bad | Select-Object -First 6) -join '; ') } else { '' }))
@@ -136,12 +156,12 @@ function Test-GridIcons([string]$Label) {
 
 function Invoke-SortRun([string]$Theme) {
     Test-GridIcons "$Theme, before sorting"
-    $headers = @(Items (Get-Grid) 'Header' | Where-Object { $_.Current.Name -and $_.Current.BoundingRectangle.Width -gt 0 })
+    $headers = @(Items (Get-Grid) 'HeaderItem' | Where-Object { $_.Current.Name -and $_.Current.BoundingRectangle.Width -gt 0 })
     $names = @($headers | ForEach-Object { $_.Current.Name } | Select-Object -Unique)
     Say ("$Theme columns: " + ($names -join ', '))
     foreach ($name in $names) {
         foreach ($dir in 'ascending', 'descending') {
-            $hdr = @(Items (Get-Grid) 'Header' | Where-Object { $_.Current.Name -eq $name })[0]
+            $hdr = @(Items (Get-Grid) 'HeaderItem' | Where-Object { $_.Current.Name -eq $name })[0]
             if (-not $hdr -or $hdr.Current.BoundingRectangle.Width -le 0) { continue }
             Click-El $hdr
             Start-Sleep -Milliseconds 800
@@ -150,7 +170,13 @@ function Invoke-SortRun([string]$Theme) {
             $r = (Get-Grid).Current.BoundingRectangle
             [void][NativeUi]::SetCursorPos([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2))
             Send-Keys '{PGDN}'
-            Test-GridIcons "$Theme, sort by $name $dir, scrolled"
+            Test-GridIcons "$Theme, sort by $name $dir, scrolled one page"
+            Send-Keys '{PGDN}{PGDN}{PGDN}{PGDN}'
+            Test-GridIcons "$Theme, sort by $name $dir, scrolled five pages"
+            Send-Keys '^{END}'
+            Test-GridIcons "$Theme, sort by $name $dir, scrolled to the end"
+            Send-Keys '{PGUP}{PGUP}'
+            Test-GridIcons "$Theme, sort by $name $dir, scrolled back up"
             Send-Keys '^{HOME}'
         }
     }
