@@ -500,18 +500,6 @@ Describe 'The Intune supersedence' {
     }
 }
 
-Describe 'The note on the title page' {
-    It 'is empty while supersedence is off, and says so while it is on' {
-        InModuleScope AppPackagerCommon {
-            Get-SupersedenceTitleLockNote -Supersedence ([pscustomobject]@{ Mode = 'Off'; TitleOverrides = [pscustomobject]@{} }) | Should -BeNullOrEmpty
-            Get-SupersedenceTitleLockNote -Supersedence $null | Should -BeNullOrEmpty
-            Get-SupersedenceTitleLockNote -Supersedence ([pscustomobject]@{ Mode = 'Replace'; TitleOverrides = [pscustomobject]@{} }) | Should -Match 'on by default'
-            $own = [pscustomobject]@{ Mode = 'Off'; TitleOverrides = [pscustomobject]@{ 'catalog:a' = [pscustomobject]@{ Mode = 'Replace' }; 'catalog:b' = [pscustomobject]@{ Mode = 'Off' } } }
-            Get-SupersedenceTitleLockNote -Supersedence $own | Should -Match 'on for 1 application'
-        }
-    }
-}
-
 Describe 'The vendor compare' {
     It 'reads <A> and <B> as the same vendor: <Same>' -ForEach @(
         @{ A = 'Contoso'; B = 'CONTOSO'; Same = $true }

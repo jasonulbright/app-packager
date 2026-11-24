@@ -45,23 +45,15 @@ try {
     & $mode.Set 'Off'
     & $assert (@($grid.Rows | Where-Object { -not $_['e_title'] }).Count -eq 0) 'the default Off opens the titles again'
 
-    # The title page: a note while supersedence is on, and the choice of the operator is never written by it.
+    # The title page has no supersedence note: supersedence is set in Options, and the page never writes the include choice.
     foreach ($stored in $false, $true) {
         Set-ProbePrefs (('{{ "IncludeVersionInTitle": {0}, "Supersedence": {{ "Mode": "Replace" }} }}' -f $stored.ToString().ToLowerInvariant()))
         $title = New-OptionsTestPage -Id 'title'
         $inc = $title.Editors['title.include'].Focus
-        $note = $title.Editors['title.lock'].Text
-        & $assert ($note.Visibility -eq [System.Windows.Visibility]::Visible -and $note.Text -match 'Supersedence is on') ('the title page shows the note while supersedence is on (stored include {0})' -f $stored)
+        & $assert (-not $title.Editors.Contains('title.lock')) ('the title page has no supersedence note (stored include {0})' -f $stored)
         & $assert ($inc.IsEnabled -and ($inc.IsChecked -eq $stored)) 'the include box keeps the stored choice and stays enabled'
         & $title.Commit
         & $assert ([bool]$script:Prefs.IncludeVersionInTitle -eq $stored) 'saving with supersedence on keeps the stored include choice'
-        # Supersedence off again: the page returns to the same stored choice, with no note.
-        $script:Prefs.Supersedence.Mode = 'Off'
-        $title = New-OptionsTestPage -Id 'title'
-        & $assert ($title.Editors['title.lock'].Text.Visibility -eq [System.Windows.Visibility]::Collapsed) 'the note is gone when supersedence is off'
-        & $assert ($title.Editors['title.include'].Focus.IsChecked -eq $stored) 'the include box shows the choice the operator had'
-        & $title.Commit
-        & $assert ([bool]$script:Prefs.IncludeVersionInTitle -eq $stored) 'the stored include choice is the same after the round trip'
     }
     'PASS: the supersedence setting in Options'
 }

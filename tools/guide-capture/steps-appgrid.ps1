@@ -57,7 +57,7 @@ function Pick-Combo($Combo, [string]$Item) {
 }
 # The column list of the bulk bar is long and opens scrolled to the selected column, so the column is chosen with real keys: open the list with
 # a click, press Home, press Down to the column, press Enter.
-$script:ColumnOrder = @('Package Source', 'Install Scope', 'Installer Type', 'Supersedence', 'Version in Title', 'Version Rule', 'Network', 'Network Split', 'Install Command', 'Uninstall Command', 'In One Click', 'Check Interval Days', 'Publish to ConfigMgr', 'Publish to Intune', 'Publish to WSUS', 'Free disk space (MB)', 'Memory (MB)', 'OS build (minimum)', 'Distribution point group', 'Test collection', 'Estimated Runtime (min)', 'Maximum Runtime (min)', 'Reboot After Install')
+$script:ColumnOrder = @('Architecture', 'Install Scope', 'Installer Type', 'Supersedence', 'Version in Title', 'Version Rule', 'Network', 'Network Split', 'Install Command', 'Uninstall Command', 'In One Click', 'Check Interval Days', 'Publish to ConfigMgr', 'Publish to Intune', 'Publish to WSUS', 'Free disk space (MB)', 'Memory (MB)', 'OS build (minimum)', 'Distribution point group', 'Test collection', 'Estimated Runtime (min)', 'Maximum Runtime (min)', 'Reboot After Install')
 function Pick-Column($o, [string]$Name) {
     $index = [Array]::IndexOf($script:ColumnOrder, $Name)
     if ($index -lt 0) { throw "Unknown column $Name." }
@@ -79,7 +79,7 @@ function Open-AllApplications {
     }
     if (-not $o) { throw 'Options did not open after three real clicks.' }
     Start-Sleep -Seconds 1
-    # Six columns come before the rule list (Package Source, Install Scope, Installer Type, Supersedence, Version in Title, Version Rule). A narrower window leaves Version Rule outside the visible columns, and the grid then makes no cell for it.
+    # Six columns come before the rule list (Architecture, Install Scope, Installer Type, Supersedence, Version in Title, Version Rule). A narrower window leaves Version Rule outside the visible columns, and the grid then makes no cell for it.
     Size-Win $o 1600 1040
     $tree = @($o.FindAll('Descendants', (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::TreeItem))))
     $group = $tree | Where-Object { $_.Current.Name -eq 'Applications' } | Select-Object -First 1
@@ -101,7 +101,7 @@ function Get-WsusRefusedApplication {
 # A real click on the Columns button, then on the item of one column.
 # The column menu has one check item for each column and is longer than the screen below the button, so the item is chosen with real keys:
 # a click opens the menu, Down moves to the item, Enter checks or clears it, Escape closes the menu.
-$script:MenuOrder = @('Package Source', 'Install Scope', 'Installer Type', 'Supersedence', 'Version in Title', 'Version Rule', 'Network', 'Network Split', 'Install Command', 'Uninstall Command', 'In One Click', 'Check Interval Days', 'Publish to ConfigMgr', 'Publish to Intune', 'Publish to WSUS', 'Free disk space (MB)', 'Memory (MB)', 'OS build (minimum)', 'Distribution point group', 'Test collection', 'Detection', 'Estimated Runtime (min)', 'Maximum Runtime (min)', 'Reboot After Install')
+$script:MenuOrder = @('Architecture', 'Install Scope', 'Installer Type', 'Supersedence', 'Version in Title', 'Version Rule', 'Network', 'Network Split', 'Install Command', 'Uninstall Command', 'In One Click', 'Check Interval Days', 'Publish to ConfigMgr', 'Publish to Intune', 'Publish to WSUS', 'Free disk space (MB)', 'Memory (MB)', 'OS build (minimum)', 'Distribution point group', 'Test collection', 'Detection', 'Estimated Runtime (min)', 'Maximum Runtime (min)', 'Reboot After Install')
 function Toggle-Column($o, [string]$Header) {
     $index = [Array]::IndexOf($script:MenuOrder, $Header)
     if ($index -lt 0) { throw "Unknown column $Header." }
@@ -143,12 +143,12 @@ Section 'the grid, dark theme' {
         # A closed cell: 7-Zip has one install scope.
         $plain = Get-GridRow $o '7-Zip'
         Require (-not (Get-El $plain 'appgrid.scope').Current.IsEnabled) 'the install scope is closed for 7-Zip (the packager offers one scope)'
-        Require ((Get-El $plain 'appgrid.source').Current.IsEnabled) 'the package source is open for 7-Zip (the packager offers an architecture split)'
+        Require ((Get-El $plain 'appgrid.source').Current.IsEnabled) 'the architecture is open for 7-Zip (the packager offers an architecture split)'
 
-        # Google Chrome: package source, then the title and the lock.
+        # Google Chrome: architecture, then the title and the lock.
         $chrome = Get-GridRow $o 'Google Chrome'
         Pick-Combo (Get-El $chrome 'appgrid.source') 'x64 and ARM64'
-        Require ((Get-ComboText (Get-El $chrome 'appgrid.source')) -eq 'x64 and ARM64') 'the package source of Google Chrome shows x64 and ARM64'
+        Require ((Get-ComboText (Get-El $chrome 'appgrid.source')) -eq 'x64 and ARM64') 'the architecture of Google Chrome shows x64 and ARM64'
         Require ((Get-El $chrome 'appgrid.title').Current.IsEnabled) 'the title of Google Chrome is open while supersedence is off'
         Pick-Combo (Get-El $chrome 'appgrid.title') 'No version'
         Pick-Combo (Get-El $chrome 'appgrid.supersedence') 'Replace'
@@ -197,7 +197,7 @@ Section 'the grid, dark theme' {
         Shot $o 'options-all-applications-profile'
 
         # The requirement columns, the distribution columns and the detection link. Four columns are hidden again so that the new ones fit.
-        foreach ($h in 'Package Source', 'Supersedence', 'Estimated Runtime (min)', 'Reboot After Install') { Toggle-Column $o $h }
+        foreach ($h in 'Architecture', 'Supersedence', 'Estimated Runtime (min)', 'Reboot After Install') { Toggle-Column $o $h }
         foreach ($h in 'Free disk space (MB)', 'Memory (MB)', 'OS build (minimum)', 'Distribution point group', 'Detection') { Toggle-Column $o $h }
         foreach ($pair in @(@('appgrid.diskspace', '2048'), @('appgrid.memory', '4096'), @('appgrid.osbuild', '19045'), @('appgrid.dpgroup', 'APKG Proof DPG'))) {
             Click-El (Get-El (Get-GridRow $o 'Thonny') $pair[0]); Send-Keys $pair[1]; Send-Keys '{TAB}'; Start-Sleep -Milliseconds 700
