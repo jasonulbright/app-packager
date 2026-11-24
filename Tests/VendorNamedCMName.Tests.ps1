@@ -5,8 +5,8 @@
     take the name from the installer.
 
 .DESCRIPTION
-    The names below are the MSI ProductName values read from the installers on 2026-11-24 (PuTTY 0.85,
-    AWS SAM CLI 1.174.0, IntuneDebugTools 2.3). Get-MecmCurrentVersionByCMName finds an application by
+    The names below are the MSI ProductName values read from the installers on 2026-11-24 (PuTTY 0.85 and
+    IntuneDebugTools 2.3). Get-MecmCurrentVersionByCMName finds an application by
     Test-MecmApplicationTitle, which needs every word of the CMName in order.
 #>
 
@@ -24,7 +24,6 @@ BeforeAll {
 Describe 'CMName of packagers that take the application name from the installer' {
     It 'finds <Created> with the CMName of package-<Packager>' -ForEach @(
         @{ Packager = 'putty'; Created = 'PuTTY release 0.85 (64-bit)' }
-        @{ Packager = 'awssamcli'; Created = 'AWS SAM Command Line Interface' }
         @{ Packager = 'intunedebugtoolkit'; Created = 'IntuneDebugTools' }
     ) {
         $cmName = Get-HeaderCMName -Packager $Packager

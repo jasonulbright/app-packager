@@ -4,11 +4,11 @@
 
 ## [2026.11.24.0166] - 2026-11-24
 
-## 3 ConfigMgr name fixes
+## 2 ConfigMgr name fixes
 
 ### Fixed
 
-- Find the ConfigMgr applications of PuTTY, AWS SAM CLI and Intune Debug Toolkit by their installer names.
+- Find the ConfigMgr applications of PuTTY and Intune Debug Toolkit by their installer names.
 
 
 ## [2026.11.24.0165] - 2026-11-24
