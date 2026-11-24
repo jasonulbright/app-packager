@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [2026.11.24.0167] - 2026-11-24
+
+## 2 ConfigMgr names restored
+
+### Fixed
+
+- Restore the ConfigMgr names of PuTTY and Intune Debug Toolkit that release 0166 changed.
+
 ## [2026.11.24.0166] - 2026-11-24
 
 ## 2 ConfigMgr name fixes
@@ -9,7 +17,6 @@
 ### Fixed
 
 - Find the ConfigMgr applications of PuTTY and Intune Debug Toolkit by their installer names.
-
 
 ## [2026.11.24.0165] - 2026-11-24
 

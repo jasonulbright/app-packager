@@ -214,7 +214,7 @@ Describe 'ConfigMgr name lookup matches the Package phase name' {
     }
 
     It 'finds every created name through the GUI lookup' {
-        $bad = @($script:Audit | Where-Object { $_.Found -eq $false -and $script:VendorDerivedNames -notcontains $_.Script } | ForEach-Object { '{0}: CMName=''{1}'' created=''{2}''' -f $_.Script, $_.CMName, $_.Created })
+        $bad = @($script:Audit | Where-Object { $_.Found -eq $false } | ForEach-Object { '{0}: CMName=''{1}'' created=''{2}''' -f $_.Script, $_.CMName, $_.Created })
         ($bad -join [Environment]::NewLine) | Should -BeNullOrEmpty -Because 'the GUI lookup searches "<CMName>" and then "<CMName> - *"'
     }
 

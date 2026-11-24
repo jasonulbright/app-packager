@@ -1,7 +1,7 @@
 <#
 Vendor: Simon Tatham
 App: PuTTY
-CMName: PuTTY release
+CMName: PuTTY
 VendorUrl: https://www.chiark.greenend.org.uk/~sgtatham/putty/
 CPE: cpe:2.3:a:putty:putty:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://www.chiark.greenend.org.uk/~sgtatham/putty/changes.html
