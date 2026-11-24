@@ -17221,7 +17221,7 @@ function Show-ApplicationWorkbench {
         # offers the Workbench). A second run would replace the shared run state of the first one.
         if ($script:UiRun) {
             [void](Show-ThemedMessage -Owner $win -Title $operation `
-                -Message 'A run is already in progress. Wait for it to finish, then run the application again.' -Buttons OK -Icon Info)
+                -Message 'A run is already in progress. Close this window, let that run finish, then run the application again.' -Buttons OK -Icon Info)
             return
         }
         if ($wb.Dirty) {
