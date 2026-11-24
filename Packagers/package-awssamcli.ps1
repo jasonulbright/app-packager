@@ -1,7 +1,7 @@
 <#
 Vendor: Amazon Web Services
 App: AWS SAM CLI
-CMName: AWS SAM CLI
+CMName: AWS SAM Command Line Interface
 VendorUrl: https://aws.amazon.com/serverless/sam/
 CPE: cpe:2.3:a:amazon:aws_serverless_application_model_command_line_interface:*:*:*:*:*:*:*:*
 ReleaseNotesUrl: https://github.com/aws/aws-sam-cli/releases
