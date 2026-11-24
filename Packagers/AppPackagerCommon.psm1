@@ -10008,6 +10008,7 @@ function Get-RunCancelledLine {
         'CheckLatest'    { return ('Check Latest cancelled: {0} of {1} {2} checked.' -f $Done, $Total, $products) }
         'CheckCve'       { return ('Check CVEs cancelled: {0} of {1} {2} checked.' -f $Done, $Total, $products) }
         { $_ -in @('OneClick', 'FullRun') } { return ('One Click cancelled: {0} of {1} {2} done.' -f $Done, $Total, $products) }
+        'DropIntake'     { return ('Cancelled: {0} of {1} {2} analyzed. Nothing was staged or packaged.' -f $Done, $Total, $(if ($Total -eq 1) { 'installer' } else { 'installers' })) }
         default          { return (Get-CancelledSummaryLine -Done $Done -Total $Total) }
     }
 }

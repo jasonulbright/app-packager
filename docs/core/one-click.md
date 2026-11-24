@@ -57,7 +57,6 @@ When the supersedence mode of Options, Applications, All Applications is not Off
 - A version that a destination already has is not published there again, unless **Force** is set. The tool reads the history from `%LOCALAPPDATA%\AppPackager\app-history.json`.
 - A destination that refused a version is not tried again for that version unless **Force** is set.
 - An application without its local source folder is dropped before the run starts.
-- The supersedence-only pass reads the identity of the application line from the manifest of the last stage. Without that manifest the pass reports `stage-manifest.json not found`, and the version stays pending until you stage the application once.
 
 ## Troubleshooting
 

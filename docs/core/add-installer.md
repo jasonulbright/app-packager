@@ -23,7 +23,7 @@ Use it for an application that is not in the list of 317, or for a build that yo
 
 ![The drop target of the installer dialog](../images/drop-intake.png)
 
-2. Pick the file and select **Open**. The tool analyzes it and opens the manifest preview.
+2. Pick the file and select **Open**. The tool analyzes it and opens the manifest preview. Select **Cancel** on the busy panel to stop the analysis of several files. The status line then reads `Cancelled: N of M installers analyzed.` The tool stages and packages nothing.
 3. Check the values. For an MSI, the identity is authoritative. For another installer, you must confirm the predicted values before Stage and Package turn on.
 4. For an installer that accepts a mode switch, set **Install For**. The install arguments, the uninstall command, the folder, the detection and the context change together.
 5. Stage or package the installer.
