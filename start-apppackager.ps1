@@ -9814,7 +9814,7 @@ function Get-ApplicationGridSetting {
 
     return @(
         @{ Id = 'source'; Header = 'Architecture'; Kind = 'Choice'; Visible = $true; Width = 150; Choices = @($l.PackagerDefault, $l.ArchSplit)
-            Tip = 'The architecture of the package: the packager default, or x64 and ARM64 packages, where the packager offers a choice.'
+            Tip = 'The architecture of the package, where the packager offers a choice.'
             Items = { param($p) (Get-ApplicationGridCapability -Packager $p).Architecture.Items }.GetNewClosure()
             Get = { param($w, $p) $c = Get-ApplicationGridCapability -Packager $p; if ($c.Architecture.Fixed) { return [string]$c.Architecture.Fixed }; if ([string](Get-ApplicationGridEntry -Work $w -Packager $p).Split -eq 'Architecture' -and $c.Architecture.Enabled) { $l.ArchSplit } else { $l.PackagerDefault } }.GetNewClosure()
             Set = { param($w, $p, $v) $e = Get-ApplicationGridEntry -Work $w -Packager $p; if ($v -eq $l.ArchSplit) { $e['Split'] = 'Architecture' } elseif ([string]$e['Split'] -eq 'Architecture') { $e['Split'] = 'None' } }.GetNewClosure()
@@ -15184,6 +15184,7 @@ function Show-OneClickPlanDialog {
         $siteCodeValue = [string]$prefsRef.SiteCode
         if ([string]::IsNullOrWhiteSpace($siteCodeValue)) { $siteCodeValue = 'MCM' }
         $wantsMecm = @($included | Where-Object { $_.ConfigMgr }).Count -gt 0
+        $cveContext = Get-CveRunContext
         Add-LogSeparator
         Add-LogLine -Message ("One Click: {0} app(s), action={1}{2}" -f $included.Count, $Action, $(if ($chkForce.IsChecked) { ', force=on' } else { '' }))
         $txtStatus.Text = ("One Click: {0} app(s)..." -f $included.Count)
@@ -15219,9 +15220,9 @@ function Show-OneClickPlanDialog {
             RunPlanByApp         = Get-WorkbenchRunPlanForContext -Rows $rowsToRun -Target 'ConfigMgr'
             SigningJson          = Get-WorkbenchSigningPolicyJson
             SigningDigest        = Get-WorkbenchSigningPolicyDigest
-            CveSession           = (Get-CveRunContext).CveSession
-            NvdApiKey            = Get-CveNvdApiKey
-            CacheTtlMinutes      = Get-CveCacheTtlMinutes
+            CveSession           = $cveContext.CveSession
+            NvdApiKey            = $cveContext.NvdApiKey
+            CacheTtlMinutes      = $cveContext.CacheTtlMinutes
             KevCatalog           = $null
             ForceRefresh         = $false
             OneClickPlan         = $planByApp

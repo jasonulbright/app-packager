@@ -67,7 +67,7 @@ Require ($planRows.Count -ge 2) ('the plan has a row for each tracked applicatio
 foreach ($it in $planRows) {
     $rowText = (Texts $it) -join ' | '
     Log ('plan row: ' + $rowText)
-    Require ($rowText -match '\d+\.\d+') ('the plan row shows a version: ' + $rowText)
+    Require ($rowText -match '(?<![\d.])(\d+\.\d+[\d.]*)\s*\|') ('the plan row shows the version ' + $Matches[1])
     Require ($rowText -notmatch 'not checked|Publish after check') 'the plan row does not say not checked or publish after check'
 }
 $action = Get-ElText (Get-El $plan 'txtPlanAction')

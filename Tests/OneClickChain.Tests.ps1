@@ -54,7 +54,7 @@ Describe 'The One Click run' {
         $iStage = $script:Shell.IndexOf("& `$setStep ('staging ' + `$app)")
         $iCve | Should -BeGreaterThan 0
         $iStage | Should -BeGreaterThan $iCve
-        $script:Shell | Should -Match 'NvdApiKey\s+= Get-CveNvdApiKey\s+CacheTtlMinutes\s+= Get-CveCacheTtlMinutes\s+KevCatalog\s+= \$null'
+        $script:Shell | Should -Match 'NvdApiKey\s+= \$cveContext\.NvdApiKey\s+CacheTtlMinutes\s+= \$cveContext\.CacheTtlMinutes\s+KevCatalog\s+= \$null'
     }
     It 'has no Action choice in Options, One Click' {
         $script:Shell | Should -Not -Match 'cboAction'

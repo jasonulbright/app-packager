@@ -184,6 +184,7 @@ try {
         Set-Item -Path ('function:global:' + $stub) -Value { param($Rows, $Target) $null }
     }
     function global:Confirm-LocalSourceFolders { param($Rows) $Rows }
+    function global:Get-CveRunContext { @{ CveSession = @{}; NvdApiKey = ''; CacheTtlMinutes = 60; KevCatalog = $null; ForceRefresh = $false } }
     function global:Invoke-MultiAppPipeline { param($Operation, $Rows, $Context) $script:RunContext = $Context }
     $script:RunContext = $null
     Show-OneClickPlanDialog -Owner $probeOwner -Rows $rows -Action 'StageAndPackage' -Probe {
