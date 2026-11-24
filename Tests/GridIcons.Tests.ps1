@@ -18,7 +18,7 @@ BeforeAll {
     $t = $null; $e = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($script:StartPath, [ref]$t, [ref]$e)
     if ($e) { throw ($e.Message -join '; ') }
-    foreach ($name in 'Reset-GridIconCache', 'Get-GridIconIndex', 'Get-GridIconPlaceholder', 'Get-GridIconSource') {
+    foreach ($name in 'Reset-GridIconCache', 'Get-GridIconIndex', 'Get-GridIconPlaceholder', 'Get-GridIconSource', 'Set-GridRowImage') {
         $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $true)
         if (-not $fn) { throw "function $name not found" }
         . ([scriptblock]::Create($fn.Extent.Text))
@@ -127,6 +127,54 @@ Describe 'Grid icons and the icon pack update' {
     }
 }
 
+Describe 'Grid icon follows the row identity' {
+    BeforeEach {
+        Get-ChildItem -LiteralPath $script:IconDir -File | Remove-Item -Force
+        Reset-GridIconCache
+        New-TestPng -Path (Join-Path $script:IconDir 'office.png') -Size 64 -Color ([System.Drawing.Color]::FromArgb(255, 200, 0, 0))
+        New-TestPng -Path (Join-Path $script:IconDir 'odbc.png') -Size 64 -Color ([System.Drawing.Color]::FromArgb(255, 0, 0, 200))
+    }
+
+    It 'replaces the icon of a recycled container when it shows another packager' {
+        $image = New-Object System.Windows.Controls.Image
+        $a = [pscustomobject]@{ Script = 'package-office.ps1' }
+        $b = [pscustomobject]@{ Script = 'package-odbc.ps1' }
+        Set-GridRowImage -Image $image -Item $a
+        Get-FirstPixel $image.Source | Should -Be '200,0,0'
+        Set-GridRowImage -Image $image -Item $b
+        Get-FirstPixel $image.Source | Should -Be '0,0,200'
+        Set-GridRowImage -Image $image -Item $a
+        Get-FirstPixel $image.Source | Should -Be '200,0,0'
+    }
+
+    It 'gives every row of a sorted list its own icon, whatever the order' {
+        $rows = @('office', 'odbc', 'nothere') | ForEach-Object { [pscustomobject]@{ Script = "package-$_.ps1" } }
+        $containers = 1..3 | ForEach-Object { New-Object System.Windows.Controls.Image }
+        foreach ($order in @(@(0, 1, 2), @(2, 1, 0), @(1, 2, 0), @(0, 2, 1))) {
+            for ($i = 0; $i -lt 3; $i++) { Set-GridRowImage -Image $containers[$i] -Item $rows[$order[$i]] }
+            for ($i = 0; $i -lt 3; $i++) {
+                $expected = Get-GridIconSource -ScriptName $rows[$order[$i]].Script
+                [object]::ReferenceEquals($containers[$i].Source, $expected) | Should -BeTrue
+            }
+        }
+    }
+
+    It 'keeps the placeholder identity for a packager without an icon after a recycle' {
+        $image = New-Object System.Windows.Controls.Image
+        Set-GridRowImage -Image $image -Item ([pscustomobject]@{ Script = 'package-office.ps1' })
+        Set-GridRowImage -Image $image -Item ([pscustomobject]@{ Script = 'package-nothere.ps1' })
+        $image.Source | Should -BeOfType ([System.Windows.Media.DrawingImage])
+    }
+
+    It 'leaves an image alone when the item is no packager row' {
+        $image = New-Object System.Windows.Controls.Image
+        Set-GridRowImage -Image $image -Item ([pscustomobject]@{ Script = 'package-office.ps1' })
+        $before = $image.Source
+        Set-GridRowImage -Image $image -Item ([pscustomobject]@{ Other = 1 })
+        [object]::ReferenceEquals($image.Source, $before) | Should -BeTrue
+    }
+}
+
 Describe 'Grid icon column' {
     BeforeAll {
         $script:Xaml = Get-Content -LiteralPath (Join-Path $script:Root 'MainWindow.xaml') -Raw
@@ -141,11 +189,28 @@ Describe 'Grid icon column' {
         $script:Xaml.IndexOf('x:Name="colIcon"') | Should -BeLessThan $script:Xaml.IndexOf('Header="Application"')
     }
 
-    It 'sets the icon on the cell image when a row loads, not through a binding' {
+    It 'sets the icon on the cell image from the row item, not through a binding' {
         $script:Xaml | Should -Not -Match 'Binding Icon'
         $script:Start | Should -Match 'Add_LoadingRow'
-        $script:Start | Should -Match '\$image\.Source = \$source'
-        $script:Start | Should -Match 'Get-GridIconSource -ScriptName \(\[string\]\$item\.Script\)'
+        $script:Start | Should -Match 'Set-GridRowImage -Image \$image -Item \$item'
+        $script:Start | Should -Match 'Get-GridIconSource -ScriptName \(\[string\]\$Item\.Script\)'
+    }
+
+    It 'never skips an image because it already has a source (a recycled row container keeps its Image)' {
+        $script:Start | Should -Not -Match '\$null -eq \$image\.Source'
+        $script:Start | Should -Not -Match '\$null -ne \$image\.Source'
+        $script:Start | Should -Match 'add_DataContextChanged'
+        $script:Start | Should -Match 'Set-GridRowImage -Image \$img -Item \$args2\.NewValue'
+    }
+
+    It 'reads the row at the time the icon is set, not the row the handler was created for' {
+        $t = $null; $e = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput($script:Start, [ref]$t, [ref]$e)
+        $handler = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $n.Member.Value -eq 'Add_LoadingRow' }, $true)
+        $handler | Should -Not -BeNullOrEmpty
+        $handler.Extent.Text | Should -Match '\$item = \$row\.Item'
+        $handler.Extent.Text | Should -Not -Match '\$e\.Row\.Item\s*?
+\s*if \(-not \$item'
     }
 
     It 'refreshes the grid icons after an icon pack install' {
