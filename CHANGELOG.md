@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [2026.11.25.0169] - 2026-11-25
+
+## Discover all supported software
+
 ### Added
 
 - Add Discover All Supported Software: lists every supported app that devices have installed, with or without a ConfigMgr application.
