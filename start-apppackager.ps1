@@ -36,7 +36,7 @@
     ScriptName : start-apppackager.ps1
     Purpose    : Main window of AppPackager
     Owner      : CM Engineering
-    Version    : 2026.11.24.0167
+    Version    : 2026.11.24.0168
     Updated    : 2026-09-09
 #>
 
@@ -2587,12 +2587,20 @@ function Get-OneClickObservedSkipReason {
     return ''
 }
 
+function Get-RowArpName {
+    # The Add/Remove Programs name of the packager of a grid row; empty when the row has none.
+    param([AllowNull()]$Row)
+    if ($null -ne $Row -and $Row.PSObject.Properties['ArpName']) { return [string]$Row.ArpName }
+    return ''
+}
+
 function Get-MecmCurrentVersionByCMName {
     param(
         [Parameter(Mandatory)][string]$SiteCode,
         [string]$ProviderMachineName = $null,
         [Parameter(Mandatory)][string]$CMName,
-        [switch]$ExactMatch
+        [switch]$ExactMatch,
+        [AllowEmptyString()][string]$ArpName = ''
     )
 
     if (-not (Get-Command -Name Get-CMApplication -ErrorAction SilentlyContinue)) {
@@ -2668,38 +2676,21 @@ function Get-MecmCurrentVersionByCMName {
             if ($apps.Count -eq 0) { return [pscustomobject]@{ Found = $false; SoftwareVersion = ''; MatchCount = 0 } }
             return [pscustomobject]@{ Found = $true; DisplayName = $CMName; SoftwareVersion = [string]$apps[0].SoftwareVersion; MatchCount = 1 }
         }
-        $apps = @(Get-CMApplication -Name $CMName -ErrorAction SilentlyContinue)
-        # A wildcard between the words of CMName also returns titles with the
-        # version in the middle, and longer product names ("Git" and
-        # "GitHub Desktop"); the title filter keeps release details only.
-        if (-not $apps -or $apps.Count -eq 0) {
-            $apps = @(Get-CMApplication -Name (Get-MecmApplicationNamePattern -CMName $CMName) -ErrorAction SilentlyContinue | Where-Object {
-                    $title = if ($_.LocalizedDisplayName) { [string]$_.LocalizedDisplayName } else { [string]$_.Name }
-                    Test-MecmApplicationTitle -CMName $CMName -Title $title
-                })
-        }
+        # Four tiers (Find-MecmApplicationByName): the title equals CMName, the CMName words with release details, the title starts with
+        # the CMName words, the installer name of the packager (ArpName). The first tier with a match decides.
+        $hit = Find-MecmApplicationByName -CMName $CMName -ArpName $ArpName
+        $apps = @($hit.Apps)
 
         if (-not $apps -or $apps.Count -eq 0) {
-            return [pscustomobject]@{ Found = $false; DisplayName = $null; SoftwareVersion = $null; MatchCount = 0 }
+            return [pscustomobject]@{ Found = $false; DisplayName = $null; SoftwareVersion = $null; MatchCount = 0; MatchNote = '' }
         }
 
-        $exact = $apps | Where-Object { $_.LocalizedDisplayName -eq $CMName -or $_.Name -eq $CMName }
-        if ($exact -and $exact.Count -gt 0) {
-            $chosen = $exact | Select-Object -First 1
-        }
-        else {
-            $parsable = @()
-            $nonParsable = @()
-            foreach ($a in $apps) {
-                try { $null = [version]([string]$a.SoftwareVersion -replace '^(\d+)$', '$1.0'); $parsable += $a }
-                catch { $nonParsable += $a }
-            }
-            if ($parsable.Count -gt 0) {
-                $chosen = $parsable | Sort-Object { [version]([string]$_.SoftwareVersion -replace '^(\d+)$', '$1.0') } -Descending | Select-Object -First 1
-            }
-            else {
-                $chosen = $nonParsable | Sort-Object Name -Descending | Select-Object -First 1
-            }
+        $chosen = Select-MecmApplicationMatch -Apps $apps -CMName $CMName
+        $note = ''
+        if ($hit.Tier -in @('prefix', 'arp') -or $apps.Count -gt 1) {
+            $others = @($apps | Where-Object { [string]$_.LocalizedDisplayName -ne [string]$chosen.LocalizedDisplayName } | ForEach-Object { [string]$_.LocalizedDisplayName })
+            $note = "tier={0}; chose '{1}'" -f $hit.Tier, [string]$chosen.LocalizedDisplayName
+            if ($others.Count -gt 0) { $note += '; other matches: ' + ($others -join '; ') }
         }
 
         return [pscustomobject]@{
@@ -2707,6 +2698,7 @@ function Get-MecmCurrentVersionByCMName {
             DisplayName     = $chosen.LocalizedDisplayName
             SoftwareVersion = $chosen.SoftwareVersion
             MatchCount      = $apps.Count
+            MatchNote       = $note
         }
     }
     finally {
@@ -5448,6 +5440,7 @@ function Invoke-CveMonitor {
             Script         = [string]$m.Script
             FullPath       = [string]$m.FullPath
             CMName         = [string]$m.CMName
+            ArpName        = $(if ($m.PSObject.Properties['ArpName']) { [string]$m.ArpName } else { '' })
             Cpe            = $cpe
             AdvisoryUrl    = $(if ($m.PSObject.Properties['SecurityAdvisoryUrl']) { [string]$m.SecurityAdvisoryUrl } else { '' })
             CurrentVersion = $cm
@@ -5490,7 +5483,7 @@ function Invoke-CveMonitor {
             if ($row.Failed) { continue }
             $base = [System.IO.Path]::GetFileNameWithoutExtension($row.Script)
             try {
-                $res = Get-MecmCurrentVersionByCMName -SiteCode $SiteCode -ProviderMachineName $ProviderMachineName -CMName $row.CMName
+                $res = Get-MecmCurrentVersionByCMName -SiteCode $SiteCode -ProviderMachineName $ProviderMachineName -CMName $row.CMName -ArpName (Get-RowArpName $row)
                 if ($res.Found) {
                     $cmFound++
                     $row.CurrentVersion = [string]$res.SoftwareVersion
@@ -11164,6 +11157,7 @@ function Invoke-RefreshGrid {
             $row.Vendor      = $m.Vendor
             $row.Application = $m.Application
             $row.CMName      = $m.CMName
+            $row | Add-Member -NotePropertyName ArpName -NotePropertyValue $(if ($m.PSObject.Properties['ArpName']) { [string]$m.ArpName } else { '' }) -Force
             $row.FullPath    = $m.FullPath
             $row.VendorURL   = $m.VendorUrl
             $row.Description = $m.Description
@@ -11198,6 +11192,7 @@ function Invoke-RefreshGrid {
                 LatestVersion  = $latestStored
                 Status         = $preloadStatus
                 CMName         = $m.CMName
+                ArpName        = $(if ($m.PSObject.Properties['ArpName']) { [string]$m.ArpName } else { '' })
                 Script         = $m.Script
                 FullPath       = $m.FullPath
                 VendorURL      = $m.VendorUrl
@@ -11882,7 +11877,7 @@ function Invoke-MultiAppPipeline {
                         $observedUnknown = $false
                         if ($Ctx.Action -eq 'StageAndPackage' -and 'ConfigMgr' -in $wanted -and $Ctx.AdminUiFound -and -not [string]::IsNullOrWhiteSpace([string]$row.CMName)) {
                             try {
-                                $siteRes = Get-MecmCurrentVersionByCMName -SiteCode $Ctx.SiteCode -ProviderMachineName $Ctx.ProviderMachineName -CMName ([string]$row.CMName)
+                                $siteRes = Get-MecmCurrentVersionByCMName -SiteCode $Ctx.SiteCode -ProviderMachineName $Ctx.ProviderMachineName -CMName ([string]$row.CMName) -ArpName (Get-RowArpName $row)
                                 if ($siteRes.Found -and -not [string]::IsNullOrWhiteSpace([string]$siteRes.SoftwareVersion)) {
                                     $observedCm = [string]$siteRes.SoftwareVersion
                                     # The grid and the history learn what the site holds, as the FullRun check does.
@@ -12250,7 +12245,7 @@ function Invoke-MultiAppPipeline {
                             $cmName = [string]$row.CMName
                             if (-not [string]::IsNullOrWhiteSpace($cmName) -and $Ctx.AdminUiFound) {
                                 try {
-                                    $mecmRes = Get-MecmCurrentVersionByCMName -SiteCode $Ctx.SiteCode -ProviderMachineName $Ctx.ProviderMachineName -CMName $cmName
+                                    $mecmRes = Get-MecmCurrentVersionByCMName -SiteCode $Ctx.SiteCode -ProviderMachineName $Ctx.ProviderMachineName -CMName $cmName -ArpName (Get-RowArpName $row)
                                     if ($mecmRes.Found -and -not [string]::IsNullOrWhiteSpace([string]$mecmRes.SoftwareVersion)) {
                                         $row.CurrentVersion = [string]$mecmRes.SoftwareVersion
                                         Clear-StaleCveCells -Row $row
@@ -13448,7 +13443,7 @@ $btnCheckMECM.Add_Click({
             $dataGrid.Items.Refresh()
 
             try {
-                $res = Get-MecmCurrentVersionByCMName -SiteCode $siteCodeValue -ProviderMachineName $script:Prefs.ProviderMachineName -CMName $cmName
+                $res = Get-MecmCurrentVersionByCMName -SiteCode $siteCodeValue -ProviderMachineName $script:Prefs.ProviderMachineName -CMName $cmName -ArpName (Get-RowArpName $row)
 
                 $baseName = [System.IO.Path]::GetFileNameWithoutExtension([string]$row.Script)
                 if (-not $res.Found) {
@@ -13478,6 +13473,9 @@ $btnCheckMECM.Add_Click({
 
                 if ($res.MatchCount -gt 1) {
                     Add-LogLine -Message ("Found {0} matches; using: {1} ({2})" -f $res.MatchCount, $res.DisplayName, $res.SoftwareVersion)
+                }
+                if ($res.PSObject.Properties['MatchNote'] -and $res.MatchNote) {
+                    Add-LogLine -Message ("Match: {0}" -f $res.MatchNote)
                 }
                 else {
                     Add-LogLine -Message ("Current version: {0}" -f $res.SoftwareVersion)
