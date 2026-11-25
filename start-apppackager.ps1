@@ -13599,8 +13599,8 @@ function Show-DiscoveryDialog {
                 <DataGridTextColumn Header="Application" Binding="{Binding Name}" Width="*" MinWidth="200" IsReadOnly="True"/>
                 <DataGridTextColumn MinWidth="94" Header="Vendor" Binding="{Binding Vendor}" Width="180" IsReadOnly="True"/>
                 <DataGridTextColumn MinWidth="156" Header="Inventory Name" Binding="{Binding MatchedName}" Width="220" IsReadOnly="True"/>
-                <DataGridTextColumn x:Name="colInGrid" MinWidth="70" Header="In Grid" Binding="{Binding InGrid}" Width="80" IsReadOnly="True" Visibility="Collapsed"/>
-                <DataGridTextColumn x:Name="colInConfigMgr" MinWidth="100" Header="In ConfigMgr" Binding="{Binding InConfigMgr}" Width="110" IsReadOnly="True" Visibility="Collapsed"/>
+                <DataGridTextColumn x:Name="colInGrid" MinWidth="90" Header="In Grid" Binding="{Binding InGrid}" Width="100" IsReadOnly="True" Visibility="Collapsed"/>
+                <DataGridTextColumn x:Name="colInConfigMgr" MinWidth="140" Header="In ConfigMgr" Binding="{Binding InConfigMgr}" Width="150" IsReadOnly="True" Visibility="Collapsed"/>
             </DataGrid.Columns>
         </DataGrid>
         <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">

@@ -85,7 +85,7 @@ try {
         & $assert ($rows[1].Name -eq 'Git for Windows (x64)' -and $rows[2].Name -eq 'HashTools') 'the name is the grid name, or the ConfigMgr name without one'
         & $assert ($rows[1].Vendor -eq 'The Git Development Community') 'the vendor column carries the vendor'
         & $assert (@($rows | Where-Object Selected).Count -eq 0) 'no row starts checked'
-        & $assert (@($p.Grid.Columns | ForEach-Object { [string]$_.Header }) -join ',' -eq ',Application,Vendor,Inventory name') 'the columns are check, name, vendor and inventory name'
+        & $assert (@($p.Grid.Columns | Where-Object { $_.Visibility -eq 'Visible' } | ForEach-Object { [string]$_.Header }) -join ',' -eq ',Application,Vendor,Inventory name') 'the columns are check, name, vendor and inventory name'
         & $assert ($p.EnableSelected.Content -eq 'Enable selected' -and $p.EnableAll.Content -eq 'Enable all' -and $p.NotNow.Content -eq 'Not now' -and $p.Dismiss.Content -eq "Don't ask again for selected") 'the four buttons carry their labels'
         & $click $p.EnableSelected
         & $assert ($p.Note.Visibility -eq 'Visible' -and $p.State.Action -eq 'NotNow') 'Enable selected with nothing checked asks for a check and keeps the window'
@@ -104,7 +104,7 @@ try {
         & $assert ($p.Prompt.Text -eq 'Found 2 supported apps installed on devices. Enable console view?') 'the all-supported prompt names the supported apps'
         & $assert ($p.Window.Title -eq 'Discover All Supported Software') 'the all-supported window has its own title'
         & $assert ($p.Grid.Columns[4].Visibility -eq 'Visible' -and $p.Grid.Columns[5].Visibility -eq 'Visible') 'the all-supported window shows In Grid and In ConfigMgr'
-        & $assert ($p.Rows[0].InGrid -eq 'Yes' -and $p.Rows[1].InConfigMgr -eq 'No') 'the state columns carry Yes and No'
+        & $assert ((@($p.Rows | Where-Object Script -eq 'package-git.ps1')[0].InGrid -eq 'Yes') -and (@($p.Rows | Where-Object Script -eq 'package-7zip.ps1')[0].InConfigMgr -eq 'No')) 'the state columns carry Yes and No'
         & $assert ($p.Dismiss.Visibility -eq 'Collapsed') 'the all-supported window has no Don''t Ask Again button'
         & $click $p.NotNow
     }
