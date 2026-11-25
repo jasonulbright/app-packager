@@ -18,7 +18,7 @@ None. The window loads the packager scripts from disk. It makes no vendor call a
 
 ### View the window
 
-1. The sidebar has these actions: **One Click**, **Check Latest**, **Check ConfigMgr**, **Discover Unmanaged Software**, **Check CVEs**, **Stage Packages**, **Publish to ConfigMgr**, **Publish to Intune**, **Publish to WSUS**, **WSUS Updates**, **CVE Report**, **Application Workbench**, **Add Installer...**, **Convert ConfigMgr App to Intune** and **Options**.
+1. The sidebar has these actions: **One Click**, **Check Latest**, **Check ConfigMgr**, **Discover Unmanaged Software**, **Discover All Supported Software**, **Check CVEs**, **Stage Packages**, **Publish to ConfigMgr**, **Publish to Intune**, **Publish to WSUS**, **WSUS Updates**, **CVE Report**, **Application Workbench**, **Add Installer...**, **Convert ConfigMgr App to Intune** and **Options**.
 2. A publish button that is not ready is disabled. Hover over it to read what is missing.
 3. The status bar at the bottom shows the state of the last action, for example `Loaded 317 packager(s). Ready.`
 

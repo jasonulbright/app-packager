@@ -660,14 +660,18 @@ function Find-DiscoveryCandidate {
         Returns the hidden, not dismissed packagers whose ArpName (and
         ArpVersion and ArpArch, when set) matches at least one inventory row
         and whose CMName has no current ConfigMgr Application (the Check
-        ConfigMgr title rule of Test-MecmApplicationTitle). Throws when
-        a pattern is not a valid wildcard.
+        ConfigMgr title rule of Test-MecmApplicationTitle). With -All the
+        hidden, dismissed and ConfigMgr filters are off: every packager that
+        matches an inventory row comes back, with InGrid and InConfigMgr.
+        Throws when a pattern is not a valid wildcard.
     #>
     param(
         [Parameter(Mandatory)]$Snapshot,
         [AllowEmptyCollection()][object[]]$Packager = @(),
         [AllowEmptyCollection()][AllowNull()][string[]]$HiddenScript = @(),
-        [AllowEmptyCollection()][AllowNull()][string[]]$DismissedScript = @()
+        [AllowEmptyCollection()][AllowNull()][string[]]$DismissedScript = @(),
+        # Every packager that matches an inventory row, hidden or not, dismissed or not, with or without a ConfigMgr application.
+        [switch]$All
     )
 
     $rows = @($Snapshot.Rows | Where-Object { $_ -and -not [string]::IsNullOrWhiteSpace([string]$_.DisplayName) })
@@ -683,10 +687,12 @@ function Find-DiscoveryCandidate {
     $candidates = foreach ($p in @($Packager)) {
         if (-not $p) { continue }
         $scriptName = ([string]$p.Script).Trim()
-        if (-not $scriptName -or -not $hidden.Contains($scriptName) -or $dismissed.Contains($scriptName)) { continue }
+        if (-not $scriptName) { continue }
+        if (-not $All -and (-not $hidden.Contains($scriptName) -or $dismissed.Contains($scriptName))) { continue }
 
         $cmName = ([string]$p.CMName).Trim()
-        if ($cmName -and (Test-DiscoveryApplicationManaged -CMName $cmName -Application $applications)) { continue }
+        $managed = [bool]($cmName -and (Test-DiscoveryApplicationManaged -CMName $cmName -Application $applications))
+        if (-not $All -and $managed) { continue }
 
         $patterns = Get-DiscoveryArpPatterns -ArpName (Get-DiscoveryPackagerValue $p 'ArpName') -Script $scriptName
         if ($patterns.Count -eq 0) { continue }
@@ -711,11 +717,23 @@ function Find-DiscoveryCandidate {
         }
         if (-not $match) { continue }
 
-        [pscustomobject]@{
-            Script      = $scriptName
-            CMName      = $cmName
-            Vendor      = [string]$p.Vendor
-            MatchedName = [string]$match.DisplayName
+        if ($All) {
+            [pscustomobject]@{
+                Script      = $scriptName
+                CMName      = $cmName
+                Vendor      = [string]$p.Vendor
+                MatchedName = [string]$match.DisplayName
+                InGrid      = [bool](-not $hidden.Contains($scriptName))
+                InConfigMgr = $managed
+            }
+        }
+        else {
+            [pscustomobject]@{
+                Script      = $scriptName
+                CMName      = $cmName
+                Vendor      = [string]$p.Vendor
+                MatchedName = [string]$match.DisplayName
+            }
         }
     }
 
@@ -734,7 +752,8 @@ function Get-DiscoveryStatusText {
     #>
     param(
         [Parameter(Mandatory)]$Snapshot,
-        [Parameter(Mandatory)][int]$CandidateCount
+        [Parameter(Mandatory)][int]$CandidateCount,
+        [switch]$All
     )
 
     if (@($Snapshot.Rows).Count -eq 0) {
@@ -742,6 +761,7 @@ function Get-DiscoveryStatusText {
     }
 
     $appWord = if ($CandidateCount -eq 1) { 'app' } else { 'apps' }
+    if ($All) { return "Discovered $CandidateCount supported $appWord installed on devices, with or without a ConfigMgr application." }
     return "Discovered $CandidateCount $appWord."
 }
 

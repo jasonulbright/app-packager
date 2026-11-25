@@ -94,6 +94,26 @@ try {
     }
     & $assert ($result.Action -eq 'EnableSelected' -and (@($result.Scripts) -join ',') -eq 'package-hashtools.ps1') 'Enable selected returns the checked script'
 
+    # --- Discover all supported software: the same window with the state columns ---
+    $allCandidates = @(
+        [pscustomobject]@{ Script = 'package-git.ps1'; CMName = 'Git'; Vendor = 'Git'; MatchedName = 'Git'; InGrid = $true; InConfigMgr = $true }
+        [pscustomobject]@{ Script = 'package-7zip.ps1'; CMName = '7-Zip'; Vendor = '7-Zip'; MatchedName = '7-Zip 26.03'; InGrid = $false; InConfigMgr = $false }
+    )
+    $null = Show-DiscoveryDialog -Owner $null -Candidates $allCandidates -All -StatusText 'Discovered 2 supported apps installed on devices, with or without a ConfigMgr application.' -Probe {
+        param($p)
+        & $assert ($p.Prompt.Text -eq 'Found 2 supported apps installed on devices. Enable console view?') 'the all-supported prompt names the supported apps'
+        & $assert ($p.Window.Title -eq 'Discover All Supported Software') 'the all-supported window has its own title'
+        & $assert ($p.Grid.Columns[4].Visibility -eq 'Visible' -and $p.Grid.Columns[5].Visibility -eq 'Visible') 'the all-supported window shows In Grid and In ConfigMgr'
+        & $assert ($p.Rows[0].InGrid -eq 'Yes' -and $p.Rows[1].InConfigMgr -eq 'No') 'the state columns carry Yes and No'
+        & $assert ($p.Dismiss.Visibility -eq 'Collapsed') 'the all-supported window has no Don''t Ask Again button'
+        & $click $p.NotNow
+    }
+    $null = Show-DiscoveryDialog -Owner $null -Candidates $candidates -Probe {
+        param($p)
+        & $assert ($p.Grid.Columns[4].Visibility -eq 'Collapsed' -and $p.Dismiss.Visibility -eq 'Visible' -and $p.Window.Title -eq 'Discover Unmanaged Software') 'the default window keeps its title, columns and Dismiss button'
+        & $click $p.NotNow
+    }
+
     $result = Show-DiscoveryDialog -Owner $null -Candidates $candidates -Probe { param($p) & $click $p.EnableAll }
     & $assert ($result.Action -eq 'EnableAll' -and @($result.Scripts).Count -eq 3) 'Enable all returns every script'
 
@@ -173,7 +193,7 @@ try {
 
     # --- The finish step ---------------------------------------------------------
     $global:Shown = 0
-    function global:Show-DiscoveryDialog { param($Owner, $Candidates, $StatusText, $NameByScript, $Probe) $global:Shown++; [pscustomobject]@{ Action = 'EnableAll'; Scripts = @($Candidates | ForEach-Object { $_.Script }) } }
+    function global:Show-DiscoveryDialog { param($Owner, $Candidates, $StatusText, $NameByScript, [switch]$All, $Probe) $global:Shown++; [pscustomobject]@{ Action = 'EnableAll'; Scripts = @($Candidates | ForEach-Object { $_.Script }) } }
     $global:DiscoveryNames = @{}
     $global:Log = @(); $global:ButtonsEnabled = $false
     Complete-DiscoveryScan -Result ([pscustomobject]@{ Ok = $false; Error = 'Login failed for the ConfigMgr site database on cm01.'; Candidates = @() })
