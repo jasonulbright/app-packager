@@ -745,6 +745,15 @@ function Get-DiscoveryStatusText {
     return "Discovered $CandidateCount $appWord."
 }
 
+function Get-MecmAppTitle {
+    # The title of a ConfigMgr application object. A site object has LocalizedDisplayName and no Name; strict mode refuses a missing property.
+    param([Parameter(Mandatory)]$App)
+    foreach ($property in 'LocalizedDisplayName', 'Name') {
+        if ($App.PSObject.Properties[$property] -and $App.$property) { return [string]$App.$property }
+    }
+    return ''
+}
+
 function Get-MecmTitleExtraWordCount {
     <#
     .SYNOPSIS
@@ -780,10 +789,10 @@ function Select-MecmApplicationMatch {
         ("PowerShell 7-x64" before "PowerShell 7 (Devolutions)"), then the newest version. The caller logs the other matches.
     #>
     param([Parameter(Mandatory)][object[]]$Apps, [Parameter(Mandatory)][string]$CMName)
-    $exact = @($Apps | Where-Object { $_.LocalizedDisplayName -eq $CMName -or $_.Name -eq $CMName })
+    $exact = @($Apps | Where-Object { (Get-MecmAppTitle -App $_) -eq $CMName })
     if ($exact.Count -gt 0) { return $exact[0] }
     $scored = foreach ($a in $Apps) {
-        $title = if ($a.LocalizedDisplayName) { [string]$a.LocalizedDisplayName } else { [string]$a.Name }
+        $title = Get-MecmAppTitle -App $a
         $ver = try { [version]([string]$a.SoftwareVersion -replace '^(\d+)$', '$1.0') } catch { [version]'0.0' }
         [pscustomobject]@{ App = $a; Title = $title; Extra = (Get-MecmTitleExtraWordCount -CMName $CMName -Title $title); Ver = $ver }
     }
@@ -816,12 +825,12 @@ function Find-MecmApplicationByName {
     $apps = @(Get-CMApplication -Name $CMName -ErrorAction SilentlyContinue)
     if ($apps.Count -gt 0) { return [pscustomobject]@{ Apps = $apps; Tier = 'name' } }
     $apps = @(Get-CMApplication -Name (Get-MecmApplicationNamePattern -CMName $CMName) -ErrorAction SilentlyContinue | Where-Object {
-            $title = if ($_.LocalizedDisplayName) { [string]$_.LocalizedDisplayName } else { [string]$_.Name }
+            $title = Get-MecmAppTitle -App $_
             Test-MecmApplicationTitle -CMName $CMName -Title $title
         })
     if ($apps.Count -gt 0) { return [pscustomobject]@{ Apps = $apps; Tier = 'rule' } }
     $apps = @(Get-CMApplication -Name ($CMName.Trim() + '*') -ErrorAction SilentlyContinue | Where-Object {
-            $title = if ($_.LocalizedDisplayName) { [string]$_.LocalizedDisplayName } else { [string]$_.Name }
+            $title = Get-MecmAppTitle -App $_
             Test-MecmTitleStartsWith -CMName $CMName -Title $title
         })
     if ($apps.Count -gt 0) { return [pscustomobject]@{ Apps = $apps; Tier = 'prefix' } }
@@ -830,11 +839,11 @@ function Find-MecmApplicationByName {
         $head = ($pattern -split '[*?\[]')[0].TrimEnd()
         if ($head.Length -lt 3) { continue }
         $found += @(Get-CMApplication -Name ($head + '*') -ErrorAction SilentlyContinue | Where-Object {
-                $title = if ($_.LocalizedDisplayName) { [string]$_.LocalizedDisplayName } else { [string]$_.Name }
+                $title = Get-MecmAppTitle -App $_
                 $title -like $pattern
             })
     }
-    $found = @($found | Sort-Object LocalizedDisplayName -Unique)
+    $found = @($found | Sort-Object { Get-MecmAppTitle -App $_ } -Unique)
     if ($found.Count -gt 0) { return [pscustomobject]@{ Apps = $found; Tier = 'arp' } }
     return [pscustomobject]@{ Apps = @(); Tier = '' }
 }
@@ -842,5 +851,5 @@ function Find-MecmApplicationByName {
 Export-ModuleMember -Function @(
     'Resolve-CMDatabaseTarget', 'Split-CMSqlServerName', 'Join-CMSqlServerName', 'Get-CMInventorySnapshot', 'Find-DiscoveryCandidate', 'Get-DiscoveryStatusText',
     'Test-MecmApplicationTitle', 'Get-MecmApplicationNamePattern',
-    'Get-MecmTitleExtraWordCount', 'Select-MecmApplicationMatch', 'Test-MecmTitleStartsWith', 'Find-MecmApplicationByName'
+    'Get-MecmAppTitle', 'Get-MecmTitleExtraWordCount', 'Select-MecmApplicationMatch', 'Test-MecmTitleStartsWith', 'Find-MecmApplicationByName'
 )

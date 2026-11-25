@@ -2688,8 +2688,9 @@ function Get-MecmCurrentVersionByCMName {
         $chosen = Select-MecmApplicationMatch -Apps $apps -CMName $CMName
         $note = ''
         if ($hit.Tier -in @('prefix', 'arp') -or $apps.Count -gt 1) {
-            $others = @($apps | Where-Object { [string]$_.LocalizedDisplayName -ne [string]$chosen.LocalizedDisplayName } | ForEach-Object { [string]$_.LocalizedDisplayName })
-            $note = "tier={0}; chose '{1}'" -f $hit.Tier, [string]$chosen.LocalizedDisplayName
+            $chosenTitle = Get-MecmAppTitle -App $chosen
+            $others = @($apps | ForEach-Object { Get-MecmAppTitle -App $_ } | Where-Object { $_ -ne $chosenTitle })
+            $note = "tier={0}; chose '{1}'" -f $hit.Tier, $chosenTitle
             if ($others.Count -gt 0) { $note += '; other matches: ' + ($others -join '; ') }
         }
 
