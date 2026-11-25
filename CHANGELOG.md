@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [2026.11.24.0168] - 2026-11-24
+
+## 3 Check ConfigMgr fixes
+
+### Fixed
+
+- Find the ConfigMgr application that an installer names (PuTTY, Azure PowerShell, Intune Debug Toolkit) with Check ConfigMgr.
+- Pick PowerShell 7-x64 before PowerShell 7 (Devolutions) when both match.
+- Log how Check ConfigMgr matched an application when it was not the plain name.
+
 ## [2026.11.24.0167] - 2026-11-24
 
 ## 2 ConfigMgr names restored

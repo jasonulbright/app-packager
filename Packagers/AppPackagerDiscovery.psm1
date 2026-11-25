@@ -745,7 +745,111 @@ function Get-DiscoveryStatusText {
     return "Discovered $CandidateCount $appWord."
 }
 
+function Get-MecmAppTitle {
+    # The title of a ConfigMgr application object. A site object has LocalizedDisplayName and no Name; strict mode refuses a missing property.
+    param([Parameter(Mandatory)]$App)
+    foreach ($property in 'LocalizedDisplayName', 'Name') {
+        if ($App.PSObject.Properties[$property] -and $App.$property) { return [string]$App.$property }
+    }
+    return ''
+}
+
+function Get-MecmTitleExtraWordCount {
+    <#
+    .SYNOPSIS
+        The number of words after CMName in a title that are not release details.
+    .DESCRIPTION
+        A version, an architecture, a dash, Latest and a parenthesis that holds only architecture, installer method, language or version
+        are release details. Any other word makes the title a longer name. A title that does not start with CMName counts none.
+    #>
+    param([Parameter(Mandatory)][string]$CMName, [Parameter(Mandatory)][AllowEmptyString()][string]$Title)
+    $lead = $CMName.Trim()
+    if (-not $Title.StartsWith($lead, [System.StringComparison]::OrdinalIgnoreCase)) { return 0 }
+    $inner = '^(x64|x86|arm64|amd64|32-bit|64-bit|exe|msi|v?\d+([.\-+_]\w+)*|[a-z]{2}-[a-z]{2}|latest)$'
+    $extra = 0
+    foreach ($m in [regex]::Matches($Title.Substring($lead.Length), '\([^)]*\)|\S+')) {
+        $t = $m.Value
+        if ($t -match '^\((.*)\)$') {
+            $words = @($Matches[1] -split '[\s,+/]+' | Where-Object { $_ })
+            if (@($words | Where-Object { $_ -notmatch $inner }).Count -gt 0) { $extra++ }
+            continue
+        }
+        if ($t -match '^-?(x64|x86|arm64|amd64|latest)?$' -or $t -match '^-?v?\d+([.\-+_]\w+)*$') { continue }
+        $extra++
+    }
+    return $extra
+}
+
+function Select-MecmApplicationMatch {
+    <#
+    .SYNOPSIS
+        Picks one application from the applications that match a CMName.
+    .DESCRIPTION
+        The title that equals CMName wins. Otherwise the title with the fewest words after CMName that are not release details wins
+        ("PowerShell 7-x64" before "PowerShell 7 (Devolutions)"), then the newest version. The caller logs the other matches.
+    #>
+    param([Parameter(Mandatory)][object[]]$Apps, [Parameter(Mandatory)][string]$CMName)
+    $exact = @($Apps | Where-Object { (Get-MecmAppTitle -App $_) -eq $CMName })
+    if ($exact.Count -gt 0) { return $exact[0] }
+    $scored = foreach ($a in $Apps) {
+        $title = Get-MecmAppTitle -App $a
+        $ver = try { [version]([string]$a.SoftwareVersion -replace '^(\d+)$', '$1.0') } catch { [version]'0.0' }
+        [pscustomobject]@{ App = $a; Title = $title; Extra = (Get-MecmTitleExtraWordCount -CMName $CMName -Title $title); Ver = $ver }
+    }
+    return (@($scored | Sort-Object @{ Expression = 'Extra'; Descending = $false }, @{ Expression = 'Ver'; Descending = $true }, @{ Expression = 'Title'; Descending = $true }) | Select-Object -First 1).App
+}
+
+function Test-MecmTitleStartsWith {
+    <#
+    .SYNOPSIS
+        True when the title starts with the words of CMName and the next character ends the word ("Git" is not "GitHub Desktop").
+    #>
+    param([Parameter(Mandatory)][string]$CMName, [Parameter(Mandatory)][AllowEmptyString()][string]$Title)
+    $lead = $CMName.Trim()
+    if ($lead.Length -eq 0) { return $false }
+    return ($Title.StartsWith($lead, [System.StringComparison]::OrdinalIgnoreCase) -and ($Title.Length -eq $lead.Length -or -not [char]::IsLetterOrDigit($Title[$lead.Length])))
+}
+
+function Find-MecmApplicationByName {
+    <#
+    .SYNOPSIS
+        Finds the ConfigMgr applications of one packager, in four tiers; the first tier with a match decides.
+    .DESCRIPTION
+        1 name: the title equals CMName. 2 rule: CMName words with release details (Test-MecmApplicationTitle).
+        3 prefix: the title starts with the words of CMName, any words after them ("PuTTY release 0.85 (64-bit)").
+        4 arp: the Add/Remove Programs name of the packager (ArpName header, patterns joined by " | ") as a -like pattern
+        ("Microsoft Azure PowerShell - *"). Needs the ConfigMgr cmdlets and a site drive.
+        Returns the matches and the tier; the tier is empty when nothing matches.
+    #>
+    param([Parameter(Mandatory)][string]$CMName, [AllowEmptyString()][string]$ArpName = '')
+    $apps = @(Get-CMApplication -Name $CMName -ErrorAction SilentlyContinue)
+    if ($apps.Count -gt 0) { return [pscustomobject]@{ Apps = $apps; Tier = 'name' } }
+    $apps = @(Get-CMApplication -Name (Get-MecmApplicationNamePattern -CMName $CMName) -ErrorAction SilentlyContinue | Where-Object {
+            $title = Get-MecmAppTitle -App $_
+            Test-MecmApplicationTitle -CMName $CMName -Title $title
+        })
+    if ($apps.Count -gt 0) { return [pscustomobject]@{ Apps = $apps; Tier = 'rule' } }
+    $apps = @(Get-CMApplication -Name ($CMName.Trim() + '*') -ErrorAction SilentlyContinue | Where-Object {
+            $title = Get-MecmAppTitle -App $_
+            Test-MecmTitleStartsWith -CMName $CMName -Title $title
+        })
+    if ($apps.Count -gt 0) { return [pscustomobject]@{ Apps = $apps; Tier = 'prefix' } }
+    $found = @()
+    foreach ($pattern in @($ArpName -split '\s*\|\s*' | Where-Object { $_ -and $_ -ne 'none' })) {
+        $head = ($pattern -split '[*?\[]')[0].TrimEnd()
+        if ($head.Length -lt 3) { continue }
+        $found += @(Get-CMApplication -Name ($head + '*') -ErrorAction SilentlyContinue | Where-Object {
+                $title = Get-MecmAppTitle -App $_
+                $title -like $pattern
+            })
+    }
+    $found = @($found | Sort-Object { Get-MecmAppTitle -App $_ } -Unique)
+    if ($found.Count -gt 0) { return [pscustomobject]@{ Apps = $found; Tier = 'arp' } }
+    return [pscustomobject]@{ Apps = @(); Tier = '' }
+}
+
 Export-ModuleMember -Function @(
     'Resolve-CMDatabaseTarget', 'Split-CMSqlServerName', 'Join-CMSqlServerName', 'Get-CMInventorySnapshot', 'Find-DiscoveryCandidate', 'Get-DiscoveryStatusText',
-    'Test-MecmApplicationTitle', 'Get-MecmApplicationNamePattern'
+    'Test-MecmApplicationTitle', 'Get-MecmApplicationNamePattern',
+    'Get-MecmAppTitle', 'Get-MecmTitleExtraWordCount', 'Select-MecmApplicationMatch', 'Test-MecmTitleStartsWith', 'Find-MecmApplicationByName'
 )

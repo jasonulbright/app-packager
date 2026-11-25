@@ -15,6 +15,11 @@
         'Get-DiscoveryStatusText'
         'Test-MecmApplicationTitle'
         'Get-MecmApplicationNamePattern'
+        'Get-MecmAppTitle'
+        'Get-MecmTitleExtraWordCount'
+        'Select-MecmApplicationMatch'
+        'Test-MecmTitleStartsWith'
+        'Find-MecmApplicationByName'
     )
     CmdletsToExport   = @()
     VariablesToExport = @()
