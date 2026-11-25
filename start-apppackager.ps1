@@ -6072,33 +6072,104 @@ $dataGrid.Add_LoadingRow({
         [void]$dataGrid.Dispatcher.BeginInvoke([System.Windows.Threading.DispatcherPriority]::Background, [Action]$show)
     })
 
-function Get-GridSignature {
-    # One string that changes when a value a grid column shows changes. The busy
-    # timer compares it so an idle tick does not rebuild the rows.
-    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Rows)
+function Get-GridRowSignature {
+    # One string that changes when a value that a grid column shows changes in this row.
+    param([Parameter(Mandatory)]$Row)
+    $r = $Row
     $sb = New-Object System.Text.StringBuilder
-    foreach ($r in $Rows) {
-        [void]$sb.Append([string]$r.Selected).Append('|').Append([string]$r.Application).Append('|').Append([string]$r.CurrentVersion).Append('|').Append([string]$r.LatestVersion).Append('|').Append([string]$r.Status)
-        [void]$sb.Append('|').Append([string]$r.CveCount).Append('|').Append([string]$r.CveCvss).Append('|').Append([string]$r.CveKev).Append('|').Append([string]$r.CveFixed).Append('|').Append([string]$r.CveNewest)
-        [void]$sb.Append('|').Append([string]$r.CveEpss).Append('|').Append([string]$r.CveUpdated).Append('|').Append([string]$r.CveChecked).Append('|').Append([string]$r.LastChecked).Append("`n")
-    }
+    [void]$sb.Append([string]$r.Selected).Append('|').Append([string]$r.Application).Append('|').Append([string]$r.CurrentVersion).Append('|').Append([string]$r.LatestVersion).Append('|').Append([string]$r.Status)
+    [void]$sb.Append('|').Append([string]$r.CveCount).Append('|').Append([string]$r.CveCvss).Append('|').Append([string]$r.CveKev).Append('|').Append([string]$r.CveFixed).Append('|').Append([string]$r.CveNewest)
+    [void]$sb.Append('|').Append([string]$r.CveEpss).Append('|').Append([string]$r.CveUpdated).Append('|').Append([string]$r.CveChecked).Append('|').Append([string]$r.LastChecked)
     return $sb.ToString()
 }
 
+function Get-GridSignature {
+    # The signatures of all rows in one string (one line per row).
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Rows)
+    return ((@($Rows | ForEach-Object { Get-GridRowSignature -Row $_ }) -join "`n") + "`n")
+}
+
+function Update-GridRowCells {
+    # Re-reads the bound values of the cells of ONE realized row. The row container, its icon Image and the
+    # other rows stay as they are: no row is rebuilt and no icon is set again. The rows are PowerShell objects
+    # that raise no change event, so the bindings of the cells are asked to read the row again.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Re-reads the cell bindings of one row only.')]
+    param([Parameter(Mandatory)]$Grid, [Parameter(Mandatory)]$Row)
+    $container = $Grid.ItemContainerGenerator.ContainerFromItem($Row)
+    if ($null -eq $container) { return 0 }
+    $updated = 0
+    $queue = New-Object System.Collections.Generic.Queue[System.Windows.DependencyObject]
+    $queue.Enqueue($container)
+    while ($queue.Count -gt 0) {
+        $node = $queue.Dequeue()
+        $values = $node.GetLocalValueEnumerator()
+        while ($values.MoveNext()) {
+            $expression = $values.Current.Value
+            if ($expression -is [System.Windows.Data.BindingExpression]) { $expression.UpdateTarget(); $updated++ }
+        }
+        $count = [System.Windows.Media.VisualTreeHelper]::GetChildrenCount($node)
+        for ($i = 0; $i -lt $count; $i++) { $queue.Enqueue([System.Windows.Media.VisualTreeHelper]::GetChild($node, $i)) }
+    }
+    return $updated
+}
+
+$script:GridRowSignatures = @{}
+$script:GridResortPending = $false
+
+function Get-GridRowKey {
+    param([Parameter(Mandatory)]$Row)
+    if ($Row.PSObject.Properties['Script'] -and [string]$Row.Script) { return [string]$Row.Script }
+    return [string]$Row.Application
+}
+
+function Initialize-GridRowSignatures {
+    # The values the grid shows now are the baseline: a later change of one row is then seen as a change of that row.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Stores the shown values of the rows in memory only.')]
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Rows)
+    $script:GridRowSignatures = @{}
+    $script:GridResortPending = $false
+    foreach ($row in $Rows) { $script:GridRowSignatures[(Get-GridRowKey -Row $row)] = Get-GridRowSignature -Row $row }
+}
+
 function Update-GridWhenChanged {
-    # Items.Refresh() rebuilds every row, and a rebuilt row shows its icon blank
-    # until it is set again: refreshing on each busy tick made the icons blink and
-    # cost CPU. Refresh only when a shown value changed since the last refresh.
+    # Items.Refresh() rebuilds every row, and a rebuilt row shows its icon blank until it is set again: a
+    # refresh on each busy tick, or on each checked application, made the icons and the grid flicker. This
+    # compares the shown values per row and re-reads only the cells of the rows that changed. A grid that is
+    # sorted needs one refresh when the run ends (Complete-GridUpdates), because a changed value can move a row.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Refreshes the grid view only.')]
     param(
         [Parameter(Mandatory)]$Grid,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Rows
     )
-    $signature = Get-GridSignature -Rows $Rows
-    if ($signature -ceq $script:GridSignature) { return $false }
-    $script:GridSignature = $signature
-    $Grid.Items.Refresh()
+    $changed = New-Object System.Collections.Generic.List[object]
+    $seen = @{}
+    foreach ($row in $Rows) {
+        $key = Get-GridRowKey -Row $row
+        $seen[$key] = $true
+        $signature = Get-GridRowSignature -Row $row
+        if (-not $script:GridRowSignatures.ContainsKey($key)) { $script:GridRowSignatures[$key] = $signature; continue }
+        if ($script:GridRowSignatures[$key] -ceq $signature) { continue }
+        $script:GridRowSignatures[$key] = $signature
+        $changed.Add($row)
+    }
+    foreach ($key in @($script:GridRowSignatures.Keys)) { if (-not $seen.ContainsKey($key)) { $script:GridRowSignatures.Remove($key) } }
+    if ($changed.Count -eq 0) { return $false }
+    if ($null -eq $Grid.PSObject.Properties['ItemContainerGenerator']) {
+        $Grid.Items.Refresh()
+        return $true
+    }
+    foreach ($row in $changed) { [void](Update-GridRowCells -Grid $Grid -Row $row) }
+    if ($Grid.Items.SortDescriptions.Count -gt 0) { $script:GridResortPending = $true }
     return $true
+}
+
+function Complete-GridUpdates {
+    # At the end of a run: a sorted grid puts the changed rows in their new places, once.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Refreshes the grid view only.')]
+    param([Parameter(Mandatory)]$Grid)
+    if (-not $script:GridResortPending) { return }
+    $script:GridResortPending = $false
+    $Grid.Items.Refresh()
 }
 
 # A rebuilt row gets its icon when its Image loads, before the first render, so a
@@ -11247,6 +11318,8 @@ function Invoke-RefreshGrid {
         $txtStatus.Text = ("Loaded {0} packager(s). Ready." -f $script:PackagerData.Count)
     }
 
+    Initialize-GridRowSignatures -Rows @($script:PackagerData)
+
     # A filtered ItemsSource is a snapshot array; it must be recomputed after
     # the collection is repopulated.
     Update-GridFilter
@@ -12614,6 +12687,7 @@ function Invoke-MultiAppPipeline {
         if ($script:BgState -and $script:BgState.Done) {
             $doneState = $script:BgState
             $script:BgTimer.Stop()
+            try { Complete-GridUpdates -Grid $dataGrid } catch { <# Refreshing the grid view is cosmetic. #> $null = $_ }
             try { [void]$script:BgPS.EndInvoke($script:BgHandle) } catch { $null = $_ }
             try { $script:BgPS.Dispose() } catch { $null = $_ }
             $script:BgPS     = $null
@@ -12669,7 +12743,8 @@ function Invoke-MultiAppPipeline {
             if ($doneState.Succeeded -and $script:BgOperation -ne 'Stage') {
                 Clear-SucceededSelection -Rows $script:PackagerData -Scripts $doneState.Succeeded.ToArray()
             }
-            try { $dataGrid.Items.Refresh() } catch { <# Reading or writing packager history or cadence data is bookkeeping; the main flow does not depend on it. #> $null = $_ }
+            # The unchecked rows of a finished publish are read again cell by cell; a sorted grid is placed once.
+            try { [void](Update-GridWhenChanged -Grid $dataGrid -Rows @($script:PackagerData)); Complete-GridUpdates -Grid $dataGrid } catch { <# Refreshing the grid view is cosmetic. #> $null = $_ }
             $progressOverlay.Visibility = [System.Windows.Visibility]::Collapsed
             $window.Cursor = $null
             Set-ActionButtonsEnabled -Enabled $true
@@ -13455,7 +13530,9 @@ $btnCheckMECM.Add_Click({
 
             Add-LogLine -Message ("ConfigMgr: {0}" -f $app)
             $row.Status = "Querying ConfigMgr..."
-            $dataGrid.Items.Refresh()
+            # Only the cells of the changed row are read again; the rows and the icon column stay as they are.
+            [void](Update-GridWhenChanged -Grid $dataGrid -Rows @($script:PackagerData))
+            Update-UiNow
 
             try {
                 $res = Get-MecmCurrentVersionByCMName -SiteCode $siteCodeValue -ProviderMachineName $script:Prefs.ProviderMachineName -CMName $cmName -ArpName (Get-RowArpName $row)
