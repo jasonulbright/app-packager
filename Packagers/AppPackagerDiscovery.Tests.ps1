@@ -787,6 +787,59 @@ Describe 'Find-DiscoveryCandidate' {
     }
 }
 
+Describe 'Find-DiscoveryCandidate -All (Discover all supported software)' {
+    BeforeAll {
+        $script:AllRows = @(
+            , @('7-Zip 26.03', 'Igor Pavlov', '26.03', 'x64')
+            , @('Notepad++ (64-bit x64)', 'Notepad++ Team', '8.8', 'x64')
+            , @('Audacity 3.7.9', 'Audacity Team', '3.7.9', 'x64')
+        )
+        $script:AllPackagers = @(
+            (New-Packager 'package-7zip.ps1' '7-Zip' '7-Zip *')
+            (New-Packager 'package-npp.ps1' 'Notepad++' 'NOTEPAD++*')
+            (New-Packager 'package-audacity.ps1' 'Audacity' 'Audacity*')
+            (New-Packager 'package-absent.ps1' 'Absent' 'No Such Product*')
+        )
+    }
+
+    It 'without -All keeps the not-packaged rule: hidden, not dismissed, no ConfigMgr application' {
+        $snap = New-Snapshot -Rows $script:AllRows -Applications @('7-Zip')
+        $c = @(Find-DiscoveryCandidate -Snapshot $snap -Packager $script:AllPackagers -HiddenScript @('package-7zip.ps1', 'package-npp.ps1', 'package-audacity.ps1') -DismissedScript @('package-audacity.ps1'))
+        @($c.Script) | Should -Be @('package-npp.ps1')
+        $c[0].PSObject.Properties['InGrid'] | Should -BeNullOrEmpty
+    }
+
+    It 'with -All returns every packager that matches the inventory: visible, hidden, dismissed, managed or not' {
+        $snap = New-Snapshot -Rows $script:AllRows -Applications @('7-Zip')
+        $c = @(Find-DiscoveryCandidate -Snapshot $snap -Packager $script:AllPackagers -HiddenScript @('package-npp.ps1', 'package-audacity.ps1') -DismissedScript @('package-audacity.ps1') -All)
+        @($c.Script | Sort-Object) | Should -Be @('package-7zip.ps1', 'package-audacity.ps1', 'package-npp.ps1')
+    }
+
+    It 'with -All reports whether each app is in the grid and in ConfigMgr' {
+        $snap = New-Snapshot -Rows $script:AllRows -Applications @('7-Zip')
+        $c = @(Find-DiscoveryCandidate -Snapshot $snap -Packager $script:AllPackagers -HiddenScript @('package-npp.ps1') -All)
+        $zip = $c | Where-Object { $_.Script -eq 'package-7zip.ps1' }
+        $npp = $c | Where-Object { $_.Script -eq 'package-npp.ps1' }
+        $zip.InGrid | Should -BeTrue
+        $zip.InConfigMgr | Should -BeTrue
+        $npp.InGrid | Should -BeFalse
+        $npp.InConfigMgr | Should -BeFalse
+    }
+
+    It 'with -All still needs an inventory match' {
+        $snap = New-Snapshot -Rows $script:AllRows
+        $c = @(Find-DiscoveryCandidate -Snapshot $snap -Packager $script:AllPackagers -All)
+        @($c.Script) | Should -Not -Contain 'package-absent.ps1'
+        $c.Count | Should -Be 3
+    }
+
+    It 'words the all-supported status line' {
+        $snap = New-Snapshot -Rows $script:AllRows
+        Get-DiscoveryStatusText -Snapshot $snap -CandidateCount 3 -All | Should -Be 'Discovered 3 supported apps installed on devices, with or without a ConfigMgr application.'
+        Get-DiscoveryStatusText -Snapshot $snap -CandidateCount 3 | Should -Be 'Discovered 3 apps.'
+    }
+}
+
 Describe 'Get-DiscoveryStatusText' {
     It 'reports no inventory data for zero rows' {
         $snap = New-Snapshot -Rows @()

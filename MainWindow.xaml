@@ -322,6 +322,10 @@
                                 ToolTip="Find installed software that has no ConfigMgr application.">
                             <TextBlock Text="Discover Unmanaged Software" TextWrapping="Wrap"/>
                         </Button>
+                        <Button x:Name="btnDiscoverAll" Style="{StaticResource WorkflowButtonStyle}"
+                                ToolTip="Find every supported app that is installed on devices, with or without a ConfigMgr application.">
+                            <TextBlock Text="Discover All Supported Software" TextWrapping="Wrap"/>
+                        </Button>
                         <Button x:Name="btnCheckCve"    Content="Check CVEs"      Style="{StaticResource WorkflowButtonStyle}"
                                 ToolTip="Look up the CVEs of the ConfigMgr version of each checked app."/>
                         <Button x:Name="btnStage"       Content="Stage Packages"  Style="{StaticResource WorkflowButtonStyle}"

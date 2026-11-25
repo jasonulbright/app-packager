@@ -912,6 +912,8 @@ A hidden packager is a candidate when all of these are true:
 - The packager is not on the list of apps not offered.
 - The packager has an `ArpName` header that is not `none`.
 
+**Discover all supported software** is the second button under it. It runs the same query on the same connection and changes only the filter: it lists every packager that matches hardware inventory, hidden or not, dismissed or not, with or without a ConfigMgr application. The window adds the columns **In Grid** and **In ConfigMgr** and has no **Don't ask again for selected** button.
+
 When it finds candidates, a window shows "Discovered N apps. Enable console view?". The list shows the application, the vendor and the inventory name that matched. Select one of these buttons:
 
 - **Enable Selected** shows the checked apps in the grid.

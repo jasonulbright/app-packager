@@ -13,6 +13,10 @@ A hidden packager is a candidate when all of these are true:
 - The packager is not on the list of applications that are not offered.
 - The packager has an `ArpName` that is not `none`.
 
+## Discover All Supported Software
+
+**Discover All Supported Software** sits under **Discover Unmanaged Software**. It reads the same site database with the same query and connection settings. It changes only the filter: it lists every packager that matches the hardware inventory, whether or not the packager is hidden, was dismissed, or already has a ConfigMgr application. The window adds the columns **In Grid** and **In ConfigMgr**. The status line reads `Discovered N supported apps installed on devices, with or without a ConfigMgr application.` **Don't ask again for selected** does not show in this window.
+
 ## When to use it
 
 Use it to find out which packagers are worth turning on for your site.

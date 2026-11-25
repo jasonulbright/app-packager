@@ -25,14 +25,25 @@ BeforeAll {
     # Stand-ins for the discovery module; each test replaces them with mocks.
     function Resolve-CMDatabaseTarget { param([string]$SiteCode, [string]$ServerOverride, [string]$DatabaseOverride) }
     function Get-CMInventorySnapshot { param([string]$Server, [string]$Database, [int]$TimeoutSeconds = 30) }
-    function Find-DiscoveryCandidate { param($Snapshot, [object[]]$Packager, [string[]]$HiddenScript, [string[]]$DismissedScript) }
-    function Get-DiscoveryStatusText { param($Snapshot, [int]$CandidateCount) }
+    function Find-DiscoveryCandidate { param($Snapshot, [object[]]$Packager, [string[]]$HiddenScript, [string[]]$DismissedScript, [switch]$All) }
+    function Get-DiscoveryStatusText { param($Snapshot, [int]$CandidateCount, [switch]$All) }
 
     function New-ScanPackager {
         @(
             [pscustomobject]@{ Script = 'package-7zip.ps1'; Vendor = '7-Zip'; App = '7-Zip'; CMName = '7-Zip'; ArpName = '7-Zip [0-9]*' }
             [pscustomobject]@{ Script = 'package-git.ps1'; Vendor = 'Git'; App = 'Git'; CMName = 'Git'; ArpName = 'Git' }
         )
+    }
+}
+
+Describe 'Get-DiscoveryPromptText' {
+    It 'keeps the not-packaged prompt' {
+        Get-DiscoveryPromptText -Count 41 | Should -Be 'Discovered 41 apps. Enable console view?'
+        Get-DiscoveryPromptText -Count 1 | Should -Be 'Discovered 1 app. Enable console view?'
+    }
+    It 'words the all-supported prompt' {
+        Get-DiscoveryPromptText -Count 3 -All | Should -Be 'Found 3 supported apps installed on devices. Enable console view?'
+        Get-DiscoveryPromptText -Count 1 -All | Should -Be 'Found 1 supported app installed on devices. Enable console view?'
     }
 }
 
@@ -304,6 +315,23 @@ Describe 'Invoke-DiscoveryScan' {
         Should -Invoke Get-DiscoveryStatusText -Times 1 -ParameterFilter { $CandidateCount -eq 1 }
     }
 
+    It 'runs the not-packaged scan without -All and keeps the filter lists (default Discover)' {
+        $r = Invoke-DiscoveryScan -SiteCode 'MCM' -Packager (New-ScanPackager) -HiddenScript @('package-git.ps1') -DismissedScript @()
+        $r.Ok | Should -BeTrue
+        Should -Invoke Find-DiscoveryCandidate -Times 1 -ParameterFilter { -not $All }
+        Should -Invoke Get-DiscoveryStatusText -Times 1 -ParameterFilter { -not $All }
+    }
+
+    It 'with -All uses the same connection and snapshot and asks for every supported app' {
+        $r = Invoke-DiscoveryScan -SiteCode 'MCM' -ServerOverride 'sql01' -DatabaseOverride 'CM_X' -Packager (New-ScanPackager) -HiddenScript @() -DismissedScript @('package-7zip.ps1') -All
+        $r.Ok | Should -BeTrue
+        @($r.Candidates).Count | Should -Be 1
+        Should -Invoke Resolve-CMDatabaseTarget -Times 1 -ParameterFilter { $ServerOverride -eq 'sql01' -and $DatabaseOverride -eq 'CM_X' }
+        Should -Invoke Get-CMInventorySnapshot -Times 1
+        Should -Invoke Find-DiscoveryCandidate -Times 1 -ParameterFilter { $All -and @($Packager).Count -eq 2 }
+        Should -Invoke Get-DiscoveryStatusText -Times 1 -ParameterFilter { $All -and $CandidateCount -eq 1 }
+    }
+
     It 'passes the hidden and dismissed lists to the matcher' {
         [void](Invoke-DiscoveryScan -SiteCode 'MCM' -Packager (New-ScanPackager) -HiddenScript @('package-git.ps1', 'package-7zip.ps1') -DismissedScript @('package-7zip.ps1'))
         Should -Invoke Find-DiscoveryCandidate -Times 1 -ParameterFilter {
@@ -378,6 +406,15 @@ Describe 'Discover button availability' {
         $s = Get-SidebarSystemState -Prefs (New-SidebarPrefs)
         $s.DiscoverEnabled | Should -BeTrue
         $s.DiscoverToolTip | Should -Match 'hardware inventory'
+    }
+
+    It 'offers Discover all under the same conditions as Discover and says what it does' {
+        $s = Get-SidebarSystemState -Prefs (New-SidebarPrefs)
+        $s.DiscoverAllEnabled | Should -BeTrue
+        $s.DiscoverAllToolTip | Should -Match 'whether or not a ConfigMgr application exists'
+        (Get-SidebarSystemState -Prefs (New-SidebarPrefs -SiteCode '')).DiscoverAllEnabled | Should -BeFalse
+        (Get-SidebarSystemState -Prefs (New-SidebarPrefs -SiteCode '')).DiscoverAllToolTip | Should -Match 'site code'
+        (Get-SidebarSystemState -Prefs (New-SidebarPrefs -ConfigMgr $false)).DiscoverAllEnabled | Should -BeFalse
     }
 
     It 'is disabled without a site code or a database override and says what to set' {

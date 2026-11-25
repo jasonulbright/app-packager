@@ -1619,6 +1619,7 @@ function Get-Packagers {
 $script:DiscoveryScanTimeoutSeconds = 600
 $script:DiscoveryJob = $null
 $script:DiscoveryTimer = $null
+$script:DiscoveryAll = $false
 
 function Get-DiscoveryPackagerInput {
     param([object[]]$Rows = @())
@@ -1650,7 +1651,8 @@ function Invoke-DiscoveryScan {
         [object[]]$Packager = @(),
         [string[]]$HiddenScript = @(),
         [string[]]$DismissedScript = @(),
-        [hashtable]$OperationState
+        [hashtable]$OperationState,
+        [switch]$All
     )
 
     # The scan function travels to a runspace as text, so its helper sits inside it. A message that the tool throws
@@ -1696,9 +1698,16 @@ function Invoke-DiscoveryScan {
         $snapshotArgs = @{ Server = $result.Server; Database = $result.Database }
         if ($OperationState) { $snapshotArgs.OperationState = $OperationState }
         $snapshot = Get-CMInventorySnapshot @snapshotArgs
-        $candidates = @(Find-DiscoveryCandidate -Snapshot $snapshot -Packager @($Packager) -HiddenScript @($HiddenScript) -DismissedScript @($DismissedScript) | Where-Object { $_ })
+        if ($All) {
+            # Same query, same connection; only the filter changes: every supported packager that the inventory shows.
+            $candidates = @(Find-DiscoveryCandidate -Snapshot $snapshot -Packager @($Packager) -HiddenScript @($HiddenScript) -DismissedScript @($DismissedScript) -All | Where-Object { $_ })
+            $result.StatusText = [string](Get-DiscoveryStatusText -Snapshot $snapshot -CandidateCount $candidates.Count -All)
+        }
+        else {
+            $candidates = @(Find-DiscoveryCandidate -Snapshot $snapshot -Packager @($Packager) -HiddenScript @($HiddenScript) -DismissedScript @($DismissedScript) | Where-Object { $_ })
+            $result.StatusText = [string](Get-DiscoveryStatusText -Snapshot $snapshot -CandidateCount $candidates.Count)
+        }
         $result.Candidates = $candidates
-        $result.StatusText = [string](Get-DiscoveryStatusText -Snapshot $snapshot -CandidateCount $candidates.Count)
         $result.Ok = $true
     }
     catch {
@@ -1890,7 +1899,8 @@ function Resolve-DiscoveryButton {
 }
 
 function Get-DiscoveryPromptText {
-    param([Parameter(Mandatory)][int]$Count)
+    param([Parameter(Mandatory)][int]$Count, [switch]$All)
+    if ($All) { return ('Found {0} supported {1} installed on devices. Enable console view?' -f $Count, $(if ($Count -eq 1) { 'app' } else { 'apps' })) }
     return ('Discovered {0} {1}. Enable console view?' -f $Count, $(if ($Count -eq 1) { 'app' } else { 'apps' }))
 }
 
@@ -5765,6 +5775,7 @@ $txtThemeLabel   = $window.FindName('txtThemeLabel')
 $btnCheckLatest  = $window.FindName('btnCheckLatest')
 $btnCheckMECM    = $window.FindName('btnCheckMECM')
 $btnDiscover     = $window.FindName('btnDiscover')
+$btnDiscoverAll  = $window.FindName('btnDiscoverAll')
 $btnCheckCve     = $window.FindName('btnCheckCve')
 $btnCveReport    = $window.FindName('btnCveReport')
 $btnStage        = $window.FindName('btnStage')
@@ -5919,7 +5930,7 @@ $btnCancelPipeline = $window.FindName('btnCancelPipeline')
 [ControlzEx.Theming.ThemeManager]::Current.ChangeTheme($window, "Dark.Steel")
 
 # Palette and button/label theming come from SuiteCommon.
-$script:WorkflowButtons = @($btnFullRun, $btnCheckLatest, $btnCheckMECM, $btnDiscover, $btnConvertCm, $btnCheckCve, $btnStage, $btnPackage, $btnPublishIntune, $btnPublishWsus, $btnWsusUpdates, $btnCveReport, $btnWorkbench, $btnAddInstaller)
+$script:WorkflowButtons = @($btnFullRun, $btnCheckLatest, $btnCheckMECM, $btnDiscover, $btnDiscoverAll, $btnConvertCm, $btnCheckCve, $btnStage, $btnPackage, $btnPublishIntune, $btnPublishWsus, $btnWsusUpdates, $btnCveReport, $btnWorkbench, $btnAddInstaller)
 $script:OptionsButtons  = @($btnOptions)
 
 Initialize-SuiteTheme -Window $window `
@@ -6346,6 +6357,7 @@ function Set-ActionButtonsEnabled {
     $btnCheckLatest.IsEnabled   = $Enabled
     $btnCheckMECM.IsEnabled     = $Enabled
     $btnDiscover.IsEnabled      = $Enabled
+    $btnDiscoverAll.IsEnabled   = $Enabled
     $btnConvertCm.IsEnabled     = $Enabled
     $btnCheckCve.IsEnabled      = $Enabled
     $btnCveReport.IsEnabled     = $Enabled
@@ -6405,6 +6417,8 @@ function Get-SidebarSystemState {
     return @{
         ConvertCmEnabled     = (-not $convertReason)
         ConvertCmToolTip     = $(if ($convertReason) { 'Convert ConfigMgr App to Intune: ' + $convertReason } else { 'Convert an existing ConfigMgr application to Intune Win32 apps, one app for each deployment type. It reads ConfigMgr and changes nothing there.' })
+        DiscoverAllEnabled   = (-not $discoverReason)
+        DiscoverAllToolTip   = $(if ($discoverReason) { 'Discover all supported software: ' + $discoverReason } else { 'Find every app that we support as a packager and that hardware inventory shows installed on devices, whether or not a ConfigMgr application exists. Uses the same site database query as Discover Unmanaged Software.' })
         DiscoverEnabled      = (-not $discoverReason)
         DiscoverToolTip      = $(if ($discoverReason) { 'Discover unmanaged software: ' + $discoverReason } else { 'Find hidden apps that hardware inventory shows installed on devices and that have no ConfigMgr application' })
         CheckMecmEnabled     = (-not $mecmReason)
@@ -6444,7 +6458,7 @@ function Update-SidebarForSystems {
     # setting unless this assignment also enables it; a running pipeline
     # keeps every button disabled through $script:ActionButtonsEnabled.
     $pairs = @(
-        @($btnCheckMECM, 'CheckMecm'), @($btnDiscover, 'Discover'), @($btnConvertCm, 'ConvertCm'), @($btnPackage, 'Mecm'), @($btnPublishIntune, 'Intune'),
+        @($btnCheckMECM, 'CheckMecm'), @($btnDiscover, 'Discover'), @($btnDiscoverAll, 'DiscoverAll'), @($btnConvertCm, 'ConvertCm'), @($btnPackage, 'Mecm'), @($btnPublishIntune, 'Intune'),
         @($btnPublishWsus, 'Wsus'), @($btnWsusUpdates, 'WsusUpdates')
     )
     foreach ($pair in $pairs) {
@@ -13542,6 +13556,8 @@ function Show-DiscoveryDialog {
         [Parameter(Mandatory)][object[]]$Candidates,
         [string]$StatusText = '',
         [hashtable]$NameByScript = @{},
+        # Discover all supported software: every match, with its grid and ConfigMgr state.
+        [switch]$All,
         # Test hook: receives the window internals instead of showing the window.
         [scriptblock]$Probe = $null
     )
@@ -13572,7 +13588,7 @@ function Show-DiscoveryDialog {
         <StackPanel Grid.Row="0" Margin="16,12,16,8">
             <TextBlock x:Name="txtDiscoverPrompt" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
             <TextBlock x:Name="txtDiscoverStatus" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray.MouseOver}"/>
-            <TextBlock FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray.MouseOver}"
+            <TextBlock x:Name="txtDiscoverHelp" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray.MouseOver}"
                        Text="Each app is hidden by the Product Filter, has no ConfigMgr application, and is installed on at least one client. Enabled apps join the grid for Check, Stage and Package."/>
             <TextBlock x:Name="txtDiscoverNote" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource MahApps.Brushes.Gray1}" Visibility="Collapsed"/>
         </StackPanel>
@@ -13583,6 +13599,8 @@ function Show-DiscoveryDialog {
                 <DataGridTextColumn Header="Application" Binding="{Binding Name}" Width="*" MinWidth="200" IsReadOnly="True"/>
                 <DataGridTextColumn MinWidth="94" Header="Vendor" Binding="{Binding Vendor}" Width="180" IsReadOnly="True"/>
                 <DataGridTextColumn MinWidth="156" Header="Inventory Name" Binding="{Binding MatchedName}" Width="220" IsReadOnly="True"/>
+                <DataGridTextColumn x:Name="colInGrid" MinWidth="90" Header="In Grid" Binding="{Binding InGrid}" Width="100" IsReadOnly="True" Visibility="Collapsed"/>
+                <DataGridTextColumn x:Name="colInConfigMgr" MinWidth="140" Header="In ConfigMgr" Binding="{Binding InConfigMgr}" Width="150" IsReadOnly="True" Visibility="Collapsed"/>
             </DataGrid.Columns>
         </DataGrid>
         <Border Grid.Row="2" BorderBrush="{DynamicResource MahApps.Brushes.Gray8}" BorderThickness="0,1,0,0">
@@ -13612,6 +13630,7 @@ function Show-DiscoveryDialog {
     $txtPrompt = $dlg.FindName('txtDiscoverPrompt')
     $txtStatusLine = $dlg.FindName('txtDiscoverStatus')
     $txtNote = $dlg.FindName('txtDiscoverNote')
+    $txtHelp = $dlg.FindName('txtDiscoverHelp')
     $grid = $dlg.FindName('gridDiscover')
     if (Get-Command Set-GridHeaderTip -ErrorAction Ignore) { Set-GridHeaderTip -Grid $grid }
     $btnEnableSelected = $dlg.FindName('btnEnableSelected')
@@ -13623,10 +13642,23 @@ function Show-DiscoveryDialog {
     foreach ($c in @($Candidates | Sort-Object -Property CMName)) {
         $scriptName = [string]$c.Script
         $name = $(if ($NameByScript.ContainsKey($scriptName) -and $NameByScript[$scriptName]) { [string]$NameByScript[$scriptName] } else { [string]$c.CMName })
-        $rows.Add([pscustomobject]@{ Selected = $false; Script = $scriptName; Name = $name; Vendor = [string]$c.Vendor; MatchedName = [string]$c.MatchedName })
+        $inGrid = $(if ($c.PSObject.Properties['InGrid']) { $(if ([bool]$c.InGrid) { 'Yes' } else { 'No' }) } else { '' })
+        $inConfigMgr = $(if ($c.PSObject.Properties['InConfigMgr']) { $(if ([bool]$c.InConfigMgr) { 'Yes' } else { 'No' }) } else { '' })
+        $rows.Add([pscustomobject]@{ Selected = $false; Script = $scriptName; Name = $name; Vendor = [string]$c.Vendor; MatchedName = [string]$c.MatchedName; InGrid = $inGrid; InConfigMgr = $inConfigMgr })
     }
     $grid.ItemsSource = $rows
-    $txtPrompt.Text = Get-DiscoveryPromptText -Count $rows.Count
+    if ($All) {
+        $dlg.Title = 'Discover All Supported Software'
+        $grid.Columns[4].Visibility = 'Visible'
+        $grid.Columns[5].Visibility = 'Visible'
+        $grid.ToolTip = 'The installed applications that match a packager, whether or not a ConfigMgr application exists.'
+        $txtHelp.Text = 'Each app matches a packager and is installed on at least one device. In Grid shows whether the app is already in the main grid; In ConfigMgr shows whether a current ConfigMgr application exists. Enabled apps join the grid for Check, Stage and Package.'
+        $btnDismiss.Visibility = 'Collapsed'
+        $txtPrompt.Text = Get-DiscoveryPromptText -Count $rows.Count -All
+    }
+    else {
+        $txtPrompt.Text = Get-DiscoveryPromptText -Count $rows.Count
+    }
     $txtStatusLine.Text = $StatusText
 
     $state = @{ Action = 'NotNow'; Scripts = @() }
@@ -13667,6 +13699,8 @@ function Invoke-DiscoveryChoice {
     # Product Filter path: change HiddenApplications, save, rebuild the grid.
     param([Parameter(Mandatory)]$Choice)
 
+    $label = $(if ($script:DiscoveryAll) { 'Discover all supported software' } else { 'Discover unmanaged software' })
+
     switch ([string]$Choice.Action) {
         { $_ -in @('EnableSelected', 'EnableAll') } {
             $count = Enable-DiscoveredApplication -Prefs $script:Prefs -Script @($Choice.Scripts)
@@ -13678,12 +13712,12 @@ function Invoke-DiscoveryChoice {
             try { Invoke-RefreshGrid }
             catch { $problems += ('The grid was not refreshed: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.')) }
             if ($problems.Count -eq 0) {
-                Add-LogLine -Message ("Discover unmanaged software: {0} app(s) added to the grid. Manage them in Product Filter." -f $count)
+                Add-LogLine -Message ($label + (": {0} app(s) added to the grid. Manage them in Product Filter." -f $count))
                 $txtStatus.Text = ("{0} app(s) added to the grid." -f $count)
             }
             else {
                 $text = ("{0} app(s) enabled. {1}" -f $count, ($problems -join ' '))
-                Add-LogLine -Message ('Discover unmanaged software: ' + $text)
+                Add-LogLine -Message ($label + ': ' + $text)
                 $txtStatus.Text = $text
             }
         }
@@ -13691,16 +13725,16 @@ function Invoke-DiscoveryChoice {
             $count = Add-DiscoveryDismissed -Prefs $script:Prefs -Script @($Choice.Scripts)
             try {
                 Save-Preferences -Prefs $script:Prefs
-                Add-LogLine -Message ("Discover unmanaged software: {0} app(s) will not be offered again. Clear the list in Options, Updates and CVEs, Product Filter." -f $count)
+                Add-LogLine -Message ($label + (": {0} app(s) will not be offered again. Clear the list in Options, Updates and CVEs, Product Filter." -f $count))
             }
             catch {
                 $text = ('The dismissal was not saved and holds for this session only: {0}' -f (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
-                Add-LogLine -Message ('Discover unmanaged software: ' + $text)
+                Add-LogLine -Message ($label + ': ' + $text)
                 $txtStatus.Text = $text
             }
         }
         default {
-            Add-LogLine -Message 'Discover unmanaged software: no change.'
+            Add-LogLine -Message ($label + ': no change.')
         }
     }
 }
@@ -13708,24 +13742,26 @@ function Invoke-DiscoveryChoice {
 function Complete-DiscoveryScan {
     param($Result)
 
+    $all = [bool]$script:DiscoveryAll
+    $label = $(if ($all) { 'Discover all supported software' } else { 'Discover unmanaged software' })
     Set-ActionButtonsEnabled -Enabled $true
     Hide-BusyIndicator
     if (-not $Result -or -not $Result.Ok) {
-        $message = 'Discover unmanaged software: ' + $(if ($Result -and $Result.Error) { [string]$Result.Error } else { 'the query returned no result.' })
+        $message = $label + ': ' + $(if ($Result -and $Result.Error) { [string]$Result.Error } else { 'the query returned no result.' })
         Add-LogLine -Message $message
         $txtStatus.Text = $message
         return
     }
-    Add-LogLine -Message ("Discover unmanaged software: queried {0} on {1}. {2}" -f $Result.Database, $Result.Server, $Result.StatusText)
+    Add-LogLine -Message ("{3}: queried {0} on {1}. {2}" -f $Result.Database, $Result.Server, $Result.StatusText, $label)
     $txtStatus.Text = [string]$Result.StatusText
     if (@($Result.Candidates).Count -eq 0) { return }
 
     try {
-        $choice = Show-DiscoveryDialog -Owner $window -Candidates @($Result.Candidates) -StatusText ([string]$Result.StatusText) -NameByScript $script:DiscoveryNames
+        $choice = Show-DiscoveryDialog -Owner $window -Candidates @($Result.Candidates) -StatusText ([string]$Result.StatusText) -NameByScript $script:DiscoveryNames -All:$all
         Invoke-DiscoveryChoice -Choice $choice
     }
     catch {
-        Add-LogLine -Message ('Discover unmanaged software: ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
+        Add-LogLine -Message ($label + ': ' + (Get-UserErrorText -ErrorRecord $_ -Fallback 'The action failed. See the log file.'))
     }
 }
 
@@ -13738,6 +13774,9 @@ function Stop-DiscoveryScan {
 }
 
 function Start-DiscoveryScan {
+    param([switch]$All)
+
+    $script:DiscoveryAll = [bool]$All
     $packagers = @(Get-DiscoveryPackagerInput -Rows @(Get-Packagers -Root $PackagersRoot))
     $script:DiscoveryNames = @{}
     foreach ($p in $packagers) { $script:DiscoveryNames[[string]$p.Script] = [string]$p.App }
@@ -13753,11 +13792,14 @@ function Start-DiscoveryScan {
         HiddenScript        = [string[]]@($script:Prefs.HiddenApplications)
         DismissedScript     = [string[]]@($script:Prefs.DiscoveryDismissed)
     }
+    if ($All) { $scanArgs.All = $true }
 
     Set-ActionButtonsEnabled -Enabled $false
-    Show-BusyIndicator -Title 'Discovering unmanaged software' -Step 'Reading the Add/Remove Programs inventory from the site database...' -AllowCancel
+    $busyTitle = $(if ($All) { 'Discovering all supported software' } else { 'Discovering unmanaged software' })
+    $logLabel = $(if ($All) { 'Discover all supported software' } else { 'Discover unmanaged software' })
+    Show-BusyIndicator -Title $busyTitle -Step 'Reading the Add/Remove Programs inventory from the site database...' -AllowCancel
     $txtStatus.Text = 'Reading Add/Remove Programs inventory from the ConfigMgr site database...'
-    Add-LogLine -Message 'Discover unmanaged software: reading hardware inventory from the ConfigMgr site database.'
+    Add-LogLine -Message ($logLabel + ': reading hardware inventory from the ConfigMgr site database.')
 
     $script:DiscoveryJob = $null
     try {
@@ -13810,6 +13852,20 @@ $btnDiscover.Add_Click({
         return
     }
     Start-DiscoveryScan
+})
+
+$btnDiscoverAll.Add_Click({
+    if (Test-PipelineBusy) {
+        Add-LogLine -Message 'Discover all supported software: another run is in progress. Wait for it to finish.'
+        return
+    }
+    $sidebar = Get-SidebarSystemState -Prefs $script:Prefs
+    if (-not $sidebar.DiscoverAllEnabled) {
+        Add-LogLine -Message $sidebar.DiscoverAllToolTip
+        $txtStatus.Text = $sidebar.DiscoverAllToolTip
+        return
+    }
+    Start-DiscoveryScan -All
 })
 
 # --- 2c. Convert a ConfigMgr application to Intune ---

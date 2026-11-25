@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add Discover All Supported Software: lists every supported app that devices have installed, with or without a ConfigMgr application.
+
 ## [2026.11.24.0168] - 2026-11-24
 
 ## 3 Check ConfigMgr fixes
