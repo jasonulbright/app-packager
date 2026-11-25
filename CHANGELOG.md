@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [2026.11.25.0170] - 2026-11-25
+
+## 1 flicker fix
+
+### Fixed
+
+- Stop the grid icons from flickering while Check Latest and the other actions update each row.
+
 ## [2026.11.25.0169] - 2026-11-25
 
 ## Discover all supported software
