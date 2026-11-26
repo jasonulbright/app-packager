@@ -355,16 +355,7 @@ finally { Remove-Item -LiteralPath $out -Recurse -Force -ErrorAction SilentlyCon
     finally { Remove-Item -LiteralPath $probePath -Force -ErrorAction SilentlyContinue }
 }
 
-function ConvertTo-CommandLineArgument {
-    param([AllowNull()][string]$Value)
-
-    if ($null -eq $Value) { return '""' }
-    if ($Value -notmatch '[\s"]') { return $Value }
-
-    $escaped = $Value -replace '(\\*)"', '$1$1\"'
-    $escaped = $escaped -replace '(\\+)$', '$1$1'
-    return '"' + $escaped + '"'
-}
+. (Join-Path $PSScriptRoot 'ProcessJob.ps1')
 
 function Invoke-ChildProcess {
     param(
@@ -399,52 +390,60 @@ function Invoke-ChildProcessBatch {
     foreach ($job in $Jobs) { $pending.Enqueue($job) }
     $running = New-Object System.Collections.Generic.List[object]
 
-    while ($pending.Count -gt 0 -or $running.Count -gt 0) {
-        while ($pending.Count -gt 0 -and $running.Count -lt $ThrottleLimit) {
-            $job = $pending.Dequeue()
-            $psi = New-Object System.Diagnostics.ProcessStartInfo
-            $psi.FileName = $job.FileName
-            $psi.Arguments = (($job.ArgumentList | ForEach-Object { ConvertTo-CommandLineArgument $_ }) -join ' ')
-            $psi.UseShellExecute = $false
-            $psi.CreateNoWindow = $true
-            $psi.RedirectStandardOutput = $true
-            $psi.RedirectStandardError = $true
-            $proc = New-Object System.Diagnostics.Process
-            $proc.StartInfo = $psi
-            [void]$proc.Start()
-            $running.Add([pscustomobject]@{
-                Job     = $job
-                Proc    = $proc
-                Out     = $proc.StandardOutput.ReadToEndAsync()
-                Err     = $proc.StandardError.ReadToEndAsync()
-                Started = [DateTime]::UtcNow
-            })
-        }
-
-        Start-Sleep -Milliseconds 200
-
-        for ($i = $running.Count - 1; $i -ge 0; $i--) {
-            $entry = $running[$i]
-            $timedOut = $false
-            if (-not $entry.Proc.HasExited) {
-                if (([DateTime]::UtcNow - $entry.Started).TotalSeconds -lt $entry.Job.TimeoutSec) { continue }
-                $timedOut = $true
-                # Kill the tree: a packager's own children (curl.exe, the Office
-                # Deployment Tool) would otherwise outlive the timed-out host.
-                try { & taskkill.exe /PID $entry.Proc.Id /T /F 2>&1 | Out-Null } catch { <# Killing a timed-out process tree is best-effort; the code records the timeout. #> $null = $_ }
-                try { if (-not $entry.Proc.HasExited) { $entry.Proc.Kill() } } catch { <# Killing a timed-out process tree is best-effort; the code records the timeout. #> $null = $_ }
+    try {
+        while ($pending.Count -gt 0 -or $running.Count -gt 0) {
+            while ($pending.Count -gt 0 -and $running.Count -lt $ThrottleLimit) {
+                $job = $pending.Dequeue()
+                # Each child runs in a job object of its own (ProcessJob.ps1): a time limit ends the child and what it started.
+                $outFile = Join-Path ([IO.Path]::GetTempPath()) ('ap-smoke-' + [guid]::NewGuid().ToString('N') + '.out')
+                try { $run = Start-JobProcess -FilePath $job.FileName -ArgumentList @($job.ArgumentList | ForEach-Object { ConvertTo-NativeArgument -Value $_ }) -StandardOutput $outFile -StandardError "$outFile.err" }
+            catch {
+                # The two files exist before the program starts.
+                Remove-RunOutput -Path $outFile, "$outFile.err"
+                throw
             }
-            $entry.Proc.WaitForExit()
-            $results[$entry.Job.Key] = [pscustomobject]@{
-                ExitCode = if ($timedOut) { $null } else { $entry.Proc.ExitCode }
-                TimedOut = $timedOut
-                StdOut   = [string]$entry.Out.Result
-                StdErr   = [string]$entry.Err.Result
+                $running.Add([pscustomobject]@{
+                    Job     = $job
+                    Run     = $run
+                    Out     = $outFile
+                    Started = [DateTime]::UtcNow
+                })
             }
-            $entry.Proc.Dispose()
-            $running.RemoveAt($i)
+
+            Start-Sleep -Milliseconds 200
+
+            for ($i = $running.Count - 1; $i -ge 0; $i--) {
+                $entry = $running[$i]
+                $timedOut = $false
+                if (-not $entry.Run.Process.HasExited) {
+                    if (([DateTime]::UtcNow - $entry.Started).TotalSeconds -lt $entry.Job.TimeoutSec) { continue }
+                    $timedOut = $true
+                }
+                $exitCode = if ($timedOut) { $null } else { $entry.Run.Process.ExitCode }
+                # Closing the job ends what is left: a packager's own children (curl.exe, the Office Deployment Tool) would
+                # otherwise outlive a timed-out host.
+                Stop-JobProcess -Run $entry.Run
+                [void]$entry.Run.Process.WaitForExit(15000)
+                $results[$entry.Job.Key] = [pscustomobject]@{
+                    ExitCode = $exitCode
+                    TimedOut = $timedOut
+                    StdOut   = Read-RunOutput -Path $entry.Out
+                    StdErr   = Read-RunOutput -Path "$($entry.Out).err"
+                }
+                $entry.Run.Process.Dispose()
+                Remove-RunOutput -Path $entry.Out, "$($entry.Out).err"
+                $running.RemoveAt($i)
+            }
         }
     }
+    finally {
+        # After an error or an interrupt: every job that still runs is closed, and its files go.
+        foreach ($left in $running) {
+            Stop-JobProcess -Run $left.Run
+            Remove-RunOutput -Path $left.Out, "$($left.Out).err"
+        }
+    }
+
     return $results
 }
 
