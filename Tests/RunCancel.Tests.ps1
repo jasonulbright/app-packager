@@ -141,7 +141,12 @@ Describe 'Stop-RunChildren stops only the processes that the run registered' {
             (Stop-RunChildren) | Should -Be 1
             $probe.Held | Should -BeTrue
         }
-        finally { & $module { Set-Item -Path function:script:Stop-ProcessTreeById -Value $script:ShippedStop } }
+        finally {
+            & $module { Set-Item -Path function:script:Stop-ProcessTreeById -Value $script:ShippedStop }
+            # The replacement ends the child. A test that did not reach it ends the child here; a disposed object throws.
+            try { if (-not $probe.Child.HasExited) { $probe.Child.Kill() } } catch { $null = $_ }
+            $probe.Child.Dispose()
+        }
     }
     It 'stops nothing for an entry whose start time is unknown' {
         $p = New-Sleeper
