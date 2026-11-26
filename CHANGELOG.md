@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [2026.11.26.0171] - 2026-11-26
+
+## 1 Cancel fix
+
+### Fixed
+
+- Stop Cancel from reaching another process when Windows reuses a process id.
+
 ## [2026.11.25.0170] - 2026-11-25
 
 ## 1 flicker fix
