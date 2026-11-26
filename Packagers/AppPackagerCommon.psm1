@@ -9908,12 +9908,21 @@ function Stop-ProcessTreeById {
     <#
     .SYNOPSIS
         Stops one process and the processes it started, by process id. Returns nothing.
+    .DESCRIPTION
+        An open handle to the process is held for the whole stop. Windows does not give the id to another process while a
+        handle is open, so taskkill and Kill reach the same process. A process that cannot be opened is left alone.
+        taskkill /T leaves out a process that is older than the parent whose id it names.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][int]$ProcessId)
-    try { & taskkill.exe /PID $ProcessId /T /F 2>&1 | Out-Null } catch { <# Stopping the tree is best-effort; Kill follows. #> $null = $_ }
     $p = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
-    if ($p) { try { $p.Kill() } catch { <# The process may have ended already. #> $null = $_ } }
+    if (-not $p) { return }
+    try {
+        if (-not $p.Handle) { return }
+        try { & taskkill.exe /PID $ProcessId /T /F 2>&1 | Out-Null } catch { <# Stopping the tree is best-effort; Kill follows. #> $null = $_ }
+        try { $p.Kill() } catch { <# The process may have ended already. #> $null = $_ }
+    }
+    finally { $p.Dispose() }
 }
 
 function Stop-RunChildren {
@@ -9928,9 +9937,16 @@ function Stop-RunChildren {
     $registry = Get-RunChildRegistry
     foreach ($entry in @($registry.ToArray())) {
         $p = Get-Process -Id $entry.Key -ErrorAction SilentlyContinue
-        $same = $false
-        if ($p) { try { $same = ($entry.Value -eq 0L) -or ($p.StartTime.Ticks -eq $entry.Value) } catch { $same = $false } }
-        if ($same) { Stop-ProcessTreeById -ProcessId $entry.Key; $stopped++ }
+        if ($p) {
+            try {
+                # The handle is opened before the start time is read and stays open until the stop is done, so the id
+                # cannot move to another process between the check and the stop. An unknown start time matches nothing.
+                $same = $false
+                try { $same = [bool]$p.Handle -and $entry.Value -ne 0L -and $p.StartTime.Ticks -eq $entry.Value } catch { $same = $false }
+                if ($same) { Stop-ProcessTreeById -ProcessId $entry.Key; $stopped++ }
+            }
+            finally { $p.Dispose() }
+        }
         $gone = 0L
         [void]$registry.TryRemove($entry.Key, [ref]$gone)
     }

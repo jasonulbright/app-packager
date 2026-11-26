@@ -109,7 +109,8 @@ if (Test-Path -LiteralPath $ledger) {
     foreach ($line in @(Get-Content -LiteralPath $ledger)) {
         $id, $ticks = $line -split '\|', 2
         $p = Get-Process -Id ([int]$id) -ErrorAction SilentlyContinue
-        if ($p -and $p.Id -ne $PID -and $p.StartTime.Ticks -eq [long]$ticks) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+        # The open handle keeps the id on this process from the check to the stop.
+        if ($p -and $p.Id -ne $PID -and $p.Handle -and $p.StartTime.Ticks -eq [long]$ticks) { try { $p.Kill() } catch { $null = $_ } }
     }
     Remove-Item -LiteralPath $ledger -Force -ErrorAction SilentlyContinue
 }
