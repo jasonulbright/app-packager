@@ -51,6 +51,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $script:RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+. (Join-Path $PSScriptRoot 'ProcessJob.ps1')
 $script:Stages = New-Object System.Collections.ArrayList
 $script:WorkFolder = Join-Path ([System.IO.Path]::GetTempPath()) ('ap-regression-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $script:WorkFolder -Force | Out-Null
@@ -91,45 +92,31 @@ function Invoke-RegressionProcess {
         [Parameter(Mandatory)][int]$TimeoutSec
     )
 
-    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $startInfo.FileName = $FileName
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    $startInfo.WorkingDirectory = $script:RepoRoot
-    if ($startInfo.GetType().GetProperty('ArgumentList')) {
-        foreach ($argument in $ArgumentList) { [void]$startInfo.ArgumentList.Add($argument) }
-    }
-    else {
-        $startInfo.Arguments = (($ArgumentList | ForEach-Object {
-            if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
-        }) -join ' ')
-    }
-
-    $process = New-Object System.Diagnostics.Process
-    $process.StartInfo = $startInfo
+    # The child runs in a job object (ProcessJob.ps1): a time limit ends the child and everything it started, and no other process.
+    $outFile = Join-Path ([IO.Path]::GetTempPath()) ('ap-run-' + [guid]::NewGuid().ToString('N') + '.out')
+    $errFile = $outFile + '.err'
     $started = [DateTime]::UtcNow
-    [void]$process.Start()
-    $outTask = $process.StandardOutput.ReadToEndAsync()
-    $errTask = $process.StandardError.ReadToEndAsync()
-
     $timedOut = $false
-    if (-not $process.WaitForExit($TimeoutSec * 1000)) {
-        $timedOut = $true
-        try { & taskkill.exe /PID $process.Id /T /F 2>&1 | Out-Null } catch { <# Killing a timed-out process tree is best-effort; the code records the timeout. #> $null = $_ }
-        try { if (-not $process.HasExited) { $process.Kill() } } catch { <# Killing a timed-out process tree is best-effort; the code records the timeout. #> $null = $_ }
-        $process.WaitForExit()
+    $run = $null
+    Push-Location -LiteralPath $script:RepoRoot
+    try {
+        $run = Start-JobProcess -FilePath $FileName -ArgumentList @($ArgumentList | ForEach-Object { ConvertTo-NativeArgument -Value $_ }) -StandardOutput $outFile -StandardError $errFile
+        if (-not $run.Process.WaitForExit($TimeoutSec * 1000)) { $timedOut = $true }
+        $exitCode = if ($timedOut) { -1 } else { $run.Process.ExitCode }
+        Stop-JobProcess -Run $run
+        $result = [pscustomobject]@{
+            ExitCode = $exitCode
+            TimedOut = $timedOut
+            StdOut   = Read-RunOutput -Path $outFile
+            StdErr   = Read-RunOutput -Path $errFile
+            Seconds  = ([DateTime]::UtcNow - $started).TotalSeconds
+        }
     }
-
-    $result = [pscustomobject]@{
-        ExitCode = $(if ($timedOut) { -1 } else { $process.ExitCode })
-        TimedOut = $timedOut
-        StdOut   = [string]$outTask.Result
-        StdErr   = [string]$errTask.Result
-        Seconds  = ([DateTime]::UtcNow - $started).TotalSeconds
+    finally {
+        if ($run) { Stop-JobProcess -Run $run }
+        Pop-Location
+        Remove-Item -LiteralPath $outFile, $errFile -Force -ErrorAction SilentlyContinue
     }
-    $process.Dispose()
     return $result
 }
 
