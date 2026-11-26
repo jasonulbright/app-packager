@@ -115,7 +115,7 @@ function Invoke-RegressionProcess {
     finally {
         if ($run) { Stop-JobProcess -Run $run }
         Pop-Location
-        Remove-Item -LiteralPath $outFile, $errFile -Force -ErrorAction SilentlyContinue
+        Remove-RunOutput -Path $outFile, $errFile
     }
     return $result
 }

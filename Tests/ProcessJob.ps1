@@ -246,3 +246,16 @@ function Read-RunOutput {
     try { (New-Object IO.StreamReader($stream, [Text.Encoding]::GetEncoding([SuiteLab.JobProcess]::OemCodePage), $true)).ReadToEnd() }
     finally { $stream.Dispose() }
 }
+
+# Deletes the output files of an ended run. A stopped process releases its files a moment after it leaves the job, so a delete that
+# fails is tried again for a short time.
+function Remove-RunOutput {
+    param([Parameter(Mandatory)][string[]]$Path, [int]$Seconds = 15)
+    $until = (Get-Date).AddSeconds($Seconds)
+    while ($true) {
+        Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+        if (-not @($Path | Where-Object { Test-Path -LiteralPath $_ }).Count) { return }
+        if ((Get-Date) -gt $until) { Write-Warning ('output files stay: ' + ($Path -join ', ')); return }
+        Start-Sleep -Milliseconds 200
+    }
+}

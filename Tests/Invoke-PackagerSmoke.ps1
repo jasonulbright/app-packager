@@ -399,7 +399,7 @@ function Invoke-ChildProcessBatch {
                 try { $run = Start-JobProcess -FilePath $job.FileName -ArgumentList @($job.ArgumentList | ForEach-Object { ConvertTo-NativeArgument -Value $_ }) -StandardOutput $outFile -StandardError "$outFile.err" }
             catch {
                 # The two files exist before the program starts.
-                Remove-Item -LiteralPath $outFile, "$outFile.err" -Force -ErrorAction SilentlyContinue
+                Remove-RunOutput -Path $outFile, "$outFile.err"
                 throw
             }
                 $running.Add([pscustomobject]@{
@@ -431,7 +431,7 @@ function Invoke-ChildProcessBatch {
                     StdErr   = Read-RunOutput -Path "$($entry.Out).err"
                 }
                 $entry.Run.Process.Dispose()
-                Remove-Item -LiteralPath $entry.Out, "$($entry.Out).err" -Force -ErrorAction SilentlyContinue
+                Remove-RunOutput -Path $entry.Out, "$($entry.Out).err"
                 $running.RemoveAt($i)
             }
         }
@@ -440,7 +440,7 @@ function Invoke-ChildProcessBatch {
         # After an error or an interrupt: every job that still runs is closed, and its files go.
         foreach ($left in $running) {
             Stop-JobProcess -Run $left.Run
-            Remove-Item -LiteralPath $left.Out, "$($left.Out).err" -Force -ErrorAction SilentlyContinue
+            Remove-RunOutput -Path $left.Out, "$($left.Out).err"
         }
     }
 
