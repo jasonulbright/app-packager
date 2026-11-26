@@ -112,6 +112,47 @@ Describe 'Stop-RunChildren stops only the processes that the run registered' {
         }
         finally { Stop-Process -Id $other.Id -Force -ErrorAction SilentlyContinue }
     }
+    It 'holds the id from the start-time check to the stop, so the id cannot move to another process' {
+        if (-not ('RunCancelTest.Native' -as [type])) {
+            Add-Type -Namespace RunCancelTest -Name Native -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern System.IntPtr OpenProcess(uint access, bool inherit, int id);
+[System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern bool CloseHandle(System.IntPtr handle);
+'@
+        }
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = 'powershell.exe'; $psi.Arguments = '-NoProfile -Command Start-Sleep 60'
+        $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
+        $probe = @{ Child = [System.Diagnostics.Process]::Start($psi); Held = $null }
+        Register-RunChild -Process $probe.Child
+        $module = Get-Module AppPackagerCommon
+        & $module { param($probe) $script:ShippedStop = ${function:Stop-ProcessTreeById}; $script:Probe = $probe
+            function script:Stop-ProcessTreeById {
+                param([int]$ProcessId)
+                # Between the check and the stop the owner of the child sees it end and disposes its own object.
+                $script:Probe.Child.Kill(); $script:Probe.Child.WaitForExit(); $script:Probe.Child.Dispose()
+                [GC]::Collect(); [GC]::WaitForPendingFinalizers(); [GC]::Collect()
+                Start-Sleep -Milliseconds 500
+                # The process object of an ended process stays, with its id, only while a handle to it is open.
+                $handle = [RunCancelTest.Native]::OpenProcess(0x1000, $false, $ProcessId)
+                $script:Probe.Held = $handle -ne [IntPtr]::Zero
+                if ($script:Probe.Held) { [void][RunCancelTest.Native]::CloseHandle($handle) }
+            } } $probe
+        try {
+            (Stop-RunChildren) | Should -Be 1
+            $probe.Held | Should -BeTrue
+        }
+        finally { & $module { Set-Item -Path function:script:Stop-ProcessTreeById -Value $script:ShippedStop } }
+    }
+    It 'stops nothing for an entry whose start time is unknown' {
+        $p = New-Sleeper
+        try {
+            Register-RunChild -Process $p
+            [AppDomain]::CurrentDomain.GetData('AppPackager.RunChildren')[[int]$p.Id] = 0L
+            (Stop-RunChildren) | Should -Be 0
+            $p.HasExited | Should -BeFalse
+        }
+        finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+    }
     It 'does not stop a process whose id was reused (the start time differs)' {
         $p = New-Sleeper
         try {
